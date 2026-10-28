@@ -32,16 +32,19 @@ let output = to_json(&schema, &instance);
 
 `Instance` has three variants. `WInstance` stores a rooted tree with nodes, arcs, and hyperedge fans. `FInstance` stores tables and foreign-key row pairs. `GInstance` stores a general directed multigraph with no required root: nodes keyed by id and edges keyed by `EdgeId`, each edge a `GEdge` carrying its endpoints, its schema edge and an optional position. Its tables are private and change only through methods that keep the adjacency indices in step. `GInstance::from_wtype` and `to_wtype` move a tree into a graph and back without loss, reifying each hyperedge fan as a node of shape `NodeShape::HyperEdge` (`reify_fans`, `unreify_fans`); `GInstance::from_finstance` lays tables out as rows and foreign-key edges; `to_node_link_json` and `from_node_link_json` give the node-link JSON form. The `AcsetOps` trait and the methods on `Instance` dispatch to the shape-specific implementations.
 
-`parse_json(schema, root_vertex, value)` and `to_json(schema, instance)` convert between JSON values and `WInstance`. `validate_wtype` returns the structural violations found in one tree instance.
+`parse_json(schema, root_vertex, value)` and `to_json(schema, instance)` convert
+between JSON values and `WInstance`. `validate_wtype(instance, schema, protocol)`
+returns a `ValidationReport`; inspect its status, diagnostics, incomplete checks,
+and coverage rather than treating validation as a list of structural strings.
 
 ## Forward filtering and extension
 
 The functions whose names contain `restrict` take a source instance and a compiled source-to-target mapping. They return the part that survives in the target representation:
 
-- `wtype_restrict(instance, src_schema, tgt_schema, migration)` retains mapped nodes, contracts dropped ancestors, resolves target edges, rebuilds fans, and applies value transforms.
-- `functor_restrict(instance, migration)` forwards surviving tables and foreign keys. When several source vertices map to one target, their row sets are concatenated.
-- `graph_restrict(instance, src_schema, tgt_schema, migration)` keeps each node whose anchor, renamed through the vertex map or unchanged, survives, and each edge between kept nodes whose schema edge survives, under its own edge id.
-- `restrict_with_complement` runs the tree projection and also records dropped nodes and original transformed fields in a `Complement`.
+- `wtype_restrict(instance, src_schema, tgt_schema, migration, protocols)` retains mapped nodes, contracts dropped ancestors, resolves target edges, rebuilds fans, applies value transforms, and validates both boundaries.
+- `functor_restrict(instance, src_schema, tgt_schema, migration, protocols)` forwards surviving tables and foreign keys and validates both boundaries. When several source vertices map to one target, their row sets are concatenated.
+- `graph_restrict(instance, src_schema, tgt_schema, migration, protocols)` keeps each node whose anchor, renamed through the vertex map or unchanged, survives, and each edge between kept nodes whose schema edge survives under its own edge id; it also validates both boundaries.
+- `restrict_with_complement` is the unchecked tree engine. It runs the structural projection and records dropped nodes and original transformed fields in a `Complement`; use the validated public restrict functions at trust boundaries.
 
 These functions run from source to target. Despite their names, they do not implement categorical precomposition `Delta_F`.
 

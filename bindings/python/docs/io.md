@@ -9,13 +9,13 @@ import panproto
 
 io = panproto.IoRegistry()
 print(len(io))                # 50
-print(io.list_protocols())    # ["graphql", "openapi", "sql", ...]
+print(io.list_protocols())    # ["amr", "ansible", "arrow", ...]
 ```
 
 ## Parsing
 
 ```python
-instance = io.parse("json", schema, b'{"name": "alice"}')
+instance = io.parse("openapi", schema, b'{"name": "alice"}')
 ```
 
 The `parse` method takes a protocol name, a `Schema`, and raw input bytes, and returns an `Instance` (W-type).
@@ -23,7 +23,7 @@ The `parse` method takes a protocol name, a `Schema`, and raw input bytes, and r
 ## Emitting
 
 ```python
-output_bytes = io.emit("json", schema, instance)
+output_bytes = io.emit("openapi", schema, instance)
 ```
 
 ## Supported protocols
@@ -31,15 +31,14 @@ output_bytes = io.emit("json", schema, instance)
 | Category | Protocols |
 |----------|-----------|
 | Annotation | brat, conllu, naf, uima, folia, tei, timeml, elan, iso_space, paula, laf_graf, decomp, ucca, fovea, bead, web_annotation, amr, concrete, nif |
-| API | graphql, openapi, asyncapi, jsonapi, raml |
-| Config | cloudformation, ansible, k8s_crd, hcl |
-| Data Schema | json_schema, yaml_schema, toml_schema, cddl, bson, csv_table, ini_schema |
+| API | openapi, asyncapi, jsonapi, raml |
+| Config | cloudformation, ansible, k8s_crd |
+| Data Schema | cddl, bson |
 | Data Science | dataframe, parquet, arrow |
-| Database | mongodb, dynamodb, cassandra, neo4j, sql, redis |
+| Database | mongodb, dynamodb, cassandra, neo4j, redis |
 | Domain | geojson, fhir, rss_atom, vcard_ical, swift_mt, edi_x12 |
-| Serialization | protobuf, avro, thrift, capnproto, flatbuffers, asn1, bond, msgpack_schema |
-| Type System | typescript, python, rust_serde, java, go_struct, kotlin, csharp, swift |
-| Web/Document | atproto, jsx, vue, svelte, css, html, markdown, xml_xsd, docx, odf |
+| Serialization | avro, flatbuffers, asn1, bond, msgpack_schema |
+| Web/Document | atproto, docx, odf |
 
 ## Instances
 

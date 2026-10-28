@@ -293,6 +293,7 @@ mod export_guard {
         let _ = schema_add_merger as *const () as usize;
         let _ = schema_add_policy as *const () as usize;
         let _ = migration_coverage as *const () as usize;
+        let _ = check_migration_coverage as *const () as usize;
         let _ = protolens_optic_kind as *const () as usize;
         let _ = protolens_simplify as *const () as usize;
         let _ = refinement_subsort as *const () as usize;

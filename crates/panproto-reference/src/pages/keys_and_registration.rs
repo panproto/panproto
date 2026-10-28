@@ -519,38 +519,6 @@ pub mod keys {
         distinct && compatible
     }
 
-    /// Definition: Index matching with an explicit null-match switch.
-    ///
-    /// Book anchors: `L-keys-and-registration-16`.
-    #[must_use]
-    pub const fn index_and_null_match(
-        index: Option<u64>,
-        target: Option<u64>,
-        null_matches: bool,
-    ) -> bool {
-        match (index, target) {
-            (Some(left), Some(right)) => left == right,
-            (None, None) => null_matches,
-            _ => false,
-        }
-    }
-
-    /// Definition: Whether a lexeme belongs to a declared lexical space.
-    ///
-    /// Book anchors: `L-keys-and-registration-17`.
-    #[must_use]
-    pub fn lexical_space(text: &str, accepts: impl FnOnce(&str) -> bool) -> bool {
-        accepts(text)
-    }
-
-    /// Definition: A format annotation does not assert validity by itself.
-    ///
-    /// Book anchors: `L-keys-and-registration-18`.
-    #[must_use]
-    pub const fn annotated_format(annotation: Option<&str>) -> Option<&str> {
-        annotation
-    }
-
     fn own(g: &Graph, n: u32) -> Option<Value> {
         match g.nodes.get(&n)?.value.as_ref()? {
             Presence::Present(v) if *v != Value::Null => Some(v.clone()),
@@ -610,13 +578,10 @@ pub mod keys {
             .map(|p| match p {
                 KeyPart::Path(path) => path_value(g, n, path),
                 KeyPart::Position { within } => {
-                    let parent = g
-                        .edges
-                        .values()
-                        .find(|e| {
-                            e.tgt == n && e.label == *within && ordinary_arc(g, e.src, e.tgt, e)
-                        })?
-                        .src;
+                    let (incoming_id, incoming) = g.edges.iter().find(|(_, e)| {
+                        e.tgt == n && e.label == *within && ordinary_arc(g, e.src, e.tgt, e)
+                    })?;
+                    let parent = incoming.src;
                     let mut sibs: Vec<(Option<u32>, u32, u32)> = g
                         .edges
                         .iter()
@@ -629,7 +594,7 @@ pub mod keys {
                         .collect();
                     sibs.sort();
                     sibs.iter()
-                        .position(|s| s.2 == n)
+                        .position(|(_, edge_id, _)| edge_id == incoming_id)
                         .and_then(|i| i64::try_from(i).ok())
                         .map(Value::Int)
                 }
@@ -1283,12 +1248,13 @@ pub mod schema {
             RefSource::Variable { binder_key, .. } => Some(binder_key),
             _ => reference.target_key.as_ref(),
         };
-        schema
-            .keys
-            .get(&reference.target_vertex)
-            .into_iter()
-            .flatten()
-            .filter(|key| Some(&key.id) == key_id)
+        let key = schema.keys.get(&reference.target_vertex).and_then(|keys| {
+            key_id.map_or_else(
+                || keys.iter().find(|key| key.role == KeyRole::Primary),
+                |id| keys.iter().find(|key| key.id == *id),
+            )
+        });
+        key.into_iter()
             .map(|key| (&reference.target_vertex, key))
             .collect()
     }
@@ -1318,8 +1284,9 @@ pub mod schema {
     fn validate_keys(schema: &Schema, errors: &mut Vec<DeclarationError>) {
         for (vertex, keys) in &schema.keys {
             let mut ids = BTreeSet::new();
+            let mut repeated = BTreeSet::new();
             for key in keys {
-                if !ids.insert(&key.id) {
+                if !ids.insert(&key.id) && repeated.insert(&key.id) {
                     errors.push(DeclarationError::DuplicateKeyId {
                         vertex: vertex.clone(),
                         key: key.id.clone(),
@@ -1372,17 +1339,19 @@ pub mod schema {
                     .keys
                     .get(vertex)
                     .and_then(|keys| keys.iter().find(|key| key.id == *key_id));
-                let valid = member.is_some_and(|key| {
-                    let equality = key_equalities(key);
-                    let this = equality.map(|equality| (key.parts.len(), equality));
-                    let agrees = signature
-                        .as_ref()
-                        .is_none_or(|expected| this.as_ref() == Some(expected));
-                    if signature.is_none() {
-                        signature = this;
-                    }
-                    members.insert((vertex, key_id)) && key.scope == set.scope && agrees
+                let this = member.and_then(|key| {
+                    key_equalities(key).map(|equality| (key.parts.len(), equality))
                 });
+                let base_valid = member.is_some_and(|key| key.scope == set.scope)
+                    && members.insert((vertex, key_id))
+                    && this.is_some();
+                let agrees = signature
+                    .as_ref()
+                    .is_none_or(|expected| this.as_ref() == Some(expected));
+                let valid = base_valid && agrees;
+                if base_valid && signature.is_none() {
+                    signature = this;
+                }
                 if !valid {
                     errors.push(DeclarationError::TargetSetMemberMismatch {
                         set: id.clone(),
@@ -1455,13 +1424,13 @@ pub mod schema {
             });
             return None;
         }
-        if targets
+        for (_, key) in targets
             .iter()
-            .any(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
+            .filter(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
         {
             errors.push(DeclarationError::KeyNotResolvable {
                 reference: reference.id.clone(),
-                key: targets[0].1.id.clone(),
+                key: key.id.clone(),
             });
         }
         if let Some(set) = schema.target_sets.get(&reference.target_vertex) {
@@ -1471,7 +1440,8 @@ pub mod schema {
                 });
             }
             if let Some(edge) = &reference.edge {
-                let valid = edge.tgt == reference.target_vertex
+                let valid = edge.src == reference.holder
+                    && edge.tgt == reference.target_vertex
                     && set.members.iter().all(|(vertex, _)| {
                         let mut member = edge.clone();
                         member.tgt.clone_from(vertex);
@@ -1653,31 +1623,32 @@ pub mod schema {
             | RefTextSource::External(_)
             | RefTextSource::ExternalUri { .. } => return,
         };
-        let valid = schema.references.get(named).is_some_and(|other| {
-            if other.holder != reference.holder || other.cardinality != Cardinality::One {
-                return false;
-            }
-            match text {
-                RefTextSource::Referenced { .. } => matches!(
-                    other.source,
-                    RefSource::KeyValue { .. }
-                        | RefSource::Path { .. }
-                        | RefSource::Variable { .. }
-                ),
-                RefTextSource::Span { .. } => {
-                    matches!(
-                        other.source,
-                        RefSource::Standoff {
-                            fragments: None,
-                            ..
-                        }
-                    )
+        let valid =
+            schema.references.get(named).is_some_and(|other| {
+                if other.holder != reference.holder || other.cardinality != Cardinality::One {
+                    return false;
                 }
-                RefTextSource::Local(_)
-                | RefTextSource::External(_)
-                | RefTextSource::ExternalUri { .. } => true,
-            }
-        }) && !text_chain_reaches(schema, named, &reference.id, &mut BTreeSet::new());
+                match text {
+                    RefTextSource::Referenced { .. } => matches!(
+                        other.source,
+                        RefSource::KeyValue { .. }
+                            | RefSource::Path { .. }
+                            | RefSource::Variable { .. }
+                    ),
+                    RefTextSource::Span { .. } => {
+                        matches!(
+                            other.source,
+                            RefSource::Standoff {
+                                fragments: None,
+                                ..
+                            }
+                        )
+                    }
+                    RefTextSource::Local(_)
+                    | RefTextSource::External(_)
+                    | RefTextSource::ExternalUri { .. } => true,
+                }
+            }) && !text_chain_is_cyclic(schema, named, &mut BTreeSet::from([reference.id.clone()]));
         if !valid {
             errors.push(DeclarationError::TextReferenceInvalid {
                 reference: reference.id.clone(),
@@ -1686,31 +1657,26 @@ pub mod schema {
         }
     }
 
-    fn text_chain_reaches(
-        schema: &Schema,
-        at: &str,
-        target: &str,
-        seen: &mut BTreeSet<Name>,
-    ) -> bool {
-        if at == target {
+    fn text_chain_is_cyclic(schema: &Schema, at: &str, active: &mut BTreeSet<Name>) -> bool {
+        if !active.insert(at.to_owned()) {
             return true;
-        }
-        if !seen.insert(at.to_owned()) {
-            return false;
         }
         let Some(RefSource::Standoff { text, .. }) =
             schema.references.get(at).map(|reference| &reference.source)
         else {
+            active.remove(at);
             return false;
         };
-        match text {
+        let cyclic = match text {
             RefTextSource::Referenced { reference, .. } | RefTextSource::Span { reference } => {
-                text_chain_reaches(schema, reference, target, seen)
+                text_chain_is_cyclic(schema, reference, active)
             }
             RefTextSource::Local(_)
             | RefTextSource::External(_)
             | RefTextSource::ExternalUri { .. } => false,
-        }
+        };
+        active.remove(at);
+        cyclic
     }
 
     fn validate_scope_via(
@@ -2207,8 +2173,9 @@ pub mod schema {
     /// is breaking exactly when it adds or changes parts, changes role, widens
     /// its scope, or moves between two distinct `Within` scopes. Reference
     /// changes follow the corresponding cardinality, nullability and
-    /// unresolved-value rules. Changes elsewhere in this finite carrier fail
-    /// closed as breaking.
+    /// unresolved-value rules. An entry-point change fails closed as
+    /// breaking. Other structural schema changes belong to the production
+    /// classifier's larger domain and are outside this declaration oracle.
     ///
     /// Book anchors: `L-keys-and-registration-4`.
     #[must_use]
@@ -2242,13 +2209,7 @@ pub mod schema {
                 .get(id)
                 .is_some_and(|new| reference_is_tightened(old, new))
         });
-        let declarations_only = before.vertices == after.vertices
-            && before.edges == after.edges
-            && before.hyper_edges == after.hyper_edges
-            && before.constraints == after.constraints
-            && before.required == after.required
-            && before.orderings == after.orderings
-            && before.entries == after.entries;
+        let entries_break = before.entries != after.entries;
         let added_target_set_breaks = after.target_sets.iter().any(|(id, set)| {
             before.target_sets.get(id).is_none_or(|old| {
                 old.scope != set.scope
@@ -2263,7 +2224,7 @@ pub mod schema {
             || added_reference_breaks
             || changed_reference_breaks
             || added_target_set_breaks
-            || !declarations_only
+            || entries_break
         {
             Change::Breaking
         } else {
@@ -2397,9 +2358,8 @@ pub mod schema {
 }
 
 pub use self::keys::{
-    annotated_format, buckets, index_and_null_match, key_equivalence, key_order, key_value,
-    lexical_space, nearest_ancestor, path_value, representation_refines, sort_order, target_set,
-    tuple_equivalence, xml_noncdata,
+    buckets, key_equivalence, key_order, key_value, nearest_ancestor, path_value,
+    representation_refines, sort_order, target_set, tuple_equivalence, xml_noncdata,
 };
 pub use self::schema::{
     Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OffsetUnit, OnUnresolved, PathSyntax,

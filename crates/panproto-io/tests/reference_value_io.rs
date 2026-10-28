@@ -14,7 +14,6 @@ use std::fmt::Write as _;
 use panproto_inst::metadata::{Node, NodeShape};
 use panproto_inst::value::{FieldPresence, Temporal, TemporalForm, Value};
 use panproto_inst::{FInstance, WInstance};
-use panproto_io::byte_tabular::ByteTabularCodec;
 use panproto_io::error::{EmitInstanceError, EmitValueReason, ParseInstanceError};
 use panproto_io::json_pathway::{emit_json_bytes, parse_json_bytes};
 use panproto_io::tabular_pathway::{emit_tsv_with_schema, parse_tsv};
@@ -27,7 +26,9 @@ use panproto_io::xml_pathway::{
 };
 use panproto_reference::enumerate::value_io as scope;
 use panproto_reference::value::Value as ReferenceValue;
-use panproto_reference::value_io::{Route, ValueIoError};
+use panproto_reference::value_io::{
+    Presence as ReferencePresence, PresenceOutcome, Route, ValueIoError,
+};
 use panproto_schema::{Edge, Schema, SchemaBuilder};
 
 trait TestUnwrap<T> {
@@ -102,6 +103,58 @@ fn one_tree_value(root: &str, presence: FieldPresence) -> WInstance {
     )
 }
 
+fn open_object_chain(value_depth: usize, key: &str, value: Value) -> (Schema, WInstance) {
+    assert!(value_depth > 0, "an extra field needs an enclosing object");
+    let protocol = panproto_schema::Protocol {
+        name: "reference-value-io".into(),
+        schema_theory: "ThReferenceValueIoSchema".into(),
+        instance_theory: "ThReferenceValueIoInstance".into(),
+        obj_kinds: vec!["object".into()],
+        ..Default::default()
+    };
+    let anchors: Vec<_> = (0..value_depth)
+        .map(|depth| format!("level-{depth}"))
+        .collect();
+    let mut builder = SchemaBuilder::new(&protocol);
+    for anchor in &anchors {
+        builder = builder
+            .vertex(anchor, "object", None)
+            .test_unwrap("open-chain vertex");
+    }
+
+    let mut nodes = HashMap::new();
+    for (depth, anchor) in anchors.iter().enumerate() {
+        let id = u32::try_from(depth).test_unwrap("open-chain node id");
+        nodes.insert(id, Node::new(id, anchor.as_str()));
+    }
+    let mut arcs = Vec::new();
+    for (depth, pair) in anchors.windows(2).enumerate() {
+        let edge = Edge {
+            src: pair[0].as_str().into(),
+            tgt: pair[1].as_str().into(),
+            kind: "prop".into(),
+            name: Some("child".into()),
+        };
+        builder = builder
+            .edge(&pair[0], &pair[1], "prop", Some("child"))
+            .test_unwrap("open-chain edge");
+        arcs.push((
+            u32::try_from(depth).test_unwrap("open-chain parent id"),
+            u32::try_from(depth + 1).test_unwrap("open-chain child id"),
+            edge,
+        ));
+    }
+    nodes
+        .get_mut(&u32::try_from(value_depth - 1).test_unwrap("open-chain final id"))
+        .expect("the open chain has a final object")
+        .extra_fields
+        .insert(key.to_owned(), value);
+
+    let schema = builder.build().test_unwrap("open-chain schema");
+    let instance = WInstance::new(nodes, arcs, Vec::new(), 0, anchors[0].as_str().into());
+    (schema, instance)
+}
+
 fn one_xml_tree_value(root: &str, presence: FieldPresence) -> WInstance {
     let mut instance = one_tree_value(root, presence);
     for node in instance.nodes.values_mut() {
@@ -147,33 +200,6 @@ fn table_value(instance: &FInstance) -> Option<&Value> {
         .rows("rows")
         .first()
         .and_then(|(_, row)| row.get("value"))
-}
-
-fn changed(bytes: &[u8]) -> Vec<u8> {
-    let mut changed = bytes.to_vec();
-    if let Some(first) = changed.first_mut() {
-        *first = first.wrapping_add(1);
-    } else {
-        changed.push(0);
-    }
-    changed
-}
-
-fn utf16_xml(text: &str, little_endian: bool) -> Vec<u8> {
-    let mut bytes = if little_endian {
-        vec![0xFF, 0xFE]
-    } else {
-        vec![0xFE, 0xFF]
-    };
-    for unit in text.encode_utf16() {
-        let encoded = if little_endian {
-            unit.to_le_bytes()
-        } else {
-            unit.to_be_bytes()
-        };
-        bytes.extend_from_slice(&encoded);
-    }
-    bytes
 }
 
 fn json_wrapped_scalar(bytes: &[u8]) -> Vec<u8> {
@@ -497,71 +523,174 @@ fn reference_emission(result: Result<Vec<u8>, ValueIoError>, context: &str) -> S
     }
 }
 
-/// Laws 3, 6 and 19 over the declared complete byte-string scope. The
-/// byte-tabular production codec is total over bytes, so no UTF-8 precondition
-/// narrows this differential. XML encoding laws use the actual XML route in a
-/// separate consumer; this generic equality witness does not discharge any
-/// CST or XML-encoding law.
+/// Law 3 on each canonical/default writer exposed by production. The
+/// successful cases inspect the route syntax, while refusals inspect the
+/// typed reason; the comparison therefore observes more than `is_ok()`.
 #[test]
-fn bounded_byte_preservation_observables_match_reference() {
-    let codec = ByteTabularCodec::new("reference-value-io", "rows", b'|', None);
-    let inputs = scope::byte_strings().expect("the length-two scope fits its enumeration budget");
+fn default_routes_match_null_and_absence_reference() {
+    let tree_schema = one_text_column("root");
 
-    for input in inputs {
-        let (instance, complement) = codec.parse(&input).test_unwrap("byte parse");
-        let emitted = codec.emit(&instance, &complement).test_unwrap("byte emit");
-        let altered = changed(&emitted);
+    let json_null = emit_json_bytes(
+        &tree_schema,
+        &one_tree_value("root", FieldPresence::Null),
+        "cassandra",
+    )
+    .test_unwrap("JSON null");
+    assert_eq!(json_null, br#"{"value":null}"#);
+    assert_eq!(
+        panproto_reference::value_io::presence(Route::Json, ReferencePresence::Null),
+        PresenceOutcome::NullSyntax
+    );
+    let json_absent = emit_json_bytes(
+        &tree_schema,
+        &one_tree_value("root", FieldPresence::Absent),
+        "cassandra",
+    )
+    .test_unwrap("JSON absence");
+    assert_eq!(json_absent, b"{}");
+    assert_eq!(
+        panproto_reference::value_io::presence(Route::Json, ReferencePresence::Absent),
+        PresenceOutcome::Omitted
+    );
 
-        assert_eq!(
-            panproto_reference::value_io::preserve(&input, &emitted),
-            input == emitted
+    let toml_null = emit_toml_bytes(
+        &tree_schema,
+        &one_tree_value("root", FieldPresence::Null),
+        "cassandra",
+    );
+    assert!(matches!(
+        toml_null,
+        Err(EmitInstanceError::Value(ref error))
+            if error.reason == EmitValueReason::NullNotRepresentable
+    ));
+    assert_eq!(
+        panproto_reference::value_io::presence(Route::Toml, ReferencePresence::Null),
+        PresenceOutcome::NullNotRepresentable
+    );
+    let toml_absent = emit_toml_bytes(
+        &tree_schema,
+        &one_tree_value("root", FieldPresence::Absent),
+        "cassandra",
+    )
+    .test_unwrap("TOML absence");
+    assert!(
+        !String::from_utf8(toml_absent)
+            .expect("canonical TOML is UTF-8")
+            .contains("value")
+    );
+    assert_eq!(
+        panproto_reference::value_io::presence(Route::Toml, ReferencePresence::Absent),
+        PresenceOutcome::Omitted
+    );
+
+    let xml_null = emit_xml_bytes(
+        &tree_schema,
+        &one_xml_tree_value("root", FieldPresence::Null),
+        "cassandra",
+    )
+    .test_unwrap("XML null");
+    assert!(
+        String::from_utf8(xml_null)
+            .expect("canonical XML is UTF-8")
+            .contains("xsi:nil=\"true\"")
+    );
+    assert_eq!(
+        panproto_reference::value_io::presence(Route::Xml, ReferencePresence::Null),
+        PresenceOutcome::NullSyntax
+    );
+    let xml_absent = emit_xml_bytes(
+        &tree_schema,
+        &one_xml_tree_value("root", FieldPresence::Absent),
+        "cassandra",
+    )
+    .test_unwrap("XML absence");
+    assert!(
+        !String::from_utf8(xml_absent)
+            .expect("canonical XML is UTF-8")
+            .contains("<value")
+    );
+    assert_eq!(
+        panproto_reference::value_io::presence(Route::Xml, ReferencePresence::Absent),
+        PresenceOutcome::Omitted
+    );
+
+    let table_schema = one_text_column("rows");
+    for (route, delimiter) in [(Route::Csv, b','), (Route::Tsv, b'\t')] {
+        let null = emit_tsv_with_schema(
+            &table_schema,
+            &one_table_scalar(Value::Null),
+            "cassandra",
+            "rows",
+            delimiter,
         );
+        assert!(matches!(
+            null,
+            Err(EmitInstanceError::Value(ref error))
+                if error.reason == EmitValueReason::NullNotRepresentable
+        ));
         assert_eq!(
-            panproto_reference::value_io::bytes(&input, &emitted),
-            input == emitted
-        );
-        assert_eq!(
-            panproto_reference::value_io::blob_writer(&input, &emitted),
-            input == emitted
+            panproto_reference::value_io::presence(route, ReferencePresence::Null),
+            PresenceOutcome::NullNotRepresentable
         );
 
+        let absent = FInstance::new()
+            .with_table("rows", vec![HashMap::new()])
+            .test_unwrap("one absent row");
+        let absent = emit_tsv_with_schema(&table_schema, &absent, "cassandra", "rows", delimiter);
+        assert!(matches!(
+            absent,
+            Err(EmitInstanceError::Value(ref error))
+                if error.reason == EmitValueReason::AbsentNotRepresentable
+        ));
         assert_eq!(
-            panproto_reference::value_io::preserve(&input, &altered),
-            input == altered
+            panproto_reference::value_io::presence(route, ReferencePresence::Absent),
+            PresenceOutcome::AbsentNotRepresentable
         );
-        assert_eq!(
-            panproto_reference::value_io::bytes(&input, &altered),
-            input == altered
-        );
-        assert_eq!(
-            panproto_reference::value_io::blob_writer(&input, &altered),
-            input == altered
-        );
+    }
+
+    #[cfg(feature = "tree-sitter")]
+    {
+        let yaml = UnifiedCodec::yaml("cassandra").expect("YAML canonical codec");
+        for (presence, expected, bytes) in [
+            (
+                ReferencePresence::Null,
+                PresenceOutcome::NullSyntax,
+                br#"{"value":null}"#.as_slice(),
+            ),
+            (
+                ReferencePresence::Absent,
+                PresenceOutcome::Omitted,
+                b"{}".as_slice(),
+            ),
+        ] {
+            let instance = one_tree_value(
+                "root",
+                match presence {
+                    ReferencePresence::Null => FieldPresence::Null,
+                    ReferencePresence::Absent => FieldPresence::Absent,
+                },
+            );
+            let emitted = panproto_io::InstanceEmitter::emit_wtype(&yaml, &tree_schema, &instance)
+                .test_unwrap("YAML presence");
+            assert_eq!(emitted, bytes);
+            assert_eq!(
+                panproto_reference::value_io::presence(Route::Yaml, presence),
+                expected
+            );
+        }
     }
 }
 
 /// Laws 10 and 13 over the XML encodings required by C55. Each admitted
-/// source is decoded through the public canonical route before its emitted
-/// bytes are compared by both independent byte-identity predicates. The
+/// source is decoded through the public canonical route, then normalized to
+/// UTF-8 without a byte-order mark or a foreign encoding declaration. The
 /// refusal cases independently derive their first offending source byte.
 #[test]
-fn canonical_xml_encodings_and_refusals_match_reference_contract() {
+fn canonical_xml_normalizes_encodings_and_reports_typed_refusals() {
     let schema = one_text_column("root");
-    let utf16_text = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><root><value>x</value></root>";
-    let mut latin1 = b"<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><root><value>".to_vec();
-    latin1.push(0x80);
-    latin1.extend_from_slice(b"</value></root>");
-    let sources = [
-        (
-            b"\xEF\xBB\xBF<?xml version=\"1.0\" encoding=\"UTF-8\"?><root><value>x</value></root>"
-                .to_vec(),
-            "x",
-        ),
-        (utf16_xml(utf16_text, true), "x"),
-        (utf16_xml(utf16_text, false), "x"),
-        (latin1, "\u{80}"),
-    ];
-    for (source, expected) in sources {
+    for case in scope::canonical_xml_encoding_cases() {
+        let source = case.source;
+        let expected = case.expected;
         let instance = parse_xml_bytes(&schema, &source, "cassandra")
             .test_unwrap("required XML source encoding");
         assert_eq!(
@@ -570,15 +699,20 @@ fn canonical_xml_encodings_and_refusals_match_reference_contract() {
         );
         let emitted =
             emit_xml_bytes(&schema, &instance, "cassandra").test_unwrap("canonical XML emit");
-        assert_eq!(
-            panproto_reference::value_io::encoding(&source, &emitted),
-            source == emitted,
-            "generic encoding predicate diverged on {source:?}"
+        assert!(
+            panproto_reference::value_io::encoding(&emitted),
+            "canonical route did not normalize source {source:?}: {emitted:?}"
         );
+        assert!(
+            panproto_reference::value_io::xml_encoding(&emitted),
+            "canonical XML retained a foreign encoding marker for {source:?}: {emitted:?}"
+        );
+        assert_ne!(source, emitted, "canonical route retained source bytes");
+        let reparsed =
+            parse_xml_bytes(&schema, &emitted, "cassandra").test_unwrap("normalized XML reparses");
         assert_eq!(
-            panproto_reference::value_io::xml_encoding(&source, &emitted),
-            source == emitted,
-            "XML encoding predicate diverged on {source:?}"
+            tree_value(&reparsed, "value"),
+            &FieldPresence::Present(Value::Str(expected.to_owned()))
         );
     }
 
@@ -602,6 +736,221 @@ fn canonical_xml_encodings_and_refusals_match_reference_contract() {
             feature,
             byte_offset: Some(0),
         }) if protocol == "cassandra" && feature == "XML encoding \"x-unknown\""
+    ));
+}
+
+/// Law 19 compares the independent reference layout with the public JSON
+/// route, then applies the public parser to establish the Law 1 section
+/// equation. The nested `$link` object is part of the ATProto blob form.
+#[test]
+fn canonical_blob_writer_matches_independent_atproto_layout() {
+    let protocol = panproto_schema::Protocol {
+        name: "reference-value-io".into(),
+        schema_theory: "ThReferenceValueIoSchema".into(),
+        instance_theory: "ThReferenceValueIoInstance".into(),
+        obj_kinds: vec!["object".into()],
+        ..Default::default()
+    };
+    let schema = SchemaBuilder::new(&protocol)
+        .vertex("root", "object", None)
+        .test_unwrap("blob root vertex")
+        .build()
+        .test_unwrap("blob schema");
+    let direct_blob = Value::Blob {
+        ref_: "direct".to_owned(),
+        mime: "application/octet-stream".to_owned(),
+        size: 1,
+    };
+    let direct_instance = WInstance::new(
+        HashMap::from([(
+            0,
+            Node::new(0, "root").with_value(FieldPresence::Present(direct_blob)),
+        )]),
+        Vec::new(),
+        Vec::new(),
+        0,
+        "root".into(),
+    );
+    assert!(matches!(
+        emit_json_bytes(&schema, &direct_instance, "reference-value-io"),
+        Err(EmitInstanceError::Value(ref error))
+            if error.reason == EmitValueReason::NotRepresentable
+    ));
+
+    for fields in scope::blob_fields() {
+        let expected_value = Value::Blob {
+            ref_: fields.ref_.to_owned(),
+            mime: fields.mime.to_owned(),
+            size: fields.size,
+        };
+        let mut root = Node::new(0, "root");
+        root.extra_fields
+            .insert("blob".to_owned(), expected_value.clone());
+        let instance = WInstance::new(
+            HashMap::from([(0, root)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let emitted = emit_json_bytes(&schema, &instance, "reference-value-io")
+            .test_unwrap("canonical blob JSON");
+        let mut expected = br#"{"blob":"#.to_vec();
+        expected.extend_from_slice(&panproto_reference::value_io::blob_writer(
+            fields.ref_,
+            fields.mime,
+            fields.size,
+        ));
+        expected.push(b'}');
+        assert_eq!(emitted, expected, "fields={fields:?}");
+
+        let reparsed = parse_json_bytes(&schema, "root", &emitted, "reference-value-io")
+            .test_unwrap("canonical blob JSON reparses");
+        assert_eq!(
+            reparsed
+                .node(reparsed.root)
+                .and_then(|node| node.extra_fields.get("blob")),
+            Some(&expected_value),
+            "fields={fields:?}"
+        );
+    }
+
+    for input in [
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"}}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":1,"extra":null}}"#.as_slice(),
+        br#"{"blob":{"$type":"other","mimeType":"x","ref":{"$link":"r"},"size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mime":"x","ref":{"$link":"r"},"size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":7,"ref":{"$link":"r"},"size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":"r","size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"link":"r"},"size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r","extra":null},"size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":7},"size":1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":-1}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":1.0}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":1e0}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":-0}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":"1"}}"#.as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":18446744073709551616}}"#.as_slice(),
+    ] {
+        let reparsed = parse_json_bytes(&schema, "root", input, "reference-value-io")
+            .test_unwrap("a non-blob reserved-shape near miss remains ordinary data");
+        assert!(
+            matches!(
+                reparsed
+                    .node(reparsed.root)
+                    .and_then(|node| node.extra_fields.get("blob")),
+                Some(Value::Unknown(_))
+            ),
+            "near miss became a reserved Blob: {}",
+            String::from_utf8_lossy(input)
+        );
+    }
+
+    for input in [
+        br#"{"blob":{"$type":"blob","mimeType":"x","mimeType":"y","ref":{"$link":"r"},"size":1}}"#
+            .as_slice(),
+        br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r","$link":"s"},"size":1}}"#
+            .as_slice(),
+    ] {
+        assert!(
+            matches!(
+                parse_json_bytes(&schema, "root", input, "reference-value-io"),
+                Err(ParseInstanceError::Json(ref message))
+                    if message.contains("duplicate JSON object key")
+            ),
+            "duplicate reserved fields must follow the JSON parser's typed refusal policy: {}",
+            String::from_utf8_lossy(input)
+        );
+    }
+
+    let boundary_blob = Value::Blob {
+        ref_: "boundary".to_owned(),
+        mime: "application/octet-stream".to_owned(),
+        size: u64::MAX,
+    };
+    let (deep_blob_schema, deep_blob_instance) =
+        open_object_chain(125, "blob", boundary_blob.clone());
+    let deep_blob_bytes =
+        emit_json_bytes(&deep_blob_schema, &deep_blob_instance, "reference-value-io")
+            .test_unwrap("a Blob at parser depth 125 emits");
+    let deep_blob_reparsed = parse_json_bytes(
+        &deep_blob_schema,
+        "level-0",
+        &deep_blob_bytes,
+        "reference-value-io",
+    )
+    .test_unwrap("a Blob at parser depth 125 reparses");
+    assert_eq!(
+        deep_blob_reparsed.node_count(),
+        deep_blob_instance.node_count()
+    );
+    assert!(
+        panproto_lens::instances_equivalent(&deep_blob_reparsed, &deep_blob_instance),
+        "the depth-125 Blob tree must preserve its arc multiset and every parent's child order"
+    );
+    assert_eq!(
+        deep_blob_reparsed
+            .node(124)
+            .and_then(|node| node.extra_fields.get("blob")),
+        Some(&boundary_blob)
+    );
+    assert_eq!(
+        emit_json_bytes(&deep_blob_schema, &deep_blob_reparsed, "reference-value-io")
+            .test_unwrap("the depth-125 Blob reparsed instance re-emits"),
+        deep_blob_bytes
+    );
+
+    let (too_deep_blob_schema, too_deep_blob_instance) =
+        open_object_chain(126, "blob", boundary_blob);
+    assert!(matches!(
+        emit_json_bytes(
+            &too_deep_blob_schema,
+            &too_deep_blob_instance,
+            "reference-value-io"
+        ),
+        Err(EmitInstanceError::Value(ref error))
+            if error.reason == EmitValueReason::NotRepresentable
+    ));
+
+    let (deep_scalar_schema, deep_scalar_instance) =
+        open_object_chain(127, "scalar", Value::Str("boundary".to_owned()));
+    let deep_scalar_bytes = emit_json_bytes(
+        &deep_scalar_schema,
+        &deep_scalar_instance,
+        "reference-value-io",
+    )
+    .test_unwrap("a scalar at parser depth 127 emits");
+    let deep_scalar_reparsed = parse_json_bytes(
+        &deep_scalar_schema,
+        "level-0",
+        &deep_scalar_bytes,
+        "reference-value-io",
+    )
+    .test_unwrap("a scalar at parser depth 127 reparses");
+    assert!(
+        panproto_lens::instances_equivalent(&deep_scalar_reparsed, &deep_scalar_instance),
+        "the depth-127 scalar tree must preserve its arc multiset and every parent's child order"
+    );
+    assert_eq!(
+        emit_json_bytes(
+            &deep_scalar_schema,
+            &deep_scalar_reparsed,
+            "reference-value-io"
+        )
+        .test_unwrap("the depth-127 scalar reparsed instance re-emits"),
+        deep_scalar_bytes
+    );
+
+    let (too_deep_scalar_schema, too_deep_scalar_instance) =
+        open_object_chain(128, "scalar", Value::Str("boundary".to_owned()));
+    assert!(matches!(
+        emit_json_bytes(
+            &too_deep_scalar_schema,
+            &too_deep_scalar_instance,
+            "reference-value-io"
+        ),
+        Err(EmitInstanceError::Value(ref error))
+            if error.reason == EmitValueReason::NotRepresentable
     ));
 }
 
@@ -1412,10 +1761,11 @@ fn json_scalar_successes_and_typed_refusals_match_reference() {
     ));
 }
 
-/// Law 5 over the page's complete temporal lexical product for five public
-/// canonical emitters. YAML is exercised through its feature-gated public
-/// codec below. A successfully parsed temporal is offered to both route
-/// predicates; malformed lexemes are refusals on both sides.
+/// Law 5 over the page's complete temporal lexical product for the five
+/// canonical emitters in the phase-3 contract: JSON, TOML, XML, CSV and TSV.
+/// The feature-gated YAML CST emitter belongs to the final-gate route proof.
+/// A successfully parsed temporal is offered to both route predicates;
+/// malformed lexemes are refusals on both sides.
 #[test]
 #[allow(clippy::too_many_lines)]
 fn temporal_route_representability_matches_public_emitters() {
@@ -1427,9 +1777,6 @@ fn temporal_route_representability_matches_public_emitters() {
             one_temporal_column("root", "timestamp"),
         ),
     ];
-    #[cfg(feature = "tree-sitter")]
-    let yaml_codec = UnifiedCodec::yaml("cassandra").expect("YAML canonical codec");
-
     for lexeme in scope::temporal_lexemes() {
         let reference_value = panproto_reference::temporal::parse_union(&lexeme);
         let production_value = Temporal::parse_union(&lexeme);
@@ -1486,18 +1833,6 @@ fn temporal_route_representability_matches_public_emitters() {
             toml_reference, toml_production,
             "TOML temporal {lexeme:?}: reference={reference_value:?}, production={production_value:?}"
         );
-        #[cfg(feature = "tree-sitter")]
-        {
-            let yaml_production = production_representable(
-                panproto_io::InstanceEmitter::emit_wtype(&yaml_codec, schema, &instance),
-                &format!("YAML temporal {lexeme:?}"),
-            );
-            assert_eq!(
-                panproto_reference::value_io::temporal(Route::Yaml, &reference_value),
-                yaml_production,
-                "YAML temporal {lexeme:?}: reference={reference_value:?}, production={production_value:?}"
-            );
-        }
         let xml_reference = panproto_reference::value_io::temporal(Route::Xml, &reference_value);
         let xml_production = production_representable(
             panproto_io::xml_pathway::emit_xml_bytes(schema, &xml_instance, "cassandra"),

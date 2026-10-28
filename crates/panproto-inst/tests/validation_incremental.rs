@@ -22,6 +22,7 @@ use panproto_inst::{
     NodeShape, RowId, TableDelta, TableEdit, TreeEdit, ValidatedTable, ValidatedTree, Value,
     ViewRef, WInstance,
 };
+use panproto_reference::validation as reference_validation;
 use panproto_schema::{
     Cardinality, Constraint, ConstraintSemantics, Edge, InstanceShapeKind, Key, KeyPart, KeyRole,
     KeyScope, OnUnresolved, Protocol, RefSource, Reference, ResolveMode, Schema, Vertex,
@@ -31,6 +32,56 @@ use proptest::prelude::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const WITNESS_PROCESSES: usize = 32;
+
+/// Exercise the independent incremental reference model on the smallest
+/// non-identity transition used by the production V3--V6 carriers.
+#[test]
+fn reference_incremental_witness_anchor_verifies() {
+    use panproto_reference::model::{Graph, Node as ReferenceNode};
+    use panproto_reference::schema::Schema as ReferenceSchema;
+    use panproto_reference::validation::{
+        PriorAdmissionPolicy, ValidationContext, ValidationInput, ValidationTrust,
+    };
+
+    let schema = ReferenceSchema::default().vertex("item", "object");
+    let prior = ValidationInput::Graph {
+        schema: schema.clone(),
+        semantics: BTreeMap::new(),
+        instance: Graph {
+            nodes: [(0, ReferenceNode::new(0, "item"))].into(),
+            ..Graph::default()
+        },
+    };
+    let current = ValidationInput::Graph {
+        schema,
+        semantics: BTreeMap::new(),
+        instance: Graph {
+            nodes: [(
+                0,
+                ReferenceNode::new(0, "item").with_value(panproto_reference::value::Value::Int(1)),
+            )]
+            .into(),
+            ..Graph::default()
+        },
+    };
+    let prior_outcome = reference_validation::witness(prior.clone()).outcome;
+    let witness = reference_validation::witness_with_trust(
+        current,
+        ValidationTrust {
+            baseline_context: Some(ValidationContext::default()),
+            baseline: Some(prior_outcome.clone()),
+            prior: Some(prior_outcome),
+            prior_input: Some(Box::new(prior)),
+            prior_policy: Some(PriorAdmissionPolicy::RequirePassed),
+            delta: vec![panproto_reference::lens::ViewRef::Node(0)],
+            require_passed: false,
+            ..ValidationTrust::default()
+        },
+    )
+    .expect("the independent reference transition is exact");
+    assert!(witness.admitted);
+    assert_eq!(witness.verify(), Ok(()));
+}
 
 struct ExternalWitnessFixture {
     plan: Arc<ValidationPlan>,
@@ -6832,6 +6883,32 @@ fn no_new_failures_predicate(baseline: &Abstract, result: &Abstract) -> bool {
         .all(|(before, after)| *after == Compared::None || before == after)
 }
 
+/// The byte bundles supplied to the independent admission predicate. The
+/// first map contains evaluated open outcomes and the second contains virtual
+/// budget-cut outcomes.
+fn reference_bundles(state: &Abstract) -> (BTreeMap<usize, Vec<u8>>, BTreeMap<usize, Vec<u8>>) {
+    let mut open = BTreeMap::new();
+    let mut cuts = BTreeMap::new();
+    for (index, outcome) in compared(state).into_iter().enumerate() {
+        match outcome {
+            Compared::None => {}
+            Compared::Failed(value) => {
+                open.insert(index, vec![0, value]);
+            }
+            Compared::Incomplete(value) => {
+                open.insert(index, vec![1, value]);
+            }
+            Compared::Virtual { spent, from } => {
+                let mut bytes = vec![2];
+                bytes.extend_from_slice(&spent.to_le_bytes());
+                bytes.extend_from_slice(&u64::try_from(from).unwrap().to_le_bytes());
+                cuts.insert(index, bytes);
+            }
+        }
+    }
+    (open, cuts)
+}
+
 /// The external plan of the admission scope: a required check `audit` and
 /// an advisory check `notes`, both about `item` elements; the required
 /// check's instances come first in the canonical schedule, so a cut can
@@ -7136,6 +7213,15 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
         .iter()
         .map(|s| realize(&plan, &schedule, s))
         .collect();
+    let reference_states: Vec<_> = states
+        .iter()
+        .map(|state| {
+            let (open, cut) = reference_bundles(state);
+            let mut result = open.clone();
+            result.extend(cut.clone());
+            (open, cut, result)
+        })
+        .collect();
     for (state, real) in states.iter().zip(&realized) {
         assert_eq!(
             real.status == CheckStatus::Passed,
@@ -7144,12 +7230,34 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
         );
     }
     let (mut pairs, mut passed_baselines, mut admitted_counts) = (0_usize, 0_usize, [0_usize; 2]);
-    for (baseline, real_baseline) in states.iter().zip(&realized) {
+    for (baseline_index, (baseline, real_baseline)) in states.iter().zip(&realized).enumerate() {
+        let (reference_baseline, reference_baseline_cut, _) = &reference_states[baseline_index];
         let passed = require_passed_predicate(baseline);
         passed_baselines += usize::from(passed);
-        for (result, real_result) in states.iter().zip(&realized) {
+        for (result_index, (result, real_result)) in states.iter().zip(&realized).enumerate() {
+            let reference_result = &reference_states[result_index].2;
             let require = AdmissionPolicy::RequirePassed.admits(&plan, real_baseline, real_result);
             let tolerate = AdmissionPolicy::NoNewFailures.admits(&plan, real_baseline, real_result);
+            assert_eq!(
+                require,
+                reference_validation::admits(
+                    true,
+                    reference_baseline,
+                    reference_baseline_cut,
+                    reference_result,
+                ),
+                "reference RequirePassed: {baseline:?} -> {result:?}"
+            );
+            assert_eq!(
+                tolerate,
+                reference_validation::admits(
+                    false,
+                    reference_baseline,
+                    reference_baseline_cut,
+                    reference_result,
+                ),
+                "reference NoNewFailures: {baseline:?} -> {result:?}"
+            );
             assert_eq!(
                 require,
                 require_passed_predicate(result),

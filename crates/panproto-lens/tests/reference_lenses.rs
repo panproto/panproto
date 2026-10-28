@@ -1303,10 +1303,12 @@ fn assert_agree<T>(result: Result<T, Disagreement>) -> T {
 /// Each thread builds its own context once (the lens pairs hold value
 /// layers that are not shared between threads), then repeatedly claims the
 /// next block of units, expands each unit into its cases and runs [`agree`]
-/// on them, so a disagreement is reported with its own case. Every thread
-/// stops at the first disagreement any thread finds; of the disagreements
-/// found, the one at the lowest unit is returned. Otherwise the result is
-/// the number of cases compared, which is independent of the thread count.
+/// on them, so a disagreement is reported with its own case. A thread checks
+/// the shared stop flag before claiming a block. Once claimed, it completes
+/// that block unless it finds its own disagreement. Thus every unit below the
+/// lowest disagreement is known to have completed. Otherwise every unit
+/// completes and the result is the number of cases compared, which is
+/// independent of the thread count.
 fn agree_in_parallel<'a, U, C, I, P, R>(
     bound: &str,
     units: &'a [U],
@@ -1370,9 +1372,13 @@ where
     FP: Fn(&C, &I) -> P + Sync,
     FR: Fn(&C, &I) -> R + Sync,
 {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
     const BLOCK: usize = 32;
+    const UNCLAIMED: u8 = 0;
+    const CLAIMED: u8 = 1;
+    const COMPLETED: u8 = 2;
+    const MISMATCH: u8 = 3;
     type Outcome = Result<Census, (usize, Disagreement)>;
 
     let (production, reference) = (&sides.0, &sides.1);
@@ -1383,6 +1389,8 @@ where
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, std::num::NonZero::get));
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
+    let lowest_mismatch = AtomicUsize::new(usize::MAX);
+    let states: Vec<_> = (0..units.len()).map(|_| AtomicU8::new(UNCLAIMED)).collect();
     let outcomes: Vec<Outcome> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..threads)
             .map(|_| {
@@ -1390,11 +1398,29 @@ where
                     let context = context();
                     let mut census = Census::default();
                     loop {
-                        let start = next.fetch_add(BLOCK, Ordering::Relaxed);
-                        if start >= units.len() || stop.load(Ordering::Relaxed) {
+                        if stop.load(Ordering::Acquire) {
                             return Ok(census);
                         }
-                        for (offset, unit) in units[start..].iter().take(BLOCK).enumerate() {
+                        let start = next.fetch_add(BLOCK, Ordering::Relaxed);
+                        if start >= units.len() {
+                            return Ok(census);
+                        }
+                        let end = (start + BLOCK).min(units.len());
+                        for (offset, state) in states[start..end].iter().enumerate() {
+                            assert_eq!(
+                                state.compare_exchange(
+                                    UNCLAIMED,
+                                    CLAIMED,
+                                    Ordering::AcqRel,
+                                    Ordering::Acquire
+                                ),
+                                Ok(UNCLAIMED),
+                                "parallel comparison unit {} was claimed twice",
+                                start + offset
+                            );
+                        }
+                        for (offset, unit) in units[start..end].iter().enumerate() {
+                            let unit_index = start + offset;
                             for case in expand(&context, unit) {
                                 let (p, r) = (production(&context, &case), reference(&context, &case));
                                 census.compared += 1;
@@ -1417,9 +1443,12 @@ where
                                     reference: format!("{r:?}"),
                                 };
                                 println!("{disagreement}");
-                                stop.store(true, Ordering::Relaxed);
-                                return Err((start + offset, disagreement));
+                                states[unit_index].store(MISMATCH, Ordering::Release);
+                                lowest_mismatch.fetch_min(unit_index, Ordering::AcqRel);
+                                stop.store(true, Ordering::Release);
+                                return Err((unit_index, disagreement));
                             }
+                            states[unit_index].store(COMPLETED, Ordering::Release);
                         }
                     }
                 })
@@ -1448,7 +1477,43 @@ where
     }
     total.witnesses.sort();
     total.witnesses.truncate(GAP_WITNESSES);
-    first.map_or(Ok(total), |(_, disagreement)| Err(disagreement))
+    let recorded_lowest = lowest_mismatch.load(Ordering::Acquire);
+    match first {
+        None => {
+            assert_eq!(
+                recorded_lowest,
+                usize::MAX,
+                "a mismatch was recorded without a disagreement outcome"
+            );
+            for (unit, state) in states.iter().enumerate() {
+                assert_eq!(
+                    state.load(Ordering::Acquire),
+                    COMPLETED,
+                    "successful parallel comparison did not complete unit {unit}"
+                );
+            }
+            Ok(total)
+        }
+        Some((unit, disagreement)) => {
+            assert_eq!(
+                recorded_lowest, unit,
+                "reported disagreement is not the lowest recorded mismatch"
+            );
+            assert_eq!(
+                states[unit].load(Ordering::Acquire),
+                MISMATCH,
+                "lowest disagreement unit was not marked as a mismatch"
+            );
+            for (prefix, state) in states[..unit].iter().enumerate() {
+                assert_eq!(
+                    state.load(Ordering::Acquire),
+                    COMPLETED,
+                    "unit {prefix} below the lowest disagreement did not complete"
+                );
+            }
+            Err(disagreement)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3379,10 +3444,10 @@ fn table_get_put_law_certificate() {
 use panproto_lens::LawViolation;
 use panproto_reference::lens::{LawGateStatus, LawReport as RefLawReport};
 
-/// The comparable part of a five-gate report: the first gate that does not
-/// pass, or `None` when every gate passes. The two checkers draw their
-/// Single-Step Bases independently (L.8 fixes the families, not one
-/// alternate payload per coordinate), so basis sizes are not compared.
+/// The comparable part of a native five-gate report: the first gate that does
+/// not pass, or `None` when every gate passes. L.8 retains this own-basis
+/// comparison and separately reruns both checkers on one family-labelled
+/// union of their independently generated candidates.
 #[derive(Debug, PartialEq, Eq)]
 struct LawOutcome {
     first_failure: Option<String>,
@@ -7136,6 +7201,330 @@ fn assert_tree_fusion_guard_witness(witness: TreeFusionBoundaryWitness) {
     }
 }
 
+fn reference_rel_schema(schema: &Schema, protocol: &Protocol) -> Option<RelSchema> {
+    let value_kinds = protocol.value_kinds.keys().cloned().collect();
+    panproto_reference::rel::classify(&ref_schema(schema), &value_kinds, &protocol.non_value_kinds)
+        .ok()
+}
+
+fn duplicate_lens(lens: &Lens) -> Lens {
+    Lens {
+        compiled: lens.compiled.clone(),
+        src_schema: lens.src_schema.clone(),
+        tgt_schema: lens.tgt_schema.clone(),
+    }
+}
+
+fn reference_functors_compose(
+    first: &panproto_reference::rel::RelFunctor,
+    second: &panproto_reference::rel::RelFunctor,
+    candidate: &panproto_reference::rel::RelFunctor,
+) -> bool {
+    let tables = first.src.tables.iter().all(|source| {
+        first
+            .tables
+            .get(source)
+            .and_then(|middle| second.tables.get(middle))
+            == candidate.tables.get(source)
+    });
+    let relations = first.src.relations.iter().all(|source| {
+        first
+            .relations
+            .get(source)
+            .and_then(|middle| second.relations.get(middle))
+            == candidate.relations.get(source)
+    });
+    let columns = first.src.columns.iter().all(|(source_table, columns)| {
+        columns.keys().all(|source_column| {
+            let source_key = (source_table.clone(), source_column.clone());
+            let sequential = first.columns.get(&source_key).and_then(|middle_column| {
+                let middle_table = first.tables.get(source_table)?;
+                second
+                    .columns
+                    .get(&(middle_table.clone(), middle_column.clone()))
+            });
+            sequential == candidate.columns.get(&source_key)
+        })
+    });
+    tables && relations && columns
+}
+
+fn reference_columns_are_injective(functor: &panproto_reference::rel::RelFunctor) -> bool {
+    let mut images = BTreeSet::new();
+    functor
+        .columns
+        .iter()
+        .all(|((table, _), target)| images.insert((table.clone(), target.clone())))
+}
+
+fn reference_required_value_free(
+    schema: &Schema,
+    protocol: &Protocol,
+    boundary: &RelSchema,
+) -> bool {
+    let field_vertices: BTreeSet<_> = boundary
+        .columns
+        .values()
+        .flat_map(BTreeMap::values)
+        .map(|edge| edge.tgt.as_str())
+        .collect();
+    !schema.constraints.iter().any(|(vertex, constraints)| {
+        field_vertices.contains(vertex.as_ref())
+            && constraints.iter().any(|constraint| {
+                protocol
+                    .constraint_semantics
+                    .get(constraint.sort.as_ref())
+                    .is_some_and(|semantics| {
+                        matches!(
+                            semantics.parse_value(&constraint.sort, &constraint.value),
+                            Ok(panproto_schema::ConstraintValue::Required(true))
+                        )
+                    })
+            })
+    })
+}
+
+fn reference_table_fusion_premises(
+    first: &Lens,
+    second: &Lens,
+    candidate: &Lens,
+    protocols: [&Protocol; 3],
+) -> panproto_reference::path::TableFusionPremises {
+    let first_source = reference_rel_schema(&first.src_schema, protocols[0]);
+    let first_target = reference_rel_schema(&first.tgt_schema, protocols[1]);
+    let second_source = reference_rel_schema(&second.src_schema, protocols[1]);
+    let second_target = reference_rel_schema(&second.tgt_schema, protocols[2]);
+    let candidate_source = reference_rel_schema(&candidate.src_schema, protocols[0]);
+    let candidate_target = reference_rel_schema(&candidate.tgt_schema, protocols[2]);
+
+    let first_migration = ref_migration(&first.compiled);
+    let second_migration = ref_migration(&second.compiled);
+    let candidate_migration = ref_migration(&candidate.compiled);
+    let first_plan =
+        first_source
+            .as_ref()
+            .zip(first_target.as_ref())
+            .and_then(|(source, target)| {
+                panproto_reference::table::compile_for_tables(
+                    &ref_schema(&first.src_schema),
+                    &ref_schema(&first.tgt_schema),
+                    source,
+                    target,
+                    &first_migration,
+                )
+                .ok()
+            });
+    let second_plan =
+        second_source
+            .as_ref()
+            .zip(second_target.as_ref())
+            .and_then(|(source, target)| {
+                panproto_reference::table::compile_for_tables(
+                    &ref_schema(&second.src_schema),
+                    &ref_schema(&second.tgt_schema),
+                    source,
+                    target,
+                    &second_migration,
+                )
+                .ok()
+            });
+    let candidate_plan = candidate_source
+        .as_ref()
+        .zip(candidate_target.as_ref())
+        .and_then(|(source, target)| {
+            panproto_reference::table::compile_for_tables(
+                &ref_schema(&candidate.src_schema),
+                &ref_schema(&candidate.tgt_schema),
+                source,
+                target,
+                &candidate_migration,
+            )
+            .ok()
+        });
+    let plans_compile = first_plan.is_some() && second_plan.is_some() && candidate_plan.is_some();
+
+    let first_is_unit_bijection = first_plan.as_ref().is_some_and(|plan| {
+        let source_schema = ref_schema(&first.src_schema);
+        let target_schema = ref_schema(&first.tgt_schema);
+        let source_boundary = first_source
+            .as_ref()
+            .expect("a compiled plan has a source boundary");
+        let target_boundary = first_target
+            .as_ref()
+            .expect("a compiled plan has a target boundary");
+        RefTableLens::new(
+            &source_schema,
+            &target_schema,
+            panproto_reference::table::TableBoundaries::new(source_boundary, target_boundary),
+            &first_migration,
+            plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .ok()
+        .is_some_and(|lens| panproto_reference::table::obstruction_to_isomorphism(&lens).is_none())
+    });
+    let middle_boundaries_equal = first_plan
+        .as_ref()
+        .zip(second_plan.as_ref())
+        .is_some_and(|(first, second)| first.target_boundary() == second.source_boundary());
+    let second_source_validation_free = second_plan.as_ref().is_some_and(|plan| {
+        reference_required_value_free(&second.src_schema, protocols[1], plan.source_boundary())
+    });
+    let second_has_value_layer = !second.compiled.conditional_survival.is_empty()
+        || second
+            .compiled
+            .field_transforms
+            .values()
+            .any(|transforms| !transforms.is_empty())
+        || second
+            .compiled
+            .op_term_assignments
+            .values()
+            .any(|assignments| !assignments.is_empty());
+    let typed_placeholders_agree = !second_has_value_layer
+        || (protocols[0] == protocols[1]
+            && first_plan
+                .as_ref()
+                .is_some_and(|plan| plan.source_boundary() == plan.target_boundary()));
+    let functors_compose = first_plan
+        .as_ref()
+        .zip(second_plan.as_ref())
+        .zip(candidate_plan.as_ref())
+        .is_some_and(|((first, second), candidate)| {
+            reference_functors_compose(first.functor(), second.functor(), candidate.functor())
+        });
+    let second_columns_injective = second_plan
+        .as_ref()
+        .is_some_and(|plan| reference_columns_are_injective(plan.functor()));
+
+    panproto_reference::path::TableFusionPremises {
+        first_stage_structurally_pure: first
+            .compiled
+            .field_transforms
+            .values()
+            .all(|transforms| transforms.is_empty())
+            && first
+                .compiled
+                .op_term_assignments
+                .values()
+                .all(|assignments| assignments.is_empty()),
+        plans_compile,
+        first_is_unit_bijection,
+        middle_boundaries_equal,
+        second_source_validation_free,
+        typed_placeholders_agree,
+        functors_compose,
+        second_columns_injective,
+    }
+}
+
+fn reference_table_fusion_classification(
+    first: &Lens,
+    second: &Lens,
+    candidate: &Lens,
+    protocols: [&Protocol; 3],
+) -> Result<(), panproto_reference::path::TableFusionObstruction> {
+    panproto_reference::path::classify_table_fusion(reference_table_fusion_premises(
+        first, second, candidate, protocols,
+    ))
+}
+
+fn assert_table_fusion_decision(
+    first: &Lens,
+    second: &Lens,
+    protocols: [&Protocol; 3],
+    expected: Result<(), panproto_reference::path::TableFusionObstruction>,
+) {
+    let path = LensPath::single(duplicate_lens(first))
+        .then(&LensPath::single(duplicate_lens(second)))
+        .expect("the table-fusion fixture has a shared middle schema");
+    let tree_groups = path.tree_normal_form();
+    assert_eq!(
+        tree_groups.len(),
+        1,
+        "a normalization differential requires a separately certified structural candidate"
+    );
+    let reference =
+        reference_table_fusion_classification(first, second, &tree_groups[0].lens, protocols);
+    assert_eq!(reference, expected, "the independent premise classifier");
+    let production_protocols = protocols.map(|protocol| (*protocol).clone());
+    let production = path
+        .table_normal_form(&production_protocols)
+        .expect("the fusion fixture has three boundary protocols")
+        .len()
+        == 1;
+    assert_eq!(
+        production,
+        reference.is_ok(),
+        "production table fusion must agree with the independent premise classifier"
+    );
+}
+
+fn assert_admitted_table_fusion_behavior(
+    first: Lens,
+    second: Lens,
+    protocols: [Protocol; 3],
+    source: &FInstance,
+) {
+    assert_table_fusion_decision(
+        &first,
+        &second,
+        [&protocols[0], &protocols[1], &protocols[2]],
+        Ok(()),
+    );
+    let path = LensPath::single(duplicate_lens(&first))
+        .then(&LensPath::single(duplicate_lens(&second)))
+        .expect("the admitted fixture has a shared middle schema");
+    let (fused_view, fused_complement) = path
+        .get_table(source, &protocols)
+        .expect("the admitted fused get succeeds");
+    let (middle, first_complement) = table_lens::get(
+        &first,
+        source,
+        BoundaryProtocols {
+            src: &protocols[0],
+            tgt: &protocols[1],
+        },
+    )
+    .expect("the first atomic get succeeds");
+    let (atomic_view, second_complement) = table_lens::get(
+        &second,
+        &middle,
+        BoundaryProtocols {
+            src: &protocols[1],
+            tgt: &protocols[2],
+        },
+    )
+    .expect("the second atomic get succeeds");
+    assert_eq!(fused_view, atomic_view, "fused and atomic get");
+
+    let fused_source = path
+        .put_table(&fused_view, &fused_complement, &protocols)
+        .expect("the admitted fused put succeeds");
+    let atomic_middle = table_lens::put(
+        &second,
+        &atomic_view,
+        &second_complement,
+        BoundaryProtocols {
+            src: &protocols[1],
+            tgt: &protocols[2],
+        },
+    )
+    .expect("the second atomic put succeeds");
+    let atomic_source = table_lens::put(
+        &first,
+        &atomic_middle,
+        &first_complement,
+        BoundaryProtocols {
+            src: &protocols[0],
+            tgt: &protocols[1],
+        },
+    )
+    .expect("the first atomic put succeeds");
+    assert_eq!(fused_source, atomic_source, "fused and atomic put");
+}
+
 fn table_fusion_column_injectivity_witness() {
     let protocol = certificate_column_protocol(ScalarKind::Int {
         bits: 64,
@@ -7172,14 +7561,58 @@ fn table_fusion_column_injectivity_witness() {
             ),
         ],
     );
-    let path = LensPath::single(first)
-        .then(&LensPath::single(second))
-        .expect("the collision witness has a shared middle schema");
+    let candidate = certificate_mapped_lens(
+        &source,
+        &target,
+        [
+            (
+                certificate_edge_named(&source, "a"),
+                certificate_edge_named(&target, "q"),
+            ),
+            (
+                certificate_edge_named(&source, "z"),
+                certificate_edge_named(&target, "q"),
+            ),
+        ],
+    );
     assert_eq!(
-        path.table_normal_form(&[protocol.clone(), protocol.clone(), protocol])
-            .unwrap()
-            .len(),
-        2
+        reference_table_fusion_classification(
+            &first,
+            &second,
+            &candidate,
+            [&protocol, &protocol, &protocol],
+        ),
+        Err(panproto_reference::path::TableFusionObstruction::ColumnCollision),
+        "the independent table-specific classifier must reject the noninjective column map",
+    );
+    let path = LensPath::single(duplicate_lens(&first))
+        .then(&LensPath::single(duplicate_lens(&second)))
+        .expect("the collision fixture has a shared middle schema");
+    assert_eq!(
+        path.tree_normal_form().len(),
+        2,
+        "the upstream structural-identity predicate makes the downstream column guard redundant",
+    );
+
+    let admitted_schema = certificate_column_schema(&protocol, "value", &["a", "z"]);
+    let admitted_first = certificate_identity_lens(&admitted_schema);
+    let admitted_second = certificate_identity_lens(&admitted_schema);
+    let mut instance = FInstance::new();
+    instance
+        .insert_row(
+            "row",
+            RowId(0),
+            HashMap::from([
+                ("a".to_owned(), Value::Int(1)),
+                ("z".to_owned(), Value::Int(2)),
+            ]),
+        )
+        .expect("the admitted collision control row is distinct");
+    assert_admitted_table_fusion_behavior(
+        admitted_first,
+        admitted_second,
+        [protocol.clone(), protocol.clone(), protocol],
+        &instance,
     );
 }
 
@@ -7196,14 +7629,29 @@ fn table_fusion_placeholder_witness() {
         .compiled
         .conditional_survival
         .insert("row".into(), panproto_expr::Expr::Var("f".into()));
-    let path = LensPath::single(first)
-        .then(&LensPath::single(second))
-        .expect("the placeholder witness has a shared middle schema");
-    assert_eq!(
-        path.table_normal_form(&[source_protocol, middle_protocol.clone(), middle_protocol,])
-            .unwrap()
-            .len(),
-        2
+    assert_table_fusion_decision(
+        &first,
+        &second,
+        [&source_protocol, &middle_protocol, &middle_protocol],
+        Err(panproto_reference::path::TableFusionObstruction::TypedPlaceholderMismatch),
+    );
+    let mut instance = FInstance::new();
+    instance
+        .insert_row(
+            "row",
+            RowId(0),
+            HashMap::from([("f".to_owned(), Value::Bool(true))]),
+        )
+        .expect("the admitted placeholder control row is distinct");
+    assert_admitted_table_fusion_behavior(
+        first,
+        second,
+        [
+            source_protocol.clone(),
+            source_protocol.clone(),
+            source_protocol,
+        ],
+        &instance,
     );
 }
 
@@ -7230,19 +7678,32 @@ fn table_fusion_required_value_witness() {
     );
     let first = certificate_mapped_lens(&schema, &required_middle, std::iter::empty());
     let second = certificate_mapped_lens(&required_middle, &schema, std::iter::empty());
-    let path = LensPath::single(first)
-        .then(&LensPath::single(second))
-        .expect("the validation witness compares equal middle carriers");
-    assert_eq!(
-        path.table_normal_form(&[protocol.clone(), protocol.clone(), protocol])
-            .unwrap()
-            .len(),
-        2
+    assert_table_fusion_decision(
+        &first,
+        &second,
+        [&protocol, &protocol, &protocol],
+        Err(panproto_reference::path::TableFusionObstruction::RequiredValueValidation),
+    );
+    let admitted_first = certificate_mapped_lens(&schema, &schema, std::iter::empty());
+    let admitted_second = certificate_mapped_lens(&schema, &schema, std::iter::empty());
+    let mut instance = FInstance::new();
+    instance
+        .insert_row(
+            "row",
+            RowId(0),
+            HashMap::from([("f".to_owned(), Value::Int(1))]),
+        )
+        .expect("the admitted validation control row is distinct");
+    assert_admitted_table_fusion_behavior(
+        admitted_first,
+        admitted_second,
+        [protocol.clone(), protocol.clone(), protocol],
+        &instance,
     );
 }
 
 fn table_fusion_target_only_carrier_witness() {
-    let assert_target_only =
+    let assert_static_isomorphism_boundary =
         |protocol: &Protocol, source: &Schema, target: &Schema, coordinate: &str| {
             let first = certificate_mapped_lens(source, target, std::iter::empty());
             let boundaries = BoundaryProtocols {
@@ -7261,15 +7722,23 @@ fn table_fusion_target_only_carrier_witness() {
             );
 
             let second = certificate_mapped_lens(target, target, std::iter::empty());
-            let path = LensPath::single(first)
-                .then(&LensPath::single(second))
-                .expect("the target-only witness has a shared middle schema");
             assert_eq!(
-                path.table_normal_form(&[protocol.clone(), protocol.clone(), protocol.clone(),])
-                    .unwrap()
-                    .len(),
+                reference_table_fusion_classification(
+                    &first,
+                    &second,
+                    &first,
+                    [protocol, protocol, protocol],
+                ),
+                Err(panproto_reference::path::TableFusionObstruction::FirstStageNotUnitBijection),
+                "the independent table classifier must reject the {coordinate} boundary",
+            );
+            let path = LensPath::single(duplicate_lens(&first))
+                .then(&LensPath::single(second))
+                .expect("the target-only fixture has a shared middle schema");
+            assert_eq!(
+                path.tree_normal_form().len(),
                 2,
-                "the target-only {coordinate} subcase must remain atomic"
+                "the schema-level {coordinate} fixture is structurally precluded before table fusion",
             );
         };
 
@@ -7289,7 +7758,7 @@ fn table_fusion_target_only_carrier_witness() {
         .expect("the target-only table is valid")
         .build()
         .expect("the target table schema is valid");
-    assert_target_only(
+    assert_static_isomorphism_boundary(
         &relational_protocol,
         &table_source,
         &table_target,
@@ -7312,7 +7781,7 @@ fn table_fusion_target_only_carrier_witness() {
         .expect("the target-only relation is valid")
         .build()
         .expect("the relation target schema is valid");
-    assert_target_only(
+    assert_static_isomorphism_boundary(
         &relational_protocol,
         &relation_source,
         &relation_target,
@@ -7325,11 +7794,53 @@ fn table_fusion_target_only_carrier_witness() {
     });
     let column_source = certificate_column_schema(&column_protocol, "value", &[]);
     let column_target = certificate_column_schema(&column_protocol, "value", &["target_only"]);
-    assert_target_only(
+    assert_static_isomorphism_boundary(
         &column_protocol,
         &column_source,
         &column_target,
         "target column `target_only`",
+    );
+
+    let source_protocol = Protocol {
+        value_kinds: BTreeMap::from([(
+            "aux".to_owned(),
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: ["record".to_owned()].into(),
+        ..Protocol::default()
+    };
+    let target_protocol = Protocol {
+        non_value_kinds: ["aux".to_owned(), "record".to_owned()].into(),
+        ..Protocol::default()
+    };
+    let protocol_drift_schema = SchemaBuilder::new(&source_protocol)
+        .vertex("row", "record", None)
+        .expect("the row is valid")
+        .vertex("target_only", "aux", None)
+        .expect("the protocol-dependent carrier is valid")
+        .build()
+        .expect("the protocol-drift schema is valid");
+    let drift_first = certificate_identity_lens(&protocol_drift_schema);
+    let drift_second = certificate_identity_lens(&protocol_drift_schema);
+    assert_table_fusion_decision(
+        &drift_first,
+        &drift_second,
+        [&source_protocol, &target_protocol, &target_protocol],
+        Err(panproto_reference::path::TableFusionObstruction::FirstStageNotUnitBijection),
+    );
+
+    assert_admitted_table_fusion_behavior(
+        certificate_identity_lens(&protocol_drift_schema),
+        certificate_identity_lens(&protocol_drift_schema),
+        [
+            source_protocol.clone(),
+            source_protocol.clone(),
+            source_protocol,
+        ],
+        &FInstance::new(),
     );
 }
 
@@ -7418,6 +7929,13 @@ fn assert_all_named_path_boundaries() {
     }
     for witness in TREE_FUSION_BOUNDARY_WITNESSES {
         assert_tree_fusion_boundary_witness(witness);
+    }
+}
+
+#[test]
+fn named_table_fusion_boundaries_agree_with_the_reference() {
+    for witness in TABLE_FUSION_BOUNDARY_WITNESSES {
+        assert_table_fusion_boundary_witness(witness);
     }
 }
 
@@ -10101,8 +10619,581 @@ struct AdmissionCensus {
 /// One Single-Step Basis candidate in reference coordinates, and whether it
 /// is a positive candidate of the reference basis.
 struct Candidate<I> {
+    mutation: usize,
     view: I,
     positive_reference: bool,
+}
+
+fn push_candidate<I: PartialEq>(
+    candidates: &mut Vec<Candidate<I>>,
+    mutation: usize,
+    view: I,
+    positive_reference: bool,
+) {
+    if let Some(candidate) = candidates
+        .iter_mut()
+        .find(|candidate| candidate.mutation == mutation && candidate.view == view)
+    {
+        candidate.positive_reference |= positive_reference;
+    } else {
+        candidates.push(Candidate {
+            mutation,
+            view,
+            positive_reference,
+        });
+    }
+}
+
+/// Partition one exact-presentation union into mutation families in one pass.
+/// The per-family order is the order in which the union first presented each
+/// candidate, matching the earlier family-filter construction exactly.
+fn partition_common_views<I>(
+    candidate_count: usize,
+    candidates: impl IntoIterator<Item = (usize, I)>,
+) -> [Vec<I>; EDIT_FAMILIES] {
+    let mut families: [Vec<I>; EDIT_FAMILIES] = std::array::from_fn(|_| Vec::new());
+    let mut observed = 0_usize;
+    for (family, view) in candidates {
+        assert!(
+            family < EDIT_FAMILIES,
+            "common-basis mutation family {family} is outside the {EDIT_FAMILIES}-family contract"
+        );
+        families[family].push(view);
+        observed += 1;
+    }
+    assert_eq!(
+        observed, candidate_count,
+        "single-pass family partition must preserve every common-basis candidate"
+    );
+    assert_eq!(
+        families.iter().map(Vec::len).sum::<usize>(),
+        candidate_count,
+        "single-pass family counts must sum to the exact common-basis size"
+    );
+    families
+}
+
+#[test]
+fn single_pass_common_family_partition_is_exact() {
+    let families = partition_common_views(
+        6,
+        [(2, 'a'), (0, 'b'), (2, 'c'), (16, 'd'), (0, 'e'), (7, 'f')],
+    );
+    assert_eq!(families[0], ['b', 'e']);
+    assert_eq!(families[2], ['a', 'c']);
+    assert_eq!(families[7], ['f']);
+    assert_eq!(families[16], ['d']);
+    assert_eq!(families.iter().map(Vec::len).sum::<usize>(), 6);
+}
+
+/// A production-law context whose root source uses the independently formed
+/// union basis. Recursive classification steps retain the production shape's
+/// own basis; the compared payload retains the five gates at the prepared
+/// root.
+struct CommonProductionContext<S: LawShape> {
+    inner: S::Context,
+    root: S::Instance,
+    families: [Vec<S::Instance>; EDIT_FAMILIES],
+}
+
+struct CommonProductionShape<S>(std::marker::PhantomData<S>);
+
+impl<S: LawShape> panproto_lens::LensShape for CommonProductionShape<S> {
+    type Instance = S::Instance;
+    type Complement = S::Complement;
+    type Context = CommonProductionContext<S>;
+
+    fn get(
+        lens: &Lens,
+        source: &Self::Instance,
+        context: &Self::Context,
+    ) -> Result<(Self::Instance, Self::Complement), LensError> {
+        S::get(lens, source, &context.inner)
+    }
+
+    fn put(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Result<Self::Instance, LensError> {
+        S::put(lens, view, complement, &context.inner)
+    }
+
+    fn check_put_domain(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Result<(), Vec<PutDomainError>> {
+        S::check_put_domain(lens, view, complement, &context.inner)
+    }
+
+    fn synth_index(
+        instance: &Self::Instance,
+        complement: &Self::Complement,
+    ) -> panproto_inst::SynthIndex {
+        S::synth_index(instance, complement)
+    }
+
+    fn equivalent(
+        left: &Self::Instance,
+        left_index: &panproto_inst::SynthIndex,
+        right: &Self::Instance,
+        right_index: &panproto_inst::SynthIndex,
+    ) -> bool {
+        S::equivalent(left, left_index, right, right_index)
+    }
+
+    fn divergence(
+        left: &Self::Instance,
+        left_index: &panproto_inst::SynthIndex,
+        right: &Self::Instance,
+        right_index: &panproto_inst::SynthIndex,
+    ) -> Option<String> {
+        S::divergence(left, left_index, right, right_index)
+    }
+
+    fn divergence_modulo_derived(
+        left: &Self::Instance,
+        left_index: &panproto_inst::SynthIndex,
+        right: &Self::Instance,
+        right_index: &panproto_inst::SynthIndex,
+        derived: &panproto_lens::DerivedMap,
+    ) -> Option<String> {
+        S::divergence_modulo_derived(left, left_index, right, right_index, derived)
+    }
+
+    fn complement_divergence(left: &Self::Complement, right: &Self::Complement) -> Option<String> {
+        S::complement_divergence(left, right)
+    }
+
+    fn congruence_witnesses(
+        instance: &Self::Instance,
+        index: &panproto_inst::SynthIndex,
+    ) -> Vec<(Self::Instance, panproto_inst::SynthIndex)> {
+        S::congruence_witnesses(instance, index)
+    }
+}
+
+impl<S: LawShape> LawShape for CommonProductionShape<S> {
+    fn mutation_cases(
+        lens: &Lens,
+        source: &Self::Instance,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+        mutation: Mutation,
+    ) -> MutationCases<Self::Instance> {
+        if S::identical(source, &context.root) {
+            let family = Mutation::ALL
+                .iter()
+                .position(|candidate| *candidate == mutation)
+                .expect("Mutation::ALL contains the requested family");
+            MutationCases::Cases(context.families[family].clone())
+        } else {
+            S::mutation_cases(lens, source, view, complement, &context.inner, mutation)
+        }
+    }
+
+    fn negative_mutation_cases(
+        _: &Lens,
+        _: &Self::Instance,
+        _: &Self::Instance,
+        _: &Self::Complement,
+        _: &Self::Context,
+        _: Mutation,
+    ) -> Vec<panproto_lens::NegativeMutationCase<Self::Instance>> {
+        Vec::new()
+    }
+
+    fn identical(left: &Self::Instance, right: &Self::Instance) -> bool {
+        S::identical(left, right)
+    }
+
+    fn congruent_states(
+        view: &Self::Instance,
+        complement: &Self::Complement,
+    ) -> Vec<(Self::Instance, Self::Complement)> {
+        S::congruent_states(view, complement)
+    }
+
+    fn rekey_complement(
+        complement: &Self::Complement,
+        from: &panproto_inst::SynthIndex,
+        to: &panproto_inst::SynthIndex,
+    ) -> Self::Complement {
+        S::rekey_complement(complement, from, to)
+    }
+
+    fn locality_divergence(
+        lens: &Lens,
+        source: &Self::Instance,
+        original_view: &Self::Instance,
+        edited_view: &Self::Instance,
+        restored: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Option<String> {
+        S::locality_divergence(
+            lens,
+            source,
+            original_view,
+            edited_view,
+            restored,
+            complement,
+            &context.inner,
+        )
+    }
+
+    fn carrier_intersection(left: &Self::Instance, right: &Self::Instance) -> Self::Instance {
+        S::carrier_intersection(left, right)
+    }
+
+    fn undo_view(original: &Self::Instance, edited: &Self::Instance) -> Option<Self::Instance> {
+        S::undo_view(original, edited)
+    }
+
+    fn enumerate_small(
+        schema: &Schema,
+        scope: SmallScope,
+        context: &Self::Context,
+    ) -> Vec<Self::Instance> {
+        S::enumerate_small(schema, scope, &context.inner)
+    }
+}
+
+struct CommonReferenceContext<S, L>
+where
+    S: RefLawShape<L>,
+{
+    inner: S::Context,
+    root: S::Instance,
+    basis: Vec<panproto_reference::lens::BasisCase<S::Instance, S::Refusal>>,
+    marker: std::marker::PhantomData<L>,
+}
+
+struct CommonReferenceShape<S>(std::marker::PhantomData<S>);
+
+impl<S: panproto_reference::lens::LensShape> panproto_reference::lens::LensShape
+    for CommonReferenceShape<S>
+{
+    type Instance = S::Instance;
+    type Complement = S::Complement;
+
+    fn identical(left: &Self::Instance, right: &Self::Instance) -> bool {
+        S::identical(left, right)
+    }
+
+    fn complements_identical(left: &Self::Complement, right: &Self::Complement) -> bool {
+        S::complements_identical(left, right)
+    }
+
+    fn synth_index(
+        instance: &Self::Instance,
+        complement: &Self::Complement,
+    ) -> panproto_reference::lens::SynthIndex {
+        S::synth_index(instance, complement)
+    }
+
+    fn equivalent(
+        left: &Self::Instance,
+        left_index: &panproto_reference::lens::SynthIndex,
+        right: &Self::Instance,
+        right_index: &panproto_reference::lens::SynthIndex,
+    ) -> bool {
+        S::equivalent(left, left_index, right, right_index)
+    }
+
+    fn divergence(
+        left: &Self::Instance,
+        left_index: &panproto_reference::lens::SynthIndex,
+        right: &Self::Instance,
+        right_index: &panproto_reference::lens::SynthIndex,
+    ) -> Option<panproto_reference::lens::Divergence> {
+        S::divergence(left, left_index, right, right_index)
+    }
+
+    fn complement_divergence(
+        left: &Self::Complement,
+        right: &Self::Complement,
+    ) -> Option<panproto_reference::lens::Divergence> {
+        S::complement_divergence(left, right)
+    }
+}
+
+impl<S, L> RefLawShape<L> for CommonReferenceShape<S>
+where
+    S: RefLawShape<L>,
+{
+    type Refusal = S::Refusal;
+    type Context = CommonReferenceContext<S, L>;
+
+    fn get(
+        lens: &L,
+        source: &Self::Instance,
+        context: &Self::Context,
+    ) -> Result<(Self::Instance, Self::Complement), Self::Refusal> {
+        S::get(lens, source, &context.inner)
+    }
+
+    fn put(
+        lens: &L,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Result<Self::Instance, Self::Refusal> {
+        S::put(lens, view, complement, &context.inner)
+    }
+
+    fn check_put_domain(
+        lens: &L,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Result<(), Self::Refusal> {
+        S::check_put_domain(lens, view, complement, &context.inner)
+    }
+
+    fn first_put_refusal(refusal: &Self::Refusal) -> Option<Self::Refusal> {
+        S::first_put_refusal(refusal)
+    }
+
+    fn single_step_basis(
+        lens: &L,
+        source: &Self::Instance,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Vec<panproto_reference::lens::BasisCase<Self::Instance, Self::Refusal>> {
+        if S::identical(source, &context.root) {
+            context.basis.clone()
+        } else {
+            S::single_step_basis(lens, source, view, complement, &context.inner)
+        }
+    }
+
+    fn put_get_mode() -> panproto_reference::lens::PutGetMode {
+        S::put_get_mode()
+    }
+
+    fn rekey_complement(
+        complement: &Self::Complement,
+        observed_view: &Self::Instance,
+        edited_view: &Self::Instance,
+        producing_complement: &Self::Complement,
+    ) -> Self::Complement {
+        S::rekey_complement(complement, observed_view, edited_view, producing_complement)
+    }
+
+    fn congruence_cases(
+        lens: &L,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Vec<panproto_reference::lens::CongruenceCase<Self::Instance, Self::Complement>> {
+        S::congruence_cases(lens, view, complement, &context.inner)
+    }
+
+    fn locality_divergence(
+        lens: &L,
+        source: &Self::Instance,
+        original_view: &Self::Instance,
+        edited_view: &Self::Instance,
+        restored: &Self::Instance,
+        complement: &Self::Complement,
+        context: &Self::Context,
+    ) -> Option<panproto_reference::lens::Divergence> {
+        S::locality_divergence(
+            lens,
+            source,
+            original_view,
+            edited_view,
+            restored,
+            complement,
+            &context.inner,
+        )
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CommonBasisLawOutcome {
+    gates: LawOutcome,
+    family_counts: [usize; EDIT_FAMILIES],
+    admitted: Option<usize>,
+}
+
+fn production_common_law_outcome<S: LawShape>(
+    lens: &Lens,
+    root: S::Instance,
+    inner: S::Context,
+    families: [Vec<S::Instance>; EDIT_FAMILIES],
+) -> CommonBasisLawOutcome {
+    let family_counts = std::array::from_fn(|family| families[family].len());
+    let context = CommonProductionContext::<S> {
+        inner,
+        root: root.clone(),
+        families,
+    };
+    let report =
+        panproto_lens::laws::check_laws_report::<CommonProductionShape<S>>(lens, &root, &context);
+    let admitted = report.as_ref().ok().map(|report| {
+        report
+            .ran
+            .iter()
+            .map(|family| usize::try_from(family.in_domain).expect("family count fits usize"))
+            .sum()
+    });
+    CommonBasisLawOutcome {
+        gates: production_law_outcome(&report),
+        family_counts,
+        admitted,
+    }
+}
+
+fn reference_common_law_report<S, L>(
+    lens: &L,
+    root: S::Instance,
+    inner: S::Context,
+    families: [Vec<S::Instance>; EDIT_FAMILIES],
+) -> (RefLawReport<S::Refusal>, [usize; EDIT_FAMILIES])
+where
+    S: RefLawShape<L>,
+{
+    let family_counts = std::array::from_fn(|family| families[family].len());
+    let basis = families
+        .into_iter()
+        .enumerate()
+        .flat_map(|(family, views)| {
+            views
+                .into_iter()
+                .map(move |view| (REF_MUTATIONS[family], view))
+        })
+        .enumerate()
+        .map(
+            |(ordinal, (mutation, view))| panproto_reference::lens::BasisCase {
+                ordinal,
+                mutation,
+                view,
+                domain: DomainExpectation::Admitted,
+            },
+        )
+        .collect();
+    let context = CommonReferenceContext::<S, L> {
+        inner,
+        root: root.clone(),
+        basis,
+        marker: std::marker::PhantomData,
+    };
+    let report = panproto_reference::lens::check_laws_report::<CommonReferenceShape<S>, L>(
+        lens, &root, &context,
+    );
+    let observed = std::array::from_fn(|family| {
+        report
+            .basis_families
+            .get(&REF_MUTATIONS[family])
+            .copied()
+            .unwrap_or_default()
+    });
+    assert_eq!(
+        observed, family_counts,
+        "the reference five-gate checker must consume the common basis family by family"
+    );
+    (report, family_counts)
+}
+
+fn reference_common_law_outcome<S, L>(
+    lens: &L,
+    root: S::Instance,
+    inner: S::Context,
+    families: [Vec<S::Instance>; EDIT_FAMILIES],
+) -> CommonBasisLawOutcome
+where
+    S: RefLawShape<L>,
+    S::Refusal: std::fmt::Debug,
+{
+    let (report, family_counts) = reference_common_law_report::<S, L>(lens, root, inner, families);
+    let gates = reference_law_outcome(&report);
+    let admitted = gates.first_failure.is_none().then_some(report.admitted);
+    CommonBasisLawOutcome {
+        gates,
+        family_counts,
+        admitted,
+    }
+}
+
+fn graph_common_laws(
+    pair: &Pair,
+    source: &RefGraph,
+    candidates: &[Candidate<RefGraph>],
+    production: bool,
+) -> Option<CommonBasisLawOutcome> {
+    if pair.with_reference(|lens| lens.is_err()) {
+        return None;
+    }
+    let reference_families = partition_common_views(
+        candidates.len(),
+        candidates
+            .iter()
+            .map(|candidate| (candidate.mutation, candidate.view.clone())),
+    );
+    if production {
+        let production_families = reference_families
+            .map(|views| views.into_iter().map(|view| prod_graph(&view)).collect());
+        Some(production_common_law_outcome::<panproto_lens::GraphShape>(
+            &pair.production,
+            prod_graph(source),
+            (),
+            production_families,
+        ))
+    } else {
+        Some(pair.with_reference(|lens| {
+            let lens = lens.expect("the common-basis graph checker requires a compiled lens");
+            reference_common_law_outcome::<RefGraphShape, _>(
+                lens,
+                source.clone(),
+                (),
+                reference_families,
+            )
+        }))
+    }
+}
+
+fn tree_common_laws(
+    pair: &Pair,
+    source: &RefTree,
+    candidates: &[Candidate<RefTree>],
+    production: bool,
+) -> Option<CommonBasisLawOutcome> {
+    if pair.with_reference(|lens| lens.is_err()) {
+        return None;
+    }
+    let reference_families = partition_common_views(
+        candidates.len(),
+        candidates
+            .iter()
+            .map(|candidate| (candidate.mutation, candidate.view.clone())),
+    );
+    if production {
+        let production_families = reference_families
+            .map(|views| views.into_iter().map(|view| prod_tree(&view)).collect());
+        Some(production_common_law_outcome::<panproto_lens::TreeShape>(
+            &pair.production,
+            prod_tree(source),
+            (),
+            production_families,
+        ))
+    } else {
+        Some(pair.with_reference(|lens| {
+            let lens = lens.expect("the common-basis tree checker requires a compiled lens");
+            reference_common_law_outcome::<RefTreeShape, _>(
+                lens,
+                source.clone(),
+                (),
+                reference_families,
+            )
+        }))
+    }
 }
 
 /// The positive reference-basis candidates a verdict list admits: the
@@ -10124,19 +11215,19 @@ fn graph_candidates(pair: &Pair, source: &RefGraph) -> Vec<Candidate<RefGraph>> 
         if let Ok(lens) = lens
             && let Ok((view, complement)) = RefGraphShape::get(lens, source, &())
         {
-            out.extend(
-                RefGraphShape::single_step_basis(lens, source, &view, &complement, &())
-                    .into_iter()
-                    .map(|case| Candidate {
-                        positive_reference: matches!(case.domain, DomainExpectation::Admitted),
-                        view: case.view,
-                    }),
-            );
+            for case in RefGraphShape::single_step_basis(lens, source, &view, &complement, &()) {
+                push_candidate(
+                    &mut out,
+                    ref_mutation_index(case.mutation),
+                    case.view,
+                    matches!(case.domain, DomainExpectation::Admitted),
+                );
+            }
         }
     });
     let production_source = prod_graph(source);
     if let Ok((view, complement)) = graph_lens::get(&pair.production, &production_source) {
-        for mutation in Mutation::ALL {
+        for (family, mutation) in Mutation::ALL.into_iter().enumerate() {
             match <panproto_lens::GraphShape as LawShape>::mutation_cases(
                 &pair.production,
                 &production_source,
@@ -10145,27 +11236,23 @@ fn graph_candidates(pair: &Pair, source: &RefGraph) -> Vec<Candidate<RefGraph>> 
                 &(),
                 mutation,
             ) {
-                MutationCases::Cases(views) => out.extend(views.iter().map(|view| Candidate {
-                    view: ref_graph(view),
-                    positive_reference: false,
-                })),
+                MutationCases::Cases(views) => {
+                    for view in views {
+                        push_candidate(&mut out, family, ref_graph(&view), false);
+                    }
+                }
                 MutationCases::Skip(_) => {}
             }
-            out.extend(
-                <panproto_lens::GraphShape as LawShape>::negative_mutation_cases(
-                    &pair.production,
-                    &production_source,
-                    &view,
-                    &complement,
-                    &(),
-                    mutation,
-                )
-                .iter()
-                .map(|case| Candidate {
-                    view: ref_graph(&case.view),
-                    positive_reference: false,
-                }),
-            );
+            for case in <panproto_lens::GraphShape as LawShape>::negative_mutation_cases(
+                &pair.production,
+                &production_source,
+                &view,
+                &complement,
+                &(),
+                mutation,
+            ) {
+                push_candidate(&mut out, family, ref_graph(&case.view), false);
+            }
         }
     }
     out
@@ -10228,19 +11315,19 @@ fn tree_candidates(pair: &Pair, source: &RefTree) -> Vec<Candidate<RefTree>> {
         if let Ok(lens) = lens
             && let Ok((view, complement)) = RefTreeShape::get(lens, source, &())
         {
-            out.extend(
-                RefTreeShape::single_step_basis(lens, source, &view, &complement, &())
-                    .into_iter()
-                    .map(|case| Candidate {
-                        positive_reference: matches!(case.domain, DomainExpectation::Admitted),
-                        view: case.view,
-                    }),
-            );
+            for case in RefTreeShape::single_step_basis(lens, source, &view, &complement, &()) {
+                push_candidate(
+                    &mut out,
+                    ref_mutation_index(case.mutation),
+                    case.view,
+                    matches!(case.domain, DomainExpectation::Admitted),
+                );
+            }
         }
     });
     let production_source = prod_tree(source);
     if let Ok((view, complement)) = panproto_lens::get(&pair.production, &production_source) {
-        for mutation in Mutation::ALL {
+        for (family, mutation) in Mutation::ALL.into_iter().enumerate() {
             match <panproto_lens::TreeShape as LawShape>::mutation_cases(
                 &pair.production,
                 &production_source,
@@ -10249,27 +11336,23 @@ fn tree_candidates(pair: &Pair, source: &RefTree) -> Vec<Candidate<RefTree>> {
                 &(),
                 mutation,
             ) {
-                MutationCases::Cases(views) => out.extend(views.iter().map(|view| Candidate {
-                    view: ref_tree(view),
-                    positive_reference: false,
-                })),
+                MutationCases::Cases(views) => {
+                    for view in views {
+                        push_candidate(&mut out, family, ref_tree(&view), false);
+                    }
+                }
                 MutationCases::Skip(_) => {}
             }
-            out.extend(
-                <panproto_lens::TreeShape as LawShape>::negative_mutation_cases(
-                    &pair.production,
-                    &production_source,
-                    &view,
-                    &complement,
-                    &(),
-                    mutation,
-                )
-                .iter()
-                .map(|case| Candidate {
-                    view: ref_tree(&case.view),
-                    positive_reference: false,
-                }),
-            );
+            for case in <panproto_lens::TreeShape as LawShape>::negative_mutation_cases(
+                &pair.production,
+                &production_source,
+                &view,
+                &complement,
+                &(),
+                mutation,
+            ) {
+                push_candidate(&mut out, family, ref_tree(&case.view), false);
+            }
         }
     }
     out
@@ -10333,31 +11416,32 @@ fn reference_tree_admissions(
 /// by the two independently generated bases, so origin flags and negative
 /// families are merged when its exact table presentation is deduplicated.
 struct TableCandidate {
+    mutation: usize,
     view: RefTable,
     positive_reference: bool,
-    negative_families: BTreeSet<usize>,
+    declared_negative: bool,
 }
 
 fn push_table_candidate(
     candidates: &mut Vec<TableCandidate>,
+    mutation: usize,
     view: RefTable,
     positive_reference: bool,
-    negative_family: Option<usize>,
+    declared_negative: bool,
 ) {
     if let Some(candidate) = candidates
         .iter_mut()
-        .find(|candidate| candidate.view == view)
+        .find(|candidate| candidate.mutation == mutation && candidate.view == view)
     {
         candidate.positive_reference |= positive_reference;
-        if let Some(family) = negative_family {
-            candidate.negative_families.insert(family);
-        }
+        candidate.declared_negative |= declared_negative;
         return;
     }
     candidates.push(TableCandidate {
+        mutation,
         view,
         positive_reference,
-        negative_families: negative_family.into_iter().collect(),
+        declared_negative,
     });
 }
 
@@ -10372,13 +11456,20 @@ fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> 
             for case in RefTableShape::single_step_basis(lens, source, &view, &complement, &()) {
                 match case.domain {
                     DomainExpectation::Admitted => {
-                        push_table_candidate(&mut candidates, case.view, true, None);
+                        push_table_candidate(
+                            &mut candidates,
+                            ref_mutation_index(case.mutation),
+                            case.view,
+                            true,
+                            false,
+                        );
                     }
                     DomainExpectation::Refused(_) => push_table_candidate(
                         &mut candidates,
+                        ref_mutation_index(case.mutation),
                         case.view,
                         false,
-                        Some(ref_mutation_index(case.mutation)),
+                        true,
                     ),
                 }
             }
@@ -10393,7 +11484,7 @@ fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> 
             src: pair.protocol.clone(),
             tgt: pair.protocol.clone(),
         };
-        for mutation in Mutation::ALL {
+        for (family, mutation) in Mutation::ALL.into_iter().enumerate() {
             match <panproto_lens::TableShape as LawShape>::mutation_cases(
                 &pair.production,
                 &production_source,
@@ -10404,15 +11495,17 @@ fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> 
             ) {
                 MutationCases::Cases(views) => {
                     for candidate in views {
-                        push_table_candidate(&mut candidates, ref_table(&candidate), false, None);
+                        push_table_candidate(
+                            &mut candidates,
+                            family,
+                            ref_table(&candidate),
+                            false,
+                            false,
+                        );
                     }
                 }
                 MutationCases::Skip(_) => {}
             }
-            let family = Mutation::ALL
-                .iter()
-                .position(|candidate| *candidate == mutation)
-                .expect("Mutation::ALL contains the iterated mutation");
             for case in <panproto_lens::TableShape as LawShape>::negative_mutation_cases(
                 &pair.production,
                 &production_source,
@@ -10421,11 +11514,47 @@ fn table_candidates(pair: &TablePair, source: &RefTable) -> Vec<TableCandidate> 
                 &context,
                 mutation,
             ) {
-                push_table_candidate(&mut candidates, ref_table(&case.view), false, Some(family));
+                push_table_candidate(&mut candidates, family, ref_table(&case.view), false, true);
             }
         }
     }
     candidates
+}
+
+fn table_common_laws(
+    pair: &TablePair,
+    source: &RefTable,
+    candidates: &[TableCandidate],
+    production: bool,
+) -> CommonBasisLawOutcome {
+    let reference_families = partition_common_views(
+        candidates.len(),
+        candidates
+            .iter()
+            .map(|candidate| (candidate.mutation, candidate.view.clone())),
+    );
+    if production {
+        let production_families = reference_families
+            .map(|views| views.into_iter().map(|view| prod_table(&view)).collect());
+        production_common_law_outcome::<panproto_lens::TableShape>(
+            &pair.production,
+            prod_table(source),
+            panproto_lens::TableContext {
+                src: pair.protocol.clone(),
+                tgt: pair.protocol.clone(),
+            },
+            production_families,
+        )
+    } else {
+        pair.with_reference(|lens, _| {
+            reference_common_law_outcome::<RefTableShape, _>(
+                lens,
+                source.clone(),
+                (),
+                reference_families,
+            )
+        })
+    }
 }
 
 fn production_table_domain_verdict(result: Result<(), Vec<PutDomainError>>) -> TableDomainVerdict {
@@ -10673,9 +11802,9 @@ fn table_admission_fixture_census(pair: &TablePair, source: &RefTable) -> [usize
     );
     let mut counts = [0_usize; EDIT_FAMILIES];
     for (candidate, verdict) in candidates.into_iter().zip(&reference.verdicts) {
-        for family in candidate.negative_families {
-            assert_observed_table_negative(Mutation::ALL[family], verdict);
-            counts[family] += 1;
+        if candidate.declared_negative {
+            assert_observed_table_negative(Mutation::ALL[candidate.mutation], verdict);
+            counts[candidate.mutation] += 1;
         }
     }
     counts
@@ -10759,6 +11888,32 @@ struct AdmissionTally {
     admitted: std::sync::atomic::AtomicUsize,
 }
 
+struct CommonBasisTally {
+    families: [std::sync::atomic::AtomicUsize; EDIT_FAMILIES],
+}
+
+impl Default for CommonBasisTally {
+    fn default() -> Self {
+        Self {
+            families: std::array::from_fn(|_| std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+}
+
+impl CommonBasisTally {
+    fn add(&self, counts: &[usize; EDIT_FAMILIES]) {
+        use std::sync::atomic::Ordering;
+        for (total, count) in self.families.iter().zip(counts) {
+            total.fetch_add(*count, Ordering::Relaxed);
+        }
+    }
+
+    fn snapshot(&self) -> [usize; EDIT_FAMILIES] {
+        use std::sync::atomic::Ordering;
+        std::array::from_fn(|family| self.families[family].load(Ordering::Relaxed))
+    }
+}
+
 impl Default for AdmissionTally {
     fn default() -> Self {
         Self {
@@ -10768,62 +11923,6 @@ impl Default for AdmissionTally {
     }
 }
 
-/// The admission census of one L.8 case on one side: graph and table cases,
-/// and tree cases inside the reference tree lens's domain. The reference side
-/// adds the deduplicated union to `tally`.
-fn law_admissions(
-    pairs: &[Pair],
-    table_pairs: &[Vec<TablePair>],
-    case: &LawCase,
-    production: bool,
-    tally: &AdmissionTally,
-) -> Option<AdmissionCensus> {
-    let census = match case {
-        LawCase::Graph(stage, source) => {
-            let candidates = graph_candidates(&pairs[*stage], source);
-            if production {
-                production_graph_admissions(&pairs[*stage], source, &candidates)
-            } else {
-                reference_graph_admissions(&pairs[*stage], source, &candidates)
-            }
-        }
-        LawCase::Tree(stage, tree) if reference_tree_case(&pairs[*stage], tree).is_some() => {
-            let candidates = tree_candidates(&pairs[*stage], tree);
-            if production {
-                production_tree_admissions(&pairs[*stage], tree, &candidates)
-            } else {
-                reference_tree_admissions(&pairs[*stage], tree, &candidates)
-            }
-        }
-        LawCase::Table(fixture) => {
-            let pair = &table_pairs[fixture.columns][fixture.retained];
-            let candidates = table_candidates(pair, &fixture.source);
-            let census = if production {
-                production_table_admissions(pair, &fixture.source, &candidates)
-            } else {
-                reference_table_admissions(pair, &fixture.source, &candidates)
-            };
-            if !production && let Some(census) = &census {
-                for (candidate, verdict) in candidates.iter().zip(&census.verdicts) {
-                    for &family in &candidate.negative_families {
-                        assert_observed_table_negative(Mutation::ALL[family], verdict);
-                    }
-                }
-            }
-            census
-        }
-        _ => None,
-    };
-    if !production && let Some(census) = &census {
-        use std::sync::atomic::Ordering;
-        tally
-            .candidates
-            .fetch_add(census.verdicts.len(), Ordering::Relaxed);
-        tally.admitted.fetch_add(census.admitted, Ordering::Relaxed);
-    }
-    census
-}
-
 /// The law-report case families of the L.8 scope.
 #[derive(Debug)]
 enum LawCase {
@@ -10831,6 +11930,162 @@ enum LawCase {
     Table(TableFixture),
     Graph(usize, RefGraph),
     Tree(usize, RefTree),
+}
+
+/// One common exact-presentation union prepared once for both sides.
+enum PreparedCommonBasis {
+    None,
+    Graph(Vec<Candidate<RefGraph>>),
+    Tree(Vec<Candidate<RefTree>>),
+    Table(Vec<TableCandidate>),
+}
+
+impl PreparedCommonBasis {
+    fn len(&self) -> Option<usize> {
+        match self {
+            Self::None => None,
+            Self::Graph(candidates) => Some(candidates.len()),
+            Self::Tree(candidates) => Some(candidates.len()),
+            Self::Table(candidates) => Some(candidates.len()),
+        }
+    }
+
+    fn family_counts(&self) -> Option<[usize; EDIT_FAMILIES]> {
+        let mut counts = [0_usize; EDIT_FAMILIES];
+        match self {
+            Self::None => return None,
+            Self::Graph(candidates) => {
+                for candidate in candidates {
+                    counts[candidate.mutation] += 1;
+                }
+            }
+            Self::Tree(candidates) => {
+                for candidate in candidates {
+                    counts[candidate.mutation] += 1;
+                }
+            }
+            Self::Table(candidates) => {
+                for candidate in candidates {
+                    counts[candidate.mutation] += 1;
+                }
+            }
+        }
+        Some(counts)
+    }
+}
+
+struct PreparedLawCase<'a> {
+    case: &'a LawCase,
+    common: PreparedCommonBasis,
+}
+
+impl std::fmt::Debug for PreparedLawCase<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.case, formatter)
+    }
+}
+
+fn prepare_law_case<'a>(context: &LawContext, case: &'a LawCase) -> PreparedLawCase<'a> {
+    let (pairs, table_pairs, _) = context;
+    let common = match case {
+        LawCase::Graph(stage, source) => {
+            PreparedCommonBasis::Graph(graph_candidates(&pairs[*stage], source))
+        }
+        LawCase::Tree(stage, tree) if reference_tree_case(&pairs[*stage], tree).is_some() => {
+            PreparedCommonBasis::Tree(tree_candidates(&pairs[*stage], tree))
+        }
+        LawCase::Table(fixture) => {
+            let pair = &table_pairs[fixture.columns][fixture.retained];
+            PreparedCommonBasis::Table(table_candidates(pair, &fixture.source))
+        }
+        LawCase::Partial(_, _) | LawCase::Tree(_, _) => PreparedCommonBasis::None,
+    };
+    PreparedLawCase { case, common }
+}
+
+/// Admission and full five-gate observations over one independently formed
+/// common basis. The immutable union is formed once, then both sides feed it
+/// to their own admission predicate and full five-gate checker.
+fn common_basis_evidence(
+    pairs: &[Pair],
+    table_pairs: &[Vec<TablePair>],
+    prepared: &PreparedLawCase<'_>,
+    production: bool,
+    admission_tally: &AdmissionTally,
+    basis_tally: &CommonBasisTally,
+) -> (Option<AdmissionCensus>, Option<CommonBasisLawOutcome>) {
+    let evidence = match (prepared.case, &prepared.common) {
+        (LawCase::Graph(stage, source), PreparedCommonBasis::Graph(candidates)) => {
+            let pair = &pairs[*stage];
+            let census = if production {
+                production_graph_admissions(&pairs[*stage], source, candidates)
+            } else {
+                reference_graph_admissions(&pairs[*stage], source, candidates)
+            };
+            let laws = graph_common_laws(pair, source, candidates, production);
+            (census, laws)
+        }
+        (LawCase::Tree(stage, tree), PreparedCommonBasis::Tree(candidates)) => {
+            let pair = &pairs[*stage];
+            let census = if production {
+                production_tree_admissions(pair, tree, candidates)
+            } else {
+                reference_tree_admissions(pair, tree, candidates)
+            };
+            let laws = tree_common_laws(pair, tree, candidates, production);
+            (census, laws)
+        }
+        (LawCase::Table(fixture), PreparedCommonBasis::Table(candidates)) => {
+            let pair = &table_pairs[fixture.columns][fixture.retained];
+            let census = if production {
+                production_table_admissions(pair, &fixture.source, candidates)
+            } else {
+                reference_table_admissions(pair, &fixture.source, candidates)
+            };
+            if !production && let Some(census) = &census {
+                for (candidate, verdict) in candidates.iter().zip(&census.verdicts) {
+                    if candidate.declared_negative {
+                        assert_observed_table_negative(Mutation::ALL[candidate.mutation], verdict);
+                    }
+                }
+            }
+            let laws = Some(table_common_laws(
+                pair,
+                &fixture.source,
+                candidates,
+                production,
+            ));
+            (census, laws)
+        }
+        (LawCase::Partial(_, _) | LawCase::Tree(_, _), PreparedCommonBasis::None) => (None, None),
+        _ => panic!("prepared L.8 case and common-basis carrier disagree"),
+    };
+    if let (Some(candidate_count), Some(census)) = (prepared.common.len(), &evidence.0) {
+        assert_eq!(
+            census.verdicts.len(),
+            candidate_count,
+            "the admission census must classify every common-basis candidate exactly once"
+        );
+    }
+    if let (Some(expected), Some(outcome)) = (prepared.common.family_counts(), &evidence.1) {
+        assert_eq!(
+            outcome.family_counts, expected,
+            "the full checker must preserve the prepared common-basis family counts"
+        );
+    }
+    if !production && let Some(census) = &evidence.0 {
+        use std::sync::atomic::Ordering;
+        admission_tally
+            .candidates
+            .fetch_add(census.verdicts.len(), Ordering::Relaxed);
+        admission_tally
+            .admitted
+            .fetch_add(census.admitted, Ordering::Relaxed);
+    }
+    if !production && let Some(outcome) = &evidence.1 {
+        basis_tally.add(&outcome.family_counts);
+    }
+    evidence
 }
 
 fn refused_law_outcome() -> LawOutcome {
@@ -10929,6 +12184,480 @@ fn reference_law_case(context: &LawContext, case: &LawCase) -> LawOutcome {
     }
 }
 
+fn id_h_empty_basis_refusal_witnesses() -> [RefGraph; 2] {
+    let label = RefSEdge::new("h", "a", "hyper_parent", Some("p"));
+    let graph = |node| RefGraph {
+        nodes: BTreeMap::from([(0, node)]),
+        edges: BTreeMap::from([(
+            0,
+            RefGEdge {
+                src: 0,
+                tgt: 0,
+                label: label.clone(),
+                position: None,
+            },
+        )]),
+    };
+
+    let mut hyper = RefNode::new(0, "h");
+    hyper.shape = RefNodeShape::HyperEdge;
+    [graph(hyper), graph(RefNode::new(0, "a"))]
+}
+
+#[test]
+fn empty_common_basis_refusals_normalize_identically() {
+    let stages = c11_stages();
+    let stage = c11_stage_index(&stages, "Id_h");
+    assert_eq!(stage, 16, "Id_h remains the seventeenth C11 stage");
+    let pair = Pair::from_stage(&stages[stage]);
+
+    for source in id_h_empty_basis_refusal_witnesses() {
+        let production_native = production_law_outcome(&graph_lens::check_laws(
+            &pair.production,
+            &prod_graph(&source),
+        ));
+        let reference_native = reference_graph_law_case(&pair, &source);
+        assert_eq!(production_native, refused_law_outcome());
+        assert_eq!(production_native, reference_native);
+
+        let candidates = graph_candidates(&pair, &source);
+        assert!(
+            candidates.is_empty(),
+            "the refused Id_h source has no mutation basis"
+        );
+        let production_common = graph_common_laws(&pair, &source, &candidates, true)
+            .expect("Id_h has an independently compiled reference lens");
+        let reference_common = graph_common_laws(&pair, &source, &candidates, false)
+            .expect("Id_h has an independently compiled reference lens");
+        assert_eq!(production_common.gates, refused_law_outcome());
+        assert_eq!(production_common.family_counts, [0; EDIT_FAMILIES]);
+        assert_eq!(production_common.admitted, None);
+        assert_eq!(production_common, reference_common);
+    }
+}
+
+fn stage_c_cycle_witnesses() -> [RefGraph; 2] {
+    let forward = RefSEdge::new("a", "b", "prop", Some("e"));
+    let backward = RefSEdge::new("b", "a", "prop", Some("e"));
+    let graph = |parallel| {
+        let mut edges = BTreeMap::from([
+            (
+                0,
+                RefGEdge {
+                    src: 1,
+                    tgt: 0,
+                    label: forward.clone(),
+                    position: None,
+                },
+            ),
+            (
+                1,
+                RefGEdge {
+                    src: 0,
+                    tgt: 1,
+                    label: backward.clone(),
+                    position: None,
+                },
+            ),
+        ]);
+        if parallel {
+            edges.insert(
+                2,
+                RefGEdge {
+                    src: 0,
+                    tgt: 1,
+                    label: backward.clone(),
+                    position: None,
+                },
+            );
+        }
+        RefGraph {
+            nodes: BTreeMap::from([(0, RefNode::new(0, "b")), (1, RefNode::new(1, "a"))]),
+            edges,
+        }
+    };
+    [graph(false), graph(true)]
+}
+
+/// The two isomorphic three-node stage-C states that expose a disagreement
+/// between the production and reference common-basis law checkers.
+fn stage_c_three_node_common_basis_witnesses() -> [RefGraph; 2] {
+    let forward = RefSEdge::new("a", "b", "prop", Some("e"));
+    let backward = RefSEdge::new("b", "a", "prop", Some("e"));
+    let graph = |first_a, second_a| RefGraph {
+        nodes: BTreeMap::from([
+            (0, RefNode::new(0, "b")),
+            (1, RefNode::new(1, "a")),
+            (2, RefNode::new(2, "a")),
+        ]),
+        edges: BTreeMap::from([
+            (
+                0,
+                RefGEdge {
+                    src: first_a,
+                    tgt: 0,
+                    label: forward.clone(),
+                    position: None,
+                },
+            ),
+            (
+                1,
+                RefGEdge {
+                    src: 0,
+                    tgt: first_a,
+                    label: backward.clone(),
+                    position: None,
+                },
+            ),
+            (
+                2,
+                RefGEdge {
+                    src: 0,
+                    tgt: second_a,
+                    label: backward.clone(),
+                    position: None,
+                },
+            ),
+        ]),
+    };
+    [graph(1, 2), graph(2, 1)]
+}
+
+#[test]
+fn stage_c_three_node_common_basis_laws_agree() {
+    let stages = c11_stages();
+    let stage = c11_stage_index(&stages, "C");
+    assert_eq!(stage, 21, "C remains the twenty-second C11 stage");
+    let pair = Pair::from_stage(&stages[stage]);
+    let expected_counts = [2, 4, 1, 2, 0, 0, 0, 0, 0, 2, 0, 0, 2, 2, 4, 0, 0];
+
+    let outcomes: Vec<_> = stage_c_three_node_common_basis_witnesses()
+        .into_iter()
+        .map(|source| {
+            let candidates = graph_candidates(&pair, &source);
+            let reference_families = partition_common_views(
+                candidates.len(),
+                candidates
+                    .iter()
+                    .map(|candidate| (candidate.mutation, candidate.view.clone())),
+            );
+            let ordered_reference_basis: Vec<_> = reference_families
+                .iter()
+                .enumerate()
+                .flat_map(|(family, views)| {
+                    views
+                        .iter()
+                        .map(move |view| (Mutation::ALL[family], view))
+                })
+                .collect();
+            let reference_report = pair.with_reference(|lens| {
+                let lens = lens.expect("stage C compiles in the independent reference");
+                reference_common_law_report::<RefGraphShape, _>(
+                    lens,
+                    source.clone(),
+                    (),
+                    reference_families.clone(),
+                )
+                .0
+            });
+            assert_eq!(reference_report.admitted, 11);
+            let put_twice = reference_report
+                .gates
+                .iter()
+                .find(|gate| gate.gate == panproto_reference::lens::LawGate::PutTwice)
+                .expect("the five-gate report contains PutTwice");
+            match &put_twice.status {
+                LawGateStatus::Passed { cases } => assert_eq!(*cases, 11),
+                LawGateStatus::Failed(panproto_reference::lens::LawFailure::Refusal {
+                    case: Some(case),
+                    operation,
+                    refusal,
+                }) => {
+                    let (mutation, view) = ordered_reference_basis
+                        .get(*case)
+                        .expect("the failure ordinal names a common-basis candidate");
+                    panic!(
+                        "stage-C common-basis PutTwice refused: case={case}, mutation={mutation:?}, operation={operation:?}, refusal={refusal:#?}, view={view:#?}"
+                    );
+                }
+                status => panic!("stage-C common-basis PutTwice failed: {status:#?}"),
+            }
+            let production_admission = production_graph_admissions(&pair, &source, &candidates)
+                .expect("stage C gets on the production side");
+            let reference_admission = reference_graph_admissions(&pair, &source, &candidates)
+                .expect("stage C gets on the reference side");
+            assert_eq!(production_admission, reference_admission);
+            assert_eq!(production_admission.admitted, 3);
+
+            let production = graph_common_laws(&pair, &source, &candidates, true)
+                .expect("stage C compiles on both sides");
+            let reference = graph_common_laws(&pair, &source, &candidates, false)
+                .expect("stage C compiles on both sides");
+            assert_eq!(production.family_counts, expected_counts);
+            assert_eq!(reference.family_counts, expected_counts);
+            (production, reference)
+        })
+        .collect();
+
+    assert_eq!(outcomes.len(), 2);
+    assert_eq!(outcomes[0].0, outcomes[0].1);
+    assert_eq!(outcomes[1].0, outcomes[1].1);
+}
+
+#[derive(Debug)]
+struct GraphPutGetTrace {
+    mutation: &'static str,
+    edited_view: RefGraph,
+    original_view: RefGraph,
+    original_complement: RefComplement,
+    restored_source: RefGraph,
+    observed_view: RefGraph,
+    observed_complement: RefComplement,
+    expected_index: String,
+    observed_index: String,
+    equivalent: bool,
+    divergence: Option<String>,
+}
+
+fn production_graph_put_get_trace(
+    pair: &Pair,
+    source: &RefGraph,
+    candidate: &Candidate<RefGraph>,
+) -> GraphPutGetTrace {
+    let source = prod_graph(source);
+    let (original_view, complement) = graph_lens::get(&pair.production, &source)
+        .expect("the stage-C witness is in the production get domain");
+    let edited_view = prod_graph(&candidate.view);
+    assert_eq!(
+        graph_lens::check_put_domain(&pair.production, &edited_view, &complement),
+        Ok(()),
+        "the trace is only defined for an admitted production candidate"
+    );
+    let restored_source = graph_lens::put(&pair.production, &edited_view, &complement)
+        .expect("an admitted production candidate is total");
+    let (observed_view, observed_complement) = graph_lens::get(&pair.production, &restored_source)
+        .expect("the restored production source regets");
+    let expected_index = <panproto_lens::GraphShape as panproto_lens::LensShape>::synth_index(
+        &edited_view,
+        &complement,
+    );
+    let observed_index = <panproto_lens::GraphShape as panproto_lens::LensShape>::synth_index(
+        &observed_view,
+        &observed_complement,
+    );
+    let equivalent = <panproto_lens::GraphShape as panproto_lens::LensShape>::equivalent(
+        &edited_view,
+        &expected_index,
+        &observed_view,
+        &observed_index,
+    );
+    let divergence = <panproto_lens::GraphShape as panproto_lens::LensShape>::divergence(
+        &edited_view,
+        &expected_index,
+        &observed_view,
+        &observed_index,
+    );
+    GraphPutGetTrace {
+        mutation: Mutation::ALL[candidate.mutation].as_str(),
+        edited_view: candidate.view.clone(),
+        original_view: ref_graph(&original_view),
+        original_complement: ref_complement(&complement),
+        restored_source: ref_graph(&restored_source),
+        observed_view: ref_graph(&observed_view),
+        observed_complement: ref_complement(&observed_complement),
+        expected_index: format!("{expected_index:?}"),
+        observed_index: format!("{observed_index:?}"),
+        equivalent,
+        divergence,
+    }
+}
+
+fn reference_graph_put_get_trace(
+    pair: &Pair,
+    source: &RefGraph,
+    candidate: &Candidate<RefGraph>,
+) -> GraphPutGetTrace {
+    pair.with_reference(|lens| {
+        let lens = lens.expect("stage C compiles in the independent reference");
+        let (original_view, complement) = panproto_reference::lens::get(lens, source)
+            .expect("the stage-C witness is in the reference get domain");
+        assert_eq!(
+            RefGraphLens::check_put_domain(lens, &candidate.view, &complement),
+            Ok(()),
+            "the trace is only defined for an admitted reference candidate"
+        );
+        let restored_source = RefGraphLens::put(lens, &candidate.view, &complement)
+            .expect("an admitted reference candidate is total");
+        let (observed_view, observed_complement) =
+            panproto_reference::lens::get(lens, &restored_source)
+                .expect("the restored reference source regets");
+        let expected_index = <RefGraphShape as panproto_reference::lens::LensShape>::synth_index(
+            &candidate.view,
+            &complement,
+        );
+        let observed_index = <RefGraphShape as panproto_reference::lens::LensShape>::synth_index(
+            &observed_view,
+            &observed_complement,
+        );
+        let equivalent = <RefGraphShape as panproto_reference::lens::LensShape>::equivalent(
+            &candidate.view,
+            &expected_index,
+            &observed_view,
+            &observed_index,
+        );
+        let divergence = <RefGraphShape as panproto_reference::lens::LensShape>::divergence(
+            &candidate.view,
+            &expected_index,
+            &observed_view,
+            &observed_index,
+        )
+        .map(|difference| format!("{difference:?}"));
+        GraphPutGetTrace {
+            mutation: Mutation::ALL[candidate.mutation].as_str(),
+            edited_view: candidate.view.clone(),
+            original_view,
+            original_complement: without_identity(&complement),
+            restored_source,
+            observed_view,
+            observed_complement: without_identity(&observed_complement),
+            expected_index: format!("{expected_index:?}"),
+            observed_index: format!("{observed_index:?}"),
+            equivalent,
+            divergence,
+        }
+    })
+}
+
+#[test]
+fn stage_c_common_basis_put_get_traces_agree() {
+    let stages = c11_stages();
+    let stage = c11_stage_index(&stages, "C");
+    assert_eq!(stage, 21, "C remains the twenty-second C11 stage");
+    let pair = Pair::from_stage(&stages[stage]);
+
+    for source in stage_c_cycle_witnesses() {
+        let production_native = production_law_outcome(&graph_lens::check_laws(
+            &pair.production,
+            &prod_graph(&source),
+        ));
+        let reference_native = reference_graph_law_case(&pair, &source);
+        assert!(production_native.first_failure.is_none());
+        assert_eq!(production_native, reference_native);
+        let candidates = graph_candidates(&pair, &source);
+        assert_eq!(
+            PreparedCommonBasis::Graph(graph_candidates(&pair, &source)).family_counts(),
+            Some([1, 2, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0])
+        );
+        let reference_report = pair.with_reference(|lens| {
+            let lens = lens.expect("stage C compiles in the independent reference");
+            let families = partition_common_views(
+                candidates.len(),
+                candidates
+                    .iter()
+                    .map(|candidate| (candidate.mutation, candidate.view.clone())),
+            );
+            reference_common_law_report::<RefGraphShape, _>(lens, source.clone(), (), families).0
+        });
+        assert_eq!(reference_report.admitted, 6);
+        assert_eq!(
+            reference_report
+                .gates
+                .iter()
+                .find(|gate| gate.gate == panproto_reference::lens::LawGate::PutGet)
+                .map(|gate| &gate.status),
+            Some(&LawGateStatus::Passed { cases: 6 })
+        );
+        assert_eq!(
+            reference_report
+                .gates
+                .iter()
+                .find(|gate| gate.gate == panproto_reference::lens::LawGate::Congruence)
+                .map(|gate| &gate.status),
+            Some(&LawGateStatus::Passed { cases: 1 })
+        );
+        let production_admissions = production_graph_admissions(&pair, &source, &candidates)
+            .expect("stage C gets on the production side");
+        let reference_admissions = reference_graph_admissions(&pair, &source, &candidates)
+            .expect("stage C gets on the reference side");
+        assert_eq!(production_admissions, reference_admissions);
+        assert_eq!(
+            production_admissions
+                .verdicts
+                .iter()
+                .filter(|verdict| verdict.is_admitted())
+                .count(),
+            6
+        );
+
+        let remove_node_family = Mutation::ALL
+            .iter()
+            .position(|mutation| *mutation == Mutation::RemoveNode)
+            .expect("Mutation::ALL contains RemoveNode");
+        let admitted_remove_node: Vec<_> = candidates
+            .iter()
+            .zip(&production_admissions.verdicts)
+            .filter(|(candidate, verdict)| {
+                candidate.mutation == remove_node_family && verdict.is_admitted()
+            })
+            .map(|(candidate, _)| candidate)
+            .collect();
+        let [removed] = admitted_remove_node.as_slice() else {
+            panic!("each stage-C cycle witness has exactly one admitted node removal")
+        };
+        assert!(removed.view.nodes.is_empty());
+        assert!(removed.view.edges.is_empty());
+        pair.with_reference(|lens| {
+            let lens = lens.expect("stage C compiles in the independent reference");
+            let (original_view, complement) = panproto_reference::lens::get(lens, &source)
+                .expect("the stage-C witness is in the reference get domain");
+            let original_index =
+                <RefGraphShape as panproto_reference::lens::LensShape>::synth_index(
+                    &original_view,
+                    &complement,
+                );
+            let deleted_index = <RefGraphShape as panproto_reference::lens::LensShape>::synth_index(
+                &removed.view,
+                &complement,
+            );
+            assert_eq!(original_index.nodes.len(), 0);
+            assert_eq!(original_index.edges.len(), 1);
+            assert!(deleted_index.nodes.is_empty());
+            assert!(deleted_index.edges.is_empty());
+        });
+
+        for (candidate, verdict) in candidates.iter().zip(&production_admissions.verdicts) {
+            if !verdict.is_admitted() {
+                continue;
+            }
+            let production = production_graph_put_get_trace(&pair, &source, candidate);
+            let reference = reference_graph_put_get_trace(&pair, &source, candidate);
+            assert_eq!(production.mutation, reference.mutation);
+            assert_eq!(production.edited_view, reference.edited_view);
+            assert_eq!(production.original_view, reference.original_view);
+            assert_eq!(
+                production.original_complement,
+                reference.original_complement
+            );
+            assert_eq!(production.restored_source, reference.restored_source);
+            assert_eq!(production.observed_view, reference.observed_view);
+            assert_eq!(
+                production.observed_complement,
+                reference.observed_complement
+            );
+            assert_eq!(
+                production.equivalent, reference.equivalent,
+                "stage-C common-basis PutGet verdict differs\nproduction={production:#?}\nreference={reference:#?}"
+            );
+            assert!(!production.expected_index.is_empty());
+            assert!(!reference.expected_index.is_empty());
+            assert!(!production.observed_index.is_empty());
+            assert!(!reference.observed_index.is_empty());
+            assert_eq!(production.divergence.is_none(), production.equivalent);
+            assert_eq!(reference.divergence.is_none(), reference.equivalent);
+        }
+    }
+}
+
 #[test]
 fn lens_laws_agree_with_the_reference_exhaustively() {
     let stages = c11_stages();
@@ -10972,23 +12701,24 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
     );
     println!("{bound}");
     let tally = AdmissionTally::default();
+    let common_tally = CommonBasisTally::default();
     let compared = assert_agree(agree_in_parallel(
         &bound,
         &cases,
         context,
-        |_, case| vec![case],
-        |context: &LawContext, case: &&LawCase| {
+        |context, case| vec![prepare_law_case(context, case)],
+        |context: &LawContext, prepared: &PreparedLawCase<'_>| {
             let (pairs, table_pairs, _) = context;
             (
-                production_law_case(context, case),
-                law_admissions(pairs, table_pairs, case, true, &tally),
+                production_law_case(context, prepared.case),
+                common_basis_evidence(pairs, table_pairs, prepared, true, &tally, &common_tally),
             )
         },
-        |context: &LawContext, case: &&LawCase| {
+        |context: &LawContext, prepared: &PreparedLawCase<'_>| {
             let (pairs, table_pairs, _) = context;
             (
-                reference_law_case(context, case),
-                law_admissions(pairs, table_pairs, case, false, &tally),
+                reference_law_case(context, prepared.case),
+                common_basis_evidence(pairs, table_pairs, prepared, false, &tally, &common_tally),
             )
         },
         |production, reference| production == reference,
@@ -10998,7 +12728,13 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
         tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
     );
-    assert_eq!(compared, u64::try_from(cases.len()).unwrap());
+    let common_counts = common_tally.snapshot();
+    println!("L.8 common five-gate basis by mutation family: {common_counts:?}");
+    assert!(
+        common_counts.iter().all(|count| *count > 0),
+        "every mutation family must occur in the independently formed common basis"
+    );
+    assert_eq!(compared, 200_606);
 }
 
 // ---------------------------------------------------------------------------

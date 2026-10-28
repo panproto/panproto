@@ -36,11 +36,16 @@ use crate::error::LensDslError;
 /// the null resolver (one-level resolution). A reference whose `id` is
 /// absent from `docs_by_id`, or whose target fails to compile, surfaces
 /// as [`LensDslError::UnresolvedRef`] naming the missing `id`.
+/// A referenced document with a `symmetric` body surfaces as
+/// [`LensDslError::SymmetricRefInDirectionalCompose`], because directed
+/// composition cannot select one leg without losing the span's meaning.
 ///
 /// # Errors
 ///
 /// Propagates compilation errors from `doc`, including
-/// [`LensDslError::UnresolvedRef`] for unresolved references.
+/// [`LensDslError::UnresolvedRef`] for unresolved references and
+/// [`LensDslError::SymmetricRefInDirectionalCompose`] for symmetric
+/// references in a directed `compose` body.
 pub fn compile_with_refs<S: BuildHasher>(
     doc: &LensDocument,
     body_vertex: &str,

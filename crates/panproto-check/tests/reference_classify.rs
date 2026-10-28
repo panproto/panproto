@@ -504,7 +504,7 @@ fn non_key_classification_axes_match_the_reference() {
 
     let mut structural = base.clone();
     structural.entries.push("holder".to_owned());
-    cases.push(("nondeclaration fail closed", base, structural, Breaking));
+    cases.push(("entry change fails closed", base, structural, Breaking));
 
     assert_eq!(cases.len(), 28);
     for (name, before, after, expected) in cases {

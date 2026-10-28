@@ -16,6 +16,7 @@ use panproto_c::api::data::{
     pp_data_migrate_backward, pp_data_migrate_forward, pp_data_store_dataset,
 };
 use panproto_c::api::helpers::default_protocol;
+use panproto_c::api::lens::{pp_lens_compile_document, pp_lens_compile_document_with_refs};
 use panproto_c::api::protocol::pp_protocol_serialize;
 use panproto_c::api::schema::pp_schema_to_cbor;
 use panproto_c::api::vcs::{pp_vcs_branch, pp_vcs_commit, pp_vcs_init};
@@ -107,6 +108,26 @@ fn define_protocol() -> u32 {
     );
     handle
 }
+
+const SYMMETRIC_LENS_DOCUMENT: &[u8] = br#"{
+    "id": "symmetric-demo",
+    "source": "left",
+    "target": "right",
+    "symmetric": {
+        "left": [{ "remove_field": "left-only" }],
+        "right": [{ "remove_field": "right-only" }]
+    }
+}"#;
+
+const DIRECTIONAL_COMPOSE_DOCUMENT: &[u8] = br#"{
+    "id": "directional-root",
+    "source": "left",
+    "target": "right",
+    "compose": {
+        "mode": "vertical",
+        "lenses": [{ "ref": "symmetric-demo" }]
+    }
+}"#;
 
 // ---------------------------------------------------------------------
 // The slot and the boundary guard
@@ -219,6 +240,72 @@ fn a_protocol_handle_encoded_as_a_schema_is_a_type_mismatch() {
     assert!(env.message.contains("Protocol"));
 
     assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
+}
+
+// ---------------------------------------------------------------------
+// Directional lens-document boundary
+// ---------------------------------------------------------------------
+
+fn assert_symmetric_document_error(envelope: &ErrorEnvelope) {
+    assert_eq!(envelope.tag, "operation");
+    assert!(
+        envelope.message.contains("symmetric lens documents")
+            && envelope.message.contains("pp_lens_symmetric_from_schemas")
+            && envelope.message.contains("pp_lens_symmetric_sync"),
+        "the error directs callers to the symmetric boundary: {}",
+        envelope.message
+    );
+}
+
+fn assert_symmetric_reference_error(envelope: &ErrorEnvelope) {
+    assert_eq!(envelope.tag, "operation");
+    assert!(
+        envelope.message.contains("symmetric-demo")
+            && envelope.message.contains("symmetric body")
+            && envelope.message.contains("directed compose"),
+        "the error identifies the symmetric reference rejected by directed compose: {}",
+        envelope.message
+    );
+}
+
+#[test]
+fn directional_document_compile_rejects_a_symmetric_body() {
+    let _slot = exclusive_slot();
+    let mut out = u32::MAX;
+    let status = pp_lens_compile_document(
+        slice(SYMMETRIC_LENS_DOCUMENT).as_ref(),
+        slice(b"json").as_ref(),
+        slice(b"record").as_ref(),
+        &mut out,
+    );
+
+    assert_eq!(status, PpStatus::Operation as i32);
+    assert_eq!(out, u32::MAX, "no handle is allocated on rejection");
+    assert_symmetric_document_error(&drain().expect("an error envelope is stashed"));
+}
+
+#[test]
+fn directional_document_compile_with_refs_rejects_a_symmetric_reference() {
+    let _slot = exclusive_slot();
+    let refs = encode(&HashMap::from([(
+        "symmetric-demo".to_owned(),
+        std::str::from_utf8(SYMMETRIC_LENS_DOCUMENT)
+            .expect("symmetric fixture is UTF-8")
+            .to_owned(),
+    )]))
+    .expect("symmetric reference bundle encodes");
+    let mut out = u32::MAX;
+    let status = pp_lens_compile_document_with_refs(
+        slice(DIRECTIONAL_COMPOSE_DOCUMENT).as_ref(),
+        slice(b"json").as_ref(),
+        slice(b"record").as_ref(),
+        slice(&refs).as_ref(),
+        &mut out,
+    );
+
+    assert_eq!(status, PpStatus::Operation as i32);
+    assert_eq!(out, u32::MAX, "no handle is allocated on rejection");
+    assert_symmetric_reference_error(&drain().expect("an error envelope is stashed"));
 }
 
 // ---------------------------------------------------------------------

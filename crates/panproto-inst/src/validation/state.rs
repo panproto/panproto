@@ -55,9 +55,9 @@ pub fn part_name(part: &KeyPart) -> String {
 /// The values reached from `start` along `path`, in element order.
 ///
 /// Each hop follows the out-edges labelled with the hop's edge. At the last
-/// hop the value is the own value of each node reached; when no node is
-/// reached there, the field named like the last edge (a node's extra field,
-/// a row's cell) of each node before it is read instead. Absent and null
+/// hop, each frontier node independently contributes the own values of its
+/// matching targets or, when it has no matching target, its field named like
+/// the last edge (a node's extra field or a row's cell). Absent and null
 /// values are skipped.
 pub fn path_values<'a>(view: InstanceView<'a>, start: &ViewRef, path: &[Edge]) -> Vec<&'a Value> {
     let Some((last, hops)) = path.split_last() else {
@@ -72,27 +72,32 @@ pub fn path_values<'a>(view: InstanceView<'a>, start: &ViewRef, path: &[Edge]) -
             .map(|e| e.tgt)
             .collect();
     }
-    let reached: Vec<ViewRef> = frontier
+    let field = last
+        .name
+        .as_ref()
+        .map_or_else(|| last.tgt.to_string(), Name::to_string);
+    frontier
         .iter()
-        .flat_map(|n| view.out_edges(n))
-        .filter(|e| e.label == last)
-        .map(|e| e.tgt)
-        .collect();
-    if reached.is_empty() {
-        let field = last
-            .name
-            .as_ref()
-            .map_or_else(|| last.tgt.to_string(), Name::to_string);
-        frontier
-            .iter()
-            .filter_map(|n| view.field(n, &field).value())
-            .collect()
-    } else {
-        reached
-            .iter()
-            .filter_map(|n| view.own_value(n).value())
-            .collect()
-    }
+        .flat_map(|node| {
+            let reached: Vec<ViewRef> = view
+                .out_edges(node)
+                .into_iter()
+                .filter(|edge| edge.label == last)
+                .map(|edge| edge.tgt)
+                .collect();
+            if reached.is_empty() {
+                view.field(node, &field)
+                    .value()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            } else {
+                reached
+                    .iter()
+                    .filter_map(|target| view.own_value(target).value())
+                    .collect()
+            }
+        })
+        .collect()
 }
 
 /// The value of one key part of `element`: the first value along its path,
@@ -132,6 +137,7 @@ pub fn scope_of(view: InstanceView<'_>, element: &ViewRef, scope: &KeyScope) -> 
         let mut next: Vec<ViewRef> = frontier
             .iter()
             .flat_map(|n| view.in_edges(n))
+            .filter(|edge| view.is_ordinary_edge(edge))
             .map(|e| e.src)
             .filter(|n| seen.insert(n.clone()))
             .collect();

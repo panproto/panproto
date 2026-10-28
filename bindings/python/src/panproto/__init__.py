@@ -2,7 +2,7 @@
 
 Native Python bindings via PyO3. Provides protocol-aware schema construction,
 bidirectional migrations with lens laws, breaking change detection, instance
-I/O across 76 protocols, GAT operations, and schematic version control.
+I/O across 50 protocol codecs, GAT operations, and schematic version control.
 """
 
 from panproto._native import AstParserRegistry as _AstParserRegistryNative

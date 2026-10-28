@@ -47,7 +47,7 @@ class SchemaBuilder:
 
 ## Migration direction
 
-For a `CompiledMigration` whose schema mapping is \(S\to T\), `lift(instance)` accepts an \(S\)-instance and returns the surviving fragment as a \(T\)-instance. The method calls Rust's restrict-based `lift_wtype`. It is neither the left Kan extension \(\Sigma_F\) nor precomposition \(\Delta_F\). `get` uses the same source-to-target operation and returns a complement with the view. `put` accepts the target view and complement and reconstructs a source instance.
+For a `CompiledMigration` whose schema mapping is $S \to T$, `lift(instance, src_protocol, tgt_protocol=None)` accepts an $S$-instance and returns the surviving fragment as a $T$-instance. It validates the input under `src_protocol` and the output under `tgt_protocol`; when the latter is omitted, it defaults to `src_protocol`. A boundary-validation failure raises `MigrationError` with `side` set to `"input"` or `"output"` and `report` set to the corresponding `ValidationReport`. The method calls Rust's restrict-based `lift_wtype`. It is neither the left Kan extension $\Sigma_F$ nor precomposition $\Delta_F$. `get` uses the same source-to-target operation and returns a complement with the view. `put` accepts the target view and complement and reconstructs a source instance.
 
 ## Morphism search
 
@@ -100,7 +100,7 @@ find_morphisms(
 
 PyO3 objects follow Python reference ownership. The public stub exposes no `dispose`, `release`, or `close` method for schema, migration, lens, theory, repository, parser, or project objects.
 
-`PanprotoError` is the common exception base. Domain subclasses include `SchemaValidationError`, `MigrationError`, `LensError`, `CheckError`, `ExistenceCheckError`, `ExprError`, `GatError`, `IoError`, `VcsError`, `ParseError`, `ProjectError`, and `GitBridgeError`.
+`PanprotoError` is the common exception base. Domain subclasses include `SchemaValidationError`, `MigrationError`, `LensError`, `CheckError`, `ExistenceCheckError`, `ExprError`, `GatError`, `IoError`, `VcsError`, `ParseError`, `ProjectError`, and `GitBridgeError`. `MigrationError.side` and `.report` are `None` except when a failed `CompiledMigration.lift` boundary check attaches the values described above.
 
 The wheel includes `py.typed` and `_native.pyi`. Repository tests compare the stub's public declarations with the loaded extension and check callable signatures, so generated documentation should follow the stub rather than infer signatures from Rust names.
 

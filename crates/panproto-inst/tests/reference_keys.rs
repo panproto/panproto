@@ -10,7 +10,10 @@ use panproto_inst::validation::{
     CheckKind, ExternalVerdicts, IncompleteReason, Requirement, ValidationBudget,
     ValidationOptions, ValidationPlan, Violation,
 };
-use panproto_inst::{EdgeId, FieldPresence, GEdge, GInstance, Node, Value, ViewRef};
+use panproto_inst::{
+    EdgeId, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, Node, NodeShape,
+    Value, ViewRef,
+};
 use panproto_reference::enumerate::keys_and_registration as enumerate;
 use panproto_reference::exact::Decimal as ReferenceDecimal;
 use panproto_reference::model::{
@@ -184,6 +187,39 @@ impl GraphPair {
             EdgeId(id),
             GEdge::new(src, tgt, production_edge(label)).with_position(position),
         )?;
+        Ok(())
+    }
+
+    fn add_field(
+        &mut self,
+        id: u32,
+        name: &str,
+        value: ReferenceValue,
+    ) -> Result<(), Box<dyn Error>> {
+        self.reference
+            .nodes
+            .get_mut(&id)
+            .ok_or_else(|| invalid(format!("missing reference node {id}")))?
+            .fields
+            .insert(name.to_owned(), value.clone());
+        self.production
+            .node_mut(id)
+            .ok_or_else(|| invalid(format!("missing production node {id}")))?
+            .extra_fields
+            .insert(name.into(), production_value(&value)?);
+        Ok(())
+    }
+
+    fn mark_fan(&mut self, id: u32) -> Result<(), Box<dyn Error>> {
+        self.reference
+            .nodes
+            .get_mut(&id)
+            .ok_or_else(|| invalid(format!("missing reference node {id}")))?
+            .shape = panproto_reference::model::NodeShape::HyperEdge;
+        self.production
+            .node_mut(id)
+            .ok_or_else(|| invalid(format!("missing production node {id}")))?
+            .shape = NodeShape::HyperEdge;
         Ok(())
     }
 }
@@ -521,11 +557,16 @@ fn validation_reconstructs_position_buckets() -> Result<(), Box<dyn Error>> {
     for id in [10, 11, 20, 21] {
         pair.add_node(id, "item", None)?;
     }
-    // No explicit position is present, so both implementations derive the
-    // ordinal from `(position, edge id)`.  The edge ids intentionally differ
-    // between parents while producing the same two ordinal buckets.
-    for (edge_id, src, tgt) in [(40, 0, 10), (50, 0, 11), (10, 1, 20), (30, 1, 21)] {
-        pair.add_edge(edge_id, src, tgt, &within, None)?;
+    // Stored positions order siblings; the key part is their zero-based
+    // ordinal, not the stored position itself. Edge ids break equal-position
+    // ties and intentionally differ between parents.
+    for (edge_id, src, tgt, position) in [
+        (40, 0, 10, Some(100)),
+        (50, 0, 11, Some(300)),
+        (10, 1, 20, Some(100)),
+        (30, 1, 21, Some(300)),
+    ] {
+        pair.add_edge(edge_id, src, tgt, &within, position)?;
     }
     let key = reference::Key {
         id: "position-key".to_owned(),
@@ -540,6 +581,95 @@ fn validation_reconstructs_position_buckets() -> Result<(), Box<dyn Error>> {
         &[("list", "object"), ("item", "object")],
         std::slice::from_ref(&within),
         std::slice::from_ref(&within),
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
+#[test]
+fn validation_identifies_exact_parallel_position_edges() -> Result<(), Box<dyn Error>> {
+    let within = ReferenceSchemaEdge::new("list", "item", "prop", Some("items"));
+    let mut pair = GraphPair::default();
+    for id in [0, 1] {
+        pair.add_node(id, "list", None)?;
+    }
+    for id in [10, 20] {
+        pair.add_node(id, "item", None)?;
+    }
+    // Each item has two parallel incoming edges. Edge-id order selects the
+    // later-positioned edge, so target identity alone would return ordinal 0
+    // while exact incoming-edge identity returns ordinal 1.
+    for (edge_id, src, tgt, position) in [
+        (40, 0, 10, Some(300)),
+        (50, 0, 10, Some(100)),
+        (10, 1, 20, Some(300)),
+        (30, 1, 20, Some(100)),
+    ] {
+        pair.add_edge(edge_id, src, tgt, &within, position)?;
+    }
+    let key = reference::Key {
+        id: "parallel-position-key".to_owned(),
+        parts: vec![reference::KeyPart::Position {
+            within: within.clone(),
+        }],
+        role: reference::KeyRole::Unique,
+        scope: reference::KeyScope::Document,
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[("list", "object"), ("item", "object")],
+        std::slice::from_ref(&within),
+        std::slice::from_ref(&within),
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
+#[test]
+fn path_fallback_is_decided_per_last_hop_frontier_node() -> Result<(), Box<dyn Error>> {
+    let branch = ReferenceSchemaEdge::new("item", "branch", "prop", Some("branch"));
+    let value = ReferenceSchemaEdge::new("branch", "scalar", "prop", Some("value"));
+    let mut pair = GraphPair::default();
+    for id in [0, 1] {
+        pair.add_node(id, "item", None)?;
+    }
+    for id in [10, 11, 20, 21] {
+        pair.add_node(id, "branch", None)?;
+    }
+    for id in [100, 101] {
+        pair.add_node(id, "scalar", None)?;
+    }
+    pair.add_edge(0, 0, 10, &branch, None)?;
+    pair.add_edge(1, 0, 11, &branch, None)?;
+    pair.add_edge(2, 1, 20, &branch, None)?;
+    pair.add_edge(3, 1, 21, &branch, None)?;
+    // The first branch has a matching last edge whose target is NULL. The
+    // second branch has no such edge and therefore reads its `value` field.
+    pair.add_edge(4, 10, 100, &value, None)?;
+    pair.add_edge(5, 20, 101, &value, None)?;
+    pair.add_field(11, "value", ReferenceValue::Str("fallback".to_owned()))?;
+    pair.add_field(21, "value", ReferenceValue::Str("fallback".to_owned()))?;
+
+    let key = reference::Key {
+        id: "branch-fallback".to_owned(),
+        parts: vec![reference::KeyPart::Path(vec![
+            branch.clone(),
+            value.clone(),
+        ])],
+        role: reference::KeyRole::Unique,
+        scope: reference::KeyScope::Document,
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[
+            ("item", "object"),
+            ("branch", "object"),
+            ("scalar", "string"),
+        ],
+        &[branch, value],
+        &[],
         "item",
         &key,
     );
@@ -575,6 +705,46 @@ fn validation_reconstructs_within_buckets_and_outside_cases() -> Result<(), Box<
     let schema = schema_with_key(
         &[("document", "object"), ("item", "string")],
         std::slice::from_ref(&entries),
+        &[],
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
+#[test]
+fn within_scope_does_not_traverse_fan_incidence() -> Result<(), Box<dyn Error>> {
+    let ordinary = ReferenceSchemaEdge::new("document", "item", "prop", Some("entries"));
+    let fan_parent = ReferenceSchemaEdge::new("fan", "document", HYPER_PARENT_KIND, None);
+    let fan_child = ReferenceSchemaEdge::new("fan", "item", HYPER_LABEL_KIND, Some("item"));
+    let mut pair = GraphPair::default();
+    pair.add_node(0, "document", None)?;
+    pair.add_node(1, "fan", None)?;
+    pair.mark_fan(1)?;
+    for id in [10, 11, 12] {
+        pair.add_node(
+            id,
+            "item",
+            Some(ReferencePresence::Present(ReferenceValue::Str(
+                "same".to_owned(),
+            ))),
+        )?;
+    }
+    pair.add_edge(0, 0, 10, &ordinary, None)?;
+    pair.add_edge(1, 0, 11, &ordinary, None)?;
+    pair.add_edge(2, 1, 0, &fan_parent, None)?;
+    pair.add_edge(3, 1, 12, &fan_child, None)?;
+
+    let key = reference::Key {
+        id: "ordinary-scope".to_owned(),
+        parts: vec![reference::KeyPart::Path(Vec::new())],
+        role: reference::KeyRole::Unique,
+        scope: reference::KeyScope::Within("document".to_owned()),
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[("document", "object"), ("item", "string")],
+        std::slice::from_ref(&ordinary),
         &[],
         "item",
         &key,

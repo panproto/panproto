@@ -524,17 +524,19 @@ None recorded. Mutation closure is pending.
 - Verdict: fail
 - Defects: Independent audit and dynamic verification are pending.
 
-## Binary32 narrowing preserves admitted NaN bits {#L-values-8}
+## NaN bit transport is exact at every reference width {#L-values-8}
 
 ### Statement
 
-Let $F$ be `Format::B16`, `Format::B32` or `Format::B64`, with precision $p$, width $W$ and shift $k = 53 - p$ (so $k = 42$, $29$, $0$). For the reference operations `widen_bits` and `narrow_bits` (which the production widening and the production narrowing `binary32_bits` and `binary16_bits` are required to equal exactly):
+Let $F$ be `Format::B16`, `Format::B32` or `Format::B64`, with precision $p$, width $W$ and shift $k = 53 - p$ (so $k = 42$, $29$, $0$). The following three claims concern the reference operations `widen_bits` and `narrow_bits` at all three widths:
 
 1. (Widen, then narrow.) For every pattern $b < 2^{W}$ with `decode(F, b)` = `NaN { negative: s, fraction: f }`, `widen_bits(F, b)` decodes under `Format::B64` to `NaN { negative: s, fraction: f · 2^k }`, and `narrow_bits(F, widen_bits(F, b))` is `Some(b)`. The sign, the quiet flag (the top fraction bit, bit $p - 2$ of $F$, which lands on bit $51$, the binary64 quiet flag) and the rest of the payload are all preserved.
 2. (Narrow, then widen: admitted NaNs.) For every binary64 pattern $c$ with `decode(Format::B64, c)` = `NaN { negative: s, fraction: g }`, `narrow_bits(F, c)` is `Some(h)` exactly when $g$ is divisible by $2^{k}$; in that case `decode(F, h)` is `NaN { negative: s, fraction: g / 2^k }` and `widen_bits(F, h)` $= c$.
 3. (Infinities.) For every $s$, `widen_bits` sends the infinity of $F$ with sign $s$ to the binary64 infinity with sign $s$, and `narrow_bits(F, ·)` sends that back.
 
 In particular, at $F$ = `Format::B32`, every binary32 NaN survives widening and narrowing bit for bit, and a binary64 NaN is admitted by binary32 narrowing exactly when its low $29$ fraction bits are zero, in which case narrowing and widening it again restores its bits.
+
+The production correspondence has a narrower domain. At binary16, `binary16_widen` supplies the widening operation and `binary16_bits` supplies the exact narrowing operation. At binary32, the production carrier is binary64, `binary32_bits` supplies exact narrowing, and the differential constructs the unique bit-preserving embedding into that carrier without using the reference implementation. Binary64 is already the production carrier, so there is no separate production widening or narrowing operation at that width. Thus the binary64 clauses above are reference identities, not claims about a missing production API.
 
 ### Outside the domain
 
@@ -559,15 +561,16 @@ In particular, at $F$ = `Format::B32`, every binary32 NaN survives widening and 
 3. *Item 2.* Let $c$ decode under `Format::B64` to `NaN { negative: s, fraction: g }`, so $0 < g < 2^{52}$. By the definition of `narrow_bits`, the result is `None` exactly when $g \bmod 2^{k} \ne 0$. Otherwise $g = g' 2^{k}$ with $g' = g / 2^{k}$, $0 < g' < 2^{52-k} = 2^{p-1}$, and `narrow_bits` returns $h$ with sign bit $s$, exponent field $2^{w} - 1$ and fraction $g'$; since $g' \ne 0$, `decode(F, h)` is `NaN { negative: s, fraction: g' }`. Step 1 applied to $h$ gives `widen_bits(F, h)` with sign bit $s$, all-ones exponent and fraction $g' 2^{k} = g$, which is $c$.
 4. *Item 3.* The infinity of $F$ with sign $s$ decodes to `Infinite { negative: s }`; `widen_bits` returns `Overflow { negative: s }.bits(Format::B64)`, the binary64 pattern with sign $s$, all-ones exponent and zero fraction, which decodes to `Infinite { negative: s }`; `narrow_bits` returns `Overflow { negative: s }.bits(F)`, the infinity of $F$ with sign $s$.
 5. *Binary32.* At $F$ = `Format::B32`, $p = 24$ and $k = 29$, so items 1 and 2 read as stated in the final paragraph of the Statement. The case analysis of `decode` (finite, infinite, NaN) is complete: NaN patterns are covered by steps 1 to 3, infinite ones by step 4, and finite ones are outside the law.
+6. *Production correspondence.* For binary16, the differential compares `widen_bits` with `binary16_widen` and `narrow_bits` with `binary16_bits`. For binary32, it compares `widen_bits` with an independently constructed carrier pattern and `narrow_bits` with `binary32_bits`. It checks the binary64 zero-shift identities only in the reference model, in accordance with the production boundary stated above.
 
 ### Executable counterpart
 
 - Law ID: `values.binary32-nan-bits`
 - Reference: `panproto_reference::float::narrow_bits`
 - Reference: `panproto_reference::float::widen_bits`
-- Enumerator: `panproto_reference::enumerate::values::nan_narrowing_scope; bound: binary16=65536, binary32=6146, binary32_nans=2064, binary64=8036`
-- Exhaustive differential test: `nan_narrowing_agrees_at_every_supported_width; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=nan_narrowing_agrees_at_every_supported_width)'`
-- Property differential test: `randomized_coercion_differential; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
+- Enumerator: `panproto_reference::enumerate::values::nan_narrowing_scope; bound: binary16=65536, binary32=6146, scoped binary32 NaNs=2064 (2062 from binary32_nans plus 2 additional boundary probes), binary64=8036`
+- Exhaustive differential test: `reference_nan_identities_cover_all_widths_and_production_matches_reduced_widths; command: cargo nextest run --release --locked -p panproto-expr --test reference_values --no-tests=fail -E 'test(=reference_nan_identities_cover_all_widths_and_production_matches_reduced_widths)'`
+- Property differential test: `randomized_coercion_differential; command: cargo nextest run --release --locked -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`

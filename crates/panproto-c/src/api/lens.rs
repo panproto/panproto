@@ -55,6 +55,20 @@ fn parse_stringency(raw: &[u8]) -> Result<Option<Stringency>, FfiError> {
     }
 }
 
+/// Allocate a directional compiled-document resource after ruling out the
+/// symmetric body shape, whose two legs cannot be represented by this handle.
+fn alloc_directional_compiled_lens(
+    compiled: panproto_core::lens_dsl::CompiledLens,
+) -> Result<u32, FfiError> {
+    if compiled.symmetric.is_some() {
+        return Err(FfiError::Operation(
+            "lens DSL compile: symmetric lens documents are not accepted by the directional lens-document compile boundary (pp_lens_compile_document or pp_lens_compile_document_with_refs); use pp_lens_symmetric_from_schemas and pp_lens_symmetric_sync"
+                .to_owned(),
+        ));
+    }
+    Ok(handle::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+}
+
 /// Build the CBOR payload returned by [`pp_lens_get_record`]: a two-key
 /// map `{ "view": bytes, "complement": bytes }` whose values are CBOR
 /// byte strings each holding a self-contained CBOR item (the projected
@@ -338,11 +352,13 @@ fn law_result(outcome: Result<(), lens::LawViolation>) -> LawCheckResult {
     }
 }
 
-/// Check both `GetPut` and `PutGet` lens laws on a test instance.
+/// Run the five strict lens gates on a test instance.
 ///
 /// `migration` is a migration/lens handle; `instance` is a CBOR-encoded
 /// `WInstance`. On success, `out` receives a CBOR-encoded
-/// [`LawCheckResult`]. Calls `lens::check_laws`.
+/// [`LawCheckResult`]. The gates run in order: `GetPut`, `PutGet`, totality
+/// over the finite single-step basis, `PutTwice`, and congruence. Calls
+/// `lens::check_laws`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_lens_check_laws(
@@ -493,7 +509,9 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 /// `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
 /// Plain chains call `ProtolensChain::instantiate`; compiled documents use
-/// their ordered-stage instantiation.
+/// their ordered-stage instantiation and retain value transforms at their
+/// stage positions. A compiled document is refused when its normalized path
+/// has more than one group because this ABI returns one concrete lens.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -> i32 {
@@ -531,8 +549,10 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
 
 /// Get the complement spec for a protolens chain at a schema.
 ///
-/// `chain` is a protolens chain handle; `schema` is a schema handle. On
-/// success, `out` receives a CBOR-encoded
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle;
+/// `schema` is a schema handle. A compiled document is inspected through its
+/// compatibility-chain projection, which omits ordered stage boundaries and
+/// value transforms. On success, `out` receives a CBOR-encoded
 /// `panproto_core::lens::ComplementSpec`. Calls
 /// `lens::chain_complement_spec`.
 #[must_use = "FFI status codes should not be discarded"]
@@ -580,7 +600,10 @@ pub fn pp_protolens_from_diff(
 
 /// Compose two protolens chains.
 ///
-/// `chain1` and `chain2` are protolens chain handles. On success,
+/// `chain1` and `chain2` are `ProtolensChain` or chain-compatible
+/// `CompiledLensDoc` handles. Compiled documents contribute only their
+/// compatibility-chain projections, so the result does not retain ordered
+/// stage boundaries or value transforms. On success,
 /// `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
 /// the concatenated steps.
@@ -607,9 +630,13 @@ pub fn pp_protolens_compose(chain1: u32, chain2: u32, out_handle: &mut u32) -> i
 
 /// Serialize a protolens chain to JSON.
 ///
-/// `chain` is a protolens chain handle. On success, `out` receives JSON
-/// bytes describing each step (name, endofunctors, lossless flag) per
-/// [`ProtolensStepInfo`].
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+/// A compiled document is summarized through its compatibility-chain
+/// projection, so ordered stage boundaries and value transforms are absent.
+/// On success, `out` receives JSON bytes describing each projected step
+/// (name, endofunctors, lossless flag) per [`ProtolensStepInfo`]. This is a
+/// lossy inspection summary, not the serialized `ProtolensChain` shape
+/// accepted by [`pp_protolens_from_json`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_chain_to_json(chain: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -655,8 +682,10 @@ pub fn pp_protolens_from_json(json: c_slice::Ref<'_, u8>, out_handle: &mut u32) 
 
 /// Fuse a protolens chain into a single composite step.
 ///
-/// `chain` is a protolens chain handle. On success, `out_handle`
-/// receives a fresh
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+/// A compiled document contributes only its compatibility-chain projection,
+/// so the result does not retain ordered stage boundaries or value transforms.
+/// On success, `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
 /// the fused step. Calls `ProtolensChain::fuse`.
 #[must_use = "FFI status codes should not be discarded"]
@@ -739,13 +768,18 @@ pub fn pp_lens_symmetric_sync(
     })
 }
 
-/// Compile a lens DSL document into a protolens chain.
+/// Compile a lens DSL document into a chain-compatible document handle.
 ///
 /// `source` is UTF-8 DSL source; `format` is the UTF-8 format name
 /// (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
 /// field-level steps. On success, `out_handle` receives a fresh
-/// chain-compatible compiled-document handle. Calls
+/// [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
 /// `panproto_core::lens_dsl::{eval, compile}`.
+/// This directional entry point rejects a `symmetric` body; use
+/// [`pp_lens_symmetric_from_schemas`] and [`pp_lens_symmetric_sync`] for the
+/// symmetric boundary. An accepted handle retains the directional document's
+/// ordered structural and value-transform stages. [`pp_protolens_instantiate`]
+/// accepts it only when normalization yields one concrete lens group.
 ///
 /// Nickel (`ncl`) is intentionally unsupported here, matching the WASM
 /// boundary: Nickel evaluation requires a filesystem for its contract
@@ -780,7 +814,7 @@ pub fn pp_lens_compile_document(
         let compiled = panproto_core::lens_dsl::compile(&doc, body, &|_| None)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
+        *out_handle = alloc_directional_compiled_lens(compiled)?;
         Ok(PpStatus::Ok)
     })
 }
@@ -793,8 +827,12 @@ pub fn pp_lens_compile_document(
 /// `map<string, string>` from each referenced lens `id` to its document
 /// source (in the same `format`); a `compose` body's `ref` entries are
 /// resolved against this map. On success, `out_handle` receives a fresh
-/// chain-compatible compiled-document handle. Calls
+/// [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
 /// `panproto_core::lens_dsl::compile_with_refs`.
+/// This is the same directional boundary as [`pp_lens_compile_document`]: a
+/// root document with a `symmetric` body is rejected before allocation. A
+/// directed `compose` body is also rejected if any referenced document is
+/// symmetric, because selecting one leg would discard the referenced span.
 ///
 /// Nickel (`ncl`) is intentionally unsupported, matching
 /// [`pp_lens_compile_document`].
@@ -840,7 +878,7 @@ pub fn pp_lens_compile_document_with_refs(
         let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body, &docs_by_id)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
+        *out_handle = alloc_directional_compiled_lens(compiled)?;
         Ok(PpStatus::Ok)
     })
 }

@@ -27,10 +27,12 @@ An *open required check* is a required diagnostic or required incomplete entry. 
 ### Executable counterpart
 
 - Law ID: `validation.v1`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
 - Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: schemas=60, shapes=3`
+- Reference: `panproto_reference::validation::validate_table`
+- Reference: `panproto_reference::validation::validate_tree`
+- Evidence scope: `shapes=3, cases per shape=4, labelled cases=12`
+- Production certificate: `whole_validation_agrees_exactly_on_the_compact_three_shape_carrier; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=whole_validation_agrees_exactly_on_the_compact_three_shape_carrier)'`
+- Independent reference anchor: `whole_validation_agrees_exactly_on_the_compact_three_shape_carrier; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=whole_validation_agrees_exactly_on_the_compact_three_shape_carrier)'`
 - Exhaustive differential test: `whole_validation_agrees_exactly_on_the_compact_three_shape_carrier; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=whole_validation_agrees_exactly_on_the_compact_three_shape_carrier)'`
 - Property differential test: `v1_status_soundness_over_random_verdict_sets; command: cargo nextest run -p panproto-inst --test validation --no-tests=fail -E 'test(=v1_status_soundness_over_random_verdict_sets)'`
 - File: `crates/panproto-inst/src/validation/report.rs`
@@ -63,7 +65,7 @@ The claim does not compare inputs that differ in application-supplied external e
 
 ### Definitions used
 
-*Deterministic order* is ascending `CheckInstance` order, followed by each finding type's canonical order. A report or witness is *byte-identical* when its canonical writer emits the same bytes, not merely when a projection of its fields compares equal.
+*Deterministic order* is ascending `CheckInstance` order, followed by each finding type's canonical order. A report or witness is *byte-identical* when its canonical writer emits the same bytes; equality of a field projection does not suffice.
 
 ### Proof
 
@@ -74,12 +76,11 @@ The claim does not compare inputs that differ in application-supplied external e
 ### Executable counterpart
 
 - Law ID: `validation.v2`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
 - Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: schemas=60, processes=2`
-- Exhaustive differential test: `validation_reports_are_identical_across_processes; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=validation_reports_are_identical_across_processes)'`
-- Property differential test: `validation_witnesses_are_identical_across_processes; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=validation_witnesses_are_identical_across_processes)'`
+- Evidence scope: `report corpus=48 cases × 9 process executions (the parent and 8 children); witness corpus=1 case × 33 process executions (the parent and 32 children); reference repeatability=1 compact graph × 2 evaluations`
+- Production certificate: `validation_reports_are_identical_across_processes; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=validation_reports_are_identical_across_processes)'`
+- Production witness certificate: `validation_witnesses_are_identical_across_processes; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=validation_witnesses_are_identical_across_processes)'`
+- Independent reference anchor: `reference_validation_anchors_are_stable_on_compact_native_carriers; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=reference_validation_anchors_are_stable_on_compact_native_carriers)'`
 - File: `crates/panproto-inst/src/validation/report.rs`
 - File: `crates/panproto-inst/src/validation/witness.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
@@ -121,11 +122,11 @@ The *persistent set* is the intersection of the baseline and target check-instan
 ### Executable counterpart
 
 - Law ID: `validation.v3`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
-- Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: elements=3, transitions=540`
-- Exhaustive differential test: `v3_v4_hold_on_every_bounded_graph_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_v4_hold_on_every_bounded_graph_transition)'`
+- Reference: `panproto_reference::validation::witness_with_trust`
+- Evidence scope: `graph, table, and tree transitions over the local finite generators; the reference anchor is one labelled nonidentity transition`
+- Production certificate: `v3_v4_hold_on_every_bounded_graph_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_v4_hold_on_every_bounded_graph_transition)'`
+- Independent reference anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
+- Supplemental production tests: `v3_v4_hold_on_every_bounded_table_transition` and `v3_v4_hold_on_every_bounded_tree_step`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/v3_v4_hold_on_every_bounded_(table_transition|tree_step)/)'`
 - Property differential test: `v3_footprint_soundness; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_footprint_soundness)'`
 - File: `crates/panproto-inst/src/validation/footprint.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
@@ -168,11 +169,11 @@ The edit must lower and apply. The target validation budget is unlimited. The ba
 ### Executable counterpart
 
 - Law ID: `validation.v4`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
-- Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: shapes=3, elements=3`
-- Exhaustive differential test: `v3_v4_hold_on_every_bounded_table_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_v4_hold_on_every_bounded_table_transition)'`
+- Reference: `panproto_reference::validation::witness_with_trust`
+- Evidence scope: `graph, table, and tree transitions over the local finite generators; the reference anchor is one labelled nonidentity transition`
+- Production certificate: `v3_v4_hold_on_every_bounded_table_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_v4_hold_on_every_bounded_table_transition)'`
+- Independent reference anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
+- Supplemental production tests: `v3_v4_hold_on_every_bounded_graph_transition` and `v3_v4_hold_on_every_bounded_tree_step`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/v3_v4_hold_on_every_bounded_(graph_transition|tree_step)/)'`
 - Property differential test: `v4_edit_agreement; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v4_edit_agreement)'`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
@@ -215,11 +216,11 @@ The *sequence agreement* is the induction of one-step edit agreement across comm
 ### Executable counterpart
 
 - Law ID: `validation.v5`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
-- Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::sequences; bound: alphabet=4, length=4`
-- Exhaustive differential test: `sequence_law_holds_on_every_bounded_graph_sequence; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=sequence_law_holds_on_every_bounded_graph_sequence)'`
+- Reference: `panproto_reference::validation::witness_with_trust`
+- Evidence scope: `graph, table, and tree edit sequences over the local finite generators; the reference anchor is one labelled nonidentity transition`
+- Production certificate: `sequence_law_holds_on_every_bounded_graph_sequence; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=sequence_law_holds_on_every_bounded_graph_sequence)'`
+- Independent reference anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
+- Supplemental production tests: `sequence_law_holds_on_every_bounded_table_sequence` and `sequence_law_holds_on_every_bounded_tree_sequence`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/sequence_law_holds_on_every_bounded_(table|tree)_sequence/)'`
 - Property differential test: `v5_sequence_agreement; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v5_sequence_agreement)'`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
@@ -262,11 +263,10 @@ A *committed witness field* is any field used to reconstruct the transition sche
 ### Executable counterpart
 
 - Law ID: `validation.v6`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
-- Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::sequences; bound: alphabet=4, length=2`
-- Exhaustive differential test: `witness_law_holds_on_every_bounded_step; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=witness_law_holds_on_every_bounded_step)'`
+- Reference: `panproto_reference::validation::witness_with_trust`
+- Evidence scope: `all locally generated one-step transitions; the reference anchor is one labelled nonidentity transition`
+- Production certificate: `witness_law_holds_on_every_bounded_step; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=witness_law_holds_on_every_bounded_step)'`
+- Independent reference anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
 - Property differential test: `v6_every_witness_verifies_and_mutations_fail; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v6_every_witness_verifies_and_mutations_fail)'`
 - File: `crates/panproto-inst/src/validation/witness.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
@@ -309,10 +309,10 @@ The *budget suffix* begins at the first check instance whose reads would exceed 
 ### Executable counterpart
 
 - Law ID: `validation.v7`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
-- Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: limits=3, shapes=3`
+- Reference: `panproto_reference::validation::witness_with_trust`
+- Evidence scope: `one graph carrier, limits=3`
+- Production certificate: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
+- Independent reference anchor: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
 - Exhaustive differential test: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
 - Property differential test: `v7_finite_budget_never_passes_where_unlimited_does_not; command: cargo nextest run -p panproto-inst --test validation --no-tests=fail -E 'test(=v7_finite_budget_never_passes_where_unlimited_does_not)'`
 - File: `crates/panproto-inst/src/validation/schedule.rs`
@@ -356,12 +356,16 @@ A *shared check* is a check kind defined on both the native shape and its graph 
 ### Executable counterpart
 
 - Law ID: `validation.v8`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
 - Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: trees=871902, tables=571`
-- Exhaustive differential test: `the_tree_square_holds_for_equal_fans; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_tree_square_holds_for_equal_fans)'`
-- Property differential test: `v8_table_square; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v8_table_square)'`
+- Reference: `panproto_reference::validation::validate_table`
+- Reference: `panproto_reference::validation::validate_tree`
+- Evidence scope: `one reference graph, one one-row table, and one one-node tree that each fail the same required scalar property at native id 7; 512 generated production cases per native shape`
+- Production certificate: `v8_table_square; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v8_table_square)'`
+- Independent reference anchor: `reference_required_value_shape_square; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=reference_required_value_shape_square)'`
+- Production fixed test: `the_tree_square_holds_for_equal_fans; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_tree_square_holds_for_equal_fans)'`
+- Production fixed table certificate: `column_constraints_are_read_from_cells_in_every_shape; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=column_constraints_are_read_from_cells_in_every_shape)'`
+- Production fixed tree certificate: `a_column_value_held_by_a_child_node_is_not_a_field_site; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=a_column_value_held_by_a_child_node_is_not_a_field_site)'`
+- Production property tests: `v8_tree_square` and `v8_table_square`, with 512 generated cases per native shape; `command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(/v8_(tree|table)_square/)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/tests/validation_laws.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
@@ -403,10 +407,10 @@ The *validation boundary* is the ordered pair of source validation before restri
 ### Executable counterpart
 
 - Law ID: `validation.v9`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
-- Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: shapes=3, boundaries=12`
+- Reference: `panproto_reference::validation::restriction_boundary`
+- Evidence scope: `input failure, output failure after passed input, and two passed reports`
+- Production certificate: `restrict_boundary_errors_carry_the_side_and_report; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restrict_boundary_errors_carry_the_side_and_report)'`
+- Independent reference anchor: `restrict_boundary_errors_carry_the_side_and_report; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restrict_boundary_errors_carry_the_side_and_report)'`
 - Exhaustive differential test: `restrict_boundary_errors_carry_the_side_and_report; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restrict_boundary_errors_carry_the_side_and_report)'`
 - Property differential test: `v9_restrict_boundary; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=v9_restrict_boundary)'`
 - File: `crates/panproto-inst/src/restrict_boundary.rs`
@@ -450,12 +454,12 @@ The *endpoint equation* requires an edge's source and target anchors to belong t
 ### Executable counterpart
 
 - Law ID: `validation.v10`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
 - Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::graphs; bound: nodes=3, edges=2`
-- Exhaustive differential test: `v10_endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_with_the_graph_instance_theory)'`
-- Property differential test: `v10_endpoint_coherence_agrees_on_anchor_families; command: cargo nextest run -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_on_anchor_families)'`
+- Evidence scope: `the main declared-endpoint differential, including a reference graph with one coherent edge and one incoherent edge per endpoint side; the undeclared-anchor and label boundary; union, recursion-point, and reference anchor families`
+- Production certificate: `v10_endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_with_the_graph_instance_theory)'`
+- Independent reference anchor: `v10_endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_with_the_graph_instance_theory)'`
+- Undeclared-boundary differential: `v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels)'`
+- Anchor-family differential: `v10_endpoint_coherence_agrees_on_anchor_families; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_on_anchor_families)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-protocols/tests/endpoint_coherence_is_the_graph_instance_theory.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
@@ -497,12 +501,13 @@ A *key bucket* groups nonnull key vectors by declared scope. A *reference candid
 ### Executable counterpart
 
 - Law ID: `validation.v11`
-- Reference: `panproto_reference::validation::CheckStatus::all`
-- Reference: `panproto_reference::validation::status`
 - Reference: `panproto_reference::validation::validate`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: elements=3, declarations=29`
-- Exhaustive differential test: `the_oracle_expects_every_key_and_reference_failure; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_oracle_expects_every_key_and_reference_failure)'`
-- Property differential test: `v11_keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v11_keys_and_references_match_the_oracle)'`
+- Evidence scope: `512 generated production-oracle cases, 3,000 fixed coverage draws, and matching fixed production and reference carriers with one duplicate-key bucket and four reference holders (two resolved, one dangling, and one ambiguous)`
+- Production certificate: `v11_keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v11_keys_and_references_match_the_oracle)'`
+- Independent reference anchor: `reference_validation_anchors_are_stable_on_compact_native_carriers; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=reference_validation_anchors_are_stable_on_compact_native_carriers)'`
+- Production fixed certificate: `fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly)'`
+- Production coverage test: `the_oracle_expects_every_key_and_reference_failure; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_oracle_expects_every_key_and_reference_failure)'`
+- Production property test: `v11_keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v11_keys_and_references_match_the_oracle)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
@@ -546,7 +551,7 @@ An *open bundle* contains the complete ordered diagnostics and incomplete entrie
 - Law ID: `validation.admission-policies`
 - Reference: `panproto_reference::validation::admits`
 - Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: bundles=3, values=2`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Exhaustive differential test: `admission_policies_agree_with_their_predicates_on_three_bundles; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=admission_policies_agree_with_their_predicates_on_three_bundles)'`
 - Property differential test: `admission_policies_agree_with_their_predicates_on_three_bundles; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=admission_policies_agree_with_their_predicates_on_three_bundles)'`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
@@ -566,15 +571,15 @@ Adding or changing advisory evidence is equivalent for admission. Changing any b
 - Verdict: fail
 - Defects: Independent audit and post-commit verification are pending.
 
-## Declared key equality is used without substitution {#L-validation-13}
+## Resolution uses declared key equality without substitution {#L-validation-13}
 
 ### Statement
 
-Validation compares two key-part values with the equality operation declared for that part. Representation equality preserves value kind and representation. Other declared equalities may identify values only according to their stated numeric, collation, padding, or whitespace rules.
+Resolution compares two key-part values with the equality operation declared for that part. Representation equality preserves value kind and representation. Other declared equalities may identify values only according to their stated numeric, collation, padding, or whitespace rules.
 
 ### Outside the domain
 
-A declared equality whose semantics are unavailable returns no verdict. Validation must represent that absence as typed incompleteness rather than substituting representation equality.
+A declared equality whose semantics are unavailable returns no verdict. The caller must preserve that refusal rather than substitute representation equality.
 
 ### Definitions used
 
@@ -589,14 +594,14 @@ The *declared equality* is the selected `KeyEquality`. Its reference result is `
 ### Executable counterpart
 
 - Law ID: `validation.key-equality-checks`
-- Reference: `panproto_reference::validation::key_equality`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: equalities=6, values=7`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
-- Property differential test: `v11_keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v11_keys_and_references_match_the_oracle)'`
-- File: `crates/panproto-inst/src/validation/checks.rs`
-- File: `crates/panproto-inst/tests/reference_validation.rs`
-- File: `crates/panproto-reference/src/pages/validation.rs`
-- File: `crates/panproto-reference/src/enumerate/validation.rs`
+- Reference: `panproto_reference::resolution::declared_key_equality`
+- Evidence scope: `equalities=6, values=7, ordered value pairs=49 per equality`
+- Production certificate: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
+- Independent reference anchor: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
+- Exhaustive differential test: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
+- File: `crates/panproto-inst/src/key.rs`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
+- File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
 ### Mutation equivalences
 
@@ -635,10 +640,11 @@ The *preceding candidate set* contains definitions $(q,x,v)$ with $q<p$. First-d
 ### Executable counterpart
 
 - Law ID: `validation.variable-binding-checks`
-- Reference: `panproto_reference::validation::variable_binding`
+- Reference: `panproto_reference::resolution::nearest_preceding`
 - Production: `panproto_io::resolution::Resolution::get`
-- Enumerator: `panproto_reference::enumerate::validation::sequences; bound: alphabet=4, length=8`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Evidence scope: `definitions=4, names=3, binding modes=2; the general reference sequence enumerator has maximum length 3 and is not claimed as exhaustive here`
+- Production certificate: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
+- Independent reference anchor: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - Runtime differential test: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - Supplemental observable test: `validation_key_binding_and_form_observables_execute_their_exact_paths; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_key_binding_and_form_observables_execute_their_exact_paths)'`
 - File: `crates/panproto-io/src/resolution/occur.rs`
@@ -660,37 +666,38 @@ Changing incidental map iteration is equivalent because source position decides 
 - Verdict: fail
 - Defects: Independent audit and post-commit verification are pending.
 
-## Guard, target-set, sort, and key forms are checked together {#L-validation-15}
+## The finite declaration carrier preserves guard, target-set, sort, and key refusals {#L-validation-15}
 
 ### Statement
 
-A schema's validation-side declaration forms are accepted exactly when every guard, target-set, sort-key, key, and reference predicate succeeds. Failure returns every declaration error in canonical declaration order.
+Across the named finite carrier, production declaration validation and the reference implementation return the same guard, target-set, sort-key, key, and reference refusal classes. The target-set differential has nine declaration fixtures; the eight with resolved member signatures are also projected to the local predicate.
 
 ### Outside the domain
 
-The law checks declaration form, not the dynamic truth of a well-formed guard or reference. An unsupported semantic operation may still become a later typed incomplete entry.
+The law checks 27 common declaration/refusal cases and nine target-set declaration fixtures, eight of which are projected to the local predicate. It does not quantify over every possible declaration. It concerns declaration form, not the dynamic truth of a well-formed guard or reference.
 
 ### Definitions used
 
-The *form conjunction* is the joint predicate implemented by schema declaration validation. Canonical declaration order is the order used for static findings in a compiled plan.
+The *declaration carrier* is the explicit collection of valid and invalid schemas in `reference_keys.rs`. Its expected observation is the ordered vector of refusal classes after structural spill has been excluded.
 
 ### Proof
 
-1. `key_forms` invokes the schema declaration validator once on the complete schema.
-2. That validator accumulates each independent form error rather than returning after the first family.
-3. Sorting by declaration identity gives the same static population and order used by plan compilation.
+1. Each reference schema is converted to the production schema without changing its declaration fields.
+2. The reference validator and the production validator independently produce refusal classes on that schema.
+3. The tests compare the ordered class vectors and separately compare the target-set predicate on every local member configuration in the carrier.
 
 ### Executable counterpart
 
 - Law ID: `validation.guard-target-set-sort-key-checks`
-- Reference: `panproto_reference::validation::key_forms`
-- Enumerator: `panproto_reference::enumerate::validation::declaration_cases; bound: declarations=29, families=19`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
-- Property differential test: `declaration_and_native_boundary_subcarriers_are_exact; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=declaration_and_native_boundary_subcarriers_are_exact)'`
-- File: `crates/panproto-schema/src/keys.rs`
-- File: `crates/panproto-inst/tests/reference_validation.rs`
-- File: `crates/panproto-reference/src/pages/validation.rs`
-- File: `crates/panproto-reference/src/enumerate/validation.rs`
+- Reference: `panproto_reference::keys::target_set`
+- Reference: `panproto_reference::schema::validate_declarations`
+- Evidence scope: `9 target-set declaration fixtures, 8 projected to the local predicate, and 27 common declaration/refusal cases; this is the named finite carrier, not every possible declaration`
+- Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
+- Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
+- Exhaustive differential tests: `target_sets_match_on_the_complete_local_predicate` and `declaration_validation_matches_reference_on_every_common_refusal`; `command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(/(target_sets_match_on_the_complete_local_predicate|declaration_validation_matches_reference_on_every_common_refusal)/)'`
+- File: `crates/panproto-schema/src/validate.rs`
+- File: `crates/panproto-schema/tests/reference_keys.rs`
+- File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
 ### Mutation equivalences
 
@@ -730,10 +737,12 @@ An *index key* is a declared key whose role is `Index`; it supports ordering but
 
 - Law ID: `validation.index-null-match-checks`
 - Reference: `panproto_reference::resolution::get`
+- Reference: `panproto_reference::resolution::index_target`
+- Reference: `panproto_reference::resolution::put`
 - Production: `panproto_io::resolution::Resolution::for_protocol` and `panproto_io::resolution::Resolution::get`
-- Enumerator: `panproto_io::reference_resolution; bound: match modes=2, composite tuple classes=5, index values=4`
-- Null-match differential test: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
-- Index-target refusal test: `index_fields_never_resolve_targets; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
+- Evidence scope: `two null-match modes over five composite tuple classes and four optional index values`
+- Production certificate: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
+- Independent reference anchor: `index_fields_never_resolve_targets; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
 - File: `crates/panproto-io/src/resolution/compile.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
@@ -771,19 +780,21 @@ The *source lexeme* is the exact stored `Str`, `Token`, or `CidLink` text. The *
 ### Proof
 
 1. Plan compilation resolves the constraint's tag to exactly one schema edge. It records an advisory value check with a copy of the protocol's ordered value-kind table; an unknown tag and an ambiguous tag take the two static branches stated above.
-2. Evaluation reads matching outgoing edges before it reads the selected target's own value. The zero-, one-, and many-edge branches therefore distinguish a missing selector from a nontextual value and from ambiguous selection, including the case in which one of several targets has no value.
+2. Evaluation reads matching outgoing edges before it reads the selected target's own value. The zero-, one-, and many-edge branches thus distinguish a missing selector from a nontextual value and from ambiguous selection, including the case in which one of several targets has no value.
 3. On the unique textual branch, table lookup either yields the named kind or the exact `UnsupportedDeclaration { sort: d }`. The kind is applied to the stored value through exact coercion; failure records that same value and $d$ in `ValueConstraint`.
 4. Compilation fixes this check's default requirement as `Advisory`. Report aggregation consequently retains every finding and incomplete entry without changing `Passed` status. The reference predicate receives the source text directly and calls its recognizer once, so neither side normalizes or reserializes the lexeme first.
 
 ### Executable counterpart
 
 - Law ID: `validation.lexical-space-advisory`
+- Reference: `panproto_reference::validation::classify_selector`
 - Reference: `panproto_reference::validation::lexical_space`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: lexemes=4, formats=2`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Evidence scope: `schema selector multiplicities=0,1,2; runtime subjects=6 (accepted, rejected, unknown kind, absent selector, nontextual selector, and multiple selectors); recognizer lexemes=4, formats=2`
+- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Boundary test: `lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory)'`
-- Boundary test: `lexical_space_unknown_tag_is_typed_advisory_incomplete; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_unknown_tag_is_typed_advisory_incomplete)'`
-- Property differential test: `every_lexicon_format_has_a_settled_acceptance_and_refusal_boundary; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=every_lexicon_format_has_a_settled_acceptance_and_refusal_boundary)'`
+- Boundary test: `lexical_space_unknown_tag_is_advisory_and_preserves_passed_status; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_unknown_tag_is_advisory_and_preserves_passed_status)'`
+- Boundary test: `lexical_space_ambiguous_tag_remains_a_required_declaration_failure; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_ambiguous_tag_remains_a_required_declaration_failure)'`
+- Independent reference anchor: `every_lexicon_format_has_a_settled_acceptance_and_refusal_boundary; command: cargo nextest run --release --locked -p panproto-reference --test validation --no-tests=fail -E 'test(=every_lexicon_format_has_a_settled_acceptance_and_refusal_boundary)'`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/witness.rs`
@@ -805,33 +816,35 @@ No normalization is equivalent unless the declared kind itself performs it. Reor
 - Verdict: fail
 - Defects: Fresh-main integration and combined verification of the CID and DID fixes remain pending, together with the independent audit.
 
-## Advisory format annotations do not change parsing {#L-validation-18}
+## Advisory format validation leaves the stored value unchanged {#L-validation-18}
 
 ### Statement
 
-Parsing with an advisory format annotation returns the same optional parsed value as parsing without that annotation. The annotation may produce a validation report, but it does not become a parse assertion.
+Running an advisory format check leaves the graph's stored optional value unchanged. The check may add a diagnostic, but validation does not replace, coerce, or remove the value it observes.
 
 ### Outside the domain
 
-The law concerns advisory annotations. A format declared as an assertion may reject the parse according to [L-validation-20](#L-validation-20).
+The law begins after parsing has produced an instance. It does not claim that two parser configurations accept the same input, preserve concrete syntax, or emit the same parser result.
 
 ### Definitions used
 
-*Parse equivalence* is equality of the complete optional parse result. In the production observation, the parsed value is the value stored on the graph before and after the advisory validation plan runs.
+*Validation immutability* is equality of the complete optional node value before and after the advisory validation plan runs.
 
 ### Proof
 
-1. Parsing constructs the graph before the validation plan runs, so the plan receives the parsed value by shared reference.
+1. The validation plan receives the instance by shared reference.
 2. An annotated format compiles to an advisory value check. The check may append a diagnostic, but it has no mutable path to the graph.
 3. The production observation reads the same node after validation and compares its complete value with the source value.
-4. The reference predicate accepts exactly this equality. Thus an advisory result cannot replace a successful parse or turn it into a refusal.
+4. The reference predicate accepts exactly this equality. Thus advisory validation cannot alter the stored value.
 
 ### Executable counterpart
 
 - Law ID: `validation.annotated-format-no-assertion-equivalence`
 - Reference: `panproto_reference::validation::annotated_format_parse`
 - Production: `panproto_inst::validation::ValidationPlan::validate_graph`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: parses=3, annotations=2`
+- Evidence scope: `recognized format=uuid, lexemes=4`
+- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Property differential test: `validation_format_observables_distinguish_advisory_and_asserting_use; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_format_observables_distinguish_advisory_and_asserting_use)'`
 - File: `crates/panproto-inst/src/validation/plan.rs`
@@ -841,7 +854,7 @@ The law concerns advisory annotations. A format declared as an assertion may rej
 
 ### Mutation equivalences
 
-Changing diagnostic order is equivalent because the law observes the parsed value. Replacing the source lexeme, coercing it in place, or making advisory rejection abort parsing is not.
+Changing diagnostic order is equivalent because the law observes the stored value. Replacing, coercing, or removing that value is not.
 
 ### Audit record
 
@@ -856,11 +869,11 @@ Changing diagnostic order is equivalent because the law observes the parsed valu
 
 ### Statement
 
-For an advisory format annotation, a report is present exactly when the declared recognizer rejects the source text. Recognition does not alter parsing or admission status by itself.
+For a recognized advisory format annotation, a diagnostic is present exactly when the declared recognizer rejects the stored text. The diagnostic does not alter admission status by itself. An unknown advisory format is ignored and produces no format check.
 
 ### Outside the domain
 
-The law assumes one settled recognizer and a Boolean recording whether the advisory diagnostic was emitted. Unsupported formats produce typed incompleteness instead.
+The biconditional assumes a settled recognizer and a Boolean recording whether the advisory diagnostic was emitted. Unknown advisory format names are outside that biconditional because the plan contains no corresponding check.
 
 ### Definitions used
 
@@ -876,7 +889,9 @@ The law assumes one settled recognizer and a Boolean recording whether the advis
 
 - Law ID: `validation.annotated-format-advisory-exactness`
 - Reference: `panproto_reference::validation::annotated_format_advisory`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: lexemes=4, reports=2`
+- Evidence scope: `recognized format=uuid, lexemes=4, report observations=2; unknown advisory names are separately required to produce no check`
+- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Property differential test: `validation_format_observables_distinguish_advisory_and_asserting_use; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_format_observables_distinguish_advisory_and_asserting_use)'`
 - File: `crates/panproto-inst/src/validation/plan.rs`
@@ -886,7 +901,7 @@ The law assumes one settled recognizer and a Boolean recording whether the advis
 
 ### Mutation equivalences
 
-There are no report-dropping equivalences. Emitting no report for both accepted and rejected texts violates exactness.
+For a recognized format, there are no report-dropping equivalences. Ignoring an unknown advisory format is the specified behavior, not evidence about recognition.
 
 ### Audit record
 
@@ -897,31 +912,33 @@ There are no report-dropping equivalences. Emitting no report for both accepted 
 - Verdict: fail
 - Defects: Independent audit and post-commit verification are pending.
 
-## Format assertions accept exactly recognized lexemes {#L-validation-20}
+## Recognized format assertions pass exactly recognized lexemes {#L-validation-20}
 
 ### Statement
 
-When a format is asserting, the parser accepts a source text exactly when the declared recognizer accepts it. The parser must neither admit an unrecognized lexeme nor reject a recognized one.
+When a recognized format is asserting, validation passes exactly when the declared recognizer accepts the stored text. Validation must neither pass an unrecognized lexeme nor fail a recognized one.
 
 ### Outside the domain
 
-The law applies only to formats whose assertion role and recognizer are settled. An unsupported format has a typed refusal rather than an arbitrary Boolean acceptance.
+The law applies only to formats whose assertion role and recognizer are settled. A recognized malformed value yields a typed validation refusal. This law makes no claim about parser admission.
 
 ### Definitions used
 
-*Assertion acceptance* is equality between the parser's `accepted` Boolean and `accepts(text)`. This contrasts with [L-validation-19](#L-validation-19), where a diagnostic is the complement of recognition.
+*Assertion admission* is equality between the validation report's passed status and `accepts(text)`. This contrasts with [L-validation-19](#L-validation-19), where an advisory diagnostic is the complement of recognition.
 
 ### Proof
 
-1. If the recognizer returns true, equality requires parser acceptance.
-2. If the recognizer returns false, equality requires parser refusal.
+1. If the recognizer returns true, equality requires validation to pass.
+2. If the recognizer returns false, equality requires validation to report the assertion failure.
 3. These are the two Boolean cases, so equality is necessary and sufficient.
 
 ### Executable counterpart
 
 - Law ID: `validation.format-assertion-acceptance`
 - Reference: `panproto_reference::validation::format_assertion_acceptance`
-- Enumerator: `panproto_reference::enumerate::validation::scope_certificate; bound: lexemes=4, decisions=2`
+- Evidence scope: `recognized format=uuid, lexemes=4, status observations=2`
+- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Property differential test: `validation_format_observables_distinguish_advisory_and_asserting_use; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_format_observables_distinguish_advisory_and_asserting_use)'`
 - File: `crates/panproto-inst/src/validation/plan.rs`
@@ -931,7 +948,7 @@ The law applies only to formats whose assertion role and recognizer are settled.
 
 ### Mutation equivalences
 
-There are no acceptance-erasing equivalences. Treating every format annotation as advisory violates this law.
+There are no admission-erasing equivalences. Treating a recognized asserting format as advisory violates this law.
 
 ### Audit record
 

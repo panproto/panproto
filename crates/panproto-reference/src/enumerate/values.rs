@@ -986,18 +986,17 @@ pub fn chronological_scope() -> (Vec<String>, Vec<(String, TemporalLexicalForm)>
 
 /// The binary32 NaNs of the narrowing laws.
 ///
-/// They are every binary16 NaN pattern carried to binary32 on its bits
-/// (2 x 1023) and each sign and flag with payloads at the low edge, in the
-/// middle and at the high edge of the binary32 fraction (18), less the two
-/// probes the carried NaNs already hold: 2062 NaNs.
+/// For every binary16 NaN pattern `p`, its binary32 image is constructed
+/// directly as `((p >> 15) << 31) | (0xff << 23) | ((p & 0x03ff) << 13)`.
+/// These 2 x 1023 images are supplemented by each sign and flag with payloads
+/// at the low edge, in the middle and at the high edge of the binary32
+/// fraction (18), less the two probes the images already hold: 2062 NaNs.
 #[must_use]
 pub fn binary32_nans() -> Vec<u64> {
     let mut nans: Vec<u64> = binary16_patterns()
         .into_iter()
         .filter(|pattern| pattern & 0x7c00 == 0x7c00 && pattern & 0x03ff != 0)
-        .filter_map(|pattern| {
-            crate::float::narrow_bits(Format::B32, widen_bits(Format::B16, pattern))
-        })
+        .map(|p| ((p >> 15) << 31) | (0xff << 23) | ((p & 0x03ff) << 13))
         .collect();
     for sign in [0_u64, 0x8000_0000] {
         for quiet in [0_u64, 1 << 22] {

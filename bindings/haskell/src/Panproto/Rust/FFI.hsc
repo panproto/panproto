@@ -235,7 +235,9 @@ instance Storable VecU8 where
 foreign import ccall safe "pp_init"
     pp_init :: IO CInt
 
--- | Free a handle's slab slot. Safe to call on freed handles.
+-- | Free a handle's slab slot. This is a one-shot operation: a repeated call is
+-- harmless only until that numeric slot is reused, after which the old number
+-- names and frees the new resource.
 foreign import ccall safe "pp_handle_free"
     pp_handle_free :: Word32 -> IO CInt
 
@@ -472,7 +474,7 @@ foreign import ccall safe "pp_lens_auto_generate_candidates_at"
     pp_lens_auto_generate_candidates_at
         :: Word32 -> Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
--- | Check both lens laws over a CBOR instance.
+-- | Check the five strict lens-law gates over a CBOR instance.
 foreign import ccall safe "pp_lens_check_laws_at"
     pp_lens_check_laws_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 

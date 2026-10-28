@@ -5566,6 +5566,53 @@ pub mod segment {
         pub tasks: BTreeMap<TaskKey, TaskRecord>,
     }
 
+    const fn task_phase_tag(phase: Phase) -> u8 {
+        match phase {
+            Phase::Validate => 0,
+            Phase::Export => 1,
+            Phase::Summarize => 2,
+            Phase::Assemble => 3,
+            Phase::Emit => 4,
+            Phase::Seal => 5,
+        }
+    }
+
+    /// Derive the identity of a task's inputs under [`SEGMENT_TASK_CONTEXT`]
+    /// from the lens, task key and sorted input-artifact digests.
+    #[must_use]
+    pub fn task_inputs_digest(lens: &Digest, task: TaskKey, inputs: &[Digest]) -> Digest {
+        let mut sorted = inputs.to_vec();
+        sorted.sort_unstable();
+
+        let mut bytes = Canonical::default();
+        bytes.digest(*lens);
+        bytes.tag(task_phase_tag(task.phase));
+        bytes.bool(task.segment.is_some());
+        if let Some(segment) = task.segment {
+            bytes.u32(segment.0);
+        }
+        bytes.len(sorted.len());
+        for digest in sorted {
+            bytes.digest(digest);
+        }
+        Digest::derive(SEGMENT_TASK_CONTEXT, &bytes.0)
+    }
+
+    /// Whether a journal contains `task` with the given input and output
+    /// artifact digests.
+    #[must_use]
+    pub fn journal_task_reusable(
+        journal: &RunJournal,
+        task: &TaskKey,
+        inputs: &Digest,
+        artifact_digest: &Digest,
+    ) -> bool {
+        journal
+            .tasks
+            .get(task)
+            .is_some_and(|record| record.inputs == *inputs && record.output == *artifact_digest)
+    }
+
     /// Canonical run-journal bytes in task-key order.
     #[must_use]
     pub fn canonical_journal_bytes(journal: &RunJournal) -> Vec<u8> {
@@ -5573,7 +5620,7 @@ pub mod segment {
         bytes.digest(journal.run);
         bytes.len(journal.tasks.len());
         for (task, record) in &journal.tasks {
-            bytes.tag(task.phase as u8);
+            bytes.tag(task_phase_tag(task.phase));
             bytes.bool(task.segment.is_some());
             if let Some(segment) = task.segment {
                 bytes.u32(segment.0);

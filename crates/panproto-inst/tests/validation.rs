@@ -1920,6 +1920,8 @@ fn annotated_formats_are_advisory_and_width_formats_use_exact_coercion() {
 
 #[test]
 fn lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory() {
+    use panproto_reference::validation::{SelectorClassification, classify_selector};
+
     let datatype = prop("literal", "datatype", "datatype");
     let schema = S::default()
         .vertex("literal", "string")
@@ -1927,6 +1929,16 @@ fn lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory() {
         .edge(&datatype)
         .constraint("literal", "lexical_space", "datatype")
         .build();
+    assert_eq!(
+        classify_selector(
+            schema
+                .edges
+                .keys()
+                .filter(|edge| edge.src == "literal" && edge.name.as_deref() == Some("datatype"))
+                .cloned()
+        ),
+        SelectorClassification::One(datatype.clone())
+    );
     let mut lexical_protocol = protocol(&[("lexical_space", ConstraintSemantics::LexicalSpace)]);
     lexical_protocol.value_kinds.insert(
         "integer".to_owned(),
@@ -2002,20 +2014,52 @@ fn lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory() {
 }
 
 #[test]
-fn lexical_space_unknown_tag_is_typed_advisory_incomplete() {
+fn lexical_space_unknown_tag_is_advisory_and_preserves_passed_status() {
+    use panproto_reference::validation::{SelectorClassification, classify_selector};
+
     let schema = S::default()
         .vertex("literal", "string")
         .constraint("literal", "lexical_space", "unknown-tag")
         .build();
+    assert_eq!(
+        classify_selector(
+            schema
+                .edges
+                .keys()
+                .filter(|edge| {
+                    edge.src == "literal" && edge.name.as_deref() == Some("unknown-tag")
+                })
+                .cloned()
+        ),
+        SelectorClassification::Zero
+    );
     let unknown_plan = plan(
         &schema,
         &protocol(&[("lexical_space", ConstraintSemantics::LexicalSpace)]),
     );
-    assert_eq!(
-        finding_reasons(&unknown_plan, CheckKind::DeclarationInterpretable),
-        [IncompleteReason::UnsupportedDeclaration {
+    let dependent = CheckKey::new(
+        CheckKind::ValueConstraint,
+        SchemaRef::Constraint {
+            vertex: "literal".into(),
+            constraint: Constraint {
+                sort: "lexical_space".into(),
+                value: "unknown-tag".into(),
+            },
+        },
+    );
+    let expected = IncompleteCheck {
+        check: dependent.clone(),
+        class: CheckKind::ValueConstraint.class(),
+        requirement: Requirement::Advisory,
+        subject: None,
+        reason: IncompleteReason::UnsupportedDeclaration {
             sort: "unknown-tag".into(),
-        }]
+        },
+    };
+    assert_eq!(
+        unknown_plan.static_findings(),
+        std::slice::from_ref(&expected),
+        "an absent selector leaves only its advisory dependent open"
     );
     assert_eq!(
         unknown_plan
@@ -2025,6 +2069,84 @@ fn lexical_space_unknown_tag_is_typed_advisory_incomplete() {
             .expect("the unsupported lexical tag remains an advisory open check")
             .requirement,
         Requirement::Advisory
+    );
+
+    let report = unknown_plan.validate_graph(&GInstance::new(), &unlimited(), &none());
+    assert_eq!(report.status, CheckStatus::Passed);
+    assert!(report.diagnostics.is_empty());
+    assert_eq!(report.incomplete, [expected]);
+    assert!(
+        report
+            .incomplete
+            .iter()
+            .all(|entry| entry.check == dependent),
+        "the absent advisory selector must not fail DeclarationInterpretable"
+    );
+}
+
+#[test]
+fn lexical_space_ambiguous_tag_remains_a_required_declaration_failure() {
+    use panproto_reference::validation::{SelectorClassification, classify_selector};
+
+    let left = prop("literal", "left_datatype", "datatype");
+    let right = prop("literal", "right_datatype", "datatype");
+    let schema = S::default()
+        .vertex("literal", "string")
+        .vertex("left_datatype", "string")
+        .vertex("right_datatype", "string")
+        .edge(&left)
+        .edge(&right)
+        .constraint("literal", "lexical_space", "datatype")
+        .build();
+    assert_eq!(
+        classify_selector(
+            schema
+                .edges
+                .keys()
+                .filter(|edge| edge.src == "literal" && edge.name.as_deref() == Some("datatype"))
+                .cloned()
+        ),
+        SelectorClassification::Many
+    );
+    let ambiguous_plan = plan(
+        &schema,
+        &protocol(&[("lexical_space", ConstraintSemantics::LexicalSpace)]),
+    );
+    let report = ambiguous_plan.validate_graph(&GInstance::new(), &unlimited(), &none());
+
+    assert_eq!(report.status, CheckStatus::Incomplete);
+    assert!(report.diagnostics.is_empty());
+    let reason = IncompleteReason::IllFormedDeclaration {
+        detail: "lexical_space = \"datatype\" names more than one edge leaving literal".to_owned(),
+    };
+    let dependent = CheckKey::new(
+        CheckKind::ValueConstraint,
+        SchemaRef::Constraint {
+            vertex: "literal".into(),
+            constraint: Constraint {
+                sort: "lexical_space".into(),
+                value: "datatype".into(),
+            },
+        },
+    );
+    assert_eq!(
+        report.incomplete,
+        vec![
+            IncompleteCheck {
+                check: CheckKey::new(CheckKind::DeclarationInterpretable, SchemaRef::Schema),
+                class: CheckClass::Static,
+                requirement: Requirement::Required,
+                subject: None,
+                reason: reason.clone(),
+            },
+            IncompleteCheck {
+                check: dependent,
+                class: CheckClass::GraphLocal,
+                requirement: Requirement::Advisory,
+                subject: None,
+                reason,
+            },
+        ]
     );
 }
 
@@ -2902,6 +3024,117 @@ fn references_compile_to_reference_resolves_with_the_declared_requirement() {
         &d.violation,
         Violation::AmbiguousReference { candidates, .. } if candidates.len() == 2
     )));
+}
+
+#[test]
+fn fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly() {
+    use panproto_schema::OnUnresolved;
+
+    let id = prop("person", "person.id", "id");
+    let boss = prop("person", "person.boss", "boss");
+    let mut schema = referencing_schema(OnUnresolved::Error);
+    schema
+        .declarations
+        .references
+        .get_mut("boss")
+        .expect("the fixture declares its boss reference")
+        .edge = None;
+    let graph_protocol = Protocol {
+        syntactic_shape: InstanceShapeKind::Graph,
+        semantic_shape: InstanceShapeKind::Graph,
+        ..Protocol::default()
+    };
+    let plan = plan(&schema, &graph_protocol);
+    let ids = [10_i64, 20, 10, 30];
+    let bosses = [20_i64, 20, 99, 10];
+    let mut graph = GInstance::new();
+    for index in 0_u32..4 {
+        graph = graph
+            .with_node(Node::new(index, "person"))
+            .with_node(
+                Node::new(10 + index, "person.id")
+                    .with_value(FieldPresence::Present(Value::Int(ids[index as usize]))),
+            )
+            .with_node(
+                Node::new(20 + index, "person.boss")
+                    .with_value(FieldPresence::Present(Value::Int(bosses[index as usize]))),
+            );
+    }
+    for index in 0_u32..4 {
+        graph = graph.with_edge(index, 10 + index, id.clone()).with_edge(
+            index,
+            20 + index,
+            boss.clone(),
+        );
+    }
+
+    let report = plan.validate_graph(&graph, &unlimited(), &none());
+    let reference_key = CheckKey::new(
+        CheckKind::ReferenceResolves,
+        SchemaRef::Reference("boss".into()),
+    );
+    assert_eq!(
+        report.coverage.get(&reference_key),
+        Some(&CheckCoverage {
+            class: CheckClass::MaintainedGlobal,
+            requirement: Requirement::Required,
+            instances: 4,
+            passed: 2,
+            failed: 2,
+            incomplete: 0,
+        })
+    );
+    let observed: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            matches!(
+                diagnostic.check.kind,
+                CheckKind::KeyUnique | CheckKind::ReferenceResolves
+            )
+        })
+        .map(|diagnostic| {
+            (
+                diagnostic.check.kind,
+                diagnostic.subject.clone(),
+                diagnostic.elements.clone(),
+                diagnostic.violation.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        observed,
+        vec![
+            (
+                CheckKind::KeyUnique,
+                None,
+                vec![ViewRef::Node(0), ViewRef::Node(2)],
+                Violation::DuplicateKey {
+                    key: vec![("id".to_owned(), Value::Int(10))],
+                    elems: vec![ViewRef::Node(0), ViewRef::Node(2)],
+                },
+            ),
+            (
+                CheckKind::ReferenceResolves,
+                Some(ViewRef::Node(2)),
+                vec![ViewRef::Node(2)],
+                Violation::DanglingReference {
+                    reference: "boss".into(),
+                    key: vec![Value::Int(99)],
+                },
+            ),
+            (
+                CheckKind::ReferenceResolves,
+                Some(ViewRef::Node(3)),
+                vec![ViewRef::Node(0), ViewRef::Node(2), ViewRef::Node(3)],
+                Violation::AmbiguousReference {
+                    reference: "boss".into(),
+                    key: vec![Value::Int(10)],
+                    candidates: vec![ViewRef::Node(0), ViewRef::Node(2)],
+                },
+            ),
+        ]
+    );
 }
 
 #[test]

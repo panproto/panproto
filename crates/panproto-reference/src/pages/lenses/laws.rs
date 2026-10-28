@@ -197,10 +197,20 @@ impl LensShape for GraphShape {
         left == right
     }
 
-    fn synth_index(_: &Graph, complement: &Complement) -> SynthIndex {
+    fn synth_index(instance: &Graph, complement: &Complement) -> SynthIndex {
         SynthIndex {
-            nodes: complement.synthesized_nodes.clone(),
-            edges: complement.synthesized_edges.clone(),
+            nodes: complement
+                .synthesized_nodes
+                .iter()
+                .filter(|(id, _)| instance.nodes.contains_key(id))
+                .map(|(id, key)| (*id, key.clone()))
+                .collect(),
+            edges: complement
+                .synthesized_edges
+                .iter()
+                .filter(|(id, _)| instance.edges.contains_key(id))
+                .map(|(id, key)| (*id, key.clone()))
+                .collect(),
         }
     }
 
@@ -2105,20 +2115,16 @@ impl<'a> LawShape<GraphLens<'a>> for GraphShape {
 
     fn rekey_complement(
         complement: &Complement,
-        _: &Graph,
-        _: &Graph,
+        observed_view: &Graph,
+        edited_view: &Graph,
         producing_complement: &Complement,
     ) -> Complement {
-        let Some(nodes) = synthesized_alignment(
-            &complement.synthesized_nodes,
-            &producing_complement.synthesized_nodes,
-        ) else {
+        let observed_index = GraphShape::synth_index(observed_view, complement);
+        let edited_index = GraphShape::synth_index(edited_view, producing_complement);
+        let Some(nodes) = synthesized_alignment(&observed_index.nodes, &edited_index.nodes) else {
             return complement.clone();
         };
-        let Some(edges) = synthesized_alignment(
-            &complement.synthesized_edges,
-            &producing_complement.synthesized_edges,
-        ) else {
+        let Some(edges) = synthesized_alignment(&observed_index.edges, &edited_index.edges) else {
             return complement.clone();
         };
         reindexed_complement(complement, &nodes, &edges)

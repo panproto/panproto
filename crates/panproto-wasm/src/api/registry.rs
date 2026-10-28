@@ -57,9 +57,13 @@ mod tests {
     fn list_and_fetch_builtin_protocol() {
         let list_bytes = list_builtin_protocols();
         let names: Vec<String> = rmp_serde::from_slice(&list_bytes).unwrap();
-        assert!(
-            !names.is_empty(),
-            "there must be at least one builtin protocol"
+        let expected: Vec<String> = panproto_core::protocols::registry::protocol_names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            names, expected,
+            "the WASM listing diverged from the registry"
         );
         let first = &names[0];
         let proto_bytes = get_builtin_protocol(first.as_bytes()).unwrap();

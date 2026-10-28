@@ -11,76 +11,6 @@ use panproto_reference::value::Value;
 use panproto_reference::{encode, fan, keys, resolution, theory};
 
 #[test]
-fn annotated_format_returns_the_literal_annotation_and_none() {
-    assert_eq!(
-        keys::annotated_format(Some("date-time")),
-        Some("date-time"),
-        "a present annotation is observable but does not assert validity"
-    );
-    assert_eq!(
-        keys::annotated_format(Some("x-vendor:opaque/v7")),
-        Some("x-vendor:opaque/v7"),
-        "an unknown vendor annotation is preserved literally"
-    );
-    assert_eq!(
-        keys::annotated_format(None),
-        None,
-        "an absent annotation stays absent"
-    );
-}
-
-#[test]
-fn index_and_null_match_uses_both_indices_and_the_null_switch() {
-    assert!(
-        keys::index_and_null_match(Some(4), Some(4), false),
-        "equal present indices match independently of the null switch"
-    );
-    assert!(
-        !keys::index_and_null_match(Some(4), Some(5), true),
-        "different present indices never match"
-    );
-    assert!(
-        keys::index_and_null_match(None, None, true),
-        "two null indices match when the switch is enabled"
-    );
-    assert!(
-        !keys::index_and_null_match(None, None, false),
-        "two null indices do not match when the switch is disabled"
-    );
-    assert!(
-        !keys::index_and_null_match(Some(4), None, true),
-        "a present index and a null index never match"
-    );
-    assert!(
-        !keys::index_and_null_match(None, Some(4), true),
-        "a null index and a present index never match in the reverse order"
-    );
-}
-
-#[test]
-fn lexical_space_calls_the_supplied_predicate_on_the_literal_lexeme() {
-    let mut accepted_argument = None;
-    let accepted = keys::lexical_space("urn:example:one", |text| {
-        accepted_argument = Some(text.to_owned());
-        text.ends_with(":one")
-    });
-    assert!(accepted, "the accepting predicate controls the result");
-    assert_eq!(
-        accepted_argument,
-        Some("urn:example:one".to_owned()),
-        "the predicate receives the unmodified lexeme"
-    );
-
-    let mut rejected_calls = 0;
-    let rejected = keys::lexical_space("urn:example:two", |_| {
-        rejected_calls += 1;
-        false
-    });
-    assert!(!rejected, "a rejecting predicate is not ignored");
-    assert_eq!(rejected_calls, 1, "the predicate is called exactly once");
-}
-
-#[test]
 fn representation_refinement_preserves_computable_truth_and_named_refusal() {
     assert_eq!(
         keys::representation_refines(&KeyEquality::NumericValue, &Value::Int(7), &Value::Int(7),),
@@ -180,11 +110,11 @@ fn target_set_requires_distinct_members_with_one_arity_and_equality_vector() {
 }
 
 #[test]
-fn xml_noncdata_replaces_collapses_and_trims_xml_whitespace() {
+fn xml_noncdata_collapses_post_attribute_u0020_only() {
     assert_eq!(
         keys::xml_noncdata("\t alpha\r\n beta  "),
-        "alpha beta",
-        "XML whitespace is collapsed and trimmed rather than preserved verbatim"
+        "\t alpha\r\n beta",
+        "attribute processing owns TAB, CR, and LF before this kernel runs"
     );
     assert_eq!(
         keys::xml_noncdata("alpha beta"),
@@ -199,7 +129,7 @@ fn xml_noncdata_replaces_collapses_and_trims_xml_whitespace() {
     assert_eq!(
         keys::key_equivalence(
             &KeyEquality::XmlNonCdata,
-            &Value::Str("\talpha\n beta ".to_owned()),
+            &Value::Str(" alpha  beta ".to_owned()),
             &Value::Str("alpha beta".to_owned()),
         ),
         Some(true),

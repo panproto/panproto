@@ -101,11 +101,11 @@ pub enum Resource {
     VcsRepo(Box<Repository>),
     /// A protolens chain (reusable, schema-independent).
     ProtolensChain(Box<ProtolensChain>),
-    /// A compiled lens document with authoritative ordered stages.
+    /// An accepted directional lens document with authoritative ordered stages.
     ///
     /// Chain-shaped C functions continue to expose its structural summary,
-    /// while instantiation uses the complete document so value transforms
-    /// retain their position relative to structural steps.
+    /// while instantiation uses all accepted directional stages so value
+    /// transforms retain their position relative to structural steps.
     CompiledLensDoc(Box<CompiledLens>),
     /// A symmetric lens.
     SymmetricLensHandle(Box<SymmetricLens>),
@@ -672,10 +672,11 @@ pub fn with_three_resources<T>(
 
 /// Free a resource, marking the slot reusable.
 ///
-/// Calling on an out-of-range or already-freed handle is a no-op. The
-/// resource itself is dropped after the table lock is released, so a
-/// destructor that takes time or touches disk does not hold up other
-/// handle operations.
+/// Calling on an out-of-range or currently free handle is a no-op. A later
+/// allocation may reuse that numeric index, so an owner must discard a handle
+/// after freeing it. The resource itself is dropped after the table lock is
+/// released, so a destructor that takes time or touches disk does not hold up
+/// other handle operations.
 pub fn free(handle: u32) {
     SLAB.free(handle);
 }
@@ -853,12 +854,24 @@ mod tests {
     }
 
     #[test]
-    fn double_free_is_safe() {
+    fn repeated_free_before_reallocation_is_a_no_op() {
         let slab = Slab::new();
         let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
         slab.free(h);
         slab.free(h);
         assert!(slab.with_resource(h, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn stale_numeric_handle_aliases_a_reused_slot() {
+        let slab = Slab::new();
+        let stale = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        slab.free(stale);
+        let current = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        assert_eq!(stale, current);
+
+        slab.free(stale);
+        assert!(slab.with_resource(current, |_| Ok(())).is_err());
     }
 
     #[test]

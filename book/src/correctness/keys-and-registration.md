@@ -4,18 +4,19 @@ Keys connect graph structure to identity. A key declaration says how to read a t
 
 A key has an id, an ordered sequence of parts, a role, a scope, and either an empty equality vector or one equality declaration per part. An empty vector means representation equality at every part. A path part is a finite sequence of schema-edge labels. A position part names an ordered edge. Key roles are `Primary`, `Unique`, `Identifier`, `SortKey`, and `Index`; the first three are resolvable uniqueness roles, `SortKey` imposes order without uniqueness, and `Index` imposes neither. Scopes are document-wide, global, or relative to the nearest ancestor of a named vertex.
 
-## Focused verification status
+**Focused verification status.**
 
-The focused release checks for laws 1--4 and 7--15 are green. The release
-commands passed 1 canonical-theory test, 4 schema-declaration tests, 8
-instance-key tests, 2 change-classification tests, and 1 VCS identity test.
-The finite certificates cover 36 declaration encodings, 21 declaration
-admission fixtures, 8 target-set cases, 37 values under 12 equality
+The listed focused tests for laws 1--4 and 7--15 have passed, but verification
+on the repaired tree is still pending. The release
+commands passed 1 canonical-theory test, 5 schema-declaration tests, 11
+instance-key tests, 2 change-classification tests, and 2 VCS identity tests.
+The finite certificates cover 37 declaration encodings, 27 declaration
+admission fixtures, 9 target-set declaration fixtures, 8 of them projected to
+the local predicate, all 5 target-set member roles, 37 values under 12 equality
 configurations, 16,428 equality pairs, 607,836 transitivity triples, 341 XML
-strings, 116,281 XML pairs, 28 non-key classification axes, 148 structural
+strings, 116,281 XML pairs, 28 additional classification cases, 148 structural
 graphs, 27,329,908 schemas, and 816,223,680 directed classifications. Strict
-Clippy with `-D warnings` is green for the two schema targets, the instance
-target, the classifier target, and the VCS library.
+Clippy with `-D warnings` has not yet been rerun on the repaired tree.
 
 These checks establish the focused executable counterparts. They do not close
 the independent audit, mutation, frozen-candidate, or global release gates;
@@ -25,7 +26,7 @@ the audit verdicts below thus remain pending.
 
 ### Statement
 
-For a graph $G$, node $n$, and key $K$, `key_value(G, n, K)` returns one value per key part exactly when every part has a value. For a path $(e_1,\ldots,e_k)$, traversal follows matching out-edges in edge-id order through $e_1,\ldots,e_{k-1}$. At the last step it returns the first non-null own value of a matching target; when there is no matching last edge, it instead reads the source node's field named by the last edge. The empty path reads $n$'s non-null own value. A position part for edge $e$ first chooses an ordinary incoming $e$-edge into $n$, then returns the zero-based index of $n$ among that parent's ordinary $e$-targets ordered by `(position, edge id, target)`.
+For a graph $G$, node $n$, and key $K$, `key_value(G, n, K)` returns one value per key part exactly when every part has a value. For a path $(e_1,\ldots,e_k)$, traversal follows matching schema-edge labels in edge-id order through $e_1,\ldots,e_{k-1}$. At the last step, each frontier node independently contributes the non-null own values of its matching targets or, when that node has no matching last edge, its field named by the last edge. The first contributed value is the part value. The empty path reads $n$'s non-null own value. A position part for edge $e$ first chooses the least-id ordinary incoming $e$-edge into $n$, orders that parent's ordinary $e$-edges by `(stored position, edge id, target)`, and returns the selected edge's zero-based ordinal in that sequence. The stored position orders siblings but is not itself the returned key value. Parallel edges into the same target retain distinct identities throughout this calculation.
 
 ### Outside the domain
 
@@ -38,17 +39,19 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 ### Proof
 
 1. `path_value` handles the empty path by `own`. For a nonempty path, each preliminary hop replaces the frontier by matching targets in map order.
-2. At the final label, the implementation either searches matching targets for the first own value or, only when no matching target exists, reads the named field. These branches are the path clause.
-3. A position part finds the first qualifying incoming edge, sorts every sibling tuple `(position, id, target)`, and converts the matching index to `i64`.
+2. At the final label, the implementation makes the target-or-field decision separately for each frontier node and retains frontier and edge order. Thus one branch with a matching edge cannot suppress a later branch's field fallback.
+3. A position part retains the id of the first qualifying ordinary incoming edge, sorts every ordinary sibling tuple `(stored position, id, target)`, and finds the tuple with that id. This keeps parallel edges distinct before converting the selected ordinal to `i64`.
 4. `Iterator::collect` on `Option` returns a vector exactly when every part returns `Some`, proving tuple totality on the stated domain and NULL propagation outside it.
 
 ### Executable counterpart
 
 - Law ID: `keys.key-declarations`
 - Reference: `panproto_reference::keys::key_value`
-- Enumerator: `duplicated/twin graph witnesses over path and position parts; exact indexed elements=14, NULL elements=4`
-- Exhaustive differential test: `validation_reconstructs_path_keys_in_document_and_global_scopes; command: cargo test --release -p panproto-inst --test reference_keys validation_reconstructs_path_keys_in_document_and_global_scopes -- --exact --nocapture`
-- Property differential test: `validation_reconstructs_position_buckets; command: cargo test --release -p panproto-inst --test reference_keys validation_reconstructs_position_buckets -- --exact --nocapture`
+- Evidence scope: `duplicated/twin graph witnesses over path and position parts; exact indexed elements=14, NULL elements=4`
+- Production certificate: `validation_reconstructs_path_keys_in_document_and_global_scopes; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_reconstructs_path_keys_in_document_and_global_scopes)'`
+- Independent reference anchor: `validation_reconstructs_position_buckets; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_reconstructs_position_buckets)'`
+- Parallel-edge regression test: `validation_identifies_exact_parallel_position_edges; command: cargo test --release -p panproto-inst --test reference_keys validation_identifies_exact_parallel_position_edges -- --exact --nocapture`
+- Regression differential test: `path_fallback_is_decided_per_last_hop_frontier_node; command: cargo test --release -p panproto-inst --test reference_keys path_fallback_is_decided_per_last_hop_frontier_node -- --exact --nocapture`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -83,7 +86,7 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 ### Proof
 
 1. The outer loop filters the ordered node map by anchor and non-fan shape, so it visits exactly the stated carrier in ascending order.
-2. [L-keys-and-registration-1](#L-keys-and-registration-1) omits NULL tuples. Breadth-first reverse traversal gives the nearest level, and sorting each next frontier selects its least matching ancestor.
+2. [L-keys-and-registration-1](#L-keys-and-registration-1) omits NULL tuples. Breadth-first reverse traversal follows only ordinary arcs, so reserved fan incidence and arcs incident on reified hyper-edge nodes cannot supply an ancestor. Sorting each next frontier selects the least matching ancestor at the nearest level.
 3. The scope id and equality-key bytes form the ordered map key. Map insertion creates one stored tuple at the first member and appends every later member, preserving node-id order.
 4. Equality-vector expansion and equality-key construction are the only fallible calls. Their errors are exactly the three typed refusals in the outside-domain clause.
 
@@ -91,9 +94,10 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 
 - Law ID: `keys.reference-declarations`
 - Reference: `panproto_reference::keys::buckets`
-- Enumerator: `duplicated/twin graph witnesses over Document, Global, and Within scopes; exact buckets=6, outside elements=2`
-- Exhaustive differential test: `validation_reconstructs_within_buckets_and_outside_cases; command: cargo test --release -p panproto-inst --test reference_keys validation_reconstructs_within_buckets_and_outside_cases -- --exact --nocapture`
-- Property differential test: `validation_preserves_both_reference_keying_refusals; command: cargo test --release -p panproto-inst --test reference_keys validation_preserves_both_reference_keying_refusals -- --exact --nocapture`
+- Evidence scope: `duplicated/twin graph witnesses over Document, Global, and Within scopes; exact buckets=6, outside elements=2`
+- Production certificate: `validation_reconstructs_within_buckets_and_outside_cases; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_reconstructs_within_buckets_and_outside_cases)'`
+- Independent reference anchor: `validation_preserves_both_reference_keying_refusals; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_preserves_both_reference_keying_refusals)'`
+- Regression differential test: `within_scope_does_not_traverse_fan_incidence; command: cargo test --release -p panproto-inst --test reference_keys within_scope_does_not_traverse_fan_incidence -- --exact --nocapture`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -128,7 +132,7 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 ### Proof
 
 1. Fixed order separates top-level fields, and a count separates every variable-length collection. Map and set order is canonical; within a collection, primitive encodings and distinct tags separate keys, variants, and payloads.
-2. Reading equal byte streams from the beginning therefore gives equal counts and equal fields by induction over the layout. Applying this argument to every top-level field yields schema equality; determinism gives the converse.
+2. Reading equal byte streams from the beginning thus gives equal counts and equal fields by induction over the layout. Applying this argument to every top-level field yields schema equality; determinism gives the converse.
 3. There are 1, 2, 15, and 130 structural graphs at vertex counts zero through three. At positive $n$, there are $D_n=30n(n+2)$ owner/key descriptors, hence $(D_n+1)^2$ labelled two-slot declaration contexts per graph.
 4. The certificate executes all 148 graphs, every descriptor in both slots, every directed one-axis transition, and every absent, same-owner, and different-owner second-key class. Because graph fields precede declaration fields and the untouched slot is encoded unchanged, equality of complete byte strings factors through equality of the executed graph and declaration components. The recorded multiplicities reconcile to $27{,}329{,}908$ schemas.
 
@@ -136,9 +140,9 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 
 - Law ID: `keys.canonical-schema-bytes-injective`
 - Reference: `panproto_reference::schema::canonical_bytes`
-- Enumerator: `panproto_reference::enumerate::keys_and_registration::{schemas,key_descriptors,axis_transitions,factor_classes}; exact counts: graphs=148, descriptors=[90,240,450], schemas=27,329,908`
-- Exhaustive differential test: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo test --release -p panproto-schema --test reference_keys canonical_declaration_factorization_reconciles_the_exact_carrier -- --exact --nocapture`
-- Property differential test: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo test --release -p panproto-schema --test reference_keys canonical_declaration_factorization_reconciles_the_exact_carrier -- --exact --nocapture`
+- Evidence scope: `all 148 structural graphs, descriptor counts 90, 240, and 450, and 27,329,908 schemas`
+- Production certificate: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=canonical_declaration_factorization_reconciles_the_exact_carrier)'`
+- Independent reference anchor: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=canonical_declaration_factorization_reconciles_the_exact_carrier)'`
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
@@ -159,11 +163,11 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-`classify_change(A, B)` returns `Identical` exactly when $A=B$. Otherwise it returns `Breaking` when any of the following holds: a primary, unique, or identifier key is added to a vertex already present in $A$; an existing key changes parts, equality, or role, widens its scope, or changes between distinct scopes of the same rank; a reference added to an existing holder is non-nullable or fails unresolved values; an existing reference narrows cardinality, nullability, or unresolved handling, or changes any other semantic field; a target set is new or gains a member or changes scope; or a nondeclaration schema field changes. Adding a sort key or index does not add an instance-admission obligation and is `BackwardCompatible`, as are key removals and the other nonidentical changes not listed above.
+Within the declaration-change carrier, `classify_change(A, B)` returns `Identical` exactly when $A=B$. Otherwise it returns `Breaking` when any of the following holds: a primary, unique, or identifier key is added to a vertex already present in $A$; an existing key changes parts, equality, or role, widens its scope, or changes between distinct scopes of the same rank; a reference added to an existing holder is non-nullable or fails unresolved values; an existing reference narrows cardinality, nullability, or unresolved handling, or changes any other semantic field; a target set is new or gains a member or changes scope; or the entry sequence changes. Adding a sort key or index does not add an instance-admission obligation and is `BackwardCompatible`, as are key removals and the other nonidentical declaration changes not listed above.
 
 ### Outside the domain
 
-The classifier is total on the finite reference schema. Its fail-closed rule makes any change outside the enumerated key, reference, and target-set relaxations breaking.
+The independent decision is claimed only when the structural graph fields are unchanged, apart from the explicitly tested entry sequence. Other vertex, edge, hyper-edge, constraint, required-edge, and ordering changes belong to the production classifier's larger domain. The finite reference function remains total on its data type, but its result outside this declaration-change carrier is not an oracle for production behavior.
 
 ### Definitions used
 
@@ -172,20 +176,20 @@ The five roles make different uniqueness, identity, ordering, and resolution pro
 ### Proof
 
 1. Structural equality is tested first and gives exactly `Identical`. `key_is_tightened` is the disjunction of changed parts, equality, role, greater scope rank, and unequal same-rank scopes; `reference_is_tightened` is the corresponding disjunction over every reference field.
-2. Ordered-map scans detect added and changed declarations exactly as stated. An addition on an old vertex is breaking exactly for the three uniqueness-bearing roles; sort keys impose only an advisory order check, and indexes promise no uniqueness or resolution. The separate target-set predicate detects a changed scope or any new member. Equality of all nondeclaration fields defines `declarations_only`, so the final disjunction returns `Breaking` exactly for the listed cases.
+2. Ordered-map scans detect added and changed declarations exactly as stated. An addition on an old vertex is breaking exactly for the three uniqueness-bearing roles; sort keys impose only an advisory order check, and indexes promise no uniqueness or resolution. The separate target-set predicate detects a changed scope or any new member. The final entry comparison refuses an entry-sequence change.
 3. Each descriptor contributes one add, one remove, four role changes, $n+1$ scope changes, and five part changes, giving $D_n(n+12)$ directed transitions. The second slot is either absent, owned by the changed key's vertex, or owned by another vertex. Since its declaration is identical before and after, classification is congruent under that untouched context; the same argument applies to the unchanged structural graph.
 4. The differential executes every graph, descriptor transition, slot, and nonempty second-key context class. The certificate's multiplicities sum to
    $$\sum_n \mathrm{graphs}_n\,2D_n(D_n+1)(n+12)=816{,}223{,}680,$$
    which is the full labelled classification carrier.
-5. A separate 28-case same-input matrix holds the structural context fixed while changing equality, reference addition and removal, each reference semantic field, target-set membership and scope, or one nondeclaration field. It checks both directed relaxation pairs and every fail-closed axis against production.
+5. A separate 28-case same-input matrix holds the structural context fixed while changing equality, reference addition and removal, each reference semantic field, target-set membership and scope, or the entry sequence. It checks both directed relaxation pairs and the explicit entry refusal against production.
 
 ### Executable counterpart
 
 - Law ID: `keys.change-classification`
 - Reference: `panproto_reference::schema::classify_change`
-- Enumerator: `panproto_reference::enumerate::keys_and_registration::{schemas,key_descriptors,axis_transitions,factor_classes}; exact key classifications=816,223,680; additional non-key axes=28`
-- Exhaustive differential test: `every_o17_key_change_classifies_through_the_factorization_certificate; command: cargo test --release -p panproto-check --test reference_classify every_o17_key_change_classifies_through_the_factorization_certificate -- --exact --nocapture`
-- Property differential test: `non_key_classification_axes_match_the_reference; command: cargo test --release -p panproto-check --test reference_classify non_key_classification_axes_match_the_reference -- --exact --nocapture`
+- Evidence scope: `816,223,680 key classifications and 28 additional non-key cases`
+- Production certificate: `every_o17_key_change_classifies_through_the_factorization_certificate; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=every_o17_key_change_classifies_through_the_factorization_certificate)'`
+- Independent reference anchor: `non_key_classification_axes_match_the_reference; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=non_key_classification_axes_match_the_reference)'`
 - File: `crates/panproto-check/src/diff.rs`
 - File: `crates/panproto-check/src/classify.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
@@ -220,7 +224,7 @@ A theory is *closed* when every sort and operation used by its declarations and 
 
 ### Proof
 
-1. The W-type, graph-instance, functor, and flat theories each declare the interface symbols they use. Their coherence equations therefore typecheck in the theory that contains them.
+1. The W-type, graph-instance, functor, and flat theories each declare the interface symbols they use. Their coherence equations thus typecheck in the theory that contains them.
 2. Each registration group builds one explicit-identity diagram over its stated interface. Symbols outside the interface are rejected on a name clash rather than silently identified.
 3. The composition checker verifies every inclusion and the identity mediator. The per-shape tests require passed records for both checks and reject every inapplicable record.
 4. The generic production/reference differential separately establishes agreement of composition over its bounded span carrier. Thus the shape tests exercise the registered theories, while the differential checks the operation they call.
@@ -228,10 +232,11 @@ A theory is *closed* when every sort and operation used by its declarations and 
 ### Executable counterpart
 
 - Law ID: `keys.q6`
-- Reference: `panproto_reference::theory::{typecheck_signature,compose}`
-- Enumerator: `the tree, graph, table, and flat registration groups over their declared interfaces`
-- Exhaustive differential test: `theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks; command: cargo test --release -p panproto-protocols --lib theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks -- --exact --nocapture`
-- Property differential test: `composition_agrees_with_the_reference_on_every_span; command: cargo test --release -p panproto-gat --test reference_theories composition_agrees_with_the_reference_on_every_span -- --exact --nocapture`
+- Reference: `panproto_reference::theory::typecheck_signature`
+- Reference: `panproto_reference::theory::compose`
+- Evidence scope: `the tree, graph, table, and flat registration groups over their declared interfaces`
+- Production certificate: `theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks; command: cargo nextest run --release --locked -p panproto-protocols --lib --no-tests=fail -E 'test(=theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks)'`
+- Independent reference anchor: `composition_agrees_with_the_reference_on_every_span; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=composition_agrees_with_the_reference_on_every_span)'`
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-gat/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
@@ -274,9 +279,9 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 
 - Law ID: `keys.q7`
 - Reference: `panproto_reference::theory::recompose`
-- Enumerator: `every registered schema and instance recipe, plus the bounded reference recipe carrier`
-- Exhaustive differential test: `recompose_of_every_registration_spec_reproduces_its_theory; command: cargo test --release -p panproto-protocols --test registration_equivalence recompose_of_every_registration_spec_reproduces_its_theory -- --exact --nocapture`
-- Property differential test: `recipe_replay_agrees_with_the_reference_on_every_recipe; command: cargo test --release -p panproto-gat --test reference_theories recipe_replay_agrees_with_the_reference_on_every_recipe -- --exact --nocapture`
+- Evidence scope: `every registered schema and instance recipe, plus the bounded reference recipe carrier`
+- Production certificate: `recompose_of_every_registration_spec_reproduces_its_theory; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=recompose_of_every_registration_spec_reproduces_its_theory)'`
+- Independent reference anchor: `recipe_replay_agrees_with_the_reference_on_every_recipe; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=recipe_replay_agrees_with_the_reference_on_every_recipe)'`
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
@@ -311,18 +316,19 @@ The law concerns canonical identities, not the incidental bytes of Rust's ordina
 ### Proof
 
 1. Both canonical writers use exhaustive variant tags, length prefixes, declared field order, and sorted traversal for map-like collections. Thus allocation and hash-map iteration order do not enter either byte string.
-2. Each digest hashes the corresponding canonical bytes under its fixed context. Equal byte strings therefore produce equal identities without conflating theory and composition domains.
-3. A bounded same-input differential independently encodes empty and unary theories plus one carrier-complete theory. The third fixture visits every sort kind, value kind, coercion class, expression, literal, pattern, conflict strategy, optional directed-equation field, and duplicate-name tie order. Wrapping all three theories in both composition modes also checks the inline theory and consecutive provenance-map layout.
+2. Each digest hashes the corresponding canonical bytes under its fixed context. Equal byte strings thus produce equal identities without conflating theory and composition domains.
+3. A bounded same-input differential independently encodes empty and unary theories plus one carrier-complete theory. The third fixture visits every sort kind, value kind, coercion class, expression, literal, pattern, conflict strategy, optional directed-equation field, and duplicate-name tie order. Its composition carrier adds a nonempty inclusion with both operation-assignment forms, an entry in every provenance map, an added equation, one freshening, every report-check tag, every subject form, and every outcome family. Wrapping all three theories in both composition modes also checks the inline theory and consecutive provenance-map layout.
 4. The fixture test recomposes each recorded diagram, compares its canonical composition bytes with the decoded fixture, and compares the resulting digest with `golden.json`.
 5. The cross-process test repeats every registration composition in 32 child processes and compares the complete byte maps. This directly checks the process-dependent source of nondeterminism that a single-process test cannot observe.
 
 ### Executable counterpart
 
 - Law ID: `keys.q8`
-- Reference: `panproto_reference::theory::{canonical_theory_bytes,canonical_composition_bytes}`
-- Enumerator: `three bounded same-input theories under both composition modes, including one carrier-complete fixture; the frozen theory-composition corpus; every registered composition in 32 child processes`
-- Exhaustive differential test: `canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures; command: cargo test --release -p panproto-schema --test reference_theory_canonical canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures -- --exact --nocapture`
-- Property differential test: `cross_process::compose_bytes_are_identical_across_processes; command: cargo test --release -p panproto-protocols --test registration_equivalence cross_process::compose_bytes_are_identical_across_processes -- --exact --nocapture`
+- Reference: `panproto_reference::theory::canonical_theory_bytes`
+- Reference: `panproto_reference::theory::canonical_composition_bytes`
+- Evidence scope: `three bounded same-input theories under both composition modes, including one carrier-complete fixture; the frozen theory-composition corpus; every registered composition in 32 child processes`
+- Production certificate: `canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures; command: cargo nextest run --release --locked -p panproto-schema --test reference_theory_canonical --no-tests=fail -E 'test(=canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures)'`
+- Independent reference anchor: `cross_process::compose_bytes_are_identical_across_processes; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=cross_process::compose_bytes_are_identical_across_processes)'`
 - Frozen-corpus regression test: `theory_composition_fixtures_recompose_to_their_bytes_and_digests; command: cargo test --release -p panproto-protocols --test registration_equivalence theory_composition_fixtures_recompose_to_their_bytes_and_digests -- --exact --nocapture`
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-schema/src/canonical_theory.rs`
@@ -359,7 +365,7 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 ### Proof
 
 1. The five outer match arms are exactly the five equality declarations.
-2. Numeric normalization maps integers, decimals, and finite floats to one exact decimal value; special values map to three distinguished keys. Equality of these keys is therefore the stated mathematical kernel.
+2. Numeric normalization maps integers, decimals, and finite floats to one exact decimal value; special values map to three distinguished keys. Equality of these keys is thus the stated mathematical kernel.
 3. The within-kind arm prefixes that key with the declared or selected primitive. The SQL and XML arms perform their stated string transformations and use the same fallback for other values.
 4. `sql_text` refuses exactly a named collation. Numeric normalization separately propagates `InvalidNumericRepresentation` for an ill-formed production carrier; no other branch is partial.
 
@@ -367,9 +373,9 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 
 - Law ID: `keys.equality-kernel-equivalence`
 - Reference: `panproto_reference::keys::key_equivalence`
-- Enumerator: `panproto_reference::enumerate::keys_and_registration::{equality_values,equality_configurations}; exact counts: values=37, configurations=12, pairs=16,428, triples=607,836`
-- Exhaustive differential test: `equality_carrier_executes_all_pairs_and_triples; command: cargo test --release -p panproto-inst --test reference_keys equality_carrier_executes_all_pairs_and_triples -- --exact --nocapture`
-- Property differential test: `equality_carrier_executes_all_pairs_and_triples; command: cargo test --release -p panproto-inst --test reference_keys equality_carrier_executes_all_pairs_and_triples -- --exact --nocapture`
+- Evidence scope: `37 values under 12 configurations, 16,428 ordered pairs, and 607,836 ordered triples`
+- Production certificate: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
+- Independent reference anchor: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -411,9 +417,9 @@ For propositions $P$ and $Q$, implication $P \Rightarrow Q$ is $\neg P \lor Q$. 
 
 - Law ID: `keys.representation-refinement`
 - Reference: `panproto_reference::keys::representation_refines`
-- Enumerator: `panproto_reference::enumerate::keys_and_registration::{equality_values,equality_configurations}; exact pairs=16,428`
-- Exhaustive differential test: `equality_carrier_executes_all_pairs_and_triples; command: cargo test --release -p panproto-inst --test reference_keys equality_carrier_executes_all_pairs_and_triples -- --exact --nocapture`
-- Property differential test: `named_collation_has_the_exact_typed_refusal_boundary; command: cargo test --release -p panproto-inst --test reference_keys named_collation_has_the_exact_typed_refusal_boundary -- --exact --nocapture`
+- Evidence scope: `37 values under 12 equality configurations, for 16,428 ordered pairs`
+- Production certificate: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
+- Independent reference anchor: `named_collation_has_the_exact_typed_refusal_boundary; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=named_collation_has_the_exact_typed_refusal_boundary)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -455,9 +461,9 @@ The legacy role tags are 0 for primary, 1 for unique, 2 for identifier, 3 for so
 
 - Law ID: `keys.equality-declaration-byte-injectivity`
 - Reference: `panproto_reference::schema::canonical_bytes`
-- Enumerator: `10 equality forms: legacy empty, representation, numeric value, decimal/float/any within-kind, binary/ascii-folded/named SQL, and XML non-CDATA`
-- Exhaustive differential test: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo test --release -p panproto-schema --test reference_keys extended_declaration_bytes_match_reference_on_every_sum_variant -- --exact --nocapture`
-- Property differential test: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo test --release -p panproto-schema --test reference_keys extended_declaration_bytes_match_reference_on_every_sum_variant -- --exact --nocapture`
+- Evidence scope: `10 equality forms: legacy empty, representation, numeric value, decimal/float/any within-kind, binary/ascii-folded/named SQL, and XML non-CDATA`
+- Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
+- Independent reference anchor: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -500,9 +506,9 @@ A total preorder is reflexive, transitive, and total; antisymmetry is not requir
 
 - Law ID: `keys.sort-key-total-preorder`
 - Reference: `panproto_reference::keys::sort_order`
-- Enumerator: `the seven values {0, 1, 1.5, "a", "ab", "b", NaN}; exact ordered pairs=49, triples=343`
-- Exhaustive differential test: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo test --release -p panproto-inst --test reference_keys sort_preorder_and_adjacent_descent_match_the_reference -- --exact --nocapture`
-- Property differential test: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo test --release -p panproto-inst --test reference_keys sort_preorder_and_adjacent_descent_match_the_reference -- --exact --nocapture`
+- Evidence scope: `the seven values {0, 1, 1.5, "a", "ab", "b", NaN}; exact ordered pairs=49, triples=343`
+- Production certificate: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
+- Independent reference anchor: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -544,9 +550,9 @@ An *adjacent descent* is an index $i$ with `sort_order(x_i, x_{i+1}) = Greater`.
 
 - Law ID: `keys.sort-key-adjacent-descents`
 - Reference: `panproto_reference::keys::key_order`
-- Enumerator: `all 2,801 sequences of length at most four over {0, 1, 1.5, "a", "ab", "b", NaN}`
-- Exhaustive differential test: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo test --release -p panproto-inst --test reference_keys sort_preorder_and_adjacent_descent_match_the_reference -- --exact --nocapture`
-- Property differential test: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo test --release -p panproto-inst --test reference_keys sort_preorder_and_adjacent_descent_match_the_reference -- --exact --nocapture`
+- Evidence scope: `all 2,801 sequences of length at most four over {0, 1, 1.5, "a", "ab", "b", NaN}`
+- Production certificate: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
+- Independent reference anchor: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -589,9 +595,9 @@ The *signature* of a member key is its part count and effective equality vector.
 
 - Law ID: `keys.target-set-declaration`
 - Reference: `panproto_reference::keys::target_set`
-- Enumerator: `six local cases covering compatible, empty, duplicate, arity-incompatible, equality-incompatible, and implicit/explicit representation signatures; plus absent-key and scope-mismatch production cases`
-- Exhaustive differential test: `target_sets_match_on_the_complete_local_predicate; command: cargo test --release -p panproto-schema --test reference_keys target_sets_match_on_the_complete_local_predicate -- --exact --nocapture`
-- Property differential test: `target_sets_match_on_the_complete_local_predicate; command: cargo test --release -p panproto-schema --test reference_keys target_sets_match_on_the_complete_local_predicate -- --exact --nocapture`
+- Evidence scope: `nine declaration fixtures covering compatible, empty, duplicate, arity-incompatible, equality-incompatible, implicit/explicit representation, absent-key, scope-mismatch, and invalid-first-member signatures; eight fixtures have resolved signatures and are also projected to the local predicate`
+- Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
+- Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
@@ -633,9 +639,9 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 
 - Law ID: `keys.xml-noncdata-equivalence`
 - Reference: `panproto_reference::keys::xml_noncdata`
-- Enumerator: `panproto_reference::enumerate::keys_and_registration::xml_strings; exact counts: strings=341, pairs=116,281`
-- Exhaustive differential test: `xml_kernel_executes_the_exact_o17_carrier; command: cargo test --release -p panproto-inst --test reference_keys xml_kernel_executes_the_exact_o17_carrier -- --exact --nocapture`
-- Property differential test: `xml_kernel_executes_the_exact_o17_carrier; command: cargo test --release -p panproto-inst --test reference_keys xml_kernel_executes_the_exact_o17_carrier -- --exact --nocapture`
+- Evidence scope: `341 XML strings and 116,281 ordered pairs`
+- Production certificate: `xml_kernel_executes_the_exact_o17_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_o17_carrier)'`
+- Independent reference anchor: `xml_kernel_executes_the_exact_o17_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_o17_carrier)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -657,7 +663,7 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-The complete key, target-set, and reference declaration carrier is valid exactly when the independent `validate_declarations` function returns `Ok(())`. Key ids are unique per vertex, equality arity is exact, and sort keys have a unique ordered carrier from their `Within` scope. Target sets are nonempty and satisfy the schema-level member conditions in [L-keys-and-registration-13](#L-keys-and-registration-13). Every reference names a present resolvable target of matching arity and a compatible edge; inline references redirect through a target set; variable binders name identifier keys and use one binding mode; standoff lengths are not inclusive, fragmented standoffs are many-valued over an ordered holder edge, guarded partitions have distinct representation values, referenced text and scope-via chains are typed and acyclic, and target-set references carry no redundant per-vertex key. The production validator agrees on this declaration-local predicate and additionally checks that named vertices, paths, positional carriers, scope ancestors, and protocol-required edges exist in the production schema. Each validator returns every defect in its domain in deterministic declaration order. Canonical schema bytes distinguish every valid declaration in this carrier.
+The complete key, target-set, and reference declaration carrier is valid exactly when the independent `validate_declarations` function returns `Ok(())`. Key ids are unique per vertex, equality arity is exact, and sort keys have a unique ordered carrier from their `Within` scope. A repeated key id contributes one duplicate defect, regardless of how many later declarations repeat it. Target sets are nonempty and satisfy the schema-level member conditions in [L-keys-and-registration-13](#L-keys-and-registration-13). Every member key targeted by a reference has a resolvable role, and every reference names a present target of matching arity and a compatible edge. A reference with no explicit target key selects the first declared `Primary` key. A target-set virtual edge starts at the reference holder and expands to a declared edge for every member. Inline references redirect through a target set. Variable binders name identifier keys and use one binding mode. For text constraints, standoff lengths are not inclusive; fragmented standoffs are many-valued over an ordered holder edge; guarded partitions have distinct representation values; referenced text and scope-via chains are typed and acyclic; and target-set references carry no redundant per-vertex key. A referenced-text declaration is invalid when any reachable suffix repeats a reference, including when it enters a cycle that does not contain the starting declaration. The production validator agrees on this declaration-local predicate and additionally checks that named vertices, paths, positional carriers, scope ancestors, and protocol-required edges exist in the production schema. Each validator returns every defect in its domain in deterministic declaration order and with the stated multiplicity. A reference to a target set whose only member key is missing yields `TargetSetMemberMismatch` followed by `UnknownTarget`; source arity is not inspected without a resolvable target. Canonical schema bytes distinguish every valid declaration in this carrier.
 
 ### Outside the domain
 
@@ -670,17 +676,18 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 ### Proof
 
 1. `validate_declarations` appends results from key, target-set, reference, binder-mode, and guard passes in that order and returns success exactly when the vector is empty.
-2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. Reference validation returns early only after an unknown target, since later target-dependent checks would have no typed object to inspect.
-3. The text-reference and scope-via helpers follow named chains with visited sets, so they accept exactly the typed acyclic chains described above.
-4. Canonical writing gives every declaration sum a distinct tag, every collection a length, and every map a canonical order. The injectivity argument of [L-keys-and-registration-3](#L-keys-and-registration-3) therefore applies to this declaration subcarrier.
+2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. A repeated-id set limits duplicate diagnostics to one per id. Reference validation independently exercises all five key roles, checks the virtual edge's holder before its member expansions, and selects the first `Primary` key when no target key is named. It returns after an unknown target, since later target-dependent checks would have no typed object to inspect.
+3. The text-reference helper carries the active suffix through recursion, so every reachable repeated node is rejected. The scope-via helper similarly follows its named chain with a visited set. Thus both accept exactly the typed acyclic chains described above.
+4. Canonical writing gives every declaration sum a distinct tag, every collection a length, and every map a canonical order. The injectivity argument of [L-keys-and-registration-3](#L-keys-and-registration-3) thus applies to this declaration subcarrier.
 
 ### Executable counterpart
 
 - Law ID: `keys.group-g-declaration-injectivity`
 - Reference: `panproto_reference::schema::canonical_bytes`
-- Enumerator: `36 canonical fixtures covering every declaration sum variant and nondefault extension; 21 validation fixtures covering success and each of the 20 independent refusal classes`
-- Exhaustive differential test: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo test --release -p panproto-schema --test reference_keys extended_declaration_bytes_match_reference_on_every_sum_variant -- --exact --nocapture`
-- Property differential test: `declaration_validation_matches_reference_on_every_common_refusal; command: cargo test --release -p panproto-schema --test reference_keys declaration_validation_matches_reference_on_every_common_refusal -- --exact --nocapture`
+- Evidence scope: `37 canonical fixtures covering every declaration sum variant, including Position, and nondefault extension; 27 validation fixtures covering success, every independent refusal class, exact duplicate multiplicity, implicit-primary selection, missing-only target sets, holder-source agreement, and reachable text cycles; plus all five target-set member roles`
+- Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
+- Independent reference anchor: `declaration_validation_matches_reference_on_every_common_refusal; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_validation_matches_reference_on_every_common_refusal)'`
+- Role differential test: `target_set_references_check_every_member_key_role; command: cargo test --release -p panproto-schema --test reference_keys target_set_references_check_every_member_key_role -- --exact --nocapture`
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-schema/src/keys.rs`
 - File: `crates/panproto-schema/src/validate.rs`
@@ -725,9 +732,9 @@ A *resolution occurrence* is a holder element together with the tuple read from 
 
 - Law ID: `keys.index-and-null-match-declarations`
 - Reference: `panproto_reference::resolution::get`
-- Enumerator: `five two-part tuples (equal, unequal, all NULL, and both partial-NULL orientations) under Simple and Full; all 16 optional-index pairs for the Index refusal`
-- Exhaustive differential test: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo test --release -p panproto-io --test reference_resolution composite_foreign_key_null_matching_uses_real_resolution_occurrences -- --exact --nocapture`
-- Property differential test: `index_fields_never_resolve_targets; command: cargo test --release -p panproto-io --test reference_resolution index_fields_never_resolve_targets -- --exact --nocapture`
+- Evidence scope: `five two-part tuples (equal, unequal, all NULL, and both partial-NULL orientations) under Simple and Full; all 16 optional-index pairs for the Index refusal`
+- Production certificate: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
+- Independent reference anchor: `index_fields_never_resolve_targets; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
 - File: `crates/panproto-io/src/resolution/compile.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
@@ -770,9 +777,9 @@ A *known datatype* is one present in the protocol's value-kind table. A *derived
 
 - Law ID: `keys.lexical-space-declaration`
 - Reference: `panproto_reference::validation::lexical_space`
-- Enumerator: `the lexemes {"0", "42", "-1", "not-an-integer"} under the declared integer datatype`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo test --release -p panproto-inst --test reference_validation supplemental_validation_definitions_have_bounded_production_witnesses -- --exact --nocapture`
-- Property differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo test --release -p panproto-inst --test reference_validation supplemental_validation_definitions_have_bounded_production_witnesses -- --exact --nocapture`
+- Evidence scope: `the lexemes {"0", "42", "-1", "not-an-integer"} under the declared integer datatype`
+- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
@@ -815,10 +822,12 @@ An *annotated format* is a named constraint whose semantics are `AnnotatedFormat
 ### Executable counterpart
 
 - Law ID: `keys.annotated-format-declaration`
-- Reference: `panproto_reference::validation::{annotated_format_parse,annotated_format_advisory,format_assertion_acceptance}`
-- Enumerator: `four UUID strings under both advisory and asserting requirements, with both recorded-diagnostic states`
-- Exhaustive differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo test --release -p panproto-inst --test reference_validation supplemental_validation_definitions_have_bounded_production_witnesses -- --exact --nocapture`
-- Property differential test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo test --release -p panproto-inst --test reference_validation supplemental_validation_definitions_have_bounded_production_witnesses -- --exact --nocapture`
+- Reference: `panproto_reference::validation::annotated_format_parse`
+- Reference: `panproto_reference::validation::annotated_format_advisory`
+- Reference: `panproto_reference::validation::format_assertion_acceptance`
+- Evidence scope: `four UUID strings under both advisory and asserting requirements, with both recorded-diagnostic states`
+- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`

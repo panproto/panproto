@@ -61,6 +61,7 @@ export interface WasmGlueModule {
   check_existence: WasmExports['check_existence'];
   compile_migration: WasmExports['compile_migration'];
   lift_record: WasmExports['lift_record'];
+  check_migration_coverage: WasmExports['check_migration_coverage'];
   get_record: WasmExports['get_record'];
   put_record: WasmExports['put_record'];
   compose_migrations: WasmExports['compose_migrations'];
@@ -209,6 +210,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       check_existence: glue.check_existence,
       compile_migration: glue.compile_migration,
       lift_record: glue.lift_record,
+      check_migration_coverage: glue.check_migration_coverage,
       get_record: glue.get_record,
       put_record: glue.put_record,
       compose_migrations: glue.compose_migrations,

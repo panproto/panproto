@@ -126,10 +126,10 @@ impl SegmentSpec {
             }
         }
         if let Some(alloc) = self.alloc_edges {
+            alloc.check(self.id)?;
             if shape == InstanceShapeKind::Table {
                 return Err(malformed(PartitionDefect::EdgeAllocationOnTable));
             }
-            alloc.check(self.id)?;
         }
         Ok(())
     }

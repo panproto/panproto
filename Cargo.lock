@@ -2289,6 +2289,7 @@ dependencies = [
  "panproto-gat",
  "panproto-inst",
  "panproto-protocols",
+ "panproto-reference",
  "panproto-schema",
  "proptest",
  "rmp-serde",

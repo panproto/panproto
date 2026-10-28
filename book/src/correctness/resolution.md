@@ -6,7 +6,7 @@ Sixteen laws govern the construction. [L-resolution-1](#L-resolution-1) through 
 
 Let $R$ be a declaration-valid reference schema and let $s$ be a rooted tree with a graph encoding. A *resolution occurrence* is identified by a holder id, reference name, and occurrence index. Cardinality `One` contributes index zero when all required source parts are present. Cardinality `Many` zips the part sequences positionally. A successful target lookup uses the target key's declared equality and, for a `Within` key, only the holder's scope bucket. `AddEdge` retains the holder and adds an edge to the target; `Redirect` removes the holder's maximal redirected subtree, records it, and adds the edge from the subtree's parent.
 
-Composite foreign keys use the *null-presence rule*. Under `Simple`, a tuple is an occurrence only when every part is non-null. Under `Full`, an all-null tuple is still absent, while a partly null tuple is an occurrence and therefore becomes dangling when no target key matches it. The production/reference differential covers equal and unequal present tuples, all-null tuples under both rules, and partly null tuples in both coordinate orders.
+Composite foreign keys use the *null-presence rule*. Under `Simple`, a tuple is an occurrence only when every part is non-null. Under `Full`, an all-null tuple is still absent, while a partly null tuple is an occurrence and thus becomes dangling when no target key matches it. The production/reference differential covers equal and unequal present tuples, all-null tuples under both rules, and partly null tuples in both coordinate orders.
 
 The reference operations live in [`panproto_reference::resolution`](https://docs.rs/panproto-reference/latest/panproto_reference/resolution/). The principal phase-three carrier contains all eight subsets of targets `{a,b,c}` and every one-step add, delete, and retarget candidate induced by each subset. This gives eight source states and 48 candidate edits, of which 24 lie in the independent put domain. Separate finite carriers cover URI directives, standoff coordinates, inherited bases, key equalities, guarded declarations, and variable definitions. These bounds support exhaustive comparison; the statements themselves are not restricted to the finite carriers.
 
@@ -33,9 +33,9 @@ Get records every resolution edge under the occurrence that produced it and reco
 - Law ID: `resolution.get-put`
 - Reference: `panproto_reference::resolution::get`
 - Reference: `panproto_reference::resolution::put`
-- Enumerator: `panproto_reference::enumerate::resolution::indexed_sources; bound: targets=3, sources=8`
-- Exhaustive differential test: `declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope)'`
-- Property differential test: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::indexed_sources; bound: targets=3, sources=8`
+- Production certificate: `declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope)'`
+- Independent reference anchor: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/mod.rs`
@@ -76,9 +76,9 @@ Reference get records a synthesis key for each produced carrier. `coherent_rekey
 - Law ID: `resolution.put-get`
 - Reference: `panproto_reference::resolution::get`
 - Reference: `panproto_reference::resolution::put`
-- Enumerator: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48`
-- Exhaustive differential test: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
-- Property differential test: `coherent_reference_renaming_is_a_property_of_every_generated_state; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=coherent_reference_renaming_is_a_property_of_every_generated_state)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48`
+- Production certificate: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
+- Independent reference anchor: `coherent_reference_renaming_is_a_property_of_every_generated_state; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=coherent_reference_renaming_is_a_property_of_every_generated_state)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -118,9 +118,9 @@ The independent `check_put_domain` examines stable synthesis keys and returns it
 
 - Law ID: `resolution.totality`
 - Reference: `panproto_reference::resolution::put`
-- Enumerator: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48`
-- Exhaustive differential test: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
-- Property differential test: `the_reference_put_domain_is_not_defined_by_reference_put; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=the_reference_put_domain_is_not_defined_by_reference_put)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48`
+- Production certificate: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
+- Independent reference anchor: `the_reference_put_domain_is_not_defined_by_reference_put; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=the_reference_put_domain_is_not_defined_by_reference_put)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -160,9 +160,9 @@ Two state pairs are *coherently renamed* when one injective map is applied to ev
 
 - Law ID: `resolution.congruence`
 - Reference: `panproto_reference::resolution::put`
-- Enumerator: `panproto_reference::enumerate::resolution::injective_renamings; bound: image_ceiling=5`
-- Exhaustive differential test: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
-- Property differential test: `coherent_reference_renaming_is_a_property_of_every_generated_state; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=coherent_reference_renaming_is_a_property_of_every_generated_state)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::injective_renamings; bound: image_ceiling=5`
+- Production certificate: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
+- Independent reference anchor: `coherent_reference_renaming_is_a_property_of_every_generated_state; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=coherent_reference_renaming_is_a_property_of_every_generated_state)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -196,15 +196,15 @@ The synthesis index and coherent transport are those of [L-resolution-2](#L-reso
 
 ### Proof
 
-After transport, every recorded occurrence, target, span, and inline coordinate in $c'$ names the corresponding carrier of $v$. Put therefore performs the same inverse actions that reconstructed $s'$ before the second get, and exact GetPut at $s'$ yields the conclusion. The finite differential counts six raw reference failures, showing why untransported PutTwice is too strong, then applies `gated_put_twice` and the corresponding production complement rekeying. Both implementations have zero gated failures.
+After transport, every recorded occurrence, target, span, and inline coordinate in $c'$ names the corresponding carrier of $v$. Put thus performs the same inverse actions that reconstructed $s'$ before the second get, and exact GetPut at $s'$ yields the conclusion. The finite differential counts six raw reference failures, showing why untransported PutTwice is too strong, then applies `gated_put_twice` and the corresponding production complement rekeying. Both implementations have zero gated failures.
 
 ### Executable counterpart
 
 - Law ID: `resolution.gated-put-twice`
 - Reference: `panproto_reference::resolution::put`
-- Enumerator: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48, admitted=24`
-- Exhaustive differential test: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
-- Property differential test: `declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48, admitted=24`
+- Production certificate: `all_five_resolution_laws_agree_on_the_exact_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_s8_scope)'`
+- Independent reference anchor: `declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -226,7 +226,7 @@ None. Raw PutTwice is known to be stronger than the registered gated law.
 
 ### Statement
 
-For a sequence of base directives in occurrence order, `uri_environment` folds from left to right. An absolute directive replaces the environment. A relative directive resolves against the environment immediately before it by [L-resolution-7](#L-resolution-7). The result therefore depends only on the prefix preceding the occurrence, and the last successful absolute-or-resolved directive is the environment. A relative first directive has no environment.
+For a sequence of base directives in occurrence order, `uri_environment` folds from left to right. An absolute directive replaces the environment. A relative directive resolves against the environment immediately before it by [L-resolution-7](#L-resolution-7). The result thus depends only on the prefix preceding the occurrence, and the last successful absolute-or-resolved directive is the environment. A relative first directive has no environment.
 
 ### Outside the domain
 
@@ -244,9 +244,9 @@ An absolute directive is one whose parsed URI has a scheme. The fold does not in
 
 - Law ID: `resolution.uri-environment-locality`
 - Reference: `panproto_reference::resolution::uri_environment`
-- Enumerator: `panproto_reference::enumerate::resolution::uri_directive_sequences; bound: length=3, alphabet=3, sequences=40`
-- Exhaustive differential test: `uri_environment_uses_only_the_preceding_directive_prefix; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=uri_environment_uses_only_the_preceding_directive_prefix)'`
-- Property differential test: `uri_environment_uses_only_the_preceding_directive_prefix; property: changing a suffix outside the evaluated prefix cannot change the environment`
+- Evidence scope: `panproto_reference::enumerate::resolution::uri_directive_sequences; bound: length=3, alphabet=3, sequences=40`
+- Production certificate: `uri_environment_uses_only_the_preceding_directive_prefix; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_environment_uses_only_the_preceding_directive_prefix)'`
+- Independent reference anchor: `uri_environment_uses_only_the_preceding_directive_prefix; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_environment_uses_only_the_preceding_directive_prefix)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
@@ -286,9 +286,9 @@ The branches of `rfc3986` correspond to the component cases in the Statement. `r
 
 - Law ID: `resolution.rfc3986-algorithm`
 - Reference: `panproto_reference::resolution::rfc3986`
-- Enumerator: `RFC 3986 section 5.4 normal and abnormal vectors; cases=40`
-- Exhaustive differential test: `uri_resolution_matches_the_rfc_3986_section_5_4_vectors; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=uri_resolution_matches_the_rfc_3986_section_5_4_vectors)'`
-- Property differential test: `uri_environment_uses_only_the_preceding_directive_prefix; property: every relative directive uses the same production and reference join`
+- Evidence scope: `RFC 3986 section 5.4 normal and abnormal vectors; cases=40`
+- Production certificate: `uri_resolution_matches_the_rfc_3986_section_5_4_vectors; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_resolution_matches_the_rfc_3986_section_5_4_vectors)'`
+- Independent reference anchor: `uri_resolution_matches_the_rfc_3986_section_5_4_vectors; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_resolution_matches_the_rfc_3986_section_5_4_vectors)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
@@ -328,9 +328,9 @@ The two constructor branches copy only `node` and `field`. The external tuple is
 
 - Law ID: `resolution.referenced-text-identity`
 - Reference: `panproto_reference::resolution::text_identity`
-- Enumerator: `field-qualified local/external identity carrier; holders=1, fields=2, contexts=2`
-- Exhaustive differential test: `referenced_text_identity_is_field_qualified_and_value_independent; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=referenced_text_identity_is_field_qualified_and_value_independent)'`
-- Property differential test: `referenced_text_identity_is_field_qualified_and_value_independent; property: external route and key changes preserve site identity`
+- Evidence scope: `field-qualified local/external identity carrier; holders=1, fields=2, contexts=2`
+- Production certificate: `referenced_text_identity_is_field_qualified_and_value_independent; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=referenced_text_identity_is_field_qualified_and_value_independent)'`
+- Independent reference anchor: `referenced_text_identity_is_field_qualified_and_value_independent; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=referenced_text_identity_is_field_qualified_and_value_independent)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
@@ -370,9 +370,9 @@ The helper scans in declaration order and returns the first representation-equal
 
 - Law ID: `resolution.guarded-occurrence-partition`
 - Reference: `panproto_reference::resolution::guarded_partition`
-- Enumerator: `guard carrier; declarations=2, observed_values=3`
-- Exhaustive differential test: `guarded_occurrences_select_the_first_representation_equal_guard; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=guarded_occurrences_select_the_first_representation_equal_guard)'`
-- Property differential test: `guarded_occurrences_select_the_first_representation_equal_guard; property: selected declarations resolve and the unmatched value is retained exactly as Unselected`
+- Evidence scope: `guard carrier; declarations=2, observed_values=3`
+- Production certificate: `guarded_occurrences_select_the_first_representation_equal_guard; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=guarded_occurrences_select_the_first_representation_equal_guard)'`
+- Independent reference anchor: `guarded_occurrences_select_the_first_representation_equal_guard; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=guarded_occurrences_select_the_first_representation_equal_guard)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
@@ -412,9 +412,9 @@ For fixed $o$, $w_s=s+o$ uniquely. In absolute-end form, $w_e=e+o$ uniquely; in 
 
 - Law ID: `resolution.standoff-form-injectivity`
 - Reference: `panproto_reference::resolution::standoff_form`
-- Enumerator: `panproto_reference::enumerate::resolution::standoff_coordinates; bound: coordinate_alphabet=4, origins=4, end_forms=2, cases=128`
-- Exhaustive differential test: `standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope)'`
-- Property differential test: `standoff_inverse_property_holds_without_overflow; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=standoff_inverse_property_holds_without_overflow)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::standoff_coordinates; bound: coordinate_alphabet=4, origins=4, end_forms=2, cases=128`
+- Production certificate: `standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope)'`
+- Independent reference anchor: `standoff_inverse_property_holds_without_overflow; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=standoff_inverse_property_holds_without_overflow)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
@@ -454,9 +454,9 @@ The inverse writes $w_s=s+o$. In length form it writes $w_e=e-s$, so decoding gi
 
 - Law ID: `resolution.standoff-put-left-inverse`
 - Reference: `panproto_reference::resolution::standoff_inverse`
-- Enumerator: `panproto_reference::enumerate::resolution::standoff_coordinates; bound: coordinate_alphabet=4, origins=4, end_forms=2, cases=128`
-- Exhaustive differential test: `standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope)'`
-- Property differential test: `standoff_inverse_property_holds_without_overflow; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=standoff_inverse_property_holds_without_overflow)'`
+- Evidence scope: `panproto_reference::enumerate::resolution::standoff_coordinates; bound: coordinate_alphabet=4, origins=4, end_forms=2, cases=128`
+- Production certificate: `standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope)'`
+- Independent reference anchor: `standoff_inverse_property_holds_without_overflow; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=standoff_inverse_property_holds_without_overflow)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
@@ -478,7 +478,7 @@ None. The absolute-end and length forms are distinct encodings even when they de
 
 ### Statement
 
-An index field selects a position in an ordered carrier and never establishes reference identity. `index_target(index,target_index)` is therefore false for every pair of optional indices, including equal present indices.
+An index field selects a position in an ordered carrier and never establishes reference identity. `index_target(index,target_index)` is thus false for every pair of optional indices, including equal present indices.
 
 ### Outside the domain
 
@@ -496,9 +496,9 @@ The reference function returns `false` without inspecting either argument. This 
 
 - Law ID: `resolution.index-target-nonresolution`
 - Reference: `panproto_reference::resolution::index_target`
-- Enumerator: `optional index product; values={absent,0,1,u64::MAX}, pairs=16`
-- Exhaustive differential test: `index_fields_never_resolve_targets; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=index_fields_never_resolve_targets)'`
-- Property differential test: `index_fields_never_resolve_targets; property: the production compiler returns KeyNotResolvable for an Index target key`
+- Evidence scope: `optional index product; values={absent,0,1,u64::MAX}, pairs=16`
+- Production certificate: `index_fields_never_resolve_targets; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
+- Independent reference anchor: `index_fields_never_resolve_targets; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/compile.rs`
@@ -538,9 +538,9 @@ The function reverses the slice, flattens absent entries, takes the first remain
 
 - Law ID: `resolution.inherited-base-locality`
 - Reference: `panproto_reference::resolution::inherited_base`
-- Enumerator: `panproto_reference::enumerate::resolution::sequences; bound: length=3, alphabet=3`
-- Exhaustive differential test: `inherited_base_uses_the_nearest_present_ancestor; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=inherited_base_uses_the_nearest_present_ancestor)'`
-- Property differential test: `inherited_base_uses_the_nearest_present_ancestor; property: replacing every ancestor before the nearest present base leaves the result unchanged`
+- Evidence scope: `panproto_reference::enumerate::resolution::sequences; bound: length=3, alphabet=3`
+- Production certificate: `inherited_base_uses_the_nearest_present_ancestor; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=inherited_base_uses_the_nearest_present_ancestor)'`
+- Independent reference anchor: `inherited_base_uses_the_nearest_present_ancestor; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=inherited_base_uses_the_nearest_present_ancestor)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
@@ -580,9 +580,9 @@ Declared key equality is [`key_equivalence`](./keys-and-registration.md), re-exp
 
 - Law ID: `resolution.declared-key-equality`
 - Reference: `panproto_reference::resolution::declared_key_equality`
-- Enumerator: `key-equality product; equalities=6, values=7, ordered_pairs=49`
-- Exhaustive differential test: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
-- Property differential test: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
+- Evidence scope: `key-equality product; equalities=6, values=7, ordered_pairs=49`
+- Production certificate: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
+- Independent reference anchor: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
@@ -624,9 +624,9 @@ The binding predicate first filters by strict position and exact name. It then a
 
 - Law ID: `resolution.nearest-preceding-binding`
 - Reference: `panproto_reference::resolution::nearest_preceding`
-- Enumerator: `ordered variable carrier; definitions=4, names=2, policies=2`
-- Exhaustive differential test: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'; production policies: FirstDefines, NearestPreceding`
-- Property differential test: `nearest_preceding_binding_ignores_later_and_other_named_definitions; property: later and differently named definitions do not affect either selected production edge`
+- Evidence scope: `ordered variable carrier; definitions=4, names=2, policies=2`
+- Production certificate: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'; production policies: FirstDefines, NearestPreceding`
+- Independent reference anchor: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
@@ -657,7 +657,7 @@ There is none for finite choice lists. Registry compilation may independently re
 
 ### Definitions used
 
-Registry order is the order of the outer slice; option order is the order of each inner vector. Duplicate values at different positions remain distinct positional choices and may therefore yield equal output values more than once.
+Registry order is the order of the outer slice; option order is the order of each inner vector. Duplicate values at different positions remain distinct positional choices and may thus yield equal output values more than once.
 
 ### Proof
 
@@ -685,4 +685,4 @@ None. Deduplicating equal choices or reordering factors changes preserved route 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: The reference product is proved, but production registry assembly and final-gate coverage are missing.
+- Defects: The reference product is proved, but production registry assembly and end-to-end coverage are missing.

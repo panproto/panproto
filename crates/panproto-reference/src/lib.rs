@@ -53,14 +53,14 @@
 //! | Edit application and the differ | [`edit::apply`], [`edit::diff`], [`edit::apply_table`], [`edit::diff_table`] | `edits.md` |
 //! | Canonical graph, table and tree edit bytes | [`edit::canonical_graph_delta_bytes`], [`edit::canonical_table_delta_bytes`], [`edit::canonical_tree_edit_bytes`] | `edits.md` |
 //! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`], [`edit::graph_delta_from_tree_edit`] | `edits.md` |
-//! | Validation as predicates over instances | [`validation::validate`] | `validation.md` |
-//! | Status aggregation | [`validation::status`], [`validation::CheckStatus::all`] | `validation.md` |
+//! | Validation as predicates over instances | [`validation::validate`], [`validation::validate_table`], [`validation::validate_tree`] | `validation.md` |
+//! | Validation transition and boundary observations | [`validation::witness_with_trust`], [`validation::restriction_boundary`] | `validation.md` |
 //! | Admission policies | [`validation::admits`] | `validation.md` |
 //! | Key values, scopes and buckets | [`keys::key_value`], [`keys::buckets`] | `keys-and-registration.md` |
 //! | Segment ownership, boundaries and splitting | [`segment::partition`] | `segments.md` |
 //! | Segment assembly | [`segment::glue`] | `segments.md` |
 //! | Canonical segment artifacts and manifests | [`segment::canonical_manifest_bytes`], [`segment::canonical_segment_bytes`], [`segment::seal_manifest`], [`segment::verify_manifest`] | `segments.md` |
-//! | Canonical segment journal vocabulary | [`segment::canonical_journal_bytes`], [`segment::decode_journal_bytes`], [`segment::journal_digest`] | `segments.md` |
+//! | Reference segment journal digest | [`segment::journal_digest`] | `segments.md` |
 //! | Segment refusal and contract preflights | [`segment::decode_segment_bytes`], [`segment::validate_segment_contract`], [`segment::validation_view_preflight`] | `segments.md` |
 //! | Segment execution as whole-state execution on the glued state | [`segment::segmented`] | `segments.md` |
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |
@@ -79,7 +79,7 @@
 //! | Schema bytes and change classification | [`schema::canonical_bytes`], [`schema::classify_change`] | `keys-and-registration.md` |
 //! | URI, standoff and rebinding references | [`resolution::rfc3986`], [`resolution::standoff_form`], [`resolution::standoff_inverse`], [`resolution::nearest_preceding`] | `resolution.md` |
 //! | Bounded XML expansion and tabular edge cases | [`xml::expand_entities`], [`tabular::missing_token_cst`], [`tabular::one_column_empty_cst`], [`tabular::tsv_quote_cst`] | `value-io.md` |
-//! | Canonical and preserving value-I/O laws | [`value_io::round_trip`], [`value_io::preserve`], [`value_io::duplicate_member`] | `value-io.md` |
+//! | Canonical value-I/O and presence laws | [`value_io::round_trip`], [`value_io::presence`], [`value_io::duplicate_member`] | `value-io.md` |
 //! | Injectivity witnesses of the canonical byte encoders | [`canonical::decode_value`], [`canonical::value_bytes`], [`canonical::decode_graph`], [`canonical::decode_table`], [`canonical::decode_tree`] | `representation.md` |
 //! | Decimal bytes and the exact identity-envelope layout | [`canonical::decimal_bytes`], [`canonical::identity`] | `values.md`, `representation.md` |
 //! | Binary16, exact readings and computed NaNs | [`float::binary16`], [`float::exact_reading`], [`float::computed_nan`] | `values.md` |
@@ -90,13 +90,15 @@
 //! | Protolens operations | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`] | `lenses.md` |
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
 //! | Migration observable squares | [`migration::graph_square`], [`migration::table_square`], [`migration::tree_square`] | `lenses.md` |
-//! | Declared equality, refinement, target sets and XML lexical boundaries | [`keys::representation_refines`], [`keys::target_set`], [`keys::xml_noncdata`] | `keys-and-registration.md` |
+//! | Declared equality, refinement, target sets and XML lexical boundaries | [`keys::representation_refines`], [`keys::target_set`], [`keys::xml_noncdata`] | `keys-and-registration.md`, `validation.md` |
+//! | Schema declaration validation | [`schema::validate_declarations`] | `validation.md` |
 //! | Theory morphisms, quotients and recomposition | [`theory::check_morphism`], [`theory::quotient`], [`theory::recompose`] | `theories.md` |
 //! | Declared resolution observables | [`resolution::declared_key_equality`], [`resolution::guarded_partition`], [`resolution::index_target`], [`resolution::inherited_base`], [`resolution::preserving_registry`], [`resolution::text_identity`], [`resolution::uri_environment`] | `resolution.md` |
-//! | Validation observables for new declarations | [`validation::annotated_format_advisory`], [`validation::annotated_format_parse`], [`validation::format_assertion_acceptance`], [`validation::key_equality`], [`validation::key_forms`], [`validation::lexical_space`], [`validation::variable_binding`] | `validation.md` |
+//! | Validation observables for new declarations | [`validation::annotated_format_advisory`], [`validation::annotated_format_parse`], [`validation::classify_selector`], [`validation::format_assertion_acceptance`], [`validation::lexical_space`] | `validation.md` |
 //! | Canonical theory and composition bytes | [`theory::canonical_theory_bytes`], [`theory::canonical_composition_bytes`] | `keys-and-registration.md` |
 //! | Generic parse, emit and route agreement | [`value_io::parse`], [`value_io::emit`], [`value_io::bytes`], [`value_io::blob_writer`], [`value_io::decimal`], [`value_io::temporal`], [`value_io::raw_numeric`] | `value-io.md` |
-//! | CST preservation and duplicate handling | [`value_io::parse_cst`], [`value_io::round_trip_cst`], [`value_io::preserve_cst`], [`value_io::duplicate_member_cst`], [`value_io::encoding_bom_cst`], [`value_io::encoding`], [`value_io::xml_encoding`] | `value-io.md` |
+//! | Canonical encoding normalization | [`value_io::encoding`], [`value_io::xml_encoding`] | `value-io.md` |
+//! | CST preservation and duplicate handling | [`value_io::parse_cst`], [`value_io::round_trip_cst`], [`value_io::preserve`], [`value_io::preserve_cst`], [`value_io::duplicate_member_cst`], [`value_io::encoding_bom_cst`] | `value-io.md` |
 //! | TOML, TSV, tabular and XML edge observables | [`toml::decimal_bigint_cst`], [`value_io::toml_scalar`], [`value_io::tsv_comment`], [`value_io::tsv_quote`], [`value_io::tabular_empty_row`], [`value_io::tabular_missing`], [`value_io::xml_entity`], [`value_io::xml_expanded_name`] | `value-io.md` |
 //! | XML CST laws | [`xml::bounded_expansion_cst`], [`xml::expanded_name_cst`], [`xml::round_trip_cst`] | `value-io.md` |
 //!

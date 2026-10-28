@@ -815,14 +815,21 @@ impl ProtolensChain {
     ///
     /// # Errors
     ///
-    /// Returns [`LensError::ProtolensError`] if any step fails or the
-    /// chain is empty (in the multi-step case), or
-    /// [`LensError::CompositionMismatch`] if adjacent steps'
-    /// endofunctors are not composable.
+    /// Returns [`LensError::ProtolensError`] if a step's precondition fails
+    /// at its running schema or a schema transform fails, or
+    /// [`LensError::CompositionMismatch`] if adjacent steps' endofunctors
+    /// are not composable. An empty chain remains the identity lens.
     pub fn instantiate(&self, schema: &Schema, protocol: &Protocol) -> Result<Lens, LensError> {
         if self.steps.is_empty() {
             return Ok(identity_lens(schema));
         }
+        self.check_applicability_with(schema, protocol)
+            .map_err(|reasons| {
+                LensError::ProtolensError(format!(
+                    "chain not applicable at its running schema: {}",
+                    reasons.join("; ")
+                ))
+            })?;
         if self.steps.len() == 1 {
             return self.steps[0].instantiate(schema, protocol);
         }
@@ -1070,9 +1077,10 @@ pub struct FleetResult {
 
 /// Apply a protolens chain to every schema in a fleet.
 ///
-/// For each `(name, schema)` pair, checks applicability. If the chain's
-/// precondition is satisfied, instantiates to produce a lens. Otherwise
-/// collects the schema name and failure reasons in `skipped`.
+/// For each `(name, schema)` pair, checks every step's applicability at
+/// the schema produced by its predecessor. If every precondition is
+/// satisfied, instantiates to produce a lens. Otherwise collects the
+/// schema name and first failing step's reasons in `skipped`.
 #[must_use]
 pub fn apply_to_fleet(
     chain: &ProtolensChain,
@@ -1083,11 +1091,7 @@ pub fn apply_to_fleet(
     let mut skipped = Vec::new();
 
     for (name, schema) in schemas {
-        let check = if chain.steps.is_empty() {
-            Ok(())
-        } else {
-            chain.steps[0].check_applicability(schema)
-        };
+        let check = chain.check_applicability_with(schema, protocol);
 
         match check {
             Err(reasons) => {
@@ -3671,6 +3675,32 @@ mod tests {
     }
 
     #[test]
+    fn chain_instantiate_rejects_a_later_step_at_its_running_schema() {
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![
+            elementary::drop_sort("string"),
+            elementary::rename_sort("string", "text"),
+        ]);
+
+        assert!(
+            chain.check_applicability(&schema).is_ok(),
+            "the cheap first-step check demonstrates the former false positive"
+        );
+        let error = chain
+            .instantiate(&schema, &protocol)
+            .expect_err("the second step requires a sort removed by the first");
+        assert!(
+            matches!(
+                &error,
+                crate::LensError::ProtolensError(detail)
+                    if detail.contains("chain not applicable") && detail.contains("string")
+            ),
+            "the refusal must retain the later step's reason: {error:?}"
+        );
+    }
+
+    #[test]
     fn chain_instantiate_executes_retained_add_field_default() {
         let schema = three_node_schema();
         let instance = three_node_instance();
@@ -4403,6 +4433,30 @@ mod tests {
         let result = super::apply_to_fleet(&chain, &schemas, &protocol);
         assert_eq!(result.applied.len(), 2);
         assert_eq!(result.skipped.len(), 1);
+    }
+
+    #[test]
+    fn fleet_skips_a_chain_with_a_later_inapplicable_step() {
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![
+            elementary::drop_sort("string"),
+            elementary::rename_sort("string", "text"),
+        ]);
+        let schemas = vec![make_string_schema("a")];
+
+        let result = super::apply_to_fleet(&chain, &schemas, &protocol);
+
+        assert!(result.applied.is_empty());
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].0, panproto_gat::Name::from("a"));
+        assert!(
+            result.skipped[0]
+                .1
+                .iter()
+                .any(|reason| reason.contains("string")),
+            "the skip reason must identify the later unmet precondition: {:?}",
+            result.skipped[0].1
+        );
     }
 
     #[test]

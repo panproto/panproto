@@ -23,11 +23,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "representation_is_canonical_byte_equality_on_every_pair"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -49,11 +51,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "coerce_agrees_with_the_reference_over_the_values_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -79,11 +83,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "coerce_value_agrees_with_the_reference_over_the_values_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -105,11 +111,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "coerce_agrees_with_the_reference_over_the_values_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -131,11 +139,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "coerce_value_agrees_with_the_reference_over_the_values_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -158,16 +168,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "coerce_value_agrees_with_the_reference_over_the_values_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "coerce_agrees_with_the_reference_over_the_values_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -189,11 +202,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "computed_nans_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_nan_differential"
@@ -216,16 +231,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
-              "test": "nan_narrowing_agrees_at_every_supported_width"
+              "test": "reference_nan_identities_cover_all_widths_and_production_matches_reduced_widths"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "binary32_nan_bits_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -248,16 +266,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "closest_shortest_printers_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "binary_rounding_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_closest_shortest_readback_differential"
@@ -279,11 +300,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "decimal_orders_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -305,11 +328,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "decimal_orders_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -335,11 +360,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -374,11 +401,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "canonical_bytes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -404,11 +433,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "evaluation_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_evaluation_differential"
@@ -430,11 +461,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "sql_temporal_forms"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -456,11 +489,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "sql_temporal_forms"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -494,11 +529,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -532,11 +569,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -570,11 +609,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -608,11 +649,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -634,11 +677,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "sql_temporal_forms"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -660,11 +705,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "discriminated_coercion_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_discriminated_differential"
@@ -686,11 +733,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "dialect_coercion_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_dialect_differential"
@@ -714,11 +763,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "a_byte_text_form_keeps_its_bytes"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "randomized_byte_text_differential"
@@ -742,11 +793,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "every_short_base64_text_reads_as_the_reference_decodes"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "randomized_byte_text_differential"
@@ -768,11 +821,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "a_byte_text_form_keeps_its_bytes"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "randomized_byte_text_differential"
@@ -794,11 +849,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "optional_padding_is_equivalent_on_every_short_unpadded_text"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "randomized_byte_text_differential"
@@ -820,11 +877,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::epoch_counts",
               "test": "an_epoch_count_round_trips"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -846,16 +905,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "temporal_lexemes_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_temporal_to_epoch_count_round_trip"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -877,11 +939,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "binary16_operations_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_binary16_differential"
@@ -903,16 +967,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "float16_coercion_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "nearest_reading_coercion_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_coercion_differential"
@@ -934,16 +1001,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "closest_shortest_printers_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "closest_shortest_text_reads_back_in_both_lexical_classes"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "randomized_closest_shortest_readback_differential"
@@ -965,16 +1035,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "exact_float_reading_corresponds_on_decoded_binary64_rationals"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "binary16_operations_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_exact_reading_differential"
@@ -996,11 +1069,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "decimal_orders_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -1022,11 +1097,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "decimal_orders_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -1048,11 +1125,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "decimal_orders_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -1074,11 +1153,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "decimal_value_canonical_bytes_agree_with_the_full_reference_encoding"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -1100,11 +1181,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reduced_temporals",
               "test": "unwritten_offsets_and_infinities_remain_distinct"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
@@ -1128,11 +1211,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "latin1_reads_exactly_the_strings_within_u_ff"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "randomized_byte_text_differential"
@@ -1156,11 +1241,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "a_byte_text_form_keeps_its_bytes"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::byte_text_forms",
               "test": "randomized_byte_text_differential"
@@ -1182,11 +1269,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "binary_rounding_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_exact_rounding_differential"
@@ -1215,14 +1304,21 @@
           "references": [
             "panproto_reference::value_io::round_trip"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_decimal_round_trips_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_decimal_round_trips_match_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::schema_v2",
+              "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            }
+          ]
         },
         {
           "id": "value-io.vf7-emission",
@@ -1236,17 +1332,24 @@
           "references": [
             "panproto_reference::value_io::emit"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_decimal_emission_matches_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_decimal_emission_matches_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::schema_v2",
+              "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            }
+          ]
         },
         {
-          "id": "value-io.vf8-presentation-preservation",
+          "id": "value-io.vf8-null-and-absence",
           "anchor": "L-value-io-3",
           "contract": [
             {
@@ -1255,16 +1358,26 @@
             }
           ],
           "references": [
-            "panproto_reference::value_io::preserve"
+            "panproto_reference::value_io::presence"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_byte_preservation_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "default_routes_match_null_and_absence_reference",
+              "features": [
+                "tree-sitter"
+              ]
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i12_default_routes_distinguish_null_from_absence"
+            }
+          ]
         },
         {
           "id": "value-io.vf9-reading",
@@ -1278,14 +1391,21 @@
           "references": [
             "panproto_reference::value_io::parse"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_canonical_scalar_parsing_matches_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_canonical_scalar_parsing_matches_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::schema_v2",
+              "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            }
+          ]
         },
         {
           "id": "value-io.temporal-route-representability",
@@ -1293,20 +1413,27 @@
           "contract": [
             {
               "section": "O12",
-              "clause": "A2(f)"
+              "clause": "A2(f) canonical-emitter scope: JSON, TOML, XML, CSV and TSV"
             }
           ],
           "references": [
             "panproto_reference::value_io::temporal"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "temporal_route_representability_matches_public_emitters"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "temporal_route_representability_matches_public_emitters"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::schema_v2",
+              "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            }
+          ]
         },
         {
           "id": "value-io.byte-text-writer-agreement",
@@ -1320,14 +1447,21 @@
           "references": [
             "panproto_reference::value_io::bytes"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_byte_preservation_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io",
+              "test": "json_pathway::tests::every_byte_text_route_writer_agrees_with_the_generic_encoder"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i4_byte_paths_compare_both_directions_and_blob_layout_is_exact"
+            }
+          ]
         },
         {
           "id": "value-io.special-decimal-writer-agreement",
@@ -1341,14 +1475,15 @@
           "references": [
             "panproto_reference::value_io::decimal"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_toml_numeric_spellings_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_toml_numeric_spellings_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.raw-numeric-lexeme-preservation",
@@ -1376,17 +1511,18 @@
           "references": [
             "panproto_reference::value_io::duplicate_member"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_duplicate_member_refusals_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_duplicate_member_refusals_match_reference"
+            }
+          ]
         },
         {
-          "id": "value-io.encoding-and-bom-preservation",
+          "id": "value-io.canonical-encoding-normalization",
           "anchor": "L-value-io-10",
           "contract": [
             {
@@ -1397,14 +1533,21 @@
           "references": [
             "panproto_reference::value_io::encoding"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "canonical_xml_encodings_and_refusals_match_reference_contract"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "canonical_xml_normalizes_encodings_and_reports_typed_refusals"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+            }
+          ]
         },
         {
           "id": "value-io.toml-decimal-bigint-round-trip",
@@ -1418,14 +1561,15 @@
           "references": [
             "panproto_reference::value_io::toml_scalar"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_toml_numeric_spellings_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_toml_numeric_spellings_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.xml-entity-bounded-expansion",
@@ -1440,17 +1584,18 @@
             "panproto_reference::value_io::xml_entity",
             "panproto_reference::xml::expand_entities"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_xml_entity_expansion_matches_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_xml_entity_expansion_matches_reference"
+            }
+          ]
         },
         {
-          "id": "value-io.xml-byte-round-trip",
+          "id": "value-io.xml-canonical-encoding",
           "anchor": "L-value-io-13",
           "contract": [
             {
@@ -1461,14 +1606,21 @@
           "references": [
             "panproto_reference::value_io::xml_encoding"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "canonical_xml_encodings_and_refusals_match_reference_contract"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "canonical_xml_normalizes_encodings_and_reports_typed_refusals"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+            }
+          ]
         },
         {
           "id": "value-io.tsv-comment-opt-in",
@@ -1482,14 +1634,15 @@
           "references": [
             "panproto_reference::value_io::tsv_comment"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_tabular_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_tabular_observables_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.tabular-missing-token",
@@ -1503,14 +1656,15 @@
           "references": [
             "panproto_reference::value_io::tabular_missing"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_tabular_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_tabular_observables_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.one-column-empty-row-round-trip",
@@ -1524,14 +1678,15 @@
           "references": [
             "panproto_reference::value_io::tabular_empty_row"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_tabular_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_tabular_observables_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.tsv-quote-acceptance",
@@ -1545,14 +1700,15 @@
           "references": [
             "panproto_reference::value_io::tsv_quote"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_tabular_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_tabular_observables_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.xml-expanded-name-function",
@@ -1566,14 +1722,15 @@
           "references": [
             "panproto_reference::value_io::xml_expanded_name"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_xml_expanded_names_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "bounded_xml_expanded_names_match_reference"
+            }
+          ]
         },
         {
           "id": "value-io.blob-writer-agreement",
@@ -1587,14 +1744,21 @@
           "references": [
             "panproto_reference::value_io::blob_writer"
           ],
-      "due_gate": "phase3",
-      "consumers": [
-        {
-          "crate": "panproto-io",
-          "binary": "panproto-io::reference_value_io",
-          "test": "bounded_byte_preservation_observables_match_reference"
-        }
-      ]
+          "due_gate": "phase3",
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "canonical_blob_writer_matches_independent_atproto_layout"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i4_byte_paths_compare_both_directions_and_blob_layout_is_exact"
+            }
+          ]
         },
         {
           "id": "value-io.rcm-prop1-cst",
@@ -1620,9 +1784,27 @@
             }
           ],
           "references": [
+            "panproto_reference::value_io::preserve",
             "panproto_reference::value_io::preserve_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "final",
+          "consumers": [
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io::registry_preserving",
+              "test": "registry_preserving_round_trip_is_byte_equal",
+              "features": [
+                "tree-sitter"
+              ]
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes"
+            }
+          ]
         },
         {
           "id": "value-io.vf9-reading-cst",
@@ -1664,7 +1846,24 @@
           "references": [
             "panproto_reference::value_io::encoding_bom_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "final",
+          "consumers": [
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io::data_format_corpus",
+              "test": "fixture_corpus_is_byte_faithful",
+              "features": [
+                "tree-sitter"
+              ]
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+            }
+          ]
         },
         {
           "id": "value-io.toml-decimal-bigint-round-trip-cst",
@@ -1707,7 +1906,24 @@
           "references": [
             "panproto_reference::xml::round_trip_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "final",
+          "consumers": [
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io::data_format_corpus",
+              "test": "xml_mixed_content_round_trips_byte_faithfully",
+              "features": [
+                "tree-sitter"
+              ]
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::values_io_direct",
+              "test": "i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes"
+            }
+          ]
         },
         {
           "id": "value-io.tabular-missing-token-cst",
@@ -1844,11 +2060,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "signature_checking_agrees_with_the_reference_on_every_signature"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -1870,11 +2088,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "signature_checking_agrees_with_the_reference_on_every_signature"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -1896,11 +2116,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "composition_agrees_with_the_reference_on_every_span"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -1922,21 +2144,25 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "composition_agrees_with_the_reference_on_every_span"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "composition_agrees_on_every_class_signature_pair"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "composition_reports_every_sort_mismatch_detail_like_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -1958,11 +2184,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "composition_agrees_with_the_reference_on_every_discrete_pair"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -1984,11 +2212,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "quotient_closure_agrees_with_the_reference_on_every_identification_list"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -2010,16 +2240,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "morphism_checking_agrees_with_the_reference_on_every_assignment"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "equation_preservation_agrees_with_the_reference_on_every_equation_pair"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -2041,11 +2274,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "recipe_replay_agrees_with_the_reference_on_every_recipe"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "randomized_theory_differential"
@@ -2077,14 +2312,22 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "validation_reconstructs_path_keys_in_document_and_global_scopes"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "validation_reconstructs_position_buckets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "path_fallback_is_decided_per_last_hop_frontier_node"
             }
           ]
         },
@@ -2103,14 +2346,22 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "validation_reconstructs_within_buckets_and_outside_cases"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "validation_preserves_both_reference_keying_refusals"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "within_scope_does_not_traverse_fan_incidence"
             }
           ]
         },
@@ -2165,9 +2416,22 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "canonical_declaration_factorization_reconciles_the_exact_carrier"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs",
+              "test": "hash::tests::legacy_default_declarations_keep_their_pre_extension_bytes_and_id"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs",
+              "test": "hash::tests::every_new_declaration_form_changes_the_object_id"
             }
           ]
         },
@@ -2198,11 +2462,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-check",
               "binary": "panproto-check::reference_classify",
               "test": "every_o17_key_change_classifies_through_the_factorization_certificate"
             },
             {
+              "role": "differential",
               "crate": "panproto-check",
               "binary": "panproto-check::reference_classify",
               "test": "non_key_classification_axes_match_the_reference"
@@ -2225,14 +2491,22 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols",
               "test": "theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "composition_agrees_with_the_reference_on_every_span"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-gat",
+              "binary": "panproto-gat::reference_theories",
+              "test": "signature_checking_agrees_with_the_reference_on_every_signature"
             }
           ]
         },
@@ -2251,11 +2525,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "recompose_of_every_registration_spec_reproduces_its_theory"
             },
             {
+              "role": "differential",
               "crate": "panproto-gat",
               "binary": "panproto-gat::reference_theories",
               "test": "recipe_replay_agrees_with_the_reference_on_every_recipe"
@@ -2278,19 +2554,16 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_theory_canonical",
               "test": "canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures"
             },
             {
+              "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "cross_process::compose_bytes_are_identical_across_processes"
-            },
-            {
-              "crate": "panproto-protocols",
-              "binary": "panproto-protocols::registration_equivalence",
-              "test": "theory_composition_fixtures_recompose_to_their_bytes_and_digests"
             }
           ]
         },
@@ -2313,6 +2586,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "equality_carrier_executes_all_pairs_and_triples"
@@ -2338,11 +2612,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "equality_carrier_executes_all_pairs_and_triples"
             },
             {
+              "role": "production",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "named_collation_has_the_exact_typed_refusal_boundary"
@@ -2368,6 +2644,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "extended_declaration_bytes_match_reference_on_every_sum_variant"
@@ -2389,6 +2666,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "sort_preorder_and_adjacent_descent_match_the_reference"
@@ -2410,6 +2688,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "sort_preorder_and_adjacent_descent_match_the_reference"
@@ -2431,6 +2710,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "target_sets_match_on_the_complete_local_predicate"
@@ -2452,6 +2732,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "xml_kernel_executes_the_exact_o17_carrier"
@@ -2473,11 +2754,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "extended_declaration_bytes_match_reference_on_every_sum_variant"
             },
             {
+              "role": "production",
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "declaration_validation_matches_reference_on_every_common_refusal"
@@ -2499,11 +2782,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "composite_foreign_key_null_matching_uses_real_resolution_occurrences"
             },
             {
+              "role": "production",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "index_fields_never_resolve_targets"
@@ -2525,6 +2810,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
@@ -2548,6 +2834,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
@@ -2579,6 +2866,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "tree_to_graph_matches_production_on_the_exact_carrier_and_refusals"
@@ -2600,6 +2888,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "graph_to_tree_decision_matches_production_on_the_exact_carrier"
@@ -2621,6 +2910,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "reification_round_trip_matches_production_on_the_exact_image"
@@ -2644,6 +2934,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "canonical_graph_table_and_tree_bytes_decode_to_the_same_values"
@@ -2665,6 +2956,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "identity_envelope_layout_matches_the_production_manifest_writer"
@@ -2686,6 +2978,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "table_to_graph_matches_production_on_the_exact_carrier_and_refusals"
@@ -2707,6 +3000,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "graph_to_table_decision_matches_production_on_the_exact_carrier"
@@ -2728,6 +3022,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_representation",
               "test": "fan_domain_lists_the_same_ordered_typed_violations"
@@ -2759,11 +3054,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2785,11 +3082,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2811,11 +3110,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2844,16 +3145,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "o14_hom_profile_pairs_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2882,16 +3186,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "o14_hom_profile_pairs_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2918,11 +3225,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "o14_hom_profile_pairs_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2949,11 +3258,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "o14_hom_profile_pairs_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -2980,11 +3291,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -3006,11 +3319,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -3035,11 +3350,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "bounded_family_kan_objects_agree_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_kan_hom_bijection_differential"
@@ -3061,11 +3378,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "entity_functor_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_classification_and_entity_functor_differential"
@@ -3087,11 +3406,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "classification_agrees_with_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "randomized_classification_and_entity_functor_differential"
@@ -3124,11 +3445,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "edge_images_and_contraction_regions_agree_on_the_complete_release_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
@@ -3150,6 +3473,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "edge_images_and_contraction_regions_agree_on_the_complete_release_scope"
@@ -3171,6 +3495,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "pair_resolution_precedence_and_first_failure_agree"
@@ -3193,11 +3518,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "edge_images_and_contraction_regions_agree_on_the_complete_release_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
@@ -3219,6 +3546,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "tree_get_uses_the_graph_plan_keys_floor_and_sibling_order"
@@ -3240,6 +3568,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "column_fates_are_derived_from_the_same_schema_plan"
@@ -3261,6 +3590,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "repeated_child_bindings_agree_and_preserve_order_and_duplicates"
@@ -3282,16 +3612,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "tree_get_uses_the_graph_plan_keys_floor_and_sibling_order"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors"
@@ -3314,11 +3647,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "graph_square_agrees_with_the_reference_exhaustively"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "tree_put_law_certificate"
@@ -3341,11 +3676,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "graph_square_agrees_with_the_reference_exhaustively"
@@ -3373,21 +3710,25 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens_tr12",
               "test": "tr12_get_functoriality_replacement_and_minimality_match_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens_tr12",
               "test": "tr12_put_functoriality_minimality_and_source_undo_match_the_reference"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens_tr12",
               "test": "tr12_state_reading_lowering_has_the_same_typed_refusals"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens_tr12",
               "test": "tr12_late_sequence_refusal_is_atomic_for_reference_and_production"
@@ -3409,6 +3750,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "tree_get_uses_the_graph_plan_keys_floor_and_sibling_order"
@@ -3435,6 +3777,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
@@ -3468,11 +3811,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e1_apply_matches_reference_on_every_graph_and_atomic_delta"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e1_independence_and_merge_match_reference_on_every_atomic_pair"
@@ -3497,11 +3842,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e2_t5_table_apply_and_algebra_match_the_exact_release_carrier"
@@ -3524,11 +3871,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive"
@@ -3552,16 +3901,19 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e3a_graph_delta_bytes_match_reference_on_every_atomic_delta"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e3a_table_delta_bytes_match_reference_on_every_atomic_delta"
             },
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence"
@@ -3583,6 +3935,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e2_t5_table_apply_and_algebra_match_the_exact_release_carrier"
@@ -3604,6 +3957,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive"
@@ -3625,6 +3979,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
               "test": "decision_9_delete_then_add_is_replacement_even_for_equal_payloads"
@@ -3648,6 +4003,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_edit_translation",
               "test": "generic_whole_state_edit_oracles_match_actual_tree_lens_translation"
@@ -3706,13 +4062,14 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::validate",
+            "panproto_reference::validation::validate_table",
+            "panproto_reference::validation::validate_tree"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
@@ -3761,16 +4118,27 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation_laws",
+              "test": "validation_reports_are_identical_across_processes"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_incremental",
+              "test": "validation_witnesses_are_identical_across_processes"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_laws",
+              "test": "reference_validation_anchors_are_stable_on_compact_native_carriers"
             }
           ]
         },
@@ -3816,16 +4184,21 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::witness_with_trust"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation_incremental",
+              "test": "v3_v4_hold_on_every_bounded_graph_transition"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_incremental",
+              "test": "reference_incremental_witness_anchor_verifies"
             }
           ]
         },
@@ -3839,16 +4212,21 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::witness_with_trust"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation_incremental",
+              "test": "v3_v4_hold_on_every_bounded_table_transition"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_incremental",
+              "test": "reference_incremental_witness_anchor_verifies"
             }
           ]
         },
@@ -3862,16 +4240,21 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::witness_with_trust"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation_incremental",
+              "test": "sequence_law_holds_on_every_bounded_graph_sequence"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_incremental",
+              "test": "reference_incremental_witness_anchor_verifies"
             }
           ]
         },
@@ -3885,16 +4268,21 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::witness_with_trust"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation_incremental",
+              "test": "witness_law_holds_on_every_bounded_step"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_incremental",
+              "test": "reference_incremental_witness_anchor_verifies"
             }
           ]
         },
@@ -3908,16 +4296,15 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::witness_with_trust"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "test": "finite_budget_cuts_are_the_same_ordered_suffix"
             }
           ]
         },
@@ -3931,16 +4318,35 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::validate",
+            "panproto_reference::validation::validate_table",
+            "panproto_reference::validation::validate_tree"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation_laws",
+              "test": "the_tree_square_holds_for_equal_fans"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_laws",
+              "test": "column_constraints_are_read_from_cells_in_every_shape"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_laws",
+              "test": "a_column_value_held_by_a_child_node_is_not_a_field_site"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_laws",
+              "test": "reference_required_value_shape_square"
             }
           ]
         },
@@ -3954,16 +4360,15 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
-            "panproto_reference::validation::validate"
+            "panproto_reference::validation::restriction_boundary"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::restrict_boundary",
+              "test": "restrict_boundary_errors_carry_the_side_and_report"
             }
           ]
         },
@@ -3977,16 +4382,27 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
-              "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
+              "test": "v10_endpoint_coherence_agrees_with_the_graph_instance_theory"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
+              "test": "v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
+              "test": "v10_endpoint_coherence_agrees_on_anchor_families"
             }
           ]
         },
@@ -4000,16 +4416,21 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::CheckStatus::all",
-            "panproto_reference::validation::status",
             "panproto_reference::validation::validate"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+              "binary": "panproto-inst::validation",
+              "test": "fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_laws",
+              "test": "reference_validation_anchors_are_stable_on_compact_native_carriers"
             }
           ]
         },
@@ -4028,9 +4449,10 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+              "binary": "panproto-inst::validation_incremental",
+              "test": "admission_policies_agree_with_their_predicates_on_three_bundles"
             }
           ]
         },
@@ -4044,14 +4466,15 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::key_equality"
+            "panproto_reference::resolution::declared_key_equality"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
-              "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "resolution_uses_the_exact_declared_key_equality_operation"
             }
           ]
         },
@@ -4065,12 +4488,12 @@
             }
           ],
           "references": [
-            "panproto_reference::resolution::nearest_preceding",
-            "panproto_reference::validation::variable_binding"
+            "panproto_reference::resolution::nearest_preceding"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "nearest_preceding_binding_ignores_later_and_other_named_definitions"
@@ -4087,14 +4510,22 @@
             }
           ],
           "references": [
-            "panproto_reference::validation::key_forms"
+            "panproto_reference::keys::target_set",
+            "panproto_reference::schema::validate_declarations"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
-              "crate": "panproto-inst",
-              "binary": "panproto-inst::reference_validation",
-              "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "target_sets_match_on_the_complete_local_predicate"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "declaration_validation_matches_reference_on_every_common_refusal"
             }
           ]
         },
@@ -4115,11 +4546,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "composite_foreign_key_null_matching_uses_real_resolution_occurrences"
             },
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "index_fields_never_resolve_targets"
@@ -4136,14 +4569,34 @@
             }
           ],
           "references": [
+            "panproto_reference::validation::classify_selector",
             "panproto_reference::validation::lexical_space"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation",
+              "test": "lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation",
+              "test": "lexical_space_unknown_tag_is_advisory_and_preserves_passed_status"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation",
+              "test": "lexical_space_ambiguous_tag_remains_a_required_declaration_failure"
             }
           ]
         },
@@ -4162,6 +4615,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
@@ -4183,6 +4637,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
@@ -4204,6 +4659,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
@@ -4235,6 +4691,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
@@ -4256,6 +4713,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
@@ -4278,6 +4736,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
@@ -4302,6 +4761,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
@@ -4318,16 +4778,22 @@
             }
           ],
           "references": [
-            "panproto_reference::segment::canonical_journal_bytes",
-            "panproto_reference::segment::decode_journal_bytes",
-            "panproto_reference::segment::journal_digest"
+            "panproto_reference::segment::task_inputs_digest",
+            "panproto_reference::segment::journal_task_reusable"
           ],
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
-              "test": "storage_vocabulary_journal_layout_matches_the_reference_exactly"
+              "test": "storage_vocabulary_serde_layout_and_run_identity_are_stable"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "bounded_task_input_digest_and_journal_reuse_match_the_reference"
             }
           ]
         },
@@ -4347,6 +4813,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
@@ -4368,6 +4835,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
@@ -4389,6 +4857,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst",
+              "test": "segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge"
+            },
+            {
+              "role": "reference",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
@@ -4410,6 +4885,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
@@ -4431,6 +4907,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "append_floor_and_exhaustion_agree_on_an_independently_counted_carrier"
@@ -4441,7 +4918,93 @@
       "due_gate": "phase3"
     },
     "lenses": {
-      "inventory_status": "complete",
+      "inventory_status": "partial",
+      "contract_scope": [
+        {
+          "section": "P.5",
+          "clause": "L.1"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.2"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.3"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.4"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.5"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.6"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.7"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.8"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.9"
+        },
+        {
+          "section": "P.5",
+          "clause": "L.10"
+        },
+        {
+          "section": "P.5",
+          "clause": "T.3"
+        },
+        {
+          "section": "P.5",
+          "clause": "T.4"
+        },
+        {
+          "section": "O1",
+          "clause": "LensPath left identity"
+        },
+        {
+          "section": "O1",
+          "clause": "LensPath right identity"
+        },
+        {
+          "section": "O1",
+          "clause": "LensPath associativity"
+        },
+        {
+          "section": "O1",
+          "clause": "fusion soundness"
+        },
+        {
+          "section": "P.5",
+          "clause": "F.B graph commuting square"
+        },
+        {
+          "section": "P.5",
+          "clause": "F.B table commuting square"
+        },
+        {
+          "section": "P.5",
+          "clause": "protolens schema-transform construction"
+        },
+        {
+          "section": "decision 29",
+          "clause": "pre-lane reach"
+        },
+        {
+          "section": "P.5",
+          "clause": "protolens instance-transform construction"
+        }
+      ],
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
@@ -4474,6 +5037,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4498,6 +5062,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4522,6 +5087,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4546,6 +5112,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4572,6 +5139,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4593,6 +5161,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_complement_monoid",
               "test": "complement_partial_monoid_law_certificate"
@@ -4617,6 +5186,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4641,6 +5211,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4665,6 +5236,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4689,6 +5261,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_laws_agree_with_the_reference_exhaustively"
@@ -4710,6 +5283,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "table_complement_law_certificate"
@@ -4734,6 +5308,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "table_get_put_law_certificate"
@@ -4757,6 +5332,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_path_law_certificate"
@@ -4780,6 +5356,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_path_law_certificate"
@@ -4803,6 +5380,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_path_law_certificate"
@@ -4829,6 +5407,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "lens_path_law_certificate"
@@ -4851,6 +5430,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "graph_square_agrees_with_the_reference_exhaustively"
@@ -4875,11 +5455,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "table_square_agrees_with_the_reference_on_the_fixture_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_table_square_relational",
               "test": "graph_and_table_routes_commute_on_the_independent_relational_carrier"
@@ -4905,6 +5487,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "protolens_transforms_agree_with_the_reference_exhaustively"
@@ -4930,6 +5513,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "protolens_transforms_agree_with_the_reference_exhaustively"
@@ -5082,11 +5666,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
@@ -5169,11 +5755,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
@@ -5255,11 +5843,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
@@ -5341,11 +5931,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
@@ -5431,11 +6023,13 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
             },
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
@@ -5457,6 +6051,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "uri_environment_uses_only_the_preceding_directive_prefix"
@@ -5478,6 +6073,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "uri_resolution_matches_the_rfc_3986_section_5_4_vectors"
@@ -5499,6 +6095,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "referenced_text_identity_is_field_qualified_and_value_independent"
@@ -5520,6 +6117,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "guarded_occurrences_select_the_first_representation_equal_guard"
@@ -5545,6 +6143,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope"
@@ -5570,6 +6169,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "standoff_forms_are_injective_and_the_inverse_is_left_inverse_on_the_exact_scope"
@@ -5591,6 +6191,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "index_fields_never_resolve_targets"
@@ -5612,6 +6213,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "inherited_base_uses_the_nearest_present_ancestor"
@@ -5633,6 +6235,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "resolution_uses_the_exact_declared_key_equality_operation"
@@ -5654,6 +6257,7 @@
           "due_gate": "phase3",
           "consumers": [
             {
+              "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "nearest_preceding_binding_ignores_later_and_other_named_definitions"
@@ -5675,6 +6279,7 @@
           "due_gate": "final",
           "consumers": [
             {
+              "role": "reference",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "preserving_registry_is_the_ordered_cartesian_product"

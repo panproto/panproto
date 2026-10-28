@@ -76,8 +76,11 @@ cargo run -p xtask --bin gen-complement-upgrade -- write
 cargo run -p xtask --bin gen-complement-upgrade -- check
 ```
 
-`check` regenerates in memory and fails if any file differs. `wasm32.named.msgpack`
-was produced by the 0.74.4 wasm32 build:
+The generator adapts the current in-memory values to the 0.74.4 wire shape: it
+omits protocol fields added later and restores the dense `arc_edges` map that
+the old `get` wrote. `check` regenerates that historical form in memory and
+fails if any file differs. `wasm32.named.msgpack` was produced by the 0.74.4
+wasm32 build:
 
 ```sh
 wasm-pack build crates/panproto-wasm --target nodejs --dev --out-dir <pkg> --out-name panproto_wasm

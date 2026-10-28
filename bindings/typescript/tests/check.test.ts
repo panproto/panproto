@@ -24,6 +24,7 @@ function createMockWasm(): WasmModule {
     check_existence: vi.fn(() => packToWasm({ valid: true, errors: [] })),
     compile_migration: vi.fn(() => ++handleCounter),
     lift_record: vi.fn(() => packToWasm({})),
+    check_migration_coverage: vi.fn(() => packToWasm({})),
     get_record: vi.fn(() => packToWasm({ view: {}, complement: new Uint8Array(0) })),
     put_record: vi.fn(() => packToWasm({})),
     compose_migrations: vi.fn(() => ++handleCounter),
@@ -115,7 +116,7 @@ describe('FullDiffReport', () => {
     const wasm = createMockWasm();
     const data: FullSchemaDiff = {
       ...emptyFullDiff(),
-      kind_changes: [{ vertexId: 'v1', oldKind: 'record', newKind: 'object' }],
+      kind_changes: [{ vertex_id: 'v1', old_kind: 'record', new_kind: 'object' }],
     };
     const report = new FullDiffReport(data, packToWasm(data), wasm);
 
@@ -149,12 +150,55 @@ describe('FullDiffReport', () => {
     const data: FullSchemaDiff = {
       ...emptyFullDiff(),
       modified_constraints: {
-        v1: { added: [], removed: [], changed: [{ sort: 'maxLength', oldValue: '300', newValue: '500' }] },
+        v1: {
+          added: [],
+          removed: [],
+          changed: [{ sort: 'maxLength', old_value: '300', new_value: '500' }],
+        },
       },
     };
     const report = new FullDiffReport(data, packToWasm(data), wasm);
 
     expect(report.hasChanges).toBe(true);
+  });
+
+  it('reports entry, enrichment, declaration, and rename-only changes', () => {
+    const wasm = createMockWasm();
+    const key = {
+      id: 'id',
+      parts: [{ path: [{ src: 'record', tgt: 'id', kind: 'field', name: 'id' }] }],
+      role: 'primary' as const,
+      scope: 'document' as const,
+    };
+    const cases: readonly Partial<FullSchemaDiff>[] = [
+      { entry_change: [['old'], ['new']] },
+      { added_coercions: [['string', 'integer']] },
+      { added_mergers: ['record'] },
+      { added_defaults: ['record'] },
+      { added_policies: ['value'] },
+      { added_keys: [['record', key]] },
+      {
+        added_references: [{
+          id: 'record-id',
+          holder: 'record',
+          source: { key_value: { parts: [[{ src: 'record', tgt: 'id', kind: 'field' }]] } },
+          target_vertex: 'record',
+          target_key: 'id',
+          edge: null,
+          cardinality: 'one',
+          nullable: false,
+          on_unresolved: 'error',
+          mode: 'add_edge',
+        }],
+      },
+      { added_target_sets: [['records', { members: [['record', 'id']], scope: 'global' }]] },
+      { renamed_vertices: [['old', 'new']] },
+    ];
+
+    for (const change of cases) {
+      const data: FullSchemaDiff = { ...emptyFullDiff(), ...change };
+      expect(new FullDiffReport(data, packToWasm(data), wasm).hasChanges).toBe(true);
+    }
   });
 
   it('classify calls WASM classify_diff and returns a CompatReport', () => {

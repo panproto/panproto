@@ -30,10 +30,14 @@ import type { ComplementSpec, NestFieldStep, PipelineStep } from './protolens.js
 // ---------------------------------------------------------------------------
 
 /**
- * A disposable handle to a WASM-side protolens chain resource.
+ * A disposable handle to a WASM-side chain-shaped lens resource.
  *
- * Represents a schema-independent lens family that can be instantiated
- * against a concrete schema to produce a `LensHandle`.
+ * Most instances wrap a plain schema-independent protolens chain. A handle
+ * returned by `Panproto.compileLensDocument` instead wraps an accepted
+ * directional lens document whose ordered structural and value-level stages
+ * are authoritative. Chain-shaped methods accept both resources, but some use
+ * only the compiled document's structural compatibility summary; those
+ * methods identify that limitation below.
  *
  * Implements `Symbol.dispose` for use with `using` declarations.
  */
@@ -184,6 +188,13 @@ export class ProtolensChainHandle implements Disposable {
   /**
    * Instantiate this protolens chain against a concrete schema.
    *
+   * For an accepted directional lens document, this evaluates all ordered
+   * structural and value-level stages against their running schemas, then
+   * normalizes the resulting lens path. Because this API returns one
+   * {@link LensHandle}, it rejects a document whose normalized path contains
+   * more than one group.
+   * A plain protolens chain follows the ordinary single-chain path.
+   *
    * @param schema - The schema to instantiate against
    * @returns A LensHandle for the instantiated lens
    * @throws {@link WasmError} if the WASM call fails
@@ -202,6 +213,11 @@ export class ProtolensChainHandle implements Disposable {
 
   /**
    * Get the complement specification for instantiation against a schema.
+   *
+   * For a compiled lens document, this inspects only its structural
+   * compatibility chain. It does not account for value-level transforms or
+   * their position among structural stages; call {@link instantiate} when all
+   * stages of the accepted directional document are required.
    *
    * @param schema - The schema to check requirements against
    * @returns The complement spec describing defaults and captured data
@@ -222,6 +238,11 @@ export class ProtolensChainHandle implements Disposable {
   /**
    * Compose this chain with another protolens chain.
    *
+   * Structural compatibility chains are concatenated. The result also
+   * preserves the operands' ordered stages and value-level transforms, with
+   * this resource's stages first and `other`'s stages second. Source-document
+   * metadata is not retained on the composed resource.
+   *
    * @param other - The chain to compose with (applied second)
    * @returns A new ProtolensChainHandle for the composed chain
    * @throws {@link WasmError} if the WASM call fails
@@ -240,6 +261,12 @@ export class ProtolensChainHandle implements Disposable {
 
   /**
    * Serialize this chain to a JSON string.
+   *
+   * For a compiled lens document, this serializes only the structural
+   * compatibility chain. Value-level transforms and stage boundaries are not
+   * represented; use {@link fieldTransforms} to inspect the aggregate value
+   * transforms. The result is a lossy inspection summary and is not the
+   * serialized chain shape accepted by {@link fromJson}.
    *
    * @returns A JSON representation of the chain
    * @throws {@link WasmError} if the WASM call fails
@@ -260,12 +287,13 @@ export class ProtolensChainHandle implements Disposable {
    * List the value-level field transforms this chain carries, keyed by
    * the parent vertex they attach to.
    *
-   * A lens document's `apply_expr`, `compute_field`, `hoist_field`, and
-   * `nest_field` steps compile to field transforms rather than to
-   * structural chain steps, so they do not appear in {@link toJson}.
-   * This is how a caller confirms such a step survived compilation. The
-   * transforms apply when the chain is instantiated at a schema: `get`
-   * evaluates them and `put` inverts them.
+   * A lens document's value expressions, including `apply_expr`,
+   * `compute_field`, and an `add_field` expression, compile to field
+   * transforms, so value-only stages do not appear in {@link toJson}. This is
+   * how a caller confirms such a transform survived compilation. The returned
+   * map is an aggregate compatibility view and does not encode stage order.
+   * The authoritative order is observed by {@link instantiate}: `get`
+   * evaluates the transforms and `put` inverts them where an inverse exists.
    *
    * @returns Field transforms by parent vertex; empty for a purely
    *   structural chain
@@ -284,7 +312,10 @@ export class ProtolensChainHandle implements Disposable {
   }
 
   /**
-   * Deserialize a protolens chain from JSON via WASM.
+   * Deserialize a full protolens-chain serialization via WASM.
+   *
+   * The lossy inspection summary returned by {@link toJson} is not accepted
+   * here and cannot reconstruct either a plain chain or a compiled document.
    *
    * @param json - JSON string representing a protolens chain
    * @param wasm - The WASM module
@@ -308,7 +339,10 @@ export class ProtolensChainHandle implements Disposable {
    * Fuse this chain into a single protolens step.
    *
    * Composes all steps into a single step with a composite complement,
-   * avoiding intermediate schema materialization.
+   * avoiding intermediate schema materialization. For a compiled lens
+   * document, fusion uses only the structural compatibility chain and returns
+   * a plain chain. It thus discards the document-carried value-level
+   * transforms and ordered stage boundaries.
    *
    * @returns A new ProtolensChainHandle containing the fused step
    * @throws {@link WasmError} if the WASM call fails
@@ -327,6 +361,12 @@ export class ProtolensChainHandle implements Disposable {
 
   /**
    * Check whether this chain can be instantiated at a given schema.
+   *
+   * Every structural step is checked against the running schema produced by
+   * the preceding step. For an accepted directional lens document, this still
+   * checks only its structural compatibility chain. A successful result does
+   * not establish that all ordered stages can be returned as one normalized
+   * lens; call {@link instantiate} for that stronger check.
    *
    * @param schema - The schema to check against
    * @returns An object with `applicable` boolean and `reasons` array
@@ -348,7 +388,10 @@ export class ProtolensChainHandle implements Disposable {
    * Lift this chain along a theory morphism.
    *
    * Given a morphism between theories, produces a new chain that operates
-   * on schemas of the codomain theory instead of the domain theory.
+   * on schemas of the codomain theory instead of the domain theory. For a
+   * compiled lens document, lifting uses only the structural compatibility
+   * chain and returns a plain chain, discarding the document-carried
+   * value-level transforms and ordered stage boundaries.
    *
    * @param morphismBytes - MessagePack-encoded theory morphism
    * @returns A new ProtolensChainHandle for the lifted chain
@@ -369,10 +412,14 @@ export class ProtolensChainHandle implements Disposable {
   /**
    * Apply this chain to a fleet of schemas.
    *
-   * Checks applicability and instantiates the chain against each schema.
+   * Checks applicability and instantiates the structural compatibility chain
+   * against each schema. For a compiled lens document, this fleet operation
+   * does not execute the document-carried value-level transforms or preserve
+   * stage boundaries.
    *
    * @param schemas - Array of schema handles to apply the chain to
-   * @returns Fleet result with applied/skipped schema names and reasons
+   * @returns Fleet result with applied/skipped positional identifiers
+   *   (`schema_0`, `schema_1`, and so on, matching the input order) and reasons
    * @throws {@link WasmError} if the WASM call fails
    */
   applyToFleet(schemas: BuiltSchema[]): { applied: string[]; skipped: [string, string[]][] } {
@@ -886,10 +933,13 @@ export class LensHandle implements Disposable {
   }
 
   /**
-   * Check both GetPut and PutGet lens laws for an instance.
+   * Run the five strict lens gates for an instance.
+   *
+   * The gates run in order: GetPut, PutGet, totality over the finite
+   * single-step basis, PutTwice, and congruence.
    *
    * @param instance - MessagePack-encoded instance data
-   * @returns Whether both laws hold and any violation message
+   * @returns Whether all five gates hold and the first violation, if any
    * @throws {@link WasmError} if the WASM call fails
    */
   checkLaws(instance: Uint8Array): LawCheckResult {
@@ -1002,15 +1052,21 @@ export class SymmetricLensHandle implements Disposable {
   /**
    * Synchronize left view to right view.
    *
+   * The current WASM boundary returns only the synchronized instance. It
+   * consumes `leftComplement` but does not return the updated right-side
+   * complement computed internally, so the caller remains responsible for
+   * managing the complement supplied to later synchronization calls.
+   *
    * @param leftView - MessagePack-encoded left view data
-   * @param leftComplement - Opaque complement bytes from a prior sync
-   * @returns The synchronized right view and updated complement
+   * @param leftComplement - Opaque complement bytes for the left view
+   * @returns The synchronized right instance
    * @throws {@link WasmError} if the WASM call fails
    */
-  syncLeftToRight(leftView: Uint8Array, leftComplement: Uint8Array): GetResult {
+  syncLeftToRight(leftView: Uint8Array, leftComplement: Uint8Array): LiftResult {
     try {
       const bytes = this.#wasm.exports.symmetric_lens_sync(this.#handle.id, leftView, leftComplement, 0);
-      return unpackFromWasm<GetResult>(bytes);
+      const data = unpackFromWasm(bytes);
+      return { data, _rawBytes: bytes };
     } catch (error) {
       throw new WasmError(
         `symmetric_lens_sync (left-to-right) failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1022,15 +1078,21 @@ export class SymmetricLensHandle implements Disposable {
   /**
    * Synchronize right view to left view.
    *
+   * The current WASM boundary returns only the synchronized instance. It
+   * consumes `rightComplement` but does not return the updated left-side
+   * complement computed internally, so the caller remains responsible for
+   * managing the complement supplied to later synchronization calls.
+   *
    * @param rightView - MessagePack-encoded right view data
-   * @param rightComplement - Opaque complement bytes from a prior sync
-   * @returns The synchronized left view and updated complement
+   * @param rightComplement - Opaque complement bytes for the right view
+   * @returns The synchronized left instance
    * @throws {@link WasmError} if the WASM call fails
    */
-  syncRightToLeft(rightView: Uint8Array, rightComplement: Uint8Array): GetResult {
+  syncRightToLeft(rightView: Uint8Array, rightComplement: Uint8Array): LiftResult {
     try {
       const bytes = this.#wasm.exports.symmetric_lens_sync(this.#handle.id, rightView, rightComplement, 1);
-      return unpackFromWasm<GetResult>(bytes);
+      const data = unpackFromWasm(bytes);
+      return { data, _rawBytes: bytes };
     } catch (error) {
       throw new WasmError(
         `symmetric_lens_sync (right-to-left) failed: ${error instanceof Error ? error.message : String(error)}`,

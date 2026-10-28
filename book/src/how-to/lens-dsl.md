@@ -44,7 +44,7 @@ const { view, complement } = lens.getJson(
 const restored = lens.putJson(view, complement, 'record:body');
 ```
 
-`compileLensDocument` accepts a JavaScript object, text, or UTF-8 bytes. JSON is the default format; pass `'yaml'` for YAML. Nickel is not accepted by this WASM entry point because its imports require filesystem resolution.
+`compileLensDocument` accepts a JavaScript object, text, or UTF-8 bytes. JSON is the default format; pass `'yaml'` for YAML. This directional entry point rejects a `symmetric` body, which instead uses the symmetric-lens construction and synchronization APIs. Nickel is not accepted by this WASM entry point because its imports require filesystem resolution.
 
 Use `chain.fieldTransforms()` to confirm that `apply_expr` or `compute_field` steps survived compilation. Those transforms are stored beside the chain and do not appear in `chain.toJson()`.
 
@@ -79,13 +79,13 @@ schema lens apply compiled.json user-v1.json \
   --schema user-v1.schema.json
 ```
 
-`schema lens compile` writes a `panproto-compiled-lens-v1` artifact. The file contains the structural chain, the value transforms, and an ordered `stages` array. The stages determine whether a value expression runs before or after a structural rename. `schema lens apply` reads this artifact directly and instantiates each stage against the schema produced by the preceding stage.
+`schema lens compile` writes a `panproto-compiled-lens-v1` artifact. The file contains the structural chain, the value transforms, and an ordered `stages` array. The stages determine whether a value expression runs before or after a structural rename. `schema lens apply` reads this artifact directly and instantiates each stage against the schema produced by the preceding stage. Its current execution boundary accepts the artifact only when normalization yields one group; it refuses a path that must retain two or more ordered groups. The TypeScript, C, and Swift single-lens boundaries have the same restriction.
 
 Raw `ProtolensChain` JSON remains accepted by `schema lens apply`, as does a target schema used for automatic lens generation. A file written by `schema lens generate --save` is a raw structural chain rather than a compiled-lens artifact. It can be applied, but it does not store value transforms derived during automatic generation.
 
 ## Verification
 
-Instantiate the document against the intended source schema, run `get` and `put` on representative instances, and use `LensHandle.checkLaws` or `panproto_lens::laws::check_laws`. Compilation validates document shape and expression syntax; it does not show that a value transform is total on production data.
+In Rust, `CompiledLens::instantiate` returns a `LensPath` rather than one `Lens`, preserving ordered stages that cannot be fused soundly. Run the path's shape-specific `get` and `put` operations on representative instances and retain the returned `PathComplement`. Use `path.src_schema()` and `path.tgt_schema()` for the endpoints. Code that requires the single-lens API, including `panproto_lens::laws::check_laws`, can call `path.into_single()?`; the conversion refuses paths with more than one tree-normal-form group. TypeScript's `LensHandle.checkLaws` remains the binding-level checker. Compilation validates document shape and expression syntax; it does not show that a value transform is total on production data.
 
 ## See also
 

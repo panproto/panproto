@@ -9,10 +9,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_inst::segment::{
-    AnySegment, Boundary, EdgeIdRun, GraphSegment, IdAllocator, IdRange, ManifestHeader,
-    ManifestRole, Partition, Phase, RunJournal, SegmentId, SegmentRecord, SegmentSpec, TaskKey,
-    TaskRecord, assemble_graph, assemble_table, assemble_tree, check_segment, partition_graph,
-    partition_table, partition_tree, seal_full, verify_manifest, verify_segment,
+    AnySegment, ArtifactKind, Boundary, EdgeIdRun, GraphSegment, IdAllocator, IdRange,
+    ManifestHeader, ManifestRole, Partition, Phase, RunJournal, SegmentId, SegmentRecord,
+    SegmentSpec, TaskKey, TaskRecord, assemble_graph, assemble_table, assemble_tree, check_segment,
+    partition_graph, partition_table, partition_tree, seal_full, verify_manifest, verify_segment,
 };
 use panproto_inst::{
     Digest, EdgeId, FInstance, GEdge, GInstance, Node, NodeShape, RowId, TreeEmbedding, WInstance,
@@ -154,6 +154,27 @@ const fn shape_to_production(shape: reference::InstanceShapeKind) -> InstanceSha
         reference::InstanceShapeKind::Tree => InstanceShapeKind::Tree,
         reference::InstanceShapeKind::Table => InstanceShapeKind::Table,
         reference::InstanceShapeKind::Graph => InstanceShapeKind::Graph,
+    }
+}
+
+const fn phase_to_reference(phase: Phase) -> reference::Phase {
+    match phase {
+        Phase::Validate => reference::Phase::Validate,
+        Phase::Export => reference::Phase::Export,
+        Phase::Summarize => reference::Phase::Summarize,
+        Phase::Assemble => reference::Phase::Assemble,
+        Phase::Emit => reference::Phase::Emit,
+        Phase::Seal => reference::Phase::Seal,
+    }
+}
+
+const fn task_key_to_reference(task: TaskKey) -> reference::TaskKey {
+    reference::TaskKey {
+        phase: phase_to_reference(task.phase),
+        segment: match task.segment {
+            Some(segment) => Some(reference::SegmentId(segment.0)),
+            None => None,
+        },
     }
 }
 
@@ -540,6 +561,32 @@ fn assert_partition_refusals() {
         reference_overlap.validate().unwrap_err().external_name()
     );
 
+    // The malformed allocation payload is reported before the fact that a
+    // table must not carry an edge allocation range at all.
+    let reference_inverted_table_allocation = reference::Partition {
+        shape: reference::InstanceShapeKind::Table,
+        specs: vec![reference::SegmentSpec {
+            id: reference::SegmentId(0),
+            nodes: vec![reference::IdRange { lo: 0, hi: 9 }],
+            alloc_nodes: None,
+            alloc_edges: Some(reference::IdRange { lo: 29, hi: 20 }),
+        }],
+    };
+    assert_eq!(
+        reference_inverted_table_allocation.validate(),
+        Err(reference::SegmentError::InvertedRange {
+            segment: reference::SegmentId(0),
+            range: reference::IdRange { lo: 29, hi: 20 },
+        })
+    );
+    assert_eq!(
+        partition_to_production(&reference_inverted_table_allocation).validate(),
+        Err(panproto_inst::segment::SegmentError::InvertedRange {
+            segment: SegmentId(0),
+            range: IdRange { lo: 29, hi: 20 },
+        })
+    );
+
     let mut graph = reference_model::Graph::default();
     graph.nodes.insert(4, reference_model::Node::new(4, "a"));
     let reference_partition = reference::Partition {
@@ -630,7 +677,12 @@ fn assert_decoder_and_contract_refusals() {
     let reference_error =
         reference::validate_segment_contract(&reference_invalid, &valid_reference).unwrap_err();
     let production_error = check_segment(&production_invalid, &valid_production).unwrap_err();
-    assert_eq!(production_error.kind(), reference_error.external_name());
+    assert_eq!(
+        reference_error,
+        reference::SegmentError::Invalid {
+            violations: vec![reference::SegmentError::NodeIdMismatch { key: 0, found: 1 }],
+        }
+    );
     assert_eq!(
         production_error,
         panproto_inst::segment::SegmentError::Invalid {
@@ -668,7 +720,29 @@ fn partition_and_decoder_refusals_preserve_typed_error_precedence() {
 }
 
 #[test]
-fn storage_vocabulary_journal_layout_matches_the_reference_exactly() {
+fn storage_vocabulary_serde_layout_and_run_identity_are_stable() {
+    for (phase, expected) in [
+        (Phase::Validate, "validate"),
+        (Phase::Export, "export"),
+        (Phase::Summarize, "summarize"),
+        (Phase::Assemble, "assemble"),
+        (Phase::Emit, "emit"),
+        (Phase::Seal, "seal"),
+    ] {
+        assert_eq!(serde_json::to_value(phase).unwrap(), expected);
+    }
+    for (kind, expected) in [
+        (ArtifactKind::Segment, "segment"),
+        (ArtifactKind::ComplementSegment, "complement_segment"),
+        (ArtifactKind::Export, "export"),
+        (ArtifactKind::Summary, "summary"),
+        (ArtifactKind::Assembly, "assembly"),
+        (ArtifactKind::Manifest, "manifest"),
+        (ArtifactKind::EdgeIdRun, "edge_id_run"),
+    ] {
+        assert_eq!(serde_json::to_value(kind).unwrap(), expected);
+    }
+
     let production_run = Digest([31; 32]);
     let production_tasks = BTreeMap::from([
         (
@@ -697,77 +771,186 @@ fn storage_vocabulary_journal_layout_matches_the_reference_exactly() {
     let mut production_journal = RunJournal::new(production_run);
     production_journal.tasks = production_tasks;
 
-    let reference_journal = reference::RunJournal {
-        run: reference::Digest(production_journal.run.0),
-        tasks: production_journal
-            .tasks
-            .iter()
-            .map(|(key, record)| {
-                let phase = match key.phase {
-                    Phase::Validate => reference::Phase::Validate,
-                    Phase::Export => reference::Phase::Export,
-                    Phase::Summarize => reference::Phase::Summarize,
-                    Phase::Assemble => reference::Phase::Assemble,
-                    Phase::Emit => reference::Phase::Emit,
-                    Phase::Seal => reference::Phase::Seal,
-                };
-                (
-                    reference::TaskKey {
-                        phase,
-                        segment: key.segment.map(|segment| reference::SegmentId(segment.0)),
-                    },
-                    reference::TaskRecord {
-                        inputs: reference::Digest(record.inputs.0),
-                        output: reference::Digest(record.output.0),
-                        bytes: record.bytes,
-                    },
-                )
-            })
-            .collect(),
-    };
-
-    let mut production_bytes = Vec::new();
-    production_bytes.extend_from_slice(&production_journal.run.0);
-    production_bytes.extend_from_slice(
-        &u64::try_from(production_journal.tasks.len())
-            .unwrap()
-            .to_le_bytes(),
-    );
-    for (key, record) in &production_journal.tasks {
-        production_bytes.push(key.phase.tag());
-        match key.segment {
-            None => production_bytes.push(0),
-            Some(segment) => {
-                production_bytes.push(1);
-                production_bytes.extend_from_slice(&segment.0.to_le_bytes());
-            }
-        }
-        production_bytes.extend_from_slice(&record.inputs.0);
-        production_bytes.extend_from_slice(&record.output.0);
-        production_bytes.extend_from_slice(&record.bytes.to_le_bytes());
-    }
-
-    let reference_bytes = reference::canonical_journal_bytes(&reference_journal);
-    assert_eq!(production_bytes, reference_bytes);
-    assert_eq!(
-        reference::decode_journal_bytes(&reference_bytes),
-        Some(reference_journal.clone())
-    );
-    assert_eq!(
-        Digest::derive(
-            panproto_inst::identity::RUN_JOURNAL_CONTEXT,
-            &production_bytes,
-        )
-        .0,
-        reference::journal_digest(&reference_journal).0
-    );
-
     let json = serde_json::to_value(&production_journal).unwrap();
     let tasks = json["tasks"].as_array().unwrap();
     assert_eq!(tasks[0][0]["phase"], "validate");
     assert!(tasks[0][0]["segment"].is_null());
     assert_eq!(tasks[1][0]["phase"], "emit");
     assert_eq!(tasks[1][0]["segment"], 2);
+
+    let base_partition = Partition::new(
+        InstanceShapeKind::Graph,
+        vec![SegmentSpec {
+            id: SegmentId(0),
+            nodes: vec![IdRange { lo: 0, hi: 0 }],
+            alloc_nodes: None,
+            alloc_edges: None,
+        }],
+    );
+    let changed_partition = Partition::new(
+        InstanceShapeKind::Graph,
+        vec![SegmentSpec {
+            id: SegmentId(0),
+            nodes: vec![IdRange { lo: 0, hi: 1 }],
+            alloc_nodes: None,
+            alloc_edges: None,
+        }],
+    );
+    let lens = Digest([61; 32]);
+    let input = Digest([62; 32]);
+    let run = RunJournal::run_digest(&lens, &input, &base_partition, b"get");
+    assert_ne!(
+        run,
+        RunJournal::run_digest(&Digest([63; 32]), &input, &base_partition, b"get")
+    );
+    assert_ne!(
+        run,
+        RunJournal::run_digest(&lens, &Digest([64; 32]), &base_partition, b"get")
+    );
+    assert_ne!(
+        run,
+        RunJournal::run_digest(&lens, &input, &changed_partition, b"get")
+    );
+    assert_ne!(
+        run,
+        RunJournal::run_digest(&lens, &input, &base_partition, b"put")
+    );
+}
+
+#[test]
+fn bounded_task_input_digest_and_journal_reuse_match_the_reference() {
+    let phases = [
+        Phase::Validate,
+        Phase::Export,
+        Phase::Summarize,
+        Phase::Assemble,
+        Phase::Emit,
+        Phase::Seal,
+    ];
+    let task_carrier: Vec<_> = phases
+        .into_iter()
+        .flat_map(|phase| {
+            [None, Some(SegmentId(0)), Some(SegmentId(u32::MAX))]
+                .map(|segment| TaskKey { phase, segment })
+        })
+        .collect();
+    assert_eq!(task_carrier.len(), 18);
+
+    let a = Digest([11; 32]);
+    let b = Digest([12; 32]);
+    let input_carrier = [Vec::new(), vec![a], vec![a, b], vec![b, a], vec![a, a]];
+    let lenses = [Digest([21; 32]), Digest([22; 32])];
+    let mut digest_cases = 0;
+    let mut digest_observations = Vec::new();
+    for lens in lenses {
+        for task in &task_carrier {
+            for inputs in &input_carrier {
+                let reference_inputs: Vec<_> = inputs
+                    .iter()
+                    .map(|digest| reference::Digest(digest.0))
+                    .collect();
+                let production = TaskRecord::inputs_digest(&lens, *task, inputs);
+                let expected = reference::task_inputs_digest(
+                    &reference::Digest(lens.0),
+                    task_key_to_reference(*task),
+                    &reference_inputs,
+                );
+                assert_eq!(
+                    production.0, expected.0,
+                    "task-input digest disagrees for lens {lens:?}, task {task:?}, inputs {inputs:?}"
+                );
+                digest_observations.push((production, expected));
+                digest_cases += 1;
+            }
+        }
+    }
+    assert_eq!(digest_cases, 180);
+    let mut observation_groups = digest_observations.chunks_exact(input_carrier.len());
+    for observations in &mut observation_groups {
+        assert_eq!(
+            observations[2].0, observations[3].0,
+            "production task-input digest must ignore input order"
+        );
+        assert_eq!(
+            observations[2].1, observations[3].1,
+            "reference task-input digest must ignore input order"
+        );
+        assert_ne!(
+            observations[1].0, observations[4].0,
+            "production task-input digest must preserve duplicate multiplicity"
+        );
+        assert_ne!(
+            observations[1].1, observations[4].1,
+            "reference task-input digest must preserve duplicate multiplicity"
+        );
+    }
+    assert!(observation_groups.remainder().is_empty());
+
+    let mut production_tasks = BTreeMap::new();
+    let mut reference_tasks = BTreeMap::new();
+    for (index, task) in task_carrier.iter().copied().enumerate() {
+        let index = u8::try_from(index).unwrap();
+        let inputs = Digest([80 + index; 32]);
+        let output = Digest([110 + index; 32]);
+        let bytes = u64::from(index) * 17;
+        production_tasks.insert(
+            task,
+            TaskRecord {
+                inputs,
+                output,
+                bytes,
+            },
+        );
+        reference_tasks.insert(
+            task_key_to_reference(task),
+            reference::TaskRecord {
+                inputs: reference::Digest(inputs.0),
+                output: reference::Digest(output.0),
+                bytes,
+            },
+        );
+    }
+    let production_journal = RunJournal {
+        run: Digest([140; 32]),
+        tasks: production_tasks,
+    };
+    let reference_journal = reference::RunJournal {
+        run: reference::Digest([140; 32]),
+        tasks: reference_tasks,
+    };
+    let compare_reuse = |task: TaskKey, inputs: Digest, output: Digest, expected: bool| {
+        let production = production_journal.reusable(&task, &inputs, &output);
+        let reference = reference::journal_task_reusable(
+            &reference_journal,
+            &task_key_to_reference(task),
+            &reference::Digest(inputs.0),
+            &reference::Digest(output.0),
+        );
+        assert_eq!(production, expected, "unexpected reuse result for {task:?}");
+        assert_eq!(production, reference, "reuse disagrees for {task:?}");
+    };
+
+    let wrong_inputs = Digest([240; 32]);
+    let wrong_output = Digest([241; 32]);
+    let mut reuse_cases = 0;
+    for task in &task_carrier {
+        let record = production_journal.tasks[task];
+        compare_reuse(*task, record.inputs, record.output, true);
+        compare_reuse(*task, wrong_inputs, record.output, false);
+        compare_reuse(*task, record.inputs, wrong_output, false);
+        reuse_cases += 3;
+    }
+    compare_reuse(
+        TaskKey {
+            phase: Phase::Seal,
+            segment: Some(SegmentId(1)),
+        },
+        wrong_inputs,
+        wrong_output,
+        false,
+    );
+    reuse_cases += 1;
+    assert_eq!(reuse_cases, 55);
 }
 
 #[test]

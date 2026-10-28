@@ -36,6 +36,7 @@ required-features = ["fixtures"]
 [dev-dependencies]
 # This crate's own tests run the corpus generator and decode the corpus.
 panproto-protocols = { path = ".", features = ["fixtures"] }
+panproto-reference = { workspace = true }
 rmp-serde = { workspace = true }
 ciborium = { workspace = true }
 proptest = { workspace = true }

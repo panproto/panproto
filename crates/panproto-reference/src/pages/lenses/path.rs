@@ -89,6 +89,86 @@ pub enum FusionCondition {
     ContextCompiles,
 }
 
+/// Independently observed premises of production table fusion.
+///
+/// The fields are facts about the two atomic stages and an explicit proposed
+/// composite, not a cached production decision. This classifier does not
+/// decide whether the earlier structural-fusion predicate supplies that
+/// composite. Keeping the facts explicit lets the reference certificate vary
+/// one named table boundary while retaining the others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableFusionPremises {
+    /// The first stage has no field transform or operation assignment.
+    pub first_stage_structurally_pure: bool,
+    /// The first, second and proposed composite table plans compile.
+    pub plans_compile: bool,
+    /// The first table plan is a bijection with unit complement.
+    pub first_is_unit_bijection: bool,
+    /// The first target and second source relational boundaries are equal.
+    pub middle_boundaries_equal: bool,
+    /// The second source has no finite-table required-value obligation.
+    pub second_source_validation_free: bool,
+    /// A second-stage value layer sees identical placeholder contexts.
+    pub typed_placeholders_agree: bool,
+    /// The two atomic relational functors compose to the candidate functor.
+    pub functors_compose: bool,
+    /// The second-stage column map is injective within each source table.
+    pub second_columns_injective: bool,
+}
+
+/// The first failed table-fusion premise, in production evaluation order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TableFusionObstruction {
+    /// The first stage writes value-layer coordinates.
+    FirstStageWritesFields,
+    /// At least one table plan did not compile.
+    PlanCompilation,
+    /// The first stage retains non-unit table complement state.
+    FirstStageNotUnitBijection,
+    /// The two independently classified middle boundaries differ.
+    MiddleBoundaryMismatch,
+    /// Atomic second put performs a required-value validation fusion skips.
+    RequiredValueValidation,
+    /// Absent cells receive different typed placeholders across the boundary.
+    TypedPlaceholderMismatch,
+    /// The candidate relational functor is not the atomic composite.
+    FunctorComposition,
+    /// Two source columns collide at one second-stage target column.
+    ColumnCollision,
+}
+
+/// Classify one independently derived table-fusion premise record.
+///
+/// The order is part of the reference contract: it follows the production
+/// table-specific guard sequence. Structural-candidate existence is a
+/// separate premise, so a fixture may use this classifier to audit a
+/// redundant downstream guard without calling that guard an isolated
+/// normalization refusal.
+#[must_use]
+pub const fn classify_table_fusion(
+    premises: TableFusionPremises,
+) -> Result<(), TableFusionObstruction> {
+    if !premises.first_stage_structurally_pure {
+        Err(TableFusionObstruction::FirstStageWritesFields)
+    } else if !premises.plans_compile {
+        Err(TableFusionObstruction::PlanCompilation)
+    } else if !premises.first_is_unit_bijection {
+        Err(TableFusionObstruction::FirstStageNotUnitBijection)
+    } else if !premises.middle_boundaries_equal {
+        Err(TableFusionObstruction::MiddleBoundaryMismatch)
+    } else if !premises.second_source_validation_free {
+        Err(TableFusionObstruction::RequiredValueValidation)
+    } else if !premises.typed_placeholders_agree {
+        Err(TableFusionObstruction::TypedPlaceholderMismatch)
+    } else if !premises.functors_compose {
+        Err(TableFusionObstruction::FunctorComposition)
+    } else if !premises.second_columns_injective {
+        Err(TableFusionObstruction::ColumnCollision)
+    } else {
+        Ok(())
+    }
+}
+
 impl FusionCondition {
     /// Contract ordinal used by bounded semantic derivations.
     #[must_use]

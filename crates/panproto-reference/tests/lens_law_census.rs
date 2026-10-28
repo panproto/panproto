@@ -1146,6 +1146,64 @@ fn assert_graph_synth_equivalence(fixture: &GraphSynthFixture) {
     ));
 }
 
+#[test]
+fn graph_synth_index_is_restricted_to_the_observed_carrier() {
+    let fixture = graph_synth_fixture();
+    let extant = GraphShape::synth_index(&fixture.left, &fixture.left_complement);
+    assert_eq!(extant.nodes, fixture.left_complement.synthesized_nodes);
+    assert_eq!(extant.edges, fixture.left_complement.synthesized_edges);
+
+    let mut deleted = fixture.left;
+    assert!(deleted.edges.remove(&8).is_some());
+    assert!(deleted.nodes.remove(&7).is_some());
+    assert!(fixture.left_complement.synthesized_edges.contains_key(&8));
+    assert!(fixture.left_complement.synthesized_nodes.contains_key(&7));
+    assert_eq!(
+        GraphShape::synth_index(&deleted, &fixture.left_complement),
+        SynthIndex::default()
+    );
+}
+
+#[test]
+fn graph_fusion_ignores_stale_synth_metadata_outside_each_observed_carrier() {
+    let fixture = graph_synth_fixture();
+    let mut sequential_complement = fixture.left_complement.clone();
+    sequential_complement
+        .synthesized_nodes
+        .extend(fixture.right_complement.synthesized_nodes.clone());
+    sequential_complement
+        .synthesized_edges
+        .extend(fixture.right_complement.synthesized_edges.clone());
+    let mut fused_complement = fixture.right_complement.clone();
+    fused_complement
+        .synthesized_nodes
+        .extend(fixture.left_complement.synthesized_nodes.clone());
+    fused_complement
+        .synthesized_edges
+        .extend(fixture.left_complement.synthesized_edges.clone());
+
+    assert_eq!(sequential_complement, fused_complement);
+    assert_eq!(
+        GraphShape::synth_index(&fixture.left, &sequential_complement),
+        GraphShape::synth_index(&fixture.left, &fixture.left_complement)
+    );
+    assert_eq!(
+        GraphShape::synth_index(&fixture.right, &fused_complement),
+        GraphShape::synth_index(&fixture.right, &fixture.right_complement)
+    );
+
+    let restored = Graph::default();
+    let report = compare_fusion::<GraphShape, Refusal>(
+        &Ok((fixture.left, sequential_complement)),
+        &Ok((fixture.right, fused_complement)),
+        &Ok(restored.clone()),
+        &Ok(restored),
+    );
+    assert_eq!(report.get, OutcomeClass::Success(EqualityClass::Equivalent));
+    assert_eq!(report.complement, Some(EqualityClass::Exact));
+    assert_eq!(report.put, OutcomeClass::Success(EqualityClass::Exact));
+}
+
 struct TreeSynthFixture {
     left: Tree,
     right: Tree,

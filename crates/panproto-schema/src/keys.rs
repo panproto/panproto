@@ -1297,8 +1297,7 @@ pub enum KeyRefError {
     ArityMismatch {
         /// The reference.
         reference: Name,
-        /// The number of parts of the resolving key; zero when the target
-        /// vertex has no key to resolve through.
+        /// The number of parts of the resolving key.
         expected: usize,
         /// The number of parts the reference holds.
         found: usize,

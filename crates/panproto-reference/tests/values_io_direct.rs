@@ -265,13 +265,19 @@ fn i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits() {
 }
 
 #[test]
-fn i4_blob_and_byte_paths_compare_both_directions() {
+fn i4_byte_paths_compare_both_directions_and_blob_layout_is_exact() {
     assert!(value_io::bytes(b"left", b"left"));
     assert!(!value_io::bytes(b"left", b"right"));
     assert!(!value_io::bytes(b"right", b"left"));
-    assert!(value_io::blob_writer(b"left", b"left"));
-    assert!(!value_io::blob_writer(b"left", b"right"));
-    assert!(!value_io::blob_writer(b"right", b"left"));
+    assert_eq!(
+        value_io::blob_writer("bafyreia", "image/png", 42),
+        br#"{"$type":"blob","mimeType":"image/png","ref":{"$link":"bafyreia"},"size":42}"#
+    );
+    assert_eq!(
+        String::from_utf8(value_io::blob_writer("\u{7f}", "\u{80}\u{9f}", 2))
+            .test_unwrap("blob JSON is UTF-8"),
+        "{\"$type\":\"blob\",\"mimeType\":\"\u{80}\u{9f}\",\"ref\":{\"$link\":\"\u{7f}\"},\"size\":2}"
+    );
 }
 
 #[test]
@@ -297,16 +303,55 @@ fn i6_duplicate_member_paths_find_nonadjacent_duplicates_only() {
 }
 
 #[test]
-fn i7_encoding_paths_preserve_bom_bytes_exactly() {
+fn i7_canonical_encoding_normalizes_while_cst_encoding_is_exact() {
     let with_bom = b"\xef\xbb\xbf{}";
     let without_bom = b"{}";
 
-    assert!(value_io::encoding(with_bom, with_bom));
-    assert!(!value_io::encoding(with_bom, without_bom));
+    assert!(value_io::encoding(without_bom));
+    assert!(!value_io::encoding(with_bom));
+    assert!(!value_io::encoding(b"\xff"));
+    assert!(value_io::xml_encoding(
+        br#"<?xml version="1.0" encoding="UTF-8"?><root/>"#
+    ));
+    assert!(value_io::xml_encoding(b"<root/>"));
+    assert!(!value_io::xml_encoding(
+        br#"<?xml version="1.0" encoding="UTF-16"?><root/>"#
+    ));
+    assert!(!value_io::xml_encoding(
+        b"\xef\xbb\xbf<?xml version=\"1.0\"?><root/>"
+    ));
     assert!(value_io::encoding_bom_cst(with_bom, with_bom));
     assert!(!value_io::encoding_bom_cst(with_bom, without_bom));
-    assert!(value_io::xml_encoding(with_bom, with_bom));
-    assert!(!value_io::xml_encoding(with_bom, without_bom));
+}
+
+#[test]
+fn i12_default_routes_distinguish_null_from_absence() {
+    use value_io::{Presence, PresenceOutcome, Route};
+
+    for route in [Route::Json, Route::Yaml, Route::Xml] {
+        assert_eq!(
+            value_io::presence(route, Presence::Null),
+            PresenceOutcome::NullSyntax
+        );
+    }
+    for route in [Route::Json, Route::Toml, Route::Yaml, Route::Xml] {
+        assert_eq!(
+            value_io::presence(route, Presence::Absent),
+            PresenceOutcome::Omitted
+        );
+    }
+    for route in [Route::Toml, Route::Csv, Route::Tsv] {
+        assert_eq!(
+            value_io::presence(route, Presence::Null),
+            PresenceOutcome::NullNotRepresentable
+        );
+    }
+    for route in [Route::Csv, Route::Tsv] {
+        assert_eq!(
+            value_io::presence(route, Presence::Absent),
+            PresenceOutcome::AbsentNotRepresentable
+        );
+    }
 }
 
 #[test]

@@ -35,73 +35,6 @@ fn lookup(name: &str) -> Option<Protocol> {
     protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
-/// All built-in protocol names.
-const BUILTIN_NAMES: &[&str] = &[
-    // annotation
-    "brat",
-    "conllu",
-    "naf",
-    "uima",
-    "folia",
-    "tei",
-    "timeml",
-    "elan",
-    "iso_space",
-    "paula",
-    "laf_graf",
-    "decomp",
-    "ucca",
-    "fovea",
-    "bead",
-    "web_annotation",
-    "amr",
-    "concrete",
-    "nif",
-    // api
-    "openapi",
-    "asyncapi",
-    "jsonapi",
-    "raml",
-    "graphql",
-    // config
-    "cloudformation",
-    "ansible",
-    "k8s_crd",
-    // data_schema
-    "cddl",
-    "bson",
-    "json-schema",
-    // data_science
-    "dataframe",
-    "parquet",
-    "arrow",
-    // database
-    "mongodb",
-    "dynamodb",
-    "cassandra",
-    "neo4j",
-    "redis",
-    "sql",
-    // domain
-    "geojson",
-    "fhir",
-    "rss_atom",
-    "vcard_ical",
-    "swift_mt",
-    "edi_x12",
-    // serialization
-    "avro",
-    "flatbuffers",
-    "asn1",
-    "bond",
-    "msgpack_schema",
-    "protobuf",
-    // web_document
-    "atproto",
-    "docx",
-    "odf",
-];
-
 // ---------------------------------------------------------------------------
 // Module-level functions
 // ---------------------------------------------------------------------------
@@ -109,7 +42,10 @@ const BUILTIN_NAMES: &[&str] = &[
 /// List all built-in protocol names.
 #[pyfunction]
 pub fn list_builtin_protocols() -> Vec<String> {
-    let mut names: Vec<String> = BUILTIN_NAMES.iter().map(|s| (*s).to_owned()).collect();
+    let mut names: Vec<String> = protocols::registry::protocol_names()
+        .into_iter()
+        .map(String::from)
+        .collect();
     for g in panproto_grammars::grammars() {
         if !names.iter().any(|n| n == g.name) {
             names.push(g.name.to_owned());
@@ -167,4 +103,27 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(get_builtin_protocol, parent)?)?;
     parent.add_function(wrap_pyfunction!(define_protocol, parent)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn semantic_protocol_prefix_is_the_registry_listing() {
+        let listed = list_builtin_protocols();
+        let expected: Vec<String> = protocols::registry::protocol_names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+
+        assert_eq!(&listed[..expected.len()], expected.as_slice());
+        assert_eq!(
+            listed.len(),
+            listed.iter().collect::<HashSet<_>>().len(),
+            "semantic protocols and appended grammars must not duplicate names"
+        );
+    }
 }

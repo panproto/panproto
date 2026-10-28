@@ -129,6 +129,7 @@ library
         Panproto.Protocol
         Panproto.Schema
         Panproto.Vcs
+        Panproto.Wire
     other-modules:
         Panproto.Json
     build-depends:

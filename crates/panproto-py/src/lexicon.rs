@@ -150,8 +150,8 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 /// Parameters
 /// ----------
 /// protocol : str
-///     Protocol name selecting the document parser. Both the hyphenated
-///     name and the underscore registry key resolve.
+///     Protocol name selecting the document parser. Both the canonical
+///     hyphenated name and its underscore compatibility spelling resolve.
 /// doc : Mapping or str
 ///     The schema document, as a parsed dict or a raw JSON string.
 ///

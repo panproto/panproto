@@ -319,13 +319,14 @@ fn target_set_errors(schema: &Schema, errors: &mut Vec<KeyRefError>) {
             let this = member.and_then(|key| {
                 expanded_equalities(key).map(|equality| (key.parts.len(), equality))
             });
-            let valid = member.is_some_and(|key| key.scope == set.scope)
+            let base_valid = member.is_some_and(|key| key.scope == set.scope)
                 && seen.insert((vertex, key_id))
-                && this.is_some()
-                && signature
-                    .as_ref()
-                    .is_none_or(|expected| this.as_ref() == Some(expected));
-            if signature.is_none() {
+                && this.is_some();
+            let agrees = signature
+                .as_ref()
+                .is_none_or(|expected| this.as_ref() == Some(expected));
+            let valid = base_valid && agrees;
+            if base_valid && signature.is_none() {
                 signature = this;
             }
             if !valid {
@@ -436,8 +437,26 @@ fn reference_errors<'a>(
     }
 
     let targets = target_members(schema, reference);
-    if let Some((_, key)) = targets.first()
-        && matches!(key.role, KeyRole::SortKey | KeyRole::Index)
+    if targets.is_empty() {
+        match &reference.source {
+            RefSource::Variable { binder_key, .. } => {
+                errors.push(KeyRefError::UnknownTargetKey {
+                    reference: reference.id.clone(),
+                    key: binder_key.clone(),
+                });
+            }
+            _ if !targets_set && reference.target_key.is_some() => {
+                // The named-key error was appended above.
+            }
+            _ => errors.push(KeyRefError::UnknownTarget {
+                reference: reference.id.clone(),
+            }),
+        }
+        return;
+    }
+    for (_, key) in targets
+        .iter()
+        .filter(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
     {
         errors.push(KeyRefError::KeyNotResolvable {
             reference: reference.id.clone(),
@@ -702,7 +721,7 @@ fn validate_text_reference(schema: &Schema, reference: &Reference, errors: &mut 
                 | RefTextSource::ExternalUri { .. } => true,
             }
         });
-    valid &= !text_chain_reaches(schema, named, &reference.id, &mut BTreeSet::new());
+    valid &= !text_chain_is_cyclic(schema, named, &mut BTreeSet::from([reference.id.clone()]));
     if !valid {
         errors.push(KeyRefError::TextReferenceInvalid {
             reference: reference.id.clone(),
@@ -711,17 +730,9 @@ fn validate_text_reference(schema: &Schema, reference: &Reference, errors: &mut 
     }
 }
 
-fn text_chain_reaches(
-    schema: &Schema,
-    at: &Name,
-    target: &Name,
-    seen: &mut BTreeSet<Name>,
-) -> bool {
-    if at == target {
+fn text_chain_is_cyclic(schema: &Schema, at: &Name, active: &mut BTreeSet<Name>) -> bool {
+    if !active.insert(at.clone()) {
         return true;
-    }
-    if !seen.insert(at.clone()) {
-        return false;
     }
     let Some(RefSource::Standoff { text, .. }) = schema
         .declarations
@@ -729,16 +740,19 @@ fn text_chain_reaches(
         .get(at)
         .map(|reference| &reference.source)
     else {
+        active.remove(at);
         return false;
     };
-    match text {
+    let cyclic = match text {
         RefTextSource::Referenced { reference, .. } | RefTextSource::Span { reference } => {
-            text_chain_reaches(schema, reference, target, seen)
+            text_chain_is_cyclic(schema, reference, active)
         }
         RefTextSource::Local(_)
         | RefTextSource::External(_)
         | RefTextSource::ExternalUri { .. } => false,
-    }
+    };
+    active.remove(at);
+    cyclic
 }
 
 fn validate_scope_via(

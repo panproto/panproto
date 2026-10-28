@@ -182,8 +182,8 @@ impl Complement {
     ///
     /// This is a statement about the *representation*, not about
     /// information loss: a lens that discards nothing still populates
-    /// `original_parent`, `arc_order`, and `arc_edges`, so it is not empty
-    /// by this measure. For the question "did this projection lose
+    /// `original_parent` and `arc_order`, so it is not empty by this
+    /// measure. For the question "did this projection lose
     /// anything", see [`residue_is_trivial`](Self::residue_is_trivial).
     #[must_use]
     pub fn is_empty(&self) -> bool {

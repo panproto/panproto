@@ -34,6 +34,87 @@ use panproto_protocols::graph_instance_model;
 use panproto_protocols::theories::th_graph_instance;
 use panproto_schema::{Edge, Protocol, RecursionPoint, Schema, Variant, Vertex};
 
+fn assert_reference_validation_on_the_endpoint_carrier() {
+    use panproto_reference::lens::ViewRef as ReferenceViewRef;
+    use panproto_reference::model::{GEdge as ReferenceEdge, Graph, Node as ReferenceNode, SEdge};
+    use panproto_reference::validation::{
+        CheckClass as ReferenceClass, CheckKey as ReferenceCheckKey,
+        CheckKind as ReferenceCheckKind, CheckStatus as ReferenceStatus,
+        Diagnostic as ReferenceDiagnostic, Requirement as ReferenceRequirement,
+        SchemaRef as ReferenceSchemaRef, Violation as ReferenceViolation,
+    };
+
+    let label = SEdge::new("a", "b", "prop", Some("ab"));
+    let schema = panproto_reference::schema::Schema::default()
+        .vertex("a", "object")
+        .vertex("b", "object")
+        .edge("a", "b", "prop", Some("ab"));
+    let graph = Graph {
+        nodes: [
+            (0, ReferenceNode::new(0, "a")),
+            (1, ReferenceNode::new(1, "b")),
+            (2, ReferenceNode::new(2, "b")),
+            (3, ReferenceNode::new(3, "a")),
+        ]
+        .into(),
+        edges: [
+            (
+                0,
+                ReferenceEdge {
+                    src: 0,
+                    tgt: 1,
+                    label: label.clone(),
+                    position: None,
+                },
+            ),
+            (
+                1,
+                ReferenceEdge {
+                    src: 2,
+                    tgt: 1,
+                    label: label.clone(),
+                    position: None,
+                },
+            ),
+            (
+                2,
+                ReferenceEdge {
+                    src: 0,
+                    tgt: 3,
+                    label: label.clone(),
+                    position: None,
+                },
+            ),
+        ]
+        .into(),
+    };
+    let report = panproto_reference::validation::validate(&schema, &Default::default(), &graph);
+    let diagnostic = |edge, node, source, expected: &str, found: &str| ReferenceDiagnostic {
+        check: ReferenceCheckKey {
+            kind: ReferenceCheckKind::EndpointCoherence,
+            decl: ReferenceSchemaRef::Edge(label.clone()),
+        },
+        class: ReferenceClass::GraphLocal,
+        requirement: ReferenceRequirement::Required,
+        subject: Some(ReferenceViewRef::Edge(edge)),
+        elements: vec![ReferenceViewRef::Node(node), ReferenceViewRef::Edge(edge)],
+        violation: ReferenceViolation::IncoherentEndpoint(
+            source,
+            expected.to_owned(),
+            found.to_owned(),
+        ),
+    };
+    assert_eq!(
+        report.diagnostics,
+        vec![
+            diagnostic(1, 2, true, "a", "b"),
+            diagnostic(2, 3, false, "b", "a"),
+        ]
+    );
+    assert!(report.incomplete.is_empty());
+    assert_eq!(report.status, ReferenceStatus::Failed);
+}
+
 fn edge(src: &str, tgt: &str, name: &str) -> Edge {
     Edge {
         src: src.into(),
@@ -236,6 +317,7 @@ fn sweep_one(
 
 #[test]
 fn v10_endpoint_coherence_agrees_with_the_graph_instance_theory() {
+    assert_reference_validation_on_the_endpoint_carrier();
     let schema = schema();
     let (graphs, incoherent) = sweep(
         &schema,

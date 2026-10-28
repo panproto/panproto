@@ -28,8 +28,11 @@ Rust-allocated response buffer with `pp_buf_free()`.
 Most stateful values remain in Rust. C callers receive `uint32_t` handles into
 a process-global resource table. A handle created on one operating-system
 thread may be used on another. The table reuses slots after
-`pp_handle_free()`, and freeing an invalid or already-freed handle has no
-effect.
+`pp_handle_free()`. Freeing an invalid handle or freeing the same handle again
+before its slot is reused has no effect. Once that slot is reissued, the stale
+numeric handle aliases the new resource. Passing the stale handle to
+`pp_handle_free()` would free that resource, so callers must discard a handle
+after its first free.
 
 Structured request and response values cross the boundary as CBOR. Buffers
 returned by Rust must be released once with `pp_buf_free()`. Releasing the same
@@ -74,7 +77,7 @@ is enabled by default. The available features are:
 
 | Feature | Additional surface |
 |---|---|
-| `headers` | Enables the ignored header-generation test. |
+| `headers` | Enables the opt-in header-generation test. |
 | `panic-test` | Exports the internal panic probe used by boundary tests. |
 | `full-parse` | Enables the full tree-sitter parser registry. |
 | `project` | Enables multi-file project assembly. |
@@ -85,7 +88,7 @@ is enabled by default. The available features are:
 Regenerate the committed header after changing an exported function:
 
 ```sh
-cargo test -p panproto-c --features headers --test headers -- --ignored
+PP_REGEN_HEADERS=1 cargo test -p panproto-c --features headers --test headers -- generate_headers
 ```
 
 The generated header is

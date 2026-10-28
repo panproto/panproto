@@ -365,80 +365,15 @@ pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theo
 
 /// Return the names of all built-in semantic protocols.
 ///
-/// Programming-language and data-format protocols are handled by
-/// tree-sitter grammars via `panproto-grammars`. This list covers only
-/// the domain-specific semantic protocols that require custom theory
-/// composition.
+/// The canonical names come from the same descriptors used by lookup and
+/// theory registration, so listing a name is a promise that the boundary can
+/// resolve it.
 #[must_use]
 pub fn builtin_protocol_names() -> Vec<String> {
-    [
-        // annotation (19)
-        "brat",
-        "conllu",
-        "naf",
-        "uima",
-        "folia",
-        "tei",
-        "timeml",
-        "elan",
-        "iso_space",
-        "paula",
-        "laf_graf",
-        "decomp",
-        "ucca",
-        "fovea",
-        "bead",
-        "web_annotation",
-        "amr",
-        "concrete",
-        "nif",
-        // api (5)
-        "openapi",
-        "asyncapi",
-        "jsonapi",
-        "raml",
-        "graphql",
-        // config (3)
-        "cloudformation",
-        "ansible",
-        "k8s_crd",
-        // data_schema (3)
-        "cddl",
-        "bson",
-        "json-schema",
-        // data_science (3)
-        "dataframe",
-        "parquet",
-        "arrow",
-        // database (6)
-        "mongodb",
-        "dynamodb",
-        "cassandra",
-        "neo4j",
-        "redis",
-        "sql",
-        // domain (6)
-        "geojson",
-        "fhir",
-        "rss_atom",
-        "vcard_ical",
-        "swift_mt",
-        "edi_x12",
-        // serialization (6)
-        "avro",
-        "flatbuffers",
-        "asn1",
-        "bond",
-        "msgpack_schema",
-        "protobuf",
-        // web_document (3)
-        "atproto",
-        "docx",
-        "odf",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
+    protocols::registry::protocol_names()
+        .into_iter()
+        .map(String::from)
+        .collect()
 }
 
 /// Look up a built-in protocol by name.

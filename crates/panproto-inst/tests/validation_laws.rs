@@ -47,6 +47,290 @@ use validation_support::{
     protocol, schema_of, table_of, tree_of,
 };
 
+fn assert_reference_validation_repeatable() {
+    use panproto_reference::model::{Graph, Node as ReferenceNode};
+    use panproto_reference::schema::Schema as ReferenceSchema;
+
+    let schema = ReferenceSchema::default().vertex("item", "object");
+    let graph = Graph {
+        nodes: [(0, ReferenceNode::new(0, "item"))].into(),
+        ..Graph::default()
+    };
+    let first = panproto_reference::validation::validate(&schema, &BTreeMap::new(), &graph);
+    let second = panproto_reference::validation::validate(&schema, &BTreeMap::new(), &graph);
+    assert_eq!(first, second);
+}
+
+#[test]
+fn reference_required_value_shape_square() {
+    use panproto_reference::lens::ViewRef as ReferenceViewRef;
+    use panproto_reference::model::{
+        Graph, Node as ReferenceNode, Table as ReferenceTable, Tree as ReferenceTree,
+    };
+    use panproto_reference::schema::Schema as ReferenceSchema;
+    use panproto_reference::validation::{
+        CheckClass as ReferenceClass, CheckKey as ReferenceCheckKey,
+        CheckKind as ReferenceCheckKind, CheckStatus as ReferenceStatus,
+        Diagnostic as ReferenceDiagnostic, InstanceShape as ReferenceShape,
+        NativeRef as ReferenceNativeRef, Report as ReferenceReport,
+        Requirement as ReferenceRequirement, SchemaRef as ReferenceSchemaRef,
+        Semantics as ReferenceSemantics, Violation as ReferenceViolation,
+    };
+
+    let mut schema = ReferenceSchema::default()
+        .vertex("record", "object")
+        .vertex("scalar", "string")
+        .edge("record", "scalar", "prop", Some("value"));
+    schema.constraints.insert(
+        "scalar".to_owned(),
+        vec![("required".to_owned(), String::new())],
+    );
+    let semantics = BTreeMap::from([("required".to_owned(), ReferenceSemantics::RequiredValue)]);
+    let graph = Graph {
+        nodes: [(7, ReferenceNode::new(7, "record"))].into(),
+        ..Graph::default()
+    };
+    let graph_report = panproto_reference::validation::validate(&schema, &semantics, &graph);
+    let table = ReferenceTable {
+        rows: [(7, ("record".to_owned(), BTreeMap::new()))].into(),
+        ..ReferenceTable::default()
+    };
+    let table_report = panproto_reference::validation::validate_table(&schema, &semantics, &table)
+        .expect("the one-row table has a graph presentation");
+    let tree = ReferenceTree {
+        nodes: [(7, ReferenceNode::new(7, "record"))].into(),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 7,
+    };
+    let tree_report = panproto_reference::validation::validate_tree(&schema, &semantics, &tree)
+        .expect("the one-node tree has a graph presentation");
+
+    assert_eq!(
+        graph_report.identity,
+        BTreeMap::from([(ReferenceViewRef::Node(7), ReferenceNativeRef::GraphNode(7),)])
+    );
+    assert_eq!(
+        table_report.identity,
+        BTreeMap::from([(ReferenceViewRef::Row(7), ReferenceNativeRef::TableRow(7),)])
+    );
+    assert_eq!(
+        tree_report.identity,
+        BTreeMap::from([(ReferenceViewRef::Node(7), ReferenceNativeRef::TreeNode(7),)])
+    );
+
+    let expected = ReferenceReport {
+        shape: ReferenceShape::Graph,
+        diagnostics: vec![ReferenceDiagnostic {
+            check: ReferenceCheckKey {
+                kind: ReferenceCheckKind::RequiredValue,
+                decl: ReferenceSchemaRef::Constraint(
+                    "scalar".to_owned(),
+                    "required".to_owned(),
+                    String::new(),
+                ),
+            },
+            class: ReferenceClass::GraphLocal,
+            requirement: ReferenceRequirement::Required,
+            subject: Some(ReferenceViewRef::Node(7)),
+            elements: vec![ReferenceViewRef::Node(7)],
+            violation: ReferenceViolation::MissingValue(Some("value".to_owned())),
+        }],
+        incomplete: Vec::new(),
+        identity: BTreeMap::from([(ReferenceViewRef::Node(7), ReferenceNativeRef::GraphNode(7))]),
+        status: ReferenceStatus::Failed,
+    };
+
+    fn normalize(mut report: ReferenceReport) -> ReferenceReport {
+        let normalize_ref = |reference: &mut ReferenceViewRef| match reference {
+            ReferenceViewRef::Node(7) => {}
+            ReferenceViewRef::Row(7) => *reference = ReferenceViewRef::Node(7),
+            other => {
+                panic!("the compact shape carrier introduced an unexpected identity: {other:?}")
+            }
+        };
+        report.shape = ReferenceShape::Graph;
+        for diagnostic in &mut report.diagnostics {
+            if let Some(subject) = &mut diagnostic.subject {
+                normalize_ref(subject);
+            }
+            for element in &mut diagnostic.elements {
+                normalize_ref(element);
+            }
+        }
+        for incomplete in &mut report.incomplete {
+            if let Some(subject) = &mut incomplete.subject {
+                normalize_ref(subject);
+            }
+        }
+        report.identity =
+            BTreeMap::from([(ReferenceViewRef::Node(7), ReferenceNativeRef::GraphNode(7))]);
+        report
+    }
+
+    assert_eq!(normalize(graph_report), expected);
+    assert_eq!(normalize(table_report), expected);
+    assert_eq!(normalize(tree_report), expected);
+}
+
+fn assert_reference_key_and_reference_carrier() {
+    use panproto_reference::lens::ViewRef as ReferenceViewRef;
+    use panproto_reference::model::{GEdge as ReferenceEdge, Graph, Node as ReferenceNode, SEdge};
+    use panproto_reference::schema::{
+        Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
+        Reference, ResolveMode, Schema as ReferenceSchema,
+    };
+    use panproto_reference::validation::{
+        CheckClass as ReferenceClass, CheckKey as ReferenceCheckKey,
+        CheckKind as ReferenceCheckKind, CheckStatus as ReferenceStatus,
+        Diagnostic as ReferenceDiagnostic, Requirement as ReferenceRequirement,
+        SchemaRef as ReferenceSchemaRef, Violation as ReferenceViolation,
+    };
+    use panproto_reference::value::Value as ReferenceValue;
+
+    let id = SEdge::new("person", "person.id", "prop", Some("id"));
+    let boss = SEdge::new("person", "person.boss", "prop", Some("boss"));
+    let mut schema = ReferenceSchema::default()
+        .vertex("person", "object")
+        .vertex("person.id", "integer")
+        .vertex("person.boss", "integer")
+        .edge("person", "person.id", "prop", Some("id"))
+        .edge("person", "person.boss", "prop", Some("boss"));
+    schema.keys.insert(
+        "person".to_owned(),
+        vec![Key {
+            id: "pk".to_owned(),
+            parts: vec![KeyPart::Path(vec![id.clone()])],
+            role: KeyRole::Identifier,
+            scope: KeyScope::Document,
+            equality: Vec::new(),
+        }],
+    );
+    schema.references.insert(
+        "boss".to_owned(),
+        Reference {
+            id: "boss".to_owned(),
+            holder: "person".to_owned(),
+            source: RefSource::KeyValue {
+                parts: vec![vec![boss.clone()]],
+            },
+            target_vertex: "person".to_owned(),
+            target_key: Some("pk".to_owned()),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: NullMatch::Simple,
+            null_vertex: None,
+            scope_via: None,
+        },
+    );
+
+    let ids = [10_i64, 20, 10, 30];
+    let bosses = [20_i64, 20, 99, 10];
+    let mut nodes = BTreeMap::new();
+    let mut edges = BTreeMap::new();
+    for index in 0_u32..4 {
+        nodes.insert(index, ReferenceNode::new(index, "person"));
+        nodes.insert(
+            10 + index,
+            ReferenceNode::new(10 + index, "person.id")
+                .with_value(ReferenceValue::Int(ids[index as usize])),
+        );
+        nodes.insert(
+            20 + index,
+            ReferenceNode::new(20 + index, "person.boss")
+                .with_value(ReferenceValue::Int(bosses[index as usize])),
+        );
+        edges.insert(
+            index,
+            ReferenceEdge {
+                src: index,
+                tgt: 10 + index,
+                label: id.clone(),
+                position: None,
+            },
+        );
+        edges.insert(
+            4 + index,
+            ReferenceEdge {
+                src: index,
+                tgt: 20 + index,
+                label: boss.clone(),
+                position: None,
+            },
+        );
+    }
+    let report = panproto_reference::validation::validate(
+        &schema,
+        &BTreeMap::new(),
+        &Graph { nodes, edges },
+    );
+    let duplicate = ReferenceDiagnostic {
+        check: ReferenceCheckKey {
+            kind: ReferenceCheckKind::KeyUnique,
+            decl: ReferenceSchemaRef::Key("person".to_owned(), "pk".to_owned()),
+        },
+        class: ReferenceClass::MaintainedGlobal,
+        requirement: ReferenceRequirement::Required,
+        subject: None,
+        elements: vec![ReferenceViewRef::Node(0), ReferenceViewRef::Node(2)],
+        violation: ReferenceViolation::DuplicateKey(vec![(
+            "id".to_owned(),
+            ReferenceValue::Int(10),
+        )]),
+    };
+    let reference_check = ReferenceCheckKey {
+        kind: ReferenceCheckKind::ReferenceResolves,
+        decl: ReferenceSchemaRef::Reference("boss".to_owned()),
+    };
+    let reference_diagnostic = |subject, elements, violation| ReferenceDiagnostic {
+        check: reference_check.clone(),
+        class: ReferenceClass::MaintainedGlobal,
+        requirement: ReferenceRequirement::Required,
+        subject: Some(ReferenceViewRef::Node(subject)),
+        elements,
+        violation,
+    };
+    assert_eq!(
+        report.diagnostics,
+        vec![
+            duplicate,
+            reference_diagnostic(
+                2,
+                vec![ReferenceViewRef::Node(2)],
+                ReferenceViolation::DanglingReference(
+                    "boss".to_owned(),
+                    vec![ReferenceValue::Int(99)],
+                ),
+            ),
+            reference_diagnostic(
+                3,
+                vec![
+                    ReferenceViewRef::Node(0),
+                    ReferenceViewRef::Node(2),
+                    ReferenceViewRef::Node(3),
+                ],
+                ReferenceViolation::AmbiguousReference(
+                    "boss".to_owned(),
+                    vec![ReferenceValue::Int(10)],
+                    vec![ReferenceViewRef::Node(0), ReferenceViewRef::Node(2)],
+                ),
+            ),
+        ]
+    );
+    assert!(report.incomplete.is_empty());
+    assert_eq!(report.status, ReferenceStatus::Failed);
+}
+
+#[test]
+fn reference_validation_anchors_are_stable_on_compact_native_carriers() {
+    assert_reference_validation_repeatable();
+    assert_reference_key_and_reference_carrier();
+}
+
 /// A plan for a generated schema under the protocol of `syntactic`.
 fn plan(case: &Case, syntactic: InstanceShapeKind) -> ValidationPlan {
     ValidationPlan::compile(

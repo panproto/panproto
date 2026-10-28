@@ -2,16 +2,17 @@
 
 #![allow(clippy::expect_used)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use panproto_expr::exact::{BigIntValue, DecimalValue, Temporal, WideInt};
 use panproto_expr::{BuiltinOp, Env, Expr, Literal, Pattern};
 use panproto_gat::{
-    CaseBranch, CheckOutcome, CheckRecord, CheckSubject, CoercionClass, Composition,
-    CompositionCheckKind, CompositionMode, CompositionReport, ConflictPolicy, ConflictStrategy,
-    DirectedEquation, Equation, Implicit, Operation, Provenance, Sort, SortClosure, SortExpr,
-    SortKind, SortParam, Term, Theory, ValueKind,
+    AddedEquation, CaseBranch, CheckOutcome, CheckRecord, CheckSubject, CoercionClass, Composition,
+    CompositionCheckKind, CompositionIncomplete, CompositionMode, CompositionReport,
+    ConflictPolicy, ConflictStrategy, DirectedEquation, Equation, Freshening, Implicit,
+    InapplicableReason, OpAssignment, Operation, Provenance, Sort, SortClosure, SortExpr, SortKind,
+    SortParam, SymKind, SymRef, Term, Theory, TheoryMorphism, ValueKind,
 };
 use panproto_reference::exact as reference_exact;
 use panproto_reference::num::Nat;
@@ -658,38 +659,266 @@ fn composition(
     production_mode: CompositionMode,
     oracle_mode: reference::CompositionMode,
 ) -> (Composition, reference::Composition) {
+    let production_inclusion = TheoryMorphism::new(
+        "incl_carrier",
+        "CarrierNode",
+        production_theory.name.clone(),
+        HashMap::from([(
+            <Arc<str>>::from("SourceSort"),
+            <Arc<str>>::from("ResultSort"),
+        )]),
+        HashMap::from([
+            (
+                <Arc<str>>::from("renamed"),
+                OpAssignment::Op(<Arc<str>>::from("result_op")),
+            ),
+            (
+                <Arc<str>>::from("derived"),
+                OpAssignment::Term(Term::Var("x".into())),
+            ),
+        ]),
+    );
+    let oracle_inclusion = reference::Morphism {
+        name: "incl_carrier".to_owned(),
+        domain: "CarrierNode".to_owned(),
+        codomain: oracle_theory.name.clone(),
+        sorts: BTreeMap::from([("SourceSort".to_owned(), "ResultSort".to_owned())]),
+        ops: BTreeMap::from([
+            (
+                "renamed".to_owned(),
+                reference::OpImage::Op("result_op".to_owned()),
+            ),
+            (
+                "derived".to_owned(),
+                reference::OpImage::Term(reference::Term::Var("x".to_owned())),
+            ),
+        ]),
+    };
+
+    let source = |name: &str| SymRef::new("CarrierNode", name);
+    let oracle_source = |name: &str| reference::SymRef {
+        node: "CarrierNode".to_owned(),
+        name: name.to_owned(),
+    };
+    let mut production_provenance = Provenance {
+        sorts: BTreeMap::from([(source("SourceSort"), "ResultSort".into())]),
+        ops: BTreeMap::from([(source("renamed"), "result_op".into())]),
+        eqs: BTreeMap::from([(source("equation"), "result_equation".into())]),
+        directed_eqs: BTreeMap::from([(source("directed"), "result_directed".into())]),
+        policies: BTreeMap::from([(source("policy"), "result_policy".into())]),
+        added_eqs: BTreeMap::new(),
+    };
+    production_provenance.added_eqs.insert(
+        "generated".into(),
+        AddedEquation {
+            edge: 2,
+            op: source("derived"),
+        },
+    );
+    let mut oracle_provenance = reference::Provenance {
+        sorts: BTreeMap::from([(oracle_source("SourceSort"), "ResultSort".to_owned())]),
+        ops: BTreeMap::from([(oracle_source("renamed"), "result_op".to_owned())]),
+        eqs: BTreeMap::from([(oracle_source("equation"), "result_equation".to_owned())]),
+        directed_eqs: BTreeMap::from([(oracle_source("directed"), "result_directed".to_owned())]),
+        policies: BTreeMap::from([(oracle_source("policy"), "result_policy".to_owned())]),
+        added_eqs: BTreeMap::new(),
+    };
+    oracle_provenance.added_eqs.insert(
+        "generated".to_owned(),
+        reference::AddedEquation {
+            edge: 2,
+            op: oracle_source("derived"),
+        },
+    );
+
     let production_report = CompositionReport::new(
         production_mode,
-        true,
-        vec![CheckRecord {
-            check: CompositionCheckKind::ResultWellTyped,
-            subject: CheckSubject::Diagram,
-            outcome: CheckOutcome::Passed,
+        false,
+        vec![
+            CheckRecord {
+                check: CompositionCheckKind::LegIsMorphism,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Passed,
+            },
+            CheckRecord {
+                check: CompositionCheckKind::NodeWellFormed,
+                subject: CheckSubject::Node("CarrierNode".into()),
+                outcome: CheckOutcome::PassedByEquation {
+                    equation: "generated".into(),
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::ClassSignaturesAgree,
+                subject: CheckSubject::Edge(2),
+                outcome: CheckOutcome::Failed {
+                    detail: "counterexample".to_owned(),
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::CoconeCommutes,
+                subject: CheckSubject::Cocone(3),
+                outcome: CheckOutcome::Inapplicable {
+                    reason: InapplicableReason::OpenTheory {
+                        missing_sorts: vec!["Free".into()],
+                    },
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::InclusionIsMorphism,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Incomplete {
+                    reason: CompositionIncomplete::RewriteBudgetExhausted {
+                        equation: "bounded".into(),
+                        steps: 17,
+                    },
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::EquationImage,
+                subject: CheckSubject::Node("CarrierNode".into()),
+                outcome: CheckOutcome::Inapplicable {
+                    reason: InapplicableReason::NoEquations,
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::EquationEntailed,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Incomplete {
+                    reason: CompositionIncomplete::NoTerminatingRewriteSystem,
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::UniversalIdentity,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Passed,
+            },
+            CheckRecord {
+                check: CompositionCheckKind::UniversalAgainst,
+                subject: CheckSubject::Edge(1),
+                outcome: CheckOutcome::PassedByEquation {
+                    equation: "generated".into(),
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::ResultWellTyped,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Failed {
+                    detail: "ill-typed witness".to_owned(),
+                },
+            },
+            CheckRecord {
+                check: CompositionCheckKind::NameClashFree,
+                subject: CheckSubject::Diagram,
+                outcome: CheckOutcome::Passed,
+            },
+        ],
+        vec![Freshening {
+            kind: SymKind::Op,
+            members: vec![source("derived"), source("renamed")],
+            candidate: "clash".into(),
+            result: "CarrierNode.clash".into(),
         }],
-        Vec::new(),
     );
     let oracle_report = reference::CompositionReport {
         mode: oracle_mode,
-        status: reference::CheckStatus::Passed,
-        name_clash_free: true,
-        checks: vec![reference::CheckRecord {
-            check: reference::CompositionCheckKind::ResultWellTyped,
-            subject: reference::CheckSubject::Diagram,
-            outcome: reference::CheckOutcome::Passed,
+        status: reference::CheckStatus::Failed,
+        name_clash_free: false,
+        checks: vec![
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::LegIsMorphism,
+                subject: reference::CheckSubject::Diagram,
+                outcome: reference::CheckOutcome::Passed,
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::NodeWellFormed,
+                subject: reference::CheckSubject::Node("CarrierNode".to_owned()),
+                outcome: reference::CheckOutcome::PassedByEquation {
+                    equation: "generated".to_owned(),
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::ClassSignaturesAgree,
+                subject: reference::CheckSubject::Edge(2),
+                outcome: reference::CheckOutcome::Failed {
+                    detail: "counterexample".to_owned(),
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::CoconeCommutes,
+                subject: reference::CheckSubject::Cocone(3),
+                outcome: reference::CheckOutcome::Inapplicable {
+                    reason: reference::InapplicableReason::OpenTheory {
+                        missing_sorts: vec!["Free".to_owned()],
+                    },
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::InclusionIsMorphism,
+                subject: reference::CheckSubject::Diagram,
+                outcome: reference::CheckOutcome::Incomplete {
+                    reason: reference::CompositionIncomplete::RewriteBudgetExhausted {
+                        equation: "bounded".to_owned(),
+                        steps: 17,
+                    },
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::EquationImage,
+                subject: reference::CheckSubject::Node("CarrierNode".to_owned()),
+                outcome: reference::CheckOutcome::Inapplicable {
+                    reason: reference::InapplicableReason::NoEquations,
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::EquationEntailed,
+                subject: reference::CheckSubject::Diagram,
+                outcome: reference::CheckOutcome::Incomplete {
+                    reason: reference::CompositionIncomplete::NoTerminatingRewriteSystem,
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::UniversalIdentity,
+                subject: reference::CheckSubject::Diagram,
+                outcome: reference::CheckOutcome::Passed,
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::UniversalAgainst,
+                subject: reference::CheckSubject::Edge(1),
+                outcome: reference::CheckOutcome::PassedByEquation {
+                    equation: "generated".to_owned(),
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::ResultWellTyped,
+                subject: reference::CheckSubject::Diagram,
+                outcome: reference::CheckOutcome::Failed {
+                    detail: "ill-typed witness".to_owned(),
+                },
+            },
+            reference::CheckRecord {
+                check: reference::CompositionCheckKind::NameClashFree,
+                subject: reference::CheckSubject::Diagram,
+                outcome: reference::CheckOutcome::Passed,
+            },
+        ],
+        freshened: vec![reference::Freshening {
+            kind: reference::SymKind::Op,
+            members: vec![oracle_source("derived"), oracle_source("renamed")],
+            candidate: "clash".to_owned(),
+            result: "CarrierNode.clash".to_owned(),
         }],
-        freshened: Vec::new(),
     };
     (
         Composition {
             theory: production_theory,
-            inclusions: Vec::new(),
-            provenance: Provenance::default(),
+            inclusions: vec![production_inclusion],
+            provenance: production_provenance,
             report: production_report,
         },
         reference::Composition {
             theory: oracle_theory,
-            inclusions: Vec::new(),
-            provenance: reference::Provenance::default(),
+            inclusions: vec![oracle_inclusion],
+            provenance: oracle_provenance,
             report: oracle_report,
         },
     )

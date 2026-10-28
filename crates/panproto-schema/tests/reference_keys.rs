@@ -527,6 +527,13 @@ fn extended_declaration_bytes_match_reference_on_every_sum_variant() {
     ];
     let mut fixtures: Vec<_> = equalities.into_iter().map(equality_fixture).collect();
 
+    let mut position_key = canonical_base();
+    let carrier = reference_edge("holder", "target", "resolved");
+    position_key.orderings.insert(carrier.clone(), 0);
+    position_key.keys.get_mut("target").expect("target keys")[0].parts =
+        vec![reference::KeyPart::Position { within: carrier }];
+    fixtures.push(position_key);
+
     let path_sources = [
         reference::PathSyntax::JsonPointer,
         reference::PathSyntax::XPath,
@@ -664,7 +671,7 @@ fn extended_declaration_bytes_match_reference_on_every_sum_variant() {
         fixtures.push(schema);
     }
 
-    assert_eq!(fixtures.len(), 36);
+    assert_eq!(fixtures.len(), 37);
     let mut reference_encodings = BTreeSet::new();
     let mut production_encodings = BTreeSet::new();
     for schema in &fixtures {
@@ -992,6 +999,15 @@ fn target_sets_match_on_the_complete_local_predicate() {
             Some(true),
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),
+        (
+            "invalid first member does not anchor the signature",
+            vec![
+                ("c".to_owned(), "scoped".to_owned()),
+                ("b".to_owned(), "two".to_owned()),
+            ],
+            Some(false),
+            vec![DeclarationClass::TargetSetMemberMismatch],
+        ),
     ];
 
     for (name, members, local_expected, declaration_expected) in cases {
@@ -1027,9 +1043,62 @@ fn target_sets_match_on_the_complete_local_predicate() {
 }
 
 #[test]
+fn target_set_references_check_every_member_key_role() {
+    let cases = [
+        (reference::KeyRole::Primary, Vec::new()),
+        (reference::KeyRole::Unique, Vec::new()),
+        (reference::KeyRole::Identifier, Vec::new()),
+        (
+            reference::KeyRole::SortKey,
+            vec![
+                DeclarationClass::SortKeyNotOrdered,
+                DeclarationClass::KeyNotResolvable,
+            ],
+        ),
+        (
+            reference::KeyRole::Index,
+            vec![DeclarationClass::KeyNotResolvable],
+        ),
+    ];
+    for (role, expected) in cases {
+        let mut schema = target_set_schema();
+        schema.keys.get_mut("target").expect("target keys")[0].role = role;
+        assert_eq!(reference_classes(&schema), expected, "reference: {role:?}");
+        let (production, structural) = production_classes(&schema);
+        assert!(
+            structural.is_empty(),
+            "production structural spill for {role:?}: {structural:?}"
+        );
+        assert_eq!(production, expected, "production: {role:?}");
+    }
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn declaration_validation_matches_reference_on_every_common_refusal() {
     let mut cases = vec![("valid", canonical_base(), vec![])];
+
+    let mut implicit_primary = canonical_base();
+    let mut later_primary = implicit_primary.keys["target"][0].clone();
+    later_primary.id = "later-primary".to_owned();
+    later_primary
+        .parts
+        .push(reference::KeyPart::Path(Vec::new()));
+    implicit_primary
+        .keys
+        .get_mut("target")
+        .expect("target keys")
+        .push(later_primary);
+    implicit_primary
+        .references
+        .get_mut("r")
+        .expect("reference fixture")
+        .target_key = None;
+    cases.push((
+        "implicit target selects the first primary key",
+        implicit_primary,
+        vec![],
+    ));
 
     let mut duplicate = canonical_base();
     let key = duplicate.keys["target"][0].clone();
@@ -1041,6 +1110,19 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
     cases.push((
         "duplicate key",
         duplicate,
+        vec![DeclarationClass::DuplicateKeyId],
+    ));
+
+    let mut triple_duplicate = canonical_base();
+    let key = triple_duplicate.keys["target"][0].clone();
+    triple_duplicate
+        .keys
+        .get_mut("target")
+        .expect("target keys")
+        .extend([key.clone(), key]);
+    cases.push((
+        "three declarations sharing one key id",
+        triple_duplicate,
         vec![DeclarationClass::DuplicateKeyId],
     ));
 
@@ -1098,6 +1180,21 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
         vec![DeclarationClass::TargetSetMemberMismatch],
     ));
 
+    let mut unresolved_set = target_set_schema();
+    unresolved_set
+        .target_sets
+        .get_mut("targets")
+        .expect("target set")
+        .members = vec![("target".to_owned(), "missing".to_owned())];
+    cases.push((
+        "target set with only a missing member",
+        unresolved_set,
+        vec![
+            DeclarationClass::TargetSetMemberMismatch,
+            DeclarationClass::UnknownTarget,
+        ],
+    ));
+
     let mut sort = canonical_base();
     sort.references.clear();
     sort.keys.get_mut("target").expect("target keys")[0].role = reference::KeyRole::SortKey;
@@ -1112,6 +1209,32 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
     cases.push((
         "key not resolvable",
         non_resolvable,
+        vec![DeclarationClass::KeyNotResolvable],
+    ));
+
+    let mut non_resolvable_member = target_set_schema();
+    non_resolvable_member
+        .vertices
+        .insert("indexed".to_owned(), "object".to_owned());
+    non_resolvable_member.keys.insert(
+        "indexed".to_owned(),
+        vec![reference::Key {
+            id: "lookup".to_owned(),
+            parts: vec![reference::KeyPart::Path(Vec::new())],
+            role: reference::KeyRole::Index,
+            scope: reference::KeyScope::Document,
+            equality: Vec::new(),
+        }],
+    );
+    non_resolvable_member
+        .target_sets
+        .get_mut("targets")
+        .expect("target set")
+        .members
+        .push(("indexed".to_owned(), "lookup".to_owned()));
+    cases.push((
+        "non-resolvable target-set member",
+        non_resolvable_member,
         vec![DeclarationClass::KeyNotResolvable],
     ));
 
@@ -1238,6 +1361,24 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
         vec![DeclarationClass::EdgeMismatch],
     ));
 
+    let mut wrong_holder = target_set_schema();
+    wrong_holder
+        .vertices
+        .insert("other-holder".to_owned(), "object".to_owned());
+    wrong_holder
+        .edges
+        .insert(reference_edge("other-holder", "target", "resolved"));
+    wrong_holder
+        .references
+        .get_mut("r")
+        .expect("reference fixture")
+        .edge = Some(reference_edge("other-holder", "targets", "resolved"));
+    cases.push((
+        "target-set virtual edge has wrong holder",
+        wrong_holder,
+        vec![DeclarationClass::EdgeMismatch],
+    ));
+
     let mut redundant = target_set_schema();
     redundant
         .references
@@ -1314,6 +1455,41 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
         vec![DeclarationClass::TextReferenceInvalid],
     ));
 
+    let mut reachable_cycle = canonical_base();
+    let template = reachable_cycle
+        .references
+        .remove("r")
+        .expect("reference fixture");
+    let field = reference_edge("holder", "scalar", "field");
+    for (id, next) in [("a", "b"), ("b", "a"), ("c", "a")] {
+        let mut declaration = template.clone();
+        declaration.id = id.to_owned();
+        declaration.source = reference::RefSource::Standoff {
+            text: reference::RefTextSource::Span {
+                reference: next.to_owned(),
+            },
+            start: vec![field.clone()],
+            end: vec![field.clone()],
+            unit: reference::OffsetUnit::Utf8Char,
+            end_inclusive: false,
+            end_form: reference::SpanEnd::Offset,
+            origin: 0,
+            fragments: None,
+        };
+        reachable_cycle
+            .references
+            .insert(id.to_owned(), declaration);
+    }
+    cases.push((
+        "text reference reaches a repeated-node cycle",
+        reachable_cycle,
+        vec![
+            DeclarationClass::TextReferenceInvalid,
+            DeclarationClass::TextReferenceInvalid,
+            DeclarationClass::TextReferenceInvalid,
+        ],
+    ));
+
     let mut scope = canonical_base();
     scope
         .references
@@ -1325,7 +1501,7 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
     });
     cases.push(("scope via", scope, vec![DeclarationClass::ScopeViaInvalid]));
 
-    assert_eq!(cases.len(), 21);
+    assert_eq!(cases.len(), 27);
     for (name, schema, expected) in cases {
         assert_eq!(reference_classes(&schema), expected, "reference: {name}");
         let (production, structural) = production_classes(&schema);

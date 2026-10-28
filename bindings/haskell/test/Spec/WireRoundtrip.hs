@@ -14,13 +14,17 @@
 -- wire agreement fails here rather than corrupting data in production.
 module Spec.WireRoundtrip (tests) where
 
+import Codec.CBOR.Encoding qualified as Enc
+import Codec.CBOR.Read qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Control.Exception (bracket)
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Data.Proxy (Proxy (..))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
-import Panproto.Canonical (CanonicalProtocol (..), defaultProtocol)
+import Panproto.Canonical (CanonicalProtocol (..), InstanceShapeKind (..), defaultProtocol)
 import Panproto.Check (CheckBackend (..), CompatReport (..), SchemaDiff (..))
 import Panproto.Class
     ( ProtocolBackend (..)
@@ -42,7 +46,13 @@ import Panproto.Gat
     , simpleSort
     , sort
     )
-import Panproto.Instance (InstanceBackend (..), nodeCount)
+import Panproto.Expr (Expr (Lit), ExprBackend (..), Literal (..))
+import Panproto.Instance
+    ( Complement (..)
+    , InstanceBackend (..)
+    , decodeComplement
+    , encodeComplement
+    )
 import Panproto.Lens (LensBackend (..), Stringency (..))
 import Panproto.Migration
     ( buildMigration
@@ -53,9 +63,11 @@ import Panproto.Migration
     )
 import Panproto.Schema (Schema)
 import Panproto.Schema qualified as S
+import Panproto.Wire (WireTerm, decodeWireTerm)
 
 import Panproto.Rust ()
 import Panproto.Rust.Check ()
+import Panproto.Rust.Expr ()
 import Panproto.Rust.Gat ()
 import Panproto.Rust.Instance ()
 import Panproto.Rust.Lens ()
@@ -101,9 +113,54 @@ tests =
         [ testCase "schema survives Haskell -> Rust -> Haskell unchanged" $ do
             recovered <- bracket (fromSchema rust richSchema) releaseSchema toSchema
             recovered @?= richSchema
+        , testCase "protocol semantic surface survives Haskell -> Rust -> Haskell" $ do
+            let protocol =
+                    defaultProtocol
+                        { name = "semantic-protocol"
+                        , syntacticShape = Tree
+                        , semanticShape = Graph
+                        , constraintSemantics = HM.fromList [("format", wire (Enc.encodeString "annotation"))]
+                        , valueKinds = HM.fromList [("string", wire (Enc.encodeString "str"))]
+                        , nonValueKinds = ["object", "record"]
+                        }
+            recovered <- bracket (fromCanonical rust protocol) releaseProtocol toCanonical
+            recovered @?= protocol
         , testCase "theory survives ingest -> reify unchanged (tagged terms, untagged sorts)" $ do
             recovered <- bracket (ingestTheory rust toyTheory) releaseTheory reifyTheory
             recovered @?= toyTheory
+        , testCase "exact literals survive Haskell -> Rust -> Haskell" $ do
+            let exact =
+                    [ LDecimal
+                        ( wire
+                            ( Enc.encodeMapLen 3
+                                <> Enc.encodeString "negative" <> Enc.encodeBool False
+                                <> Enc.encodeString "digits" <> Enc.encodeString "150"
+                                <> Enc.encodeString "exponent" <> Enc.encodeString "-2"
+                            )
+                        )
+                    , LBigInt
+                        ( wire
+                            ( Enc.encodeMapLen 3
+                                <> Enc.encodeString "negative" <> Enc.encodeBool False
+                                <> Enc.encodeString "significand" <> Enc.encodeString "9223372036854775808"
+                                <> Enc.encodeString "zeros" <> Enc.encodeString "0"
+                            )
+                        )
+                    , LTemporal
+                        ( wire
+                            ( Enc.encodeMapLen 1
+                                <> Enc.encodeString "date"
+                                <> Enc.encodeMapLen 3
+                                <> Enc.encodeString "year" <> Enc.encodeInt 2026
+                                <> Enc.encodeString "month" <> Enc.encodeWord 9
+                                <> Enc.encodeString "day" <> Enc.encodeWord 28
+                            )
+                        )
+                    ]
+            sequence_
+                [ evalFunc rust (Lit literal :: Expr) [] >>= (@?= literal)
+                | literal <- exact
+                ]
         , testCase "migration with a tuple-keyed resolver round-trips" $ do
             let m = buildMigration $ do
                     mapVertex "post" "note"
@@ -122,9 +179,15 @@ tests =
                     bracket (jsonToInstance src "post" "{\"text\":\"hi\",\"title\":\"T\"}") releaseInstance $ \inst -> do
                         original <- reifyInstance inst
                         (view, complement) <- lensGet lensRep inst
-                        rebuilt <- lensPut lensRep view complement
+                        let encoded = encodeComplement complement
+                        decoded <- case decodeComplement encoded of
+                            Right value -> pure value
+                            Left err -> fail err
+                        decoded @?= complement
+                        assertBool "engine complement carries its identity envelope" (case decoded.identity of Just _ -> True; Nothing -> False)
+                        rebuilt <- lensPut lensRep view decoded
                         recovered <- reifyInstance rebuilt
-                        nodeCount recovered @?= nodeCount original
+                        recovered @?= original
         , testCase "free model evaluates and exposes a non-empty sort interpretation" $
             bracket (ingestTheory rust toyTheory) releaseTheory $ \th -> do
                 model <- freeModel th 3 100
@@ -144,3 +207,10 @@ tests =
                             "report has a decoded change list"
                             (length report.breaking + length report.nonBreaking >= 0)
         ]
+
+wire :: Enc.Encoding -> WireTerm
+wire encoding =
+    case CBOR.deserialiseFromBytes decodeWireTerm (CBOR.toLazyByteString encoding) of
+        Right (rest, term) | LBS.null rest -> term
+        Right _ -> error "wire fixture left trailing bytes"
+        Left err -> error (show err)

@@ -40,6 +40,8 @@ module Panproto.Schema
     , Variant (..)
     , Span (..)
     , RecursionPoint (..)
+    , SchemaDeclarations (..)
+    , emptyDeclarations
 
       -- * Codecs
     , encodeSchema
@@ -88,6 +90,7 @@ import GHC.Generics (Generic)
 
 import Panproto.Canonical (CanonicalSchema (..))
 import Panproto.Json (Value, encodeValue, valueDecoder)
+import Panproto.Wire (WireTerm, decodeWireTerm, encodeWireTerm)
 
 -- ---------------------------------------------------------------------------
 -- Value types
@@ -163,6 +166,21 @@ data RecursionPoint = RecursionPoint
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, Hashable, ToJSON, FromJSON)
 
+-- | Keys, references, and cross-vertex target sets declared by a schema.
+-- The declaration subtypes remain exact CBOR terms at this layer: they are
+-- structurally rich and continue to grow, while this carrier must preserve
+-- every field across an engine → host → engine trip.
+data SchemaDeclarations = SchemaDeclarations
+    { keys :: !(HashMap Text [WireTerm])
+    , references :: !(HashMap Text WireTerm)
+    , targetSets :: !(HashMap Text WireTerm)
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+emptyDeclarations :: SchemaDeclarations
+emptyDeclarations = SchemaDeclarations HM.empty HM.empty HM.empty
+
 -- ---------------------------------------------------------------------------
 -- Schema
 
@@ -194,6 +212,7 @@ data Schema = Schema
     , mergers :: !(HashMap Text Value)
     , defaults :: !(HashMap Text Value)
     , policies :: !(HashMap Text Value)
+    , declarations :: !SchemaDeclarations
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
@@ -221,6 +240,7 @@ emptySchema p =
         , mergers = HM.empty
         , defaults = HM.empty
         , policies = HM.empty
+        , declarations = emptyDeclarations
         }
 
 -- ---------------------------------------------------------------------------
@@ -306,7 +326,7 @@ encodeSchema = CanonicalSchema . CBOR.toLazyByteString . schemaEncoding
 -- larger term. A span carries its apex this way.
 schemaEncoding :: Schema -> Encoding
 schemaEncoding s =
-        Enc.encodeMapLen 21
+        Enc.encodeMapLen (if declarationsEmpty s.declarations then 21 else 22)
             <> kv "protocol" (Enc.encodeString s.protocol)
             <> kv "vertices" (encodeMapText encodeVertex s.vertices)
             <> kv "edges" (encodeEdgeMap Enc.encodeString s.edges)
@@ -328,6 +348,9 @@ schemaEncoding s =
             <> kv "outgoing" (encodeAdjacency outgoingIndex)
             <> kv "incoming" (encodeAdjacency incomingIndex)
             <> kv "between" (encodeBetween betweenIndex)
+            <> if declarationsEmpty s.declarations
+                then mempty
+                else kv "declarations" (encodeDeclarations s.declarations)
   where
     kv k v = Enc.encodeString k <> v
 
@@ -383,6 +406,21 @@ encodeRecursionPoint :: RecursionPoint -> Encoding
 encodeRecursionPoint r =
     Enc.encodeMapLen 1
         <> Enc.encodeString "target_vertex" <> Enc.encodeString r.targetVertex
+
+declarationsEmpty :: SchemaDeclarations -> Bool
+declarationsEmpty d =
+    HM.null d.keys && HM.null d.references && HM.null d.targetSets
+
+encodeDeclarations :: SchemaDeclarations -> Encoding
+encodeDeclarations d =
+    Enc.encodeMapLen (if HM.null d.targetSets then 2 else 3)
+        <> Enc.encodeString "keys"
+        <> encodeMapText (encodeList encodeWireTerm) d.keys
+        <> Enc.encodeString "references"
+        <> encodeMapText encodeWireTerm d.references
+        <> if HM.null d.targetSets
+            then mempty
+            else Enc.encodeString "target_sets" <> encodeMapText encodeWireTerm d.targetSets
 
 encodeMaybeText :: Maybe Text -> Encoding
 encodeMaybeText = maybe Enc.encodeNull Enc.encodeString
@@ -509,7 +547,17 @@ readEntry acc = do
         "mergers" -> (\v -> acc {mergers = v}) <$> decodeMapText decodeValueTerm
         "defaults" -> (\v -> acc {defaults = v}) <$> decodeMapText decodeValueTerm
         "policies" -> (\v -> acc {policies = v}) <$> decodeMapText decodeValueTerm
+        "declarations" -> (\v -> acc {declarations = v}) <$> decodeDeclarations
         -- Precomputed indices and any unknown field: skip the value.
+        _ -> skipTerm >> pure acc
+
+decodeDeclarations :: Decoder s SchemaDeclarations
+decodeDeclarations = decodeFields emptyDeclarations id handler
+  where
+    handler acc key = case key of
+        "keys" -> (\v -> acc {keys = v}) <$> decodeMapText (decodeListOf decodeWireTerm)
+        "references" -> (\v -> acc {references = v}) <$> decodeMapText decodeWireTerm
+        "target_sets" -> (\v -> acc {targetSets = v}) <$> decodeMapText decodeWireTerm
         _ -> skipTerm >> pure acc
 
 -- These struct decoders construct positionally rather than via record

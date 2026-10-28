@@ -813,7 +813,9 @@ pub fn cmd_lens_verify(
             .wrap_err("failed to parse test data")?;
 
         match lens::check_laws(&result.lens, &instance) {
-            Ok(()) => println!("GetPut: OK\nPutGet: OK"),
+            Ok(()) => {
+                println!("GetPut: OK\nPutGet: OK\nTotality: OK\nPutTwice: OK\nCongruence: OK")
+            }
             Err(violation) => {
                 println!("Lens law violation: {violation:?}");
                 miette::bail!("lens law verification failed");
@@ -821,7 +823,7 @@ pub fn cmd_lens_verify(
         }
     } else {
         println!("No test data provided; skipping concrete law checks.");
-        println!("Hint: pass --data <file> to verify GetPut and PutGet with real data.");
+        println!("Hint: pass --data <file> to run all five strict lens gates with real data.");
     }
 
     // Naturality check: verify that each protolens step is applicable at

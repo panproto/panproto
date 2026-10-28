@@ -1023,6 +1023,52 @@ fn coerce_or_record(
     }
 }
 
+fn raw_object_field<'raw, 'json>(
+    fields: &'raw [(String, RawJson<'json>)],
+    name: &str,
+) -> Option<&'raw RawJson<'json>> {
+    let mut matches = fields
+        .iter()
+        .filter_map(|(key, value)| (key == name).then_some(value));
+    let value = matches.next()?;
+    matches.next().is_none().then_some(value)
+}
+
+fn raw_blob(fields: &[(String, RawJson<'_>)]) -> Option<Value> {
+    if fields.len() != 4 {
+        return None;
+    }
+    let RawJson::String { value: type_, .. } = raw_object_field(fields, "$type")? else {
+        return None;
+    };
+    if type_ != "blob" {
+        return None;
+    }
+    let RawJson::String { value: mime, .. } = raw_object_field(fields, "mimeType")? else {
+        return None;
+    };
+    let RawJson::Object {
+        fields: ref_fields, ..
+    } = raw_object_field(fields, "ref")?
+    else {
+        return None;
+    };
+    if ref_fields.len() != 1 {
+        return None;
+    }
+    let RawJson::String { value: ref_, .. } = raw_object_field(ref_fields, "$link")? else {
+        return None;
+    };
+    let RawJson::Number { lexeme: size, .. } = raw_object_field(fields, "size")? else {
+        return None;
+    };
+    Some(Value::Blob {
+        ref_: ref_.clone(),
+        mime: mime.clone(),
+        size: size.parse().ok()?,
+    })
+}
+
 fn raw_to_value(raw: &RawJson<'_>, vertex: &str, state: &mut BuildState) -> Value {
     match raw {
         RawJson::Null => Value::Null,
@@ -1047,6 +1093,9 @@ fn raw_to_value(raw: &RawJson<'_>, vertex: &str, state: &mut BuildState) -> Valu
                 .collect(),
         ),
         RawJson::Object { fields, .. } => {
+            if let Some(blob) = raw_blob(fields) {
+                return blob;
+            }
             let values = fields
                 .iter()
                 .map(|(key, value)| (key.clone(), raw_to_value(value, vertex, state)))
@@ -1091,7 +1140,7 @@ pub(crate) fn emit_json_bytes_read_back_by(
     validate_canonical_tree_structure(schema, instance, protocol, "JSON", reader)?;
     let protocol = protocol_definition(protocol);
     let mut output = Vec::new();
-    write_json_node(schema, &protocol, instance, instance.root, &mut output)?;
+    write_json_node(schema, &protocol, instance, instance.root, &mut output, 0)?;
     Ok(output)
 }
 
@@ -1578,6 +1627,7 @@ fn write_json_node(
     instance: &WInstance,
     node_id: u32,
     output: &mut Vec<u8>,
+    enclosing_depth: usize,
 ) -> Result<(), EmitInstanceError> {
     let node = instance
         .node(node_id)
@@ -1585,6 +1635,22 @@ fn write_json_node(
             protocol: protocol.name.clone(),
             message: format!("node {node_id} does not exist"),
         })?;
+    if enclosing_depth >= MAX_JSON_DEPTH {
+        let value_type = match node.value.as_ref() {
+            Some(FieldPresence::Present(value)) => value.type_name(),
+            Some(FieldPresence::Null) => "null",
+            Some(FieldPresence::Absent) => "absent",
+            None if node.is_list() => "list",
+            None => "object",
+        };
+        return Err(EmitValueError::new(
+            ValueSite::new(node.anchor.clone(), None),
+            value_type,
+            "json",
+            EmitValueReason::NotRepresentable,
+        )
+        .into());
+    }
     validate_json_node_invariants(protocol, instance, node_id, node)?;
     if let Some(presence) = &node.value {
         return write_json_presence(
@@ -1592,12 +1658,21 @@ fn write_json_node(
             &ValueSpec::for_vertex(schema, protocol, &node.anchor),
             &ValueSite::new(node.anchor.clone(), None),
             output,
+            enclosing_depth,
         );
     }
     if node.is_list() {
-        return write_json_sequence(schema, protocol, instance, node_id, output);
+        return write_json_sequence(schema, protocol, instance, node_id, output, enclosing_depth);
     }
-    write_json_mapping(schema, protocol, instance, node_id, node, output)
+    write_json_mapping(
+        schema,
+        protocol,
+        instance,
+        node_id,
+        node,
+        output,
+        enclosing_depth,
+    )
 }
 
 fn validate_json_node_invariants(
@@ -1644,6 +1719,7 @@ fn write_json_sequence(
     instance: &WInstance,
     node_id: u32,
     output: &mut Vec<u8>,
+    enclosing_depth: usize,
 ) -> Result<(), EmitInstanceError> {
     output.push(b'[');
     for (index, child) in instance.children(node_id).iter().enumerate() {
@@ -1665,7 +1741,14 @@ fn write_json_sequence(
             )
             .into());
         }
-        write_json_node(schema, protocol, instance, *child, output)?;
+        write_json_node(
+            schema,
+            protocol,
+            instance,
+            *child,
+            output,
+            enclosing_depth + 1,
+        )?;
     }
     output.push(b']');
     Ok(())
@@ -1678,6 +1761,7 @@ fn write_json_mapping(
     node_id: u32,
     node: &Node,
     output: &mut Vec<u8>,
+    enclosing_depth: usize,
 ) -> Result<(), EmitInstanceError> {
     let site = ValueSite::new(node.anchor.clone(), None);
 
@@ -1691,7 +1775,13 @@ fn write_json_mapping(
     }
     if let Some(discriminator) = &node.discriminator {
         let mut value = Vec::new();
-        write_json_string(discriminator, &mut value)?;
+        write_json_value_at_depth(
+            &Value::Str(discriminator.to_string()),
+            &ValueSpec::new(ScalarKind::Any),
+            &site,
+            &mut value,
+            enclosing_depth + 1,
+        )?;
         fields.insert("$type".to_owned(), value);
     }
     for (parent, child, edge) in &instance.arcs {
@@ -1734,7 +1824,14 @@ fn write_json_mapping(
         let key = edge.name.as_deref().unwrap_or(&edge.tgt).to_owned();
         ensure_unique_json_key(&fields, &key, protocol)?;
         let mut value = Vec::new();
-        write_json_node(schema, protocol, instance, *child, &mut value)?;
+        write_json_node(
+            schema,
+            protocol,
+            instance,
+            *child,
+            &mut value,
+            enclosing_depth + 1,
+        )?;
         fields.insert(key, value);
     }
     let mut extra_fields: Vec<_> = node.extra_fields.iter().collect();
@@ -1742,11 +1839,12 @@ fn write_json_mapping(
     for (key, value) in extra_fields {
         ensure_unique_json_key(&fields, key, protocol)?;
         let mut rendered = Vec::new();
-        write_json_value(
+        write_json_value_at_depth(
             value,
             &ValueSpec::new(ScalarKind::Any),
             &site,
             &mut rendered,
+            enclosing_depth + 1,
         )?;
         fields.insert(key.clone(), rendered);
     }
@@ -1782,18 +1880,21 @@ fn write_json_presence(
     spec: &ValueSpec,
     site: &ValueSite,
     output: &mut Vec<u8>,
+    enclosing_depth: usize,
 ) -> Result<(), EmitInstanceError> {
     match presence {
-        FieldPresence::Present(value @ (Value::Null | Value::Unknown(_) | Value::List(_))) => {
-            Err(EmitValueError::new(
-                site.clone(),
-                value.type_name(),
-                "json",
-                EmitValueReason::NotRepresentable,
-            )
-            .into())
+        FieldPresence::Present(
+            value @ (Value::Null | Value::Blob { .. } | Value::Unknown(_) | Value::List(_)),
+        ) => Err(EmitValueError::new(
+            site.clone(),
+            value.type_name(),
+            "json",
+            EmitValueReason::NotRepresentable,
+        )
+        .into()),
+        FieldPresence::Present(value) => {
+            write_json_value_at_depth(value, spec, site, output, enclosing_depth)
         }
-        FieldPresence::Present(value) => write_json_value(value, spec, site, output),
         FieldPresence::Null => {
             output.extend_from_slice(b"null");
             Ok(())
@@ -1806,15 +1907,6 @@ fn write_json_presence(
         )
         .into()),
     }
-}
-
-fn write_json_value(
-    value: &Value,
-    spec: &ValueSpec,
-    site: &ValueSite,
-    output: &mut Vec<u8>,
-) -> Result<(), EmitInstanceError> {
-    write_json_value_at_depth(value, spec, site, output, 0)
 }
 
 fn write_json_bigint(
@@ -1880,12 +1972,7 @@ fn write_json_value_at_depth(
     output: &mut Vec<u8>,
     depth: usize,
 ) -> Result<(), EmitInstanceError> {
-    if depth >= MAX_VALUE_EMIT_DEPTH
-        && matches!(
-            value,
-            Value::Unknown(_) | Value::List(_) | Value::Opaque { .. }
-        )
-    {
+    if depth >= MAX_VALUE_EMIT_DEPTH {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -1931,9 +2018,9 @@ fn write_json_value_at_depth(
         Value::Blob { ref_, mime, size } => {
             output.extend_from_slice(b"{\"$type\":\"blob\",\"mimeType\":");
             write_json_string(mime, output)?;
-            output.extend_from_slice(b",\"ref\":");
+            output.extend_from_slice(b",\"ref\":{\"$link\":");
             write_json_string(ref_, output)?;
-            output.extend_from_slice(b",\"size\":");
+            output.extend_from_slice(b"},\"size\":");
             output.extend_from_slice(size.to_string().as_bytes());
             output.push(b'}');
         }
@@ -1980,12 +2067,7 @@ pub(crate) fn json_value_roundtrips(value: &Value, spec: &ValueSpec) -> bool {
 }
 
 fn json_value_roundtrips_at_depth(value: &Value, spec: &ValueSpec, depth: usize) -> bool {
-    if depth >= MAX_VALUE_EMIT_DEPTH
-        && matches!(
-            value,
-            Value::Unknown(_) | Value::List(_) | Value::Opaque { .. }
-        )
-    {
+    if depth >= MAX_VALUE_EMIT_DEPTH {
         return false;
     }
     let reparsed = match value {
@@ -2017,6 +2099,13 @@ fn json_value_roundtrips_at_depth(value: &Value, spec: &ValueSpec, depth: usize)
                 return false;
             };
             return json_number_reparses_as(value, &text, spec);
+        }
+        Value::Blob { .. } if spec.kind == ScalarKind::Any => {
+            // The blob object contains a nested `ref` object whose `$link`
+            // string is two parser-depth steps below this value.
+            return depth
+                .checked_add(2)
+                .is_some_and(|depth| depth < MAX_JSON_DEPTH);
         }
         Value::Temporal(value) => coerce(&Lexeme::new(&value.to_string(), LexClass::String), spec),
         Value::Unknown(fields) if spec.kind == ScalarKind::Any => {
@@ -2670,11 +2759,12 @@ mod tests {
         ));
 
         let mut output = Vec::new();
-        let error = write_json_value(
+        let error = write_json_value_at_depth(
             &decimal,
             &ValueSpec::new(ScalarKind::Str),
             &ValueSite::new("string", None),
             &mut output,
+            0,
         )
         .expect_err("a string vertex cannot carry a decimal JSON token");
         assert!(matches!(
@@ -3250,6 +3340,113 @@ mod tests {
     }
 
     #[test]
+    fn every_byte_text_route_writer_agrees_with_the_generic_encoder() {
+        let site = ValueSite::new("value", None);
+        let encodings = [
+            BytesText::Base64,
+            BytesText::Base64Url,
+            BytesText::Base64Padded,
+            BytesText::Base64UrlPadded,
+            BytesText::Hex,
+            BytesText::Raw,
+            BytesText::Latin1,
+        ];
+        let inputs = panproto_reference::enumerate::value_io::byte_strings()
+            .expect("the length-two byte scope fits its enumeration budget");
+
+        for bytes in inputs {
+            for encoding in &encodings {
+                let generic = encode_bytes(&bytes, encoding);
+                let mut route = Vec::new();
+                let emitted = write_json_value_at_depth(
+                    &Value::Bytes(bytes.clone()),
+                    &ValueSpec::new(ScalarKind::Bytes(encoding.clone())),
+                    &site,
+                    &mut route,
+                    0,
+                );
+                match generic {
+                    Some(expected) => {
+                        emitted.expect("a generically writable byte string is route-writable");
+                        let actual: String = serde_json::from_slice(&route)
+                            .expect("the JSON byte route emits a string token");
+                        assert_eq!(actual, expected, "encoding={encoding:?}, bytes={bytes:?}");
+                    }
+                    None => assert!(
+                        matches!(
+                            emitted,
+                            Err(EmitInstanceError::Value(EmitValueError {
+                                reason: EmitValueReason::NotRepresentable,
+                                ..
+                            }))
+                        ),
+                        "encoding={encoding:?}, bytes={bytes:?}, route={route:?}"
+                    ),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_blob_writer_nests_the_cid_link_object() {
+        let blob = Value::Blob {
+            ref_: "bafyreia".to_owned(),
+            mime: "image/png".to_owned(),
+            size: 42,
+        };
+        assert!(json_value_roundtrips(
+            &blob,
+            &ValueSpec::new(ScalarKind::Any)
+        ));
+        assert!(!json_value_roundtrips(
+            &blob,
+            &ValueSpec::new(ScalarKind::Str)
+        ));
+
+        let mut root = Node::new(0, "root");
+        root.extra_fields.insert("blob".to_owned(), blob.clone());
+        let instance = WInstance::new(
+            HashMap::from([(0, root)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let schema = simple_schema();
+        let emitted = emit_json_bytes(&schema, &instance, "test").expect("emit ATProto blob");
+        assert_eq!(
+            emitted,
+            br#"{"blob":{"$type":"blob","mimeType":"image/png","ref":{"$link":"bafyreia"},"size":42}}"#
+        );
+        let reparsed =
+            parse_json_bytes(&schema, "root", &emitted, "test").expect("reparse ATProto blob");
+        assert_eq!(
+            reparsed
+                .node(reparsed.root)
+                .and_then(|node| node.extra_fields.get("blob")),
+            Some(&blob)
+        );
+
+        let scalar_instance = WInstance::new(
+            HashMap::from([(
+                0,
+                Node::new(0, "root").with_value(FieldPresence::Present(blob)),
+            )]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        assert!(matches!(
+            emit_json_bytes(&schema, &scalar_instance, "test"),
+            Err(EmitInstanceError::Value(EmitValueError {
+                reason: EmitValueReason::NotRepresentable,
+                ..
+            }))
+        ));
+    }
+
+    #[test]
     fn latin1_encoder_maps_each_byte_to_its_code_point() {
         assert_eq!(
             encode_bytes(&[0x00, 0x7f, 0x80, 0xff], &BytesText::Latin1).as_deref(),
@@ -3488,11 +3685,12 @@ mod tests {
         ));
 
         let mut output = Vec::new();
-        write_json_value(
+        write_json_value_at_depth(
             &Value::BigInt(huge),
             &bigint,
             &ValueSite::new("integer", None),
             &mut output,
+            0,
         )
         .expect("declared BigInt uses its exact exponent form");
         assert_eq!(output, b"1e100000000");

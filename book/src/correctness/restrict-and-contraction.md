@@ -39,6 +39,9 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers` in `crates/panproto-inst/tests/reference_restrict.rs`
 - Boundary pins: production `restrict_plan_compile` and reference `lenses` accept 65,536 hops and refuse 65,537
 - Dynamic result: the final 7/7 suite passed in nextest run `48b515aa-2743-41e9-b7d0-deb5764ec3e5`
+- Evidence scope: `1,539 schema/classification cases, six nonidentity branch witnesses, and the 65,536/65,537-hop boundary`
+- Production certificate: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
+- Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
@@ -81,6 +84,9 @@ The forward search `reach(a, interior, succ)` computes $F_a$ by the usual visite
 - Enumerator: `release_schemas` crossed with `survival_classifications`; exact carrier: $57 \times 27 = 1{,}539$ cases
 - Exhaustive differential test: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope`
 - Independent derivation: explicit bounded walk enumeration reconstructs every contraction region
+- Evidence scope: `57 release schemas crossed with 27 survival classifications, for 1,539 cases`
+- Production certificate: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
+- Independent reference anchor: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
@@ -123,6 +129,9 @@ The *unique target edge* is the sole member of `edges_between(a', b')`, regardle
 - Enumerator: `pair_resolution_cases`; exact carrier: 375 cases
 - Exhaustive differential test: `pair_resolution_precedence_and_first_failure_agree`; census: 225 labelled resolutions, 18 expansions, and 132 typed unresolved results
 - Failure pin: production and reference identify the same first failing expansion hop
+- Evidence scope: `375 pair-resolution cases: 225 labelled resolutions, 18 expansions, and 132 typed unresolved results`
+- Production certificate: `pair_resolution_precedence_and_first_failure_agree; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=pair_resolution_precedence_and_first_failure_agree)'`
+- Independent reference anchor: `pair_resolution_precedence_and_first_failure_agree; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=pair_resolution_precedence_and_first_failure_agree)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
@@ -166,6 +175,9 @@ The *fan domain* consists of graphs in which every hyper-edge-shaped node and ev
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers`
 - Compared result: complete view, complement, id floors, synthesis keys, and deterministic typed errors
+- Evidence scope: `12,366 graph/plan cases from the release graph carrier`
+- Production certificate: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
+- Independent reference anchor: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
@@ -207,6 +219,9 @@ Two carriers are *embedding-equivalent* when tree-to-graph encoding identifies t
 - Reference: `panproto_reference::lens::tree_get`
 - Enumerator: `tree_restrict_cases`; exact carrier: 14 nonempty keep/expand route words crossed with five id-floor shapes, for 70 cases, plus explicit `Drop` and `Unresolved` graph/tree witnesses
 - Exhaustive differential test: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`; census: 43 successes and 27 typed node-id exhaustion refusals
+- Evidence scope: `70 keep/expand route-and-floor cases plus explicit Drop and Unresolved witnesses`
+- Production certificate: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
+- Independent reference anchor: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
@@ -249,6 +264,9 @@ An *attribute arrow* is a schema edge from an entity vertex to its value vertex.
 - Reference: `panproto_reference::restrict::column_fates`
 - Enumerator: `column_fate_cases`; exact carrier: $3^2=9$ keep/drop/rename assignments
 - Exhaustive differential test: `column_fates_are_derived_from_the_same_schema_plan`; 9 compiled-plan comparisons and 27 runtime shape observations
+- Evidence scope: `nine keep/drop/rename assignments and 27 runtime shape observations`
+- Production certificate: `column_fates_are_derived_from_the_same_schema_plan; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=column_fates_are_derived_from_the_same_schema_plan)'`
+- Independent reference anchor: `column_fates_are_derived_from_the_same_schema_plan; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=column_fates_are_derived_from_the_same_schema_plan)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/restrict_plan.rs`
@@ -292,6 +310,9 @@ For graphs, *edge order* is ascending edge id. For trees it is sibling order; fo
 - Reference: `panproto_reference::restrict::scalar_child_bindings`
 - Enumerator: `child_binding_cases`; exact carrier: 585 ordered words
 - Exhaustive differential test: `repeated_child_bindings_agree_and_preserve_order_and_duplicates`
+- Evidence scope: `585 ordered child-binding words`
+- Production certificate: `repeated_child_bindings_agree_and_preserve_order_and_duplicates; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=repeated_child_bindings_agree_and_preserve_order_and_duplicates)'`
+- Independent reference anchor: `repeated_child_bindings_agree_and_preserve_order_and_duplicates; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=repeated_child_bindings_agree_and_preserve_order_and_duplicates)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/element_ops.rs`
@@ -335,6 +356,9 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases plus 5 structural-key observations
 - Exhaustive differential tests: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`, `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier`, and `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors`; census: 43 successes and 27 typed exhaustion refusals on the enumerated carrier, plus 5 successful structural-key observations
 - Dynamic result: the two lens-level conversion tests passed in nextest run `780bbc32-545b-469b-bc55-8f0304c32815`
+- Evidence scope: `70 route/floor cases and five successful structural-key observations`
+- Production certificate: `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier)'`
+- Independent reference anchor: `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
@@ -379,6 +403,9 @@ The *restored node* is the source candidate obtained from the view node plus rec
 - Reference: `panproto_reference::lens::tree_put`
 - Exhaustive differential tests: `graph_square_agrees_with_the_reference_exhaustively` and `tree_put_law_certificate` in `crates/panproto-lens/tests/reference_lenses.rs`
 - Exact observations: 31,422 graph-square observations and 2,548 tree-law basis observations
+- Evidence scope: `31,422 graph-square observations and 2,548 tree-law basis observations`
+- Production certificate: `tree_put_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_put_law_certificate)'`
+- Independent reference anchor: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
@@ -423,6 +450,9 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - Exhaustive differential tests: `lens_laws_agree_with_the_reference_exhaustively` and `graph_square_agrees_with_the_reference_exhaustively`
 - Exact observations: 200,606 heterogeneous law cases, plus the 31,422-observation graph square
 - Dynamic result: 3/3 focused tests passed in nextest run `0bb2dd47-9b02-43a8-9c51-f84c32977dc9`
+- Evidence scope: `200,606 heterogeneous law cases and the 31,422-observation graph square`
+- Production certificate: `lens_laws_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_laws_agree_with_the_reference_exhaustively)'`
+- Independent reference anchor: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-lens/src/laws.rs`
@@ -462,10 +492,19 @@ The page-local tree-edit oracle defines lowering, edit translation in both direc
 ### Executable counterpart
 
 - Law ID: `restrict.tr12`
-- References: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::{lower,Lens::get_edit,Lens::put_edit,Delta::compose,Delta::invert,Delta::apply,is_minimal}`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::lower`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Lens::get_edit`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Lens::put_edit`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::compose`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::invert`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::apply`
+- Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
 - Exact carrier: 38 get words, 27 put words, two typed lowering refusals, and one atomic late refusal
 - Exhaustive differential tests: all four `tr12_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens_tr12.rs`
 - Dynamic result: 4/4 tests passed in nextest run `6e90be77-e4d0-48e0-b25a-b36239cbd6ec`; the post-refactor refusal pin passed 1/1 in run `104a9218-37f3-42c1-b249-dafaa93b6cf1`
+- Evidence scope: `38 get words, 27 put words, two typed lowering refusals, and one atomic late refusal`
+- Production certificate: `tr12_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_get_functoriality_replacement_and_minimality_match_the_reference)'`
+- Independent reference anchor: `tr12_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_put_functoriality_minimality_and_source_undo_match_the_reference)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-lens/src/edit_lens.rs`
@@ -508,6 +547,9 @@ The *witnessing attachment* is the first edge on the breadth-first witness path 
 - Reference: `panproto_reference::lens::tree_get`
 - Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases
 - Exhaustive differential test: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`
+- Evidence scope: `70 route/floor cases with exact sibling-order observations`
+- Production certificate: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
+- Independent reference anchor: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
@@ -551,6 +593,9 @@ For preservation, let a covered source walk exist. The per-source breadth-first 
 - Reference: `panproto_reference::restrict::realized_pairs_by_walks`
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
 - Exhaustive differential test: `graph_get_and_covered_reachability_agree_on_three_node_carriers`
+- Evidence scope: `12,366 graph/plan cases from the three-node release carrier`
+- Production certificate: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
+- Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`

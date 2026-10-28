@@ -20,10 +20,11 @@
 //!
 //! The files were first written by the build that produced legacy
 //! complements. This generator now writes them from the current `get` by
-//! dropping the envelope and writing the fingerprint with
-//! `legacy_schema_fingerprint` at each width, so `check` is also the proof
-//! that the reimplemented fingerprint and the current `get` reproduce the
-//! legacy output byte for byte.
+//! adapting its sparse edge residue to the legacy dense `arc_edges`, dropping
+//! the envelope, and writing the fingerprint with `legacy_schema_fingerprint`
+//! at each width. Thus `check` proves that the historical adapter reproduces
+//! the legacy output byte for byte without changing the current complement
+//! contract.
 //!
 //! Run from the repo root:
 //!
@@ -40,13 +41,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use panproto_gat::Name;
+use panproto_gat::{CompositionSpec, Name};
 use panproto_inst::identity::{LegacyWidth, legacy_schema_fingerprint};
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{Complement, Fan, Node, WInstance};
 use panproto_lens::Lens;
 use panproto_mig::Migration;
-use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder};
 use serde::{Deserialize, Serialize};
 
 /// The fixture directory, relative to the repo root.
@@ -113,16 +114,88 @@ struct LegacyComplement {
     contracted_into: HashMap<u32, u32>,
 }
 
+/// The protocol wire shape present when the upgrade fixtures were captured.
+///
+/// The current [`Protocol`] has additional defaulted shape, value-kind, and
+/// constraint-semantics fields. Old readers never saw those fields, so the
+/// historical input files omit them even though current code uses the full
+/// protocol while reconstructing the fixture.
+#[derive(Clone, Debug, Serialize)]
+struct LegacyProtocol {
+    name: String,
+    schema_theory: String,
+    instance_theory: String,
+    schema_composition: Option<CompositionSpec>,
+    instance_composition: Option<CompositionSpec>,
+    edge_rules: Vec<EdgeRule>,
+    obj_kinds: Vec<String>,
+    constraint_sorts: Vec<String>,
+    has_order: bool,
+    has_coproducts: bool,
+    has_recursion: bool,
+    has_causal: bool,
+    nominal_identity: bool,
+    has_defaults: bool,
+    has_coercions: bool,
+    has_mergers: bool,
+    has_policies: bool,
+}
+
+impl From<&Protocol> for LegacyProtocol {
+    fn from(protocol: &Protocol) -> Self {
+        Self {
+            name: protocol.name.clone(),
+            schema_theory: protocol.schema_theory.clone(),
+            instance_theory: protocol.instance_theory.clone(),
+            schema_composition: protocol.schema_composition.clone(),
+            instance_composition: protocol.instance_composition.clone(),
+            edge_rules: protocol.edge_rules.clone(),
+            obj_kinds: protocol.obj_kinds.clone(),
+            constraint_sorts: protocol.constraint_sorts.clone(),
+            has_order: protocol.has_order,
+            has_coproducts: protocol.has_coproducts,
+            has_recursion: protocol.has_recursion,
+            has_causal: protocol.has_causal,
+            nominal_identity: protocol.nominal_identity,
+            has_defaults: protocol.has_defaults,
+            has_coercions: protocol.has_coercions,
+            has_mergers: protocol.has_mergers,
+            has_policies: protocol.has_policies,
+        }
+    }
+}
+
 impl LegacyComplement {
     /// The legacy form of a complement `get` produced: its envelope
     /// dropped, and its fingerprint the one a host of `width` wrote.
     ///
     /// A complement that records original anchors has no legacy form, since
     /// the legacy layout has nowhere to put them.
-    fn from_complement(c: Complement, source: &Schema, width: LegacyWidth) -> Result<Self, String> {
+    fn from_complement(
+        mut c: Complement,
+        source: &Schema,
+        instance: &WInstance,
+        view: &WInstance,
+        width: LegacyWidth,
+    ) -> Result<Self, String> {
         if !c.original_anchors.is_empty() {
             return Err("the legacy layout cannot carry original anchors".to_owned());
         }
+
+        // Legacy `get` recorded the exact edge for every source arc whose
+        // endpoints survived. Current complements record only edges the view
+        // does not uniquely determine, since only those edges are residue.
+        // Reconstruct the old dense representation here: these fixtures are
+        // historical wire evidence, not the current in-memory contract.
+        c.arc_edges = instance
+            .arcs
+            .iter()
+            .filter(|(parent, child, _)| {
+                view.nodes.contains_key(parent) && view.nodes.contains_key(child)
+            })
+            .map(|(parent, child, edge)| ((*parent, *child), edge.clone()))
+            .collect();
+
         Ok(Self {
             dropped_nodes: c.dropped_nodes,
             dropped_arcs: c.dropped_arcs,
@@ -446,17 +519,19 @@ fn pretty_json<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
 
 /// Every file of one case, keyed by file name.
 fn case_files(dir: &Path, case: &Case) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let current_protocol = protocol();
+    let legacy_protocol = LegacyProtocol::from(&current_protocol);
     // Inputs, as JSON for reading and as named msgpack for the WASM driver.
     // An instance serializes its maps in key order already, and its integer
     // node keys must stay integers for the WASM reader, so it is encoded
     // directly rather than through the sorted JSON tree.
     let mut files = vec![
-        ("protocol.json".to_owned(), pretty_json(&protocol())?),
+        ("protocol.json".to_owned(), pretty_json(&legacy_protocol)?),
         ("src_ops.json".to_owned(), pretty_json(&case.src_ops)?),
         ("tgt_ops.json".to_owned(), pretty_json(&case.tgt_ops)?),
         ("migration.json".to_owned(), pretty_json(&case.migration)?),
         ("instance.json".to_owned(), pretty_json(&case.instance)?),
-        ("protocol.msgpack".to_owned(), named(&protocol())?),
+        ("protocol.msgpack".to_owned(), named(&legacy_protocol)?),
         ("src_ops.msgpack".to_owned(), named(&case.src_ops)?),
         ("tgt_ops.msgpack".to_owned(), named(&case.tgt_ops)?),
         ("migration.msgpack".to_owned(), named(&case.migration)?),
@@ -475,10 +550,13 @@ fn case_files(dir: &Path, case: &Case) -> Result<Vec<(String, Vec<u8>)>, String>
         src_schema: src,
         tgt_schema: tgt,
     };
-    let (_, complement) = panproto_lens::get(&lens, &case.instance).map_err(|e| e.to_string())?;
+    let (view, complement) =
+        panproto_lens::get(&lens, &case.instance).map_err(|e| e.to_string())?;
     let native = LegacyComplement::from_complement(
         complement.clone(),
         &lens.src_schema,
+        &case.instance,
+        &view,
         LegacyWidth::Bits64,
     )?;
     for (ext, bytes) in encodings(&native)? {
@@ -489,8 +567,13 @@ fn case_files(dir: &Path, case: &Case) -> Result<Vec<(String, Vec<u8>)>, String>
     // frozen; the legacy form of this build's complement at 32-bit width
     // must reproduce it byte for byte, and the other encodings are written
     // from that.
-    let wasm =
-        LegacyComplement::from_complement(complement, &lens.src_schema, LegacyWidth::Bits32)?;
+    let wasm = LegacyComplement::from_complement(
+        complement,
+        &lens.src_schema,
+        &case.instance,
+        &view,
+        LegacyWidth::Bits32,
+    )?;
     let wasm_named = dir.join("wasm32.named.msgpack");
     let frozen = std::fs::read(&wasm_named).map_err(|e| {
         format!(
@@ -554,6 +637,44 @@ fn run(check: bool) -> Result<(), String> {
         Ok(())
     } else {
         Err(drift.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_adapter_restores_dense_drop_field_arc_edges() -> Result<(), String> {
+        let case = drop_field();
+        let src = build_schema(&case.src_ops)?;
+        let tgt = build_schema(&case.tgt_ops)?;
+        let compiled = panproto_mig::compile(&src, &tgt, &case.migration)
+            .map_err(|error| error.to_string())?;
+        let lens = Lens {
+            compiled,
+            src_schema: src,
+            tgt_schema: tgt,
+        };
+        let (view, complement) =
+            panproto_lens::get(&lens, &case.instance).map_err(|error| error.to_string())?;
+
+        assert!(
+            complement.arc_edges.is_empty(),
+            "the current complement must retain only undetermined edge residue"
+        );
+        let legacy = LegacyComplement::from_complement(
+            complement,
+            &lens.src_schema,
+            &case.instance,
+            &view,
+            LegacyWidth::Bits32,
+        )?;
+        assert_eq!(
+            legacy.arc_edges,
+            HashMap::from([((0, 1), prop("post", "post.text", "text"))])
+        );
+        Ok(())
     }
 }
 

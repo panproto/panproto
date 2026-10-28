@@ -232,12 +232,12 @@ pub fn bundle_project_protocols() -> Vec<&'static str> {
 /// SDL, `.proto`, CDDL, CQL, Cypher, `ASN.1`, Bond, `FlatBuffers`, `CoNLL-U`)
 /// are served by [`parse_schema_source`] instead.
 ///
-/// The `protocol` argument is matched against each protocol's canonical
-/// [`Protocol::name`](panproto_schema::Protocol) (hyphenated). An
-/// underscore is normalized to a hyphen first, so the underscore
-/// registry keys that [`crate`] callers list (`iso_space`,
-/// `msgpack_schema`, …) resolve too; `uima` is accepted as an alias of
-/// its canonical `uima-cas`.
+/// The `protocol` argument is matched against each descriptor's canonical
+/// registry name (hyphenated). An underscore is normalized to a hyphen first,
+/// so compatibility spellings such as `iso_space` and `msgpack_schema`
+/// resolve too. The `uima-cas` alias resolves to the canonical `uima`
+/// descriptor; the constructed [`Protocol`](panproto_schema::Protocol) keeps
+/// its internal `uima-cas` name.
 ///
 /// # Errors
 ///
@@ -368,7 +368,7 @@ mod dispatch_tests {
 
     #[test]
     fn document_dispatch_normalizes_underscore_to_hyphen() {
-        // The underscore registry-key spelling resolves to the same
+        // The underscore compatibility spelling resolves to the same
         // canonical hyphenated parser.
         let doc = serde_json::json!({ "type": "object" });
         let via_hyphen = parse_schema_document("json-schema", &doc).expect("hyphen form");
@@ -393,8 +393,8 @@ mod dispatch_tests {
 
     #[test]
     fn uima_is_accepted_under_both_names() {
-        // The `uima` registry key aliases the canonical `uima-cas`; both
-        // route to the parser rather than the unknown-protocol arm.
+        // The `uima-cas` alias and canonical `uima` name both route to the
+        // parser rather than the unknown-protocol arm.
         let doc = serde_json::json!({});
         // A malformed doc may error, but never with the "no parser" message.
         for name in ["uima", "uima-cas"] {

@@ -75,14 +75,22 @@ fn every_registry_spelling_reaches_the_registry_protocol() {
 }
 
 #[test]
-fn every_listed_name_resolves() {
+fn listing_is_exactly_the_registrys_canonical_names() {
     let mut out: repr_c::Vec<u8> = Vec::new().into();
     assert_eq!(pp_registry_list_builtin(&mut out), PpStatus::Ok as i32);
     let listed: Vec<String> =
         decode(&out).unwrap_or_else(|e| panic!("undecodable protocol listing: {e}"));
     pp_buf_free(out);
 
-    assert!(!listed.is_empty(), "the ABI lists no protocols");
+    let expected: Vec<String> = registry::protocol_names()
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        listed, expected,
+        "the ABI listing diverged from the registry"
+    );
+
     let mut wrong: Vec<String> = Vec::new();
     for name in &listed {
         match (registry::descriptor(name), through_the_abi(name)) {

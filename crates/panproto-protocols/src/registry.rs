@@ -4,10 +4,9 @@
 //! places: the parser dispatches in this crate, protocol and theory
 //! resolution in the CLI, hand-written lists and theory matches in the C
 //! API, parallel hand-written lists in the WASM API, and tables in the
-//! book. Those registries had already diverged. The C list advertised
-//! nine protocols under underscore spellings that are not their
-//! canonical names, omitted the `uima-cas` alias, and the dispatch
-//! accepted `uima` while no published list mentioned it.
+//! book. Those registries had already diverged: several lists advertised
+//! underscore spellings rather than canonical names, and aliases were not
+//! represented consistently.
 //!
 //! A descriptor is the single record of what a protocol can do, and the
 //! listings and the dispatch both derive from it, so a protocol added

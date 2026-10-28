@@ -9,7 +9,7 @@ $S$ is the source instance, $V$ is the view (projected instance), and $C$ is the
 
 ## Lens laws
 
-Two round-trip properties must hold:
+The two basic round-trip equations are:
 
 **GetPut**: $put(get(s), c(s)) = s$ for all source instances $s$, where $c(s)$ is the complement produced by $get(s)$.
 
@@ -48,12 +48,12 @@ The `Complement` object stores:
 ## Law checking
 
 ```python
-lens.check_laws(instance)       # raises LensError if either law fails
+lens.check_laws(instance)       # runs all five strict gates
 lens.check_get_put(instance)    # check only GetPut
 lens.check_put_get(instance)    # check only PutGet
 ```
 
-Each method raises `LensError` with a description of the violation if the law does not hold.
+`check_laws` runs GetPut, PutGet, totality over the finite single-step mutation basis, PutTwice complement stability, and congruence, in that order. A pass applies to the supplied source and that finite basis; it is not a proof over arbitrary sources or views. Each method raises `LensError` with a description of the first violation.
 
 ## Composition
 

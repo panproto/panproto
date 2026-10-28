@@ -2842,8 +2842,11 @@ fn profile_members_are_isomorphic() -> u64 {
 /// labelled pair count.
 #[test]
 fn o14_hom_profile_pairs_agree_with_the_reference() {
-    let limit = std::env::var("PANPROTO_KAN_PAIR_LIMIT")
-        .map_or(u64::MAX, |text| text.parse().expect("a pair limit"));
+    assert!(
+        std::env::var_os("PANPROTO_KAN_PAIR_LIMIT").is_none(),
+        "o14_hom_profile_pairs_agree_with_the_reference is the full release certificate; \
+         PANPROTO_KAN_PAIR_LIMIT would truncate it; unset the variable"
+    );
     let cases = pair_cases();
     let mut profiles = 0u64;
     let mut representative_pairs = 0u64;
@@ -2879,15 +2882,13 @@ fn o14_hom_profile_pairs_agree_with_the_reference() {
     let members = profile_members_are_isomorphic();
     println!("profile members: {members} labelled objects, each isomorphic to its representative");
     assert_eq!(members, labelled_objects());
-    let stats = run_pairs(&cases, limit);
-    if limit >= representative_pairs {
-        assert_eq!(stats.pairs, representative_pairs);
-        assert_eq!(stats.weighted, labelled_pairs);
-        println!(
-            "weighted total {} = labelled ordered pairs {labelled_pairs}",
-            stats.weighted
-        );
-    }
+    let stats = run_pairs(&cases, u64::MAX);
+    assert_eq!(stats.pairs, representative_pairs);
+    assert_eq!(stats.weighted, labelled_pairs);
+    println!(
+        "weighted total {} = labelled ordered pairs {labelled_pairs}",
+        stats.weighted
+    );
     assert!(stats.sigma_homs > 0 && stats.pi_homs[0] > 0 && stats.pi_homs[1] > 0);
 }
 

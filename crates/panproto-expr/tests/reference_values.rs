@@ -749,7 +749,7 @@ fn check_binary64_reference_identities(patterns: &[u64]) -> usize {
 /// zero-shift identities are checked on the full boundary partition without
 /// presenting a test-local identity as production evidence.
 #[test]
-fn nan_narrowing_agrees_at_every_supported_width() {
+fn reference_nan_identities_cover_all_widths_and_production_matches_reduced_widths() {
     let scope = panproto_reference::enumerate::values::nan_narrowing_scope();
     let b16: Vec<u64> = scope
         .binary16

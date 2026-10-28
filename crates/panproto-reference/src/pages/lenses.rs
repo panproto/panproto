@@ -36,6 +36,7 @@ pub use self::path::{
     FusionPredicate, FusionSemantics, FusionWitness, LensPath, LocatedFusionObstruction,
     NormalForm, NormalGroup, NormalStageError, PathComplement, PathComplementEntry,
     PathConstructionError, PathError, PathIdentityField, PathStage, PathStageError, SchemaEndpoint,
-    StageIndex, StagePut, get_normal_form, get_path, put_normal_form, put_path,
+    StageIndex, StagePut, TableFusionObstruction, TableFusionPremises, classify_table_fusion,
+    get_normal_form, get_path, put_normal_form, put_path,
 };
 pub use self::table::{TableLens, get};

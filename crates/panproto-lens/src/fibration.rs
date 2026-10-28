@@ -119,8 +119,9 @@ impl Fibration for WTypeFibration {
 /// Verify the cartesian universal property for a lens.
 ///
 /// Checks both section/retraction conditions (`GetPut` and `PutGet`), and the
-/// complement records exact arc edges so that `put` is deterministic,
-/// ensuring the cartesian lift is unique up to structural equivalence:
+/// complement records exact arc edges when the view does not determine them,
+/// so `put` remains deterministic and the cartesian lift is unique up to
+/// structural equivalence:
 /// - Opcartesian then cartesian (get then put) satisfies `PutGet`.
 /// - Cartesian then opcartesian (put then get) satisfies `GetPut`.
 ///

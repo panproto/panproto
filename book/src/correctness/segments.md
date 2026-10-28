@@ -193,39 +193,37 @@ No field covered by canonical bytes admits an equivalence. A caller-local number
 
 ### Statement
 
-Segment identifiers, ranges, bodies, boundaries, manifest roles, task keys, artifact keys, phases, and journals have the declared field and variant order. Their serde names are stable and snake case where the type uses external tags. These types state data needed by later execution components without asserting a runner or storage-backend law in this release.
+The six phase names and seven artifact-kind names have stable snake-case serde forms. Task keys preserve both coordinator and segment forms. `TaskRecord::inputs_digest` binds a lens identity, a task key, and a sorted multiset of input-artifact digests. `RunJournal::reusable` returns true exactly when the journal contains that task with the requested input and output digests. The production `RunJournal::run_digest` changes on the witnessed carrier when its lens, input manifest, partition, or operation bytes change. These contracts are limited to serde names, task-key forms, digest inputs, and reuse predicates; they assert no runner or storage-backend law.
 
 ### Outside the domain
 
-Bytes with an unknown variant, another version, a malformed field, a duplicate ordered key, or trailing input are outside the canonical image. This law does not claim transactional behavior of a concrete store.
+Unknown serde variants and malformed task keys are outside the accepted layout. The reuse predicate accepts an artifact digest supplied by its caller; it does not read artifact bytes or validate the recorded byte count. This law does not claim a canonical production journal-content encoding, equality with the reference journal encoding, transactional behavior of a concrete store, or the scheduling behavior of a runner.
 
 ### Definitions used
 
-The *storage vocabulary* is the public data model shared by segment producers and future runners. Layout stability concerns typed and canonical serialization, not implementation-specific memory layout.
+The *storage vocabulary* is the public data model for segmented task identity and journals. Layout stability here concerns serde names and task-key forms. The helper contract covers `TaskRecord::inputs_digest` and `RunJournal::reusable`; the input sensitivity of `RunJournal::run_digest` has production-only evidence. The law makes no claim about implementation-specific memory layout or canonical journal-content bytes.
 
 ### Proof
 
-The Rust declarations determine serde field order and external tags. Canonical writers state the same order explicitly, and their decoders require complete consumption. Cross-implementation comparison of complete segment and manifest bytes thus detects a changed tag, field position, or version.
+The Rust declarations determine the serde tags. `TaskKey` carries an optional segment, so its two forms are observed directly in a serialized journal. The reference `task_inputs_digest` writes the lens bytes, an explicit phase tag, the segment-presence field and identifier, a `u64` input count, and the sorted digest bytes under `SEGMENT_TASK_CONTEXT`. The independent `journal_task_reusable` helper performs one ordered-map lookup and compares only the recorded input and output digests. The bounded differential compares both helpers with their public production counterparts over every phase, coordinator and boundary segment identifiers, empty and repeated input carriers, and both boolean results. The production `RunJournal::run_digest` separately writes the lens and input digests, canonical partition bytes, and operation bytes under `RUN_JOURNAL_CONTEXT`; its four mutation checks are production-only.
 
 ### Executable counterpart
 
 - Law ID: `segments.sg7-types`
-- Reference: `panproto_reference::segment::canonical_journal_bytes`
-- Reference: `panproto_reference::segment::decode_journal_bytes`
-- Reference: `panproto_reference::segment::journal_digest`
-- Bounded witness: `phases=6, populated task keys=2, coordinator and segment task forms=2`
-- Exhaustive differential test: `storage_vocabulary_journal_layout_matches_the_reference_exactly; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=storage_vocabulary_journal_layout_matches_the_reference_exactly)'`
-- Property differential test: `segment::tests::manifest::a_run_journal_round_trips_and_its_run_digest_covers_every_input; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::manifest::a_run_journal_round_trips_and_its_run_digest_covers_every_input)'`
-- Reference property test: `journals_have_canonical_task_order_and_domain_separated_mutation_sensitive_digests; command: cargo nextest run -p panproto-reference --test segments --no-tests=fail -E 'test(=journals_have_canonical_task_order_and_domain_separated_mutation_sensitive_digests)'`
+- Reference: `panproto_reference::segment::task_inputs_digest`
+- Reference: `panproto_reference::segment::journal_task_reusable`
+- Evidence scope: `phases=6, artifact kinds=7, task-input digest cases=180 (lens digests=2, task keys=18, input lists=5), reuse cases=55, populated serde task keys=2, production run-identity input families=4`
+- Production certificate: `storage_vocabulary_serde_layout_and_run_identity_are_stable; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=storage_vocabulary_serde_layout_and_run_identity_are_stable)'`
+- Independent reference anchor: `bounded_task_input_digest_and_journal_reuse_match_the_reference; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_task_input_digest_and_journal_reuse_match_the_reference)'`
+- Exhaustive differential test: `bounded_task_input_digest_and_journal_reuse_match_the_reference; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_task_input_digest_and_journal_reuse_match_the_reference)'`
 - File: `crates/panproto-inst/src/segment/store.rs`
-- File: `crates/panproto-inst/src/segment/error.rs`
-- File: `crates/panproto-inst/src/segment/manifest.rs`
+- File: `crates/panproto-inst/src/segment/partition.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 
 ### Mutation equivalences
 
-None for public tags, variants, fields, or canonical bytes. Private indexing structures may change when all serialized values and observations remain identical.
+Permuting input digests is equivalent for `TaskRecord::inputs_digest`; changing the multiset, including a duplicate count, is not. `RunJournal::reusable` does not observe the run digest or a task record's byte count, while a changed task key, input digest, or output digest changes its result on the witnessed carrier. No equivalence applies to the observed serde tags, task-key forms, or production run-identity inputs. This law makes no claim about canonical production journal-content bytes.
 
 ### Audit record
 
@@ -296,13 +294,15 @@ The *local validation view* is the temporary graph used to evaluate checks whose
 
 ### Proof
 
-The contract check compares every ordered node-map key with `Node.id` before local view construction. Equality makes key lookup and embedded identity coincide. Inequality produces the typed witness, preventing validation from reporting facts about one identifier while serialization records another.
+The contract check compares every ordered node-map key with `Node.id` before local view construction. Equality makes key lookup and embedded identity coincide. Inequality produces the typed witness, preventing validation from reporting facts about one identifier while serialization records another. The bounded differential compares the complete `Invalid { violations: [NodeIdMismatch { key, found }] }` value in both implementations.
 
 ### Executable counterpart
 
 - Law ID: `segments.s10`
 - Reference: `panproto_reference::segment::validate_segment_contract`
-- Bounded witness: `map keys=1, embedded node ids=1, mismatched pairs=1`
+- Evidence scope: `map keys=1, embedded node ids=1, mismatched pairs=1`
+- Production certificate: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
+- Independent reference anchor: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
 - Exhaustive differential test: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
 - Property differential test: `segment::tests::validation::validate_segment_returns_every_contract_violation_before_validation; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validate_segment_returns_every_contract_violation_before_validation)'`
 - File: `crates/panproto-inst/src/segment/check.rs`
@@ -327,7 +327,7 @@ None. Omitting the check changes both the addressed validation subject and the c
 
 ### Statement
 
-Let $C = 2^{32}$, the cardinality of the `EdgeId` carrier. A graph or tree segment with $e$ owned view edges and $s$ incoming stubs is representable for local validation exactly when $e+s \le C$. The sum is computed in `u64` before any temporary edge identifier is assigned. A larger carrier is refused as `ValidationViewUnrepresentable` with the exact total.
+Let $C = 2^{32}$, the cardinality of the `EdgeId` carrier. A graph or tree segment with $e$ owned view edges and $s$ incoming stubs is representable for local validation exactly when $e+s \le C$. The sum is computed in `u64` before any temporary edge identifier is assigned. A larger carrier is refused as `ValidationViewUnrepresentable` with the exact total. The executable evidence checks this boundary in two implementations, but it does not expose a shared production-reference seam.
 
 ### Outside the domain
 
@@ -345,9 +345,9 @@ There are exactly $C$ distinct `u32` edge identifiers. Assigning one identifier 
 
 - Law ID: `segments.s10a`
 - Reference: `panproto_reference::segment::validation_view_preflight`
-- Boundary witness: `capacity=2^32, accepted count=capacity, refused count=capacity+1`
-- Exhaustive differential test: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
-- Property differential test: `segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge)'`
+- Evidence scope: `capacity=2^32, accepted count=capacity, refused count=capacity+1`
+- Production certificate: `segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge)'`
+- Independent reference anchor: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
 - File: `crates/panproto-inst/src/segment/validate.rs`
 - File: `crates/panproto-inst/src/segment/error.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
@@ -374,7 +374,7 @@ For every valid segment family $S$ under $P$ and every deterministic whole-insta
 
 $$\operatorname{segmented}(S,P,f) = f(\operatorname{glue}_P(S)).$$
 
-The 0.77 segment-core claim uses this equation as a semantic boundary. It does not claim a checkpointed segmented runner.
+The certificate uses this equation as its semantic boundary and makes no claim about a checkpointed segmented runner.
 
 ### Outside the domain
 

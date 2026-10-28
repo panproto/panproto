@@ -1304,6 +1304,21 @@ mod tests {
         );
         cases.push(("target-set", target_set));
 
+        let mut position_key = keyed_fixture();
+        let ordered = film_id_edge();
+        position_key.orderings.insert(ordered.clone(), 0);
+        position_key.declarations.keys.insert(
+            "film.id".into(),
+            vec![panproto_schema::Key {
+                id: "position".into(),
+                parts: vec![panproto_schema::KeyPart::Position { within: ordered }],
+                role: panproto_schema::KeyRole::Unique,
+                scope: panproto_schema::KeyScope::Document,
+                equality: vec![],
+            }],
+        );
+        cases.push(("position-key-part", position_key));
+
         let mut default_key = keyed_fixture();
         default_key.declarations.keys.insert(
             "film".into(),
@@ -1345,6 +1360,34 @@ mod tests {
                 "{label} collided with another declaration form"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn path_and_position_key_parts_have_distinct_object_ids()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ordered = film_id_edge();
+        let mut path = keyed_fixture();
+        path.orderings.insert(ordered.clone(), 0);
+        path.declarations.keys.insert(
+            "film.id".into(),
+            vec![panproto_schema::Key {
+                id: "position".into(),
+                parts: vec![panproto_schema::KeyPart::Path(Vec::new())],
+                role: panproto_schema::KeyRole::Unique,
+                scope: panproto_schema::KeyScope::Document,
+                equality: vec![],
+            }],
+        );
+        let mut position = path.clone();
+        position
+            .declarations
+            .keys
+            .get_mut("film.id")
+            .ok_or("missing controlled key declaration")?[0]
+            .parts = vec![panproto_schema::KeyPart::Position { within: ordered }];
+
+        assert_ne!(hash_schema(&path)?, hash_schema(&position)?);
         Ok(())
     }
 

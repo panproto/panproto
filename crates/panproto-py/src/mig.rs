@@ -314,14 +314,17 @@ impl PyCompiledMigration {
         }
     }
 
-    /// Check both `GetPut` and `PutGet` round-trip laws on a test instance.
+    /// Run the five strict lens gates on a test instance.
+    ///
+    /// The gates are `GetPut`, `PutGet`, totality over the finite single-step
+    /// basis, `PutTwice`, and congruence.
     ///
     /// Equivalent to ``self.to_lens().check_laws(instance)``.
     ///
     /// Raises
     /// ------
     /// `MigrationError`
-    ///     If either law is violated, with details in the message.
+    ///     If any gate is violated, with details in the message.
     fn check_laws(&self, instance: &PyInstance) -> PyResult<()> {
         panproto_core::lens::check_laws(&self.as_lens(), &instance.inner)
             .map_err(|e| crate::error::MigrationError::new_err(format!("law violation: {e}")))

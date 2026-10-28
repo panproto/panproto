@@ -77,6 +77,29 @@ pub mod implementation {
         Fidelity(FidelityReason),
     }
 
+    /// The two non-value states whose distinction VF8 requires routes to
+    /// retain.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Presence {
+        /// An explicitly null field or cell.
+        Null,
+        /// A field or cell not present in the instance.
+        Absent,
+    }
+
+    /// The canonical/default-route disposition of a null or absent position.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum PresenceOutcome {
+        /// The route writes its native null syntax.
+        NullSyntax,
+        /// The route omits the position.
+        Omitted,
+        /// The route refuses null because no null token is configured.
+        NullNotRepresentable,
+        /// The route refuses absence because a positional cell cannot vanish.
+        AbsentNotRepresentable,
+    }
+
     /// A preserving concrete-syntax value.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct CstValue {
@@ -415,7 +438,7 @@ pub mod implementation {
                 '\t' => out.push_str("\\t"),
                 '\u{8}' => out.push_str("\\b"),
                 '\u{c}' => out.push_str("\\f"),
-                other if other.is_control() => {
+                other if other <= '\u{1f}' => {
                     use std::fmt::Write as _;
                     let _ = write!(&mut out, "\\u{:04x}", u32::from(other));
                 }
@@ -604,9 +627,26 @@ pub mod implementation {
         )
     }
 
-    /// Definition: Preserving round trip: an unedited document is byte-exact.
+    /// Definition: Canonical/default handling of null and absence under VF8.
     ///
     /// Book anchors: `L-value-io-3`.
+    #[must_use]
+    pub const fn presence(route: Route, presence: Presence) -> PresenceOutcome {
+        match (route, presence) {
+            (Route::Json | Route::Yaml | Route::Xml, Presence::Null) => PresenceOutcome::NullSyntax,
+            (Route::Json | Route::Toml | Route::Yaml | Route::Xml, Presence::Absent) => {
+                PresenceOutcome::Omitted
+            }
+            (Route::Toml | Route::Csv | Route::Tsv, Presence::Null) => {
+                PresenceOutcome::NullNotRepresentable
+            }
+            (Route::Csv | Route::Tsv, Presence::Absent) => PresenceOutcome::AbsentNotRepresentable,
+        }
+    }
+
+    /// Definition: An unedited CST document is preserved byte-for-byte.
+    ///
+    /// Book anchors: `L-value-io-21`.
     #[must_use]
     pub fn preserve(source: &[u8], emitted: &[u8]) -> bool {
         source == emitted
@@ -727,12 +767,16 @@ pub mod implementation {
         members.iter().any(|(name, _)| !names.insert(name))
     }
 
-    /// Definition: Encoding and byte-order-mark preservation.
+    /// Definition: A canonical/default route emits UTF-8 without a byte-order
+    /// mark, independently of the accepted source encoding.
     ///
     /// Book anchors: `L-value-io-10`.
     #[must_use]
-    pub fn encoding(source: &[u8], emitted: &[u8]) -> bool {
-        preserve(source, emitted)
+    pub fn encoding(emitted: &[u8]) -> bool {
+        std::str::from_utf8(emitted).is_ok()
+            && !emitted.starts_with(&[0xef, 0xbb, 0xbf])
+            && !emitted.starts_with(&[0xff, 0xfe])
+            && !emitted.starts_with(&[0xfe, 0xff])
     }
 
     /// Definition: Canonical TOML scalar emission preserves the exact decimal
@@ -760,11 +804,47 @@ pub mod implementation {
     /// Book anchors: `L-value-io-12`.
     pub use crate::xml::expand_entities as xml_entity;
 
-    /// XML source-encoding preservation.
-    /// Definition: This is the manifest-stable name of the referenced operation.
+    /// Definition: Canonical XML is UTF-8 without a byte-order mark or a
+    /// declaration naming another encoding.
     ///
     /// Book anchors: `L-value-io-13`.
-    pub use encoding as xml_encoding;
+    #[must_use]
+    pub fn xml_encoding(emitted: &[u8]) -> bool {
+        if !encoding(emitted) {
+            return false;
+        }
+        let Ok(text) = std::str::from_utf8(emitted) else {
+            return false;
+        };
+        let Some(end) = text.find("?>") else {
+            return true;
+        };
+        let declaration = &text[..end];
+        if !declaration.trim_start().starts_with("<?xml") {
+            return true;
+        }
+        let lower = declaration.to_ascii_lowercase();
+        let Some(start) = lower.find("encoding") else {
+            return true;
+        };
+        let rest = lower[start + "encoding".len()..].trim_start();
+        let Some(rest) = rest.strip_prefix('=') else {
+            return false;
+        };
+        let rest = rest.trim_start();
+        let Some(quote) = rest
+            .chars()
+            .next()
+            .filter(|quote| matches!(quote, '\'' | '"'))
+        else {
+            return false;
+        };
+        let value = &rest[quote.len_utf8()..];
+        let Some(end) = value.find(quote) else {
+            return false;
+        };
+        matches!(&value[..end], "utf-8" | "utf8")
+    }
 
     /// Definition: TSV has no implicit comment syntax.
     ///
@@ -809,22 +889,31 @@ pub mod implementation {
         (namespace.to_owned(), local.to_owned())
     }
 
-    /// Agreement of a generic blob writer with a route arm.
-    /// Definition: This is the manifest-stable name of the referenced operation.
+    /// Definition: The canonical ATProto JSON object for a blob value.
     ///
     /// Book anchors: `L-value-io-19`.
-    pub use bytes as blob_writer;
+    #[must_use]
+    pub fn blob_writer(ref_: &str, mime: &str, size: u64) -> Vec<u8> {
+        format!(
+            "{{\"$type\":\"blob\",\"mimeType\":{},\"ref\":{{\"$link\":{}}},\"size\":{size}}}",
+            quote(mime),
+            quote(ref_)
+        )
+        .into_bytes()
+    }
 
     /// CST duplicate-member refusal uses the same member-name predicate.
     /// Definition: This is the manifest-stable name of the referenced operation.
     ///
     /// Book anchors: `L-value-io-23`.
     pub use duplicate_member as duplicate_member_cst;
-    /// CST encoding and BOM preservation uses the same byte equality.
-    /// Definition: This is the manifest-stable name of the referenced operation.
+    /// Definition: A CST route retains encoding signatures byte-for-byte.
     ///
     /// Book anchors: `L-value-io-24`.
-    pub use encoding as encoding_bom_cst;
+    #[must_use]
+    pub fn encoding_bom_cst(source: &[u8], emitted: &[u8]) -> bool {
+        source == emitted
+    }
     /// CST byte preservation uses the same byte equality.
     /// Definition: This is the manifest-stable name of the referenced operation.
     ///

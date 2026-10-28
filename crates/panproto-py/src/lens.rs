@@ -126,12 +126,15 @@ impl PyLens {
         })
     }
 
-    /// Check both `GetPut` and `PutGet` lens laws on a test instance.
+    /// Run the five strict lens gates on a test instance.
+    ///
+    /// The gates are `GetPut`, `PutGet`, totality over the finite single-step
+    /// basis, `PutTwice`, and congruence.
     ///
     /// Raises
     /// ------
     /// `LensError`
-    ///     If either law is violated, with details in the message.
+    ///     If any gate is violated, with details in the message.
     fn check_laws(&self, instance: &PyInstance) -> PyResult<()> {
         lens::check_laws(&self.inner, &instance.inner)
             .map_err(|e| crate::error::LensError::new_err(format!("law violation: {e}")))

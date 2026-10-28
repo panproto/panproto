@@ -62,6 +62,20 @@ fn compiled_lens_doc_resource(
     }))
 }
 
+/// Allocate a directional compiled-document resource after ruling out the
+/// symmetric body shape, whose two legs cannot be represented by this handle.
+fn alloc_directional_compiled_lens(
+    compiled: panproto_core::lens_dsl::CompiledLens,
+) -> Result<u32, WasmError> {
+    if compiled.symmetric.is_some() {
+        return Err(WasmError::LensConstructionFailed {
+            reason: "symmetric lens documents are not accepted by the directional lens-document compile boundary (compile_lens_document or compile_lens_document_with_refs); use symmetric_lens_from_schemas and symmetric_lens_sync"
+                .to_owned(),
+        });
+    }
+    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3: Lens & migration enhancements
 // ---------------------------------------------------------------------------
@@ -320,10 +334,12 @@ pub fn auto_generate_span(
     })
 }
 
-/// Check both `GetPut` and `PutGet` lens laws on a test instance.
+/// Run the five strict lens gates on a test instance.
 ///
 /// The `instance` bytes are `MessagePack`-encoded `WInstance`.
 /// Returns `MessagePack`-encoded result: `{ "holds": bool, "violation": string | null }`.
+/// The gates run in order: `GetPut`, `PutGet`, totality over the finite
+/// single-step basis, `PutTwice`, and congruence.
 ///
 /// # Errors
 ///
@@ -523,9 +539,10 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 
 /// Instantiate a protolens chain at a specific schema.
 ///
-/// When `chain` is a handle from [`compile_lens_document`] (a
-/// `CompiledLensDoc`), its ordered stages are instantiated at their running
-/// schemas and normalized. This single-lens API accepts the result only when
+/// When `chain` is a handle from [`compile_lens_document`] (a directional
+/// `CompiledLensDoc`), this uses the accepted document's authoritative ordered
+/// stages, instantiates each stage at its running schema, and normalizes the
+/// resulting lens path. This single-lens API accepts the result only when
 /// normalization produces one group; callers that need multiple ordered
 /// groups must retain the compiled document until a path-aware API is used.
 /// A plain `ProtolensChain` instantiates unchanged.
@@ -574,6 +591,10 @@ fn instantiate_protolens_engine(chain: u32, schema: u32) -> Result<u32, WasmErro
 }
 
 /// Get the complement spec for a protolens chain at a schema.
+///
+/// A `CompiledLensDoc` is accepted through its structural compatibility
+/// chain. Value-level transforms and their position among structural stages
+/// do not contribute to this result.
 ///
 /// Returns `MessagePack`-encoded [`ComplementSpec`](panproto_core::lens::ComplementSpec).
 ///
@@ -632,13 +653,15 @@ pub fn protolens_from_diff(diff_bytes: &[u8], schema1: u32, schema2: u32) -> Res
     Ok(slab::alloc(Resource::ProtolensChain(Box::new(chain))))
 }
 
-/// Compose two protolens chains.
+/// Compose two chain-shaped lens resources.
 ///
-/// Any value-level field transforms carried by either operand are
-/// carried into the result, `chain1`'s ahead of `chain2`'s at a shared
-/// vertex, matching the order the steps run in.
+/// The operands' structural compatibility chains are concatenated. Ordered
+/// stages and value-level field transforms are also preserved in the
+/// `CompiledLensDoc` result, with `chain1`'s stages before `chain2`'s and
+/// `chain1`'s transforms before `chain2`'s at a shared vertex. Original
+/// document metadata is not retained.
 ///
-/// Returns a handle to the composed lens.
+/// Returns a handle to the composed `CompiledLensDoc`.
 ///
 /// # Errors
 ///
@@ -686,7 +709,8 @@ pub fn protolens_compose(chain1: u32, chain2: u32) -> Result<u32, JsError> {
 /// A lens DSL document's `apply_expr` and `compute_field` steps compile to
 /// field transforms rather than structural chain steps, so they do not appear in
 /// [`protolens_chain_to_json`]. This export is how a caller confirms
-/// such a step survived compilation.
+/// such a step survived compilation. The map is an aggregate compatibility
+/// view and does not represent the transforms' order among structural stages.
 ///
 /// Returns `MessagePack`-encoded `HashMap<String, Vec<FieldTransform>>`.
 /// A plain `ProtolensChain` handle yields an empty map.
@@ -714,8 +738,14 @@ pub fn protolens_field_transforms(chain: u32) -> Result<Vec<u8>, JsError> {
 
 /// Serialize a protolens chain to JSON.
 ///
-/// Returns JSON bytes describing each step in the chain (name,
-/// source/target endofunctor names, complement type, lossless flag).
+/// A `CompiledLensDoc` is accepted through its structural compatibility
+/// chain. Its value-level transforms and ordered stage boundaries are omitted.
+/// Use [`protolens_field_transforms`] to inspect the aggregate transforms.
+///
+/// Returns JSON bytes describing each step's name, source and target
+/// endofunctor names, and lossless flag. This is a lossy inspection summary,
+/// not the serialized `ProtolensChain` shape accepted by
+/// [`protolens_from_json`].
 ///
 /// # Errors
 ///
@@ -921,7 +951,7 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
 }
 
 /// Compile a lens DSL document (JSON or YAML source) into a
-/// `ProtolensChain` resource.
+/// `CompiledLensDoc` resource.
 ///
 /// `source_bytes` is UTF-8 DSL source in the specified `format`:
 /// `"json"` or `"yaml"`. Nickel (`"ncl"`) is not supported in the WASM
@@ -932,19 +962,39 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
 /// (e.g. `rename_field`, `add_field`) attach; typically the record's
 /// `:body` object, such as `"com.example.thing:body"`.
 ///
-/// Returns a handle to the compiled `ProtolensChain`.
+/// This directional boundary accepts one directed body and rejects the DSL's
+/// `symmetric` body. Use [`symmetric_lens_from_schemas`] and
+/// [`symmetric_lens_sync`] for the existing symmetric-lens boundary.
+///
+/// An accepted resource retains the directional document's authoritative
+/// ordered structural and value-level stages. It also supplies a structural
+/// `ProtolensChain` and an aggregate field-transform map as compatibility
+/// summaries for chain-shaped exports. [`instantiate_protolens`] observes all
+/// ordered stages of that accepted directional document; exports documented as
+/// compatibility-chain operations do not.
+///
+/// Returns a chain-compatible handle to the compiled lens document.
 ///
 /// # Errors
 ///
 /// Returns `JsError` if `format` is unknown, the source fails to parse,
-/// or compilation fails (e.g. references an unknown sort or has
-/// inconsistent step metadata).
+/// compilation fails (e.g. references an unknown sort or has inconsistent
+/// step metadata), or the document has a `symmetric` body.
 #[wasm_bindgen]
 pub fn compile_lens_document(
     source_bytes: &[u8],
     format: &str,
     body_vertex: &str,
 ) -> Result<u32, JsError> {
+    compile_lens_document_engine(source_bytes, format, body_vertex).map_err(Into::into)
+}
+
+/// Host-testable implementation of [`compile_lens_document`].
+fn compile_lens_document_engine(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+) -> Result<u32, WasmError> {
     let source =
         std::str::from_utf8(source_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("invalid UTF-8: {e}"),
@@ -956,8 +1006,7 @@ pub fn compile_lens_document(
         other => {
             return Err(WasmError::DeserializationFailed {
                 reason: format!("unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"),
-            }
-            .into());
+            });
         }
     }
     .map_err(|e| WasmError::DeserializationFailed {
@@ -970,7 +1019,7 @@ pub fn compile_lens_document(
         }
     })?;
 
-    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+    alloc_directional_compiled_lens(compiled)
 }
 
 /// Compile a lens DSL document, resolving `compose` named references
@@ -983,12 +1032,20 @@ pub fn compile_lens_document(
 /// `format`). A `compose` body's `ref` entries are resolved against this
 /// map, so named-reference composition works without a filesystem.
 ///
-/// Returns a handle to the compiled `ProtolensChain`.
+/// As with [`compile_lens_document`], this directional boundary rejects a
+/// `symmetric` body. A directed `compose` also rejects a referenced symmetric
+/// document rather than discarding one of its two legs. An accepted
+/// `CompiledLensDoc` retains the directional document's authoritative ordered
+/// structural and value-level stages while exposing a structural chain as a
+/// compatibility summary.
+///
+/// Returns a chain-compatible handle to the compiled lens document.
 ///
 /// # Errors
 ///
 /// Returns `JsError` if `format` is unknown, any source fails to parse,
-/// a reference is unresolved, or compilation fails.
+/// a reference is unresolved or symmetric, compilation fails, or the root
+/// document has a `symmetric` body.
 #[wasm_bindgen]
 pub fn compile_lens_document_with_refs(
     source_bytes: &[u8],
@@ -996,6 +1053,17 @@ pub fn compile_lens_document_with_refs(
     body_vertex: &str,
     refs_bytes: &[u8],
 ) -> Result<u32, JsError> {
+    compile_lens_document_with_refs_engine(source_bytes, format, body_vertex, refs_bytes)
+        .map_err(Into::into)
+}
+
+/// Host-testable implementation of [`compile_lens_document_with_refs`].
+fn compile_lens_document_with_refs_engine(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+    refs_bytes: &[u8],
+) -> Result<u32, WasmError> {
     let parse = |bytes: &[u8]| -> Result<panproto_core::lens_dsl::LensDocument, WasmError> {
         let text = std::str::from_utf8(bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("invalid UTF-8: {e}"),
@@ -1033,7 +1101,7 @@ pub fn compile_lens_document_with_refs(
             reason: e.to_string(),
         })?;
 
-    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+    alloc_directional_compiled_lens(compiled)
 }
 
 /// Deserialize a protolens chain from JSON bytes.
@@ -1060,7 +1128,10 @@ pub fn protolens_from_json(json_bytes: &[u8]) -> Result<u32, JsError> {
 /// Fuse a protolens chain into a single protolens.
 ///
 /// Composes all steps into a single step with a composite complement.
-/// Returns a handle to a new `ProtolensChain` containing the fused step.
+/// A `CompiledLensDoc` is fused through its structural compatibility chain;
+/// document-carried value-level transforms and ordered stage boundaries are
+/// discarded. Returns a handle to a new plain `ProtolensChain` containing the
+/// fused step.
 ///
 /// # Errors
 ///
@@ -1081,7 +1152,10 @@ pub fn protolens_fuse(chain: u32) -> Result<u32, JsError> {
 /// Lift a protolens chain along a theory morphism.
 ///
 /// Given a chain and a `MessagePack`-encoded `TheoryMorphism`, produces
-/// a new chain that operates on schemas of the codomain theory.
+/// a new chain that operates on schemas of the codomain theory. A
+/// `CompiledLensDoc` is lifted through its structural compatibility chain;
+/// document-carried value-level transforms and ordered stage boundaries are
+/// discarded from the returned plain `ProtolensChain`.
 ///
 /// # Errors
 ///
@@ -1099,6 +1173,12 @@ pub fn protolens_lift(chain: u32, morphism_bytes: &[u8]) -> Result<u32, JsError>
 
 /// Check applicability of a protolens chain against a schema.
 ///
+/// Every structural step is checked against the running schema produced by the
+/// preceding step. A directional `CompiledLensDoc` is checked through its
+/// structural compatibility chain. Success does not establish that all
+/// ordered stages of the accepted document normalize to one group; call
+/// [`instantiate_protolens`] for that stronger check.
+///
 /// Returns `MessagePack`-encoded JSON: `{ "applicable": bool, "reasons": string[] }`.
 ///
 /// # Errors
@@ -1108,7 +1188,9 @@ pub fn protolens_lift(chain: u32, morphism_bytes: &[u8]) -> Result<u32, JsError>
 pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>, JsError> {
     let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
     let schema_obj = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let result = chain_obj.check_applicability(&schema_obj);
+    let protocol = lookup_builtin_protocol(&schema_obj.protocol)
+        .unwrap_or_else(|| default_protocol(&schema_obj.protocol));
+    let result = chain_obj.check_applicability_with(&schema_obj, &protocol);
     let response = match result {
         Ok(()) => serde_json::json!({ "applicable": true, "reasons": Vec::<String>::new() }),
         Err(reasons) => serde_json::json!({ "applicable": false, "reasons": reasons }),
@@ -1123,8 +1205,13 @@ pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>,
 
 /// Apply a protolens chain to a fleet of schemas.
 ///
-/// The `schema_handles` are slab handles to `Schema` resources.
-/// Each schema's name is taken from its `protocol` field.
+/// A `CompiledLensDoc` is applied through its structural compatibility chain;
+/// document-carried value-level transforms and ordered stage boundaries are
+/// not executed.
+///
+/// The `schema_handles` are slab handles to `Schema` resources. Results use
+/// the synthetic positional identifiers `schema_0`, `schema_1`, and so on,
+/// matching the input order.
 ///
 /// Returns `MessagePack`-encoded fleet result:
 /// `{ "applied": [name, ...], "skipped": [[name, [reasons]], ...] }`.
@@ -1420,6 +1507,134 @@ mod tests {
         // union-of-string-literals on the TS side; the round trip must
         // preserve the exact tier.
         assert_eq!(decoded.stringency, Some(HintStringency::Lenient));
+    }
+
+    fn symmetric_document_source() -> String {
+        serde_json::json!({
+            "id": "symmetric-demo",
+            "source": "left",
+            "target": "right",
+            "symmetric": {
+                "left": [{ "remove_field": "left-only" }],
+                "right": [{ "remove_field": "right-only" }]
+            }
+        })
+        .to_string()
+    }
+
+    fn directional_compose_document_source() -> String {
+        serde_json::json!({
+            "id": "directional-root",
+            "source": "left",
+            "target": "right",
+            "compose": {
+                "mode": "vertical",
+                "lenses": [{ "ref": "symmetric-demo" }]
+            }
+        })
+        .to_string()
+    }
+
+    fn assert_directional_boundary_rejects_symmetric(error: &WasmError) {
+        assert!(
+            matches!(
+                error,
+                WasmError::LensConstructionFailed { reason }
+                    if reason.contains("symmetric lens documents")
+                        && reason.contains("symmetric_lens_from_schemas")
+                        && reason.contains("symmetric_lens_sync")
+            ),
+            "{error}"
+        );
+    }
+
+    fn assert_directional_compose_rejects_symmetric_reference(error: &WasmError) {
+        assert!(
+            matches!(
+                error,
+                WasmError::LensConstructionFailed { reason }
+                    if reason.contains("symmetric-demo")
+                        && reason.contains("symmetric body")
+                        && reason.contains("directed compose")
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn directional_document_compile_rejects_a_symmetric_body_without_allocation() {
+        let doc = symmetric_document_source();
+        let live_before = slab::live_resource_count();
+        let error = compile_lens_document_engine(doc.as_bytes(), "json", "record")
+            .expect_err("a symmetric body has no directional document handle");
+
+        assert_directional_boundary_rejects_symmetric(&error);
+        assert_eq!(
+            slab::live_resource_count(),
+            live_before,
+            "rejection must not allocate a document handle"
+        );
+    }
+
+    #[test]
+    fn directional_document_compile_with_refs_rejects_a_symmetric_reference_without_allocation() {
+        let doc = directional_compose_document_source();
+        let refs = rmp_serde::to_vec_named(&std::collections::HashMap::from([(
+            "symmetric-demo".to_owned(),
+            symmetric_document_source(),
+        )]))
+        .expect("symmetric reference bundle encodes");
+        let live_before = slab::live_resource_count();
+        let error = compile_lens_document_with_refs_engine(doc.as_bytes(), "json", "record", &refs)
+            .expect_err("a directed compose cannot consume a symmetric reference");
+
+        assert_directional_compose_rejects_symmetric_reference(&error);
+        assert_eq!(
+            slab::live_resource_count(),
+            live_before,
+            "rejection must not allocate a document handle"
+        );
+    }
+
+    #[test]
+    fn applicability_checks_later_steps_at_the_running_schema() {
+        use panproto_core::lens::protolens::elementary::{drop_sort, rename_sort};
+
+        let protocol = default_protocol("applicability-test");
+        let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
+            .vertex("value", "string", None::<&str>)
+            .expect("string vertex")
+            .build()
+            .expect("schema builds");
+        let chain =
+            lens::ProtolensChain::new(vec![drop_sort("string"), rename_sort("string", "text")]);
+        assert!(
+            chain.check_applicability(&schema).is_ok(),
+            "the cheap first-step check demonstrates the old false positive"
+        );
+
+        let chain_handle = slab::alloc(Resource::ProtolensChain(Box::new(chain)));
+        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema)));
+        let bytes = protolens_check_applicability(chain_handle, schema_handle)
+            .expect("applicability response serializes");
+        let response: serde_json::Value =
+            rmp_serde::from_slice(&bytes).expect("applicability response decodes");
+
+        assert_eq!(response["applicable"].as_bool(), Some(false));
+        let reasons = response["reasons"]
+            .as_array()
+            .expect("failure reasons are an array");
+        assert!(!reasons.is_empty(), "the later-step failure is reported");
+        assert!(
+            reasons
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|reason| reason.contains("string")),
+            "the rejected running-schema precondition is named: {reasons:?}"
+        );
+
+        slab::free(chain_handle);
+        slab::free(schema_handle);
     }
 
     /// A lens document whose only substantive step is a `compute_field`

@@ -1468,9 +1468,9 @@ fn morphisms_preserve_kinds_closure_axioms_and_full_term_typing() {
 
 fn morphism_kinds_and_closure() {
     let mut open = th("Open", &["S"]);
-    open.sorts[0].kind = "source-kind".into();
+    open.sorts[0].kind = theory::SortKind::Val(theory::ValueKind::Str);
     let mut other_kind = th("Other", &["T"]);
-    other_kind.sorts[0].kind = "target-kind".into();
+    other_kind.sorts[0].kind = theory::SortKind::Val(theory::ValueKind::Int);
     assert!(theory::check_morphism(&open, &other_kind, &id_on(&[("S", "T")])).is_err());
 
     // A16 constrains only a closed domain sort. An open source sort therefore

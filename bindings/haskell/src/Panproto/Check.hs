@@ -49,6 +49,9 @@ module Panproto.Check
     , VariantChange (..)
     , RecursionPointChange (..)
     , SpanChange (..)
+    , KeyChange (..)
+    , ReferenceChange (..)
+    , TargetSetChange (..)
 
       -- * Compatibility report
     , CompatReport (..)
@@ -96,6 +99,7 @@ import Panproto.Schema
     , Variant (..)
     , Vertex (..)
     )
+import Panproto.Wire (WireTerm, decodeWireTerm, encodeWireTerm)
 
 -- ---------------------------------------------------------------------------
 -- SchemaDiff sub-types
@@ -199,6 +203,30 @@ data SpanChange = SpanChange
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
 
+data KeyChange = KeyChange
+    { vertexId :: !Text
+    , old :: !WireTerm
+    , new :: !WireTerm
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+data ReferenceChange = ReferenceChange
+    { id :: !Text
+    , old :: !WireTerm
+    , new :: !WireTerm
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+data TargetSetChange = TargetSetChange
+    { id :: !Text
+    , old :: !WireTerm
+    , new :: !WireTerm
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
 -- ---------------------------------------------------------------------------
 -- SchemaDiff
 
@@ -244,6 +272,8 @@ data SchemaDiff = SchemaDiff
     -- ^ Vertex IDs whose NSID mapping was removed.
     , changedNsids :: ![(Text, Text, Text)]
     -- ^ NSID mappings that changed: @(vertex_id, old_nsid, new_nsid)@.
+    , entryChange :: !(Maybe ([Text], [Text]))
+    -- ^ Ordered entry vertices changed: @(old_entries, new_entries)@.
     , -- Variants
       addedVariants :: ![Variant]
     -- ^ Variants added in the new schema.
@@ -302,6 +332,16 @@ data SchemaDiff = SchemaDiff
     -- ^ Policy keys (sort name) removed.
     , modifiedPolicies :: ![Text]
     -- ^ Policy keys (sort name) whose expr changed.
+    , addedKeys :: ![(Text, WireTerm)]
+    , removedKeys :: ![(Text, WireTerm)]
+    , modifiedKeys :: ![KeyChange]
+    , addedReferences :: ![WireTerm]
+    , removedReferences :: ![WireTerm]
+    , modifiedReferences :: ![ReferenceChange]
+    , addedTargetSets :: ![(Text, WireTerm)]
+    , removedTargetSets :: ![(Text, WireTerm)]
+    , modifiedTargetSets :: ![TargetSetChange]
+    , renamedVertices :: ![(Text, Text)]
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
@@ -325,6 +365,7 @@ emptySchemaDiff =
         , addedNsids = HM.empty
         , removedNsids = []
         , changedNsids = []
+        , entryChange = Nothing
         , addedVariants = []
         , removedVariants = []
         , modifiedVariants = []
@@ -349,6 +390,16 @@ emptySchemaDiff =
         , addedPolicies = []
         , removedPolicies = []
         , modifiedPolicies = []
+        , addedKeys = []
+        , removedKeys = []
+        , modifiedKeys = []
+        , addedReferences = []
+        , removedReferences = []
+        , modifiedReferences = []
+        , addedTargetSets = []
+        , removedTargetSets = []
+        , modifiedTargetSets = []
+        , renamedVertices = []
         }
 
 -- ---------------------------------------------------------------------------
@@ -451,6 +502,10 @@ diffSchemasPure old new =
         , kindChanges = kinds
         , addedEdges = addedEdges'
         , removedEdges = removedEdges'
+        , entryChange =
+            if old.entries == new.entries
+                then Nothing
+                else Just (old.entries, new.entries)
         }
   where
     addedVerts = [v | v <- HM.keys new.vertices, not (HM.member v old.vertices)]
@@ -527,7 +582,7 @@ encodeSchemaDiff = CBOR.toLazyByteString . schemaDiffEncoding
 
 schemaDiffEncoding :: SchemaDiff -> Encoding
 schemaDiffEncoding d =
-    Enc.encodeMapLen 38
+    Enc.encodeMapLen 49
         <> kv "added_vertices" (encodeList Enc.encodeString d.addedVertices)
         <> kv "removed_vertices" (encodeList Enc.encodeString d.removedVertices)
         <> kv "kind_changes" (encodeList encodeKindChange d.kindChanges)
@@ -542,6 +597,7 @@ schemaDiffEncoding d =
         <> kv "added_nsids" (encodeTextMap Enc.encodeString d.addedNsids)
         <> kv "removed_nsids" (encodeList Enc.encodeString d.removedNsids)
         <> kv "changed_nsids" (encodeList encodeTriple d.changedNsids)
+        <> kv "entry_change" (encodeMaybeEntryChange d.entryChange)
         <> kv "added_variants" (encodeList encodeVariant d.addedVariants)
         <> kv "removed_variants" (encodeList encodeVariant d.removedVariants)
         <> kv "modified_variants" (encodeList encodeVariantChange d.modifiedVariants)
@@ -566,8 +622,49 @@ schemaDiffEncoding d =
         <> kv "added_policies" (encodeList Enc.encodeString d.addedPolicies)
         <> kv "removed_policies" (encodeList Enc.encodeString d.removedPolicies)
         <> kv "modified_policies" (encodeList Enc.encodeString d.modifiedPolicies)
+        <> kv "added_keys" (encodeList encodeNamedWire d.addedKeys)
+        <> kv "removed_keys" (encodeList encodeNamedWire d.removedKeys)
+        <> kv "modified_keys" (encodeList encodeKeyChange d.modifiedKeys)
+        <> kv "added_references" (encodeList encodeWireTerm d.addedReferences)
+        <> kv "removed_references" (encodeList encodeWireTerm d.removedReferences)
+        <> kv "modified_references" (encodeList encodeReferenceChange d.modifiedReferences)
+        <> kv "added_target_sets" (encodeList encodeNamedWire d.addedTargetSets)
+        <> kv "removed_target_sets" (encodeList encodeNamedWire d.removedTargetSets)
+        <> kv "modified_target_sets" (encodeList encodeTargetSetChange d.modifiedTargetSets)
+        <> kv "renamed_vertices" (encodeList encodePair d.renamedVertices)
   where
     kv k v = Enc.encodeString k <> v
+
+encodeMaybeEntryChange :: Maybe ([Text], [Text]) -> Encoding
+encodeMaybeEntryChange = maybe Enc.encodeNull $ \(oldEntries, newEntries) ->
+    Enc.encodeListLen 2
+        <> encodeList Enc.encodeString oldEntries
+        <> encodeList Enc.encodeString newEntries
+
+encodeNamedWire :: (Text, WireTerm) -> Encoding
+encodeNamedWire (name, value) =
+    Enc.encodeListLen 2 <> Enc.encodeString name <> encodeWireTerm value
+
+encodeKeyChange :: KeyChange -> Encoding
+encodeKeyChange change =
+    Enc.encodeMapLen 3
+        <> Enc.encodeString "vertex_id" <> Enc.encodeString change.vertexId
+        <> Enc.encodeString "old" <> encodeWireTerm change.old
+        <> Enc.encodeString "new" <> encodeWireTerm change.new
+
+encodeReferenceChange :: ReferenceChange -> Encoding
+encodeReferenceChange change =
+    Enc.encodeMapLen 3
+        <> Enc.encodeString "id" <> Enc.encodeString change.id
+        <> Enc.encodeString "old" <> encodeWireTerm change.old
+        <> Enc.encodeString "new" <> encodeWireTerm change.new
+
+encodeTargetSetChange :: TargetSetChange -> Encoding
+encodeTargetSetChange change =
+    Enc.encodeMapLen 3
+        <> Enc.encodeString "id" <> Enc.encodeString change.id
+        <> Enc.encodeString "old" <> encodeWireTerm change.old
+        <> Enc.encodeString "new" <> encodeWireTerm change.new
 
 encodeKindChange :: KindChange -> Encoding
 encodeKindChange kc =
@@ -871,6 +968,7 @@ schemaDiffDecoder = decodeMapWith emptySchemaDiff onKey
         "added_nsids" -> (\v -> acc {addedNsids = v}) <$> decodeTextKeyMap Dec.decodeString
         "removed_nsids" -> (\v -> acc {removedNsids = v}) <$> decodeListOf Dec.decodeString
         "changed_nsids" -> (\v -> acc {changedNsids = v}) <$> decodeListOf decodeTriple
+        "entry_change" -> (\v -> acc {entryChange = v}) <$> decodeMaybeEntryChange
         "added_variants" -> (\v -> acc {addedVariants = v}) <$> decodeListOf decodeVariant
         "removed_variants" -> (\v -> acc {removedVariants = v}) <$> decodeListOf decodeVariant
         "modified_variants" -> (\v -> acc {modifiedVariants = v}) <$> decodeListOf decodeVariantChange
@@ -899,7 +997,75 @@ schemaDiffDecoder = decodeMapWith emptySchemaDiff onKey
         "added_policies" -> (\v -> acc {addedPolicies = v}) <$> decodeListOf Dec.decodeString
         "removed_policies" -> (\v -> acc {removedPolicies = v}) <$> decodeListOf Dec.decodeString
         "modified_policies" -> (\v -> acc {modifiedPolicies = v}) <$> decodeListOf Dec.decodeString
+        "added_keys" -> (\v -> acc {addedKeys = v}) <$> decodeListOf decodeNamedWire
+        "removed_keys" -> (\v -> acc {removedKeys = v}) <$> decodeListOf decodeNamedWire
+        "modified_keys" -> (\v -> acc {modifiedKeys = v}) <$> decodeListOf decodeKeyChange
+        "added_references" ->
+            (\v -> acc {addedReferences = v}) <$> decodeListOf decodeWireTerm
+        "removed_references" ->
+            (\v -> acc {removedReferences = v}) <$> decodeListOf decodeWireTerm
+        "modified_references" ->
+            (\v -> acc {modifiedReferences = v}) <$> decodeListOf decodeReferenceChange
+        "added_target_sets" ->
+            (\v -> acc {addedTargetSets = v}) <$> decodeListOf decodeNamedWire
+        "removed_target_sets" ->
+            (\v -> acc {removedTargetSets = v}) <$> decodeListOf decodeNamedWire
+        "modified_target_sets" ->
+            (\v -> acc {modifiedTargetSets = v}) <$> decodeListOf decodeTargetSetChange
+        "renamed_vertices" ->
+            (\v -> acc {renamedVertices = v}) <$> decodeListOf decodePair
         _ -> skipTerm >> pure acc
+
+decodeMaybeEntryChange :: Decoder s (Maybe ([Text], [Text]))
+decodeMaybeEntryChange = do
+    token <- Dec.peekTokenType
+    case token of
+        Dec.TypeNull -> Nothing <$ Dec.decodeNull
+        _ -> Just <$> decodeTuple2 (,) (decodeListOf Dec.decodeString) (decodeListOf Dec.decodeString)
+
+decodeNamedWire :: Decoder s (Text, WireTerm)
+decodeNamedWire = decodeTuple2 (,) Dec.decodeString decodeWireTerm
+
+decodeKeyChange :: Decoder s KeyChange
+decodeKeyChange = do
+    (vertex, oldValue, newValue) <- decodeMapWith (T.empty, Nothing, Nothing) handler
+    case (oldValue, newValue) of
+        (Just oldTerm, Just newTerm) -> pure (KeyChange vertex oldTerm newTerm)
+        _ -> fail "decodeKeyChange: missing old or new declaration"
+  where
+    handler acc@(vertex, oldValue, newValue) key = case key of
+        "vertex_id" -> (\v -> (v, oldValue, newValue)) <$> Dec.decodeString
+        "old" -> (\v -> (vertex, Just v, newValue)) <$> decodeWireTerm
+        "new" -> (\v -> (vertex, oldValue, Just v)) <$> decodeWireTerm
+        _ -> skipTerm >> pure acc
+
+decodeReferenceChange :: Decoder s ReferenceChange
+decodeReferenceChange = decodeWireChange ReferenceChange
+
+decodeTargetSetChange :: Decoder s TargetSetChange
+decodeTargetSetChange = decodeWireChange TargetSetChange
+
+decodeWireChange :: (Text -> WireTerm -> WireTerm -> a) -> Decoder s a
+decodeWireChange constructor = do
+    (name, oldValue, newValue) <- decodeMapWith (T.empty, Nothing, Nothing) handler
+    case (oldValue, newValue) of
+        (Just oldTerm, Just newTerm) -> pure (constructor name oldTerm newTerm)
+        _ -> fail "decodeWireChange: missing old or new declaration"
+  where
+    handler acc@(name, oldValue, newValue) key = case key of
+        "id" -> (\v -> (v, oldValue, newValue)) <$> Dec.decodeString
+        "old" -> (\v -> (name, Just v, newValue)) <$> decodeWireTerm
+        "new" -> (\v -> (name, oldValue, Just v)) <$> decodeWireTerm
+        _ -> skipTerm >> pure acc
+
+decodeTuple2 :: (a -> b -> c) -> Decoder s a -> Decoder s b -> Decoder s c
+decodeTuple2 constructor decodeA decodeB = do
+    lengthOrIndef <- Dec.decodeListLenOrIndef
+    case lengthOrIndef of
+        Just 2 -> pure ()
+        Just n -> fail ("expected two-element tuple, found length " <> show n)
+        Nothing -> pure ()
+    constructor <$> decodeA <*> decodeB
 
 -- The struct decoders below build positionally rather than via record
 -- update: with 'DuplicateRecordFields', a record update like

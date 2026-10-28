@@ -20,7 +20,9 @@
 -- backend representation 'IoRegistryRep' is therefore 'RustIoRegistry',
 -- a newtype over the @u32@ slab handle (the same shape "Panproto.Rust"
 -- uses for protocols and schemas). 'releaseRegistry' frees the slot via
--- @pp_handle_free@ and is idempotent (a freed slot stays freed).
+-- @pp_handle_free@ as a one-shot ownership action. A repeated call is
+-- harmless only before another allocation reuses the slot; after reuse,
+-- the stale numeric handle aliases and frees the new resource.
 --
 -- == Bridging schema and instance
 --

@@ -717,17 +717,14 @@ impl<'a> InstanceView<'a> {
     }
 
     /// The index of `node` among the targets of the ordered edge `within`
-    /// leaving its parent: a graph edge's position (else its index among the
-    /// parent's ordered out-edges with that label), a tree arc's index among
-    /// its parent's arcs with that label; a row has none.
+    /// leaving its parent, after ordering graph edges by stored position and
+    /// edge id. A tree arc uses its index among the parent's arcs with that
+    /// label; a row has none.
     pub(crate) fn position_of(self, node: &ViewRef, within: &Edge) -> Option<u32> {
         let into = self
             .in_edges(node)
             .into_iter()
-            .find(|e| e.label == within)?;
-        if let Some(p) = into.position {
-            return Some(p);
-        }
+            .find(|e| e.label == within && self.is_ordinary_edge(e))?;
         match self {
             Self::Graph(_) => {
                 let ViewRef::Edge(id) = into.at else {
@@ -742,7 +739,7 @@ impl<'a> InstanceView<'a> {
                 });
                 let index = siblings
                     .into_iter()
-                    .filter(|edge| edge.label == within)
+                    .filter(|edge| edge.label == within && self.is_ordinary_edge(edge))
                     .position(|edge| edge.at == ViewRef::Edge(id))?;
                 u32::try_from(index).ok()
             }
@@ -750,7 +747,7 @@ impl<'a> InstanceView<'a> {
                 let index = self
                     .out_edges(&into.src)
                     .into_iter()
-                    .filter(|e| e.label == within)
+                    .filter(|e| e.label == within && self.is_ordinary_edge(e))
                     .position(|e| e.tgt == *node)?;
                 u32::try_from(index).ok()
             }
@@ -781,6 +778,18 @@ impl<'a> InstanceView<'a> {
     /// reports it as a foreign incident edge.
     pub(crate) fn is_fan_edge(self, edge: &EdgeRec<'_>) -> bool {
         matches!(self, Self::Graph(_)) && FanDomain::is_reserved(edge.label)
+    }
+
+    /// Whether `edge` is an ordinary arc for key paths and scopes.
+    ///
+    /// Fan incidence is excluded both by its reserved label and by either
+    /// endpoint being the reified hyper-edge node. The endpoint check also
+    /// rejects malformed foreign incidence with an ordinary-looking label.
+    pub(crate) fn is_ordinary_edge(self, edge: &EdgeRec<'_>) -> bool {
+        !self.is_fan_edge(edge)
+            && [&edge.src, &edge.tgt]
+                .into_iter()
+                .all(|endpoint| self.node(endpoint).is_some_and(|node| !node.fan))
     }
 }
 

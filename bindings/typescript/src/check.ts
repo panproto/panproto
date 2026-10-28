@@ -65,6 +65,7 @@ export class FullDiffReport {
       Object.keys(d.added_nsids).length > 0 ||
       d.removed_nsids.length > 0 ||
       d.changed_nsids.length > 0 ||
+      d.entry_change !== undefined ||
       d.added_variants.length > 0 ||
       d.removed_variants.length > 0 ||
       d.modified_variants.length > 0 ||
@@ -76,7 +77,29 @@ export class FullDiffReport {
       d.added_spans.length > 0 ||
       d.removed_spans.length > 0 ||
       d.modified_spans.length > 0 ||
-      d.nominal_changes.length > 0
+      d.nominal_changes.length > 0 ||
+      (d.added_coercions?.length ?? 0) > 0 ||
+      (d.removed_coercions?.length ?? 0) > 0 ||
+      (d.modified_coercions?.length ?? 0) > 0 ||
+      (d.added_mergers?.length ?? 0) > 0 ||
+      (d.removed_mergers?.length ?? 0) > 0 ||
+      (d.modified_mergers?.length ?? 0) > 0 ||
+      (d.added_defaults?.length ?? 0) > 0 ||
+      (d.removed_defaults?.length ?? 0) > 0 ||
+      (d.modified_defaults?.length ?? 0) > 0 ||
+      (d.added_policies?.length ?? 0) > 0 ||
+      (d.removed_policies?.length ?? 0) > 0 ||
+      (d.modified_policies?.length ?? 0) > 0 ||
+      (d.added_keys?.length ?? 0) > 0 ||
+      (d.removed_keys?.length ?? 0) > 0 ||
+      (d.modified_keys?.length ?? 0) > 0 ||
+      (d.added_references?.length ?? 0) > 0 ||
+      (d.removed_references?.length ?? 0) > 0 ||
+      (d.modified_references?.length ?? 0) > 0 ||
+      (d.added_target_sets?.length ?? 0) > 0 ||
+      (d.removed_target_sets?.length ?? 0) > 0 ||
+      (d.modified_target_sets?.length ?? 0) > 0 ||
+      (d.renamed_vertices?.length ?? 0) > 0
     );
   }
 

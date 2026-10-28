@@ -64,17 +64,21 @@ A failed audit returns the block to its author, and the block is audited again o
 
 ## Status
 
-The table lists each page of this part with the commit at which its blocks were last audited.
+The table lists each page represented in the `graph-core` scope, the number of
+that page's laws included in the 191-law scope, and the commit at which those
+included blocks were last audited.
 
 | Page | Laws | Audited commit |
 |---|---|---|
-| [Values](./values.md) | 41 | pending |
-| [Value I/O](./value-io.md) | 31 | pending |
-| [Theories](./theories.md) | 8 | pending |
-| [Keys and registration](./keys-and-registration.md) | 18 | pending |
-| [Instance representation](./representation.md) | 8 | pending |
-| [Kan extensions](./kan-extensions.md) | 12 | pending |
-| [Restriction and contraction](./restrict-and-contraction.md) | 13 | pending |
-| [Edits](./edits.md) | 8 | pending |
-| [Lenses](./lenses.md) | 20 | pending |
-| [Reference resolution](./resolution.md) | 16 | pending |
+| [Values](values.md) | 41 | pending |
+| [Value I/O](value-io.md) | 18 | pending |
+| [Theories](theories.md) | 8 | pending |
+| [Keys and registration](keys-and-registration.md) | 18 | pending |
+| [Instance representation](representation.md) | 8 | pending |
+| [Kan extensions](kan-extensions.md) | 12 | pending |
+| [Restriction and contraction](restrict-and-contraction.md) | 13 | pending |
+| [Edits](edits.md) | 8 | pending |
+| [Validation](validation.md) | 20 | pending |
+| [Segments](segments.md) | 10 | pending |
+| [Lenses](lenses.md) | 20 | pending |
+| [Reference resolution](resolution.md) | 15 | pending |

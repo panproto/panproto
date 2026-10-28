@@ -22,12 +22,14 @@ cabal build
 cabal test
 ```
 
-To use a release archive, pass the release tag explicitly. The fallback tag
-embedded in `fetch-bindist.sh` may lag behind the package version.
+To use a release archive, run `fetch-bindist.sh` without a version. It reads
+the version declared by `panproto.cabal`, so the downloaded archive and the
+Haskell package stay in lockstep. Pass a release tag only to test a different
+published version deliberately.
 
 ```sh
 cd bindings/haskell
-./bootstrap/fetch-bindist.sh v0.74.1
+./bootstrap/fetch-bindist.sh
 cabal build
 cabal test
 ```

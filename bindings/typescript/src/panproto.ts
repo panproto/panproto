@@ -90,7 +90,7 @@ export class Panproto implements Disposable {
    * Get or register a protocol by name.
    *
    * Built-in protocols are resolved from the WASM registry, which holds all
-   * 54 of them and is the single source of truth for their definitions. The
+   * 57 of them and is the single source of truth for their definitions. The
    * result is cached per instance, so the registry is read once per name.
    * Custom protocols must be registered first with
    * {@link Panproto.defineProtocol}.
@@ -224,8 +224,8 @@ export class Panproto implements Disposable {
    * language rather than a JSON document (SQL, GraphQL, Protobuf, CDDL,
    * …) are parsed with {@link parseSchemaSource}.
    *
-   * Both the hyphenated protocol name and its underscore registry-key
-   * spelling resolve.
+   * Both the canonical hyphenated protocol name and its underscore
+   * compatibility spelling resolve.
    *
    * @param protocol - The protocol the document is written in (e.g.
    *   `'json-schema'`, `'openapi'`)
@@ -345,11 +345,22 @@ export class Panproto implements Disposable {
    * Compile a lens DSL document (JSON or YAML) into a
    * {@link ProtolensChainHandle}.
    *
-   * The DSL is a declarative authoring format for protolens chains —
-   * sequences of rename/remove/add/hoist/nest/scoped steps, value-level
-   * expressions, and theory-level pullbacks. Compilation produces the
-   * same `ProtolensChain` as the underlying `panproto-lens-dsl` crate's
-   * Rust API.
+   * The DSL is a declarative authoring format for ordered structural and
+   * value-level stages: rename/remove/add/hoist/nest/scoped steps,
+   * expressions, and theory-level pullbacks. This directional entry point
+   * rejects the DSL's `symmetric` body; use {@link symmetricLens} and the
+   * {@link SymmetricLensHandle} sync methods for symmetric operation.
+   * Compilation of an accepted directional body stores a WASM-side
+   * `CompiledLensDoc`, exposed through the chain-compatible
+   * {@link ProtolensChainHandle}. That resource retains stage order and value
+   * transforms; its ordinary protolens chain is only a compatibility summary
+   * for chain-shaped operations.
+   *
+   * {@link ProtolensChainHandle.instantiate} evaluates all ordered stages of
+   * the accepted directional document against their running schemas. The
+   * single-lens return type requires the normalized result to contain exactly
+   * one group. See the individual `ProtolensChainHandle` methods for
+   * operations that inspect or return only the compatibility chain.
    *
    * Nickel source is not supported directly (its contract imports need a
    * filesystem); precompile Nickel → JSON on the host and pass that.
@@ -360,9 +371,10 @@ export class Panproto implements Disposable {
    *                     `'app.bsky.feed.post:body'`
    * @param format - `'json'` (default for objects/JSON strings/bytes) or
    *                 `'yaml'`
-   * @returns A `ProtolensChainHandle` holding the compiled chain
+   * @returns A chain-compatible handle backed by the compiled lens document
    * @throws {@link import('./types.js').WasmError} if parsing or
-   *         compilation fails
+   *         compilation fails, including when the document has a `symmetric`
+   *         body
    *
    * @example
    * ```ts
@@ -555,7 +567,7 @@ export class Panproto implements Disposable {
   /**
    * List all built-in protocol names.
    *
-   * Returns the names of all 54 built-in protocols supported by the
+   * Returns the canonical names of all 57 built-in protocols supported by the
    * WASM layer.
    *
    * @returns Array of protocol name strings

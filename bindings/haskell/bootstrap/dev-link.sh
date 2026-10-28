@@ -24,6 +24,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HASKELL_DIR="$(pwd)"
 REPO_ROOT="$(cd ../.. && pwd)"
+BUILD_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
+case "$BUILD_TARGET_DIR" in
+    /*) ;;
+    *) BUILD_TARGET_DIR="$REPO_ROOT/$BUILD_TARGET_DIR" ;;
+esac
+BUILD_RELEASE_DIR="$BUILD_TARGET_DIR/release"
+if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    BUILD_RELEASE_DIR="$BUILD_TARGET_DIR/$CARGO_BUILD_TARGET/release"
+fi
 
 # Sanity check: warn if `ld` resolves to something other than the
 # system linker. Anaconda and some other Python distributions ship
@@ -55,19 +64,37 @@ if [ -n "$FEATURES" ]; then
 fi
 
 echo "building panproto-c (release${FEATURES:+, features: $FEATURES})..."
-( cd "$REPO_ROOT" && cargo build -p panproto-c --release "${CARGO_FEATURE_ARGS[@]+"${CARGO_FEATURE_ARGS[@]}"}" )
+( cd "$REPO_ROOT" && cargo build --locked -p panproto-c --release --target-dir "$BUILD_TARGET_DIR" "${CARGO_FEATURE_ARGS[@]+"${CARGO_FEATURE_ARGS[@]}"}" )
 
 mkdir -p "$HASKELL_DIR/.panproto-c/lib" "$HASKELL_DIR/.panproto-c/include"
 
 cp -f "$REPO_ROOT/crates/panproto-c/include/panproto.h" \
       "$HASKELL_DIR/.panproto-c/include/"
+if ! cmp -s "$HASKELL_DIR/.panproto-c/include/panproto.h" \
+    "$HASKELL_DIR/cbits/panproto.h"; then
+    echo "error: cbits/panproto.h does not match the canonical C header" >&2
+    echo "       regenerate and sync all C header copies before staging" >&2
+    exit 1
+fi
 
 # Stage panproto-c artifacts. Whichever exists for the host platform.
+rm -f \
+    "$HASKELL_DIR/.panproto-c/lib/libpanproto_c.a" \
+    "$HASKELL_DIR/.panproto-c/lib/libpanproto_c.dylib" \
+    "$HASKELL_DIR/.panproto-c/lib/libpanproto_c.so" \
+    "$HASKELL_DIR/.panproto-c/lib/panproto_c.lib" \
+    "$HASKELL_DIR/.panproto-c/lib/panproto_c.dll"
+staged=0
 for f in libpanproto_c.a libpanproto_c.dylib libpanproto_c.so panproto_c.lib panproto_c.dll; do
-    if [ -f "$REPO_ROOT/target/release/$f" ]; then
-        cp -f "$REPO_ROOT/target/release/$f" "$HASKELL_DIR/.panproto-c/lib/"
+    if [ -f "$BUILD_RELEASE_DIR/$f" ]; then
+        cp -f "$BUILD_RELEASE_DIR/$f" "$HASKELL_DIR/.panproto-c/lib/"
+        staged=$((staged + 1))
     fi
 done
+if [ "$staged" -eq 0 ]; then
+    echo "error: cargo produced no library artifact in $BUILD_RELEASE_DIR" >&2
+    exit 1
+fi
 
 # The glue wraps the gated cold-path entry points behind the same cpp
 # guards the cabal flags set, so a feature build needs the matching -D

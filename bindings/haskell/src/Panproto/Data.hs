@@ -243,7 +243,11 @@ class (LensBackend back, InstanceBackend back) => DataBackend back where
     getMigrationComplement :: Proxy back -> [Complement] -> IO [Complement]
 
     -- | Release the resources held by a data-set representation.
-    -- Idempotent at the slab level, as with the other backend reps.
+    -- A raw-backed representation must be discarded after this one-shot
+    -- release. Repeating the call is harmless only while the slot remains
+    -- free; after reuse, the stale numeric handle aliases and frees the new
+    -- resource. Rust callers should prefer
+    -- 'Panproto.Rust.Data.withDataSet'.
     releaseDataSet :: DataSetRep back -> IO ()
 
 -- ---------------------------------------------------------------------------

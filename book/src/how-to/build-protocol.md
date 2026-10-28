@@ -1,6 +1,6 @@
 # Build a custom protocol
 
-A custom protocol starts with a `Protocol` value and its schema and instance theories. Parsing, emission, migration, and language bindings are separate integration points. Implement only the surfaces the protocol will expose, and register each one explicitly.
+A custom protocol starts with a `Protocol` value and its schema and instance theories. Parsing, emission, and format-specific codecs are separate integration points. A protocol need only implement the surfaces it exposes; one registry entry records its shared capabilities.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ From Python, the same DSL document loads via `Theory.from_nickel(source)`, `Theo
 
 ### Implement external-format boundaries
 
-`panproto-protocols` has no common `Parser` or `Emitter` trait. Protocol modules expose format-specific free functions. A JSON document parser usually has the shape `fn(&serde_json::Value) -> Result<Schema, ProtocolError>`; a text-language parser usually accepts `&str`. Add the parser to `parse_schema_document` or `parse_schema_source` in `crates/panproto-protocols/src/lib.rs`, and add its canonical name to the corresponding `document_parser_protocols` or `source_parser_protocols` list.
+`panproto-protocols` has no common `Emitter` trait. Protocol modules expose format-specific free functions. A JSON document parser usually has the shape `fn(&serde_json::Value) -> Result<Schema, ProtocolError>`; a text-language parser usually accepts `&str`. Record that function as `Parser::Document` or `Parser::Source` in the protocol's shared descriptor. Use `Parser::Programmatic` when schemas for the protocol are constructed in code rather than read from an external schema language. The parser dispatch and parser listings derive from this descriptor.
 
 Emitters are also format-specific functions in their protocol modules. Add one only when the protocol has a defined external representation and the application needs to produce it. Internal schema validation and migration operate on `Schema` values and do not require an external-format emitter.
 
@@ -58,7 +58,7 @@ use crate::theories;
 
 pub fn protocol() -> Protocol {
     Protocol {
-        name: "my_proto".into(),
+        name: "my-proto".into(),
         schema_theory: "ThMyProtoSchema".into(),
         instance_theory: "ThMyProtoInstance".into(),
         ..Default::default()
@@ -78,15 +78,12 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(
 
 Pick the `theories::register_*` helper that matches the intended schema and instance shapes (`register_constrained_multigraph_wtype`, `register_typed_graph_wtype`, `register_hypergraph_functor`, and related helpers). A helper is appropriate only when its constructed theories match the names and operations declared by the protocol.
 
-Registration is surface-specific:
+Registration has two shared steps:
 
 1. Export the module from its category module in `panproto-protocols`.
-2. Add document or source parsing to the dispatch functions in `panproto-protocols::lib` when the protocol has an external parser.
-3. Add the protocol name and constructor to `builtin_protocol_names` and `lookup_builtin_protocol` in `crates/panproto-wasm/src/api/helpers.rs` for the TypeScript SDK. Add theory registration there as well if SDK operations need the theories; that registry currently has arms only for `atproto`, `json-schema`, `graphql`, `sql`, and `protobuf`.
-4. Add the constructor to `crates/panproto-py/src/protocols.rs` for the Python SDK.
-5. Add the constructor and theory registration to `resolve_protocol` and `build_theory_registry` in `crates/panproto-cli/src/cmd/helpers.rs` for CLI commands. Both tables currently contain only `atproto`.
+2. Add one `ProtocolDescriptor` to `crates/panproto-protocols/src/registry.rs`. Give it the canonical name, any aliases, its `Parser` variant, the `protocol` constructor, a fallible theory-registration function, and its bundle capabilities.
 
-Other bindings that expose a fixed built-in table need their own entry. A Rust caller can use the module's `protocol()` and `register_theories()` functions directly without a global lookup.
+The CLI, C, WebAssembly, and TypeScript protocol listings and lookups derive from this registry. The semantic-protocol portion of the Python listing and lookup does as well; Python then appends the enabled source-language grammars. The CLI, C, and WebAssembly theory registries use the same descriptors. A failed theory registration must leave no partial protocol-specific entry; this matters for registrations such as ATProto that build theories by pushout. Format-specific record codecs and emitters remain separate integration points and need their own dispatch entries when a binding exposes them. A Rust caller may also use the module's `protocol()` and `register_theories()` functions directly.
 
 ## Verification
 
@@ -99,8 +96,8 @@ Add tests under the new protocol module with names containing `my_proto`; the co
 ## Common mistakes
 
 - Declaring extensions before the colimit components are correct. Extensions interact with the colimit structure; if a building-block step is wrong, the extension may not even reach registration.
-- Adding a module without updating its dispatch tables. The Rust module remains directly callable, but string-based SDK and CLI lookups will not find it.
-- Assuming the CLI uses the same catalog as the language SDKs. Its resolver and theory registry are separate and currently recognize only `atproto`.
+- Adding a module without a shared descriptor. The Rust module remains directly callable, but string-based SDK, binding, and CLI lookups will not find it.
+- Assuming that a shared descriptor supplies a format-specific record codec or emitter. It supplies protocol and theory lookup plus schema-parser dispatch; other boundary operations still require their own integration.
 - Requiring an emitter for internal operations. `schema validate` reads panproto schema JSON directly; it does not call a protocol document parser or emitter.
 
 ## See also

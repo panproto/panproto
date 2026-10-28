@@ -108,11 +108,10 @@ pub struct TaskRecord {
 
 impl TaskRecord {
     /// The digest naming a task's inputs: [`SEGMENT_TASK_CONTEXT`] over the
-    /// lens identity, the task key and the digests of the input artifacts in
-    /// ascending order.
+    /// lens identity, the task key and the sorted multiset of input-artifact
+    /// digests.
     ///
-    /// A run's budget is not an input: no phase output depends on it, so a
-    /// rerun under another budget reuses every committed task.
+    /// An execution budget is not part of this digest.
     ///
     /// ```
     /// use panproto_inst::identity::Digest;
@@ -121,7 +120,7 @@ impl TaskRecord {
     /// let lens = Digest([1; 32]);
     /// let task = TaskKey { phase: Phase::Emit, segment: Some(SegmentId(0)) };
     /// let (a, b) = (Digest([2; 32]), Digest([3; 32]));
-    /// // The input digests are a set: their order does not matter.
+    /// // The input digests form a sorted multiset: their order does not matter.
     /// assert_eq!(
     ///     TaskRecord::inputs_digest(&lens, task, &[a, b]),
     ///     TaskRecord::inputs_digest(&lens, task, &[b, a]),

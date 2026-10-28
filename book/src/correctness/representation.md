@@ -34,9 +34,9 @@ The reserved fan kinds are `hyper_parent` and `hyper_label`. The *node floor* is
 
 - Law ID: `representation.tree-to-graph-total`
 - Reference: `panproto_reference::encode::tree_to_graph`
-- Enumerator: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, fans=0; explicit cases: 1 valid fan, 2 saturated-floor cases, 1 reserved-vocabulary refusal, 1 mixed reserved-plus-dangling precedence witness and 1 second-parent refusal`
-- Exhaustive differential test: `tree_to_graph_matches_production_on_the_exact_carrier_and_refusals; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=tree_to_graph_matches_production_on_the_exact_carrier_and_refusals)'`
-- Property differential test: `every_valid_tree_embeds_and_round_trips; command: cargo nextest run -p panproto-inst --test a_tree_embeds_in_its_graph_form --release --no-tests=fail -E 'test(=every_valid_tree_embeds_and_round_trips)'`
+- Evidence scope: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, fans=0; explicit cases: 1 valid fan, 2 saturated-floor cases, 1 reserved-vocabulary refusal, 1 mixed reserved-plus-dangling precedence witness and 1 second-parent refusal`
+- Production certificate: `tree_to_graph_matches_production_on_the_exact_carrier_and_refusals; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=tree_to_graph_matches_production_on_the_exact_carrier_and_refusals)'`
+- Independent reference anchor: `every_valid_tree_embeds_and_round_trips; command: cargo nextest run -p panproto-inst --test a_tree_embeds_in_its_graph_form --release --no-tests=fail -E 'test(=every_valid_tree_embeds_and_round_trips)'`
 - File: `crates/panproto-inst/src/ginstance/embed.rs`
 - File: `crates/panproto-inst/src/ginstance/embedding.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
@@ -84,9 +84,9 @@ A *data-free fan node* has no value, discriminator, fields, position, or annotat
 
 - Law ID: `representation.graph-to-tree-decision`
 - Reference: `panproto_reference::encode::graph_to_tree`
-- Enumerator: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, each checked at 3 proposed roots, plus 3 typed-refusal witnesses and 1 named schema-free fan-parent witness`
-- Exhaustive differential test: `graph_to_tree_decision_matches_production_on_the_exact_carrier; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=graph_to_tree_decision_matches_production_on_the_exact_carrier)'`
-- Property differential test: `a_tree_shaped_graph_round_trips_through_its_tree; command: cargo nextest run -p panproto-inst --test a_graph_is_a_tree_when_its_shape_says_so --release --no-tests=fail -E 'test(=a_tree_shaped_graph_round_trips_through_its_tree)'`
+- Evidence scope: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, each checked at 3 proposed roots, plus 3 typed-refusal witnesses and 1 named schema-free fan-parent witness`
+- Production certificate: `graph_to_tree_decision_matches_production_on_the_exact_carrier; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=graph_to_tree_decision_matches_production_on_the_exact_carrier)'`
+- Independent reference anchor: `a_tree_shaped_graph_round_trips_through_its_tree; command: cargo nextest run -p panproto-inst --test a_graph_is_a_tree_when_its_shape_says_so --release --no-tests=fail -E 'test(=a_tree_shaped_graph_round_trips_through_its_tree)'`
 - File: `crates/panproto-inst/src/ginstance/tree_shape.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
@@ -129,9 +129,9 @@ The schema-induced parent-name function returns a declared hyper-edge's `parent_
 
 - Law ID: `representation.reify-round-trip`
 - Reference: `panproto_reference::encode::reify`
-- Enumerator: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, plus 1 explicit fan image and 1 reserved-vocabulary refusal`
-- Exhaustive differential test: `reification_round_trip_matches_production_on_the_exact_image; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=reification_round_trip_matches_production_on_the_exact_image)'`
-- Property differential test: `unreify_inverts_reify; command: cargo nextest run -p panproto-inst --test fans_reify_exactly_on_the_fan_domain --release --no-tests=fail -E 'test(=unreify_inverts_reify)'`
+- Evidence scope: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, plus 1 explicit fan image and 1 reserved-vocabulary refusal`
+- Production certificate: `reification_round_trip_matches_production_on_the_exact_image; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=reification_round_trip_matches_production_on_the_exact_image)'`
+- Independent reference anchor: `unreify_inverts_reify; command: cargo nextest run -p panproto-inst --test fans_reify_exactly_on_the_fan_domain --release --no-tests=fail -E 'test(=unreify_inverts_reify)'`
 - File: `crates/panproto-inst/src/ginstance/reify.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
@@ -179,9 +179,9 @@ Every variable-length sequence begins with its `u64` length. Strings, optional v
 - Reference: `panproto_reference::canonical::decode_graph`
 - Reference: `panproto_reference::canonical::decode_table`
 - Reference: `panproto_reference::canonical::decode_tree`
-- Enumerator: `panproto_reference::enumerate::representation::{graphs,tables,trees}; exact carrier: 8 graphs, 2 tables, 2 validated trees, plus 3 trailing-byte refusals and 1 malformed tree-byte collision outside the theorem`
-- Exhaustive differential test: `canonical_graph_table_and_tree_bytes_decode_to_the_same_values; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=canonical_graph_table_and_tree_bytes_decode_to_the_same_values)'`
-- Property differential test: `a_graph_round_trips_through_its_encodings; command: cargo nextest run -p panproto-inst --test a_tree_is_a_graph_without_loss --release --no-tests=fail -E 'test(=a_graph_round_trips_through_its_encodings)'`
+- Evidence scope: `panproto_reference::enumerate::representation::{graphs,tables,trees}; exact carrier: 8 graphs, 2 tables, 2 validated trees, plus 3 trailing-byte refusals and 1 malformed tree-byte collision outside the theorem`
+- Production certificate: `canonical_graph_table_and_tree_bytes_decode_to_the_same_values; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=canonical_graph_table_and_tree_bytes_decode_to_the_same_values)'`
+- Independent reference anchor: `a_graph_round_trips_through_its_encodings; command: cargo nextest run -p panproto-inst --test a_tree_is_a_graph_without_loss --release --no-tests=fail -E 'test(=a_graph_round_trips_through_its_encodings)'`
 - File: `crates/panproto-inst/src/ginstance/canonical.rs`
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
@@ -224,9 +224,9 @@ A digest is a 32-byte array. Little-endian `u16` writes the low byte before the 
 
 - Law ID: `representation.identity-envelope`
 - Reference: `panproto_reference::canonical::identity`
-- Enumerator: `panproto_inst::ComplementShape::ALL; exact carrier: 4 shape variants`
-- Exhaustive differential test: `identity_envelope_layout_matches_the_production_manifest_writer; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=identity_envelope_layout_matches_the_production_manifest_writer)'`
-- Property differential test: `identity_envelope_is_the_exact_version_two_layout; command: cargo nextest run -p panproto-reference --test schema_v2 --release --no-tests=fail -E 'test(=identity_envelope_is_the_exact_version_two_layout)'`
+- Evidence scope: `panproto_inst::ComplementShape::ALL; exact carrier: 4 shape variants`
+- Production certificate: `identity_envelope_layout_matches_the_production_manifest_writer; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=identity_envelope_layout_matches_the_production_manifest_writer)'`
+- Independent reference anchor: `identity_envelope_is_the_exact_version_two_layout; command: cargo nextest run -p panproto-reference --test schema_v2 --release --no-tests=fail -E 'test(=identity_envelope_is_the_exact_version_two_layout)'`
 - File: `crates/panproto-inst/src/identity.rs`
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
@@ -270,9 +270,9 @@ A table is well formed when both endpoints of every pair occur in its row map. T
 
 - Law ID: `representation.table-to-graph-total`
 - Reference: `panproto_reference::encode::table_to_graph`
-- Enumerator: `panproto_reference::enumerate::representation::tables; exact carrier: 2 tables, plus 1 relation-pair table, 1 malformed-pair refusal and 1 saturated embedding refusal`
-- Exhaustive differential test: `table_to_graph_matches_production_on_the_exact_carrier_and_refusals; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=table_to_graph_matches_production_on_the_exact_carrier_and_refusals)'`
-- Property differential test: `the_table_graph_round_trip_is_a_bijection; command: cargo nextest run -p panproto-inst --test a_table_is_a_graph_without_loss --release --no-tests=fail -E 'test(=the_table_graph_round_trip_is_a_bijection)'`
+- Evidence scope: `panproto_reference::enumerate::representation::tables; exact carrier: 2 tables, plus 1 relation-pair table, 1 malformed-pair refusal and 1 saturated embedding refusal`
+- Production certificate: `table_to_graph_matches_production_on_the_exact_carrier_and_refusals; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=table_to_graph_matches_production_on_the_exact_carrier_and_refusals)'`
+- Independent reference anchor: `the_table_graph_round_trip_is_a_bijection; command: cargo nextest run -p panproto-inst --test a_table_is_a_graph_without_loss --release --no-tests=fail -E 'test(=the_table_graph_round_trip_is_a_bijection)'`
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
@@ -316,9 +316,9 @@ A well-formed graph has node-map keys equal to the stored node ids and has both 
 
 - Law ID: `representation.graph-to-table-decision`
 - Reference: `panproto_reference::encode::graph_to_table`
-- Enumerator: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, plus positioned-edge, duplicate-pair, nested-cell, unknown-edge, functional-multiplicity and missing-required-lift refusals`
-- Exhaustive differential test: `graph_to_table_decision_matches_production_on_the_exact_carrier; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=graph_to_table_decision_matches_production_on_the_exact_carrier)'`
-- Property differential test: `a_table_shaped_graph_round_trips_through_its_table; command: cargo nextest run -p panproto-inst --test a_table_is_a_graph_without_loss --release --no-tests=fail -E 'test(=a_table_shaped_graph_round_trips_through_its_table)'`
+- Evidence scope: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, plus positioned-edge, duplicate-pair, nested-cell, unknown-edge, functional-multiplicity and missing-required-lift refusals`
+- Production certificate: `graph_to_table_decision_matches_production_on_the_exact_carrier; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=graph_to_table_decision_matches_production_on_the_exact_carrier)'`
+- Independent reference anchor: `a_table_shaped_graph_round_trips_through_its_table; command: cargo nextest run -p panproto-inst --test a_table_is_a_graph_without_loss --release --no-tests=fail -E 'test(=a_table_shaped_graph_round_trips_through_its_table)'`
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
@@ -362,9 +362,9 @@ A *fan node* has shape `HyperEdge`. A parent edge has kind `hyper_parent`; exact
 
 - Law ID: `representation.fan-domain`
 - Reference: `panproto_reference::fan::violations_at`
-- Enumerator: `explicit labelled fan witnesses; exact carrier: 4 graph/node/schema cases covering absence, reserved vocabulary, missing parent, unknown hyper-edge, foreign incidence, multiple parents, duplicate labels and unknown labels`
-- Exhaustive differential test: `fan_domain_lists_the_same_ordered_typed_violations; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=fan_domain_lists_the_same_ordered_typed_violations)'`
-- Property differential test: `unreify_inverts_reify; command: cargo nextest run -p panproto-inst --test fans_reify_exactly_on_the_fan_domain --release --no-tests=fail -E 'test(=unreify_inverts_reify)'`
+- Evidence scope: `explicit labelled fan witnesses; exact carrier: 4 graph/node/schema cases covering absence, reserved vocabulary, missing parent, unknown hyper-edge, foreign incidence, multiple parents, duplicate labels and unknown labels`
+- Production certificate: `fan_domain_lists_the_same_ordered_typed_violations; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=fan_domain_lists_the_same_ordered_typed_violations)'`
+- Independent reference anchor: `unreify_inverts_reify; command: cargo nextest run -p panproto-inst --test fans_reify_exactly_on_the_fan_domain --release --no-tests=fail -E 'test(=unreify_inverts_reify)'`
 - File: `crates/panproto-inst/src/ginstance/reify.rs`
 - File: `crates/panproto-inst/src/fan_violation.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`

@@ -83,4 +83,40 @@ describe('formatExpr', () => {
 
     expect(formatExpr('ignored', wasm)).toBe('match value { Some(x) -> <closure \\y -> y> }');
   });
+
+  it('formats exact literals with the Rust pretty-printer spellings', () => {
+    const wasm = createWasm();
+    vi.mocked(wasm.exports.parse_expr).mockReturnValueOnce(
+      packToWasm({
+        List: [
+          { Lit: { Decimal: { negative: false, digits: '150', exponent: '-2' } } },
+          {
+            Lit: {
+              BigInt: {
+                negative: false,
+                significand: '9223372036854775808',
+                zeros: '0',
+              },
+            },
+          },
+          {
+            Lit: {
+              Temporal: {
+                date_time: [
+                  { year: 2026, month: 9, day: 28 },
+                  { hour: 12, minute: 34, second: 56, fraction: '789' },
+                  { fixed: 330 },
+                  'lower',
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(formatExpr('ignored', wasm)).toBe(
+      '[(parse_decimal "1.50"), 9223372036854775808, "2026-09-28t12:34:56.789+05:30"]',
+    );
+  });
 });

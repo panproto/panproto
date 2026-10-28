@@ -8,7 +8,7 @@ use panproto_reference::edit::{
     self, AttrKey, AttrVal, EditConflict, GElem, GPayload, GraphDelta, Mismatch, NodeMeta, TElem,
     TKey, TPayload, TVal, TableApplyError, TableDelta, TreeEdit,
 };
-use panproto_reference::encode::TreeEmbedding;
+use panproto_reference::encode::{ParentNameRule, TreeEmbedding};
 use panproto_reference::enumerate::edits as carrier;
 use panproto_reference::model::{Fan, GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
 use panproto_reference::segment::Digest;
@@ -4565,7 +4565,10 @@ fn delta_is_an_image_of_reading(
     let mut read_embedding = allocation.clone();
     let read_tree = edit::apply_tree(reading, tree, &mut read_embedding).ok();
     let edited_tree = edit::apply(delta, graph).ok().and_then(|edited| {
-        panproto_reference::encode::graph_to_tree(&edited, tree.root, &|_| None).ok()
+        panproto_reference::encode::graph_to_tree(&edited, tree.root, &|_| {
+            ParentNameRule::Exact(None)
+        })
+        .ok()
     });
     read_tree.is_some()
         && read_tree == edited_tree
@@ -5610,7 +5613,10 @@ fn delta_is_an_unbounded_image_of_reading(
     reading: &TreeEdit,
 ) -> bool {
     let Some(edited_tree) = edit::apply(delta, graph).ok().and_then(|edited| {
-        panproto_reference::encode::graph_to_tree(&edited, tree.root, &|_| None).ok()
+        panproto_reference::encode::graph_to_tree(&edited, tree.root, &|_| {
+            ParentNameRule::Exact(None)
+        })
+        .ok()
     }) else {
         return false;
     };
@@ -6609,7 +6615,7 @@ fn tree_reader_refuses_a_fan_node_kept_under_edges_redrawn_to_another_member() {
     let mut moved_member = join_tree();
     moved_member.fans[0].children.insert("arm".into(), 4);
     assert_eq!(
-        panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None),
+        panproto_reference::encode::graph_to_tree(&edited, 0, &|_| { ParentNameRule::Exact(None) }),
         Ok(moved_member.clone())
     );
     let reading = TreeEdit::Sequence(vec![
@@ -6690,7 +6696,9 @@ fn tree_reader_refuses_redrawing_part_of_a_fan() {
         };
         let edited = edit::apply(&delta, &graph).unwrap();
         assert_eq!(
-            panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None),
+            panproto_reference::encode::graph_to_tree(&edited, 0, &|_| {
+                ParentNameRule::Exact(None)
+            }),
             Ok(join_tree())
         );
         readings.push(edit::tree_edit_from_graph_delta(
@@ -7131,7 +7139,7 @@ fn a_tree_node_at_the_id_maximum_reads_exactly_over_unbounded_ids_and_exhausts_i
     let edited_tree = panproto_reference::encode::graph_to_tree(
         &edit::apply(&delta, &graph).unwrap(),
         0,
-        &|_| None,
+        &|_| ParentNameRule::Exact(None),
     )
     .unwrap();
     let mut unbounded = edit::unbounded_embedding(&embedding);
@@ -7192,7 +7200,7 @@ fn a_reading_that_draws_a_fan_past_a_high_node_has_the_effect_over_unbounded_ids
     let edited_tree = panproto_reference::encode::graph_to_tree(
         &edit::apply(&delta, &graph).unwrap(),
         0,
-        &|_| None,
+        &|_| ParentNameRule::Exact(None),
     )
     .unwrap();
     let mut scripted = edit::unbounded_embedding(&embedding);
@@ -7528,7 +7536,7 @@ fn tree_reader_refuses_a_fan_redrawn_under_its_own_node_id() {
     );
     let edited = edit::apply(&delta, &graph).unwrap();
     assert_eq!(
-        panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None),
+        panproto_reference::encode::graph_to_tree(&edited, 0, &|_| { ParentNameRule::Exact(None) }),
         Ok(join_tree())
     );
     assert!(not_tree_edit(
@@ -7606,7 +7614,12 @@ fn an_arc_redrawn_one_below_the_edge_floor_is_refused_and_at_the_floor_reads_bac
     let at = redrawn(u32::MAX);
     for delta in [&below, &at] {
         let edited = edit::apply(delta, &graph).unwrap();
-        assert!(panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None).is_ok());
+        assert!(
+            panproto_reference::encode::graph_to_tree(&edited, 0, &|_| {
+                ParentNameRule::Exact(None)
+            })
+            .is_ok()
+        );
     }
     assert!(not_tree_edit(
         &edit::tree_edit_from_graph_delta(&tree, &embedding, &below, None),
@@ -7658,7 +7671,12 @@ fn a_fan_redrawn_one_below_the_node_floor_is_refused_and_at_the_floor_reads_back
     let at = redrawn(u32::MAX);
     for delta in [&below, &at] {
         let edited = edit::apply(delta, &graph).unwrap();
-        assert!(panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None).is_ok());
+        assert!(
+            panproto_reference::encode::graph_to_tree(&edited, 0, &|_| {
+                ParentNameRule::Exact(None)
+            })
+            .is_ok()
+        );
     }
     assert!(not_tree_edit(
         &edit::tree_edit_from_graph_delta(&tree, &embedding, &below, None),
@@ -7721,7 +7739,9 @@ fn a_fan_kept_under_a_redrawn_member_edge_is_refused_when_its_reading_draws_past
         .add
         .insert(GElem::Edge(7), GPayload::Edge(plain_edge(0, u32::MAX, top)));
     let edited = edit::apply(&delta, &graph).unwrap();
-    let edited_tree = panproto_reference::encode::graph_to_tree(&edited, 0, &|_| None).unwrap();
+    let edited_tree =
+        panproto_reference::encode::graph_to_tree(&edited, 0, &|_| ParentNameRule::Exact(None))
+            .unwrap();
     assert_eq!(edited_tree.fans, vec![arm_fan(2, "fan", 4)]);
     assert!(edited_tree.nodes.contains_key(&u32::MAX));
     assert_eq!(

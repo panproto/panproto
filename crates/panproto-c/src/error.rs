@@ -37,7 +37,7 @@ pub enum PpStatus {
     Err = 1,
     /// A panic was caught at the FFI boundary.
     Panic = 2,
-    /// A handle was out of range or already freed.
+    /// A handle was out of range or its slot is currently free.
     InvalidHandle = 3,
     /// A handle pointed at a resource of the wrong type.
     TypeMismatch = 4,

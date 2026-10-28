@@ -66,7 +66,22 @@ class TestProtocolRegistry:
 
     def test_list_builtin_protocols_includes_semantic(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) >= 50
+        assert len(names) >= 57
+        assert {"csv", "toml", "yaml"}.issubset(names)
+        for canonical in (
+            "edi-x12",
+            "iso-space",
+            "json-schema",
+            "k8s-crd",
+            "laf-graf",
+            "msgpack-schema",
+            "rss-atom",
+            "swift-mt",
+            "vcard-ical",
+            "web-annotation",
+        ):
+            assert canonical in names
+            assert canonical.replace("-", "_") not in names
 
     def test_list_contains_atproto(self) -> None:
         assert "atproto" in panproto.list_builtin_protocols()
@@ -2354,9 +2369,7 @@ class TestRepositoryDataAccess:
         head_before = repo.head()
         config2 = tmp_path / "p2-config.json"
         config2.write_text('[{"configuration": "two"}]')
-        idx = repo.add_data(
-            str(config2), key="p2:configuration", schema_id=str(config_schema_id)
-        )
+        idx = repo.add_data(str(config2), key="p2:configuration", schema_id=str(config_schema_id))
         assert repo.head() == head_before
         assert idx["staged"] is None
         staged_data = idx["staged_data"]
@@ -2375,9 +2388,7 @@ class TestRepositoryDataAccess:
 
         config3 = tmp_path / "p3-config.json"
         config3.write_text('[{"configuration": "three"}]')
-        repo.add_data(
-            str(config3), key="p3:configuration", schema_id=str(config_schema_id)
-        )
+        repo.add_data(str(config3), key="p3:configuration", schema_id=str(config_schema_id))
         record3 = tmp_path / "p3-record.json"
         record3.write_text('[{"value": 3}]')
         repo.add_data(str(record3), key="p3")

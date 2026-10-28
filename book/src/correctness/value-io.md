@@ -14,6 +14,10 @@ The executable fields name the closest bounded reference witness and production 
 
 For every route $r$ and value $v$ for which $E_r(v)=b$, reading $b$ under the route's declared scalar kind returns $v$. For strings, booleans, nulls and integers this is $P_r(E_r(v))=v$. Big integers, exact decimals and binary64 values are read under their respective numeric kinds, and temporal values are read under the lexical form carried by the value.
 
+The production certificate quantifies over the always-compiled complement-free JSON, XML, CSV and TSV routes. The reference operation remains defined on TOML and YAML; the certificate excludes their feature-gated production CST readers.
+
+Open JSON objects also admit the reserved `Value::Blob` carrier. [L-value-io-19](#L-value-io-19) fixes its canonical bytes and shows that the public JSON parser recovers the identical blob value. This is the structured-value instance of the same section equation in the production route; the scalar reference enumerator does not model structured values.
+
 ### Outside the domain
 
 The law makes no claim when emission returns `NotRepresentable`. This includes null on TOML, XML, CSV and TSV; booleans on the three text-cell routes; XML decimals with a positive or structurally excessive scale exponent; special decimals; nonfinite floats on JSON, CSV and TSV; noncanonical NaN payloads; TSV strings containing a tab or line break; and temporal values rejected by [L-value-io-5](#L-value-io-5).
@@ -28,16 +32,18 @@ The functions $P_r$ and $E_r$ are defined above. A typed numeric reading applies
 2. For a temporal value it recovers the carried lexical form, removes JSON string quoting when necessary, and applies `parse_as`. Equality with the original value is the return condition.
 3. For the three representation-sensitive numeric variants it applies exact dialect coercion under the matching scalar kind. The emitter writes the exact integer or decimal representation and a shortest binary64 spelling, so successful coercion returns the original carrier.
 4. Every other emitted value is passed to `parse`, and `round_trip` returns `true` exactly when the parsed value equals $v$.
+5. The JSON tree writer starts the root at enclosing-container depth zero, increments the depth across every schema object or list, and increments it once more for an open extra field. Nested `Value::Unknown` objects and `Value::List` arrays add one at each container. Every value at depth 128 is refused, matching the parser. A blob at depth $d$ also contains a `ref` object and its `$link` string, so it is admitted exactly when $d+2<128$. The exact four-member object is recognized before the generic object case, and its link, media type and unsigned size reconstruct the original `Value::Blob`. Law 19 compares the source and reparsed trees under structural instance equivalence, checks the recovered blob directly, and checks exact JSON bytes after re-emission.
 
 ### Executable counterpart
 
 - Law ID: `value-io.rcm-prop1`
 - Reference: `panproto_reference::value_io::round_trip`
-- Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, routes=6`
-- Production differential test: `bounded_decimal_round_trips_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_decimal_round_trips_match_reference)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::numerals; numerals=600, always-compiled complement-free routes=4, labelled decimal cases=2400`
+- Production certificate: `bounded_decimal_round_trips_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_decimal_round_trips_match_reference)'`
+- Structured JSON certificate: `canonical_blob_writer_matches_independent_atproto_layout; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_blob_writer_matches_independent_atproto_layout)'`
+- Independent reference anchor: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run --release --locked -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
+- Fixed production regression: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run --release --locked -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
-- Property differential test: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 - File: `crates/panproto-io/tests/value_io_round_trip_totality.rs`
@@ -61,6 +67,8 @@ None recorded. Mutation closure is pending.
 
 For every route $r$ and value $v$, $E_r(v)$ is either the route's canonical scalar spelling or `NotRepresentable`. JSON and YAML write `null`; JSON, TOML and YAML write lowercase booleans; strings use route-specific quoting; admissible temporal values use their display spelling, quoted on JSON; and numeric values use exact integer, decimal or shortest binary64 text. XML finite decimals use positional notation with at most 1,048,576 fractional places. Special decimal values are refused. Infinities and canonical NaNs use the route spellings `inf` and `nan` on TOML, `.inf` and `.nan` on YAML, and `INF` and `NaN` on XML, with a leading minus sign when negative.
 
+The theorem above specifies the six-route reference. The production certificate is narrower: it compares exact-decimal emission over the complete bounded numeral scope on the five always-compiled routes JSON, TOML, XML, CSV and TSV. The same test contains a YAML branch only when `tree-sitter` is enabled; the default command below neither compiles nor certifies that branch. Fixed regressions cover further value kinds, but they are not an exhaustive all-value differential.
+
 ### Outside the domain
 
 Every case without a spelling in the Statement is refused. Emission never substitutes a different value, drops a field of a value, or chooses a fallback route.
@@ -77,11 +85,11 @@ The match in `emit` handles null, Boolean, string and temporal cases before call
 
 - Law ID: `value-io.vf7-emission`
 - Reference: `panproto_reference::value_io::emit`
-- Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3`
-- Production differential test: `bounded_decimal_emission_matches_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_decimal_emission_matches_reference)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::numerals; numerals=600, always-compiled routes=5, labelled exact-decimal cases=3000`
+- Production certificate: `bounded_decimal_emission_matches_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_decimal_emission_matches_reference)'`
+- Independent reference anchor: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run --release --locked -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
+- Fixed production regression: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run --release --locked -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
-- Property differential test: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_io_round_trip_totality.rs`
 
@@ -98,35 +106,41 @@ None recorded. Mutation closure is pending.
 - Verdict: fail
 - Defects: Independent audit and dynamic verification are pending.
 
-## An unedited preserving route returns the source bytes {#L-value-io-3}
+## Default routes distinguish null from absence {#L-value-io-3}
 
 ### Statement
 
-For all byte sequences $s$ and $e$, `preserve(s, e)` holds exactly when $s=e$. Thus an accepted, unedited preserving document must be emitted byte-for-byte, including whitespace, line endings, spelling and ordering.
+For a default route $r$ and presence state $p$, `presence(r, p)` gives the following outcome:
+
+| Route | `Null` | `Absent` |
+|---|---|---|
+| JSON, YAML, XML | `NullSyntax` | `Omitted` |
+| TOML | `NullNotRepresentable` | `Omitted` |
+| CSV, TSV | `NullNotRepresentable` | `AbsentNotRepresentable` |
+
+Thus an explicit null never becomes an absent field or cell. A route either writes its native null syntax or returns a typed null refusal. Conversely, an absent position is omitted only on a route whose structure permits omission; a positional table cell returns a typed absence refusal.
 
 ### Outside the domain
 
-This predicate does not decide whether $s$ parses, nor whether an edited value can be represented. Those questions belong to parsing and canonical replacement emission.
+The table covers default canonical emission. A configured tabular missing token and a CST-preserving route have separate contracts. The law also does not identify an empty string, an empty element or a zero-length byte sequence with either presence state.
 
 ### Definitions used
 
-An *unedited document* is one whose preserving emitter receives no semantic replacement. Byte equality compares length and every byte at the corresponding position.
+`Null` is an explicit `FieldPresence::Null`. `Absent` is an omitted field or a missing positional cell. `NullSyntax` means JSON or YAML `null`, or an XML element marked with `xsi:nil="true"`. `Omitted` means that no member or child is written. The two refusal outcomes correspond to `EmitValueReason::NullNotRepresentable` and `EmitValueReason::AbsentNotRepresentable`.
 
 ### Proof
 
-`preserve` is the expression `source == emitted`. Rust slice equality is byte-sequence equality, so the function holds exactly under the condition in the Statement.
+`presence` is a complete match on the product of six routes and two presence states. Its four arms are the four cells of the table after routes with the same behavior are grouped. Since the two input enums have no other variants, the match proves the table exhaustively.
 
 ### Executable counterpart
 
-- Law ID: `value-io.vf8-presentation-preservation`
-- Reference: `panproto_reference::value_io::preserve`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Production differential test: `bounded_byte_preservation_observables_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_byte_preservation_observables_match_reference)'`
+- Law ID: `value-io.vf8-null-and-absence`
+- Reference: `panproto_reference::value_io::presence`
+- Evidence scope: `panproto_reference::enumerate::value_io::presences; routes=6, states=2, labelled cases=12`
+- Production certificate: `default_routes_match_null_and_absence_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --features tree-sitter --no-tests=fail -E 'test(=default_routes_match_null_and_absence_reference)'`
+- Independent reference anchor: `i12_default_routes_distinguish_null_from_absence; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i12_default_routes_distinguish_null_from_absence)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
-- Property differential test: `fixture_corpus_is_byte_faithful; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=fixture_corpus_is_byte_faithful)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-- File: `crates/panproto-io/tests/data_format_corpus.rs`
 
 ### Mutation equivalences
 
@@ -147,6 +161,8 @@ None recorded. Mutation closure is pending.
 
 $P_r$ first requires UTF-8. JSON, TOML and YAML trim only surrounding whitespace admitted by their route grammars; XML, CSV and TSV retain it as cell text. JSON recognizes `null`, JSON, TOML and YAML recognize lowercase booleans, and YAML also recognizes `Null`, `NULL`, `~`, and the empty plain scalar as null. XML expands predefined and numeric entities with no declarations, CSV applies its doubled-quote grammar, and TSV accepts exactly text without a tab or line break. Quoted JSON, TOML and YAML strings use their route escape grammar. TOML recognizes a temporal only when [L-value-io-5](#L-value-io-5) admits it. On a numeric branch, a token reaches exact coercion only after it satisfies the route's complete numeral grammar. YAML retains a nonnumeric unquoted scalar as text.
 
+For the production certificate, $r$ ranges over the always-compiled complement-free readers JSON, XML, CSV and TSV. The preceding paragraph defines the six-route reference function; the certificate excludes the feature-gated TOML and YAML CST readers.
+
 ### Outside the domain
 
 Invalid UTF-8, an ill-formed quote or escape, an invalid XML entity, and a forbidden TSV byte return `Malformed` or the route's typed encoding refusal. A numeric-looking token that fails the route grammar is `Malformed`; a syntactically valid numeral refused by exact coercion returns the corresponding `Fidelity` reason. The parser requires one scalar and does not recover a prefix.
@@ -166,11 +182,11 @@ The route dialects are JSON for JSON, CSV and TSV; TOML for TOML; YAML 1.2 for Y
 
 - Law ID: `value-io.vf9-reading`
 - Reference: `panproto_reference::value_io::parse`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Production differential test: `bounded_canonical_scalar_parsing_matches_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_canonical_scalar_parsing_matches_reference)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::byte_strings; byte strings=65793, always-compiled complement-free routes=4, labelled cases=263172`
+- Production certificate: `bounded_canonical_scalar_parsing_matches_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_canonical_scalar_parsing_matches_reference)'`
+- Independent reference anchor: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run --release --locked -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
+- Fixed JSON regression: `open_json_lexemes_choose_the_exact_contract_carriers; command: cargo nextest run --release --locked -p panproto-io --test value_fidelity_open_lexemes --no-tests=fail -E 'test(=open_json_lexemes_choose_the_exact_contract_carriers)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
-- Property differential test: `open_json_lexemes_choose_the_exact_contract_carriers; command: cargo nextest run -p panproto-io --test value_fidelity_open_lexemes --no-tests=fail -E 'test(=open_json_lexemes_choose_the_exact_contract_carriers)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_open_lexemes.rs`
 
@@ -193,6 +209,8 @@ None recorded. Mutation closure is pending.
 
 For every well-displaying temporal $t$, `temporal(r, t)` holds on YAML, XML, CSV and TSV. It holds on JSON exactly when $t$ is complete. On TOML it holds only for finite values in one of three forms: a full four-digit non-negative-zero date with local offset; a full time with local offset; or a date-time having both full parts and a local, Zulu, extended fixed, or extended negative-zero offset.
 
+The production certificate covers the five always-compiled emitters JSON, TOML, XML, CSV and TSV. It excludes the feature-gated YAML CST emitter because that emitter refuses the local reduced date `-0001`, which the reference admits. The theorem thus makes no claim about YAML timestamp representability.
+
 ### Outside the domain
 
 A temporal for which display followed by descriptor-directed parsing changes the value is refused on every route. TOML additionally refuses infinities, reduced or truncated fields, non-four-digit years, negative-zero years and non-extended numeric offsets. JSON refuses incomplete shapes.
@@ -209,11 +227,11 @@ The function first tests display-parse agreement and returns `false` on failure.
 
 - Law ID: `value-io.temporal-route-representability`
 - Reference: `panproto_reference::value_io::temporal`
-- Enumerator: `panproto_reference::enumerate::value_io::temporal_lexemes; bound: forms=3, routes=6`
-- Production differential test: `temporal_route_representability_matches_public_emitters; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=temporal_route_representability_matches_public_emitters)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::temporal_lexemes; lexical candidates=19098, always-compiled routes=5; route checks apply to candidates admitted by both temporal parsers`
+- Production certificate: `temporal_route_representability_matches_public_emitters; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=temporal_route_representability_matches_public_emitters)'`
+- Independent reference anchor: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run --release --locked -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
+- Fixed production regression: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run --release --locked -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
-- Property differential test: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 
@@ -230,35 +248,33 @@ None recorded. Mutation closure is pending.
 - Verdict: fail
 - Defects: Independent audit and dynamic verification are pending.
 
-## Generic and route byte writers agree exactly {#L-value-io-6}
+## The generic byte encoder and JSON route writer agree exactly {#L-value-io-6}
 
 ### Statement
 
-For byte sequences $g$ and $r$, `bytes(g, r)` holds exactly when the generic writer's bytes $g$ equal the route writer's bytes $r$.
+Let $b$ be a byte sequence and let $x$ be one of `Base64`, `Base64Url`, `Base64Padded`, `Base64UrlPadded`, `Hex`, `Raw` or `Latin1`. If the generic `encode_bytes(b, x)` returns text $g$, writing `Value::Bytes(b)` through the JSON value route under the same `BytesText` specification emits the JSON string $g$. If the generic encoder returns `None`, which can occur for non-UTF-8 input under `Raw`, the route returns `EmitValueReason::NotRepresentable`. The predicate `bytes(g, r)` witnesses equality between the generic text and the string recovered from the route token.
 
 ### Outside the domain
 
-The predicate presupposes that both writers returned byte sequences. A typed writer refusal is outside its domain and cannot be converted into agreement.
+The equality predicate applies only to successful text results. The production certificate checks the corresponding typed refusal separately. Other value variants and non-JSON document layouts are outside this law.
 
 ### Definitions used
 
-Writer agreement is byte equality, not equality after decoding or normalization.
+The generic encoder is `json_pathway::encode_bytes`. The route writer is `write_json_value` on `Value::Bytes` with a `ScalarKind::Bytes(x)` specification. Its byte arm delegates to `write_json_bytes_scalar`, which calls `encode_bytes` and then quotes the returned text as a JSON string. Route text is obtained by decoding that string token, so JSON quoting is not confused with the encoded payload.
 
 ### Proof
 
-`bytes` returns `generic == route`; this is precisely the relation in the Statement.
+`bytes` returns `generic == route`. In production, `write_json_bytes_scalar` extracts the `BytesText` specification and delegates to `encode_bytes`; a successful result is passed unchanged to the JSON string writer, while `None` becomes `EmitValueReason::NotRepresentable`. The production certificate enumerates every byte sequence of length at most two and every `BytesText` variant and checks this delegation boundary after decoding the emitted JSON token. It is exhaustive over the stated production scope, but it is not an independent second implementation of byte encoding. The independent I4 anchor instead fixes the equality predicate on the three witnesses `left/left`, `left/right` and `right/left`.
 
 ### Executable counterpart
 
 - Law ID: `value-io.byte-text-writer-agreement`
 - Reference: `panproto_reference::value_io::bytes`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Production differential test: `bounded_byte_preservation_observables_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_byte_preservation_observables_match_reference)'`
-- Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i4_blob_and_byte_paths_compare_both_directions; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i4_blob_and_byte_paths_compare_both_directions)'`
-- Property differential test: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::byte_strings; byte strings=65793, BytesText variants=7, labelled delegation cases=460551, independent equality witnesses=3`
+- Production certificate: `json_pathway::tests::every_byte_text_route_writer_agrees_with_the_generic_encoder; command: cargo nextest run --release --locked -p panproto-io --lib --no-tests=fail -E 'test(=json_pathway::tests::every_byte_text_route_writer_agrees_with_the_generic_encoder)'`
+- Independent reference anchor: `i4_byte_paths_compare_both_directions_and_blob_layout_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i4_byte_paths_compare_both_directions_and_blob_layout_is_exact)'`
+- Production certificate file: `crates/panproto-io/src/json_pathway.rs`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-- File: `crates/panproto-io/tests/value_io_round_trip_totality.rs`
 
 ### Mutation equivalences
 
@@ -340,7 +356,7 @@ The reference returns `source_lexeme == emitted_lexeme`. Thus `1.00e+2` is prese
 - Reference: `panproto_reference::value_io::raw_numeric`
 - Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3`
 - Exhaustive differential test: `i9_raw_numeric_preserves_the_written_lexeme_not_only_its_value; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i9_raw_numeric_preserves_the_written_lexeme_not_only_its_value)'`
-- Property differential test: `preserving_routes_keep_extreme_decimal_zero_scale_and_sign; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=preserving_routes_keep_extreme_decimal_zero_scale_and_sign)'`
+- Property differential test: `preserving_routes_keep_extreme_decimal_zero_scale_and_sign; command: cargo nextest run -p panproto-io --test text_route_repairs --features tree-sitter --no-tests=fail -E 'test(=preserving_routes_keep_extreme_decimal_zero_scale_and_sign)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
 
@@ -400,35 +416,33 @@ None recorded. Mutation closure is pending.
 - Verdict: fail
 - Defects: Independent audit and dynamic verification are pending.
 
-## Source encoding and byte-order marks are preserved {#L-value-io-10}
+## Canonical emission normalizes the output encoding {#L-value-io-10}
 
 ### Statement
 
-For source bytes $s$ and emitted bytes $e$, `encoding(s, e)` holds exactly when $s=e$. In particular, adding, deleting or changing a byte-order mark makes the predicate false.
+For emitted bytes $e$, `encoding(e)` holds exactly when $e$ is valid UTF-8 and begins with neither a UTF-8 nor a UTF-16 byte-order mark. Thus a canonical route that accepts another source encoding emits UTF-8 without carrying the source byte-order mark into its output.
 
 ### Outside the domain
 
-The predicate applies after a route has accepted and retained the source. It does not decode an encoding or authorize transcoding.
+The predicate checks canonical output, not source acceptance. Each parser separately decides which source encodings it admits and how it reports invalid code units. Exact source-encoding and byte-order-mark preservation belongs to the CST contract in [L-value-io-24](#L-value-io-24).
 
 ### Definitions used
 
-A byte-order mark is treated as an ordinary prefix of the preserved byte sequence. Its interpretation is left to the route parser.
+UTF-8 validity is Rust string validity. The excluded prefixes are `EF BB BF`, `FF FE` and `FE FF`. The UTF-32LE byte-order mark begins with `FF FE`. The UTF-32BE mark, `00 00 FE FF`, does not begin with an excluded prefix, but `FE` and `FF` make it invalid UTF-8.
 
 ### Proof
 
-`encoding` delegates to `preserve`, whose definition is byte equality by [L-value-io-3](#L-value-io-3). The byte-order-mark consequence follows immediately from unequal prefixes.
+`encoding` first applies `from_utf8`, then rejects each excluded prefix with `starts_with`. These conditions are precisely UTF-8 output without a byte-order mark. The production differential parses UTF-8 with a mark, both UTF-16 byte orders and ISO-8859-1, emits each accepted document canonically, and applies this predicate to the result.
 
 ### Executable counterpart
 
-- Law ID: `value-io.encoding-and-bom-preservation`
+- Law ID: `value-io.canonical-encoding-normalization`
 - Reference: `panproto_reference::value_io::encoding`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Production differential test: `canonical_xml_encodings_and_refusals_match_reference_contract; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_xml_encodings_and_refusals_match_reference_contract)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::canonical_xml_encoding_cases; accepted encodings=4, typed refusal cases=2`
+- Production certificate: `canonical_xml_normalizes_encodings_and_reports_typed_refusals; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_xml_normalizes_encodings_and_reports_typed_refusals)'`
+- Independent reference anchor: `i7_canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i7_encoding_paths_preserve_bom_bytes_exactly; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_encoding_paths_preserve_bom_bytes_exactly)'`
-- Property differential test: `fixture_corpus_is_byte_faithful; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=fixture_corpus_is_byte_faithful)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-- File: `crates/panproto-io/tests/data_format_corpus.rs`
 
 ### Mutation equivalences
 
@@ -516,7 +530,7 @@ XML 1.0 `Char` contains tab, line feed, carriage return, U+0020 through U+D7FF, 
 - Production differential test: `bounded_xml_entity_expansion_matches_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_xml_entity_expansion_matches_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
 - Exhaustive differential test: `standoff_forms_are_left_inverses_and_entities_are_bounded; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=standoff_forms_are_left_inverses_and_entities_are_bounded)'`
-- Property differential test: `xml_entity_text_canonical_emit_is_node_count_idempotent; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=xml_entity_text_canonical_emit_is_node_count_idempotent)'`
+- Property differential test: `xml_entity_text_canonical_emit_is_node_count_idempotent; command: cargo nextest run -p panproto-io --test data_format_corpus --features tree-sitter --no-tests=fail -E 'test(=xml_entity_text_canonical_emit_is_node_count_idempotent)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
@@ -534,35 +548,33 @@ None recorded. Mutation closure is pending.
 - Verdict: fail
 - Defects: Independent audit and dynamic verification are pending.
 
-## XML source bytes retain their encoding {#L-value-io-13}
+## Canonical XML emits UTF-8 without a foreign declaration {#L-value-io-13}
 
 ### Statement
 
-For XML source bytes $s$ and emitted bytes $e$, `xml_encoding(s, e)` holds exactly when $s=e$. The equality includes any encoding declaration, byte-order mark and original code-unit sequence.
+For canonical XML bytes $e$, `xml_encoding(e)` holds exactly when [L-value-io-10](#L-value-io-10) admits $e$ and, if the initial XML declaration contains an encoding pseudo-attribute, its quoted value is `UTF-8` or `UTF8` case-insensitively. Thus canonical XML may omit the declaration, may include a declaration without an encoding pseudo-attribute, or may declare UTF-8. It cannot retain a declaration for a source encoding that it has normalized away.
 
 ### Outside the domain
 
-The predicate neither detects an XML encoding nor validates that its declaration matches its bytes. It states the preserving-route obligation after successful parsing.
+The predicate deliberately implements only the canonical-output check. It is not a complete XML declaration parser, and it does not govern exact CST re-emission. Source-byte retention, including the original declaration and code-unit sequence, belongs to [L-value-io-27](#L-value-io-27).
 
 ### Definitions used
 
-XML encoding preservation is byte equality, not equality of decoded Unicode scalar sequences.
+The optional declaration is the prefix ending at the first `?>` when the trimmed prefix begins with `<?xml`. The optional encoding pseudo-attribute is the quoted value following `encoding=`. XML without a declaration and a declaration without that pseudo-attribute both satisfy this part of the predicate.
 
 ### Proof
 
-`xml_encoding` is an alias of `encoding`, and [L-value-io-10](#L-value-io-10) proves that `encoding` is byte equality.
+`xml_encoding` first applies `encoding`. It then accepts no declaration, a declaration without an encoding pseudo-attribute, or a quoted `utf-8` or `utf8` value after ASCII case folding. Every other encoding value is rejected. The production certificate enumerates four admitted source-encoding fixtures and separately checks two fixed refusals: a `US-ASCII` declaration followed by byte `0x80`, and an unknown `x-unknown` declaration. For every admitted fixture, it reparses the canonical output and checks that the semantic text survived normalization.
 
 ### Executable counterpart
 
-- Law ID: `value-io.xml-byte-round-trip`
+- Law ID: `value-io.xml-canonical-encoding`
 - Reference: `panproto_reference::value_io::xml_encoding`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Production differential test: `canonical_xml_encodings_and_refusals_match_reference_contract; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_xml_encodings_and_refusals_match_reference_contract)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::canonical_xml_encoding_cases; accepted source-encoding fixtures=4, fixed refusal witnesses=2`
+- Production certificate: `canonical_xml_normalizes_encodings_and_reports_typed_refusals; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_xml_normalizes_encodings_and_reports_typed_refusals)'`
+- Independent reference anchor: `i7_canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i7_encoding_paths_preserve_bom_bytes_exactly; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_encoding_paths_preserve_bom_bytes_exactly)'`
-- Property differential test: `xml_mixed_content_round_trips_byte_faithfully; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=xml_mixed_content_round_trips_byte_faithfully)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-- File: `crates/panproto-io/tests/data_format_corpus.rs`
 
 ### Mutation equivalences
 
@@ -792,35 +804,37 @@ None recorded. Mutation closure is pending.
 - Verdict: fail
 - Defects: Independent audit and dynamic verification are pending.
 
-## Generic and route blob writers agree byte-for-byte {#L-value-io-19}
+## The canonical blob object reads back as the same value {#L-value-io-19}
 
 ### Statement
 
-For generic blob-writer bytes $g$ and route-arm bytes $r$, `blob_writer(g, r)` holds exactly when $g=r$.
+For a blob reference $r$, media type $m$ and size $n$, `blob_writer(r, m, n)` is the UTF-8 JSON object `{"$type":"blob","mimeType":m,"ref":{"$link":r},"size":n}`, where $r$ and $m$ are escaped as JSON strings. The generic JSON value route on `Value::Blob { ref_: r, mime: m, size: n }` emits those bytes when placed at an open object member whose parser value depth is at most 125. Parsing the emitted document recovers the identical `Value::Blob`, including when $n$ is `u64::MAX`. Depth 126 receives `NotRepresentable` because the nested `$link` string would occur at the parser's excluded depth 128.
 
 ### Outside the domain
 
-A typed refusal by either writer is outside the relation. Decoded blob equality under a noncanonical textual encoding does not establish writer agreement.
+This law covers the canonical JSON tree route. A blob must occupy an open object member; placing it directly in a scalar node receives `NotRepresentable` because its object syntax would reparse as structure rather than as that node's value. Binary blob contents, CID validation and preserving rewrites of noncanonical member order lie outside its domain. The older `panproto_inst::parse` JSON converter is also outside this route: it currently decodes JSON objects as `Value::Unknown` and serializes `Value::Blob.ref_` as a bare string. The certificate neither calls nor repairs that legacy converter.
 
 ### Definitions used
 
-Blob-writer agreement uses byte equality as in [L-value-io-6](#L-value-io-6).
+The canonical [ATProto](https://atproto.com/) representation has four members in the displayed order. Its `ref` member holds a link object whose sole member is `$link`. The reader recognizes a blob only when the outer object has exactly the unique members `$type`, `mimeType`, `ref` and `size`, the `$type` string is `blob`, both text fields are strings, and `size` is an unsigned base-ten integer token in the inclusive range from zero through `u64::MAX`. A sign, fraction or exponent makes the object ordinary `Value::Unknown`, even when the token denotes a non-negative integral number such as `-0` or `1e0`. Other valid JSON objects also remain `Value::Unknown`; duplicate members receive the JSON parser's typed refusal.
+
+Tree equality in the depth certificate is `instances_equivalent`. On these validator-admitted chain fixtures it requires the same root and schema root, the same node ids with equal anchors, values and extra fields, the same parent map and arc multiset, and the same child sequence at every parent. Arc records belonging to different parents may occupy different positions in the two global vectors because those positions do not affect the tree or its JSON form. The comparison still distinguishes a reordering of two children under one parent. Canonical `WInstance` byte identity is not claimed; byte identity below means equality of the emitted JSON documents.
+
+JSON quoting escapes quote and backslash, uses the named escapes for backspace, form feed, line feed, carriage return and tab, and writes the remaining characters from U+0000 through U+001F as `\u00xx`. DEL, the C1 controls and all other Unicode scalars remain literal UTF-8.
 
 ### Proof
 
-`blob_writer` is an alias of `bytes`; [L-value-io-6](#L-value-io-6) proves the required equivalence.
+`blob_writer` constructs the object independently with its local JSON string quoting function. Its final control branch is bounded by U+001F, which separates required C0 escaping from literal DEL and C1 output. The production certificate builds the corresponding `Value::Blob`, emits it through the public JSON route and compares the exact enclosing object bytes with the independent result. It then reparses those bytes and compares the recovered value with all three input fields. The four reference cases cover the two size boundaries and the relevant string classes. Fifteen reserved-shape near misses vary the required names and types, add a field, or leave the unsigned-integer grammar and range; two duplicate-member documents receive the parser's refusal. A direct-node blob is refused because its object syntax would reparse structurally. The depth witnesses admit a blob at 125 and a scalar at 127, compare each reparsed tree structurally with its source, and recover the same JSON bytes on re-emission. The corresponding values at 126 and 128 are refused. Together, emission equality and parse equality instantiate [L-value-io-1](#L-value-io-1) for blobs.
 
 ### Executable counterpart
 
 - Law ID: `value-io.blob-writer-agreement`
 - Reference: `panproto_reference::value_io::blob_writer`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Production differential test: `bounded_byte_preservation_observables_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_byte_preservation_observables_match_reference)'`
+- Evidence scope: `panproto_reference::enumerate::value_io::blob_fields; writer cases=4, reserved-shape near misses=15, duplicate-key refusals=2, direct-node refusal=1, parser-depth boundaries=4; covering empty strings, JSON escaping, literal DEL and C1 characters, BMP and non-BMP Unicode, size 0, and u64::MAX`
+- Production certificate: `canonical_blob_writer_matches_independent_atproto_layout; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_blob_writer_matches_independent_atproto_layout)'`
+- Independent reference anchor: `i4_byte_paths_compare_both_directions_and_blob_layout_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i4_byte_paths_compare_both_directions_and_blob_layout_is_exact)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i4_blob_and_byte_paths_compare_both_directions; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i4_blob_and_byte_paths_compare_both_directions)'`
-- Property differential test: `every_parsed_value_emits_on_the_value_io_routes; command: cargo nextest run -p panproto-io --test value_io_round_trip_totality --no-tests=fail -E 'test(=every_parsed_value_emits_on_the_value_io_routes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-- File: `crates/panproto-io/tests/value_io_round_trip_totality.rs`
 
 ### Mutation equivalences
 
@@ -859,7 +873,7 @@ By [L-value-io-22](#L-value-io-22), successful CST parsing stores $b$ unchanged.
 - Reference: `panproto_reference::value_io::round_trip_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
 - Exhaustive differential test: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
-- Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
+- Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --features tree-sitter --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
 
@@ -892,15 +906,16 @@ CST preservation compares the complete encoded source, not a token subset and no
 
 ### Proof
 
-`preserve_cst` aliases `preserve`, which is byte equality by [L-value-io-3](#L-value-io-3). `emit_cst` additionally realizes the relation by cloning the stored source when its replacement argument is `None`.
+`preserve_cst` aliases `preserve`, whose implementation is direct byte-slice equality. `emit_cst` additionally realizes the relation by cloning the stored source when its replacement argument is `None`.
 
 ### Executable counterpart
 
 - Law ID: `value-io.vf8-presentation-preservation-cst`
+- Reference: `panproto_reference::value_io::preserve`
 - Reference: `panproto_reference::value_io::preserve_cst`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Exhaustive differential test: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
-- Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
+- Evidence scope: `fixed equality witnesses=3, noncanonical JSON registry documents=1`
+- Production certificate: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --features tree-sitter --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
+- Independent reference anchor: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
 
@@ -941,7 +956,7 @@ A `CstValue` contains a semantic `Value` and an owned byte vector called `source
 - Reference: `panproto_reference::value_io::parse_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
 - Exhaustive differential test: `value_io_oracles_are_independent_and_toml_rejects_reduced_years; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=value_io_oracles_are_independent_and_toml_rejects_reduced_years)'`
-- Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
+- Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --features tree-sitter --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
 
@@ -974,7 +989,7 @@ Member-name equality and the quantified duplicate condition are those of [L-valu
 
 ### Proof
 
-`duplicate_member_cst` aliases `duplicate_member`. The set-insertion proof in [L-value-io-9](#L-value-io-9) therefore applies without alteration.
+`duplicate_member_cst` aliases `duplicate_member`. The set-insertion proof in [L-value-io-9](#L-value-io-9) thus applies without alteration.
 
 ### Executable counterpart
 
@@ -1011,19 +1026,19 @@ The relation presupposes an accepted CST and unedited emission. It neither repai
 
 ### Definitions used
 
-The encoding and byte-order-mark condition is the one in [L-value-io-10](#L-value-io-10).
+The source encoding signature is part of the complete CST byte sequence. No transcoding or prefix normalization is applied on an unedited emission.
 
 ### Proof
 
-`encoding_bom_cst` aliases `encoding`; the equivalence follows from [L-value-io-10](#L-value-io-10).
+`encoding_bom_cst` directly compares the source and emitted byte slices. This is intentionally stronger than the canonical normalization predicate in [L-value-io-10](#L-value-io-10).
 
 ### Executable counterpart
 
 - Law ID: `value-io.encoding-and-bom-preservation-cst`
 - Reference: `panproto_reference::value_io::encoding_bom_cst`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Exhaustive differential test: `i7_encoding_paths_preserve_bom_bytes_exactly; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_encoding_paths_preserve_bom_bytes_exactly)'`
-- Property differential test: `fixture_corpus_is_byte_faithful; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=fixture_corpus_is_byte_faithful)'`
+- Evidence scope: `UTF-8-BOM equality witnesses=2, production corpus=all accepted declared protocol fixtures`
+- Production certificate: `fixture_corpus_is_byte_faithful; command: cargo nextest run -p panproto-io --test data_format_corpus --features tree-sitter --no-tests=fail -E 'test(=fixture_corpus_is_byte_faithful)'`
+- Independent reference anchor: `i7_canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
 
@@ -1044,7 +1059,7 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-For source token $s$ and emitted token $e$, `decimal_bigint_cst(s, e)` holds exactly when $s=e$. The CST route therefore retains exact decimal scale and every big-integer digit until the scalar is edited.
+For source token $s$ and emitted token $e$, `decimal_bigint_cst(s, e)` holds exactly when $s=e$. The CST route thus retains exact decimal scale and every big-integer digit until the scalar is edited.
 
 ### Outside the domain
 
@@ -1064,7 +1079,7 @@ Token equality here is byte-for-byte string equality. It is stricter than the re
 - Reference: `panproto_reference::toml::decimal_bigint_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3`
 - Exhaustive differential test: `i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits)'`
-- Property differential test: `toml_cst_writes_exact_decimals_and_big_integers; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=toml_cst_writes_exact_decimals_and_big_integers)'`
+- Property differential test: `toml_cst_writes_exact_decimals_and_big_integers; command: cargo nextest run -p panproto-io --test text_route_repairs --features tree-sitter --no-tests=fail -E 'test(=toml_cst_writes_exact_decimals_and_big_integers)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
 
@@ -1097,7 +1112,7 @@ All expansion terms and bounds are defined in [L-value-io-12](#L-value-io-12).
 
 ### Proof
 
-`bounded_expansion_cst` is an alias of `expand_entities`. The implementation and typed-refusal proof in [L-value-io-12](#L-value-io-12) are therefore definitionally the same for the CST route.
+`bounded_expansion_cst` is an alias of `expand_entities`. The implementation and typed-refusal proof in [L-value-io-12](#L-value-io-12) are thus definitionally the same for the CST route.
 
 ### Executable counterpart
 
@@ -1106,7 +1121,7 @@ All expansion terms and bounds are defined in [L-value-io-12](#L-value-io-12).
 - Reference: `panproto_reference::xml::expand_entities`
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, entities=2`
 - Exhaustive differential test: `standoff_forms_are_left_inverses_and_entities_are_bounded; command: cargo nextest run -p panproto-reference --test schema_v2 --no-tests=fail -E 'test(=standoff_forms_are_left_inverses_and_entities_are_bounded)'`
-- Property differential test: `xml_entity_text_canonical_emit_is_node_count_idempotent; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=xml_entity_text_canonical_emit_is_node_count_idempotent)'`
+- Property differential test: `xml_entity_text_canonical_emit_is_node_count_idempotent; command: cargo nextest run -p panproto-io --test data_format_corpus --features tree-sitter --no-tests=fail -E 'test(=xml_entity_text_canonical_emit_is_node_count_idempotent)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
@@ -1140,15 +1155,15 @@ Exact XML bytes include declarations, namespace-prefix spellings, entity spellin
 
 ### Proof
 
-`xml::round_trip_cst` aliases `preserve`, which is byte equality by [L-value-io-3](#L-value-io-3). Every byte category in the Definitions is consequently retained.
+`xml::round_trip_cst` aliases `preserve`, whose implementation is direct byte-slice equality. Every byte category in the Definitions is consequently retained.
 
 ### Executable counterpart
 
 - Law ID: `value-io.xml-byte-round-trip-cst`
 - Reference: `panproto_reference::xml::round_trip_cst`
-- Enumerator: `panproto_reference::enumerate::value_io::byte_strings; bound: length=2, bytes=256`
-- Exhaustive differential test: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
-- Property differential test: `xml_mixed_content_round_trips_byte_faithfully; command: cargo nextest run -p panproto-io --test data_format_corpus --no-tests=fail -E 'test(=xml_mixed_content_round_trips_byte_faithfully)'`
+- Evidence scope: `fixed equality witnesses=3, mixed-content XML fixtures=4`
+- Production certificate: `xml_mixed_content_round_trips_byte_faithfully; command: cargo nextest run -p panproto-io --test data_format_corpus --features tree-sitter --no-tests=fail -E 'test(=xml_mixed_content_round_trips_byte_faithfully)'`
+- Independent reference anchor: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
 
@@ -1292,7 +1307,7 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-For resolved namespace URI $u$ and local name $l$, `expanded_name_cst(u, l)` is $(u,l)$. Two CST names with different prefixes therefore have the same identity exactly when resolution gives equal namespace URIs and equal local names.
+For resolved namespace URI $u$ and local name $l$, `expanded_name_cst(u, l)` is $(u,l)$. Two CST names with different prefixes thus have the same identity exactly when resolution gives equal namespace URIs and equal local names.
 
 ### Outside the domain
 

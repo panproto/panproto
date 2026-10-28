@@ -214,8 +214,10 @@ rustCompiled :: CompiledRep Rust -> RustCompiled
 rustCompiled (RustCompiledRep c) = c
 
 -- | Release the slab slot a @'CompiledRep' 'Rust'@ owns
--- (@pp_handle_free@). Idempotent at the slab level: freeing an
--- already-freed handle is a no-op on the Rust side.
+-- (@pp_handle_free@). This is a one-shot ownership action: a repeated free
+-- is harmless only before another allocation reuses the slot. After reuse,
+-- the stale numeric handle aliases and frees the new resource. Prefer
+-- 'withCompiled' to manual release.
 releaseCompiled :: CompiledRep Rust -> IO ()
 releaseCompiled (RustCompiledRep (RustCompiled handle)) =
     pp_handle_free handle >>= checkStatus

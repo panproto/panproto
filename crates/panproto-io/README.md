@@ -53,7 +53,7 @@ for arbitrary structural edits, or for binary encodings.
 |------|---------|
 | `default_registry`, `ProtocolRegistry` | Register and dispatch codecs |
 | `InstanceParser`, `InstanceEmitter` | Parser and emitter traits |
-| `NativeRepr` | `WType`, `Functor`, or `Either` |
+| `NativeRepr` | `Tree`, `Table`, or `Graph` |
 | `ParseInstanceError`, `EmitInstanceError` | Runtime codec errors |
 | `unified_codec::UnifiedCodec` | Optional CST-aware codec |
 | `unified_codec::UnifiedCodecError` | Missing-grammar and parser-initialization errors |

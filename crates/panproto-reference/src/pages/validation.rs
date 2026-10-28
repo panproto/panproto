@@ -56,6 +56,38 @@ pub mod implementation {
         accepts(text)
     }
 
+    /// The number of candidates at a selector boundary.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SelectorClassification<T> {
+        /// The selector names no candidate.
+        Zero,
+        /// The selector names exactly one candidate.
+        One(T),
+        /// The selector names more than one candidate.
+        Many,
+    }
+
+    /// Classify a selector by whether it names zero, one, or many candidates.
+    ///
+    /// The classifier deliberately observes at most two candidates. Their
+    /// order cannot affect the result once the boundary is ambiguous.
+    ///
+    /// Book anchors: `L-validation-17`.
+    #[must_use]
+    pub fn classify_selector<T>(
+        candidates: impl IntoIterator<Item = T>,
+    ) -> SelectorClassification<T> {
+        let mut candidates = candidates.into_iter();
+        let Some(candidate) = candidates.next() else {
+            return SelectorClassification::Zero;
+        };
+        if candidates.next().is_some() {
+            SelectorClassification::Many
+        } else {
+            SelectorClassification::One(candidate)
+        }
+    }
+
     /// The semantics a protocol gives a constraint sort.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Semantics {
@@ -5444,6 +5476,37 @@ pub mod implementation {
         }
     }
 
+    /// The side of a schema-taking operation whose validation report blocks
+    /// execution.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ValidationBoundarySide {
+        /// The source instance did not pass validation.
+        Input,
+        /// The produced target instance did not pass validation.
+        Output,
+    }
+
+    /// Observe the validation boundary around a successful structural
+    /// restriction. Input validation has precedence over output validation.
+    ///
+    /// Book anchors: `L-validation-9`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first nonpassing boundary side.
+    pub const fn restriction_boundary(
+        input: CheckStatus,
+        output: CheckStatus,
+    ) -> Result<(), ValidationBoundarySide> {
+        if !matches!(input, CheckStatus::Passed) {
+            return Err(ValidationBoundarySide::Input);
+        }
+        if !matches!(output, CheckStatus::Passed) {
+            return Err(ValidationBoundarySide::Output);
+        }
+        Ok(())
+    }
+
     /// Definition: The admission policies over outcome bundles of required check instances.
     ///
     /// `RequirePassed` admits exactly a result with no failed or incomplete bundle; `NoNewFailures`
@@ -5512,8 +5575,8 @@ pub mod implementation {
         crate::schema::validate_declarations(schema)
     }
 
-    /// Definition: Parsing with an advisory format annotation has the same result as
-    /// parsing without the annotation.
+    /// Definition: Advisory format validation leaves the stored optional value
+    /// unchanged.
     ///
     /// Book anchors: `L-validation-18`.
     #[must_use]
@@ -5521,8 +5584,8 @@ pub mod implementation {
         without == with
     }
 
-    /// Definition: Advisory format validation is exact: it reports precisely the
-    /// complement of the declared recognizer.
+    /// Definition: For a recognized advisory format, validation reports precisely
+    /// the complement of the declared recognizer.
     ///
     /// Book anchors: `L-validation-19`.
     #[must_use]
@@ -5534,8 +5597,8 @@ pub mod implementation {
         reports != accepts(text)
     }
 
-    /// Definition: An asserting format accepts exactly the values admitted by its
-    /// recognizer.
+    /// Definition: For a recognized asserting format, validation passes exactly the
+    /// values admitted by its recognizer.
     ///
     /// Book anchors: `L-validation-20`.
     #[must_use]
@@ -5549,13 +5612,15 @@ pub mod implementation {
 }
 
 pub use self::implementation::{
-    BaselineBudgetEvidence, BudgetEvaluation, CheckClass, CheckCoverage, CheckInstance, CheckKind,
-    CheckRun, CheckStatus, Diagnostic, IncompleteCheck, IncompleteReason, InstanceShape, NativeRef,
-    PriorAdmissionPolicy, Report, Requirement, RunBundleError, SchemaRef, Semantics, ShapeRefusal,
-    TrustedSchedule, ValidationBudget, ValidationContext, ValidationInput, ValidationOutcome,
-    ValidationTrust, ValidationWitness, Violation, WitnessError, admits, annotated_format_advisory,
-    annotated_format_parse, evaluate_runs, format_assertion_acceptance, index_and_null_match,
-    key_equality, key_forms, lexical_space, status, trusted_schedule, validate, validate_graph,
-    validate_graph_with_context, validate_table, validate_table_with_context, validate_tree,
-    validate_tree_with_context, value_sites, variable_binding, witness, witness_with_trust,
+    BaselineBudgetEvidence, BudgetEvaluation, CheckClass, CheckCoverage, CheckInstance, CheckKey,
+    CheckKind, CheckRun, CheckStatus, Diagnostic, IncompleteCheck, IncompleteReason, InstanceShape,
+    NativeRef, PriorAdmissionPolicy, Report, Requirement, RunBundleError, SchemaRef,
+    SelectorClassification, Semantics, ShapeRefusal, TrustedSchedule, ValidationBoundarySide,
+    ValidationBudget, ValidationContext, ValidationInput, ValidationOutcome, ValidationTrust,
+    ValidationWitness, Violation, WitnessError, admits, annotated_format_advisory,
+    annotated_format_parse, classify_selector, evaluate_runs, format_assertion_acceptance,
+    index_and_null_match, key_equality, key_forms, lexical_space, restriction_boundary, status,
+    trusted_schedule, validate, validate_graph, validate_graph_with_context, validate_table,
+    validate_table_with_context, validate_tree, validate_tree_with_context, value_sites,
+    variable_binding, witness, witness_with_trust,
 };

@@ -158,6 +158,22 @@ fn an_invalid_output_is_a_validation_error_on_the_target_side() {
 
 #[test]
 fn restrict_boundary_errors_carry_the_side_and_report() {
+    use panproto_reference::validation::{
+        CheckStatus as ReferenceCheckStatus, ValidationBoundarySide, restriction_boundary,
+    };
+
+    assert_eq!(
+        restriction_boundary(ReferenceCheckStatus::Failed, ReferenceCheckStatus::Failed),
+        Err(ValidationBoundarySide::Input),
+    );
+    assert_eq!(
+        restriction_boundary(ReferenceCheckStatus::Passed, ReferenceCheckStatus::Failed),
+        Err(ValidationBoundarySide::Output),
+    );
+    assert_eq!(
+        restriction_boundary(ReferenceCheckStatus::Passed, ReferenceCheckStatus::Passed),
+        Ok(()),
+    );
     let (src, tgt, m) = required_child();
     let p = Protocol::default();
     match graph_restrict(&rc_graph(5), &src, &tgt, &m, both(&p)) {

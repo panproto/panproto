@@ -1053,11 +1053,7 @@ impl<'a> Builder<'a> {
     }
 
     /// Record an incomplete dependent without also failing a static check.
-    fn dependent_finding(
-        &mut self,
-        key: &CheckKey,
-        reason: &super::report::IncompleteReason,
-    ) {
+    fn dependent_finding(&mut self, key: &CheckKey, reason: &super::report::IncompleteReason) {
         let spec = self.checks.get(key);
         self.findings.push(IncompleteCheck {
             class: spec.map_or_else(|| key.kind.class(), |s| s.class),
@@ -1297,14 +1293,12 @@ impl Builder<'_> {
             ),
             Ok(None) => {}
             Err(reason) => {
-                let absent_lexical_selector = matches!(
-                    &semantics,
-                    ConstraintSemantics::LexicalSpace
-                )
-                    && matches!(
-                        &reason,
-                        super::report::IncompleteReason::UnsupportedDeclaration { .. }
-                    );
+                let absent_lexical_selector =
+                    matches!(&semantics, ConstraintSemantics::LexicalSpace)
+                        && matches!(
+                            &reason,
+                            super::report::IncompleteReason::UnsupportedDeclaration { .. }
+                        );
                 self.add_on(
                     key.clone(),
                     Compiled::Structural,
@@ -1410,8 +1404,9 @@ impl Builder<'_> {
                     }),
                     [] => Err(R::UnsupportedDeclaration { sort: tag }),
                     _ => Err(ill(format!(
-                        "{} = {tag:?} names more than one edge leaving {vertex}",
-                        constraint.sort
+                        "{} = {:?} names more than one edge leaving {vertex}",
+                        constraint.sort,
+                        tag.as_str()
                     ))),
                 }
             }
