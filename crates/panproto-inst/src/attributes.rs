@@ -18,10 +18,11 @@
 //! instance is valid calls [`validate_wtype`](crate::validate::validate_wtype),
 //! [`validate_table`](crate::validate_table) or
 //! [`validate_graph`](crate::validate_graph). Their `Attribute` check, one per
-//! vertex that declares attributes, calls these projections and reports their
-//! findings as diagnostics of a [`ValidationReport`](crate::ValidationReport).
-//! Nodes whose anchor declares no attributes are skipped, since instances
-//! routinely carry round-trip fields that no schema edge declares.
+//! schema vertex, calls these projections and reports their findings as
+//! diagnostics of a [`ValidationReport`](crate::ValidationReport). A node
+//! whose vertex declares no attributes is checked like any other: each field
+//! it carries is undeclared. Only nodes whose anchor is not a schema vertex
+//! are skipped, since the `NodeAnchor` check already refuses them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -51,6 +52,7 @@ pub struct AttributeDecl {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AttributeSchema {
     /// Per-vertex attribute declarations, each ordered by attribute name.
+    /// Every schema vertex has an entry, empty when it declares none.
     pub attrs: HashMap<Name, Vec<AttributeDecl>>,
 }
 
@@ -124,9 +126,7 @@ impl AttributeSchema {
                     kind: tgt_vertex.kind.clone(),
                 });
             }
-            if !decls.is_empty() {
-                attrs.insert(vertex_id.clone(), decls);
-            }
+            attrs.insert(vertex_id.clone(), decls);
         }
         if let Ok(rel) = RelSchema::new(schema, protocol) {
             for table in rel.tables() {
@@ -159,9 +159,9 @@ impl AttributeSchema {
     /// Validate the attribute payload (`extra_fields`) of every node in a
     /// W-type instance against this schema.
     ///
-    /// Reports undeclared keys and kind mismatches. Nodes whose anchor has no
-    /// declared attributes are unconstrained (any extra fields are round-trip
-    /// data, not schema attributes) and skipped.
+    /// Reports undeclared keys and kind mismatches. A node whose anchor
+    /// declares no attributes has every field undeclared; nodes whose anchor
+    /// is not a schema vertex are skipped.
     ///
     /// Not a validation boundary: it returns the attribute violations alone,
     /// with no status. The `Attribute` check of
@@ -242,8 +242,8 @@ impl AttributeSchema {
     /// Validate the attribute payload (`extra_fields`) of every node of a
     /// graph instance against this schema, as
     /// [`validate_wtype`](Self::validate_wtype) does for a tree: undeclared
-    /// keys and kind mismatches, with nodes whose anchor declares no
-    /// attributes skipped. Fan nodes carry no attributes and are skipped.
+    /// keys and kind mismatches, with nodes whose anchor is not a schema
+    /// vertex skipped. Fan nodes carry no attributes and are skipped.
     /// Nodes are visited in ascending id and fields in ascending key.
     ///
     /// Not a validation boundary: it returns the attribute violations alone,
@@ -293,8 +293,8 @@ impl AttributeSchema {
 ///
 /// It reports each node whose `extra_fields` carry an attribute key its
 /// vertex does not declare, or a value whose kind does not match the
-/// declaration. Nodes over vertices with no declared attributes are
-/// unconstrained.
+/// declaration. A node over a vertex that declares no attributes has every
+/// field undeclared.
 ///
 /// Not a validation boundary: it returns the attribute violations alone,
 /// with no status. It derives the schema's [`AttributeSchema`] under

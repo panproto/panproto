@@ -2343,9 +2343,6 @@ fn attribute(ctx: &Context<'_>, n: &ViewRef) -> Outcome {
         return out;
     };
     let declarations = ctx.plan.attributes.for_vertex(node.anchor);
-    if declarations.is_empty() {
-        return out;
-    }
     for (key, value) in ctx.view.fields(n) {
         let violation = match declarations.iter().find(|decl| decl.name == key) {
             None => Violation::UndeclaredAttribute {

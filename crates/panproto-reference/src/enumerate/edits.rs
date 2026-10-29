@@ -794,17 +794,17 @@ pub fn c8_tree_letters(
             if *value == old {
                 continue;
             }
-            out.push(match value {
-                None => TreeEdit::RemoveField {
+            out.push(value.as_ref().map_or_else(
+                || TreeEdit::RemoveField {
                     node_id: *id,
                     field: C8.column.to_owned(),
                 },
-                Some(value) => TreeEdit::SetField {
+                |value| TreeEdit::SetField {
                     node_id: *id,
                     field: C8.column.to_owned(),
                     value: value.clone(),
                 },
-            });
+            ));
         }
     }
     for (id, node) in &tree.nodes {
@@ -1274,7 +1274,7 @@ pub const fn edit_translation_cases_count_certificate() -> u64 {
 }
 
 /// One named `JoinFeatures` case of the TR14 carrier.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinCase {
     /// Stable diagnostic name for the case.
     pub name: &'static str,
@@ -1402,4 +1402,34 @@ pub fn join_cases() -> Vec<JoinCase> {
 #[must_use]
 pub const fn join_cases_count_certificate() -> u64 {
     2 + 7
+}
+
+/// Independent count of [`c8_graphs`] over [`c8_schemas`] and of the words
+/// [`c8_graph_words`] visits from them.
+#[must_use]
+pub const fn c8_graph_counts_certificate() -> C8Counts {
+    C8Counts {
+        states: 61_066,
+        words: [61_066, 1_381_020, 31_675_362, 814_704_552],
+    }
+}
+
+/// Independent count of [`c8_tables`] over [`c8_schemas`] and of the words
+/// [`c8_table_words`] visits from them.
+#[must_use]
+pub const fn c8_table_counts_certificate() -> C8Counts {
+    C8Counts {
+        states: 32_038,
+        words: [32_038, 711_888, 15_862_728, 386_747_526],
+    }
+}
+
+/// Independent count of [`c8_trees`] over [`c8_schemas`] and of the words
+/// [`c8_tree_words`] visits from them.
+#[must_use]
+pub const fn c8_tree_counts_certificate() -> C8Counts {
+    C8Counts {
+        states: 3_156,
+        words: [3_156, 75_216, 1_898_478, 59_260_194],
+    }
 }

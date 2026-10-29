@@ -2456,3 +2456,576 @@ fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
         );
     }
 }
+
+/// Words checked, by exact length, with the initial states they start from
+/// and the outcome census of their last letters.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct C8Tally {
+    states: u64,
+    words: [u64; 4],
+    refusals: BTreeMap<String, u64>,
+    replacements: u64,
+    commuting: u64,
+}
+
+impl C8Tally {
+    fn absorb(&mut self, other: Self) {
+        self.states += other.states;
+        for (total, part) in self.words.iter_mut().zip(other.words) {
+            *total += part;
+        }
+        for (name, count) in other.refusals {
+            *self.refusals.entry(name).or_default() += count;
+        }
+        self.replacements += other.replacements;
+        self.commuting += other.commuting;
+    }
+
+    fn refuse(&mut self, refusal: &impl std::fmt::Debug) {
+        let name = format!("{refusal:?}");
+        let variant = name
+            .split(['(', ' ', '{'])
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        *self.refusals.entry(variant).or_default() += 1;
+    }
+}
+
+/// Run `work` over every `(schema, state)` job on at most four workers and
+/// sum their tallies.
+fn c8_parallel<S: Sync>(
+    jobs: &[(usize, S)],
+    work: impl Fn(&carrier::C8Schema, &S, &mut C8Tally) + Sync,
+) -> C8Tally {
+    let schemas = carrier::c8_schemas();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism().map_or(1, |n| usize::from(n).min(4));
+    std::thread::scope(|threads| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                threads.spawn(|| {
+                    let mut tally = C8Tally::default();
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some((schema, state)) = jobs.get(index) else {
+                            break;
+                        };
+                        tally.states += 1;
+                        work(&schemas[*schema], state, &mut tally);
+                    }
+                    tally
+                })
+            })
+            .collect();
+        let mut total = C8Tally::default();
+        for handle in handles {
+            total.absorb(handle.join().expect("worker completes"));
+        }
+        total
+    })
+}
+
+fn c8_jobs<S>(states: impl Fn(&carrier::C8Schema) -> Vec<S>) -> Vec<(usize, S)> {
+    carrier::c8_schemas()
+        .iter()
+        .enumerate()
+        .flat_map(|(index, schema)| states(schema).into_iter().map(move |state| (index, state)))
+        .collect()
+}
+
+fn assert_c8_counts(tally: &C8Tally, certificate: carrier::C8Counts) {
+    assert_eq!(tally.states, certificate.states, "initial states");
+    assert_eq!(tally.words, certificate.words, "words by exact length");
+    assert_eq!(tally.words[0], tally.states);
+}
+
+/// The prefix states of the graph word under test, by length.
+struct GraphPrefix {
+    reference: reference_model::Graph,
+    production: GInstance,
+    composite: reference::GraphDelta,
+    production_composite: GraphDelta,
+}
+
+#[test]
+fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
+    let jobs = c8_jobs(carrier::c8_graphs);
+    let tally = c8_parallel(&jobs, |schema, graph, tally| {
+        let mut prefixes: Vec<GraphPrefix> = Vec::with_capacity(4);
+        carrier::c8_graph_words(schema, graph, &mut |word| {
+            let length = word.letters.len();
+            tally.words[length] += 1;
+            let Some(letter) = word.letters.last() else {
+                prefixes.clear();
+                prefixes.push(GraphPrefix {
+                    reference: graph.clone(),
+                    production: graph_to_production(graph),
+                    composite: reference::GraphDelta::identity(),
+                    production_composite: GraphDelta::identity(),
+                });
+                return;
+            };
+            prefixes.truncate(length);
+            let before = &prefixes[length - 1];
+            let production_letter = delta_to_production(letter);
+            let mut production_state = before.production.clone();
+            let actual = production_letter
+                .apply(&mut production_state)
+                .map(|()| graph_to_reference(&production_state))
+                .map_err(|error| production_apply_error(&error));
+            let expected = word
+                .outcome
+                .clone()
+                .map_err(|error| reference_apply_error(&error));
+            assert_eq!(actual, expected, "apply {letter:?} to {:?}", before.reference);
+            let Ok(after) = word.outcome else {
+                assert_eq!(
+                    graph_to_reference(&production_state),
+                    before.reference,
+                    "a refusal leaves the graph unchanged"
+                );
+                if let Err(error) = &expected {
+                    tally.refuse(error);
+                }
+                return;
+            };
+
+            let composite = reference::Delta::compose(&before.composite, letter)
+                .expect("sequentially applicable letters compose");
+            let production_composite = before
+                .production_composite
+                .compose(&production_letter)
+                .expect("production composes sequentially applicable letters");
+            assert_eq!(
+                delta_to_reference(&production_composite),
+                composite,
+                "compose {:?}",
+                word.letters
+            );
+            assert_eq!(
+                delta_to_reference(&production_composite.invert()),
+                composite.invert(),
+                "invert {:?}",
+                word.letters
+            );
+            let expected_bytes = reference::canonical_graph_delta_bytes(&composite)
+                .expect("a scope composite has canonical bytes");
+            let mut writer = CanonicalWriter::new();
+            canonical_graph_delta_bytes(&production_composite, &mut writer);
+            assert_eq!(writer.into_bytes(), expected_bytes, "bytes {:?}", word.letters);
+
+            let start = &prefixes[0];
+            let mut net = start.production.clone();
+            production_composite
+                .apply(&mut net)
+                .unwrap_or_else(|error| panic!("composite of {:?}: {error:?}", word.letters));
+            assert!(
+                GInstance::identical(&net, &production_state),
+                "composite {:?}",
+                word.letters
+            );
+            production_composite
+                .invert()
+                .apply(&mut net)
+                .unwrap_or_else(|error| panic!("inverse of {:?}: {error:?}", word.letters));
+            assert!(
+                GInstance::identical(&net, &start.production),
+                "inverse {:?}",
+                word.letters
+            );
+            if composite.del.keys().any(|x| composite.add.contains_key(x)) {
+                assert!(!production_composite.is_identity());
+                tally.replacements += 1;
+            }
+            prefixes.push(GraphPrefix {
+                reference: after.clone(),
+                production: production_state,
+                composite,
+                production_composite,
+            });
+        });
+    });
+    println!("graph scope: {tally:?}");
+    assert_c8_counts(&tally, carrier::c8_graph_counts_certificate());
+    assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
+    assert!(tally.replacements > 0);
+}
+
+#[test]
+fn c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope() {
+    let jobs = c8_jobs(carrier::c8_graphs);
+    let tally = c8_parallel(&jobs, |schema, graph, tally| {
+        let letters =
+            carrier::c8_graph_letters(schema, graph, carrier::C8Floors::of_graph(graph));
+        let production_graph = graph_to_production(graph);
+        let production: Vec<GraphDelta> = letters.iter().map(delta_to_production).collect();
+        let applied: Vec<Option<GInstance>> = production
+            .iter()
+            .map(|delta| {
+                let mut state = production_graph.clone();
+                delta.apply(&mut state).ok().map(|()| state)
+            })
+            .collect();
+        for (first, (first_production, first_applied)) in
+            letters.iter().zip(production.iter().zip(&applied))
+        {
+            for (second, (second_production, second_applied)) in
+                letters.iter().zip(production.iter().zip(&applied))
+            {
+                tally.words[2] += 1;
+                let expected: Vec<_> = reference::independence(first, second)
+                    .iter()
+                    .map(reference_conflict)
+                    .collect();
+                let actual: Vec<_> = first_production
+                    .independence(second_production)
+                    .iter()
+                    .map(production_conflict)
+                    .collect();
+                assert_eq!(actual, expected, "independence {first:?} vs {second:?}");
+                let merged = match (
+                    reference::merge(first, second),
+                    first_production.merge(second_production),
+                ) {
+                    (Ok(expected), Ok(actual)) => {
+                        assert_eq!(delta_to_reference(&actual), expected);
+                        actual
+                    }
+                    (Err(expected), Err(actual)) => {
+                        assert_eq!(production_conflict(&actual), reference_conflict(&expected));
+                        tally.refuse(&reference_conflict(&expected));
+                        continue;
+                    }
+                    (expected, actual) => panic!(
+                        "merge domain differs for {first:?} and {second:?}: reference={expected:?}, production={actual:?}"
+                    ),
+                };
+                let (Some(first_applied), Some(second_applied)) = (first_applied, second_applied)
+                else {
+                    continue;
+                };
+                let mut one_then_two = first_applied.clone();
+                second_production
+                    .apply(&mut one_then_two)
+                    .expect("an independent second delta applies after the first");
+                let mut two_then_one = second_applied.clone();
+                first_production
+                    .apply(&mut two_then_one)
+                    .expect("an independent first delta applies after the second");
+                let mut both = production_graph.clone();
+                merged.apply(&mut both).expect("the merge applies");
+                let expected = reference::apply(&reference::merge(first, second).expect("merged"), graph)
+                    .expect("the reference merge applies");
+                assert_eq!(graph_to_reference(&one_then_two), expected);
+                assert_eq!(graph_to_reference(&two_then_one), expected);
+                assert_eq!(graph_to_reference(&both), expected);
+                tally.commuting += 1;
+            }
+        }
+    });
+    println!("graph pairs: {tally:?}");
+    assert_eq!(tally.states, carrier::c8_graph_counts_certificate().states);
+    assert!(tally.commuting > 0 && !tally.refusals.is_empty());
+}
+
+/// The prefix states of the table word under test, by length.
+struct TablePrefix {
+    reference: reference_model::Table,
+    production: FInstance,
+    composite: reference::TableDelta,
+    production_composite: TableDelta,
+}
+
+#[test]
+fn c8_table_edits_match_reference_on_every_word_of_the_coverage_scope() {
+    let jobs = c8_jobs(carrier::c8_tables);
+    let tally = c8_parallel(&jobs, |schema, table, tally| {
+        let mut prefixes: Vec<TablePrefix> = Vec::with_capacity(4);
+        carrier::c8_table_words(schema, table, &mut |word| {
+            let length = word.letters.len();
+            tally.words[length] += 1;
+            let Some(letter) = word.letters.last() else {
+                prefixes.clear();
+                prefixes.push(TablePrefix {
+                    reference: table.clone(),
+                    production: table_to_production(table),
+                    composite: reference::TableDelta::identity(),
+                    production_composite: TableDelta::identity(),
+                });
+                return;
+            };
+            prefixes.truncate(length);
+            let before = &prefixes[length - 1];
+            let production_letter = table_edit_to_production(letter);
+            let lowered = reference::table_edit_delta(letter).expect("a single step lowers");
+            let production_lowered = production_letter.to_delta().expect("a single step lowers");
+            assert_eq!(
+                table_delta_to_reference(&production_lowered),
+                lowered,
+                "lower {letter:?}"
+            );
+            let mut production_state = before.production.clone();
+            let actual = production_letter
+                .apply(&mut production_state)
+                .map(|()| table_to_reference(&production_state))
+                .map_err(|error| production_table_apply_error(&error));
+            let expected = word
+                .outcome
+                .clone()
+                .map_err(|error| reference_table_apply_error(&error));
+            assert_eq!(actual, expected, "apply {letter:?} to {:?}", before.reference);
+            let Ok(after) = word.outcome else {
+                assert_eq!(
+                    table_to_reference(&production_state),
+                    before.reference,
+                    "a refusal leaves the table unchanged"
+                );
+                if let Err(error) = &expected {
+                    tally.refuse(error);
+                }
+                return;
+            };
+
+            let composite = reference::compose_table(&before.composite, &lowered)
+                .expect("applicable letters compose");
+            let production_composite = before
+                .production_composite
+                .compose(&production_lowered)
+                .expect("production composes applicable letters");
+            assert_eq!(
+                table_delta_to_reference(&production_composite),
+                composite,
+                "compose {:?}",
+                word.letters
+            );
+            let expected_bytes = reference::canonical_table_delta_bytes(&composite)
+                .expect("a scope composite has canonical bytes");
+            let mut writer = CanonicalWriter::new();
+            canonical_table_delta_bytes(&production_composite, &mut writer);
+            assert_eq!(writer.into_bytes(), expected_bytes, "bytes {:?}", word.letters);
+            assert_eq!(
+                reference::apply_table(&composite.invert(), after).as_ref(),
+                Ok(&prefixes[0].reference),
+                "reference inverse {:?}",
+                word.letters
+            );
+
+            let mut net = prefixes[0].production.clone();
+            production_composite
+                .apply(&mut net)
+                .unwrap_or_else(|error| panic!("composite of {:?}: {error:?}", word.letters));
+            assert_eq!(table_to_reference(&net), *after, "composite {:?}", word.letters);
+            production_composite
+                .invert()
+                .apply(&mut net)
+                .unwrap_or_else(|error| panic!("inverse of {:?}: {error:?}", word.letters));
+            assert_eq!(
+                table_to_reference(&net),
+                prefixes[0].reference,
+                "inverse {:?}",
+                word.letters
+            );
+            if composite.del.keys().any(|x| composite.add.contains_key(x)) {
+                tally.replacements += 1;
+            }
+            prefixes.push(TablePrefix {
+                reference: after.clone(),
+                production: production_state,
+                composite,
+                production_composite,
+            });
+        });
+    });
+    println!("table scope: {tally:?}");
+    assert_c8_counts(&tally, carrier::c8_table_counts_certificate());
+    assert_eq!(
+        tally.refusals.keys().collect::<Vec<_>>(),
+        ["DuplicateForeignKey"]
+    );
+    assert!(tally.replacements > 0);
+}
+
+/// A tree-edit refusal, read exactly from either implementation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TreeRefusalObs {
+    RootOperation(u32),
+    NotLeaf(u32),
+    Cycle { node: u32, parent: u32 },
+}
+
+fn reference_tree_refusal(error: &reference::TreeApplyError) -> TreeRefusalObs {
+    match error {
+        reference::TreeApplyError::RootOperation(id) => TreeRefusalObs::RootOperation(*id),
+        reference::TreeApplyError::NotLeaf(id) => TreeRefusalObs::NotLeaf(*id),
+        reference::TreeApplyError::Cycle { node, parent } => TreeRefusalObs::Cycle {
+            node: *node,
+            parent: *parent,
+        },
+        other => panic!("refusal outside the coverage scope's alphabet: {other:?}"),
+    }
+}
+
+/// Production reports the root and non-leaf deletion refusals as
+/// `ApplyFailed` with a fixed message naming the letter's node; each is read
+/// back only when the message is exactly the one for that node.
+fn production_tree_refusal(error: &EditError, letter: &reference::TreeEdit) -> TreeRefusalObs {
+    match (error, letter) {
+        (EditError::ApplyFailed(message), reference::TreeEdit::DeleteNode { id })
+            if message == "cannot delete the root node" =>
+        {
+            TreeRefusalObs::RootOperation(*id)
+        }
+        (EditError::ApplyFailed(message), reference::TreeEdit::DeleteNode { id })
+            if *message
+                == format!(
+                    "cannot delete non-leaf node {id}; use ContractNode to remove and reattach children"
+                ) =>
+        {
+            TreeRefusalObs::NotLeaf(*id)
+        }
+        (
+            EditError::CycleDetected {
+                node_id,
+                new_parent,
+            },
+            _,
+        ) => TreeRefusalObs::Cycle {
+            node: *node_id,
+            parent: *new_parent,
+        },
+        (other, _) => panic!("production refusal outside the scope's alphabet: {other:?}"),
+    }
+}
+
+/// The initial tree of a word and its graph forms in both implementations.
+struct TreeStart {
+    reference_embedding: panproto_reference::encode::TreeEmbedding,
+    reference_graph: reference_model::Graph,
+    production_embedding: TreeEmbedding,
+    production_graph: GInstance,
+}
+
+#[test]
+fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope() {
+    let jobs = c8_jobs(carrier::c8_trees);
+    let tally = c8_parallel(&jobs, |schema, tree, tally| {
+        let (start_graph, start_embedding) =
+            panproto_reference::encode::tree_to_graph(tree, None)
+                .expect("a scope tree has a graph form");
+        let production_tree = tree_to_production(tree);
+        let (production_start_graph, production_start_embedding) =
+            GInstance::from_wtype_embedded(&production_tree, None)
+                .expect("a scope tree has a production graph form");
+        assert_eq!(graph_to_reference(&production_start_graph), start_graph);
+        assert_eq!(
+            production_embedding(&production_start_embedding),
+            reference_embedding(&start_embedding)
+        );
+        let start = TreeStart {
+            reference_embedding: start_embedding,
+            reference_graph: start_graph,
+            production_embedding: production_start_embedding,
+            production_graph: production_start_graph,
+        };
+        let mut prefixes: Vec<WInstance> = Vec::with_capacity(4);
+        carrier::c8_tree_words(schema, tree, &mut |word| {
+            let length = word.letters.len();
+            tally.words[length] += 1;
+            let Some(letter) = word.letters.last() else {
+                prefixes.clear();
+                prefixes.push(production_tree.clone());
+                return;
+            };
+            prefixes.truncate(length);
+            let mut production_state = prefixes[length - 1].clone();
+            let applied = tree_edit_to_production(letter).apply(&mut production_state);
+
+            let sequence = reference::TreeEdit::Sequence(word.letters.to_vec());
+            let production_sequence = tree_edit_to_production(&sequence);
+            let mut lowered_embedding = start.reference_embedding.clone();
+            let lowered = reference::graph_delta_from_tree_edit(
+                tree,
+                &mut lowered_embedding,
+                &sequence,
+                None,
+            );
+            let mut production_lowered_embedding = start.production_embedding.clone();
+            let production_lowered = GraphDelta::from_tree_edit(
+                &start.production_graph,
+                &mut production_lowered_embedding,
+                &production_sequence,
+            );
+            let after = match word.outcome {
+                Err(error) => {
+                    let expected = reference_tree_refusal(error);
+                    let actual = applied.expect_err("production refuses with the reference");
+                    assert_eq!(production_tree_refusal(&actual, letter), expected, "{letter:?}");
+                    assert_eq!(
+                        tree_to_reference(&production_state),
+                        tree_to_reference(&prefixes[length - 1])
+                    );
+                    assert_eq!(
+                        reference_tree_refusal(&lowered.expect_err("lowering refuses")),
+                        expected
+                    );
+                    assert_eq!(lowered_embedding, start.reference_embedding);
+                    let actual = production_lowered.expect_err("production lowering refuses");
+                    assert_eq!(
+                        production_tree_refusal(&actual, letter),
+                        expected,
+                        "{:?}",
+                        word.letters
+                    );
+                    assert_eq!(production_lowered_embedding, start.production_embedding);
+                    tally.refuse(&expected);
+                    return;
+                }
+                Ok(after) => after,
+            };
+            applied.unwrap_or_else(|error| panic!("production apply {letter:?}: {error:?}"));
+            assert_eq!(tree_to_reference(&production_state), *after, "apply {letter:?}");
+            let lowered = lowered
+                .unwrap_or_else(|error| panic!("reference lowering {:?}: {error:?}", word.letters));
+            let production_lowered = production_lowered.unwrap_or_else(|error| {
+                panic!("production lowering {:?}: {error:?}", word.letters)
+            });
+            assert_eq!(
+                delta_to_reference(&production_lowered),
+                lowered,
+                "lower {:?}",
+                word.letters
+            );
+            assert_eq!(
+                production_embedding(&production_lowered_embedding),
+                reference_embedding(&lowered_embedding),
+                "embedding after {:?}",
+                word.letters
+            );
+            let reference_graph = reference::apply(&lowered, &start.reference_graph)
+                .unwrap_or_else(|error| panic!("reference graph apply {:?}: {error:?}", word.letters));
+            let mut production_graph = start.production_graph.clone();
+            production_lowered.apply(&mut production_graph).unwrap_or_else(|error| {
+                panic!("production graph apply {:?}: {error:?}", word.letters)
+            });
+            assert_eq!(graph_to_reference(&production_graph), reference_graph);
+            let expected_bytes = reference::canonical_tree_edit_bytes(&sequence)
+                .expect("a scope word is well filed");
+            let mut writer = CanonicalWriter::new();
+            canonical_tree_edit_bytes(&production_sequence, &mut writer);
+            assert_eq!(writer.into_bytes(), expected_bytes, "bytes {:?}", word.letters);
+            if lowered.del.keys().any(|x| lowered.add.contains_key(x)) {
+                tally.replacements += 1;
+            }
+            prefixes.push(production_state);
+        })
+        .expect("a scope tree has a graph form");
+    });
+    println!("tree scope: {tally:?}");
+    assert_c8_counts(&tally, carrier::c8_tree_counts_certificate());
+    assert_eq!(
+        tally.refusals.keys().collect::<Vec<_>>(),
+        ["Cycle", "NotLeaf", "RootOperation"]
+    );
+    assert!(tally.replacements > 0);
+}

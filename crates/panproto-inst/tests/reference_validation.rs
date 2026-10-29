@@ -614,6 +614,10 @@ fn reference_violation(violation: &reference::Violation) -> String {
         // The reference names the rejecting check; production records the
         // witness digest. The check itself is compared through the key.
         reference::Violation::ExternalRejected(_) => "external-rejected".to_owned(),
+        reference::Violation::UndeclaredAttribute(key) => format!("undeclared-attribute:{key}"),
+        reference::Violation::MistypedAttribute(key, expected, found) => {
+            format!("mistyped-attribute:{key}:{expected}:{found}")
+        }
         other => panic!("unexpected compact reference violation: {other:?}"),
     }
 }
@@ -649,6 +653,12 @@ fn production_violation(violation: &panproto_inst::validation::Violation) -> Str
             format!("parent-mismatch:{recorded:?}:{actual:?}")
         }
         Violation::ExternalRejected { .. } => "external-rejected".to_owned(),
+        Violation::UndeclaredAttribute { key } => format!("undeclared-attribute:{key}"),
+        Violation::MistypedAttribute {
+            key,
+            expected,
+            found,
+        } => format!("mistyped-attribute:{key}:{expected}:{found}"),
         other => panic!("unexpected compact production violation: {other:?}"),
     }
 }

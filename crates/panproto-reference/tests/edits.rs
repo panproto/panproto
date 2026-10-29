@@ -625,6 +625,44 @@ fn c8_scope_is_complete_with_its_fixed_parameters() {
 }
 
 #[test]
+fn c8_initial_states_match_their_independent_counts() {
+    let schemas = carrier::c8_schemas();
+    let count = |states: &dyn Fn(&carrier::C8Schema) -> usize| -> u64 {
+        schemas
+            .iter()
+            .map(|schema| u64::try_from(states(schema)).unwrap())
+            .sum()
+    };
+    assert_eq!(
+        count(&|schema| carrier::c8_graphs(schema).len()),
+        carrier::c8_graph_counts_certificate().states
+    );
+    assert_eq!(
+        count(&|schema| carrier::c8_tables(schema).len()),
+        carrier::c8_table_counts_certificate().states
+    );
+    assert_eq!(
+        count(&|schema| carrier::c8_trees(schema).len()),
+        carrier::c8_tree_counts_certificate().states
+    );
+    for schema in &schemas {
+        for graph in carrier::c8_graphs(schema) {
+            assert!(graph.well_formed());
+            assert!(graph.edges.values().all(|edge| {
+                schema.edge(&graph.nodes[&edge.src].anchor, &graph.nodes[&edge.tgt].anchor)
+                    == Some(&edge.label)
+            }));
+        }
+        for table in carrier::c8_tables(schema) {
+            assert!(table.well_formed() && table.pairs.len() <= 2);
+        }
+        for tree in carrier::c8_trees(schema) {
+            assert!(panproto_reference::encode::tree_to_graph(&tree, None).is_ok());
+        }
+    }
+}
+
+#[test]
 fn add_then_delete_cancels_and_delete_then_add_replaces() {
     let mut add = GraphDelta::identity();
     add.add.insert(GElem::Node(5), node(5, "a"));

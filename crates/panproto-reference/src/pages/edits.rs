@@ -1721,8 +1721,8 @@ pub mod edit {
         let mut net = Some(GraphDelta::identity());
         for step in edit.steps() {
             apply_tree_step(step, &mut current, &mut followed)?;
-            let next = graph_of(&current, &followed);
-            net = match (net, &graph, &next) {
+            let stepped = graph_of(&current, &followed);
+            net = match (net, &graph, &stepped) {
                 (Some(prefix), Some(before), Some(after)) => {
                     // Each step delta applies to the state the steps before
                     // it reach, so the composite of applicable deltas is
@@ -1730,16 +1730,17 @@ pub mod edit {
                     // or replacement reads the payload its predecessor
                     // wrote, an addition takes an id absent there, and an
                     // attribute change reads the value written before it.
-                    match prefix.compose(&tree_step_delta(before, after)) {
-                        Ok(composite) => Some(composite),
-                        Err(mismatch) => unreachable!(
-                            "sequentially applicable step deltas compose: {mismatch:?}"
-                        ),
-                    }
+                    // A mismatch would mean the graph forms do not chain,
+                    // and is reported as a typed refusal, never a panic.
+                    Some(prefix.compose(&tree_step_delta(before, after)).map_err(
+                        |mismatch| TreeApplyError::NotTreeEdit {
+                            reason: format!("step deltas do not compose at {mismatch:?}"),
+                        },
+                    )?)
                 }
                 _ => None,
             };
-            graph = next;
+            graph = stepped;
         }
         *embedding = reached;
         Ok(net)
@@ -1770,17 +1771,15 @@ pub mod edit {
     ) -> Result<GraphDelta, TreeApplyError> {
         // A valid `u32` embedding has every carrier id in `u32`, so every
         // intermediate graph form exists.
-        let mut next_embedding = embedding.clone();
-        let after_tree = apply_tree(edit, tree, &mut next_embedding)?;
-        let before = build_embedded_graph(tree, &embedding.arcs, &embedding.fans, schema);
-        let after = build_embedded_graph(
-            &after_tree,
-            &next_embedding.arcs,
-            &next_embedding.fans,
-            schema,
-        );
-        *embedding = next_embedding;
-        Ok(diff(&before, &after))
+        lower_tree_steps(tree, embedding, edit, |tree, embedding| {
+            Some(build_embedded_graph(
+                tree,
+                &embedding.arcs,
+                &embedding.fans,
+                schema,
+            ))
+        })?
+        .ok_or(TreeApplyError::IdsExhausted)
     }
 
     /// Definition: Lower a tree edit over unbounded ids.
@@ -3008,8 +3007,10 @@ pub mod edit {
         }
     }
 
-    /// Definition: The differ from `before` to `after`, keeping the
-    /// replacements of an input delta: every element the input replaces (an
+    /// Definition: The differ from `before` to `after` that keeps the
+    /// replacements of an input delta.
+    ///
+    /// Every element the input replaces (an
     /// id in both of its parts) that is present in both states becomes a
     /// replacement from its `before` payload to its `after` payload, with no
     /// attribute change of its own, even when the payloads are equal. A
@@ -3037,9 +3038,10 @@ pub mod edit {
         delta
     }
 
-    /// Definition: The reference translation of a source edit through a lens: the differ
-    /// between the views of the source before and after the edit (whole-state
-    /// get on both sides), keeping the edit's replacements of elements both
+    /// Definition: The reference translation of a source edit through a lens.
+    ///
+    /// It is the differ between the views of the source before and after the
+    /// edit (whole-state get on both sides), keeping the edit's replacements of elements both
     /// views hold ([`diff_keeping_replacements`]).
     ///
     /// # Errors
@@ -3056,13 +3058,15 @@ pub mod edit {
         let (before, _) = get(s).map_err(EditTranslationError::Lens)?;
         let (after, complement) = get(&s2).map_err(EditTranslationError::Lens)?;
         Ok(EditTranslation {
-            delta: diff(&before, &after),
+            delta: diff_keeping_replacements(&before, &after, d),
             complement,
         })
     }
 
-    /// Definition: The reference translation of a view edit through a lens: the differ
-    /// between the source and the put of the edited view, keeping the view
+    /// Definition: The reference translation of a view edit through a lens.
+    ///
+    /// It is the differ between the source and the put of the edited view,
+    /// keeping the view
     /// edit's replacements of elements both sources hold
     /// ([`diff_keeping_replacements`]).
     ///
@@ -3378,7 +3382,9 @@ pub mod edit {
     }
 
     /// Definition: The canonical delta of a surface table edit, read
-    /// without a state (T.5, E.2). `InsertRow` adds the row; `DeleteRow`
+    /// without a state (T.5, E.2).
+    ///
+    /// `InsertRow` adds the row; `DeleteRow`
     /// deletes the row with its stated payload and every listed pair;
     /// `UpdateCell` is a cell change; `MoveRow` a table change of the row;
     /// `AddForeignKey` and `RemoveForeignKey` add and delete the pair;
@@ -3475,8 +3481,10 @@ pub mod edit {
         }
     }
 
-    /// Definition: Apply one surface table step: check it against the table as T.5's compare-and-set surface
-    /// requires, then apply its lowering ([`table_edit_delta`]) with
+    /// Definition: Apply one surface table step.
+    ///
+    /// The step is checked against the table as T.5's compare-and-set surface
+    /// requires, then its lowering ([`table_edit_delta`]) is applied with
     /// [`apply_table`]. The surface checks are: an inserted id is free
     /// (`DuplicateRow`); a deleted, updated or moved row exists
     /// (`RowNotFound`) in the named table (`StaleTable`); a deleted row
@@ -3509,7 +3517,6 @@ pub mod edit {
                 .collect()
         };
         match edit {
-            TableEdit::Identity => {}
             TableEdit::InsertRow { id, .. } => {
                 if table.rows.contains_key(id) {
                     return Err(TableApplyError::DuplicateRow(*id));
@@ -3590,7 +3597,7 @@ pub mod edit {
                     });
                 }
             }
-            TableEdit::Batch(_) | TableEdit::Delta(_) => {}
+            TableEdit::Identity | TableEdit::Batch(_) | TableEdit::Delta(_) => {}
         }
         let delta = table_edit_delta(edit).map_err(|mismatch| match mismatch {
             Mismatch::Elem(element) => TableApplyError::ElementTypeMismatch(element),
@@ -3629,7 +3636,7 @@ pub mod edit {
                 }
                 (TElem::Row(r), Some(TPayload::Row(found_table, found_cells))) => {
                     let TPayload::Row(expected_table, expected_cells) = p else {
-                        unreachable!("the carrier check above excludes a pair payload");
+                        return Err(TableApplyError::ElementTypeMismatch(x.clone()));
                     };
                     if found_table != *expected_table {
                         return Err(TableApplyError::StaleTable { row: *r });
@@ -3668,10 +3675,8 @@ pub mod edit {
             }
             let x = TableSpace::owner(k);
             let Some(payload) = table_payload(table, &x) else {
-                let TElem::Row(row) = x else {
-                    unreachable!("table attributes are owned only by rows");
-                };
-                return Err(TableApplyError::RowNotFound(row));
+                let (TKey::Cell(row, _) | TKey::Table(row)) = k;
+                return Err(TableApplyError::RowNotFound(*row));
             };
             if TableSpace::read(&payload, k).as_ref() != Some(o) {
                 return Err(match k {
