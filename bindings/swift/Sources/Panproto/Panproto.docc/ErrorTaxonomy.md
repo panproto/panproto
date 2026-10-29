@@ -5,7 +5,7 @@ matching on a ``PanprotoError/Fault`` is worth the trouble.
 
 ## Overview
 
-The C ABI collapses every failure into six status codes and a message.
+The C ABI collapses every failure into eight status codes and a message.
 That is too coarse to branch on: a lens that refuses a complement and a
 repository that will not open both arrive as "operation failed" with
 different prose.
