@@ -59,12 +59,47 @@ fn production_value(value: &ReferenceValue) -> Result<Value, io::Error> {
         ReferenceValue::Str(value) => Value::Str(value.clone()),
         ReferenceValue::Null => Value::Null,
         ReferenceValue::Bool(value) => Value::Bool(*value),
+        ReferenceValue::List(items) => Value::List(
+            items
+                .iter()
+                .map(production_value)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        ReferenceValue::Temporal(value) => Value::Temporal(production_ill_formed_temporal(value)?),
         other => {
             return Err(invalid(format!(
                 "value outside the O17 equality carrier: {other:?}"
             )));
         }
     })
+}
+
+/// The production carrier of a reference temporal with neither a date nor a
+/// time and a fixed minute offset: the only temporal shape the keying
+/// differential presents, which neither side admits.
+fn production_ill_formed_temporal(
+    value: &panproto_reference::temporal::Temporal,
+) -> Result<panproto_expr::exact::Temporal, io::Error> {
+    use panproto_expr::exact::{ExtendedTemporal, Offset, Temporal};
+    use panproto_reference::temporal::{Offset as ReferenceOffset, OffsetForm};
+    match value {
+        panproto_reference::temporal::Temporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: ReferenceOffset::Fixed(minutes, OffsetForm::Extended),
+            infinity: None,
+        } => Ok(Temporal::Extended(ExtendedTemporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: Offset::Fixed(*minutes),
+            infinity: None,
+        })),
+        other => Err(invalid(format!(
+            "temporal outside the keying refusal carrier: {other:?}"
+        ))),
+    }
 }
 
 fn production_equality(equality: &reference_keys::KeyEquality) -> KeyEquality {
@@ -1476,5 +1511,162 @@ fn values_without_canonical_bytes_are_a_typed_keying_refusal() -> Result<(), Box
             "{equality:?}"
         );
     }
+    Ok(())
+}
+
+/// The typed refusal a reference keying error becomes in production.
+fn production_keying_error(error: &reference_keys::KeyingError) -> production::KeyingError {
+    match error {
+        reference_keys::KeyingError::UnsupportedCollation(name) => {
+            production::KeyingError::UnsupportedCollation(name.as_str().into())
+        }
+        reference_keys::KeyingError::EqualityArity { expected, found } => {
+            production::KeyingError::EqualityArity {
+                expected: *expected,
+                found: *found,
+            }
+        }
+        reference_keys::KeyingError::NoCanonicalBytes => production::KeyingError::NoCanonicalBytes,
+    }
+}
+
+/// Production refuses a keyed value without canonical bytes exactly where
+/// the reference does, with the same typed refusal: in the part kernel, the
+/// tuple kernel, the representation refinement, the bucket bytes, and the
+/// `KeyUnique` check of validation.
+#[test]
+fn production_refuses_values_without_canonical_bytes_as_the_reference_does()
+-> Result<(), Box<dyn Error>> {
+    let mut values = enumerate::equality_values();
+    values.extend([
+        ReferenceValue::Null,
+        ReferenceValue::Bool(true),
+        ill_formed_temporal(1440),
+        ill_formed_temporal(1441),
+        ReferenceValue::List(vec![ReferenceValue::Int(1), ill_formed_temporal(1440)]),
+        ReferenceValue::List(vec![ReferenceValue::Int(1)]),
+    ]);
+    let production_values = values
+        .iter()
+        .map(production_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut refused = 0_usize;
+    let mut compared = 0_usize;
+    for (label, reference_equality) in enumerate::equality_configurations() {
+        let production_equality = production_equality(&reference_equality);
+        let reference_key = reference::Key {
+            id: "key".to_owned(),
+            parts: vec![reference::KeyPart::Path(Vec::new())],
+            role: reference::KeyRole::Unique,
+            scope: reference::KeyScope::Document,
+            equality: vec![reference_equality.clone()],
+        };
+        let key = production_key(&reference_key);
+        for (left, production_left) in values.iter().zip(&production_values) {
+            // Bucket bytes: one keyed node holding the value.
+            let mut graph = ReferenceGraph::default();
+            graph
+                .nodes
+                .insert(0, ReferenceNode::new(0, "item").with_value(left.clone()));
+            let expected = reference_keys::buckets(&graph, "item", &reference_key)
+                .err()
+                .map(|error| production_keying_error(&error));
+            let actual =
+                production::canonical_key_bytes(&key, std::slice::from_ref(production_left)).err();
+            assert_eq!(actual, expected, "{label}: bytes of {left:?}");
+            for (right, production_right) in values.iter().zip(&production_values) {
+                let expected = reference_keys::tuple_equivalence(
+                    &reference_key,
+                    std::slice::from_ref(left),
+                    std::slice::from_ref(right),
+                )
+                .map_err(|error| production_keying_error(&error));
+                let actual = production::tuple_equivalence(
+                    &key,
+                    std::slice::from_ref(production_left),
+                    std::slice::from_ref(production_right),
+                );
+                assert_eq!(actual, expected, "{label}: {left:?} against {right:?}");
+                assert_eq!(
+                    production::key_equivalence(
+                        &production_equality,
+                        production_left,
+                        production_right
+                    )
+                    .ok(),
+                    reference_keys::key_equivalence(&reference_equality, left, right),
+                    "{label}: part kernel {left:?} against {right:?}"
+                );
+                let refines = production::representation_refines(
+                    &production_equality,
+                    production_left,
+                    production_right,
+                );
+                assert_eq!(
+                    refines.as_ref().ok().copied(),
+                    reference_keys::representation_refines(&reference_equality, left, right),
+                    "{label}: refinement {left:?} against {right:?}"
+                );
+                if expected == Err(production::KeyingError::NoCanonicalBytes) {
+                    refused += 1;
+                }
+                compared += 1;
+            }
+        }
+    }
+    assert_eq!(values.len(), 43);
+    assert_eq!(compared, 12 * 43 * 43);
+    assert!(refused > 0);
+    println!("canonical-bytes keying refusal: pairs={compared}, refused={refused}");
+
+    // Validation: KeyUnique over two such values is undecided with the typed
+    // reason, never a duplicate or a pass.
+    let mut pair = GraphPair::default();
+    pair.add_node(
+        0,
+        "item",
+        Some(ReferencePresence::Present(ill_formed_temporal(1440))),
+    )?;
+    pair.add_node(
+        1,
+        "item",
+        Some(ReferencePresence::Present(ill_formed_temporal(1440))),
+    )?;
+    let key = reference::Key {
+        id: "temporal".to_owned(),
+        parts: vec![reference::KeyPart::Path(Vec::new())],
+        role: reference::KeyRole::Unique,
+        scope: reference::KeyScope::Global,
+        equality: vec![reference_keys::KeyEquality::Representation],
+    };
+    assert_eq!(
+        reference_keys::buckets(&pair.reference, "item", &key),
+        Err(reference_keys::KeyingError::NoCanonicalBytes)
+    );
+    let schema = schema_with_key(&[("item", "string")], &[], &[], "item", &key);
+    let report = ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default())
+        .validate_graph(
+            &pair.production,
+            &ValidationBudget::default(),
+            &ExternalVerdicts::default(),
+        );
+    assert!(
+        report.incomplete.iter().any(|incomplete| {
+            incomplete.check.kind == CheckKind::KeyUnique
+                && incomplete.requirement == Requirement::Required
+                && incomplete.reason
+                    == IncompleteReason::NoCanonicalKeyBytes {
+                        key: "temporal".into(),
+                    }
+        }),
+        "{report:?}"
+    );
+    assert!(
+        !report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.violation, Violation::DuplicateKey { .. })),
+        "{report:?}"
+    );
     Ok(())
 }

@@ -1993,6 +1993,19 @@ pub mod implementation {
         })
     }
 
+    /// Whether a variable reference binds its own holder vertex through the
+    /// field it reads: the first binding of a name is then its definition
+    /// and every later binding a reference to a preceding definition.
+    fn self_binding(schema: &Schema, reference: &Reference) -> bool {
+        let RefSource::Variable { field, .. } = &reference.source else {
+            return false;
+        };
+        reference.holder == reference.target_vertex
+            && target_key(schema, reference).is_some_and(|key| {
+                matches!(key.parts.as_slice(), [crate::schema::KeyPart::Path(path)] if path == field)
+            })
+    }
+
     fn resolve_reference_occurrences(
         schema: &Schema,
         base: &Graph,
@@ -2023,6 +2036,13 @@ pub mod implementation {
                 continue;
             }
             let mut found = candidates(schema, base, reference, holder, &values)?;
+            // A self-binding variable's occurrence that binds no definition
+            // before it is itself a definition: it adds no edge and records
+            // no occurrence.
+            if self_binding(schema, reference) && (found.is_empty() || found.as_slice() == [holder])
+            {
+                continue;
+            }
             add_materialized_span_candidate(
                 schema, base, holder, reference, index, complement, &mut found,
             )?;

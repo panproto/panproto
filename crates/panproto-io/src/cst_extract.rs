@@ -5633,19 +5633,81 @@ pub fn extract_tabular_cst_with_protocol(
     let mut rows = Vec::new();
     let mut fidelity = Vec::new();
 
+    let format = cst.protocol.as_ref();
+    let delimiter = match format {
+        "csv" => Some(b','),
+        "tsv" => Some(b'\t'),
+        _ => None,
+    };
+    let source = cst_source_text(cst, &doc_vertex);
+    let document_start = cst_recorded_span(cst, &doc_vertex).map(|(start, _)| start);
+
     for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
         let fields = cst_children_by_edge_kind(cst, row_name, "child_of");
-        if fields.len() > headers.len() {
+        // The grammar's field text may be empty and then has no node, so a
+        // row's fields are counted from its source bytes, and each field
+        // node is placed at the column its start byte falls in.
+        let layout = delimiter
+            .zip(document_start)
+            .and_then(|(delimiter, document_start)| {
+                let (start, end) = cst_recorded_span(cst, row_name)?;
+                let text = source
+                    .get(start.checked_sub(document_start)?..end.checked_sub(document_start)?)?;
+                Some((
+                    start,
+                    delimited_field_starts(text, delimiter, format == "csv"),
+                ))
+            });
+        let field_count = layout
+            .as_ref()
+            .map_or(fields.len(), |(_, starts)| starts.len());
+        if field_count != headers.len() && !(field_count < headers.len() && layout.is_none()) {
             return Err(CstCodecError::Structure(format!(
                 "data row {} at byte {:?} has {} fields but {} header fields are declared",
                 row_idx + 1,
                 cst_byte_offset(cst, row_name),
-                fields.len(),
+                field_count,
                 headers.len()
             )));
         }
+        let columns: Vec<usize> = match &layout {
+            Some((row_start, starts)) => fields
+                .iter()
+                .map(|field| {
+                    cst_recorded_span(cst, field).map_or(0, |(start, _)| {
+                        let relative = start.saturating_sub(*row_start);
+                        starts
+                            .partition_point(|field_start| *field_start <= relative)
+                            .saturating_sub(1)
+                    })
+                })
+                .collect(),
+            None => (0..fields.len()).collect(),
+        };
         let mut row = HashMap::new();
-        for (col_idx, (field_name, col)) in fields.iter().zip(&headers).enumerate() {
+        if layout.is_some() {
+            // A field with empty text has no node and so no carrier: it reads
+            // as the lexeme "" under its column's spec.
+            for (col_idx, col) in headers.iter().enumerate() {
+                if columns.contains(&col_idx) {
+                    continue;
+                }
+                let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, col);
+                match crate::json_pathway::coerce_exact_lexeme(
+                    &Lexeme::new("", LexClass::String),
+                    &spec,
+                ) {
+                    Ok(value) => {
+                        row.insert(col.clone(), value);
+                    }
+                    Err(error) => fidelity.push(error.at(ValueSite::new(vertex, None))),
+                }
+            }
+        }
+        for (field_name, col_idx) in fields.iter().zip(columns) {
+            let Some(col) = headers.get(col_idx) else {
+                continue;
+            };
             let col = col.clone();
             let raw = literal_text_deep(cst, field_name);
             let text = decode_tabular_field(&raw, cst.protocol.as_ref());
@@ -5681,6 +5743,11 @@ pub fn extract_tabular_cst_with_protocol(
     // recorded tail. They intentionally have no cell carrier: unchanged
     // emission replays the tail, while an edit receives the ordinary
     // unaddressed-structure refusal rather than rewriting a newline as data.
+    if trailing_tabular_content(cst, &doc_vertex, &row_vertices) {
+        return Err(CstCodecError::Structure(
+            "tabular source holds bytes after its last row that no row represents".into(),
+        ));
+    }
     if headers.len() == 1 {
         for _ in 0..trailing_empty_tabular_rows(cst, &doc_vertex, &row_vertices) {
             let col = headers[0].clone();
@@ -5714,6 +5781,24 @@ pub fn extract_tabular_cst_with_protocol(
     Ok((instance, complement))
 }
 
+/// The byte offsets, relative to `text`, at which the fields of one delimited
+/// row start: 0, and one past each delimiter outside a CSV quoted field.
+fn delimited_field_starts(text: &str, delimiter: u8, quoted: bool) -> Vec<usize> {
+    let mut starts = vec![0];
+    let mut in_quotes = false;
+    for (index, byte) in text.bytes().enumerate() {
+        if matches!(byte, b'\n' | b'\r') && !in_quotes {
+            break;
+        }
+        if quoted && byte == b'"' {
+            in_quotes = !in_quotes;
+        } else if byte == delimiter && !in_quotes {
+            starts.push(index + 1);
+        }
+    }
+    starts
+}
+
 /// Count physical empty rows after the last row represented in a tabular CST.
 fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> usize {
     let Some((document_start, _)) = cst_recorded_span(cst, document) else {
@@ -5744,6 +5829,22 @@ fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> 
         }
     }
     endings.saturating_sub(1)
+}
+
+/// Whether the bytes after the last represented row hold anything but line
+/// endings, which no row of the instance would then carry.
+fn trailing_tabular_content(cst: &Schema, document: &str, rows: &[&Name]) -> bool {
+    let Some((document_start, _)) = cst_recorded_span(cst, document) else {
+        return false;
+    };
+    let Some((_, last_end)) = rows.last().and_then(|row| cst_recorded_span(cst, row)) else {
+        return false;
+    };
+    let source = cst_source_text(cst, document);
+    last_end
+        .checked_sub(document_start)
+        .and_then(|offset| source.as_bytes().get(offset..))
+        .is_some_and(|tail| tail.iter().any(|byte| !matches!(byte, b'\n' | b'\r')))
 }
 
 fn tabular_source_vertex<'a>(

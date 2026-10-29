@@ -5264,6 +5264,10 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
     );
     assert_eq!(anchors, states);
     assert_eq!(anchors + labels, units.len());
+    assert_eq!(fused.len(), 384);
+    assert_eq!(states, 761_742);
+    assert_eq!(labels, 761_358);
+    assert_eq!(units.len(), 1_523_100);
     println!("{bound}");
     let compared = assert_agree(agree_in_parallel(
         &bound,

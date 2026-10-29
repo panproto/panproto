@@ -2412,6 +2412,9 @@ fn keying_incomplete(key: &panproto_schema::Key, error: KeyingError) -> Incomple
                 kind: kind.to_owned(),
             }
         }
+        KeyingError::NoCanonicalBytes => IncompleteReason::NoCanonicalKeyBytes {
+            key: key.id.clone(),
+        },
     }
 }
 

@@ -896,6 +896,12 @@ pub enum IncompleteReason {
         /// The malformed representation kind.
         kind: String,
     },
+    /// A keyed instance value has no canonical bytes, such as a temporal
+    /// value outside the admitted carrier.
+    NoCanonicalKeyBytes {
+        /// The key whose value has no canonical bytes.
+        key: Name,
+    },
 }
 
 impl fmt::Display for IncompleteReason {
@@ -919,6 +925,9 @@ impl fmt::Display for IncompleteReason {
             }
             Self::InvalidKeyRepresentation { key, kind } => {
                 write!(f, "key {key} has an invalid {kind} representation")
+            }
+            Self::NoCanonicalKeyBytes { key } => {
+                write!(f, "key {key} holds a value without canonical bytes")
             }
         }
     }
@@ -1700,6 +1709,10 @@ pub fn write_reason<W: CanonicalSink + ?Sized>(w: &mut W, r: &IncompleteReason) 
             w.tag(8);
             w.name(key);
             w.str(kind);
+        }
+        IncompleteReason::NoCanonicalKeyBytes { key } => {
+            w.tag(9);
+            w.name(key);
         }
     }
 }

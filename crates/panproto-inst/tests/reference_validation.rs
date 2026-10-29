@@ -932,6 +932,49 @@ fn whole_validation_agrees_exactly_on_the_compact_three_shape_carrier() {
     assert_eq!(COMPACT_CASE_COUNT, SHAPES * CASES_PER_SHAPE);
 }
 
+/// The `child` vertex declares no attributes, so a field on a `child` node
+/// is undeclared. The attribute check refuses it at every typed node, not
+/// only at nodes whose vertex declares some attribute.
+#[test]
+fn an_attribute_at_a_vertex_declaring_none_is_refused() {
+    let (reference_schema, semantics) = fixture_schema();
+    let (schema, protocol) = production_fixture_schema(&reference_schema);
+    let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+    let edge = reference_schema.edges.iter().next().unwrap();
+    let extra = |node: &mut reference_model::Node| {
+        node.fields
+            .insert("note".to_owned(), ReferenceValue::Str("x".to_owned()));
+    };
+
+    let mut graph = graph_cases(edge).swap_remove(0);
+    extra(graph.nodes.get_mut(&1).unwrap());
+    let expected = reference::validate(&reference_schema, &semantics, &graph);
+    assert!(
+        expected
+            .diagnostics
+            .iter()
+            .any(|d| matches!(d.violation, reference::Violation::UndeclaredAttribute(_))),
+        "{expected:?}"
+    );
+    let actual = plan.validate_graph(
+        &production_graph(&graph),
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    compare_reports("graph with an undeclared attribute", &expected, &actual);
+
+    let mut tree = tree_cases(edge).swap_remove(0);
+    extra(tree.nodes.get_mut(&1).unwrap());
+    let expected = reference::validate_tree(&reference_schema, &semantics, &tree)
+        .expect("compact reference tree presents to validation");
+    let actual = plan.validate_tree(
+        &production_tree(&tree),
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    compare_reports("tree with an undeclared attribute", &expected, &actual);
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct IncompleteObservation {
     check_kind: String,
@@ -2084,7 +2127,6 @@ fn finite_budget_law_holds_against_the_reference_on_failing_carriers() {
                     .map(production_diagnostic)
                     .collect::<Vec<_>>(),
                 expected
-                    .evaluation
                     .report
                     .diagnostics
                     .iter()

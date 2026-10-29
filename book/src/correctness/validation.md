@@ -319,7 +319,7 @@ The *unlimited work count* is the sum, over every scheduled instance that is not
 
 - Law ID: `validation.v7`
 - Reference: `panproto_reference::validation::witness_with_trust`
-- Evidence scope: `one passing graph carrier at limits 0 to 2; three failing graph carriers (unknown anchor, missing required edge, overlong value) at every limit from 0 to one past the unlimited work count, the reference schedule restricted to the check keys production compiles`
+- Evidence scope: `one passing graph carrier at limits 0 to 2; three failing graph carriers (unknown anchor, missing required edge, overlong value) at every limit from 0 to one past the unlimited work count, against the reference's complete schedule`
 - Production certificate: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
 - Independent reference anchor: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
 - Exhaustive differential test: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`

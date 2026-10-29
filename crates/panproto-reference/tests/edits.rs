@@ -598,34 +598,30 @@ fn every_delta_family_tag_names_its_constructor() {
 }
 
 #[test]
-fn c8_scope_is_structurally_incomplete_until_its_alphabets_are_fixed() {
-    use carrier::C8MissingParameter as Missing;
-
-    let carrier::C8ScopeStatus::Incomplete { settled, missing } = carrier::c8_scope_status();
-    assert_eq!(settled.schema_vertices, 2);
-    assert_eq!(settled.schema_edges, 2);
-    assert_eq!(settled.graph_nodes, 3);
-    assert_eq!(settled.table_rows, 3);
-    assert_eq!(settled.tree_nodes, 3);
-    assert_eq!(settled.sequence_len, 3);
+fn c8_scope_is_complete_with_its_fixed_parameters() {
+    let carrier::C8ScopeStatus::Complete(scope) = carrier::c8_scope_status();
+    assert_eq!(scope.vertex_names, ["a", "b"]);
+    assert_eq!(scope.edge_kind, "e");
+    assert_eq!(scope.column, "f");
+    assert_eq!(scope.values, [None, Some(0), Some(1)]);
+    assert_eq!(scope.schema_vertices, 2);
+    assert_eq!(scope.schema_edges, 2);
+    assert_eq!(scope.graph_nodes, 3);
+    assert_eq!(scope.graph_edges, 2);
+    assert_eq!(scope.table_rows, 3);
+    assert_eq!(scope.table_pairs, 2);
+    assert_eq!(scope.tree_nodes, 3);
+    assert_eq!(scope.sequence_len, 3);
+    let schemas = carrier::c8_schemas();
     assert_eq!(
-        missing,
-        [
-            Missing::SchemaAlphabet,
-            Missing::ValueAlphabet,
-            Missing::InitialStatePayloadAlphabetAndBounds,
-            Missing::GraphEdgeBound,
-            Missing::StateIdCarrier,
-            Missing::AdditionPayloadAlphabet,
-            Missing::TableStructureAndEditAlphabet,
-            Missing::SchemaDeclarationsAndHyperEdgeSignatures,
-            Missing::NodeShapeAlphabet,
-            Missing::TreeEditAlphabet,
-            Missing::InitialTreeStateAndFanAlphabet,
-            Missing::SequenceApplicabilityAndRegenerationPolicy,
-            Missing::CanonicalDeltaEncoding,
-        ]
+        u64::try_from(schemas.len()).unwrap(),
+        carrier::c8_schemas_count_certificate()
     );
+    let distinct: BTreeSet<_> = schemas
+        .iter()
+        .map(|schema| (schema.vertices.clone(), schema.edges.clone()))
+        .collect();
+    assert_eq!(distinct.len(), schemas.len());
 }
 
 #[test]

@@ -37,6 +37,50 @@ pub enum KeyingError {
         /// The numeric representation that could not be normalized.
         kind: &'static str,
     },
+    /// A keyed value has no canonical bytes: it is, or contains, a temporal
+    /// value outside the admitted carrier, so neither its representation
+    /// nor any declared equality is defined on it.
+    #[error("a keyed value has no canonical bytes")]
+    NoCanonicalBytes,
+}
+
+/// Whether a value has canonical bytes: every temporal value it holds,
+/// at any depth, is in the admitted carrier.
+fn has_canonical_bytes(value: &Value) -> bool {
+    match value {
+        Value::Temporal(temporal) => temporal.well_formed(),
+        Value::List(items) => items.iter().all(has_canonical_bytes),
+        Value::Opaque { fields, .. } | Value::Unknown(fields) => {
+            fields.values().all(has_canonical_bytes)
+        }
+        Value::Bool(_)
+        | Value::Int(_)
+        | Value::Float(_)
+        | Value::Str(_)
+        | Value::Bytes(_)
+        | Value::CidLink(_)
+        | Value::Blob { .. }
+        | Value::Token(_)
+        | Value::Null
+        | Value::LabeledNull(_)
+        | Value::Decimal(_)
+        | Value::BigInt(_) => true,
+    }
+}
+
+/// The canonical bytes of a keyed value.
+fn representation_bytes(value: &Value) -> Result<Vec<u8>, KeyingError> {
+    if has_canonical_bytes(value) {
+        Ok(value.canonical_bytes())
+    } else {
+        Err(KeyingError::NoCanonicalBytes)
+    }
+}
+
+/// Representation equality: equal canonical bytes, defined only when both
+/// values have them.
+fn representation(left: &Value, right: &Value) -> Result<bool, KeyingError> {
+    Ok(representation_bytes(left)? == representation_bytes(right)?)
 }
 
 #[derive(Clone, Debug)]
@@ -189,18 +233,20 @@ pub fn xml_noncdata(text: &str) -> String {
 /// # Errors
 ///
 /// [`KeyingError::UnsupportedCollation`] when two strings require a named
-/// SQL collation, or [`KeyingError::InvalidNumericRepresentation`] when a
-/// carried numeric value violates its representation invariant.
+/// SQL collation, [`KeyingError::InvalidNumericRepresentation`] when a
+/// carried numeric value violates its representation invariant, or
+/// [`KeyingError::NoCanonicalBytes`] when the equality compares a value
+/// without canonical bytes by its representation.
 pub fn key_equivalence(
     equality: &KeyEquality,
     left: &Value,
     right: &Value,
 ) -> Result<bool, KeyingError> {
     match equality {
-        KeyEquality::Representation => Ok(left.canonical_cmp(right).is_eq()),
+        KeyEquality::Representation => representation(left, right),
         KeyEquality::NumericValue => match (numeric_key(left)?, numeric_key(right)?) {
             (Some(left), Some(right)) => Ok(left == right),
-            _ => Ok(left.canonical_cmp(right).is_eq()),
+            _ => representation(left, right),
         },
         KeyEquality::NumericValueWithinKind(declared) => {
             match (numeric_key(left)?, numeric_key(right)?) {
@@ -217,7 +263,7 @@ pub fn key_equivalence(
                     };
                     Ok(left_primitive == right_primitive && left_key == right_key)
                 }
-                _ => Ok(left.canonical_cmp(right).is_eq()),
+                _ => representation(left, right),
             }
         }
         // The key function of text under a named collation is undefined, so
@@ -234,13 +280,13 @@ pub fn key_equivalence(
                 (Value::Str(left), Value::Str(right)) => {
                     Ok(sql_text(left, collation, *pad)? == sql_text(right, collation, *pad)?)
                 }
-                _ => Ok(left.canonical_cmp(right).is_eq()),
+                _ => representation(left, right),
             },
             _ => Ok(false),
         },
         KeyEquality::XmlNonCdata => match (left, right) {
             (Value::Str(left), Value::Str(right)) => Ok(xml_noncdata(left) == xml_noncdata(right)),
-            _ => Ok(left.canonical_cmp(right).is_eq()),
+            _ => representation(left, right),
         },
     }
 }
@@ -250,13 +296,14 @@ pub fn key_equivalence(
 ///
 /// # Errors
 ///
-/// The same named-collation refusal as [`key_equivalence`].
+/// [`KeyingError::NoCanonicalBytes`] when either value has no canonical
+/// bytes, then the refusals of [`key_equivalence`].
 pub fn representation_refines(
     equality: &KeyEquality,
     left: &Value,
     right: &Value,
 ) -> Result<bool, KeyingError> {
-    Ok(!left.canonical_cmp(right).is_eq() || key_equivalence(equality, left, right)?)
+    Ok(!representation(left, right)? || key_equivalence(equality, left, right)?)
 }
 
 fn equalities(key: &Key) -> Result<Vec<&KeyEquality>, KeyingError> {
@@ -280,7 +327,8 @@ fn equalities(key: &Key) -> Result<Vec<&KeyEquality>, KeyingError> {
 ///
 /// # Errors
 ///
-/// A malformed equality vector or named SQL collation.
+/// A malformed equality vector, then the first part refusal of
+/// [`key_equivalence`].
 pub fn tuple_equivalence(key: &Key, left: &[Value], right: &[Value]) -> Result<bool, KeyingError> {
     if left.len() != key.parts.len() || right.len() != key.parts.len() {
         return Ok(false);
@@ -350,7 +398,7 @@ fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, Keying
     match equality {
         KeyEquality::Representation => {
             writer.tag(0);
-            writer.0.extend_from_slice(&value.canonical_bytes());
+            writer.0.extend_from_slice(&representation_bytes(value)?);
         }
         KeyEquality::NumericValue => {
             writer.tag(1);
@@ -359,7 +407,7 @@ fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, Keying
                 write_numeric_key(&mut writer, &key);
             } else {
                 writer.tag(1);
-                writer.0.extend_from_slice(&value.canonical_bytes());
+                writer.0.extend_from_slice(&representation_bytes(value)?);
             }
         }
         KeyEquality::NumericValueWithinKind(declared) => {
@@ -375,7 +423,7 @@ fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, Keying
                 write_numeric_key(&mut writer, &key);
             } else {
                 writer.tag(1);
-                writer.0.extend_from_slice(&value.canonical_bytes());
+                writer.0.extend_from_slice(&representation_bytes(value)?);
             }
         }
         KeyEquality::Sql { collation, pad } => {
@@ -388,7 +436,7 @@ fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, Keying
                 writer.str(&sql_text(text, collation, *pad)?);
             } else {
                 writer.tag(2);
-                writer.0.extend_from_slice(&value.canonical_bytes());
+                writer.0.extend_from_slice(&representation_bytes(value)?);
             }
         }
         KeyEquality::XmlNonCdata => {
@@ -398,7 +446,7 @@ fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, Keying
                 writer.str(&xml_noncdata(text));
             } else {
                 writer.tag(1);
-                writer.0.extend_from_slice(&value.canonical_bytes());
+                writer.0.extend_from_slice(&representation_bytes(value)?);
             }
         }
     }
@@ -410,7 +458,9 @@ fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, Keying
 ///
 /// # Errors
 ///
-/// A tuple/equality arity mismatch or named SQL collation.
+/// A tuple/equality arity mismatch, a named SQL collation, or
+/// [`KeyingError::NoCanonicalBytes`] at the first part whose value has no
+/// canonical bytes.
 pub fn canonical_key_bytes(key: &Key, values: &[Value]) -> Result<Vec<u8>, KeyingError> {
     if values.len() != key.parts.len() {
         return Err(KeyingError::EqualityArity {

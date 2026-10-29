@@ -2452,10 +2452,20 @@ fn bounded_xml_expanded_names_match_reference() {
                     let (parsed, _) = codec
                         .parse_wtype_preserving(&schema, input.as_bytes())
                         .test_unwrap("CST XML expanded-name parse");
+                    let value = parsed
+                        .nodes
+                        .values()
+                        .find(|node| node.anchor.as_ref() == "value")
+                        .and_then(|node| node.value.as_ref());
                     assert_eq!(
-                        tree_value(&parsed, "value"),
-                        &FieldPresence::Present(Value::Str("x".to_owned())),
-                        "CST input={input}"
+                        value,
+                        Some(&FieldPresence::Present(Value::Str("x".to_owned()))),
+                        "CST input={input}, anchors={:?}",
+                        parsed
+                            .nodes
+                            .values()
+                            .map(|node| node.anchor.to_string())
+                            .collect::<Vec<_>>()
                     );
                 }
             }

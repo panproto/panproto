@@ -80,6 +80,9 @@ pub enum KeyEqualityReason {
         /// Name of the invalid representation.
         kind: String,
     },
+    /// A keyed value has no canonical bytes, such as a temporal value
+    /// outside the admitted carrier.
+    NoCanonicalBytes,
 }
 
 /// A serializable instance-shape failure at the resolution boundary.

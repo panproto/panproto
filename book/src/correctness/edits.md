@@ -38,10 +38,9 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 - Reference: `panproto_reference::edit::apply`
 - Reference: `panproto_reference::edit::independence`
 - Reference: `panproto_reference::edit::merge`
-- Enumerator: `panproto_reference::enumerate::edits::graph_delta_cases; bound: atomic_deltas=25`
-- Exhaustive differential test: `e1_apply_matches_reference_on_every_graph_and_atomic_delta; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e1_apply_matches_reference_on_every_graph_and_atomic_delta)'`
-- Property differential test: `e1_independence_and_merge_match_reference_on_every_atomic_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e1_independence_and_merge_match_reference_on_every_atomic_pair)'`
-- Property differential test: `e1_independent_deltas_commute_and_merge_on_every_carrier_graph; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e1_independent_deltas_commute_and_merge_on_every_carrier_graph)'`
+- Enumerator: `panproto_reference::enumerate::edits::c8_graph_words; bound: word_length=3`
+- Exhaustive differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
+- Property differential test: `c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope)'`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`
 - File: `crates/panproto-inst/src/graph_edit/independence.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -93,9 +92,8 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 - Reference: `panproto_reference::edit::invert_table`
 - Reference: `panproto_reference::edit::compose_table`
 - Reference: `panproto_reference::edit::diff_table`
-- Enumerator: `panproto_reference::enumerate::edits::tables; bound: rows=3`
-- Exhaustive differential test: `e2_t5_table_apply_and_algebra_match_the_exact_release_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_t5_table_apply_and_algebra_match_the_exact_release_carrier)'`
-- Property differential test: `e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier)'`
+- Enumerator: `panproto_reference::enumerate::edits::c8_table_words; bound: word_length=3`
+- Exhaustive differential test: `c8_table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
 - Outside-domain test: `e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables; witness: row 0 in table a with pair (a -e-> b, 0, 0)`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
@@ -145,10 +143,9 @@ The *per-element action* is one of none, deletion, addition, replacement, or a f
 - Law ID: `edits.e3`
 - Reference: `panproto_reference::edit::Delta::compose`
 - Reference: `panproto_reference::edit::graph_delta_from_tree_edit`
-- Enumerator: `panproto_reference::enumerate::edits::graph_delta_sequences; bound: word_length=3`
-- Exhaustive differential test: `e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier)'`
-- Property differential test: `e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive)'`
-- Property differential test: `e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple)'`
+- Enumerator: `panproto_reference::enumerate::edits::c8_tree_words; bound: word_length=3`
+- Exhaustive differential test: `c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope)'`
+- Property differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-inst/src/tree_edit.rs`
@@ -197,8 +194,8 @@ A *canonical part order* is the field order stated above, followed by the derive
 - Reference: `panproto_reference::edit::canonical_graph_delta_bytes`
 - Reference: `panproto_reference::edit::canonical_table_delta_bytes`
 - Reference: `panproto_reference::edit::canonical_tree_edit_bytes`
-- Enumerator: `panproto_reference::enumerate::edits::graph_delta_cases; bound: atomic_deltas=25`
-- Exhaustive differential test: `e3a_graph_delta_bytes_match_reference_on_every_atomic_delta; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3a_graph_delta_bytes_match_reference_on_every_atomic_delta)'`
+- Enumerator: `panproto_reference::enumerate::edits::c8_graph_words; bound: word_length=3`
+- Exhaustive differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence)'`
 - Outside-domain test: `e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain; witness: InsertNode child_id=1, node.id=2`
 - File: `crates/panproto-inst/src/graph_edit/canonical.rs`
@@ -253,8 +250,8 @@ A row payload is its table name together with its complete cell map. A relation 
 - Reference: `panproto_reference::edit::table_edit_delta`
 - Reference: `panproto_reference::edit::apply_table_step`
 - Reference: `panproto_reference::edit::delete_row_delta`
-- Enumerator: `panproto_reference::enumerate::edits::tables; bound: rows=3`
-- Exhaustive differential test: `e2_t5_table_apply_and_algebra_match_the_exact_release_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_t5_table_apply_and_algebra_match_the_exact_release_carrier)'`
+- Enumerator: `panproto_reference::enumerate::edits::c8_table_words; bound: word_length=3`
+- Exhaustive differential test: `c8_table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `t5_surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=t5_surface_table_edits_lower_check_and_invert_like_the_reference)'`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/src/table_edit.rs`
@@ -349,8 +346,8 @@ A *replacement* is one id present in both the deleted and added structural maps.
 
 - Law ID: `edits.replacement-semantics`
 - Reference: `panproto_reference::edit::Delta::compose`
-- Enumerator: `panproto_reference::enumerate::edits::graph_delta_cases; bound: deletion_payloads=6`
-- Exhaustive differential test: `decision_9_delete_then_add_is_replacement_even_for_equal_payloads; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=decision_9_delete_then_add_is_replacement_even_for_equal_payloads)'`
+- Enumerator: `panproto_reference::enumerate::edits::c8_graph_words; bound: word_length=3`
+- Exhaustive differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `decision_9_delete_then_add_is_replacement_even_for_equal_payloads; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=decision_9_delete_then_add_is_replacement_even_for_equal_payloads)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`

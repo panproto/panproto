@@ -962,6 +962,7 @@ fn key_equality_error(key: &Key, error: KeyingError) -> ResolveError {
                 kind: kind.to_owned(),
             }
         }
+        KeyingError::NoCanonicalBytes => KeyEqualityReason::NoCanonicalBytes,
     };
     ResolveError::KeyEquality {
         key: key.id.clone(),

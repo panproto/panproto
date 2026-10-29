@@ -4184,3 +4184,66 @@ fn preserving_registry_is_the_ordered_cartesian_product() {
     assert_eq!(preserving_registry::<u8>(&[]), vec![Vec::<u8>::new()]);
     assert!(preserving_registry(&[vec![1u8], Vec::new()]).is_empty());
 }
+
+/// A target whose key value has no canonical bytes (a temporal value with a
+/// fixed offset of a whole day, outside the admitted carrier) is refused by
+/// resolution on both sides, never indexed by a total encoding.
+#[test]
+fn a_key_value_without_canonical_bytes_is_refused_by_resolution() {
+    use panproto_inst::value::{ExtendedTemporal, Offset, Temporal};
+    use panproto_io::resolution::KeyEqualityReason;
+    use panproto_reference::temporal::{
+        Offset as ReferenceOffset, OffsetForm, Temporal as ReferenceTemporal,
+    };
+
+    let source: IndexedSource = std::iter::once("a".to_owned()).collect();
+    let (schema, mut tree, _) = reference_pick_tree(&source);
+    tree.nodes.get_mut(&2).expect("first target").fields.insert(
+        "cid".to_owned(),
+        ReferenceValue::Temporal(ReferenceTemporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: ReferenceOffset::Fixed(1440, OffsetForm::Extended),
+            infinity: None,
+        }),
+    );
+    assert_eq!(
+        reference_get(&schema, &tree, true).err(),
+        Some(
+            panproto_reference::resolution::ResolveError::UnsupportedSource {
+                reference: "pick".to_owned(),
+            }
+        )
+    );
+
+    let mut production = production_pick_tree(&source);
+    production
+        .nodes
+        .get_mut(&2)
+        .expect("first target")
+        .extra_fields
+        .insert(
+            "cid".to_owned(),
+            Value::Temporal(Temporal::Extended(ExtendedTemporal {
+                date: None,
+                time: None,
+                separator: None,
+                offset: Offset::Fixed(1440),
+                infinity: None,
+            })),
+        );
+    let (resolution, _) = tree_picks_with_equality(Vec::new());
+    match resolution.get(
+        &AnyInstance::Tree(production),
+        &ResolveOptions { lenient: true },
+        &ResolveContext::empty(),
+    ) {
+        Err(ResolveError::KeyEquality {
+            key,
+            reason: KeyEqualityReason::NoCanonicalBytes,
+        }) => assert_eq!(key.as_ref(), "cid"),
+        Err(other) => panic!("expected a canonical-bytes refusal, found {other:?}"),
+        Ok(_) => panic!("expected a canonical-bytes refusal, found a resolution"),
+    }
+}

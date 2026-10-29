@@ -937,9 +937,39 @@ fn xml_distinguishes_null_empty_and_absent_then_rerenders() {
         .values()
         .find(|node| node.anchor.as_ref() == "empty")
         .expect("empty element");
-    assert!(empty.value.is_none());
+    // Under its declared text kind the empty element reads as the present
+    // empty string: neither the null of `xsi:nil` nor an absent element.
+    assert_eq!(
+        empty.value,
+        Some(FieldPresence::Present(Value::Str(String::new())))
+    );
     assert!(
         instance
+            .nodes
+            .values()
+            .all(|node| node.anchor.as_ref() != "absent")
+    );
+    // The three states are written apart and read back apart: the empty
+    // string as an empty element without `xsi:nil`, null with it, and
+    // absence as no element.
+    let three = emit_xml_bytes(&schema, &instance, "cassandra").expect("emit the three states");
+    let three_text = std::str::from_utf8(&three).expect("XML UTF-8");
+    assert!(
+        three_text.contains("<empty></empty>") || three_text.contains("<empty/>"),
+        "{three_text}"
+    );
+    assert!(!three_text.contains("<absent"), "{three_text}");
+    let three_reparsed = parse_xml_bytes(&schema, &three, "cassandra").expect("reparse three");
+    assert!(matches!(
+        value_at(&three_reparsed, "null_value"),
+        FieldPresence::Null
+    ));
+    assert_eq!(
+        value_at(&three_reparsed, "empty"),
+        &FieldPresence::Present(Value::Str(String::new()))
+    );
+    assert!(
+        three_reparsed
             .nodes
             .values()
             .all(|node| node.anchor.as_ref() != "absent")

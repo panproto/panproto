@@ -342,6 +342,22 @@ impl TablePlan {
     }
 }
 
+/// Keep exactly the foreign-key pairs whose source and target rows exist
+/// and lie in the edge's own source and target tables.
+///
+/// Restoration places every view row in its baseline table, and a view row
+/// may reuse the id of a dropped row from another table (a refused id
+/// collision). A recorded pair through such a row would join rows outside
+/// its edge's tables, which no table instance holds, so restoration restores
+/// a pair only between rows of its edge's tables.
+fn retain_coherent_pairs(table: &mut Table) {
+    let rows = &table.rows;
+    table.pairs.retain(|(edge, source, target)| {
+        rows.get(source).is_some_and(|(name, _)| *name == edge.src)
+            && rows.get(target).is_some_and(|(name, _)| *name == edge.tgt)
+    });
+}
+
 fn cell_writer(fates: &[CellFate], target: &str) -> Option<String> {
     if let Some(CellFate::Rename(from, _)) = fates
         .iter()
@@ -1212,10 +1228,7 @@ impl TableLens<'_> {
         // read it.
         let mut source0 = out.clone();
         source0.rows.extend(baselines.clone());
-        let baseline_rows = &source0.rows;
-        source0.pairs.retain(|(_, source, target)| {
-            baseline_rows.contains_key(source) && baseline_rows.contains_key(target)
-        });
+        retain_coherent_pairs(&mut source0);
         let (g0, _) = table_to_graph(&source0).map_err(TableOperationalError::BaselineEncoding)?;
         for (r, (s, s0)) in baselines {
             match self.cells(r, &s, &s0, &g0, &view.rows[&r].1) {
@@ -1226,11 +1239,8 @@ impl TableLens<'_> {
                 Err(CellRestoreError::Operational(error)) => return Err(error),
             }
         }
-        let mut evaluable = out.clone();
-        let evaluable_rows = &evaluable.rows;
-        evaluable.pairs.retain(|(_, source, target)| {
-            evaluable_rows.contains_key(source) && evaluable_rows.contains_key(target)
-        });
+        retain_coherent_pairs(&mut out);
+        let evaluable = out.clone();
         let source_errors = self.source_violations(view, &evaluable)?;
         let predicate_refused = source_errors
             .iter()

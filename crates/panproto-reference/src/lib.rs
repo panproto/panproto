@@ -52,8 +52,9 @@
 //! | Lens-path composition (the free category; no fusion) | [`path::LensPath::then`], [`path::get_path`], [`path::put_path`] | `lenses.md` |
 //! | The edit algebra: invert, compose, independence and merge | [`edit::Delta::invert`], [`edit::Delta::compose`], [`edit::invert_table`], [`edit::compose_table`], [`edit::independence`], [`edit::merge`] | `edits.md` |
 //! | Edit application and the differ | [`edit::apply`], [`edit::diff`], [`edit::apply_table`], [`edit::diff_table`] | `edits.md` |
+//! | Table edit steps: the delta of a surface edit, its stale-checked application and the row-delete delta | [`edit::table_edit_delta`], [`edit::apply_table_step`], [`edit::delete_row_delta`] | `edits.md` |
 //! | Canonical graph, table and tree edit bytes | [`edit::canonical_graph_delta_bytes`], [`edit::canonical_table_delta_bytes`], [`edit::canonical_tree_edit_bytes`] | `edits.md` |
-//! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`], [`edit::graph_delta_from_tree_edit`] | `edits.md` |
+//! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`], [`edit::graph_delta_from_tree_edit`], [`edit::diff_keeping_replacements`] | `edits.md` |
 //! | Validation as predicates over instances | [`validation::validate`], [`validation::validate_table`], [`validation::validate_tree`] | `validation.md` |
 //! | Validation transition and boundary observations | [`validation::witness_with_trust`], [`validation::incremental_footprint`], [`validation::incremental_report`], [`validation::restriction_boundary`] | `validation.md` |
 //! | Admission policies | [`validation::admits`] | `validation.md` |
@@ -61,7 +62,7 @@
 //! | Segment ownership, boundaries and splitting | [`segment::partition`] | `segments.md` |
 //! | Segment assembly | [`segment::glue`] | `segments.md` |
 //! | Canonical segment artifacts and manifests | [`segment::canonical_manifest_bytes`], [`segment::canonical_segment_bytes`], [`segment::seal_manifest`], [`segment::verify_manifest`] | `segments.md` |
-//! | Reference segment journal digest | [`segment::journal_digest`] | `segments.md` |
+//! | Segment task-input identity and journal reuse | [`segment::task_inputs_digest`], [`segment::journal_task_reusable`] | `segments.md` |
 //! | Segment refusal and contract preflights | [`segment::decode_segment_bytes`], [`segment::validate_segment_contract`], [`segment::validation_view_preflight`] | `segments.md` |
 //! | Segment execution as whole-state execution on the glued state | [`segment::segmented`] | `segments.md` |
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |

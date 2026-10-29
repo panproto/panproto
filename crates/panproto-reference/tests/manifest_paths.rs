@@ -59,7 +59,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        360
+        369
     );
 
     let value_io_l21 = manifest.pages["value-io"]
@@ -118,8 +118,8 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 233);
-    assert_eq!(documented.len(), 233);
+    assert_eq!(expected.len(), 240);
+    assert_eq!(documented.len(), 240);
     assert_eq!(documented, expected);
 }
 
