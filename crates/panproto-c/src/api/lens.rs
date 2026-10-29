@@ -490,7 +490,7 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 
         let composed = lens::compose(&lens1, &lens2)
             .and_then(lens::LensPath::into_single)
-            .map_err(|e| FfiError::Operation(format!("compose: {e}")))?;
+            .map_err(|e| FfiError::from_single_lens_error("compose", &e))?;
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(composed.compiled),
@@ -530,7 +530,7 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
             compiled
                 .instantiate(&schema_val, &protocol)
                 .and_then(lens::LensPath::into_single)
-                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+                .map_err(|e| FfiError::from_single_lens_error("instantiate", &e))?
         } else {
             chain_val
                 .ok_or_else(|| FfiError::Operation("missing protolens chain".to_owned()))?
@@ -1143,9 +1143,10 @@ mod tests {
         let mut lens_h = u32::MAX;
         assert_eq!(
             pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
-            PpStatus::Operation as i32,
+            PpStatus::NotSingleStage as i32,
         );
         let error = crate::error::take_last_error().expect("instantiation error");
+        assert_eq!(error.tag, "not_single_stage");
         assert!(
             error.message.contains("lens path has 2 normal-form groups"),
             "{}",

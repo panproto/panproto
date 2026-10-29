@@ -3664,14 +3664,37 @@ pub enum LawEquivalenceOracleCase {
     },
     /// Exercise the table put whose inverse image changes with the id floor.
     OperationalTableFloor,
+    /// Compare two instances that differ at most in one float payload, drawn
+    /// from [`LAW_EQUIVALENCE_FLOAT_WITNESSES`].
+    FloatValue {
+        /// Shape under comparison.
+        shape: LawEquivalenceShape,
+        /// Index of the left float witness.
+        left: u8,
+        /// Index of the right float witness.
+        right: u8,
+    },
 }
+
+/// Float witnesses for the value relation of law equivalence, as binary64
+/// bit patterns: `+0.0`, `-0.0`, the canonical quiet NaN, a quiet NaN with
+/// payload one, the negative quiet NaN and `1.0`.
+pub const LAW_EQUIVALENCE_FLOAT_WITNESSES: [u64; 6] = [
+    0x0000_0000_0000_0000,
+    0x8000_0000_0000_0000,
+    0x7ff8_0000_0000_0000,
+    0x7ff8_0000_0000_0001,
+    0xfff8_0000_0000_0000,
+    0x3ff0_0000_0000_0000,
+];
 
 /// Stream the complete finite carrier for the independent normalization oracle.
 ///
 /// Each shape has `3 * 3 * 2 = 18` ordered coherent pairs, `3^3 = 27`
 /// coherent triples, four incoherent-index families, one floor comparison per
-/// shape, and one operational table-floor witness. Thus the carrier has
-/// `3 * (18 + 27 + 4 + 1) + 1 = 151` cases.
+/// shape, and one operational table-floor witness. Each shape also has
+/// `6 * 6 = 36` ordered pairs of float witnesses. Thus the carrier has
+/// `3 * (18 + 27 + 4 + 1 + 36) + 1 = 259` cases.
 pub fn for_each_law_equivalence_oracle_case(mut visit: impl FnMut(LawEquivalenceOracleCase)) {
     for shape in LawEquivalenceShape::ALL {
         for left in 0..3 {
@@ -3702,6 +3725,11 @@ pub fn for_each_law_equivalence_oracle_case(mut visit: impl FnMut(LawEquivalence
             visit(LawEquivalenceOracleCase::Incoherent { shape, family });
         }
         visit(LawEquivalenceOracleCase::FloorDivergence { shape });
+        for left in 0..6 {
+            for right in 0..6 {
+                visit(LawEquivalenceOracleCase::FloatValue { shape, left, right });
+            }
+        }
     }
     visit(LawEquivalenceOracleCase::OperationalTableFloor);
 }
@@ -3710,7 +3738,11 @@ pub fn for_each_law_equivalence_oracle_case(mut visit: impl FnMut(LawEquivalence
 #[must_use]
 pub const fn law_equivalence_oracle_case_count_certificate() -> usize {
     LawEquivalenceShape::ALL.len()
-        * (3 * 3 * 2 + 3 * 3 * 3 + LawEquivalenceIncoherence::ALL.len() + 1)
+        * (3 * 3 * 2
+            + 3 * 3 * 3
+            + LawEquivalenceIncoherence::ALL.len()
+            + 1
+            + LAW_EQUIVALENCE_FLOAT_WITNESSES.len() * LAW_EQUIVALENCE_FLOAT_WITNESSES.len())
         + 1
 }
 

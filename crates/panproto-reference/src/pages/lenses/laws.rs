@@ -220,7 +220,8 @@ impl LensShape for GraphShape {
         right: &Graph,
         right_index: &SynthIndex,
     ) -> bool {
-        normalized_graph(left, left_index, right_index).is_some_and(|graph| graph == *right)
+        normalized_graph(left, left_index, right_index)
+            .is_some_and(|graph| law_graph(&graph) == law_graph(right))
     }
 
     fn divergence(
@@ -232,6 +233,7 @@ impl LensShape for GraphShape {
         let Some(left) = normalized_graph(left, left_index, right_index) else {
             return Some(instance_divergence("graph synthesized key sets differ"));
         };
+        let (left, right) = (law_graph(&left), law_graph(right));
         if left.nodes != right.nodes {
             Some(instance_divergence("graph nodes differ"))
         } else if left.edges != right.edges {
@@ -263,7 +265,7 @@ impl LensShape for TableShape {
     }
 
     fn equivalent(left: &Table, _: &SynthIndex, right: &Table, _: &SynthIndex) -> bool {
-        left == right
+        law_table(left) == law_table(right)
     }
 
     fn divergence(
@@ -272,6 +274,7 @@ impl LensShape for TableShape {
         right: &Table,
         _: &SynthIndex,
     ) -> Option<Divergence> {
+        let (left, right) = (law_table(left), law_table(right));
         if left.rows != right.rows {
             Some(instance_divergence("table rows differ"))
         } else if left.pairs != right.pairs {
@@ -332,7 +335,7 @@ impl LensShape for TreeShape {
         right_index: &SynthIndex,
     ) -> bool {
         normalized_tree(left, left_index, right_index).is_some_and(|tree| {
-            tree.nodes == right.nodes
+            law_nodes(&tree.nodes) == law_nodes(&right.nodes)
                 && tree_ordered_arcs(&tree) == tree_ordered_arcs(right)
                 && tree.fans == right.fans
                 && tree.root == right.root
@@ -348,7 +351,7 @@ impl LensShape for TreeShape {
         let Some(left) = normalized_tree(left, left_index, right_index) else {
             return Some(instance_divergence("tree synthesized key sets differ"));
         };
-        if left.nodes != right.nodes {
+        if law_nodes(&left.nodes) != law_nodes(&right.nodes) {
             Some(instance_divergence("tree nodes differ"))
         } else if tree_ordered_arcs(&left) != tree_ordered_arcs(right) {
             Some(instance_divergence("tree per-parent arc sequences differ"))
@@ -459,6 +462,81 @@ fn reindexed_embedding(
         fans,
         next_node,
         next_edge,
+    }
+}
+
+/// The bits every NaN takes in the law-equivalence value class.
+const LAW_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
+
+/// The representative of a value's law-equivalence class.
+///
+/// Law equivalence compares floats by IEEE 754 numeric equality with NaN
+/// reflexive: `-0.0` joins `+0.0`, and every NaN, whatever its sign or
+/// payload, joins one class. Lists, records and opaque values are compared
+/// entrywise. Every other value is compared exactly, so this relation is
+/// coarser than canonical value identity only on floats.
+fn law_value(value: &Value) -> Value {
+    match value {
+        Value::Float(bits) => {
+            let float = f64::from_bits(*bits);
+            if float.is_nan() {
+                Value::Float(LAW_NAN_BITS)
+            } else if bits << 1 == 0 {
+                Value::Float(0.0_f64.to_bits())
+            } else {
+                Value::Float(*bits)
+            }
+        }
+        Value::List(items) => Value::List(items.iter().map(law_value).collect()),
+        Value::Unknown(fields) => Value::Unknown(law_fields(fields)),
+        Value::Opaque { type_, fields } => Value::Opaque {
+            type_: type_.clone(),
+            fields: law_fields(fields),
+        },
+        other => other.clone(),
+    }
+}
+
+fn law_fields(fields: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+    fields
+        .iter()
+        .map(|(name, value)| (name.clone(), law_value(value)))
+        .collect()
+}
+
+fn law_node(node: &Node) -> Node {
+    let mut node = node.clone();
+    node.value = node.value.map(|presence| match presence {
+        Presence::Present(value) => Presence::Present(law_value(&value)),
+        other => other,
+    });
+    node.fields = law_fields(&node.fields);
+    node.annotations = law_fields(&node.annotations);
+    node
+}
+
+fn law_nodes(nodes: &BTreeMap<u32, Node>) -> BTreeMap<u32, Node> {
+    nodes
+        .iter()
+        .map(|(id, node)| (*id, law_node(node)))
+        .collect()
+}
+
+fn law_graph(graph: &Graph) -> Graph {
+    Graph {
+        nodes: law_nodes(&graph.nodes),
+        edges: graph.edges.clone(),
+    }
+}
+
+fn law_table(table: &Table) -> Table {
+    Table {
+        rows: table
+            .rows
+            .iter()
+            .map(|(id, (name, cells))| (*id, (name.clone(), law_fields(cells))))
+            .collect(),
+        pairs: table.pairs.clone(),
     }
 }
 
@@ -6736,6 +6814,59 @@ mod locality_tests {
                 .collect(),
             fans: Vec::new(),
             root: 0,
+        }
+    }
+
+    #[test]
+    fn law_equivalence_identifies_signed_zeroes_and_every_nan() {
+        use super::{GraphShape, LensShape, TableShape};
+
+        let floats = [
+            0.0_f64.to_bits(),
+            (-0.0_f64).to_bits(),
+            0x7ff8_0000_0000_0000,
+            0x7ff8_0000_0000_0001,
+            0xfff8_0000_0000_0000,
+            1.0_f64.to_bits(),
+        ];
+        let class = [0, 0, 1, 1, 1, 2];
+        let graph = |bits: u64| {
+            let mut node = Node::new(0, "leaf");
+            node.value = Some(Presence::Present(Value::Float(bits)));
+            node.fields
+                .insert("payload".to_owned(), Value::List(vec![Value::Float(bits)]));
+            crate::model::Graph {
+                nodes: BTreeMap::from([(0, node)]),
+                edges: BTreeMap::new(),
+            }
+        };
+        let table = |bits: u64| crate::model::Table {
+            rows: BTreeMap::from([(
+                0,
+                (
+                    "leaf".to_owned(),
+                    BTreeMap::from([("payload".to_owned(), Value::Float(bits))]),
+                ),
+            )]),
+            pairs: BTreeSet::new(),
+        };
+        let empty = super::SynthIndex::default();
+        for (left, left_class) in floats.iter().zip(class) {
+            for (right, right_class) in floats.iter().zip(class) {
+                let expected = left_class == right_class;
+                assert_eq!(
+                    GraphShape::equivalent(&graph(*left), &empty, &graph(*right), &empty),
+                    expected
+                );
+                assert_eq!(
+                    GraphShape::divergence(&graph(*left), &empty, &graph(*right), &empty).is_none(),
+                    expected
+                );
+                assert_eq!(
+                    TableShape::equivalent(&table(*left), &empty, &table(*right), &empty),
+                    expected
+                );
+            }
         }
     }
 

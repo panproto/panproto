@@ -231,10 +231,10 @@ fn schema_change_classification_has_the_key_boundaries() {
     let unique = schema_with_key(KeyRole::Unique, KeyScope::Document);
     let primary = schema_with_key(KeyRole::Primary, KeyScope::Document);
     assert_eq!(classify_change(&unique, &primary), Change::Breaking);
-    assert_eq!(
-        classify_change(&primary, &unique),
-        Change::BackwardCompatible
-    );
+    // Role changes fail closed in both directions, as production's
+    // classification does: the roles carry different uniqueness, identity
+    // and resolution contracts.
+    assert_eq!(classify_change(&primary, &unique), Change::Breaking);
 
     let within_a = schema_with_key(KeyRole::Unique, KeyScope::Within("a".to_owned()));
     let within_b = schema_with_key(KeyRole::Unique, KeyScope::Within("b".to_owned()));
@@ -704,7 +704,7 @@ fn value_io_oracles_are_independent_and_toml_rejects_reduced_years() {
     );
     assert_eq!(
         emit(Route::Csv, &Value::Str("a,\"b".into())),
-        Ok(br#""a,""b""#.to_vec())
+        Err(panproto_reference::value_io::ValueIoError::NotRepresentable)
     );
     assert_eq!(
         emit(Route::Tsv, &Value::Str("a\tb".into())),
@@ -985,10 +985,85 @@ fn fan_incidence_is_neither_ancestry_nor_a_position_parent() {
 
 #[test]
 fn an_index_key_never_derives_a_resolution_pair() {
-    for index in [None, Some(0), Some(1)] {
-        for target in [None, Some(0), Some(1)] {
-            assert!(!panproto_reference::resolution::index_target(index, target));
-        }
+    use panproto_reference::model::Tree;
+    use panproto_reference::schema::{
+        Cardinality, NullMatch, OnUnresolved, RefSource, Reference, ResolveMode,
+    };
+    let field = SEdge::new("target", "scalar", "prop", Some("index"));
+    let source = SEdge::new("holder", "scalar", "prop", Some("target"));
+    for on_unresolved in [OnUnresolved::Error, OnUnresolved::Complement] {
+        let mut schema = Schema::default()
+            .vertex("doc", "object")
+            .vertex("holder", "object")
+            .vertex("target", "object")
+            .vertex("scalar", "string")
+            .edge("doc", "holder", "prop", Some("holder"))
+            .edge("doc", "target", "prop", Some("target"));
+        schema.edges.extend([
+            field.clone(),
+            source.clone(),
+            SEdge::new("holder", "target", "ref", Some("resolved")),
+        ]);
+        schema.entries.push("doc".to_owned());
+        schema.keys.insert(
+            "target".to_owned(),
+            vec![Key {
+                id: "index".to_owned(),
+                parts: vec![KeyPart::Path(vec![field.clone()])],
+                role: KeyRole::Index,
+                scope: KeyScope::Document,
+                equality: Vec::new(),
+            }],
+        );
+        schema.references.insert(
+            "index-reference".to_owned(),
+            Reference {
+                id: "index-reference".to_owned(),
+                holder: "holder".to_owned(),
+                source: RefSource::KeyValue {
+                    parts: vec![vec![source.clone()]],
+                },
+                target_vertex: "target".to_owned(),
+                target_key: Some("index".to_owned()),
+                edge: Some(SEdge::new("holder", "target", "ref", Some("resolved"))),
+                cardinality: Cardinality::One,
+                nullable: false,
+                on_unresolved,
+                mode: ResolveMode::AddEdge,
+                guard: None,
+                null_match: NullMatch::Simple,
+                null_vertex: None,
+                scope_via: None,
+            },
+        );
+        // The holder's literal equals the target's index, and still no pair
+        // is derived: the reference is refused.
+        let tree = Tree {
+            nodes: BTreeMap::from([
+                (0, Node::new(0, "doc")),
+                (
+                    1,
+                    Node::new(1, "holder").with_field("target", Value::Int(0)),
+                ),
+                (2, Node::new(2, "target").with_field("index", Value::Int(0))),
+            ]),
+            arcs: vec![
+                (0, 1, SEdge::new("doc", "holder", "prop", Some("holder"))),
+                (0, 2, SEdge::new("doc", "target", "prop", Some("target"))),
+            ],
+            fans: vec![],
+            root: 0,
+        };
+        assert_eq!(
+            panproto_reference::resolution::get(&schema, &tree, true).map(|_| ()),
+            Err(
+                panproto_reference::resolution::ResolveError::KeyNotResolvable {
+                    reference: "index-reference".to_owned(),
+                    key: "index".to_owned(),
+                }
+            ),
+            "{on_unresolved:?}"
+        );
     }
 }
 

@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use panproto_gat::Name;
 use panproto_inst::key::{KeyingError, canonical_key_bytes};
 use panproto_inst::{CanonicalSink, FInstance, FieldPresence, Value, ViewRef, WInstance};
-use panproto_schema::{CanonicalWriter, Edge, Key, KeyPart, KeyScope};
+use panproto_schema::{Edge, Key, KeyPart, KeyScope};
 
 use panproto_inst::resolution_complement::ResolutionValueSite;
 
@@ -66,17 +66,6 @@ pub fn field_name(edge: &Edge) -> String {
     edge.name
         .as_ref()
         .map_or_else(|| edge.tgt.to_string(), Name::to_string)
-}
-
-/// The canonical bytes of a key value: the part count, then each part's
-/// value through the canonical value encoding.
-pub fn key_bytes(values: &[Value]) -> Vec<u8> {
-    let mut writer = CanonicalWriter::new();
-    writer.len(values.len());
-    for value in values {
-        writer.value(value);
-    }
-    writer.into_bytes()
 }
 
 const fn present(value: Option<&FieldPresence>) -> Option<&Value> {

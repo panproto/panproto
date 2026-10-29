@@ -15,7 +15,7 @@ use panproto_inst::{
 };
 use panproto_reference::canonical::{
     ComplementShape as RefComplementShape, IdentityEnvelope as RefIdentityEnvelope, decode_graph,
-    decode_table, decode_tree, identity,
+    decode_table, decode_tree, graph_bytes, identity, table_bytes, tree_bytes,
 };
 use panproto_reference::encode::{
     NotATree as RefNotATree, TableEncodeError, TreeEncodeError, graph_to_table, graph_to_tree,
@@ -404,6 +404,115 @@ fn tree_to_graph_matches_production_on_the_exact_carrier_and_refusals() {
             reason: NotTreeReason::MultipleParents { node: 2, edges }
         }) if edges == vec![EdgeId(0), EdgeId(1)]
     ));
+
+    assert_tree_to_graph_endpoint_refusals();
+}
+
+/// A tree filed under another id: production checks the key/id invariant
+/// before the reserved-vocabulary preflight, and so does the reference.
+fn mismatched_tree() -> RefTree {
+    let mut node = RefNode::new(0, "h");
+    node.shape = RefNodeShape::HyperEdge;
+    RefTree {
+        nodes: BTreeMap::from([(1, node)]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 1,
+    }
+}
+
+fn dangling_arc_tree() -> RefTree {
+    RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
+        arcs: vec![
+            (0, 0, RefEdge::new("a", "a", "e", None)),
+            (0, 3, RefEdge::new("a", "a", "e", None)),
+        ],
+        fans: Vec::new(),
+        root: 0,
+    }
+}
+
+fn dangling_fan_tree(parent: u32, child: u32) -> RefTree {
+    RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, RefNode::new(1, "b"))]),
+        arcs: vec![(0, 1, RefEdge::new("a", "b", "prop", Some("child")))],
+        fans: vec![RefFan {
+            parent,
+            hyper_edge: "h".into(),
+            children: BTreeMap::from([("l".into(), child)]),
+        }],
+        root: 0,
+    }
+}
+
+fn assert_tree_to_graph_endpoint_refusals() {
+    let mismatched = mismatched_tree();
+    assert_eq!(
+        tree_to_graph(&mismatched, None),
+        Err(TreeEncodeError::NodeIdMismatch { key: 1, node_id: 0 })
+    );
+    assert!(matches!(
+        GInstance::from_wtype_embedded(&prod_tree(&mismatched), None),
+        Err(InstError::NodeIdMismatch { key: 1, node_id: 0 })
+    ));
+
+    let dangling_arc = dangling_arc_tree();
+    assert_eq!(
+        tree_to_graph(&dangling_arc, None),
+        Err(TreeEncodeError::DanglingArc)
+    );
+    assert!(matches!(
+        GInstance::from_wtype_embedded(&prod_tree(&dangling_arc), None),
+        Err(InstError::DanglingEdge {
+            edge: EdgeId(1),
+            endpoint: 3
+        })
+    ));
+
+    // The parent edge of the fan is edge 1, after the one arc edge; its
+    // child edge would be edge 2.
+    for (tree, edge, endpoint) in [
+        (dangling_fan_tree(7, 1), EdgeId(1), 7),
+        (dangling_fan_tree(0, 9), EdgeId(2), 9),
+    ] {
+        assert_eq!(
+            tree_to_graph(&tree, Some(&fan_schema())),
+            Err(TreeEncodeError::DanglingFan)
+        );
+        let refused = GInstance::from_wtype_embedded(&prod_tree(&tree), None);
+        assert!(
+            matches!(
+                refused,
+                Err(InstError::DanglingEdge { edge: e, endpoint: n }) if e == edge && n == endpoint
+            ),
+            "{refused:?}"
+        );
+    }
+}
+
+/// The two-node cycle `0 -> 1 -> 0` with root 0: the graph form exists, and
+/// the tree form at the stored root is refused at the arc into the root.
+fn cyclic_tree() -> RefTree {
+    RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, RefNode::new(1, "a"))]),
+        arcs: vec![
+            (0, 1, RefEdge::new("a", "a", "e", None)),
+            (1, 0, RefEdge::new("a", "a", "e", None)),
+        ],
+        fans: Vec::new(),
+        root: 0,
+    }
+}
+
+/// A one-node tree whose stored root is not a node.
+fn rootless_tree() -> RefTree {
+    RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 5,
+    }
 }
 
 #[test]
@@ -499,6 +608,43 @@ fn graph_to_tree_decision_matches_production_on_the_exact_carrier() {
             reason: NotTreeReason::PositionedEdge { edge: EdgeId(4) }
         })
     ));
+
+    // `tree_to_graph` does not check rootedness, so the left inverse holds
+    // only on rooted trees: these two embed and have no tree form at their
+    // stored root.
+    let cyclic = cyclic_tree();
+    let (cyclic_graph, _) = tree_to_graph(&cyclic, None).expect("a cycle embeds");
+    assert_eq!(
+        graph_to_tree(&cyclic_graph, 0, &schema_parent_name(None)),
+        Err(RefNotATree::RootHasParent { edge: 1 })
+    );
+    let (cyclic_prod, _) = GInstance::from_wtype_embedded(&prod_tree(&cyclic), None)
+        .expect("production embeds the cycle");
+    assert_eq!(
+        canonical_ginstance_bytes(&cyclic_prod),
+        graph_bytes(&cyclic_graph).expect("bytes")
+    );
+    let refused = cyclic_prod.to_wtype(0);
+    assert!(
+        matches!(
+            refused,
+            Err(InstError::NotATree {
+                reason: NotTreeReason::Cycle { .. } | NotTreeReason::NoRoot
+            })
+        ),
+        "{refused:?}"
+    );
+
+    let rootless = rootless_tree();
+    let (rootless_graph, _) = tree_to_graph(&rootless, None).expect("a rootless tree embeds");
+    assert_eq!(
+        graph_to_tree(&rootless_graph, 5, &schema_parent_name(None)),
+        Err(RefNotATree::MissingRoot)
+    );
+    assert!(matches!(
+        prod_graph(&rootless_graph).to_wtype(5),
+        Err(InstError::MissingRoot)
+    ));
 }
 
 #[test]
@@ -531,6 +677,56 @@ fn reification_round_trip_matches_production_on_the_exact_image() {
             at: ViewRef::Node(0)
         })
     ));
+
+    // Every other refusal of either direction that a bounded tree reaches.
+    let saturated_fan = RefTree {
+        nodes: BTreeMap::from([(u32::MAX, RefNode::new(u32::MAX, "a"))]),
+        arcs: Vec::new(),
+        fans: vec![RefFan {
+            parent: u32::MAX,
+            hyper_edge: "h".into(),
+            children: BTreeMap::new(),
+        }],
+        root: u32::MAX,
+    };
+    let second_parent = RefTree {
+        nodes: (0..3).map(|id| (id, RefNode::new(id, "a"))).collect(),
+        arcs: vec![
+            (0, 2, RefEdge::new("a", "a", "e", None)),
+            (1, 2, RefEdge::new("a", "a", "e", None)),
+        ],
+        fans: Vec::new(),
+        root: 0,
+    };
+    for refused in [
+        mismatched_tree(),
+        dangling_arc_tree(),
+        dangling_fan_tree(7, 1),
+        dangling_fan_tree(0, 9),
+        second_parent,
+        saturated_fan,
+        cyclic_tree(),
+        rootless_tree(),
+    ] {
+        assert_eq!(reify(&refused, None), None, "{refused:?}");
+        let production = GInstance::from_wtype_embedded(&prod_tree_unrooted(&refused), None)
+            .and_then(|(graph, _)| graph.to_wtype(refused.root));
+        assert!(production.is_err(), "{refused:?}: {production:?}");
+    }
+}
+
+/// [`prod_tree`] for a tree whose stored root may be absent: the schema root
+/// is then the empty name.
+fn prod_tree_unrooted(tree: &RefTree) -> WInstance {
+    if tree.nodes.contains_key(&tree.root) {
+        return prod_tree(tree);
+    }
+    let mut rooted = tree.clone();
+    let any = *tree.nodes.keys().next().expect("a node");
+    rooted.root = any;
+    let mut out = prod_tree(&rooted);
+    out.root = tree.root;
+    out
 }
 
 #[test]
@@ -577,9 +773,169 @@ fn canonical_graph_table_and_tree_bytes_decode_to_the_same_values() {
     let mut table_bytes = canonical_finstance_bytes(&prod_table(&tables[0]).expect("table"));
     table_bytes.push(0);
     assert_eq!(decode_table(&table_bytes), None);
-    let mut tree_bytes = panproto_inst::segment::canonical_winstance_bytes(&prod_tree(&trees[0]));
-    tree_bytes.push(0);
-    assert_eq!(decode_tree(&tree_bytes), None);
+    let mut tree_trailing =
+        panproto_inst::segment::canonical_winstance_bytes(&prod_tree(&trees[0]));
+    tree_trailing.push(0);
+    assert_eq!(decode_tree(&tree_trailing), None);
+
+    assert_truncation_and_discriminant_refusals();
+    assert_nonascending_refusals();
+    assert_malformed_data_refusals();
+}
+
+fn two_plain_nodes() -> BTreeMap<u32, RefNode> {
+    BTreeMap::from([(0, RefNode::new(0, "a")), (1, RefNode::new(1, "a"))])
+}
+
+fn two_node_tree() -> RefTree {
+    RefTree {
+        nodes: two_plain_nodes(),
+        arcs: vec![(0, 1, RefEdge::new("a", "a", "e", None))],
+        fans: Vec::new(),
+        root: 0,
+    }
+}
+
+fn two_row_table() -> RefTable {
+    RefTable {
+        rows: BTreeMap::from([
+            (0, ("t".into(), BTreeMap::new())),
+            (1, ("t".into(), BTreeMap::new())),
+        ]),
+        pairs: BTreeSet::new(),
+    }
+}
+
+/// Every proper prefix of a production byte string, and a node-shape tag
+/// outside the layout, are refused.
+fn assert_truncation_and_discriminant_refusals() {
+    let graph = RefGraph {
+        nodes: two_plain_nodes(),
+        edges: BTreeMap::new(),
+    };
+    let graph_bytes = canonical_ginstance_bytes(&prod_graph(&graph));
+    let table_bytes = canonical_finstance_bytes(&prod_table(&two_row_table()).expect("table"));
+    let tree_bytes =
+        panproto_inst::segment::canonical_winstance_bytes(&prod_tree(&two_node_tree()));
+    assert_eq!(decode_graph(&graph_bytes), Some(graph));
+    assert_eq!(decode_table(&table_bytes), Some(two_row_table()));
+    assert_eq!(decode_tree(&tree_bytes), Some(two_node_tree()));
+    for cut in 0..graph_bytes.len() {
+        assert_eq!(
+            decode_graph(&graph_bytes[..cut]),
+            None,
+            "graph prefix {cut}"
+        );
+    }
+    for cut in 0..table_bytes.len() {
+        assert_eq!(
+            decode_table(&table_bytes[..cut]),
+            None,
+            "table prefix {cut}"
+        );
+    }
+    for cut in 0..tree_bytes.len() {
+        assert_eq!(decode_tree(&tree_bytes[..cut]), None, "tree prefix {cut}");
+    }
+
+    // A plain, annotation-free node record ends with its shape tag and the
+    // eight-byte empty annotation count; the last node record ends the
+    // bytes of an edge-free graph.
+    let mut unknown_shape = graph_bytes;
+    let tag = unknown_shape.len() - 9;
+    assert_eq!(unknown_shape[tag], 0, "the plain shape tag");
+    unknown_shape[tag] = 0xff;
+    assert_eq!(decode_graph(&unknown_shape), None);
+}
+
+/// Swapping two equal-length adjacent records of a production byte string
+/// leaves every other check satisfied and is refused by the ascent check.
+fn assert_nonascending_refusals() {
+    fn swap(bytes: &[u8], at: usize, len: usize) -> Vec<u8> {
+        let mut out = bytes[..at].to_vec();
+        out.extend_from_slice(&bytes[at + len..at + 2 * len]);
+        out.extend_from_slice(&bytes[at..at + len]);
+        out.extend_from_slice(&bytes[at + 2 * len..]);
+        out
+    }
+    let graph = canonical_ginstance_bytes(&prod_graph(&RefGraph {
+        nodes: two_plain_nodes(),
+        edges: BTreeMap::new(),
+    }));
+    assert_eq!(
+        decode_graph(&swap(&graph, 16, (graph.len() - 16) / 2)),
+        None
+    );
+
+    let table = canonical_finstance_bytes(&prod_table(&two_row_table()).expect("table"));
+    assert_eq!(
+        decode_table(&swap(&table, 16, (table.len() - 16) / 2)),
+        None
+    );
+
+    let tree = panproto_inst::segment::canonical_winstance_bytes(&prod_tree(&two_node_tree()));
+    let nodes_len = tree.len() - 24 - arc_record_len();
+    assert_eq!(decode_tree(&swap(&tree, 24, nodes_len / 2)), None);
+
+    let pairs = RefTable {
+        pairs: BTreeSet::from([
+            (RefEdge::new("t", "t", "e", None), 0, 1),
+            (RefEdge::new("t", "t", "e", None), 1, 0),
+        ]),
+        ..two_row_table()
+    };
+    let bytes = canonical_finstance_bytes(&prod_table(&pairs).expect("table"));
+    assert_eq!(decode_table(&bytes), Some(pairs));
+    let pairs_at = table.len();
+    assert_eq!(
+        decode_table(&swap(&bytes, pairs_at, (bytes.len() - pairs_at) / 2)),
+        None
+    );
+}
+
+fn arc_record_len() -> usize {
+    let one_arc = tree_bytes(&two_node_tree()).expect("bytes").len();
+    let no_arc = tree_bytes(&RefTree {
+        arcs: Vec::new(),
+        ..two_node_tree()
+    })
+    .expect("bytes")
+    .len();
+    one_arc - no_arc
+}
+
+/// Byte strings in the writers' layout whose decoded value is malformed: a
+/// dangling edge, a dangling pair, and a tree with two roots.
+fn assert_malformed_data_refusals() {
+    let dangling_edge = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
+        edges: BTreeMap::from([(
+            0,
+            RefGEdge {
+                src: 0,
+                tgt: 4,
+                label: RefEdge::new("a", "a", "e", None),
+                position: None,
+            },
+        )]),
+    };
+    assert_eq!(
+        decode_graph(&graph_bytes(&dangling_edge).expect("bytes")),
+        None
+    );
+    let dangling_pair = RefTable {
+        rows: BTreeMap::from([(0, ("t".into(), BTreeMap::new()))]),
+        pairs: BTreeSet::from([(RefEdge::new("t", "t", "e", None), 0, 4)]),
+    };
+    assert_eq!(
+        decode_table(&table_bytes(&dangling_pair).expect("bytes")),
+        None
+    );
+    let two_roots = RefTree {
+        arcs: Vec::new(),
+        ..two_node_tree()
+    };
+    assert_eq!(decode_tree(&tree_bytes(&two_roots).expect("bytes")), None);
 }
 
 const fn ref_complement_shape(shape: ComplementShape) -> RefComplementShape {
@@ -710,6 +1066,16 @@ fn table_to_graph_matches_production_on_the_exact_carrier_and_refusals() {
     let mut tables = panproto_reference::enumerate::representation::tables();
     assert_eq!(tables.len(), 2);
     tables.push(relational_table());
+    // Two pairs, so the ascending `(edge, src, tgt)` edge-id order is
+    // compared, not only a single allocation.
+    tables.push(RefTable {
+        pairs: BTreeSet::from([
+            (RefEdge::new("t", "t", "e", None), 1, 0),
+            (RefEdge::new("t", "t", "d", None), 1, 1),
+            (RefEdge::new("t", "t", "e", None), 0, 1),
+        ]),
+        ..two_row_table()
+    });
     for table in &tables {
         let (expected_graph, expected_embedding) =
             table_to_graph(table).expect("carrier table has a graph form");
@@ -739,6 +1105,27 @@ fn table_to_graph_matches_production_on_the_exact_carrier_and_refusals() {
     // `prod_table` is the raw-reference adapter. Its refusal occurs before
     // `GInstance::from_finstance` can be called, rather than in that
     // converter.
+
+    // Both rows exist, but row 1 is not a row of the label's target table.
+    let incoherent_pair = (RefEdge::new("t", "t", "e", None), 0, 1);
+    let incoherent = RefTable {
+        rows: BTreeMap::from([
+            (0, ("t".into(), BTreeMap::new())),
+            (1, ("u".into(), BTreeMap::new())),
+        ]),
+        pairs: BTreeSet::from([incoherent_pair.clone()]),
+    };
+    assert_eq!(
+        table_to_graph(&incoherent),
+        Err(TableEncodeError::MalformedTable {
+            pair: Box::new(incoherent_pair.clone())
+        })
+    );
+    assert!(matches!(
+        prod_table(&incoherent),
+        Err(InstError::DanglingForeignKey { edge, row: RowId(1) })
+            if edge == prod_edge(&incoherent_pair.0)
+    ));
 
     let table = prod_table(&relational_table()).expect("well-formed table");
     let mut saturated = TableEmbedding {
@@ -925,6 +1312,73 @@ fn graph_to_table_decision_matches_production_on_the_exact_carrier() {
     assert_edge_shape_refusals(&schema, &reference_schema);
     assert_cell_and_schema_refusals(&schema, &reference_schema);
     assert_declared_lift_refusals();
+    assert_fan_source_refusal();
+    assert_node_data_and_coherence_refusals(&schema, &reference_schema);
+}
+
+fn assert_node_data_and_coherence_refusals(schema: &Schema, reference_schema: &RefSchema) {
+    let mut discriminated = RefNode::new(1, "a");
+    discriminated.discriminator = Some("v".into());
+    let data = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, discriminated)]),
+        edges: BTreeMap::new(),
+    };
+    assert_eq!(graph_to_table(&data, reference_schema), None);
+    assert!(matches!(
+        prod_graph(&data).try_to_finstance(schema),
+        Err(InstError::NotATable {
+            reason: NotTableReason::NodeDataNotRepresentable { node: 1 }
+        })
+    ));
+
+    let incoherent = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, RefNode::new(1, "b"))]),
+        edges: BTreeMap::from([(
+            5,
+            RefGEdge {
+                src: 0,
+                tgt: 1,
+                label: RefEdge::new("a", "a", "e", None),
+                position: None,
+            },
+        )]),
+    };
+    assert_eq!(graph_to_table(&incoherent, reference_schema), None);
+    assert!(matches!(
+        prod_graph(&incoherent).try_to_finstance(schema),
+        Err(InstError::NotATable {
+            reason: NotTableReason::IncoherentEndpoints { edge: EdgeId(5) }
+        })
+    ));
+}
+
+/// A plain node sourcing a declared edge of a reserved fan kind is a fan
+/// node for the table decision.
+fn assert_fan_source_refusal() {
+    let reference_schema =
+        RefSchema::default()
+            .vertex("a", "record")
+            .edge("a", "a", "hyper_parent", None);
+    let schema = prod_schema(&reference_schema);
+    let graph = RefGraph {
+        nodes: two_plain_nodes(),
+        edges: BTreeMap::from([(
+            0,
+            RefGEdge {
+                src: 0,
+                tgt: 1,
+                label: RefEdge::new("a", "a", "hyper_parent", None),
+                position: None,
+            },
+        )]),
+    };
+    assert_eq!(graph_to_table(&graph, &reference_schema), None);
+    assert!(matches!(
+        prod_graph(&graph).try_to_finstance(&schema),
+        Err(InstError::NotATable {
+            reason: NotTableReason::FanNode { node: 0 }
+        })
+    ));
 }
 
 fn ref_fan_violation(violation: &FanViolation) -> RefFanViolation {

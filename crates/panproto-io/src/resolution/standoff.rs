@@ -23,16 +23,18 @@ pub enum UnitFailure {
 }
 
 /// Decode the two written coordinates of a standoff declaration into
-/// zero-origin, exclusive-end offsets in its declared unit.
+/// zero-origin offsets in its declared unit, without ordering them.
 ///
 /// An offset form shifts both coordinates by `origin`. A length form shifts
-/// only its start and adds the written length with checked arithmetic.
+/// only its start and adds the written length with checked arithmetic. The
+/// end is inclusive or exclusive as the declaration says, so whether the
+/// pair is reversed is decided only after the inclusive end is adjusted.
 ///
 /// # Errors
 ///
 /// [`UnitFailure::OutOfRange`] when an origin subtraction or length addition
-/// underflows or overflows, or when an offset-form start lies after its end.
-pub fn form_to_offsets(
+/// underflows or overflows.
+pub fn form_to_declared(
     written_start: u64,
     written_end: u64,
     origin: u64,
@@ -49,6 +51,26 @@ pub fn form_to_offsets(
             .checked_add(written_end)
             .ok_or(UnitFailure::OutOfRange)?,
     };
+    Ok((start, end))
+}
+
+/// Decode the two written coordinates of a standoff declaration into
+/// zero-origin, exclusive-end offsets in its declared unit.
+///
+/// This is [`form_to_declared`] for an exclusive end, refusing a start
+/// after its end.
+///
+/// # Errors
+///
+/// [`UnitFailure::OutOfRange`] when an origin subtraction or length addition
+/// underflows or overflows, or when an offset-form start lies after its end.
+pub fn form_to_offsets(
+    written_start: u64,
+    written_end: u64,
+    origin: u64,
+    end_form: SpanEnd,
+) -> Result<(u64, u64), UnitFailure> {
+    let (start, end) = form_to_declared(written_start, written_end, origin, end_form)?;
     if start > end {
         return Err(UnitFailure::OutOfRange);
     }
@@ -237,6 +259,40 @@ pub fn bytes_to_declared(
     } else {
         Ok((start, exclusive_end))
     }
+}
+
+/// The half-open byte span that one written standoff form names over
+/// `text`: the composition of [`form_to_offsets`], [`unit_boundaries`] and
+/// [`declared_to_bytes`] (exclusive end) that get applies to every
+/// occurrence. `None` when get would refuse the form.
+#[must_use]
+pub fn written_form_to_bytes(
+    text: &[u8],
+    written: (u64, u64),
+    origin: u64,
+    end_form: SpanEnd,
+    unit: &OffsetUnit,
+) -> Option<(u64, u64)> {
+    let boundaries = unit_boundaries(text, unit, None).ok()?;
+    let (start, end) = form_to_offsets(written.0, written.1, origin, end_form).ok()?;
+    declared_to_bytes(&boundaries, start, end, false).ok()
+}
+
+/// The written standoff form of a half-open byte span over `text`: the
+/// composition of [`bytes_to_declared`] and [`offsets_to_form`] (exclusive
+/// end) that put applies to every written occurrence. `None` when put would
+/// refuse the span.
+#[must_use]
+pub fn bytes_to_written_form(
+    text: &[u8],
+    span: (u64, u64),
+    origin: u64,
+    end_form: SpanEnd,
+    unit: &OffsetUnit,
+) -> Option<(u64, u64)> {
+    let boundaries = unit_boundaries(text, unit, None).ok()?;
+    let (start, end) = bytes_to_declared(&boundaries, span.0, span.1, false).ok()?;
+    offsets_to_form(start, end, origin, end_form).ok()
 }
 
 /// The number of units of a text in the declared unit: the last boundary's

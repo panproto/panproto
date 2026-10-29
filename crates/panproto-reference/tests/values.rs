@@ -254,14 +254,23 @@ fn sql_special_decimals_reach_the_decimal_parser() {
     };
     for (text, canonical) in [
         ("nan", "NaN"),
-        ("-nan", "-NaN"),
+        ("NAN", "NaN"),
         ("inf", "Infinity"),
-        ("+infinity", "Infinity"),
+        ("Infinity", "Infinity"),
         ("-inf", "-Infinity"),
+        ("-INFINITY", "-Infinity"),
     ] {
         assert_eq!(
             coerce(text, &LexClass::Number, &spec),
             Some(Ok(Value::Decimal(parse_decimal(canonical).unwrap()))),
+            "{text}"
+        );
+    }
+    // PostgreSQL names no signed NaN and no `+` before an infinity.
+    for text in ["-nan", "+nan", "+inf", "+infinity"] {
+        assert_eq!(
+            coerce(text, &LexClass::Number, &spec),
+            Some(Err(R::NotANumber)),
             "{text}"
         );
     }

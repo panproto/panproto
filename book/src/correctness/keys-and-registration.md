@@ -10,9 +10,10 @@ The listed focused tests for laws 1--4 and 7--15 have passed, but verification
 on the repaired tree is still pending. The release
 commands passed 1 canonical-theory test, 5 schema-declaration tests, 11
 instance-key tests, 2 change-classification tests, and 2 VCS identity tests.
-The finite certificates cover 37 declaration encodings, 27 declaration
-admission fixtures, 9 target-set declaration fixtures, 8 of them projected to
-the local predicate, all 5 target-set member roles, 37 values under 12 equality
+The finite certificates cover 37 declaration encodings, 194 decoded
+extension-marker combinations, 30 declaration admission fixtures, 12
+target-set declaration fixtures, 8 of them projected to the local predicate,
+all 5 target-set member roles, 37 values under 12 equality
 configurations, 16,428 equality pairs, 607,836 transitivity triples, 341 XML
 strings, 116,281 XML pairs, 28 additional classification cases, 148 structural
 graphs, 27,329,908 schemas, and 816,223,680 directed classifications. Strict
@@ -77,27 +78,28 @@ For graph $G$, vertex name $v$, and key $K$, `buckets(G, v, K)` examines precise
 
 ### Outside the domain
 
-The operation returns `EqualityArity` when a nonempty equality vector does not have one entry per part. It returns `UnsupportedCollation(name)` when a string part requires a named SQL collation, whose comparison is deliberately left to the database. A production value constructed with an invalid numeric carrier may instead return `InvalidNumericRepresentation`; such values are outside the well-formed finite reference carrier. Thus equality arity and named collation are the two typed refusals on the carrier used here.
+The operation refuses only while it keys an element: at the first node that has a complete key value and, under `Within`, an ancestor, it returns `EqualityArity` when a nonempty equality vector does not have one entry per part, and `UnsupportedCollation(name)` when that node's string part requires a named SQL collation, whose comparison is deliberately left to the database. A key whose vertex has no keyed element thus returns empty buckets whatever its equality vector, as production `KeyIndex::build` does, and a named collation over a numeric part refuses nothing. A production value constructed with an invalid numeric carrier may instead return `InvalidNumericRepresentation`; such values are outside the well-formed finite reference carrier. A keyed value without canonical bytes, namely a `Temporal` that is not well formed (for instance a fixed offset of 1440 minutes) or a value that contains one, has no representation and no declared equality, and the reference refuses it with `NoCanonicalBytes` at the first keyed node that holds it rather than placing it in a bucket. Production writes such a value with its total value encoding, so its buckets agree with its own equality there, and it does not yet refuse it. Thus equality arity, named collation, and missing canonical bytes are the three typed refusals of the reference.
 
 ### Definitions used
 
-The *nearest ancestor* is found breadth-first by reversing ordinary edges one level at a time, excluding the start node; ties at the first matching distance go to the least node id. Tuple bytes are a length-delimited concatenation of the canonical equality key of each part. Equal tuple bytes have equal declared-key behavior by [L-keys-and-registration-8](#L-keys-and-registration-8).
+The *nearest ancestor* is found breadth-first by reversing ordinary edges one level at a time, excluding the start node; ties at the first matching distance go to the least node id. Tuple bytes are a length-delimited concatenation of the canonical equality key of each part, defined only on values with canonical bytes. Equal tuple bytes have equal declared-key behavior by [L-keys-and-registration-8](#L-keys-and-registration-8).
 
 ### Proof
 
 1. The outer loop filters the ordered node map by anchor and non-fan shape, so it visits exactly the stated carrier in ascending order.
 2. [L-keys-and-registration-1](#L-keys-and-registration-1) omits NULL tuples. Breadth-first reverse traversal follows only ordinary arcs, so reserved fan incidence and arcs incident on reified hyper-edge nodes cannot supply an ancestor. Sorting each next frontier selects the least matching ancestor at the nearest level.
 3. The scope id and equality-key bytes form the ordered map key. Map insertion creates one stored tuple at the first member and appends every later member, preserving node-id order.
-4. Equality-vector expansion and equality-key construction are the only fallible calls. Their errors are exactly the three typed refusals in the outside-domain clause.
+4. Equality-vector expansion and equality-key construction are the only fallible calls, and both run inside the loop after a node's key value and scope are known. Their errors are exactly the typed refusals in the outside-domain clause, raised at the first keyed node that meets them; a loop that keys no node raises none.
 
 ### Executable counterpart
 
 - Law ID: `keys.reference-declarations`
 - Reference: `panproto_reference::keys::buckets`
-- Evidence scope: `duplicated/twin graph witnesses over Document, Global, and Within scopes; exact buckets=6, outside elements=2`
+- Evidence scope: `duplicated/twin graph witnesses over Document, Global, and Within scopes; the two Within witnesses assert 3 buckets and 3 outside elements (2 and 2 across twin documents, 1 and 1 across fan incidence); both refusals asserted only at a keyed element`
 - Production certificate: `validation_reconstructs_within_buckets_and_outside_cases; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_reconstructs_within_buckets_and_outside_cases)'`
 - Independent reference anchor: `validation_preserves_both_reference_keying_refusals; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_preserves_both_reference_keying_refusals)'`
 - Regression differential test: `within_scope_does_not_traverse_fan_incidence; command: cargo test --release -p panproto-inst --test reference_keys within_scope_does_not_traverse_fan_incidence -- --exact --nocapture`
+- Canonical-bytes refusal test: `values_without_canonical_bytes_are_a_typed_keying_refusal; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=values_without_canonical_bytes_are_a_typed_keying_refusal)'`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -119,22 +121,23 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-For schemas in the finite declaration carrier, `canonical_bytes` is injective. It writes vertices, edges, hyper-edges, constraints, required edges, orderings, entries, keys, references, and target sets in declaration order. Ordered maps and sets use key order; sequences retain stored order behind a `u64` length; each sum variant has a distinct one-byte tag; strings and schema edges use the canonical primitive layout. Thus two schemas have equal bytes exactly when every represented declaration field is equal.
+For schemas in the finite declaration carrier, `canonical_bytes` is injective. It writes vertices, edges, hyper-edges, constraints, required edges, orderings, entries, keys, references, and target sets in declaration order. Ordered maps and sets use key order; sequences retain stored order behind a `u64` length; each sum variant has a distinct one-byte tag; strings and schema edges use the canonical primitive layout. Each optional extension inside a reference (a nondefault variable binding, the standoff extension, and the reference envelope of guard, null match, null vertex, and scope chain) is introduced by the eight-byte little-endian marker $2^{63}$, and the trailing target-set extension by the byte `0xff`. Thus two schemas have equal bytes exactly when every represented declaration field is equal. A declaration without these extensions keeps the bytes it had before the markers were introduced.
 
 ### Outside the domain
 
-The statement concerns the finite reference `Schema` carrier. A larger production schema field absent from that carrier is outside this function's type and is not claimed to affect these bytes. Guard values outside canonical value encoding are represented by the reference writer's declared empty fallback and must be excluded from an injectivity scope.
+The statement concerns the finite reference `Schema` carrier. A larger production schema field absent from that carrier is outside this function's type and is not claimed to affect these bytes. Guard values outside canonical value encoding, such as a `Temporal` that is not well formed, are represented by the reference writer's declared empty fallback and are excluded from the injectivity claim.
 
 ### Definitions used
 
-A *self-delimiting field* has either fixed width or a length prefix. A tagged sum writes its variant tag before its payload. The exact declaration carrier has zero through three vertices, one vertex kind, one edge name, and at most three labelled edges. Its two key slots are absent or hold an owner/key descriptor built from five roles, the document, global, and vertex-relative scopes, and the six nonempty words of length at most two over `Path([])` and `Path([v0 -prop:e-> v0])`. These atoms do not depend on the surrounding graph.
+A *self-delimiting field* has either fixed width or a length prefix. A tagged sum writes its variant tag before its payload. A code is *prefix-free* when no codeword is a proper prefix of another; a concatenation of codes, each chosen by the bytes already read and each prefix-free, is uniquely decodable. The exact declaration carrier has zero through three vertices, one vertex kind, one edge name, and at most three labelled edges. Its two key slots are absent or hold an owner/key descriptor built from five roles, the document, global, and vertex-relative scopes, and the six nonempty words of length at most two over `Path([])` and `Path([v0 -prop:e-> v0])`. These atoms do not depend on the surrounding graph.
 
 ### Proof
 
-1. Fixed order separates top-level fields, and a count separates every variable-length collection. Map and set order is canonical; within a collection, primitive encodings and distinct tags separate keys, variants, and payloads.
-2. Reading equal byte streams from the beginning thus gives equal counts and equal fields by induction over the layout. Applying this argument to every top-level field yields schema equality; determinism gives the converse.
-3. There are 1, 2, 15, and 130 structural graphs at vertex counts zero through three. At positive $n$, there are $D_n=30n(n+2)$ owner/key descriptors, hence $(D_n+1)^2$ labelled two-slot declaration contexts per graph.
-4. The certificate executes all 148 graphs, every descriptor in both slots, every directed one-axis transition, and every absent, same-owner, and different-owner second-key class. Because graph fields precede declaration fields and the untouched slot is encoded unchanged, equality of complete byte strings factors through equality of the executed graph and declaration components. The recorded multiplicities reconcile to $27{,}329{,}908$ schemas.
+1. Fixed order separates top-level fields, and a count separates every variable-length collection. Map and set order is canonical; within a collection, primitive encodings and distinct tags separate keys, variants, and payloads. A fixed-width field and a length-prefixed string are prefix-free, since a reader knows each one's extent before reading its content, and a tagged sum is prefix-free when each variant's payload is.
+2. An optional extension is the one place where the reader decides presence from the bytes rather than from a tag. Where an extension inside a reference is absent, the next bytes are a `u64` length (the target vertex's name after a variable or standoff source, the next reference's id after a reference), the target-set byte `0xff`, or the end of the bytes. A length is the length of an allocated Rust string, which is at most `isize::MAX` $< 2^{63}$, so it never equals the marker; the marker's first byte is `0x00`, never `0xff`; and the marker has eight bytes where the end of the bytes has none. The trailing target-set byte is followed by nothing when absent. Presence is thus decided by whether the next eight bytes are the marker, or for target sets whether any byte remains, and every field stays prefix-free. The earlier one-byte marker `0xff` failed this test, because a length whose low byte is `0xff` begins with it: the regression pair below, two valid declarations whose binding and target name differ, encoded identically under it.
+3. Reading equal byte streams from the beginning thus gives equal counts and equal fields by induction over the layout. Applying this argument to every top-level field yields schema equality; determinism gives the converse.
+4. There are 1, 2, 15, and 130 structural graphs at vertex counts zero through three. At positive $n$, there are $D_n=30n(n+2)$ owner/key descriptors, hence $(D_n+1)^2$ labelled two-slot declaration contexts per graph.
+5. The certificate executes all 148 graphs, every descriptor in both slots, every directed one-axis transition, and every absent, same-owner, and different-owner second-key class. Because graph fields precede declaration fields and the untouched slot is encoded unchanged, equality of complete byte strings factors through equality of the executed graph and declaration components. The recorded multiplicities reconcile to $27{,}329{,}908$ schemas.
 
 ### Executable counterpart
 
@@ -143,8 +146,12 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 - Evidence scope: `all 148 structural graphs, descriptor counts 90, 240, and 450, and 27,329,908 schemas`
 - Production certificate: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=canonical_declaration_factorization_reconciles_the_exact_carrier)'`
 - Independent reference anchor: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=canonical_declaration_factorization_reconciles_the_exact_carrier)'`
+- Extension decoding test: `declaration_bytes_decode_back_on_every_extension_combination; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_bytes_decode_back_on_every_extension_combination)'`
+- Marker regression test: `extension_markers_separate_the_audit_counterexample; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extension_markers_separate_the_audit_counterexample)'`
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
+
+The extension decoding test inverts the declaration bytes with a decoder written from the grammar of proof step 2, over every combination of the three in-reference extensions and the target-set extension with neighbouring names whose length prefix begins with `0xff`, 194 declarations in all; decoding back proves the encoding injective there. Under the one-byte marker both new tests fail.
 
 ### Mutation equivalences
 
@@ -226,8 +233,8 @@ A theory is *closed* when every sort and operation used by its declarations and 
 
 1. The W-type, graph-instance, functor, and flat theories each declare the interface symbols they use. Their coherence equations thus typecheck in the theory that contains them.
 2. Each registration group builds one explicit-identity diagram over its stated interface. Symbols outside the interface are rejected on a name clash rather than silently identified.
-3. The composition checker verifies every inclusion and the identity mediator. The per-shape tests require passed records for both checks and reject every inapplicable record.
-4. The generic production/reference differential separately establishes agreement of composition over its bounded span carrier. Thus the shape tests exercise the registered theories, while the differential checks the operation they call.
+3. The composition checker verifies every inclusion and the identity mediator. The per-shape tests require passed records for both checks, a passed report status, and a passed record (`Passed` or `PassedByEquation`) for every check kind, so no record is failed, incomplete, or inapplicable.
+4. The registered-theory reference test converts every theory each protocol registers into the reference model field by field, checks that the reference's canonical bytes of the converted theory equal production's, and runs the reference signature check on it. For each protocol's schema and instance recipe it replays the recipe in the reference and composes the recipe's one diagram step in the reference, requiring a passed report with every record passed and the registered theory's canonical bytes. The generic production/reference differential separately establishes agreement of composition over its bounded span carrier.
 
 ### Executable counterpart
 
@@ -237,6 +244,8 @@ A theory is *closed* when every sort and operation used by its declarations and 
 - Evidence scope: `the tree, graph, table, and flat registration groups over their declared interfaces`
 - Production certificate: `theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks; command: cargo nextest run --release --locked -p panproto-protocols --lib --no-tests=fail -E 'test(=theories::tests::standalone_total_theories_pass_inclusion_and_universal_checks)'`
 - Independent reference anchor: `composition_agrees_with_the_reference_on_every_span; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=composition_agrees_with_the_reference_on_every_span)'`
+- Registered-theory reference test: `registered_theories_agree_with_the_reference_typecheck_compose_and_recompose; command: cargo nextest run --release --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=registered_theories_agree_with_the_reference_typecheck_compose_and_recompose)'`
+- Signature differential test: `signature_checking_agrees_with_the_reference_on_every_signature; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=signature_checking_agrees_with_the_reference_on_every_signature)'`
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-gat/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
@@ -258,11 +267,11 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-Each built-in protocol records the exact composition recipe for its schema and instance theories. Replaying either recipe from the theories it names reproduces the registered theory's canonical bytes. The amalgamation wrappers retain the 0.74 naming and result surface, while registration uses one explicit-identity diagram with reject-on-clash semantics.
+Each built-in protocol records the exact composition recipe for its schema and instance theories. Replaying either recipe from the theories it names reproduces the registered theory's canonical bytes. The amalgamation wrappers retain the 0.74 naming and result surface, while registration uses one explicit-identity diagram with reject-on-clash semantics. The 0.74 surface is fixed by a frozen artifact: the schema and instance theories that panproto-protocols 0.74.4, built from crates.io, registered for each of its 54 protocols, stored as that build serialized them, and compared by canonical theory bytes with today's registration. All 54 schema theories keep their 0.74.4 bytes. Exactly 17 instance theories differ: the 10 whose shape declaration re-declares them, and the 7 further protocols that register through the table building block, which gained the vertex and edge sorts and the foreign-key coherence axioms of the table shape (arrow, conllu, dataframe, edi-x12, parquet, sql, and swift-mt); the other 37 keep their bytes.
 
 ### Outside the domain
 
-A protocol introduced after 0.74 has no earlier registered theory to compare. For such a protocol, the law still requires a recorded replayable recipe and a passed composition report. Protocols whose instance theory was deliberately redeclared compare against that declared replacement rather than an obsolete byte string.
+A protocol introduced after 0.74 has no earlier registered theory to compare. For such a protocol, the law still requires a recorded replayable recipe and a passed composition report. Protocols whose instance theory was deliberately redeclared, or amended through the table building block, compare against that declared replacement rather than an obsolete byte string; the frozen comparison names exactly which ones.
 
 ### Definitions used
 
@@ -282,6 +291,9 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 - Evidence scope: `every registered schema and instance recipe, plus the bounded reference recipe carrier`
 - Production certificate: `recompose_of_every_registration_spec_reproduces_its_theory; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=recompose_of_every_registration_spec_reproduces_its_theory)'`
 - Independent reference anchor: `recipe_replay_agrees_with_the_reference_on_every_recipe; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=recipe_replay_agrees_with_the_reference_on_every_recipe)'`
+- Compatibility surface test: `registration_equivalence; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=registration_equivalence)'`
+- Frozen 0.74.4 test: `registration_reproduces_the_frozen_0_74_4_theories; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=registration_reproduces_the_frozen_0_74_4_theories)'`
+- Diagram form test: `every_registered_protocol_records_a_diagram_step; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=every_registered_protocol_records_a_diagram_step)'`
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
@@ -356,7 +368,7 @@ None recorded. Mutation closure is pending.
 
 ### Outside the domain
 
-Text comparison under a named SQL collation returns `None` in the reference and `UnsupportedCollation` in production, since its kernel belongs to the database implementation. A malformed production numeric carrier may return `InvalidNumericRepresentation`; it has no value in the finite reference carrier. Every other enumerated input returns `Some(true)` or `Some(false)` in the reference and the corresponding `Ok` value in production.
+Under a named SQL collation, every pair that holds text on either side (text against text, null, a number, or any other value) returns `None` in the reference and `UnsupportedCollation` in production: the key function of that text belongs to the database implementation and is undefined here, so not even inequality with a non-text value is decided. A malformed production numeric carrier may return `InvalidNumericRepresentation`; it has no value in the finite reference carrier. Every other enumerated input returns `Some(true)` or `Some(false)` in the reference and the corresponding `Ok` value in production.
 
 ### Definitions used
 
@@ -397,11 +409,11 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-For every equality declaration $E$ and values $x,y$ on which $E$ is computable, if $x$ and $y$ are equal by representation then they are equivalent under $E$. `representation_refines(E, x, y)` returns the truth value of this implication. The reference returns `Some(true)` when representation equality is false or both equalities hold, `Some(false)` only if representation equality holds and declared equality does not, and `None` precisely when the consequent requires an unsupported named SQL collation. Production returns the corresponding `Ok` value or typed refusal.
+For every equality declaration $E$ and values $x,y$ on which $E$ is computable, if $x$ and $y$ are equal by representation then they are equivalent under $E$. `representation_refines(E, x, y)` returns the truth value of this implication. The reference returns `Some(true)` when representation equality is false or both equalities hold, `Some(false)` only if representation equality holds and declared equality does not, and `None` precisely when the consequent requires an unsupported named SQL collation or either value has no canonical bytes (a `Temporal` that is not well formed, or a value that contains one). Production returns the corresponding `Ok` value or typed refusal.
 
 ### Outside the domain
 
-A representationally equal string pair under a named SQL collation returns `None` in the reference and `UnsupportedCollation` in production; the function does not assume a database-specific kernel. An invalid production numeric carrier may additionally return `InvalidNumericRepresentation` and is outside the finite reference carrier.
+A representationally equal string pair under a named SQL collation returns `None` in the reference and `UnsupportedCollation` in production; the function does not assume a database-specific kernel. An invalid production numeric carrier may additionally return `InvalidNumericRepresentation` and is outside the finite reference carrier. A value without canonical bytes has no representation equality in the reference, which returns `None` for it; production compares such a value by the bytes it writes, so the two are compared only on values with canonical bytes.
 
 ### Definitions used
 
@@ -409,7 +421,7 @@ For propositions $P$ and $Q$, implication $P \Rightarrow Q$ is $\neg P \lor Q$. 
 
 ### Proof
 
-1. The function first evaluates the total representation equality predicate.
+1. The function first evaluates representation equality, which is undefined, and returned as `None`, on a value without canonical bytes.
 2. It returns `!represented || key_equivalence(E, x, y)?`, which is exactly the Boolean implication.
 3. If the antecedent is false, short-circuit evaluation returns true without demanding a declared comparison. If it is true, the result and any refusal are exactly those of the declared equality.
 
@@ -574,30 +586,31 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-For a sequence of target-set members `(vertex, key, arity, equality)`, `target_set` returns true exactly when the sequence is nonempty, no `(vertex, key)` pair repeats, and every member has the first member's arity and equality vector. The schema-level `validate_declarations` operation does not call this helper. It instead requires (i) an id distinct from every vertex id, (ii) at least one member, and (iii) member keys that exist, do not repeat, have the declared scope, and share the first valid member's effective signature.
+For a sequence of target-set members `(vertex, key, arity, equality)`, `target_set` returns true exactly when the sequence is nonempty, no `(vertex, key)` pair repeats, the first member's equality vector has one entry per part, and every member has the first member's arity and equality vector. The schema-level `validate_declarations` operation does not call this helper. It instead requires (i) an id distinct from every vertex id, (ii) at least one member, and (iii) member keys that exist, do not repeat, have the declared scope, have a well-formed equality vector (empty, or one entry per part), have a role other than `Index`, and share the first valid member's effective signature. Production and the reference flag the same members.
 
 ### Outside the domain
 
-The Boolean helper returns false for an empty or incompatible sequence. Schema validation records `TargetSetNameClash` for an id collision and `EmptyTargetSet` for an empty sequence. It records one `TargetSetMemberMismatch` for each absent, repeated, scope-incompatible, arity-incompatible, or equality-incompatible member, in target-set and member declaration order.
+The Boolean helper returns false for an empty or incompatible sequence. Schema validation records `TargetSetNameClash` for an id collision and `EmptyTargetSet` for an empty sequence. It records one `TargetSetMemberMismatch` for each absent, repeated, `Index`-role, scope-incompatible, malformed-equality, arity-incompatible, or equality-incompatible member, in target-set and member declaration order. A member key with one part and two equality entries thus yields `EqualityArity` from the key pass and `TargetSetMemberMismatch` from the set pass.
 
 ### Definitions used
 
-The *signature* of a member key is its part count and effective equality vector. Its effective vector is the declared nonempty vector, or one `Representation` entry per part when the declaration is empty.
+The *signature* of a member key is its part count and effective equality vector. Its effective vector is the declared nonempty vector, or one `Representation` entry per part when the declaration is empty; a declared vector of the wrong length gives the key no signature. An `Index` key promises no uniqueness and resolves no pair, so it is never a member of a key over several vertices.
 
 ### Proof
 
 1. The helper obtains the first signature with `first`; absence returns false. A set cardinality comparison gives pairwise distinctness, and an all-quantifier gives signature compatibility.
 2. Schema validation walks ordered target sets. It checks the name clash before member checks, then maintains a set of member pairs and the first valid signature.
-3. A member is valid precisely when lookup succeeds, its pair is new, its scope agrees, and its effective signature agrees. The negation appends `TargetSetMemberMismatch`, proving completeness and order for declared members.
+3. A member is valid precisely when lookup succeeds, its role is not `Index`, its pair is new, its scope agrees, it has a signature, and that signature agrees. Only a member valid apart from agreement anchors the signature. The negation appends `TargetSetMemberMismatch` naming the member, proving completeness and order for declared members.
 4. The schema validator tests emptiness before the member loop and emits `EmptyTargetSet`, then skips the loop. Thus an empty declaration has one typed defect rather than an accidental arity or member error.
 
 ### Executable counterpart
 
 - Law ID: `keys.target-set-declaration`
 - Reference: `panproto_reference::keys::target_set`
-- Evidence scope: `nine declaration fixtures covering compatible, empty, duplicate, arity-incompatible, equality-incompatible, implicit/explicit representation, absent-key, scope-mismatch, and invalid-first-member signatures; eight fixtures have resolved signatures and are also projected to the local predicate`
+- Evidence scope: `nine declaration fixtures covering compatible, empty, duplicate, arity-incompatible, equality-incompatible, implicit/explicit representation, absent-key, scope-mismatch, and invalid-first-member signatures; eight fixtures have resolved signatures and are also projected to the local predicate; three further fixtures for a wrong-length equality vector and an Index member in either position; every fixture compares the flagged (set, vertex, key) members of both validators`
 - Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
+- Member condition test: `target_set_members_need_a_well_formed_equality_and_a_resolving_role; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_set_members_need_a_well_formed_equality_and_a_resolving_role)'`
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
@@ -639,7 +652,7 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 
 - Law ID: `keys.xml-noncdata-equivalence`
 - Reference: `panproto_reference::keys::xml_noncdata`
-- Evidence scope: `341 XML strings and 116,281 ordered pairs`
+- Evidence scope: `the 341 strings of length at most four over {a, b, U+0020, U+0009}, all 116,281 ordered pairs, 184 normalization classes and 1,171 equivalent ordered pairs (counted independently), with LF, CR, TAB and token-order units`
 - Production certificate: `xml_kernel_executes_the_exact_o17_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_o17_carrier)'`
 - Independent reference anchor: `xml_kernel_executes_the_exact_o17_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_o17_carrier)'`
 - File: `crates/panproto-inst/src/key.rs`
@@ -663,7 +676,7 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-The complete key, target-set, and reference declaration carrier is valid exactly when the independent `validate_declarations` function returns `Ok(())`. Key ids are unique per vertex, equality arity is exact, and sort keys have a unique ordered carrier from their `Within` scope. A repeated key id contributes one duplicate defect, regardless of how many later declarations repeat it. Target sets are nonempty and satisfy the schema-level member conditions in [L-keys-and-registration-13](#L-keys-and-registration-13). Every member key targeted by a reference has a resolvable role, and every reference names a present target of matching arity and a compatible edge. A reference with no explicit target key selects the first declared `Primary` key. A target-set virtual edge starts at the reference holder and expands to a declared edge for every member. Inline references redirect through a target set. Variable binders name identifier keys and use one binding mode. For text constraints, standoff lengths are not inclusive; fragmented standoffs are many-valued over an ordered holder edge; guarded partitions have distinct representation values; referenced text and scope-via chains are typed and acyclic; and target-set references carry no redundant per-vertex key. A referenced-text declaration is invalid when any reachable suffix repeats a reference, including when it enters a cycle that does not contain the starting declaration. The production validator agrees on this declaration-local predicate and additionally checks that named vertices, paths, positional carriers, scope ancestors, and protocol-required edges exist in the production schema. Each validator returns every defect in its domain in deterministic declaration order and with the stated multiplicity. A reference to a target set whose only member key is missing yields `TargetSetMemberMismatch` followed by `UnknownTarget`; source arity is not inspected without a resolvable target. Canonical schema bytes distinguish every valid declaration in this carrier.
+The complete key, target-set, and reference declaration carrier is valid exactly when the independent `validate_declarations` function returns `Ok(())`. Key ids are unique per vertex, equality arity is exact, and sort keys have a unique ordered carrier from their `Within` scope. A repeated key id contributes one duplicate defect, regardless of how many later declarations repeat it. Target sets are nonempty and satisfy the schema-level member conditions in [L-keys-and-registration-13](#L-keys-and-registration-13). A reference whose resolving key, or any member key of its target set, has role `SortKey` or `Index` is refused with `KeyNotResolvable`, under either `on_unresolved` policy; in this release no reference resolves through an `Index` key. Every reference names a present target of matching arity and a compatible edge. A reference with no explicit target key selects the first declared `Primary` key; a key-value reference with neither resolves through the empty key, so a nonempty source is refused as an arity mismatch against zero parts. A target-set virtual edge starts at the reference holder and expands to a declared edge for every member. Inline references redirect through a target set. Variable binders name identifier keys of the target vertex itself and use one binding mode. A target set is no vertex and declares no key, so a variable reference to a set names no binder and is refused as an unknown target, and a variable reference whose named `target_key` is absent is refused the same way although its binder would resolve it. For text constraints, standoff lengths are not inclusive; fragmented standoffs are many-valued over an ordered holder edge; guarded partitions have distinct representation values; referenced text and scope-via chains are typed and acyclic; and target-set references carry no redundant per-vertex key. A referenced-text declaration is invalid when any reachable suffix repeats a reference, including when it enters a cycle that does not contain the starting declaration. The production validator agrees on this declaration-local predicate and additionally checks that named vertices, paths, positional carriers, scope ancestors, and protocol-required edges exist in the production schema. Each validator returns every defect in its domain in deterministic declaration order and with the stated multiplicity. A reference to a target set whose only member key is missing yields `TargetSetMemberMismatch` followed by `UnknownTarget`; source arity is not inspected without a resolvable target. Canonical schema bytes distinguish every valid declaration in this carrier.
 
 ### Outside the domain
 
@@ -678,16 +691,18 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 1. `validate_declarations` appends results from key, target-set, reference, binder-mode, and guard passes in that order and returns success exactly when the vector is empty.
 2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. A repeated-id set limits duplicate diagnostics to one per id. Reference validation independently exercises all five key roles, checks the virtual edge's holder before its member expansions, and selects the first `Primary` key when no target key is named. It returns after an unknown target, since later target-dependent checks would have no typed object to inspect.
 3. The text-reference helper carries the active suffix through recursion, so every reachable repeated node is rejected. The scope-via helper similarly follows its named chain with a visited set. Thus both accept exactly the typed acyclic chains described above.
-4. Canonical writing gives every declaration sum a distinct tag, every collection a length, and every map a canonical order. The injectivity argument of [L-keys-and-registration-3](#L-keys-and-registration-3) thus applies to this declaration subcarrier.
+4. Canonical writing gives every declaration sum a distinct tag, every collection a length, every map a canonical order, and every optional extension a marker that the bytes following its absence cannot begin with. The prefix-freeness argument of [L-keys-and-registration-3](#L-keys-and-registration-3) thus applies to this declaration subcarrier.
 
 ### Executable counterpart
 
 - Law ID: `keys.group-g-declaration-injectivity`
 - Reference: `panproto_reference::schema::canonical_bytes`
-- Evidence scope: `37 canonical fixtures covering every declaration sum variant, including Position, and nondefault extension; 27 validation fixtures covering success, every independent refusal class, exact duplicate multiplicity, implicit-primary selection, missing-only target sets, holder-source agreement, and reachable text cycles; plus all five target-set member roles`
+- Evidence scope: `37 canonical fixtures covering every declaration sum variant, including Position, and nondefault extension; 30 validation fixtures covering success, every independent refusal class, exact duplicate multiplicity, implicit-primary selection, missing-only target sets, holder-source agreement, reachable text cycles, a variable over a target set, a variable with a missing named key, and key-value parts against the empty key; plus all five target-set member roles; plus the extension-marker regression pair and the 194 decoded extension combinations of L-keys-and-registration-3`
 - Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
 - Independent reference anchor: `declaration_validation_matches_reference_on_every_common_refusal; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_validation_matches_reference_on_every_common_refusal)'`
 - Role differential test: `target_set_references_check_every_member_key_role; command: cargo test --release -p panproto-schema --test reference_keys target_set_references_check_every_member_key_role -- --exact --nocapture`
+- Marker regression test: `extension_markers_separate_the_audit_counterexample; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extension_markers_separate_the_audit_counterexample)'`
+- Extension decoding test: `declaration_bytes_decode_back_on_every_extension_combination; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_bytes_decode_back_on_every_extension_combination)'`
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-schema/src/keys.rs`
 - File: `crates/panproto-schema/src/validate.rs`
@@ -711,11 +726,11 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-A reference whose target has role `Index` derives no pair. For a composite referencing tuple, `NullMatch::Simple` creates a resolution occurrence exactly when every part is non-NULL, while `NullMatch::Full` creates one exactly when at least one part is non-NULL. Thus an all-NULL tuple is absent under both modes; a partly NULL tuple is absent under `Simple` and unresolved under `Full`; and an all-present tuple is resolved or dangling according to the declared target key.
+A reference whose resolving key has role `Index` is refused at declaration with `KeyNotResolvable` under both `on_unresolved` policies, so no schema that resolution accepts holds one and no pair is derived through an `Index` key. For a composite referencing tuple, `NullMatch::Simple` creates a resolution occurrence exactly when every part is non-NULL, while `NullMatch::Full` creates one exactly when at least one part is non-NULL. Thus an all-NULL tuple is absent under both modes; a partly NULL tuple is absent under `Simple` and unresolved under `Full`; and an all-present tuple is resolved or dangling according to the declared target key.
 
 ### Outside the domain
 
-The law does not assert uniqueness for an `Index` key. It also does not implement `MATCH PARTIAL`, which is a typed protocol refusal before resolution.
+The law does not assert uniqueness for an `Index` key. The well-formed `Complement` reference through an `Index` key, whose get adds no edge, is not part of this release; such a declaration is the typed refusal above. The law also does not implement `MATCH PARTIAL`, which is a typed protocol refusal before resolution.
 
 ### Definitions used
 
@@ -723,7 +738,7 @@ A *resolution occurrence* is a holder element together with the tuple read from 
 
 ### Proof
 
-1. Resolution excludes a target key whose role is `Index` before building target buckets. Thus no value equality, including equality of two absent index fields, can derive a pair through that role.
+1. Declaration validation refuses every reference whose resolving key has role `Index` ([L-keys-and-registration-15](#L-keys-and-registration-15)), whatever its `on_unresolved` policy, and resolution compiles only declarations that pass it. Thus no value equality, including equality of two absent index fields, can derive a pair through that role.
 2. Under `Simple`, the occurrence filter is conjunction over the tuple's non-NULL tests. Under `Full`, it is disjunction. These formulas give the three null cases in the Statement.
 3. The filtered occurrences enter the ordinary target lookup. An equal all-present tuple derives one pair; an unequal all-present tuple is dangling. A partly NULL tuple enters that lookup only under `Full`, where it is necessarily dangling against an all-present target.
 4. The production/reference differential observes pairs and complement records through the complete `TreeToGraph` resolution operation. It does not infer these outcomes from a separate Boolean helper.
@@ -771,19 +786,19 @@ A *known datatype* is one present in the protocol's value-kind table. A *derived
 1. `ValidationPlan::compile` resolves the datatype through the edge named by the lexical-space declaration.
 2. A known datatype supplies the kind used by the compiled check. The check emits a value-constraint diagnostic exactly when coercion fails.
 3. An unknown datatype cannot supply that check and produces the typed incomplete reason `UnsupportedDeclaration`.
-4. Both branches have advisory requirement. Thus neither changes a passing report to failure, and validation has no operation that could replace the graph's stored lexeme.
+4. Both branches have advisory requirement. Thus neither changes a passing report to failure, and validation has no operation that could replace the graph's stored lexeme; the differential reads the lexeme back after validation.
 
 ### Executable counterpart
 
 - Law ID: `keys.lexical-space-declaration`
-- Reference: `panproto_reference::validation::lexical_space`
-- Evidence scope: `the lexemes {"0", "42", "-1", "not-an-integer"} under the declared integer datatype`
-- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
-- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Reference: `panproto_reference::keys::lexical_space_outcome`
+- Evidence scope: `12 lexemes (signed, zero-padded, space-padded, fractional, exponent, both 64-bit boundaries, non-numeric, and empty) under the integer and decimal datatypes of the table and one datatype absent from it, 36 cases; each case compares the outcome with the reference, checks advisory admission, and reads back the kept lexeme`
+- Production certificate: `lexical_space_outcomes_match_the_datatype_table_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=lexical_space_outcomes_match_the_datatype_table_reference)'`
+- Independent reference anchor: `lexical_space_outcomes_match_the_datatype_table_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=lexical_space_outcomes_match_the_datatype_table_reference)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
-- File: `crates/panproto-reference/src/pages/validation.rs`
-- File: `crates/panproto-inst/tests/reference_validation.rs`
+- File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
+- File: `crates/panproto-inst/tests/reference_keys.rs`
 
 ### Mutation equivalences
 
@@ -810,28 +825,27 @@ This law does not govern `ConstraintSemantics::Format`, nor a dialect that expli
 
 ### Definitions used
 
-An *annotated format* is a named constraint whose semantics are `AnnotatedFormat(family)`. Preservation means that validation leaves the graph value unchanged. The bounded executable carrier uses the recognized `uuid` predicate under both annotated and asserting semantics.
+An *annotated format* is a named constraint whose semantics are `AnnotatedFormat(family)`. Preservation means that validation leaves the graph value unchanged. The bounded executable carrier uses the recognized `uuid` predicate under both annotated and asserting semantics, and one unrecognized annotation. The reference recognizer reads RFC 9562's textual form: 36 characters, hyphens at positions 8, 13, 18 and 23, and a hexadecimal digit of either case elsewhere.
 
 ### Proof
 
 1. Compilation distinguishes `AnnotatedFormat` from `Format` before selecting the same family-specific predicate.
 2. The annotated branch fixes the check requirement to advisory. Thus a failed predicate records a diagnostic but leaves the report passing.
-3. The asserting branch uses required status, so the same failed predicate fails admission. This contrast observes the declaration rather than an identity helper.
+3. The asserting branch uses required status, so the same failed predicate fails admission. This contrast observes the declaration rather than an identity helper. An unrecognized annotation names no predicate, so compilation adds no check for it and its value is neither reported nor refused.
 4. Validation borrows the input graph and returns a report. The bounded differential reads the graph after both checks and confirms that its string is unchanged.
 
 ### Executable counterpart
 
 - Law ID: `keys.annotated-format-declaration`
-- Reference: `panproto_reference::validation::annotated_format_parse`
-- Reference: `panproto_reference::validation::annotated_format_advisory`
-- Reference: `panproto_reference::validation::format_assertion_acceptance`
-- Evidence scope: `four UUID strings under both advisory and asserting requirements, with both recorded-diagnostic states`
-- Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
-- Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Reference: `panproto_reference::keys::annotated_format_outcome`
+- Reference: `panproto_reference::keys::uuid_format`
+- Evidence scope: `eight strings (two UUIDs, a short group, misplaced hyphens, braces, a non-hexadecimal digit, a non-UUID word, and the empty string) under uuid as annotation and as assertion and under one unrecognized annotation, 24 cases: 4 recognized, 6 advisory, 6 refused, 8 unchecked; each case reads back the kept string`
+- Production certificate: `annotated_formats_match_the_independent_recognizer; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=annotated_formats_match_the_independent_recognizer)'`
+- Independent reference anchor: `annotated_formats_match_the_independent_recognizer; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=annotated_formats_match_the_independent_recognizer)'`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
-- File: `crates/panproto-reference/src/pages/validation.rs`
-- File: `crates/panproto-inst/tests/reference_validation.rs`
+- File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
+- File: `crates/panproto-inst/tests/reference_keys.rs`
 
 ### Mutation equivalences
 

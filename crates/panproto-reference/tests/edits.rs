@@ -3333,25 +3333,11 @@ fn fan_relocation_expected_delta() -> GraphDelta {
         GElem::Edge(8),
         GPayload::Edge(plain_edge(1, 5, inserted_label())),
     );
-    let plain_meta = |shape| NodeMeta {
-        discriminator: None,
-        position: None,
-        shape,
-        annotations: BTreeMap::new(),
-    };
-    expected_delta.attrs.insert(
-        AttrKey::Meta(5),
-        (
-            AttrVal::Meta(plain_meta(NodeShape::HyperEdge)),
-            AttrVal::Meta(plain_meta(NodeShape::Plain)),
-        ),
-    );
-    expected_delta.attrs.insert(
-        AttrKey::Anchor(5),
-        (
-            AttrVal::Anchor("fan".into()),
-            AttrVal::Anchor("leaf".into()),
-        ),
+    expected_delta = replacing(
+        expected_delta,
+        &literal_join_graph(),
+        5,
+        Node::new(5, "leaf"),
     );
 
     expected_delta
@@ -3787,26 +3773,7 @@ fn duplicate_named_fan_relocations_read_back_through_member_deletion() {
         GElem::Edge(10),
         GPayload::Edge(plain_edge(0, 6, inserted_label())),
     );
-    let plain_meta = |shape| NodeMeta {
-        discriminator: None,
-        position: None,
-        shape,
-        annotations: BTreeMap::new(),
-    };
-    expected_delta.attrs.insert(
-        AttrKey::Meta(6),
-        (
-            AttrVal::Meta(plain_meta(NodeShape::HyperEdge)),
-            AttrVal::Meta(plain_meta(NodeShape::Plain)),
-        ),
-    );
-    expected_delta.attrs.insert(
-        AttrKey::Anchor(6),
-        (
-            AttrVal::Anchor("fan".into()),
-            AttrVal::Anchor("leaf".into()),
-        ),
-    );
+    let expected_delta = replacing(expected_delta, &graph, 6, Node::new(6, "leaf"));
     let mut lowered_embedding = embedding.clone();
     assert_eq!(
         edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &script, None),
@@ -3907,6 +3874,7 @@ fn a_duplicate_named_fan_removed_through_a_reinserted_member_reads_back() {
         GElem::Edge(10),
         GPayload::Edge(plain_edge(7, 3, fan_arm_label())),
     );
+    let expected = replacing(expected, &graph, 3, Node::new(3, "leaf"));
     let mut lowered = embedding.clone();
     assert_eq!(
         edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None),
@@ -3924,14 +3892,19 @@ fn a_duplicate_named_fan_removed_through_a_reinserted_member_reads_back() {
     assert_eq!(
         delta,
         added(
-            literal_deletions(
+            replacing(
+                literal_deletions(
+                    &graph,
+                    [
+                        GElem::Node(5),
+                        GElem::Edge(2),
+                        GElem::Edge(4),
+                        GElem::Edge(5),
+                    ],
+                ),
                 &graph,
-                [
-                    GElem::Node(5),
-                    GElem::Edge(2),
-                    GElem::Edge(4),
-                    GElem::Edge(5),
-                ],
+                3,
+                Node::new(3, "leaf")
             ),
             vec![(
                 GElem::Edge(8),
@@ -5598,6 +5571,47 @@ fn compact_fresh_ids(
     })
 }
 
+/// The step-by-step composite that lowering `steps` from `tree` gives,
+/// read from the start and end graphs: the differ, except that a node held
+/// by both graphs is a replacement when it changes between a fan node and a
+/// tree node, or when it is a tree node that some intermediate tree of the
+/// steps lacks (deleted by one step and inserted again by a later one).
+fn composite_of_diff(
+    before: &Graph,
+    after: &Graph,
+    tree: &Tree,
+    embedding: &TreeEmbedding,
+    steps: &[TreeEdit],
+) -> GraphDelta {
+    let mut gone = BTreeSet::new();
+    let mut current = tree.clone();
+    let mut reached = edit::unbounded_embedding(embedding);
+    for step in steps.iter().flat_map(TreeEdit::steps) {
+        let Ok(next) = edit::apply_tree_unbounded(step, &current, &mut reached) else {
+            break;
+        };
+        gone.extend(
+            tree.nodes
+                .keys()
+                .filter(|id| !next.nodes.contains_key(id))
+                .copied(),
+        );
+        current = next;
+    }
+    let mut delta = edit::diff(before, after);
+    for (id, old) in &before.nodes {
+        let Some(new) = after.nodes.get(id) else {
+            continue;
+        };
+        let status_changes =
+            (old.shape == NodeShape::HyperEdge) != (new.shape == NodeShape::HyperEdge);
+        if status_changes || (tree.nodes.contains_key(id) && gone.contains(id)) {
+            delta = replacing(delta, before, *id, new.clone());
+        }
+    }
+    delta
+}
+
 /// The soundness oracle over unbounded ids: applying `reading` to the tree
 /// from the unbounded `embedding` gives the tree form of the delta's
 /// result, and the delta is, up to renaming fresh ids, the unbounded
@@ -5633,9 +5647,11 @@ fn delta_is_an_unbounded_image_of_reading(
             .any(|mut steps| {
                 steps.push(reading.clone());
                 let mut reached = edit::unbounded_embedding(embedding);
-                let Ok(relocated_tree) =
-                    edit::apply_tree_unbounded(&TreeEdit::Sequence(steps), tree, &mut reached)
-                else {
+                let Ok(relocated_tree) = edit::apply_tree_unbounded(
+                    &TreeEdit::Sequence(steps.clone()),
+                    tree,
+                    &mut reached,
+                ) else {
                     return false;
                 };
                 let Some(compacted) = compact_fresh_ids(&relocated_tree, embedding, &reached)
@@ -5645,7 +5661,8 @@ fn delta_is_an_unbounded_image_of_reading(
                 let Some(lowered) = graph_of_carriers(&relocated_tree, &compacted) else {
                     return false;
                 };
-                equal_up_to_fresh_ids(delta, embedding, &edit::diff(graph, &lowered), embedding)
+                let composite = composite_of_diff(graph, &lowered, tree, embedding, &steps);
+                equal_up_to_fresh_ids(delta, embedding, &composite, embedding)
             })
 }
 
@@ -6756,6 +6773,7 @@ fn a_fan_whose_parent_keeps_an_original_child_arc_is_removed_through_its_member(
         GElem::Edge(9),
         GPayload::Edge(plain_edge(2, 3, c_arc.clone())),
     );
+    let expected = replacing(expected, &graph, 3, Node::new(3, "leaf"));
     let mut lowered = embedding.clone();
     assert_eq!(
         edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None),
@@ -6842,6 +6860,7 @@ fn a_lowering_reads_back_when_its_reading_needs_more_edge_ids_than_remain() {
         GElem::Edge(u32::MAX - 1),
         GPayload::Edge(plain_edge(2, 3, c_arc.clone())),
     );
+    let expected = replacing(expected, &graph, 3, Node::new(3, "leaf"));
     let mut lowered = embedding.clone();
     assert_eq!(
         edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None),
@@ -8003,6 +8022,25 @@ fn join_embedding_with(change: impl FnOnce(&mut TreeEmbedding)) -> TreeEmbedding
 
 fn child_label(src: &str, name: &str) -> SEdge {
     SEdge::new(src, "leaf", "child", Some(name))
+}
+
+/// `delta` with node `id` replaced: deleted with its payload in `graph` and
+/// added as `node`, with no attribute change of its own. A step sequence
+/// that deletes a node and later inserts one under its id, or a step that
+/// gives a tree node the id of a fan node, lowers to such a replacement.
+fn replacing(mut delta: GraphDelta, graph: &Graph, id: u32, node: Node) -> GraphDelta {
+    delta.attrs.retain(|key, _| match key {
+        AttrKey::Value(node)
+        | AttrKey::Field(node, _)
+        | AttrKey::Meta(node)
+        | AttrKey::Anchor(node) => *node != id,
+        AttrKey::EdgeLabel(_) | AttrKey::EdgePosition(_) => true,
+    });
+    delta
+        .del
+        .insert(GElem::Node(id), graph_payload(graph, &GElem::Node(id)));
+    delta.add.insert(GElem::Node(id), GPayload::Node(node));
+    delta
 }
 
 fn added(mut delta: GraphDelta, elements: Vec<(GElem, GPayload)>) -> GraphDelta {

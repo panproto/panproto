@@ -11,10 +11,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_inst::{
     BoundaryProtocols, CellFate, CompiledMigration, ContractionPlan, EdgeFate, EdgeId, EdgeImage,
-    ElementOps, FInstance, FieldPresence, GEdge, GInstance, GraphComplement, IdFloor, Node,
-    PairResolution, RestrictError, RestrictPlan, RowId, SynthKey, UnresolvedReason, Value,
-    WInstance, collect_scalar_child_values, functor_restrict_with_plan, graph_restrict_with_plan,
-    resolve_pair, wtype_restrict_with_plan,
+    ElementOps, FInstance, Fan, FieldPresence, GEdge, GInstance, GraphComplement, IdFloor, Node,
+    NodeShape, PairResolution, RestrictError, RestrictPlan, RowId, SynthKey, UnresolvedReason,
+    Value, WInstance, collect_scalar_child_values, functor_restrict_with_plan,
+    graph_restrict_with_plan, resolve_pair, wtype_restrict_with_plan,
 };
 use panproto_reference::enumerate::restrict_and_contraction::{
     ChildBindingSlot, ColumnState, ExpansionState, PairResolutionCase, PairState, TreeFloorCase,
@@ -24,7 +24,8 @@ use panproto_reference::enumerate::restrict_and_contraction::{
 use panproto_reference::lens::{GraphLens as RefGraphLens, tree_get as reference_tree_get};
 use panproto_reference::migration::Migration as RefMigration;
 use panproto_reference::model::{
-    GEdge as RefGEdge, Graph as RefGraph, Node as RefNode, SEdge as RefEdge, Tree as RefTree,
+    Fan as RefFan, GEdge as RefGEdge, Graph as RefGraph, Node as RefNode,
+    NodeShape as RefNodeShape, SEdge as RefEdge, Tree as RefTree,
 };
 use panproto_reference::restrict::{
     self, ColumnFate as RefColumnFate, Complement as RefComplement, EdgeFate as RefEdgeFate,
@@ -32,7 +33,7 @@ use panproto_reference::restrict::{
     PlanError as RefPlanError, RestrictError as RefRestrictError, SynthKey as RefSynthKey,
     UnresolvedReason as RefUnresolvedReason,
 };
-use panproto_reference::schema::Schema as RefSchema;
+use panproto_reference::schema::{HyperEdge as RefHyperEdge, Schema as RefSchema};
 use panproto_reference::value::{Presence as RefPresence, Value as RefValue};
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
 
@@ -61,6 +62,20 @@ fn prod_schema(schema: &RefSchema) -> Schema {
         builder = builder
             .edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
             .expect("reference edge");
+    }
+    for (id, hyper) in &schema.hyper_edges {
+        builder = builder
+            .hyper_edge(
+                id,
+                &hyper.kind,
+                hyper
+                    .signature
+                    .iter()
+                    .map(|(label, vertex)| (label.clone(), vertex.clone()))
+                    .collect(),
+                &hyper.parent_label,
+            )
+            .expect("reference hyper-edge");
     }
     builder.build().expect("reference schema")
 }
@@ -541,15 +556,133 @@ fn pair_resolution_precedence_and_first_failure_agree() {
     );
 }
 
+/// The production value of a reference value. The restrict scopes hold
+/// booleans, integers, float bit patterns, strings, byte strings, tokens,
+/// links, explicit nulls, records, lists and labelled nulls; any other value
+/// fails the test.
+fn prod_value(value: &RefValue) -> Value {
+    match value {
+        RefValue::Bool(b) => Value::Bool(*b),
+        RefValue::Int(i) => Value::Int(*i),
+        RefValue::Float(bits) => Value::Float(f64::from_bits(*bits)),
+        RefValue::Str(s) => Value::Str(s.clone()),
+        RefValue::Bytes(b) => Value::Bytes(b.clone()),
+        RefValue::CidLink(s) => Value::CidLink(s.clone()),
+        RefValue::Token(s) => Value::Token(s.clone()),
+        RefValue::Null => Value::Null,
+        RefValue::Unknown(fields) => Value::Unknown(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), prod_value(v)))
+                .collect(),
+        ),
+        RefValue::List(items) => Value::List(items.iter().map(prod_value).collect()),
+        RefValue::LabeledNull(id) => Value::LabeledNull(*id),
+        other => panic!("the restrict scopes hold no value {other:?}"),
+    }
+}
+
+/// The reference value of a production value: the left inverse of
+/// [`prod_value`] on its image.
+fn ref_value(value: &Value) -> RefValue {
+    match value {
+        Value::Bool(b) => RefValue::Bool(*b),
+        Value::Int(i) => RefValue::Int(*i),
+        Value::Float(f) => RefValue::Float(f.to_bits()),
+        Value::Str(s) => RefValue::Str(s.clone()),
+        Value::Bytes(b) => RefValue::Bytes(b.clone()),
+        Value::CidLink(s) => RefValue::CidLink(s.clone()),
+        Value::Token(s) => RefValue::Token(s.clone()),
+        Value::Null => RefValue::Null,
+        Value::Unknown(fields) => RefValue::Unknown(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), ref_value(v)))
+                .collect(),
+        ),
+        Value::List(items) => RefValue::List(items.iter().map(ref_value).collect()),
+        Value::LabeledNull(id) => RefValue::LabeledNull(*id),
+        other => panic!("the restrict scopes hold no value {other:?}"),
+    }
+}
+
+fn prod_presence(presence: &RefPresence) -> FieldPresence {
+    match presence {
+        RefPresence::Present(value) => FieldPresence::Present(prod_value(value)),
+        RefPresence::Null => FieldPresence::Null,
+        RefPresence::Absent => FieldPresence::Absent,
+    }
+}
+
+fn ref_presence(presence: &FieldPresence) -> RefPresence {
+    match presence {
+        FieldPresence::Present(value) => RefPresence::Present(ref_value(value)),
+        FieldPresence::Null => RefPresence::Null,
+        FieldPresence::Absent => RefPresence::Absent,
+    }
+}
+
+fn ref_fields<'a>(
+    fields: impl IntoIterator<Item = (&'a String, &'a Value)>,
+) -> BTreeMap<String, RefValue> {
+    fields
+        .into_iter()
+        .map(|(key, value)| (key.clone(), ref_value(value)))
+        .collect()
+}
+
+const fn ref_shape(shape: &NodeShape) -> RefNodeShape {
+    match shape {
+        NodeShape::Plain => RefNodeShape::Plain,
+        NodeShape::List => RefNodeShape::List,
+        NodeShape::HyperEdge => RefNodeShape::HyperEdge,
+        NodeShape::XmlElement { .. } | NodeShape::XmlTextSegment => {
+            panic!("the restrict scopes hold no XML node")
+        }
+    }
+}
+
+const fn prod_shape(shape: &RefNodeShape) -> NodeShape {
+    match shape {
+        RefNodeShape::Plain => NodeShape::Plain,
+        RefNodeShape::List => NodeShape::List,
+        RefNodeShape::HyperEdge => NodeShape::HyperEdge,
+        RefNodeShape::XmlElement(_) | RefNodeShape::XmlTextSegment => {
+            panic!("the restrict scopes hold no XML node")
+        }
+    }
+}
+
+/// The reference node of a production node: id, anchor, value,
+/// discriminator, fields, position, shape and annotations.
 fn ref_node(node: &Node) -> RefNode {
     let mut out = RefNode::new(node.id, &node.anchor);
+    out.value = node.value.as_ref().map(ref_presence);
+    out.discriminator = node.discriminator.as_ref().map(ToString::to_string);
+    out.fields = ref_fields(&node.extra_fields);
     out.position = node.position;
+    out.shape = ref_shape(&node.shape);
+    out.annotations = ref_fields(&node.annotations);
     out
 }
 
+/// The production node of a reference node; the inverse of [`ref_node`].
 fn prod_node(node: &RefNode) -> Node {
     let mut out = Node::new(node.id, node.anchor.as_str());
+    out.value = node.value.as_ref().map(prod_presence);
+    out.discriminator = node.discriminator.as_deref().map(Into::into);
+    out.extra_fields = node
+        .fields
+        .iter()
+        .map(|(key, value)| (key.clone(), prod_value(value)))
+        .collect();
     out.position = node.position;
+    out.shape = prod_shape(&node.shape);
+    out.annotations = node
+        .annotations
+        .iter()
+        .map(|(key, value)| (key.clone(), prod_value(value)))
+        .collect();
     out
 }
 
@@ -565,7 +698,19 @@ fn ref_tree(tree: &WInstance) -> RefTree {
             .iter()
             .map(|(parent, child, edge)| (*parent, *child, ref_edge(edge)))
             .collect(),
-        fans: Vec::new(),
+        fans: tree
+            .fans
+            .iter()
+            .map(|fan| RefFan {
+                parent: fan.parent,
+                hyper_edge: fan.hyper_edge_id.clone(),
+                children: fan
+                    .children
+                    .iter()
+                    .map(|(label, child)| (label.clone(), *child))
+                    .collect(),
+            })
+            .collect(),
         root: tree.root,
     }
 }
@@ -673,8 +818,16 @@ fn ref_complement(complement: &GraphComplement) -> RefComplement {
             .iter()
             .map(|(id, anchor)| (*id, anchor.to_string()))
             .collect(),
-        original_fields: BTreeMap::new(),
-        original_values: BTreeMap::new(),
+        original_fields: complement
+            .original_extra_fields
+            .iter()
+            .map(|(id, fields)| (*id, ref_fields(fields)))
+            .collect(),
+        original_values: complement
+            .original_values
+            .iter()
+            .map(|(id, value)| (*id, value.as_ref().map(ref_presence)))
+            .collect(),
         synthesized_nodes: complement
             .synthesized_nodes
             .iter()
@@ -742,6 +895,23 @@ fn reference_unlocated_error(error: &RefRestrictError) -> String {
     }
 }
 
+/// The graph with every node carrying a value, a discriminator, a field and an
+/// annotation derived from its id, so that the view and complement
+/// comparisons observe node payloads.
+fn decorated(graph: &RefGraph) -> RefGraph {
+    let mut out = graph.clone();
+    for node in out.nodes.values_mut() {
+        let id = i64::from(node.id);
+        node.value = Some(RefPresence::Present(RefValue::Int(id)));
+        node.discriminator = Some(format!("d{id}"));
+        node.fields
+            .insert("f".to_owned(), RefValue::Str(format!("field {id}")));
+        node.annotations
+            .insert("note".to_owned(), RefValue::Bool(id % 2 == 0));
+    }
+    out
+}
+
 #[test]
 fn graph_get_and_covered_reachability_agree_on_three_node_carriers() {
     let mut compared = 0usize;
@@ -756,7 +926,10 @@ fn graph_get_and_covered_reachability_agree_on_three_node_carriers() {
                 &production_migration,
             )
             .unwrap();
-            for graph in release_graphs(&source) {
+            for graph in release_graphs(&source)
+                .into_iter()
+                .flat_map(|graph| [decorated(&graph), graph])
+            {
                 let reference = restrict::get(&source, &source, &migration, &NoValueLayer, &graph);
                 let production = graph_restrict_with_plan(&prod_graph(&graph), &production_plan);
                 match (reference, production) {
@@ -771,6 +944,15 @@ fn graph_get_and_covered_reachability_agree_on_three_node_carriers() {
                             reference_complement,
                             "complement for {graph:?} under {migration:?}"
                         );
+                        for (id, node) in &reference_view.nodes {
+                            if let Some(original) = graph.nodes.get(id) {
+                                assert_eq!(
+                                    (&node.value, &node.fields, &node.annotations),
+                                    (&original.value, &original.fields, &original.annotations),
+                                    "a kept node keeps its payload without a value program"
+                                );
+                            }
+                        }
                         let surviving = reference_view.nodes.keys().copied().collect();
                         let walked = restrict::realized_pairs_by_walks(&graph, &surviving);
                         let synthesized: BTreeSet<(u32, u32)> = reference_complement
@@ -800,7 +982,7 @@ fn graph_get_and_covered_reachability_agree_on_three_node_carriers() {
             }
         }
     }
-    assert_eq!(compared, 12_366);
+    assert_eq!(compared, 2 * 12_366, "each graph bare and decorated");
     assert!(successful > 0);
 }
 
@@ -956,6 +1138,209 @@ fn drop_and_unresolved_fates_run_through_graph_and_tree_engines() {
     let fixture = direct_fate_fixture();
     drop_fate_runs_through_graph_and_tree_engines(&fixture);
     unresolved_fate_runs_through_graph_and_tree_engines(&fixture);
+}
+
+fn prod_tree(tree: &RefTree) -> WInstance {
+    let schema_root = tree.nodes[&tree.root].anchor.as_str();
+    WInstance::new(
+        tree.nodes
+            .values()
+            .map(|node| (node.id, prod_node(node)))
+            .collect(),
+        tree.arcs
+            .iter()
+            .map(|(parent, child, edge)| (*parent, *child, prod_edge(edge)))
+            .collect(),
+        tree.fans
+            .iter()
+            .map(|fan| Fan {
+                hyper_edge_id: fan.hyper_edge.clone(),
+                parent: fan.parent,
+                children: fan.children.clone().into_iter().collect(),
+            })
+            .collect(),
+        tree.root,
+        schema_root.into(),
+    )
+}
+
+/// The component of a graph view that hangs from `root`, read as a tree.
+fn root_component(view: &GInstance, schema: &Schema, root: u32) -> RefTree {
+    let trees = view.to_wtypes(schema).expect("the view is a forest");
+    let tree = trees
+        .iter()
+        .find(|tree| tree.root == root)
+        .expect("the root survives");
+    ref_tree(tree)
+}
+
+/// The source trees of the Drop-between-survivors carrier over `a -> b -> c`.
+fn chain_trees() -> Vec<RefTree> {
+    let ab = RefEdge::new("a", "b", "prop", Some("ab"));
+    let bc = RefEdge::new("b", "c", "prop", Some("bc"));
+    let tree = |nodes: &[(u32, &str)], arcs: &[(u32, u32, &RefEdge)]| RefTree {
+        nodes: nodes
+            .iter()
+            .map(|(id, anchor)| (*id, RefNode::new(*id, anchor)))
+            .collect(),
+        arcs: arcs
+            .iter()
+            .map(|(parent, child, edge)| (*parent, *child, (*edge).clone()))
+            .collect(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    vec![
+        tree(&[(0, "a")], &[]),
+        tree(&[(0, "a"), (1, "b")], &[(0, 1, &ab)]),
+        tree(&[(0, "a"), (1, "b"), (2, "c")], &[(0, 1, &ab), (1, 2, &bc)]),
+        tree(
+            &[(0, "a"), (1, "b"), (2, "b"), (3, "c"), (4, "c")],
+            &[(0, 1, &ab), (0, 2, &ab), (1, 3, &bc), (2, 4, &bc)],
+        ),
+    ]
+}
+
+/// Tree and graph get on every Keep/Drop assignment to the two arcs of
+/// `a -> b -> c`, all three vertices surviving.
+///
+/// With no `Drop` between survivors the plan preserves tree shape and the tree
+/// view is the graph view read as a tree. With one, the tree engine drops the
+/// arc's subtree while the graph engine drops the edge alone: the tree view is
+/// then exactly the root component of the graph view, and the reference tree
+/// lens is undefined. Returns the number of shape-breaking observations.
+fn drop_between_survivors_relates_tree_and_graph_views() -> usize {
+    let source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .edge("a", "b", "prop", Some("ab"))
+        .edge("b", "c", "prop", Some("bc"));
+    let semantics = BTreeMap::new();
+    let mut divergent = 0usize;
+    let mut observations = 0usize;
+    for keep_ab in [true, false] {
+        for keep_bc in [true, false] {
+            let mut target = RefSchema::default()
+                .vertex("a", "record")
+                .vertex("b", "record")
+                .vertex("c", "record");
+            if keep_ab {
+                target = target.edge("a", "b", "prop", Some("ab"));
+            }
+            if keep_bc {
+                target = target.edge("b", "c", "prop", Some("bc"));
+            }
+            let migration = RefMigration {
+                surviving_verts: ["a", "b", "c"].into_iter().map(str::to_owned).collect(),
+                ..RefMigration::default()
+            };
+            let reference_plan = restrict::compile(&source, &target, &migration).unwrap();
+            let production_target = prod_schema(&target);
+            let production_plan = RestrictPlan::compile(
+                &prod_schema(&source),
+                &production_target,
+                &prod_migration(&migration),
+            )
+            .unwrap();
+            let shape_preserving = keep_ab && keep_bc;
+            assert_eq!(production_plan.preserves_tree_shape(), shape_preserving);
+            let lens = RefGraphLens::new(
+                &source,
+                &target,
+                &migration,
+                &reference_plan,
+                &semantics,
+                &NoValueLayer,
+            )
+            .unwrap();
+            for tree in chain_trees() {
+                let source_graph = GInstance::from_wtype(&prod_tree(&tree)).unwrap();
+                let (expected_graph, _) = restrict::get(
+                    &source,
+                    &target,
+                    &migration,
+                    &NoValueLayer,
+                    &ref_graph(&source_graph),
+                )
+                .expect("reference graph get");
+                let (graph_view, _) =
+                    graph_restrict_with_plan(&source_graph, &production_plan).unwrap();
+                assert_eq!(ref_graph(&graph_view), expected_graph, "{tree:?}");
+                let (tree_view, _) =
+                    wtype_restrict_with_plan(&prod_tree(&tree), &production_plan).unwrap();
+                assert_eq!(
+                    ref_tree(&tree_view),
+                    root_component(&graph_view, &production_target, tree.root),
+                    "tree view is the root component of the graph view: {tree:?}, keep ab {keep_ab}, keep bc {keep_bc}"
+                );
+                let reference_tree = reference_tree_get(&lens, &tree);
+                if shape_preserving {
+                    let (expected_tree, _, _) = reference_tree
+                        .expect("shape-preserving plan")
+                        .expect("reference tree get");
+                    assert_eq!(ref_tree(&tree_view), expected_tree, "{tree:?}");
+                } else {
+                    assert!(reference_tree.is_none(), "reference tree lens is undefined");
+                    if graph_view.nodes().len() != tree_view.nodes.len() {
+                        divergent += 1;
+                    }
+                }
+                observations += 1;
+            }
+        }
+    }
+    assert_eq!(observations, 16);
+    divergent
+}
+
+/// The audit's witness: `a -> b` dropped between survivors, `b -> c` kept, on
+/// the tree `0 -> 1 -> 2`. The tree engine removes arc `1 -> 2` with the
+/// subtree of `1`; the graph engine keeps edge `1 -> 2`.
+fn drop_between_survivors_witness() {
+    let source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .edge("a", "b", "prop", Some("ab"))
+        .edge("b", "c", "prop", Some("bc"));
+    let target = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .edge("b", "c", "prop", Some("bc"));
+    let migration = RefMigration {
+        surviving_verts: ["a", "b", "c"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    let plan = RestrictPlan::compile(
+        &prod_schema(&source),
+        &prod_schema(&target),
+        &prod_migration(&migration),
+    )
+    .unwrap();
+    assert!(!plan.preserves_tree_shape());
+    let tree = chain_trees().swap_remove(2);
+    let (tree_view, _) = wtype_restrict_with_plan(&prod_tree(&tree), &plan).unwrap();
+    assert_eq!(
+        tree_view.nodes.keys().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from([0])
+    );
+    assert!(tree_view.arcs.is_empty());
+    let source_graph = GInstance::from_wtype(&prod_tree(&tree)).unwrap();
+    let (graph_view, _) = graph_restrict_with_plan(&source_graph, &plan).unwrap();
+    assert_eq!(
+        graph_view.nodes().keys().copied().collect::<BTreeSet<_>>(),
+        BTreeSet::from([0, 1, 2])
+    );
+    assert_eq!(
+        graph_view
+            .edges()
+            .values()
+            .map(|edge| (edge.src, edge.tgt))
+            .collect::<Vec<_>>(),
+        vec![(1, 2)]
+    );
 }
 
 fn assert_child_binding_word(word: &[ChildBindingSlot]) {
@@ -1485,27 +1870,14 @@ fn tree_case_is_success(
     production_plan: &RestrictPlan,
 ) -> bool {
     let reference = reference_tree_for_case(case);
-    let production = WInstance::new(
-        reference
-            .nodes
-            .values()
-            .map(|node| (node.id, prod_node(node)))
-            .collect(),
-        reference
-            .arcs
-            .iter()
-            .map(|(parent, child, edge)| (*parent, *child, prod_edge(edge)))
-            .collect(),
-        Vec::new(),
-        reference.root,
-        "a".into(),
-    );
+    let production = prod_tree(&reference);
     let expected = reference_tree_get(reference_lens, &reference)
         .expect("the bounded source stays in the tree-get shape domain");
     let actual = wtype_restrict_with_plan(&production, production_plan);
     match (expected, actual) {
         (Ok((view, complement, _)), Ok((actual_view, synthesis))) => {
             assert_eq!(ref_tree(&actual_view), view, "{case:?}");
+            assert_tree_view_is_graph_view(&production, &actual_view, production_plan);
             assert_eq!(synthesis.id_floor, complement.floor.0, "{case:?}");
             assert_eq!(
                 synthesis
@@ -1531,6 +1903,30 @@ fn tree_case_is_success(
             panic!("tree engines disagree for {case:?}: {expected:?} / {actual:?}")
         }
     }
+}
+
+/// The tree engine's view equals the graph engine's view of the tree's graph
+/// form, read back as a tree from the same root; and re-encoding the tree view
+/// as a graph and reading it back keeps every node and the sibling sequence.
+fn assert_tree_view_is_graph_view(source: &WInstance, tree_view: &WInstance, plan: &RestrictPlan) {
+    assert!(plan.preserves_tree_shape());
+    let source_graph = GInstance::from_wtype(source).unwrap();
+    let (graph_view, _) = graph_restrict_with_plan(&source_graph, plan).unwrap();
+    let read = graph_view.to_wtype(tree_view.root).unwrap();
+    assert_eq!(
+        ref_tree(&read),
+        ref_tree(tree_view),
+        "graph view read as a tree"
+    );
+    let reencoded = GInstance::from_wtype(tree_view)
+        .unwrap()
+        .to_wtype(tree_view.root)
+        .unwrap();
+    assert_eq!(
+        ref_tree(&reencoded),
+        ref_tree(tree_view),
+        "tree view re-encoded"
+    );
 }
 
 fn assert_keep_before_synthesis(reference_lens: &RefGraphLens<'_>, production_plan: &RestrictPlan) {
@@ -1576,6 +1972,120 @@ fn assert_keep_before_synthesis(reference_lens: &RefGraphLens<'_>, production_pl
             .collect::<Vec<_>>(),
         vec![2, 3],
         "kept siblings precede synthesized siblings, which follow SynthKey order"
+    );
+    assert_tree_view_is_graph_view(&production_witness, &actual_order, production_plan);
+}
+
+/// A source with a fan plus an expansion: the fan node of the tree's graph
+/// form takes the first free node id, so the tree floor counts it and the
+/// expansion's synthesized node is allocated above it, in tree and graph get.
+fn fan_carrier_counts_toward_the_tree_floor() {
+    let hyper = RefHyperEdge {
+        kind: "fan".to_owned(),
+        signature: BTreeMap::from([
+            ("l".to_owned(), "d".to_owned()),
+            ("p".to_owned(), "a".to_owned()),
+        ]),
+        parent_label: "p".to_owned(),
+    };
+    let mut source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "c", "prop", Some("expand"));
+    source.hyper_edges.insert("h".to_owned(), hyper.clone());
+    let mut target = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "b", "prop", Some("ab"))
+        .edge("b", "c", "prop", Some("bc"));
+    target.hyper_edges.insert("h".to_owned(), hyper);
+    let mut migration = RefMigration {
+        surviving_verts: ["a", "c", "d"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    migration
+        .expansion_path
+        .insert(("a".to_owned(), "c".to_owned()), vec!["b".to_owned()]);
+    let tree = RefTree {
+        nodes: BTreeMap::from([
+            (0, RefNode::new(0, "a")),
+            (1, RefNode::new(1, "c")),
+            (2, RefNode::new(2, "d")),
+        ]),
+        arcs: vec![
+            (0, 1, RefEdge::new("a", "c", "prop", Some("expand"))),
+            (0, 2, RefEdge::new("a", "d", "prop", Some("keep"))),
+        ],
+        fans: vec![RefFan {
+            parent: 0,
+            hyper_edge: "h".to_owned(),
+            children: BTreeMap::from([("l".to_owned(), 2)]),
+        }],
+        root: 0,
+    };
+    let production_source_schema = prod_schema(&source);
+    let production_plan = RestrictPlan::compile(
+        &production_source_schema,
+        &prod_schema(&target),
+        &prod_migration(&migration),
+    )
+    .unwrap();
+    let reference_plan = restrict::compile(&source, &target, &migration).unwrap();
+    let semantics = BTreeMap::new();
+    let reference_lens = RefGraphLens::new(
+        &source,
+        &target,
+        &migration,
+        &reference_plan,
+        &semantics,
+        &NoValueLayer,
+    )
+    .unwrap();
+    let (expected_view, expected_complement, _) = reference_tree_get(&reference_lens, &tree)
+        .expect("valid fan source")
+        .expect("reference fan source restricts");
+    let production_source = prod_tree(&tree);
+    let (view, synthesis) = wtype_restrict_with_plan(&production_source, &production_plan).unwrap();
+    assert_eq!(ref_tree(&view), expected_view);
+    assert_eq!(view.fans.len(), 1, "the fan survives");
+    assert_eq!(expected_complement.floor.0, 4, "nodes 0..=2 and fan node 3");
+    assert_eq!(synthesis.id_floor, expected_complement.floor.0);
+    let keys = synthesis
+        .synthesized_keys
+        .iter()
+        .map(|(id, key)| (*id, ref_synth_key(key)))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(keys, expected_complement.synthesized_nodes);
+    assert_eq!(keys.keys().copied().collect::<Vec<_>>(), vec![4]);
+    let (source_graph, _) =
+        GInstance::from_wtype_embedded(&production_source, Some(&production_source_schema))
+            .unwrap();
+    assert!(source_graph.nodes().contains_key(&3), "fan node 3");
+    let (expected_graph, expected_graph_complement) = restrict::get(
+        &source,
+        &target,
+        &migration,
+        &NoValueLayer,
+        &ref_graph(&source_graph),
+    )
+    .expect("reference graph get with a fan");
+    let (graph_view, graph_complement) =
+        graph_restrict_with_plan(&source_graph, &production_plan).unwrap();
+    assert_eq!(ref_graph(&graph_view), expected_graph);
+    assert_eq!(ref_complement(&graph_complement), expected_graph_complement);
+    assert_eq!(graph_complement.id_floor.node, synthesis.id_floor);
+    assert_eq!(
+        graph_complement
+            .synthesized_nodes
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![4]
     );
 }
 
@@ -1637,7 +2147,10 @@ fn tree_get_uses_the_graph_plan_keys_floor_and_sibling_order() {
     assert_eq!(successful, 43);
     assert_eq!(exhausted, 27);
     assert_keep_before_synthesis(&reference_lens, &production_plan);
+    fan_carrier_counts_toward_the_tree_floor();
     drop_and_unresolved_fates_run_through_graph_and_tree_engines();
+    drop_between_survivors_witness();
+    assert_eq!(drop_between_survivors_relates_tree_and_graph_views(), 8);
 }
 
 #[test]

@@ -659,10 +659,23 @@ const fn infinity_pattern(format: Format, negative: bool) -> u64 {
     }
 }
 
-/// Check one reduced-width NaN partition. Returns the admitted and rejected
-/// case counts.
+/// The number of low binary64 fraction bits a NaN of `format` must have zero
+/// to narrow: 52 less the format's fraction width.
+const fn discarded_fraction_bits(format: Format) -> u32 {
+    match format {
+        Format::B16 => 52 - 10,
+        Format::B32 => 52 - 23,
+        Format::B64 => 0,
+    }
+}
+
+/// Check one reduced-width NaN partition. Every widened NaN narrows back,
+/// and setting any one of the discarded low fraction bits of a widened NaN
+/// makes both narrowings refuse it. Returns the admitted and rejected case
+/// counts.
 fn check_reduced_nan_partition(format: Format, patterns: &[u64], expected: usize) -> [usize; 2] {
     assert_eq!(patterns.len(), expected, "{format:?} NaN partition");
+    let mut rejected = 0;
     for &narrow in patterns {
         let wide = carrier_special_widen_bits(format, narrow);
         assert_eq!(
@@ -680,19 +693,58 @@ fn check_reduced_nan_partition(format: Format, patterns: &[u64], expected: usize
             Some(narrow),
             "{format:?} {narrow:#x}"
         );
-        let low_bit = wide | 1;
-        assert_eq!(
-            rf::narrow_bits(format, low_bit),
-            None,
-            "{format:?} {low_bit:#018x}"
-        );
-        assert_eq!(
-            production_narrow_bits(format, low_bit),
-            None,
-            "{format:?} {low_bit:#018x}"
-        );
+        for bit in 0..discarded_fraction_bits(format) {
+            let flipped = wide | (1 << bit);
+            assert_ne!(flipped, wide, "{format:?} {narrow:#x} bit {bit}");
+            assert_eq!(
+                rf::narrow_bits(format, flipped),
+                None,
+                "{format:?} {flipped:#018x}"
+            );
+            assert_eq!(
+                production_narrow_bits(format, flipped),
+                None,
+                "{format:?} {flipped:#018x}"
+            );
+            rejected += 1;
+        }
     }
-    [patterns.len(), patterns.len()]
+    [patterns.len(), rejected]
+}
+
+/// Narrow every binary64 NaN of the boundary partition to binary16 and
+/// binary32 with the reference and production: the results agree, a NaN is
+/// admitted exactly when its low discarded fraction bits are zero, and an
+/// admitted NaN widens back to itself. Returns the admitted and refused
+/// counts at binary16 and then at binary32.
+fn check_binary64_nan_narrowing(patterns: &[u64]) -> [[usize; 2]; 2] {
+    let mut counts = [[0; 2]; 2];
+    for &bits in patterns {
+        // The fields of the binary64 pattern, read on its bits.
+        let fraction = bits & ((1 << 52) - 1);
+        if (bits >> 52) & 0x7ff != 0x7ff || fraction == 0 {
+            continue;
+        }
+        for (index, format) in [Format::B16, Format::B32].into_iter().enumerate() {
+            let reference = rf::narrow_bits(format, bits);
+            assert_eq!(
+                production_narrow_bits(format, bits),
+                reference,
+                "{format:?} {bits:#018x}"
+            );
+            let held = fraction.trailing_zeros() >= discarded_fraction_bits(format);
+            assert_eq!(reference.is_some(), held, "{format:?} {bits:#018x}");
+            if let Some(narrow) = reference {
+                assert_eq!(
+                    rf::widen_bits(format, narrow),
+                    bits,
+                    "{format:?} {bits:#018x}"
+                );
+            }
+            counts[index][usize::from(!held)] += 1;
+        }
+    }
+    counts
 }
 
 /// Check both signs of infinity at production's two reduced widths.
@@ -768,18 +820,33 @@ fn reference_nan_identities_cover_all_widths_and_production_matches_reduced_widt
     let production_infinities = check_reduced_infinity_round_trips();
     let b64_nans = check_binary64_reference_identities(&scope.binary64);
     assert_eq!(b64_nans, 2 * (14 - 1), "binary64 NaN partition");
+    let [
+        [admitted64to16, refused64to16],
+        [admitted64to32, refused64to32],
+    ] = check_binary64_nan_narrowing(&scope.binary64);
     println!(
         "NaN narrowing: binary16={} exhaustive NaNs, binary32={} boundary-partition NaNs, \
-         production-admitted={production_admitted}, low-bit refusals={rejected_low_bit}, \
-         production infinity round-trips={production_infinities}; binary64 reference-only \
-         boundary partition={} patterns, including {} NaNs",
+         production-admitted={production_admitted}, discarded-bit refusals={rejected_low_bit} \
+         ({rejected16} at binary16, {rejected32} at binary32), \
+         production infinity round-trips={production_infinities}; binary64 boundary \
+         partition={} patterns, including {} NaNs, narrowed to binary16 \
+         ({admitted64to16} admitted, {refused64to16} refused) and binary32 \
+         ({admitted64to32} admitted, {refused64to32} refused)",
         b16.len(),
         b32.len(),
         scope.binary64.len(),
         b64_nans
     );
     assert_eq!(production_admitted, b16.len() + b32.len());
-    assert_eq!(rejected_low_bit, b16.len() + b32.len());
+    // Each widened NaN with each one of its 42 (binary16) or 29 (binary32)
+    // discarded fraction bits set.
+    assert_eq!(rejected16, 2 * 1023 * 42);
+    assert_eq!(rejected32, (2 * 1023 + 2 * 9) * 29);
+    // Of the thirteen non-zero boundary fractions of either sign, 2^51 alone
+    // has its low 42 bits zero, and 2^29, 2^52 - 2^29, 2^51 - 2^29, 2^51 and
+    // 2^51 + 2^29 have their low 29 bits zero.
+    assert_eq!([admitted64to16, refused64to16], [2, 24]);
+    assert_eq!([admitted64to32, refused64to32], [10, 16]);
     assert_eq!(production_infinities, 2 * 2);
     assert_eq!(scope.binary64.len(), 2 * 287 * 14);
 }

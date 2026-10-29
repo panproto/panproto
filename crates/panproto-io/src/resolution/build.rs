@@ -1446,16 +1446,22 @@ impl Resolution {
         let (path, local) = match text {
             RefTextSource::Local(path) => (path, true),
             RefTextSource::External(path) => (path, false),
-            RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {
+            RefTextSource::Referenced { .. } => {
                 return Err(Refusal::Operational(ResolveError::UnsupportedFeature {
                     provider: Some(self.spec.provider.clone()),
-                    feature: super::ResolutionFeature::ResolutionState,
+                    feature: super::ResolutionFeature::ReferencedText,
+                }));
+            }
+            RefTextSource::Span { .. } => {
+                return Err(Refusal::Operational(ResolveError::UnsupportedFeature {
+                    provider: Some(self.spec.provider.clone()),
+                    feature: super::ResolutionFeature::SpanText,
                 }));
             }
             RefTextSource::ExternalUri { .. } => {
                 return Err(Refusal::Operational(ResolveError::UnsupportedFeature {
                     provider: Some(self.spec.provider.clone()),
-                    feature: super::ResolutionFeature::ExternalText,
+                    feature: super::ResolutionFeature::ExternalUriText,
                 }));
             }
         };

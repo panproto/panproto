@@ -59,7 +59,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        341
+        360
     );
 
     let value_io_l21 = manifest.pages["value-io"]
@@ -118,8 +118,8 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 218);
-    assert_eq!(documented.len(), 218);
+    assert_eq!(expected.len(), 233);
+    assert_eq!(documented.len(), 233);
     assert_eq!(documented, expected);
 }
 
@@ -240,11 +240,17 @@ fn validation_law_to_public_path_incidences_are_exact() {
         ),
         (
             "validation.v3".to_owned(),
-            vec!["panproto_reference::validation::witness_with_trust".to_owned()],
+            vec![
+                "panproto_reference::validation::witness_with_trust".to_owned(),
+                "panproto_reference::validation::incremental_footprint".to_owned(),
+            ],
         ),
         (
             "validation.v4".to_owned(),
-            vec!["panproto_reference::validation::witness_with_trust".to_owned()],
+            vec![
+                "panproto_reference::validation::witness_with_trust".to_owned(),
+                "panproto_reference::validation::incremental_report".to_owned(),
+            ],
         ),
         (
             "validation.v5".to_owned(),
@@ -301,8 +307,8 @@ fn validation_law_to_public_path_incidences_are_exact() {
             "validation.index-null-match-checks".to_owned(),
             vec![
                 "panproto_reference::resolution::get".to_owned(),
-                "panproto_reference::resolution::index_target".to_owned(),
                 "panproto_reference::resolution::put".to_owned(),
+                "panproto_reference::schema::validate_declarations".to_owned(),
             ],
         ),
         (
@@ -337,6 +343,212 @@ fn validation_law_to_public_path_incidences_are_exact() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        28,
+        30,
+    );
+}
+
+/// Pages whose block-named tests must equal their manifest consumers exactly.
+/// Drift on every other page with a correctness chapter is printed so that the
+/// owning page can repair it.
+const CONSUMER_STRICT_PAGES: [&str; 1] = ["lenses"];
+
+/// One test a correctness block names: its function name and, when the block
+/// line states a `-p <crate> --test <binary>` command, the binary
+/// `<crate>::<binary>` that holds it.
+type NamedTest = (String, Option<String>);
+
+fn json_member<'a>(
+    value: &'a panproto_reference::json::Value,
+    key: &str,
+) -> Option<&'a panproto_reference::json::Value> {
+    let panproto_reference::json::Value::Object(members) = value else {
+        return None;
+    };
+    members
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value)
+}
+
+fn json_str<'a>(value: &'a panproto_reference::json::Value, key: &str) -> Option<&'a str> {
+    match json_member(value, key)? {
+        panproto_reference::json::Value::String(text) => Some(text),
+        _ => None,
+    }
+}
+
+fn json_array<'a>(
+    value: &'a panproto_reference::json::Value,
+    key: &str,
+) -> &'a [panproto_reference::json::Value] {
+    match json_member(value, key) {
+        Some(panproto_reference::json::Value::Array(items)) => items,
+        _ => &[],
+    }
+}
+
+fn is_test_identifier(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+}
+
+/// The binary a nextest or cargo-test command names, as `<crate>::<binary>`.
+fn command_binary(command: &str) -> Option<String> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let after = |flag: &str| {
+        words
+            .windows(2)
+            .find(|pair| pair[0] == flag)
+            .map(|pair| pair[1].to_owned())
+    };
+    Some(format!("{}::{}", after("-p")?, after("--test")?))
+}
+
+/// The tests named on every `- ... test:` or `- ... tests:` line of the block
+/// whose heading carries `{#anchor}`.
+fn block_named_tests(chapter: &str, anchor: &str) -> Option<Vec<NamedTest>> {
+    let start = chapter.find(&format!("{{#{anchor}}}"))?;
+    let block = &chapter[start..];
+    let block = block.find("\n## ").map_or(block, |end| &block[..end]);
+    let mut named = Vec::new();
+    for line in block.lines() {
+        let Some(rest) = line.strip_prefix("- ") else {
+            continue;
+        };
+        let Some((label, body)) = rest.split_once(": ") else {
+            continue;
+        };
+        if !(label.ends_with(" test") || label.ends_with(" tests")) {
+            continue;
+        }
+        let spans: Vec<&str> = body.split('`').skip(1).step_by(2).collect();
+        let mut pending: Vec<String> = Vec::new();
+        for span in spans {
+            if let Some((name, command)) = span.split_once("; command: ") {
+                if is_test_identifier(name) {
+                    named.push((name.to_owned(), command_binary(command)));
+                }
+            } else if let Some(command) = span.strip_prefix("command: ") {
+                let binary = command_binary(command);
+                named.extend(pending.drain(..).map(|name| (name, binary.clone())));
+            } else if is_test_identifier(span) {
+                pending.push(span.to_owned());
+            }
+        }
+        named.extend(pending.into_iter().map(|name| (name, None)));
+    }
+    Some(named)
+}
+
+/// Whether the test source of `<crate>::<binary>` defines `fn <test>`.
+fn binary_defines(workspace: &std::path::Path, binary: &str, test: &str) -> bool {
+    let Some((krate, target)) = binary.split_once("::") else {
+        return false;
+    };
+    let tests = workspace.join("crates").join(krate).join("tests");
+    let needle = format!("fn {test}(");
+    [
+        tests.join(format!("{target}.rs")),
+        tests.join(target).join("main.rs"),
+    ]
+    .iter()
+    .any(|path| std::fs::read_to_string(path).is_ok_and(|source| source.contains(&needle)))
+}
+
+/// Every difference between a law's block-named tests and its consumers.
+fn consumer_drift(
+    workspace: &std::path::Path,
+    law: &panproto_reference::json::Value,
+    named: &[NamedTest],
+) -> Vec<String> {
+    let consumers: Vec<(String, String)> = json_array(law, "consumers")
+        .iter()
+        .filter_map(|consumer| {
+            Some((
+                json_str(consumer, "test")?.to_owned(),
+                json_str(consumer, "binary")?.to_owned(),
+            ))
+        })
+        .collect();
+    let named_names: std::collections::BTreeSet<&str> =
+        named.iter().map(|(name, _)| name.as_str()).collect();
+    let consumer_names: std::collections::BTreeSet<&str> =
+        consumers.iter().map(|(name, _)| name.as_str()).collect();
+    let mut drift = Vec::new();
+    for name in named_names.difference(&consumer_names) {
+        drift.push(format!("block names `{name}`, which is not a consumer"));
+    }
+    for name in consumer_names.difference(&named_names) {
+        drift.push(format!("consumer `{name}` is not named by the block"));
+    }
+    for (name, binary) in named {
+        if let Some(binary) = binary
+            && consumer_names.contains(name.as_str())
+            && !consumers
+                .iter()
+                .any(|(test, held)| test == name && held == binary)
+        {
+            drift.push(format!(
+                "block runs `{name}` in `{binary}`; no consumer does"
+            ));
+        }
+    }
+    for (name, binary) in &consumers {
+        if binary.contains("::") && !binary_defines(workspace, binary, name) {
+            drift.push(format!("consumer `{name}` is not defined in `{binary}`"));
+        }
+    }
+    drift
+}
+
+#[test]
+fn block_named_tests_are_exactly_the_manifest_consumers() {
+    let manifest_text = std::fs::read_to_string(correctness_manifest_path()).unwrap();
+    let manifest = panproto_reference::json::parse(&manifest_text).unwrap();
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let pages = json_member(&manifest, "pages").unwrap();
+    let panproto_reference::json::Value::Object(pages) = pages else {
+        panic!("manifest.pages is not an object");
+    };
+    let mut strict_drift = Vec::new();
+    let mut strict_laws = 0_usize;
+    for (slug, page) in pages {
+        let chapter_path = workspace
+            .join("book/src/correctness")
+            .join(format!("{slug}.md"));
+        let Ok(chapter) = std::fs::read_to_string(&chapter_path) else {
+            continue;
+        };
+        let strict = CONSUMER_STRICT_PAGES.contains(&slug.as_str());
+        for law in json_array(page, "laws") {
+            let id = json_str(law, "id").unwrap();
+            let anchor = json_str(law, "anchor").unwrap();
+            let drift = block_named_tests(&chapter, anchor).map_or_else(
+                || vec![format!("no block carries {{#{anchor}}}")],
+                |named| consumer_drift(&workspace, law, &named),
+            );
+            if strict {
+                strict_laws += 1;
+            }
+            for item in drift {
+                let line = format!("{id} ({anchor}): {item}");
+                if strict {
+                    strict_drift.push(line);
+                } else {
+                    eprintln!("consumer drift outside the strict pages: {line}");
+                }
+            }
+        }
+    }
+    assert_eq!(strict_laws, 20, "the lenses page registers twenty laws");
+    assert!(
+        strict_drift.is_empty(),
+        "block-named tests differ from manifest consumers:\n{}",
+        strict_drift.join("\n")
     );
 }

@@ -1533,6 +1533,17 @@ fn tree_schema_violations(
             found.push(PutDomainError::MalformedFan { node, reason });
             found
         }
+        Err(error @ InstError::ReservedVocabulary { .. }) => {
+            found.push(reserved_vocabulary_violation(&fanless).unwrap_or_else(|| {
+                PutDomainError::SurvivalPredicateRefused {
+                    elem: ViewRef::Node(source.root),
+                    refusal: panproto_inst::PredicateRefusal::EvaluationFailed {
+                        message: error.to_string(),
+                    },
+                }
+            }));
+            found
+        }
         Err(error) => {
             found.push(PutDomainError::SurvivalPredicateRefused {
                 elem: ViewRef::Node(source.root),
@@ -1542,6 +1553,35 @@ fn tree_schema_violations(
             });
             found
         }
+    }
+}
+
+/// The graph-coordinate fan violation of a fanless tree that holds reserved
+/// fan vocabulary, which the tree embedding refuses outright.
+///
+/// The tree's nodes and its arcs, under the edge ids the canonical embedding
+/// assigns in arc order, form the graph the put domain reports against; the
+/// first [`FanDomain`](panproto_inst::FanDomain) violation at its least
+/// offending node is the reported coordinate. `None` when that graph cannot
+/// be built or holds no fan violation.
+fn reserved_vocabulary_violation(fanless: &WInstance) -> Option<PutDomainError> {
+    let mut graph = GInstance::new();
+    let mut ids: Vec<u32> = fanless.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        graph.insert_node(fanless.nodes[&id].clone()).ok()?;
+    }
+    for (index, (src, tgt, edge)) in fanless.arcs.iter().enumerate() {
+        let id = panproto_inst::EdgeId(u32::try_from(index).ok()?);
+        graph
+            .insert_edge(id, panproto_inst::GEdge::new(*src, *tgt, edge.clone()))
+            .ok()?;
+    }
+    match panproto_inst::FanDomain::check(&graph) {
+        Err(InstError::MalformedFan { node, reason }) => {
+            Some(PutDomainError::MalformedFan { node, reason })
+        }
+        _ => None,
     }
 }
 

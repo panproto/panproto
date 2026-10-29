@@ -154,32 +154,109 @@ pub fn resolve_uri_reference(base: &str, reference: &str) -> Option<String> {
     Some(result)
 }
 
-/// Fold the positional base directives preceding one occurrence.
+/// Resolve `reference` against an optional base.
 ///
-/// An absolute directive replaces the environment; a relative directive is
-/// resolved against the environment immediately before it. A relative first
-/// directive, or a later unresolvable directive, yields `None`.
+/// A reference with a scheme is resolved without a base (RFC 3986 section
+/// 5.2.2 then reads only the reference); a relative reference with no base
+/// is `None`, never resolved against a guessed base.
 #[must_use]
-pub fn fold_uri_environment(directives: &[String]) -> Option<String> {
-    directives.iter().try_fold(None, |base, directive| {
-        if parse(directive).scheme.is_some() {
-            Some(Some(directive.clone()))
-        } else {
-            Some(Some(resolve_uri_reference(base.as_deref()?, directive)?))
-        }
-    })?
+pub fn resolve_uri_against(base: Option<&str>, reference: &str) -> Option<String> {
+    if parse(reference).scheme.is_some() {
+        resolve_uri_reference(reference, reference)
+    } else {
+        resolve_uri_reference(base?, reference)
+    }
 }
 
-/// Resolve against the nearest present inherited base.
+/// One positional directive of a URI environment, in document order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UriDirective {
+    /// A base directive (Turtle's `@base`).
+    Base(String),
+    /// A prefix binding (Turtle's `@prefix label: <iri>`).
+    Prefix {
+        /// The bound label.
+        label: String,
+        /// The written IRI, resolved against the base then in scope.
+        iri: String,
+    },
+}
+
+/// The base and prefix bindings in scope at one occurrence.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UriEnvironment {
+    /// The base in scope, if any.
+    pub base: Option<String>,
+    /// Each bound label's resolved IRI.
+    pub prefixes: std::collections::BTreeMap<String, String>,
+}
+
+impl UriEnvironment {
+    /// Resolve one written form: `a` is `rdf:type`, a prefixed name under a
+    /// bound label expands to the label's IRI followed by its local part,
+    /// and any other form is an IRI reference resolved against the base.
+    #[must_use]
+    pub fn resolve(&self, written: &str) -> Option<String> {
+        if written == "a" {
+            return Some("http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_owned());
+        }
+        if let Some((label, local)) = written.split_once(':')
+            && let Some(namespace) = self.prefixes.get(label)
+        {
+            return Some(format!("{namespace}{local}"));
+        }
+        resolve_uri_against(self.base.as_deref(), written)
+    }
+}
+
+/// Fold the positional directives preceding one occurrence.
+///
+/// Starting from no base and no bindings, a base directive sets the base to
+/// its IRI resolved against the previous base (no base when that resolution
+/// is undefined), and a prefix directive binds its label to its IRI resolved
+/// against the base then in scope, replacing an earlier binding; a binding
+/// whose IRI is undefined leaves the label unbound.
+#[must_use]
+pub fn fold_uri_environment(directives: &[UriDirective]) -> UriEnvironment {
+    directives
+        .iter()
+        .fold(UriEnvironment::default(), |mut environment, directive| {
+            match directive {
+                UriDirective::Base(iri) => {
+                    environment.base = resolve_uri_against(environment.base.as_deref(), iri);
+                }
+                UriDirective::Prefix { label, iri } => {
+                    match resolve_uri_against(environment.base.as_deref(), iri) {
+                        Some(resolved) => {
+                            environment.prefixes.insert(label.clone(), resolved);
+                        }
+                        None => {
+                            environment.prefixes.remove(label);
+                        }
+                    }
+                }
+            }
+            environment
+        })
+}
+
+/// Resolve against the base inherited along an ancestor-or-self chain.
+///
+/// `ancestor_bases` lists the chain root first and the holder last. As XML
+/// Base section 4.2 states, the base is the left fold of the present values,
+/// each resolved against the base so far, from no base; a relative value
+/// met with no base gives no base. The reference is then resolved against
+/// the folded base.
 #[must_use]
 pub fn resolve_inherited_uri_base(
     ancestor_bases: &[Option<String>],
     reference: &str,
 ) -> Option<String> {
-    ancestor_bases
+    let base = ancestor_bases
         .iter()
-        .rev()
         .flatten()
-        .next()
-        .and_then(|base| resolve_uri_reference(base, reference))
+        .fold(None, |base: Option<String>, value| {
+            resolve_uri_against(base.as_deref(), value)
+        });
+    resolve_uri_against(base.as_deref(), reference)
 }

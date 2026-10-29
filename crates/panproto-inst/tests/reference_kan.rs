@@ -942,6 +942,9 @@ fn ref_not_encodable(reason: &NotEncodableReason) -> Option<encode::NotEncodable
 
 /// The reference graph-adjunction refusal of a production one.
 fn ref_graph_adjunction_error(error: &AdjunctionError) -> Option<rel::AdjunctionError> {
+    if let AdjunctionError::NotANaturalMap { row } = error {
+        return Some(rel::AdjunctionError::NotANaturalMap { row: row.0 });
+    }
     ref_kan_error(error).map(rel::AdjunctionError::from)
 }
 
@@ -4954,28 +4957,19 @@ proptest! {
         let h12 = h1.compose(&h2).unwrap();
         let (pi, pb, pc) = (prod_table(&i), prod_table(&b), prod_table(&c));
         for (domain, codomain, hom, pd, pcod) in [(&i, &b, &h1, &pi, &pb), (&b, &c, &h2, &pb, &pc), (&i, &c, &h12, &pi, &pc)] {
-            let ours = panproto_inst::f_sigma_on_hom(&prod_hom(hom), pd, pcod, fp);
-            let theirs = rel::sigma_on_hom(f, domain, codomain, hom);
-            prop_assert_eq!(ours.is_ok(), theirs.is_some());
-            if let (Ok(ours), Some(theirs)) = (&ours, &theirs) {
-                let (sigma, _) = rel::sigma_restricted(f, domain).unwrap();
-                prop_assert!(ref_hom(ours).same_as(theirs, &sigma));
-            }
-            let ours = panproto_inst::f_pi_on_hom(&prod_hom(hom), pd, pcod, fp, case.max);
-            let theirs = rel::pi_on_hom(f, domain, codomain, hom, case.max);
-            prop_assert_eq!(ours.is_ok(), theirs.is_some());
-            if let (Ok(ours), Some(theirs)) = (&ours, &theirs) {
-                let (pi_out, _) = rel::pi_restricted(f, domain, case.max).unwrap();
-                prop_assert!(ref_hom(ours).same_as(theirs, &pi_out));
+            // The homomorphism itself, then the same row map with one image
+            // moved, so that the typed `NotANaturalMap` refusals are compared
+            // as well as the images.
+            for hom in [hom.clone(), perturbed(&mut case.rng, hom, codomain)] {
+                on_homs_agree(f, fp, (domain, pd), (codomain, pcod), &hom, case.max);
             }
         }
         let (tb, t1) = scope::generated_hom_out(&mut case.rng, &case.spec.tgt, &case.j);
-        let ours = panproto_inst::f_delta_on_hom(&prod_hom(&t1), &prod_table(&case.j), &prod_table(&tb), fp);
-        let theirs = rel::delta_on_hom(f, &case.j, &tb, &t1);
-        prop_assert_eq!(ours.is_ok(), theirs.is_some());
-        if let (Ok(ours), Some(theirs)) = (&ours, &theirs) {
-            let (delta, _) = rel::delta(f, &case.j).unwrap();
-            prop_assert!(ref_hom(ours).same_as(theirs, &delta));
+        for hom in [t1.clone(), perturbed(&mut case.rng, &t1, &tb)] {
+            let ours = panproto_inst::f_delta_on_hom(&prod_hom(&hom), &prod_table(&case.j), &prod_table(&tb), fp);
+            let theirs = rel::delta_on_hom(f, &case.j, &tb, &hom);
+            let domain = rel::delta(f, &case.j).map(|(delta, _)| delta).unwrap_or_default();
+            hom_results_agree(&ours, &theirs, &domain, &("Delta on a map", &hom));
         }
     }
 }
@@ -5506,8 +5500,8 @@ fn pi_transpose_checks_the_map_before_the_product_bound() {
     let invalid = rel::Hom::default();
     assert_eq!(
         rel::pi_transpose_forward(f, &j, &i, &invalid, 4),
-        Err(rel::TransposeError::Hom(Box::new(
-            rel::HomError::NodeNotMapped(first)
+        Err(rel::TransposeError::Adjunction(Box::new(
+            rel::AdjunctionError::NotANaturalMap { row: first }
         )))
     );
     assert!(matches!(
@@ -5520,4 +5514,631 @@ fn pi_transpose_checks_the_map_before_the_product_bound() {
         ),
         Err(AdjunctionError::NotANaturalMap { row }) if row == RowId(first)
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Maps that are no homomorphisms, and the refusal order of every operation
+// on maps.
+// ---------------------------------------------------------------------------
+
+/// The label of a compared homomorphism result: `ok`, or the reference
+/// refusal's variant. The two results are first required to agree, the
+/// images exactly and each refusal by its typed payload.
+fn hom_outcome<T: std::fmt::Debug>(
+    production: &Result<FInstanceHom, AdjunctionError>,
+    reference: &Result<rel::Hom, rel::TransposeError>,
+    domain: &model::Table,
+    context: &T,
+) -> String {
+    hom_results_agree(production, reference, domain, context);
+    match reference {
+        Ok(_) => "ok".to_owned(),
+        Err(rel::TransposeError::Adjunction(error)) => format!("{error:?}")
+            .split(['{', ' ', '('])
+            .next()
+            .unwrap_or_default()
+            .to_owned(),
+        Err(other) => panic!("{context:?}: reference {other:?}"),
+    }
+}
+
+/// Every partial row map from `domain` to `codomain`: each domain row,
+/// ascending, has no image or one of the codomain rows, ascending.
+fn every_row_map(domain: &model::Table, codomain: &model::Table) -> Vec<BTreeMap<u32, u32>> {
+    let mut out = vec![BTreeMap::new()];
+    for row in domain.rows.keys() {
+        let mut next = Vec::new();
+        for partial in out {
+            next.push(partial.clone());
+            for image in codomain.rows.keys() {
+                let mut extended = partial.clone();
+                extended.insert(*row, *image);
+                next.push(extended);
+            }
+        }
+        out = next;
+    }
+    out
+}
+
+/// The maps offered as homomorphisms `domain -> codomain`: every partial row
+/// map, each with the null map its first occurrences force and with the
+/// empty null map.
+fn offered_maps(domain: &model::Table, codomain: &model::Table) -> Vec<rel::Hom> {
+    every_row_map(domain, codomain)
+        .into_iter()
+        .flat_map(|rows| {
+            let forced = first_occurrence_nulls(domain, codomain, &rows);
+            [
+                rel::Hom {
+                    rows: rows.clone(),
+                    nulls: forced,
+                },
+                rel::Hom {
+                    rows,
+                    nulls: BTreeMap::new(),
+                },
+            ]
+        })
+        .collect()
+}
+
+/// Two objects of a side that every operation refuses on: a row at a vertex
+/// that is no table, and, when a table has columns, a row of it without
+/// cells.
+fn refusing_objects(side: &scope::Side) -> Vec<model::Table> {
+    let row = |table: &str| model::Table {
+        rows: BTreeMap::from([(7, (table.to_owned(), BTreeMap::new()))]),
+        pairs: BTreeSet::new(),
+    };
+    let mut out = vec![row("zzz")];
+    if let Some((table, _)) = side.tables.iter().find(|(_, columns)| !columns.is_empty()) {
+        out.push(row(table));
+    }
+    out
+}
+
+/// The table of an accepted result, else the empty table (whose maps are
+/// offered only to reach the earlier refusal).
+fn accepted<P>(result: Result<(model::Table, P), rel::KanError>) -> model::Table {
+    result.map(|(table, _)| table).unwrap_or_default()
+}
+
+/// Sigma and Pi (at `bound`) of `hom: domain -> codomain`, production
+/// against the reference.
+fn on_homs_agree(
+    f: &rel::RelFunctor,
+    fp: &MigrationFunctor,
+    (domain, production_domain): (&model::Table, &FInstance),
+    (codomain, production_codomain): (&model::Table, &FInstance),
+    hom: &rel::Hom,
+    bound: usize,
+) -> Census {
+    let production_hom = prod_hom(hom);
+    let mut census = Census::default();
+    let ours =
+        panproto_inst::f_sigma_on_hom(&production_hom, production_domain, production_codomain, fp);
+    let theirs = rel::sigma_on_hom(f, domain, codomain, hom);
+    census += Census::one(hom_outcome(
+        &ours,
+        &theirs,
+        &accepted(rel::sigma_restricted(f, domain)),
+        &("Sigma on a map", domain, codomain, hom),
+    ));
+    let ours = panproto_inst::f_pi_on_hom(
+        &production_hom,
+        production_domain,
+        production_codomain,
+        fp,
+        bound,
+    );
+    let theirs = rel::pi_on_hom(f, domain, codomain, hom, bound);
+    census += Census::one(hom_outcome(
+        &ours,
+        &theirs,
+        &accepted(rel::pi_restricted(f, domain, bound)),
+        &("Pi on a map", bound, domain, codomain, hom),
+    ));
+    census
+}
+
+/// Product bounds of the map scope: 0 refuses every product of at least one
+/// tuple, 4 admits every product of the scope.
+const MAP_BOUNDS: [usize; 2] = [0, 4];
+
+/// Every operation that takes a source object `i`: Sigma and Pi of every
+/// offered map to every source object, the units and counits that start at
+/// `i`, and all four transposes of every offered map at `(i, j)` for every
+/// target object `j`.
+fn maps_at_source(
+    functors: &Functors,
+    i: &model::Table,
+    sources: &[model::Table],
+    targets: &[model::Table],
+) -> Census {
+    let (f, fp) = (&functors.reference, &functors.production);
+    let pi_i = prod_table(i);
+    let mut census = Census::default();
+    for other in sources {
+        let production_other = prod_table(other);
+        for hom in offered_maps(i, other) {
+            for bound in MAP_BOUNDS {
+                census += on_homs_agree(f, fp, (i, &pi_i), (other, &production_other), &hom, bound);
+            }
+        }
+    }
+    census += Census::one(hom_outcome(
+        &panproto_inst::f_unit(&pi_i, fp),
+        &rel::sigma_unit(f, i),
+        i,
+        &("Sigma unit", i),
+    ));
+    let sigma_i = accepted(rel::sigma_restricted(f, i));
+    for bound in MAP_BOUNDS {
+        let pi_of_i = accepted(rel::pi_restricted(f, i, bound));
+        census += Census::one(hom_outcome(
+            &panproto_inst::f_pi_counit(&pi_i, fp, bound),
+            &rel::pi_counit(f, i, bound),
+            &accepted(rel::delta(f, &pi_of_i)),
+            &("Pi counit", bound, i),
+        ));
+    }
+    for j in targets {
+        let pj = prod_table(j);
+        let delta_j = accepted(rel::delta(f, j));
+        for hom in offered_maps(&sigma_i, j) {
+            census += Census::one(hom_outcome(
+                &panproto_inst::f_transpose_left(&prod_hom(&hom), &pi_i, &pj, fp),
+                &rel::sigma_transpose_forward(f, i, j, &hom),
+                i,
+                &("Sigma transpose", i, j, &hom),
+            ));
+        }
+        for hom in offered_maps(i, &delta_j) {
+            census += Census::one(hom_outcome(
+                &panproto_inst::f_transpose_right(&prod_hom(&hom), &pi_i, &pj, fp),
+                &rel::sigma_transpose_inverse(f, i, j, &hom),
+                &sigma_i,
+                &("Sigma inverse transpose", i, j, &hom),
+            ));
+        }
+        for bound in MAP_BOUNDS {
+            for hom in offered_maps(&delta_j, i) {
+                census += Census::one(hom_outcome(
+                    &panproto_inst::f_pi_transpose_left(&prod_hom(&hom), &pj, &pi_i, fp, bound),
+                    &rel::pi_transpose_forward(f, j, i, &hom, bound),
+                    j,
+                    &("Pi transpose", bound, i, j, &hom),
+                ));
+            }
+            let pi_of_i = accepted(rel::pi_restricted(f, i, bound));
+            for hom in offered_maps(j, &pi_of_i) {
+                census += Census::one(hom_outcome(
+                    &panproto_inst::f_pi_transpose_right(&prod_hom(&hom), &pj, &pi_i, fp, bound),
+                    &rel::pi_transpose_inverse(f, j, i, &hom, bound),
+                    &delta_j,
+                    &("Pi inverse transpose", bound, i, j, &hom),
+                ));
+            }
+        }
+    }
+    census
+}
+
+/// Every operation that takes a target object `j` alone: Delta of every
+/// offered map to every target object, and the units and counits that start
+/// at `j`.
+fn maps_at_target(functors: &Functors, j: &model::Table, targets: &[model::Table]) -> Census {
+    let (f, fp) = (&functors.reference, &functors.production);
+    let pj = prod_table(j);
+    let delta_j = accepted(rel::delta(f, j));
+    let mut census = Census::default();
+    for other in targets {
+        let production_other = prod_table(other);
+        for hom in offered_maps(j, other) {
+            census += Census::one(hom_outcome(
+                &panproto_inst::f_delta_on_hom(&prod_hom(&hom), &pj, &production_other, fp),
+                &rel::delta_on_hom(f, j, other, &hom),
+                &delta_j,
+                &("Delta on a map", j, other, &hom),
+            ));
+        }
+    }
+    census += Census::one(hom_outcome(
+        &panproto_inst::f_counit(&pj, fp),
+        &rel::sigma_counit(f, j),
+        &accepted(rel::sigma_restricted(f, &delta_j)),
+        &("Sigma counit", j),
+    ));
+    for bound in MAP_BOUNDS {
+        census += Census::one(hom_outcome(
+            &panproto_inst::f_pi_unit(&pj, fp, bound),
+            &rel::pi_unit(f, j, bound),
+            j,
+            &("Pi unit", bound, j),
+        ));
+    }
+    census
+}
+
+/// Delta, Sigma and Pi on maps, every unit and counit, and all four
+/// transposes, on every offered map, homomorphism or not, between the
+/// objects of every case of the bounded family with at most one row per
+/// table and two in all, together with two refusing objects per side, at
+/// the product bounds 0 and 4. Each result is compared with the reference
+/// exactly: images as homomorphisms, refusals by their typed payload, in
+/// particular the `NotANaturalMap` row of the definition at the top of the
+/// page and the order in which each operation takes its ingredients.
+#[test]
+fn maps_and_their_refusals_agree_with_the_reference() {
+    let independent = scope::case_object_counts(1, 2);
+    let mut census = Census::default();
+    let mut objects = 0u64;
+    for (index, case) in scope::family().into_iter().enumerate() {
+        let functors = Functors::new(
+            &case.source_schema(),
+            &case.target_schema(),
+            &case.migration(),
+            &family_kinds(),
+        );
+        let sources = scope::instances(&case.source, 1, 2, &case.cells);
+        let targets = scope::instances(&case.target, 1, 2, &case.cells);
+        assert_eq!(
+            (sources.len() as u64, targets.len() as u64),
+            independent[index],
+            "{}",
+            case.name
+        );
+        objects += (sources.len() + targets.len()) as u64;
+        let sources: Vec<_> = sources
+            .into_iter()
+            .chain(refusing_objects(&case.source))
+            .collect();
+        let targets: Vec<_> = targets
+            .into_iter()
+            .chain(refusing_objects(&case.target))
+            .collect();
+        census += par_sum(&sources, |i| {
+            maps_at_source(&functors, i, &sources, &targets)
+        });
+        census += par_sum(&targets, |j| maps_at_target(&functors, j, &targets));
+    }
+    println!(
+        "maps and refusals: {objects} labelled objects at one row per table and two in all; {:?}",
+        census.0
+    );
+    assert_eq!(objects, independent.iter().map(|(s, t)| s + t).sum::<u64>());
+    for outcome in [
+        "ok",
+        "NotANaturalMap",
+        "NonConforming",
+        "SigmaConstantClash",
+        "AttributeOutsideImage",
+        "ProductSizeExceeded",
+    ] {
+        assert!(census.get(outcome) > 0, "{outcome} is not reached");
+    }
+}
+
+/// A homomorphism with one row's image moved to another codomain row, or
+/// dropped when the codomain has no other row.
+fn perturbed(rng: &mut scope::SplitMix, hom: &rel::Hom, codomain: &model::Table) -> rel::Hom {
+    let mut out = hom.clone();
+    let rows: Vec<u32> = hom.rows.keys().copied().collect();
+    let images: Vec<u32> = codomain.rows.keys().copied().collect();
+    if let Some(row) = rng.pick(&rows).copied() {
+        match rng.pick(&images).copied() {
+            Some(image) if image != hom.rows[&row] => {
+                out.rows.insert(row, image);
+            }
+            _ => {
+                out.rows.remove(&row);
+            }
+        }
+    }
+    out
+}
+
+/// The `NotANaturalMap` refusal names the least row at which the map fails
+/// by the definition at the top of the page, a pair charged to its source
+/// row: along the identity carrying a self relation, row 0 holds the pair
+/// `(k, 0, 5)`, which goes to no pair, and row 5 goes to a row with another
+/// cell. Row 0 is named, on both sides, by Delta, Sigma and Pi on the map,
+/// though a check that finishes every row before any pair would stop at
+/// row 5.
+#[test]
+fn not_a_natural_map_names_the_least_row_with_its_pairs() {
+    let case = scope::family()
+        .into_iter()
+        .find(|case| case.name == "partial-self-relation")
+        .unwrap();
+    let functors = Functors::new(
+        &case.source_schema(),
+        &case.target_schema(),
+        &case.migration(),
+        &family_kinds(),
+    );
+    let (f, fp) = (&functors.reference, &functors.production);
+    let k = model::SEdge::new("e", "e", "fk", Some("k"));
+    let mut domain = one_table("e", &[(0, &[("x", int(0))]), (5, &[("x", int(1))])]);
+    domain.pairs.insert((k, 0, 5));
+    let codomain = one_table("e", &[(10, &[("x", int(0))]), (11, &[("x", int(0))])]);
+    let hom = rel::Hom {
+        rows: BTreeMap::from([(0, 10), (5, 11)]),
+        nulls: BTreeMap::new(),
+    };
+    assert!(matches!(
+        hom.check(&domain, &codomain),
+        Err(rel::HomError::AttributeMismatch { src: 5, .. })
+    ));
+    assert_eq!(hom.first_unnatural_row(&domain, &codomain), Some(0));
+    let expected: Result<rel::Hom, rel::TransposeError> = Err(rel::TransposeError::Adjunction(
+        Box::new(rel::AdjunctionError::NotANaturalMap { row: 0 }),
+    ));
+    let (pd, pc, ph) = (prod_table(&domain), prod_table(&codomain), prod_hom(&hom));
+    let delta = rel::delta_on_hom(f, &domain, &codomain, &hom);
+    assert_eq!(delta, expected);
+    hom_results_agree(
+        &panproto_inst::f_delta_on_hom(&ph, &pd, &pc, fp),
+        &delta,
+        &domain,
+        &"Delta",
+    );
+    let sigma = rel::sigma_on_hom(f, &domain, &codomain, &hom);
+    assert_eq!(sigma, expected);
+    hom_results_agree(
+        &panproto_inst::f_sigma_on_hom(&ph, &pd, &pc, fp),
+        &sigma,
+        &domain,
+        &"Sigma",
+    );
+    let pi = rel::pi_on_hom(f, &domain, &codomain, &hom, 4);
+    assert_eq!(pi, expected);
+    hom_results_agree(
+        &panproto_inst::f_pi_on_hom(&ph, &pd, &pc, fp, 4),
+        &pi,
+        &domain,
+        &"Pi",
+    );
+}
+
+/// `s{x, y} -> d{m, z}` with `x` and `y` sent to `m` and `z` outside the
+/// image.
+fn clash_spec() -> scope::TableSpec {
+    table_spec(
+        table_side(&[("s", &["x", "y"])], &[]),
+        table_side(&[("d", &["m", "z"])], &[]),
+        &[("s", "d")],
+        &[(("s", "x"), "m"), (("s", "y"), "m")],
+    )
+}
+
+/// The expected refusal, compared with both sides' results.
+fn both_refuse<T: std::fmt::Debug>(
+    production: &Result<FInstanceHom, AdjunctionError>,
+    reference: &Result<rel::Hom, rel::TransposeError>,
+    expected: &rel::AdjunctionError,
+    context: &T,
+) {
+    assert_eq!(
+        reference,
+        &Err(rel::TransposeError::Adjunction(Box::new(expected.clone()))),
+        "{context:?}: reference"
+    );
+    hom_results_agree(production, reference, &model::Table::default(), context);
+}
+
+/// Sigma processes every equation before it draws a fresh null: with the
+/// input's largest null at `u64::MAX`, the cell `(0, z)` would need a fresh
+/// null that does not exist, but row 1 joins the constants 0 and 1 in `m`,
+/// and that clash is the refusal on both sides. The inverse Sigma transpose
+/// at row 1 alone, `J` empty and the empty map refuses with the same clash,
+/// before it looks at `Delta J` or the map.
+#[test]
+fn sigma_reports_a_clash_whatever_null_ids_remain() {
+    let functors = spec_functors(&clash_spec());
+    let (f, fp) = (&functors.reference, &functors.production);
+    let input = one_table(
+        "s",
+        &[
+            (0, &[("x", null(u64::MAX)), ("y", null(u64::MAX))]),
+            (1, &[("x", int(0)), ("y", int(1))]),
+        ],
+    );
+    let clash = rel::KanError::SigmaConstantClash {
+        row: 1,
+        column: "m".to_owned(),
+        left: Box::new(int(0)),
+        right: Box::new(int(1)),
+    };
+    let (sigma, _, _) = table_kan_agree(&functors, &input, true, 81);
+    assert_eq!(sigma.unwrap(), Err(clash.clone()));
+    let row_one = one_table("s", &[(1, &[("x", int(0)), ("y", int(1))])]);
+    let empty = model::Table::default();
+    let map = rel::Hom::default();
+    both_refuse(
+        &panproto_inst::f_transpose_right(
+            &prod_hom(&map),
+            &prod_table(&row_one),
+            &prod_table(&empty),
+            fp,
+        ),
+        &rel::sigma_transpose_inverse(f, &row_one, &empty, &map),
+        &rel::AdjunctionError::from(clash),
+        &"Sigma inverse transpose",
+    );
+}
+
+/// A table row at a vertex that is no table of the target.
+fn outside_target() -> model::Table {
+    one_table("zzz", &[(0, &[])])
+}
+
+/// The transposes and the Pi unit refuse in the order the page states,
+/// before they check the supplied map: the forward Sigma transpose refuses
+/// a `J` outside the target as Delta does after Sigma accepts `I`; the
+/// inverse Pi transpose refuses it as Delta does after Pi accepts the empty
+/// `I`; and the Pi unit refuses a functor not surjective on attributes
+/// before it reads `J`.
+#[test]
+fn transposes_and_the_pi_unit_refuse_in_the_stated_order() {
+    let outside = rel::AdjunctionError::NonConforming(Box::new(rel::NonConforming {
+        row: 0,
+        column: None,
+        reason: rel::Conformance::TableOutside,
+    }));
+    let map = rel::Hom::default();
+    let rename = spec_functors(&rename_spec());
+    let input = one_table("post", &[(0, &[("title", int(1))])]);
+    both_refuse(
+        &panproto_inst::f_transpose_left(
+            &prod_hom(&map),
+            &prod_table(&input),
+            &prod_table(&outside_target()),
+            &rename.production,
+        ),
+        &rel::sigma_transpose_forward(&rename.reference, &input, &outside_target(), &map),
+        &outside,
+        &"Sigma transpose",
+    );
+    let identity = spec_functors(&identity_on_a());
+    let empty = model::Table::default();
+    both_refuse(
+        &panproto_inst::f_pi_transpose_right(
+            &prod_hom(&map),
+            &prod_table(&outside_target()),
+            &prod_table(&empty),
+            &identity.production,
+            4,
+        ),
+        &rel::pi_transpose_inverse(&identity.reference, &outside_target(), &empty, &map, 4),
+        &outside,
+        &"Pi inverse transpose",
+    );
+    let widening = spec_functors(&widening_spec());
+    both_refuse(
+        &panproto_inst::f_pi_unit(&prod_table(&outside_target()), &widening.production, 4),
+        &rel::pi_unit(&widening.reference, &outside_target(), 4),
+        &rel::AdjunctionError::AttributeOutsideImage {
+            table: "a".to_owned(),
+            column: "y".to_owned(),
+        },
+        &"Pi unit",
+    );
+}
+
+/// The entity functor's least incoherent attribute arrow is least in edge
+/// order over every kept table: table `a` with arrows `a -> a.p` named `z`
+/// and `a -> a.q` named `y`, both surviving, into a target `a` without
+/// columns. Edge order names `a -> a.p` though its column name `z` is the
+/// greater. And step 4b compares schema kinds: an inner edge of a value
+/// whose endpoint the migration sends to a table declared by a key, of the
+/// same kind as the image edge's endpoint, keeps the value's structure.
+#[test]
+fn entity_functor_orders_attribute_arrows_and_compares_schema_kinds() {
+    use panproto_reference::schema::Schema as RSchema;
+    let (value, non_value) = family_kinds();
+    let source = RSchema::default()
+        .vertex("a", "record")
+        .vertex("a.p", "value")
+        .vertex("a.q", "value")
+        .edge("a", "a.p", "prop", Some("z"))
+        .edge("a", "a.q", "prop", Some("y"));
+    let target = RSchema::default().vertex("a", "record");
+    let mut migration = panproto_reference::migration::Migration::default();
+    migration.surviving_verts.insert("a".to_owned());
+    for edge in &source.edges {
+        migration.surviving_edges.insert(edge.clone());
+    }
+    assert_eq!(
+        entity_functors_agree(&source, &target, &migration),
+        "IncoherentAttributeImage"
+    );
+    let reference = rel::entity_functor(
+        &rel::classify(&source, &value, &non_value).unwrap(),
+        &rel::classify(&target, &value, &non_value).unwrap(),
+        &migration,
+    );
+    assert!(matches!(
+        reference,
+        Err(rel::FunctorError::IncoherentAttributeImage { ref edge, image: None })
+            if edge.tgt == "a.p"
+    ));
+
+    // A value `a.v -item-> a.w` whose endpoint `a.w` the migration sends to
+    // `k`, a table declared by a key, of the value kind.
+    let column = model::SEdge::new("a", "a.v", "prop", Some("c"));
+    let inner = model::SEdge::new("a.v", "a.w", "item", Some("i"));
+    let source = RSchema::default()
+        .vertex("a", "record")
+        .vertex("a.v", "value")
+        .vertex("a.w", "value")
+        .edge("a", "a.v", "prop", Some("c"))
+        .edge("a.v", "a.w", "item", Some("i"));
+    let image_column = model::SEdge::new("b", "b.v", "prop", Some("c"));
+    let image = model::SEdge::new("b.v", "b.w", "item", Some("i"));
+    let mut target = RSchema::default()
+        .vertex("b", "record")
+        .vertex("b.v", "value")
+        .vertex("b.w", "value")
+        .vertex("k", "value")
+        .edge("b", "b.v", "prop", Some("c"))
+        .edge("b.v", "b.w", "item", Some("i"));
+    target.keys.insert(
+        "k".to_owned(),
+        vec![panproto_reference::schema::Key {
+            id: "k".to_owned(),
+            parts: Vec::new(),
+            role: panproto_reference::schema::KeyRole::Primary,
+            scope: panproto_reference::schema::KeyScope::Document,
+            equality: Vec::new(),
+        }],
+    );
+    let mut migration = panproto_reference::migration::Migration::default();
+    for (vertex, remap) in [("a", "b"), ("a.v", "b.v"), ("a.w", "k")] {
+        migration
+            .vertex_remap
+            .insert(vertex.to_owned(), remap.to_owned());
+    }
+    migration.edge_remap.insert(column, image_column);
+    migration.edge_remap.insert(inner, image);
+    assert_eq!(entity_functors_agree(&source, &target, &migration), "kept");
+}
+
+/// The table square holds where the graph route can decode: along the
+/// merge of `a{x}` and `b{x}` into `m{x}`, one `m` row with id
+/// `u32::MAX - 2` decodes (its leaf takes `u32::MAX - 1`, as no allocator
+/// hands out `u32::MAX`), and table Delta succeeds with its copies at
+/// `u32::MAX - 2` and `u32::MAX - 1`, but graph Delta needs two more nodes
+/// for the leaves, above both rows, and refuses with `NodeIdsExhausted`, on
+/// both sides.
+#[test]
+fn the_graph_route_alone_refuses_when_decoding_runs_out_of_ids() {
+    let case = scope::family()
+        .into_iter()
+        .find(|case| case.name == "merge-shared-column")
+        .unwrap();
+    let functors = Functors::new(
+        &case.source_schema(),
+        &case.target_schema(),
+        &case.migration(),
+        &family_kinds(),
+    );
+    let (f, fp) = (&functors.reference, &functors.production);
+    let table = one_table("m", &[(u32::MAX - 2, &[("x", int(0))])]);
+    let (delta, _) = rel::delta(f, &table).unwrap();
+    assert_eq!(
+        delta.rows.keys().copied().collect::<Vec<_>>(),
+        [u32::MAX - 2, u32::MAX - 1]
+    );
+    let side = encode::GraphSide::whole(&f.tgt);
+    let graph = encode::decode_table(&table, &side, &encode::GraphLayout::default()).unwrap();
+    let (read_back, _) = encode::encode_graph(&graph, &side).unwrap();
+    assert!(panproto_reference::migration::table_square(
+        &read_back, &table
+    ));
+    let theirs = encode::g_delta_along(f, &graph);
+    assert_eq!(theirs, Err(encode::GraphKanError::NodeIdsExhausted));
+    let ours = panproto_inst::g_delta_along(&prod_graph(&graph), fp);
+    graph_results_agree(&ours, &theirs, &"graph Delta at the id boundary");
 }

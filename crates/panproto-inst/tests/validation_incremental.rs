@@ -396,7 +396,11 @@ fn deterministic_witness_bytes() -> Result<String, Box<dyn std::error::Error>> {
         &external,
         &WitnessOptions { digests: true },
     )?;
-    let bytes = witness.canonical_bytes();
+    // The witness carries the post-edit instance digest (digests are on);
+    // the committed state's canonical bytes follow it, so both halves of
+    // the determinism claim are compared across processes.
+    let mut bytes = witness.canonical_bytes();
+    bytes.extend(validated.state().canonical_bytes());
     let mut hex = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(hex, "{byte:02x}").expect("writing to a string cannot fail");
@@ -1795,16 +1799,71 @@ fn changing_an_edge_position_reruns_position_requirements_and_references() -> Te
         &ValidationBudget::default(),
         &ExternalVerdicts::default(),
     )?;
-    assert!(checked.report.diagnostics.iter().any(|diagnostic| {
-        diagnostic.check.kind == CheckKind::ReferenceResolves
-            && diagnostic.subject == Some(ViewRef::Node(2))
-            && matches!(diagnostic.violation, Violation::DanglingReference { .. })
-    }));
+    // A `Position` key part is the element's index among the parent's
+    // ordinary `within` targets ordered by stored position and edge id, so a
+    // single item keeps index 0 whatever its stored position: the rerun
+    // reference still resolves, and the edit report is the whole report.
+    assert!(
+        !checked.report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.check.kind == CheckKind::ReferenceResolves
+                && diagnostic.subject == Some(ViewRef::Node(2))
+        }),
+        "{:?}",
+        checked.report.diagnostics
+    );
     let none = ExternalVerdicts::default();
     assert_v3_v4(
         &plan,
         &graph,
         &edit,
+        &ValidationBudget::default(),
+        &none,
+        &none,
+    )?;
+
+    // Two items: moving the first item's edge after the second's swaps
+    // their indexes, so the holder that wants index 0 now resolves to the
+    // other item. The rerun reports exactly what whole validation reports.
+    let (plan, contains, resolves) = position_reference_plan();
+    let mut two = GInstance::new()
+        .with_node(Node::new(0, "group"))
+        .with_node(Node::new(1, "item"))
+        .with_node(Node::new(2, "holder").with_extra_field("wanted", Value::Int(0)))
+        .with_node(Node::new(3, "item"));
+    two.insert_edge(
+        EdgeId(0),
+        GEdge::new(0, 1, contains.clone()).with_position(Some(0)),
+    )?;
+    two.insert_edge(EdgeId(1), GEdge::new(2, 1, resolves))?;
+    two.insert_edge(EdgeId(2), GEdge::new(0, 3, contains).with_position(Some(1)))?;
+    let swap = GraphEdit::SetEdgePosition {
+        id: EdgeId(0),
+        old: Some(0),
+        new: Some(2),
+    };
+    let (validated, _) = ValidatedGraph::new(
+        plan.clone(),
+        two.clone(),
+        &ValidationBudget::default(),
+        &none,
+    );
+    let footprint = validated.footprint(&swap, &none)?;
+    for (kind, node) in [
+        (CheckKind::RequiredValue, 1),
+        (CheckKind::RequiredValue, 3),
+        (CheckKind::ReferenceResolves, 2),
+    ] {
+        assert!(
+            footprint.rerun.iter().any(|instance| {
+                instance.check.kind == kind && instance.subject == Some(ViewRef::Node(node))
+            }),
+            "{kind:?} at {node} is rerun: {footprint:?}"
+        );
+    }
+    assert_v3_v4(
+        &plan,
+        &two,
+        &swap,
         &ValidationBudget::default(),
         &none,
         &none,
@@ -1912,10 +1971,10 @@ fn changing_node_shape_reruns_references_to_the_changed_target() -> TestResult {
     )
 }
 
-/// Removing an item's edge position leaves its primary key, its position
-/// among the group's ordered items, to be counted among its siblings: the
-/// key requirement's verdict is unchanged but its trace now reads the group,
-/// so the instance is rerun and its read set replaced.
+/// Removing an item's edge position changes the order in which its primary
+/// key, its index among the group's ordered items, is counted: the key
+/// requirement is rerun, and before and after the edit its trace reads the
+/// item, its incoming edge and the group whose ordered items are counted.
 #[test]
 fn removing_an_edge_position_reruns_the_positional_key_requirement() -> TestResult {
     let (plan, contains, _) = position_reference_plan();
@@ -1948,7 +2007,7 @@ fn removing_an_edge_position_reruns_the_positional_key_requirement() -> TestResu
     edit.to_delta()?.apply(&mut post)?;
     assert_eq!(
         graph.reads(&plan, &none, &requirement),
-        BTreeSet::from([ViewRef::Node(1), ViewRef::Edge(EdgeId(0))])
+        BTreeSet::from([ViewRef::Node(0), ViewRef::Node(1), ViewRef::Edge(EdgeId(0))])
     );
     assert_eq!(
         post.reads(&plan, &none, &requirement),
@@ -1962,6 +2021,56 @@ fn removing_an_edge_position_reruns_the_positional_key_requirement() -> TestResu
         &none,
         &none,
     )
+}
+
+/// Sequence agreement needs an unlimited transition budget. From a passed
+/// baseline, an edit that reruns two instances under `max_reads: Some(0)`
+/// cuts only those two, while whole validation under `Some(0)` cuts the
+/// whole schedule and whole validation under an unlimited budget cuts
+/// nothing; the transition's report equals neither.
+#[test]
+fn a_finite_transition_budget_breaks_sequence_agreement() -> TestResult {
+    let (plan, contains, resolves) = position_reference_plan();
+    let mut graph = GInstance::new()
+        .with_node(Node::new(0, "group"))
+        .with_node(Node::new(1, "item"))
+        .with_node(Node::new(2, "holder").with_extra_field("wanted", Value::Int(0)));
+    graph.insert_edge(EdgeId(0), GEdge::new(0, 1, contains).with_position(Some(0)))?;
+    graph.insert_edge(EdgeId(1), GEdge::new(2, 1, resolves))?;
+    let none = ExternalVerdicts::default();
+    let (validated, baseline) =
+        ValidatedGraph::new(plan.clone(), graph.clone(), &ValidationBudget::default(), &none);
+    assert_eq!(baseline.status, CheckStatus::Passed);
+    let edit = GraphEdit::SetEdgePosition {
+        id: EdgeId(0),
+        old: Some(0),
+        new: Some(1),
+    };
+    let zero = ValidationBudget { max_reads: Some(0) };
+    let footprint = validated.footprint(&edit, &none)?;
+    let charged = footprint.rerun.len() + footprint.created.len();
+    assert!(charged >= 1, "{footprint:?}");
+    let checked = validated.check_edit(&edit, &zero, &none)?;
+    let mut post = graph.clone();
+    edit.to_delta()?.apply(&mut post)?;
+    let scoped = |mut report: ValidationReport| {
+        report.scope = checked.report.scope.clone();
+        report.canonical_bytes()
+    };
+    let whole_zero = plan.validate_graph(&post, &zero, &none);
+    let whole_unlimited = plan.validate_graph(&post, &ValidationBudget::default(), &none);
+    let all_scheduled: u64 = whole_unlimited.coverage.values().map(|c| c.instances).sum();
+    assert!(
+        u64::try_from(charged)? < all_scheduled,
+        "the transition charges a strict subset of the whole schedule"
+    );
+    assert_ne!(checked.report.canonical_bytes(), scoped(whole_zero.clone()));
+    assert_ne!(
+        checked.report.canonical_bytes(),
+        scoped(whole_unlimited.clone())
+    );
+    assert_ne!(checked.report.status, CheckStatus::Passed);
+    Ok(())
 }
 
 #[test]
@@ -4412,11 +4521,16 @@ fn arb_tree_edit(families: &'static [TreeFamily]) -> impl Strategy<Value = (WIns
 trait Surface: ValidatedShape {
     fn surface(delta: &Self::Delta) -> Self::Edit;
     fn elements(&self) -> Vec<ViewRef>;
+    /// The delta that changes nothing.
+    fn identity() -> Self::Delta;
 }
 
 impl Surface for GInstance {
     fn surface(delta: &GraphDelta) -> GraphEdit {
         GraphEdit::Delta(delta.clone())
+    }
+    fn identity() -> GraphDelta {
+        GraphDelta::default()
     }
     fn elements(&self) -> Vec<ViewRef> {
         graph_elements(self)
@@ -4427,6 +4541,9 @@ impl Surface for FInstance {
     fn surface(delta: &TableDelta) -> TableEdit {
         TableEdit::Delta(delta.clone())
     }
+    fn identity() -> TableDelta {
+        TableDelta::default()
+    }
     fn elements(&self) -> Vec<ViewRef> {
         table_elements(self)
     }
@@ -4435,6 +4552,9 @@ impl Surface for FInstance {
 impl Surface for WInstance {
     fn surface(delta: &TreeEdit) -> TreeEdit {
         delta.clone()
+    }
+    fn identity() -> TreeEdit {
+        TreeEdit::Identity
     }
     fn elements(&self) -> Vec<ViewRef> {
         tree_elements(self)
@@ -4619,13 +4739,13 @@ fn witness_mutants(witness: &EditWitness) -> Vec<(String, EditWitness)> {
     out
 }
 
-/// The alterations of each of a witness's first three runs: its reads
-/// extended and shortened, its disposition flipped, and its outcome entries
-/// extended, repeated and dropped.
+/// The alterations of every run of a witness: its reads extended and
+/// shortened, its disposition flipped, its incomplete reasons extended,
+/// dropped and replaced, and its findings repeated and dropped.
 fn run_mutants(witness: &EditWitness) -> Vec<(String, EditWitness)> {
     let mut out = Vec::new();
     let mut push = |what: &str, w: EditWitness| out.push((what.to_owned(), w));
-    for i in 0..witness.runs.len().min(3) {
+    for i in 0..witness.runs.len() {
         let mut w = witness.clone();
         w.runs[i].reads.push(ViewRef::Node(u32::MAX));
         push("reads extended", w);
@@ -4660,6 +4780,28 @@ fn run_mutants(witness: &EditWitness) -> Vec<(String, EditWitness)> {
                     .collect(),
             };
             push("incomplete extended", w);
+            if !incomplete.is_empty() {
+                let mut w = witness.clone();
+                w.runs[i].verdict = RunVerdict::Evaluated {
+                    findings: findings.clone(),
+                    incomplete: incomplete[1..].to_vec(),
+                };
+                push("incomplete dropped", w);
+                let mut w = witness.clone();
+                let mut replaced = incomplete.clone();
+                replaced[0] = if replaced[0] == IncompleteReason::NoValidatedBaseline {
+                    IncompleteReason::Unsupported {
+                        detail: "replaced".to_owned(),
+                    }
+                } else {
+                    IncompleteReason::NoValidatedBaseline
+                };
+                w.runs[i].verdict = RunVerdict::Evaluated {
+                    findings: findings.clone(),
+                    incomplete: replaced,
+                };
+                push("incomplete replaced", w);
+            }
             if let Some(first) = findings.first() {
                 let mut w = witness.clone();
                 w.runs[i].verdict = RunVerdict::Evaluated {
@@ -4725,6 +4867,18 @@ fn v6_case<I: Surface>(
     externals.push(flipped);
     let mut later = replay.baseline.clone();
     later.seq = later.seq.wrapping_add(1);
+    // Another prior instance (the edit's own target, when the delta changes
+    // the instance), another delta (the identity) and another plan (one
+    // compiled from an empty schema): three replay inputs judged, like the
+    // others, by whether admission under them reproduces the witness.
+    let mut other_prior = replay.prior.clone();
+    let moved = I::apply_delta(replay.delta, &mut other_prior).is_ok();
+    let identity = I::identity();
+    let other_plan = Arc::new(ValidationPlan::compile(
+        &Schema::default(),
+        &Protocol::default(),
+        &ValidationOptions::default(),
+    ));
     let mut contexts: Vec<(&str, WitnessReplay<'_, I>)> = vec![(
         "policy",
         WitnessReplay {
@@ -4760,6 +4914,22 @@ fn v6_case<I: Surface>(
             ..*replay
         },
     ));
+    if moved {
+        contexts.push((
+            "prior",
+            WitnessReplay {
+                prior: &other_prior,
+                ..*replay
+            },
+        ));
+    }
+    contexts.push((
+        "delta",
+        WitnessReplay {
+            delta: &identity,
+            ..*replay
+        },
+    ));
     for (what, context) in &contexts {
         let accepted = witness.verify(context).is_ok();
         prop_assert_eq!(
@@ -4769,6 +4939,16 @@ fn v6_case<I: Surface>(
             what
         );
     }
+    let planned = WitnessReplay {
+        plan: &other_plan,
+        ..*replay
+    };
+    prop_assert_eq!(
+        witness.verify(&planned).is_ok(),
+        replayed(&other_plan, &planned).as_ref() == Some(&bytes),
+        "plan"
+    );
+    prop_assert!(witness.verify(&planned).is_err(), "another plan never verifies");
     Ok(())
 }
 
@@ -7277,6 +7457,7 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
         }
     }
     assert_eq!(pairs, states.len() * states.len());
+    assert_eq!(states.len(), ADMISSION_STATES);
     eprintln!(
         "admission scope: {} states ({passed_baselines} passed), {pairs} ordered pairs, \
          admitted {} under RequirePassed and {} under NoNewFailures",
@@ -7284,4 +7465,136 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
         admitted_counts[0],
         admitted_counts[1]
     );
+
+    // The same scope over a plan with one required plan-static finding. The
+    // finding is part of every state's report, so the reference receives it
+    // as one more required bundle on both sides of every pair.
+    let static_plan = admission_plan_with_static_finding();
+    let required_static = static_plan
+        .static_findings()
+        .iter()
+        .filter(|finding| finding.requirement == Requirement::Required)
+        .count();
+    // The undeclared sort is reported on the static check and on the value
+    // check that depends on it.
+    assert_eq!(required_static, 2, "{:?}", static_plan.static_findings());
+    let static_realized: Vec<ValidationState> = states
+        .iter()
+        .map(|s| realize(&static_plan, &schedule, s))
+        .collect();
+    let static_bundle = |(open, cut, result): &(
+        BTreeMap<usize, Vec<u8>>,
+        BTreeMap<usize, Vec<u8>>,
+        BTreeMap<usize, Vec<u8>>,
+    )| {
+        let mut open = open.clone();
+        let mut result = result.clone();
+        for finding in 0..required_static {
+            let bytes = vec![3, u8::try_from(finding).unwrap()];
+            open.insert(STATIC_BUNDLE + finding, bytes.clone());
+            result.insert(STATIC_BUNDLE + finding, bytes);
+        }
+        (open, cut.clone(), result)
+    };
+    let static_reference: Vec<_> = reference_states.iter().map(static_bundle).collect();
+    let mut static_pairs = 0_usize;
+    for (baseline_index, real_baseline) in static_realized.iter().enumerate() {
+        let (reference_baseline, reference_baseline_cut, _) = &static_reference[baseline_index];
+        for (result_index, real_result) in static_realized.iter().enumerate() {
+            let reference_result = &static_reference[result_index].2;
+            assert_ne!(real_result.status, CheckStatus::Passed);
+            let require =
+                AdmissionPolicy::RequirePassed.admits(&static_plan, real_baseline, real_result);
+            let tolerate =
+                AdmissionPolicy::NoNewFailures.admits(&static_plan, real_baseline, real_result);
+            assert!(!require, "a required static finding is never Passed");
+            assert_eq!(
+                require,
+                reference_validation::admits(
+                    true,
+                    reference_baseline,
+                    reference_baseline_cut,
+                    reference_result,
+                ),
+                "reference RequirePassed under a static finding: {baseline_index} -> {result_index}"
+            );
+            assert_eq!(
+                tolerate,
+                reference_validation::admits(
+                    false,
+                    reference_baseline,
+                    reference_baseline_cut,
+                    reference_result,
+                ),
+                "reference NoNewFailures under a static finding: {baseline_index} -> {result_index}"
+            );
+            assert_eq!(
+                tolerate,
+                no_new_failures_predicate(&states[baseline_index], &states[result_index]),
+                "a plan-static finding is open on both sides and changes no NoNewFailures verdict"
+            );
+            static_pairs += 1;
+        }
+    }
+    assert_eq!(static_pairs, ADMISSION_STATES * ADMISSION_STATES);
+}
+
+/// The number of abstract admission states that [`every_abstract_state`]
+/// enumerates.
+const ADMISSION_STATES: usize = 1_122;
+
+/// The first reference key of the plan-static bundles, one per required
+/// static finding.
+const STATIC_BUNDLE: usize = 100;
+
+/// [`admission_plan`] with one constraint whose sort the protocol does not
+/// declare, which compiles to required plan-static findings and leaves
+/// the external checks unchanged.
+fn admission_plan_with_static_finding() -> Arc<ValidationPlan> {
+    let base = admission_plan();
+    let mut schema = Schema::default();
+    schema.vertices.insert(
+        "item".into(),
+        Vertex {
+            id: "item".into(),
+            kind: "object".into(),
+            nsid: None,
+        },
+    );
+    schema.constraints.insert(
+        "item".into(),
+        vec![Constraint {
+            sort: "undeclared_sort".into(),
+            value: "1".to_owned(),
+        }],
+    );
+    let decl = |name: &str, requirement| ExternalCheckDecl {
+        name: name.into(),
+        anchors: BTreeSet::from(["item".into()]),
+        requirement,
+    };
+    let options = ValidationOptions {
+        external: BTreeMap::from([
+            ("audit".into(), decl("audit", Requirement::Required)),
+            ("notes".into(), decl("notes", Requirement::Advisory)),
+        ]),
+        ..ValidationOptions::default()
+    };
+    let plan = ValidationPlan::compile(
+        &schema,
+        &Protocol {
+            syntactic_shape: InstanceShapeKind::Graph,
+            semantic_shape: InstanceShapeKind::Graph,
+            ..Protocol::default()
+        },
+        &options,
+    );
+    for (key, spec) in base.checks() {
+        assert_eq!(
+            plan.checks().get(key).map(|s| s.requirement),
+            Some(spec.requirement),
+            "{key:?} is compiled alike"
+        );
+    }
+    Arc::new(plan)
 }

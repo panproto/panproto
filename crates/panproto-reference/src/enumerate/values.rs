@@ -971,17 +971,65 @@ pub fn tagged_lexemes() -> Vec<String> {
         .to_vec()
 }
 
-/// The scope of the chronological-order laws.
-///
-/// It is every lexeme of [`temporal_lexemes`], read under each carrier
-/// kind (19,098 lexemes, every complete and reduced shape over the order
-/// law's years, months, days, hours, minutes, seconds, fractions and nine
-/// offsets), together with every form of [`temporal_forms`] read under its
-/// exact descriptor (658 forms, which add the front-truncated shapes, the
-/// infinities, offsets with seconds and the unwritten offsets).
+/// The scope of the chronological-order laws: the order law's product
+/// extended by the offsets with seconds and the unwritten offsets, and the
+/// written temporal forms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChronologicalScope {
+    /// Every shape over the order law's years, months, days, hours,
+    /// minutes, seconds and fractions under eleven written offsets: the nine
+    /// of [`temporal_lexemes`] (19,098 lexemes) followed by `-04:56:02` and
+    /// `+05:30:00` (2 x 2122 = 4244 lexemes), each read under every carrier
+    /// kind.
+    pub lexemes: Vec<String>,
+    /// Every local value of the product (the product's lexemes with no
+    /// offset, read under each carrier kind by the reference) with its
+    /// offset replaced by an unwritten fixed offset of 0 and then of +05:30,
+    /// as a lexeme and the exact descriptor that reads it.
+    pub unwritten: Vec<(String, TemporalLexicalForm)>,
+    /// Every form of [`temporal_forms`] (658 forms, which add the
+    /// front-truncated shapes, both infinities of each form under local and
+    /// zoned offsets, offsets with seconds and the unwritten offsets).
+    pub forms: Vec<(String, TemporalLexicalForm)>,
+}
+
+/// The scope of the chronological-order laws, [`ChronologicalScope`].
 #[must_use]
-pub fn chronological_scope() -> (Vec<String>, Vec<(String, TemporalLexicalForm)>) {
-    (temporal_lexemes(), temporal_forms())
+pub fn chronological_scope() -> ChronologicalScope {
+    let mut lexemes = temporal_lexemes();
+    lexemes.extend(super::temporal_lexemes_with_offsets(&[
+        "-04:56:02",
+        "+05:30:00",
+    ]));
+    let local = super::temporal_lexemes_with_offsets(&[""]);
+    let mut unwritten = Vec::new();
+    for offset in [
+        Offset::Fixed(0, OffsetForm::Unwritten),
+        Offset::Fixed(330, OffsetForm::Unwritten),
+    ] {
+        for text in &local {
+            for kind in [
+                TemporalForm::Date,
+                TemporalForm::Time,
+                TemporalForm::DateTime,
+            ] {
+                let Some(value) = crate::temporal::parse(kind, text) else {
+                    continue;
+                };
+                if value.offset != Offset::Local {
+                    continue;
+                }
+                if let Some(form) = value.lexical_form() {
+                    unwritten.push((text.clone(), TemporalLexicalForm { offset, ..form }));
+                }
+            }
+        }
+    }
+    ChronologicalScope {
+        lexemes,
+        unwritten,
+        forms: temporal_forms(),
+    }
 }
 
 /// The binary32 NaNs of the narrowing laws.

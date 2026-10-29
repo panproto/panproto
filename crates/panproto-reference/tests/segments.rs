@@ -388,13 +388,17 @@ fn every_bounded_graph_partition_round_trips_through_the_identity_pipeline() {
 #[test]
 fn graph_table_and_tree_cross_boundaries_round_trip() {
     let witnesses = bounded::shape_witnesses();
-    assert_eq!(witnesses.len(), 3);
+    assert_eq!(witnesses.len(), 5);
     for (index, (whole, partition)) in witnesses.iter().enumerate() {
         let segments = segment::partition(whole, partition)
             .unwrap_or_else(|error| panic!("shape {index} partition failed: {error:?}"));
         assert_eq!(segments.len(), 2);
-        assert_eq!(segments[0].boundary().ghosts.len(), 1);
-        assert_eq!(segments[1].boundary().in_stubs.len(), 1);
+        // The first three witnesses, one per shape, cross with exactly one
+        // edge, arc or pair; the fan-bearing trees cross with more.
+        if index < 3 {
+            assert_eq!(segments[0].boundary().ghosts.len(), 1);
+            assert_eq!(segments[1].boundary().in_stubs.len(), 1);
+        }
         assert_eq!(segment::glue(&segments, partition), Ok(whole.clone()));
         assert_eq!(
             segment::segmented(segments.as_slice(), partition, &|value: &AnyInstance| {
@@ -440,7 +444,7 @@ fn a_tree_fan_crosses_by_edge_id_and_round_trips() {
 }
 
 #[test]
-fn tree_fan_order_is_carried_by_dense_ordinals_not_fan_node_ids() {
+fn tree_fan_order_is_carried_by_parent_edge_ids_not_fan_node_ids() {
     let (tree, embedding) = two_fan_tree();
     let partition = Partition {
         shape: InstanceShapeKind::Tree,
@@ -451,12 +455,14 @@ fn tree_fan_order_is_carried_by_dense_ordinals_not_fan_node_ids() {
     let AnySegment::Tree(part) = &segments[0] else {
         panic!("expected tree segment")
     };
+    // Segment fans are listed by fan node id, which here is the reverse of
+    // fan order; parent edge ids still ascend in fan order.
     assert_eq!(
         part.fans
             .iter()
-            .map(|fan| (fan.node, fan.ordinal))
+            .map(|fan| (fan.node, fan.parent_edge))
             .collect::<Vec<_>>(),
-        [(5, 0), (4, 1)]
+        [(4, 4), (5, 2)]
     );
     let bytes = AnySegment::Tree(part.clone())
         .canonical_bytes(&Digest([3; 32]), &partition)
@@ -466,57 +472,41 @@ fn tree_fan_order_is_carried_by_dense_ordinals_not_fan_node_ids() {
     assert_eq!(schema, Digest([3; 32]));
     assert_eq!(segment::glue(&[decoded], &partition), Ok(whole));
 
-    let mut nondense = segments;
-    let AnySegment::Tree(part) = &mut nondense[0] else {
+    let mut misordered = segments;
+    let AnySegment::Tree(part) = &mut misordered[0] else {
         panic!("expected tree segment")
     };
-    part.fans[0].ordinal = 1;
-    part.fans[1].ordinal = 2;
-    assert!(matches!(
-        segment::glue(&nondense, &partition),
-        Err(SegmentError::NotEmbedded { .. })
-    ));
+    part.fans.reverse();
+    assert_eq!(
+        segment::glue(&misordered, &partition),
+        Err(SegmentError::NotEmbedded {
+            elem: ViewRef::Node(4)
+        })
+    );
 }
 
 #[test]
-fn tree_fan_ordinals_are_dense_and_global_across_segments() {
+fn tree_fan_order_is_recovered_across_segments_and_descending_parent_edges_are_refused() {
     let (tree, embedding) = two_fan_tree();
     let partition = Partition {
         shape: InstanceShapeKind::Tree,
         specs: vec![spec(0, &[(0, 0), (5, 5)]), spec(1, &[(1, 4)])],
     };
-    let whole = AnyInstance::Tree(tree, embedding);
+    let whole = AnyInstance::Tree(tree.clone(), embedding.clone());
     let mut segments = segment::partition(&whole, &partition).test_unwrap("tree partitions");
     segments.reverse();
     assert_eq!(segment::glue(&segments, &partition), Ok(whole));
 
-    let mut duplicate = segments.clone();
-    for segment in &mut duplicate {
-        let AnySegment::Tree(tree) = segment else {
-            panic!("expected tree segment")
-        };
-        if tree.fans.first().is_some_and(|fan| fan.ordinal == 1) {
-            tree.fans[0].ordinal = 0;
-        }
-    }
-    assert!(matches!(
-        segment::glue(&duplicate, &partition),
-        Err(SegmentError::NotEmbedded { .. })
-    ));
-
-    let mut gap = segments;
-    for segment in &mut gap {
-        let AnySegment::Tree(tree) = segment else {
-            panic!("expected tree segment")
-        };
-        if tree.fans.first().is_some_and(|fan| fan.ordinal == 1) {
-            tree.fans[0].ordinal = 2;
-        }
-    }
-    assert!(matches!(
-        segment::glue(&gap, &partition),
-        Err(SegmentError::NotEmbedded { .. })
-    ));
+    let mut descending = embedding;
+    descending.fans.swap(0, 1);
+    let mut swapped = tree;
+    swapped.fans.swap(0, 1);
+    assert_eq!(
+        segment::partition(&AnyInstance::Tree(swapped, descending), &partition),
+        Err(SegmentError::NotEmbedded {
+            elem: ViewRef::Node(5)
+        })
+    );
 }
 
 #[test]
@@ -531,12 +521,13 @@ fn invalid_first_fan_child_does_not_hide_later_child_edge_membership() {
     let AnySegment::Tree(tree) = &mut segments[0] else {
         panic!("expected tree segment")
     };
+    // Segment fans are listed by fan node id, so the first is fan node 4.
     tree.fans[0].child_edges.insert("aaa".to_owned(), 99);
     assert_eq!(
         segment::validate_segment_contract(&segments[0], &partition),
         Err(SegmentError::Invalid {
             violations: vec![SegmentError::NotEmbedded {
-                elem: ViewRef::Node(5),
+                elem: ViewRef::Node(4),
             }],
         })
     );

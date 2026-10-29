@@ -141,12 +141,14 @@ point that consumes one is engine-isolated.
 
 ## The variants
 
-Fourteen slab variants exist across the package, and each is a final
-subclass declaring the name the engine reports for it in a type-mismatch
-error. ``PanprotoHandle/slabVariant`` is `open` rather than `public` for
-one reason: the version-control, parse, project, and git tiers declare
-the variants they own alongside the operations that produce them, rather
-than the core tier declaring variants for slabs it never touches.
+Fifteen slab variants exist across the full package and fourteen final
+subclasses represent them. Each subclass declares its ordinary engine name
+for type-mismatch errors. ``ProtolensChainHandle`` represents both
+`ProtolensChain` and the chain-compatible `CompiledLensDoc`; the latter keeps
+its distinct engine name. ``PanprotoHandle/slabVariant`` is `open` rather than
+`public` for one reason: the version-control, parse, project, and git tiers
+declare the handle families they own alongside the operations that produce
+them, rather than the core tier declaring families for slabs it never touches.
 
 That name is what makes a caught
 ``PanprotoError/Fault/typeMismatch(expected:actual:)`` comparable against

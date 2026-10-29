@@ -569,14 +569,16 @@ mod quantale_laws {
                 comp_fg
                     .entries()
                     .iter()
-                    .map(|entry| entry.complement.dropped_nodes.len())
+                    .flat_map(|entry| entry.complement.complements())
+                    .map(|complement| complement.dropped_nodes.len())
                     .sum::<usize>()
                     <= comp_f.dropped_nodes.len() + comp_g.dropped_nodes.len(),
                 "composed complement dropped more nodes ({}) than the parts ({} + {})",
                 comp_fg
                     .entries()
                     .iter()
-                    .map(|entry| entry.complement.dropped_nodes.len())
+                    .flat_map(|entry| entry.complement.complements())
+                    .map(|complement| complement.dropped_nodes.len())
                     .sum::<usize>(),
                 comp_f.dropped_nodes.len(),
                 comp_g.dropped_nodes.len(),

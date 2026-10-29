@@ -28,6 +28,25 @@ pub enum ResolutionFeature {
     /// Offsets counted over a normalized text (folded line endings, a
     /// normalization form), which the exact byte form cannot represent.
     NormalizedOffsets,
+    /// An identified inline occurrence (`RefSource::Inline`), a
+    /// declaration form this engine does not resolve.
+    InlineReference,
+    /// A reference whose target vertex is a declared target set.
+    TargetSet,
+    /// A reference that declares a null vertex for its sequence.
+    NullVertex,
+    /// A reference whose scope is reached through other references.
+    ScopeVia,
+    /// A standoff reference whose spans come from ordered fragments.
+    StandoffFragments,
+    /// Standoff text relative to another standoff span (`RefTextSource::Span`).
+    SpanText,
+    /// Standoff text reached through another reference
+    /// (`RefTextSource::Referenced`).
+    ReferencedText,
+    /// External standoff text named by a URI under a base
+    /// (`RefTextSource::ExternalUri`).
+    ExternalUriText,
 }
 
 /// Why an offset is not at a unit boundary of its text.

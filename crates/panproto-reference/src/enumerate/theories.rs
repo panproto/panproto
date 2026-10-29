@@ -646,15 +646,23 @@ pub fn recipes(left: &Theory, right: &Theory) -> Vec<CompositionSpec> {
         sorts: vec![("A".to_owned(), "A".to_owned())],
         ops: Vec::<(String, RecipeOpImage)>::new(),
     };
+    // A second inline theory named `I`, declaring `B`: a recipe carrying both
+    // is refused whichever one a lookup would pick.
+    let mut shadow = interface.clone();
+    shadow.sorts[0].name = "B".to_owned();
     for options in option_sets() {
-        for nodes in [["I", "L", "R"], ["I", "L", "M"]] {
+        for (nodes, inline) in [
+            (["I", "L", "R"], vec![interface.clone()]),
+            (["I", "L", "M"], vec![interface.clone()]),
+            (["I", "L", "R"], vec![interface.clone(), shadow.clone()]),
+        ] {
             out.push(spec(vec![CompositionStep::Diagram {
                 nodes: nodes.iter().map(|node| (*node).to_owned()).collect(),
                 edges: vec![leg(nodes[1]), leg(nodes[2])],
                 mode: options.mode,
                 clash: options.clash,
                 rewrite_budget: options.rewrite_budget,
-                inline: vec![interface.clone()],
+                inline,
             }]));
         }
     }
@@ -2305,8 +2313,8 @@ mod tests {
                 let these = recipes(left, right);
                 assert_eq!(
                     these.len(),
-                    13 + (2 << common),
-                    "three bases, 2 * (2^common + 1) colimits, eight diagram steps"
+                    17 + (2 << common),
+                    "three bases, 2 * (2^common + 1) colimits, twelve diagram steps"
                 );
                 all.push(these);
             }

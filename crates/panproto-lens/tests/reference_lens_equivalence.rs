@@ -18,8 +18,9 @@ use panproto_lens::table_lens::fresh_view_row_id;
 use panproto_lens::table_shape::TableShape;
 use panproto_lens::{Lens, TableContext};
 use panproto_reference::enumerate::lenses::{
-    LawEquivalenceIncoherence, LawEquivalenceOracleCase, LawEquivalenceShape,
-    for_each_law_equivalence_oracle_case, law_equivalence_oracle_case_count_certificate,
+    LAW_EQUIVALENCE_FLOAT_WITNESSES, LawEquivalenceIncoherence, LawEquivalenceOracleCase,
+    LawEquivalenceShape, for_each_law_equivalence_oracle_case,
+    law_equivalence_oracle_case_count_certificate,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, SchemaBuilder};
 use proptest::prelude::*;
@@ -80,7 +81,13 @@ const fn edge_keys() -> [SynthKey; 2] {
     ]
 }
 
-fn leaf(id: u32, ordinal: usize, changed: bool) -> Node {
+/// The float payload of the first leaf, when a fixture carries one: the leaf's
+/// own value and its `measure` field (a table cell) both hold it.
+fn float_payload(bits: u64) -> Value {
+    Value::Float(f64::from_bits(bits))
+}
+
+fn leaf(id: u32, ordinal: usize, changed: bool, float: Option<u64>) -> Node {
     let mut node = Node::new(id, "leaf");
     let value = if changed && ordinal == 0 {
         "changed"
@@ -89,16 +96,29 @@ fn leaf(id: u32, ordinal: usize, changed: bool) -> Node {
     };
     node.extra_fields
         .insert("payload".to_owned(), Value::Str(value.to_owned()));
+    if let Some(bits) = float.filter(|_| ordinal == 0) {
+        node.value = Some(FieldPresence::Present(float_payload(bits)));
+        node.extra_fields
+            .insert("measure".to_owned(), float_payload(bits));
+    }
     node.position = Some(u32::try_from(ordinal).expect("two leaves"));
     node
 }
 
 fn graph_fixture(presentation: Presentation, changed: bool) -> (GInstance, SynthIndex) {
+    graph_fixture_with(presentation, changed, None)
+}
+
+fn graph_fixture_with(
+    presentation: Presentation,
+    changed: bool,
+    float: Option<u64>,
+) -> (GInstance, SynthIndex) {
     let labels = [relation("left"), relation("right")];
     let mut graph = GInstance::new().with_node(Node::new(0, "root"));
     for (ordinal, label) in labels.into_iter().enumerate() {
         graph
-            .insert_node(leaf(presentation.nodes[ordinal], ordinal, changed))
+            .insert_node(leaf(presentation.nodes[ordinal], ordinal, changed, float))
             .expect("distinct presentation node ids");
         graph
             .insert_edge(
@@ -118,15 +138,23 @@ fn graph_fixture(presentation: Presentation, changed: bool) -> (GInstance, Synth
 }
 
 fn tree_fixture(presentation: Presentation, changed: bool) -> (WInstance, SynthIndex) {
+    tree_fixture_with(presentation, changed, None)
+}
+
+fn tree_fixture_with(
+    presentation: Presentation,
+    changed: bool,
+    float: Option<u64>,
+) -> (WInstance, SynthIndex) {
     let nodes = HashMap::from([
         (0, Node::new(0, "root")),
         (
             presentation.nodes[0],
-            leaf(presentation.nodes[0], 0, changed),
+            leaf(presentation.nodes[0], 0, changed, float),
         ),
         (
             presentation.nodes[1],
-            leaf(presentation.nodes[1], 1, changed),
+            leaf(presentation.nodes[1], 1, changed, float),
         ),
     ]);
     let tree = WInstance::new(
@@ -150,6 +178,14 @@ fn tree_fixture(presentation: Presentation, changed: bool) -> (WInstance, SynthI
 }
 
 fn table_fixture(presentation: Presentation, changed: bool) -> (FInstance, SynthIndex) {
+    table_fixture_with(presentation, changed, None)
+}
+
+fn table_fixture_with(
+    presentation: Presentation,
+    changed: bool,
+    float: Option<u64>,
+) -> (FInstance, SynthIndex) {
     let mut table = FInstance::new();
     table
         .insert_row("root", RowId(0), HashMap::new())
@@ -160,12 +196,12 @@ fn table_fixture(presentation: Presentation, changed: bool) -> (FInstance, Synth
         } else {
             ["left", "right"][ordinal]
         };
+        let mut cells = HashMap::from([("payload".to_owned(), Value::Str(value.to_owned()))]);
+        if let Some(bits) = float.filter(|_| ordinal == 0) {
+            cells.insert("measure".to_owned(), float_payload(bits));
+        }
         table
-            .insert_row(
-                "leaf",
-                RowId(presentation.nodes[ordinal]),
-                HashMap::from([("payload".to_owned(), Value::Str(value.to_owned()))]),
-            )
+            .insert_row("leaf", RowId(presentation.nodes[ordinal]), cells)
             .expect("distinct presentation row ids");
         table
             .insert_foreign_key(
@@ -200,15 +236,66 @@ enum StableEdgeId {
     Synthesized(SynthKey),
 }
 
+/// A value's class under the value relation of law equivalence, built
+/// without calling any lens-shape code: a float becomes its binary64 bits,
+/// except that `-0.0` joins `+0.0` and every NaN joins one class.
+#[derive(Clone, Debug, PartialEq)]
+enum OracleValue {
+    Float(u64),
+    List(Vec<Self>),
+    Record(BTreeMap<String, Self>),
+    Opaque(String, BTreeMap<String, Self>),
+    Exact(Value),
+}
+
+/// The class every NaN joins.
+const ORACLE_NAN: u64 = 0x7ff8_0000_0000_0000;
+
+fn oracle_value(value: &Value) -> OracleValue {
+    match value {
+        Value::Float(float) if float.is_nan() => OracleValue::Float(ORACLE_NAN),
+        Value::Float(float) if float.to_bits() << 1 == 0 => OracleValue::Float(0),
+        Value::Float(float) => OracleValue::Float(float.to_bits()),
+        Value::List(items) => OracleValue::List(items.iter().map(oracle_value).collect()),
+        Value::Unknown(fields) => OracleValue::Record(oracle_fields(fields)),
+        Value::Opaque { type_, fields } => {
+            OracleValue::Opaque(type_.clone(), oracle_fields(fields))
+        }
+        other => OracleValue::Exact(other.clone()),
+    }
+}
+
+fn oracle_fields(fields: &HashMap<String, Value>) -> BTreeMap<String, OracleValue> {
+    fields
+        .iter()
+        .map(|(field, value)| (field.clone(), oracle_value(value)))
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum OraclePresence {
+    Present(OracleValue),
+    Null,
+    Absent,
+}
+
+fn oracle_presence(presence: &FieldPresence) -> OraclePresence {
+    match presence {
+        FieldPresence::Present(value) => OraclePresence::Present(oracle_value(value)),
+        FieldPresence::Null => OraclePresence::Null,
+        FieldPresence::Absent => OraclePresence::Absent,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct CanonicalNode {
     anchor: Name,
-    value: Option<FieldPresence>,
+    value: Option<OraclePresence>,
     discriminator: Option<Name>,
-    fields: BTreeMap<String, Value>,
+    fields: BTreeMap<String, OracleValue>,
     position: Option<u32>,
     shape: NodeShape,
-    annotations: BTreeMap<String, Value>,
+    annotations: BTreeMap<String, OracleValue>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -250,20 +337,12 @@ fn normalize_graph(graph: &GInstance, index: &SynthIndex) -> Option<CanonicalGra
                 stable_node(id, index),
                 CanonicalNode {
                     anchor: node.anchor.clone(),
-                    value: node.value.clone(),
+                    value: node.value.as_ref().map(oracle_presence),
                     discriminator: node.discriminator.clone(),
-                    fields: node
-                        .extra_fields
-                        .iter()
-                        .map(|(field, value)| (field.clone(), value.clone()))
-                        .collect(),
+                    fields: oracle_fields(&node.extra_fields),
                     position: node.position,
                     shape: node.shape.clone(),
-                    annotations: node
-                        .annotations
-                        .iter()
-                        .map(|(field, value)| (field.clone(), value.clone()))
-                        .collect(),
+                    annotations: oracle_fields(&node.annotations),
                 },
             )
         })
@@ -389,6 +468,59 @@ fn assert_table_pair(left: Presentation, right: Presentation, changed: bool) {
     assert_eq!(expected, !changed);
     assert_eq!(TableShape::equivalent(&left, &li, &right, &ri), expected);
     assert_eq!(TableShape::equivalent(&right, &ri, &left, &li), expected);
+}
+
+/// The independent class of each float witness: `+0.0` and `-0.0` share one,
+/// the three NaNs share another, and `1.0` has its own.
+const FLOAT_WITNESS_CLASSES: [u8; 6] = [0, 0, 1, 1, 1, 2];
+
+fn assert_float_pair(shape: LawEquivalenceShape, left: u8, right: u8) {
+    let left_bits = LAW_EQUIVALENCE_FLOAT_WITNESSES[usize::from(left)];
+    let right_bits = LAW_EQUIVALENCE_FLOAT_WITNESSES[usize::from(right)];
+    let expected =
+        FLOAT_WITNESS_CLASSES[usize::from(left)] == FLOAT_WITNESS_CLASSES[usize::from(right)];
+    let (left_presentation, right_presentation) = (PRESENTATIONS[0], PRESENTATIONS[1]);
+    let (oracle, forward, backward) = match shape {
+        LawEquivalenceShape::Graph => {
+            let (l, li) = graph_fixture_with(left_presentation, false, Some(left_bits));
+            let (r, ri) = graph_fixture_with(right_presentation, false, Some(right_bits));
+            (
+                graph_oracle(&l, &li, &r, &ri),
+                GraphShape::equivalent(&l, &li, &r, &ri),
+                GraphShape::equivalent(&r, &ri, &l, &li),
+            )
+        }
+        LawEquivalenceShape::Tree => {
+            let (l, li) = tree_fixture_with(left_presentation, false, Some(left_bits));
+            let (r, ri) = tree_fixture_with(right_presentation, false, Some(right_bits));
+            (
+                tree_oracle(&l, &li, &r, &ri),
+                TreeShape::equivalent(&l, &li, &r, &ri),
+                TreeShape::equivalent(&r, &ri, &l, &li),
+            )
+        }
+        LawEquivalenceShape::Table => {
+            let (l, li) = table_fixture_with(left_presentation, false, Some(left_bits));
+            let (r, ri) = table_fixture_with(right_presentation, false, Some(right_bits));
+            (
+                table_oracle(&l, &li, &r, &ri),
+                TableShape::equivalent(&l, &li, &r, &ri),
+                TableShape::equivalent(&r, &ri, &l, &li),
+            )
+        }
+    };
+    assert_eq!(
+        oracle, expected,
+        "{shape:?} float witnesses {left} and {right}"
+    );
+    assert_eq!(
+        forward, expected,
+        "{shape:?} float witnesses {left} and {right}"
+    );
+    assert_eq!(
+        backward, expected,
+        "{shape:?} float witnesses {right} and {left}"
+    );
 }
 
 fn assert_pair(shape: LawEquivalenceShape, left: u8, right: u8, changed: bool) {
@@ -679,10 +811,13 @@ fn lens_equivalence_normalization_certificate() {
             LawEquivalenceOracleCase::OperationalTableFloor => {
                 assert_operational_table_floor_divergence();
             }
+            LawEquivalenceOracleCase::FloatValue { shape, left, right } => {
+                assert_float_pair(shape, left, right);
+            }
         }
     });
     assert_eq!(count, law_equivalence_oracle_case_count_certificate());
-    assert_eq!(count, 151);
+    assert_eq!(count, 259);
 }
 
 #[test]
@@ -700,6 +835,8 @@ proptest! {
         left_gap in 1_u16..=500,
         right_gap in 1_u16..=500,
         changed in any::<bool>(),
+        float_left in 0_u8..6,
+        float_right in 0_u8..6,
     ) {
         let left_base = u32::from(left_base);
         let right_base = u32::from(right_base);
@@ -722,6 +859,7 @@ proptest! {
             for family in LawEquivalenceIncoherence::ALL {
                 assert_incoherent(shape, family);
             }
+            assert_float_pair(shape, float_left, float_right);
         }
         assert_id_floor_is_law_observable();
     }

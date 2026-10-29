@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::Tree;
-use crate::resolution::{IndexedSource, IndexedView, SingleStep};
+use crate::resolution::{IndexedSource, IndexedView, SingleStep, UriDirective};
 
 /// The three targets of the finite S8 state-law carrier.
 pub const INDEXED_TARGETS: [&str; 3] = ["a", "b", "c"];
@@ -93,15 +93,48 @@ pub fn injective_renamings(ids: &[u32], pool: u32) -> Vec<BTreeMap<u32, u32>> {
     })
 }
 
-/// Every sequence of URI directives of length at most three over three
-/// boundary representatives: absolute, relative and empty.
+/// Every sequence of at most three positional URI directives drawn from the
+/// bases `http://a/b/`, `c/` and `../d/` and the label `p` bound to
+/// `http://x/` or `y#`: `1 + 5 + 25 + 125 = 156` sequences.
 #[must_use]
-pub fn uri_directive_sequences() -> Vec<Vec<String>> {
+pub fn uri_directive_sequences() -> Vec<Vec<UriDirective>> {
+    let base = |iri: &str| UriDirective::Base(iri.to_owned());
+    let prefix = |iri: &str| UriDirective::Prefix {
+        label: "p".to_owned(),
+        iri: iri.to_owned(),
+    };
     sequences(&[
-        "https://example.test/a/b".to_owned(),
-        "../c".to_owned(),
-        String::new(),
+        base("http://a/b/"),
+        base("c/"),
+        base("../d/"),
+        prefix("http://x/"),
+        prefix("y#"),
     ])
+}
+
+/// One occurrence of each written form that follows a directive sequence:
+/// an absolute IRI reference, a relative one, a prefixed name and `a`.
+#[must_use]
+pub fn uri_written_forms() -> [&'static str; 4] {
+    ["http://e/f", "g", "p:q", "a"]
+}
+
+/// Every ancestor-or-self chain of at most three elements, each holding no
+/// `xml:base` or one of `http://a/b/`, `c/` and `../d/`, root first:
+/// `4 + 16 + 64 = 84` chains. Every element of a tree of at most three
+/// elements, siblings included, has one of these chains.
+#[must_use]
+pub fn inherited_base_chains() -> Vec<Vec<Option<String>>> {
+    let values = [
+        None,
+        Some("http://a/b/".to_owned()),
+        Some("c/".to_owned()),
+        Some("../d/".to_owned()),
+    ];
+    sequences(&values)
+        .into_iter()
+        .filter(|chain| !chain.is_empty())
+        .collect()
 }
 
 /// Every standoff coordinate tuple in the bounded arithmetic carrier.
@@ -127,8 +160,8 @@ pub fn standoff_coordinates() -> Vec<(u64, u64, u64, bool)> {
 #[cfg(test)]
 mod tests {
     use super::{
-        indexed_sources, injective_renamings, single_step_basis, standoff_coordinates,
-        uri_directive_sequences,
+        indexed_sources, inherited_base_chains, injective_renamings, single_step_basis,
+        standoff_coordinates, uri_directive_sequences,
     };
     use crate::resolution::indexed_get;
 
@@ -146,7 +179,8 @@ mod tests {
         assert_eq!(candidate_count, 3 * 4 + 3 * 3 * 4, "single steps");
         assert_eq!(injective_renamings(&[0, 1], 5).len(), 5 * 4);
         // Sum of 3^k for k = 0..=3.
-        assert_eq!(uri_directive_sequences().len(), 1 + 3 + 9 + 27);
+        assert_eq!(uri_directive_sequences().len(), 1 + 5 + 25 + 125);
+        assert_eq!(inherited_base_chains().len(), 4 + 16 + 64);
         assert_eq!(standoff_coordinates().len(), 4 * 4 * 4 * 2);
     }
 }

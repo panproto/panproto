@@ -15,7 +15,7 @@ use panproto_inst::metadata::{Node, NodeShape};
 #[cfg(feature = "tree-sitter")]
 use panproto_inst::value::{CANONICAL_NAN, NEGATIVE_CANONICAL_NAN};
 use panproto_inst::value::{DecimalValue, FieldPresence, Temporal, Value};
-use panproto_inst::{FInstance, Fan, WInstance};
+use panproto_inst::{FInstance, Fan, FidelityReason, WInstance};
 use panproto_io::byte_tabular::{ByteTabularCodec, ByteTabularComplement};
 #[cfg(feature = "tree-sitter")]
 use panproto_io::error::ParseInstanceError;
@@ -257,6 +257,12 @@ fn edited_exact_values() -> [(&'static str, Value); 8] {
 }
 
 fn assert_exact_tree_input(instance: &WInstance) {
+    assert_exact_tree_input_with_huge(instance, "1e400");
+}
+
+/// The exact-value checks of a tree, with `huge` the expected display of the
+/// `huge` decimal.
+fn assert_exact_tree_input_with_huge(instance: &WInstance, huge: &str) {
     assert!(matches!(
         value_at(instance, "long_decimal"),
         FieldPresence::Present(Value::Decimal(value))
@@ -291,7 +297,7 @@ fn assert_exact_tree_input(instance: &WInstance) {
     }
     assert!(matches!(
         value_at(instance, "huge"),
-        FieldPresence::Present(Value::Decimal(value)) if value.to_string() == "1e400"
+        FieldPresence::Present(Value::Decimal(value)) if value.to_string() == huge
     ));
 }
 
@@ -808,12 +814,29 @@ fn delimited_exact_values_survive_forced_rerenders() {
     for (relative, delimiter) in [("tsv/exact.tsv", b'\t'), ("csv/exact.csv", b',')] {
         let format = if delimiter == b'\t' { "tsv" } else { "csv" };
         let input = read_fixture(relative);
+        // A delimited cell reads numerals in the JSON grammar, which has no
+        // NaN: the fixture's `NaN` cell is the one typed refusal.
+        assert!(matches!(
+            parse_tsv(&schema, &input, "cassandra", "rows", delimiter, None),
+            Err(panproto_io::error::ParseInstanceError::Fidelity(ref errors))
+                if matches!(errors.as_slice(), [error]
+                    if error.site.vertex.as_ref() == "nan"
+                        && error.reason == FidelityReason::NotANumber)
+        ));
+        let separator = char::from(delimiter);
+        let input = String::from_utf8(input)
+            .expect("fixture UTF-8")
+            .replace(
+                &format!("{separator}NaN{separator}"),
+                &format!("{separator}0.5{separator}"),
+            )
+            .into_bytes();
         let instance =
             parse_tsv(&schema, &input, "cassandra", "rows", delimiter, None).expect("parse table");
         assert_exact_table_input(&instance);
         assert!(matches!(
             table_value(&instance, "rows", "nan"),
-            Value::Float(value) if value.is_nan()
+            Value::Float(value) if value.to_bits() == 0.5_f64.to_bits()
         ));
         assert_eq!(
             instance.rows("rows")[0].1.get("null_value"),
@@ -844,7 +867,7 @@ fn delimited_exact_values_survive_forced_rerenders() {
             parse_tsv(&schema, &emitted, "cassandra", "rows", delimiter, None).expect("reparse");
         assert!(matches!(
             table_value(&reparsed, "rows", "nan"),
-            Value::Float(value) if value.is_nan() && !value.is_sign_negative()
+            Value::Float(value) if value.to_bits() == 0.5_f64.to_bits()
         ));
         for column in EXACT_FINITE_COLUMNS
             .into_iter()
@@ -856,11 +879,16 @@ fn delimited_exact_values_survive_forced_rerenders() {
             );
         }
 
-        assert!(
-            std::str::from_utf8(&emitted)
-                .expect("table UTF-8")
-                .contains("NaN")
-        );
+        let mut with_nan = edited.clone();
+        with_nan
+            .row_mut(row)
+            .expect("row")
+            .insert("nan".into(), Value::Float(f64::NAN));
+        assert!(matches!(
+            emit_tsv_with_schema(&schema, &with_nan, "cassandra", "rows", delimiter),
+            Err(EmitInstanceError::Value(ref error))
+                if error.reason == EmitValueReason::NonFinite && error.format == format
+        ));
 
         edited
             .row_mut(row)
@@ -881,8 +909,25 @@ fn delimited_exact_values_survive_forced_rerenders() {
 fn xml_distinguishes_null_empty_and_absent_then_rerenders() {
     let schema = exact_value_schema("doc");
     let input = read_fixture("xml/exact.xml");
+    // XML text reads numerals in the XML Schema grammar, whose decimal has no
+    // exponent: the fixture's `1e400` is the one typed refusal.
+    assert!(matches!(
+        parse_xml_bytes(&schema, &input, "cassandra"),
+        Err(panproto_io::error::ParseInstanceError::Fidelity(ref errors))
+            if matches!(errors.as_slice(), [error]
+                if error.site.vertex.as_ref() == "huge"
+                    && error.reason == FidelityReason::NotANumber)
+    ));
+    let positional = format!("1{}", "0".repeat(400));
+    let input = String::from_utf8(input)
+        .expect("fixture UTF-8")
+        .replace("<huge>1e400</huge>", &format!("<huge>{positional}</huge>"))
+        .into_bytes();
     let mut instance = parse_xml_bytes(&schema, &input, "cassandra").expect("parse XML");
-    assert_exact_tree_input(&instance);
+    let huge = DecimalValue::parse(&positional)
+        .expect("positional decimal")
+        .to_string();
+    assert_exact_tree_input_with_huge(&instance, &huge);
     assert!(matches!(
         value_at(&instance, "null_value"),
         FieldPresence::Null
@@ -909,10 +954,6 @@ fn xml_distinguishes_null_empty_and_absent_then_rerenders() {
         value_at(&instance, "ten_to_29"),
         FieldPresence::Present(Value::BigInt(value))
             if value.to_string() == "100000000000000000000000000000"
-    ));
-    assert!(matches!(
-        value_at(&instance, "huge"),
-        FieldPresence::Present(Value::Decimal(value)) if value.to_string() == "1e400"
     ));
     assert!(matches!(
         value_at(&instance, "nan"),

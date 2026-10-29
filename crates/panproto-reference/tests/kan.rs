@@ -2004,6 +2004,7 @@ fn tree_domain(result: &Result<Tree, encode::TreeKanError>) -> TreeDomain {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum TreeEncodeKind {
+    NodeIdMismatch,
     ReservedVocabulary,
     SecondParent,
     DanglingFan,
@@ -2058,6 +2059,7 @@ fn tree_outcome(result: &Result<Tree, encode::TreeKanError>) -> TreeOutcome {
     match result {
         Ok(_) => TreeOutcome::Ok,
         Err(encode::TreeKanError::Encode(error)) => TreeOutcome::Encode(match error {
+            encode::TreeEncodeError::NodeIdMismatch { .. } => TreeEncodeKind::NodeIdMismatch,
             encode::TreeEncodeError::ReservedVocabulary => TreeEncodeKind::ReservedVocabulary,
             encode::TreeEncodeError::SecondParent { .. } => TreeEncodeKind::SecondParent,
             encode::TreeEncodeError::DanglingFan => TreeEncodeKind::DanglingFan,

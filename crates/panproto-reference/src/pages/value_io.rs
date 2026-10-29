@@ -73,6 +73,11 @@ pub mod implementation {
         Malformed,
         /// The scalar cannot be represented on this route.
         NotRepresentable,
+        /// A special decimal or a non-finite binary float has no spelling on
+        /// this route that reads back as the same value.
+        NonFinite,
+        /// The canonical spelling exceeds the output allowance.
+        LimitExceeded,
         /// Exact coercion refused the lexeme.
         Fidelity(FidelityReason),
     }
@@ -165,9 +170,18 @@ pub mod implementation {
         Ok(output)
     }
 
+    /// A single-quoted body. TOML's literal string holds TOML 1.0's
+    /// `literal-char`: tab and every scalar from U+0020 except `'` and DEL.
+    /// YAML's single-quoted scalar doubles `'` and holds `nb-json`.
     fn parse_single_quoted(route: Route, body: &str) -> Result<String, ValueIoError> {
         if route == Route::Toml {
-            return (!body.contains(['\'', '\r', '\n']))
+            let literal_char = |character: char| {
+                character == '\t'
+                    || (character >= '\u{20}' && character != '\'' && character != '\u{7f}')
+            };
+            return body
+                .chars()
+                .all(literal_char)
                 .then(|| body.to_owned())
                 .ok_or(ValueIoError::Malformed);
         }
@@ -191,7 +205,7 @@ pub mod implementation {
         let mut chars = text[1..text.len() - 1].chars().peekable();
         while let Some(character) = chars.next() {
             if character != '\\' {
-                if character.is_control() {
+                if !literal_in_double_quotes(route, character) {
                     return Err(ValueIoError::Malformed);
                 }
                 out.push(character);
@@ -254,6 +268,21 @@ pub mod implementation {
             }
         }
         Ok(out)
+    }
+
+    /// Whether `character` may stand unescaped inside a double-quoted string:
+    /// RFC 8259's `unescaped` (every scalar from U+0020) on JSON, TOML 1.0's
+    /// `basic-unescaped` with its tab (no C0 control but tab, and no DEL) on
+    /// TOML, and YAML 1.2.2's `nb-json` (tab or any scalar from U+0020) on
+    /// YAML. Quote and backslash never reach this test. A line break is
+    /// refused on YAML as well, since one scalar line is the modelled form.
+    fn literal_in_double_quotes(route: Route, character: char) -> bool {
+        let code = u32::from(character);
+        match route {
+            Route::Json => code >= 0x20,
+            Route::Toml => (code == 0x09 || code >= 0x20) && code != 0x7f,
+            Route::Yaml | Route::Xml | Route::Csv | Route::Tsv => code == 0x09 || code >= 0x20,
+        }
     }
 
     fn hex_quad(
@@ -365,7 +394,12 @@ pub mod implementation {
             (Route::Json | Route::Toml | Route::Yaml, "true") => Ok(Value::Bool(true)),
             (Route::Json | Route::Toml | Route::Yaml, "false") => Ok(Value::Bool(false)),
             (Route::Xml | Route::Csv | Route::Tsv, _) => parse_string(route, text).map(Value::Str),
-            (_, value) if value.starts_with('"') => parse_string(route, value).map(Value::Str),
+            (_, value)
+                if value.starts_with('"')
+                    || (matches!(route, Route::Toml | Route::Yaml) && value.starts_with('\'')) =>
+            {
+                parse_string(route, value).map(Value::Str)
+            }
             (Route::Json, value)
                 if (value.starts_with('[') && value.ends_with(']'))
                     || (value.starts_with('{') && value.ends_with('}')) =>
@@ -427,7 +461,14 @@ pub mod implementation {
         }
     }
 
-    fn quote(text: &str) -> String {
+    /// A double-quoted string: quote and backslash escaped, the five named
+    /// short escapes, and every other C0 control as a four-digit `\u`
+    /// escape. JSON writes hex digits in lowercase and every other scalar
+    /// literally. TOML, whose basic strings forbid a literal DEL, also
+    /// escapes U+007F, in TOML's uppercase hex digits. YAML writes the
+    /// remaining scalars literally, as `nb-json` admits them.
+    fn quote(route: Route, text: &str) -> String {
+        use std::fmt::Write as _;
         let mut out = String::from("\"");
         for character in text.chars() {
             match character {
@@ -438,10 +479,13 @@ pub mod implementation {
                 '\t' => out.push_str("\\t"),
                 '\u{8}' => out.push_str("\\b"),
                 '\u{c}' => out.push_str("\\f"),
+                other if other <= '\u{1f}' && route == Route::Toml => {
+                    let _ = write!(&mut out, "\\u{:04X}", u32::from(other));
+                }
                 other if other <= '\u{1f}' => {
-                    use std::fmt::Write as _;
                     let _ = write!(&mut out, "\\u{:04x}", u32::from(other));
                 }
+                '\u{7f}' if route == Route::Toml => out.push_str("\\u007F"),
                 other => out.push(other),
             }
         }
@@ -449,40 +493,81 @@ pub mod implementation {
         out
     }
 
-    fn xml_quote(text: &str) -> String {
-        text.chars().fold(String::new(), |mut output, character| {
-            output.push_str(match character {
-                '&' => "&amp;",
-                '<' => "&lt;",
-                '>' => "&gt;",
-                '\'' => "&apos;",
-                '"' => "&quot;",
-                _ => {
-                    output.push(character);
-                    return output;
+    /// XML character data: the five markup characters as predefined
+    /// entities and carriage return as `&#xD;`, since XML 1.0 Sec 2.11 reads
+    /// a literal carriage return as a line feed. A scalar outside XML 1.0
+    /// `Char` has no spelling, literal or referenced, and is refused.
+    fn xml_quote(text: &str) -> Result<String, ValueIoError> {
+        let mut output = String::new();
+        for character in text.chars() {
+            match character {
+                '&' => output.push_str("&amp;"),
+                '<' => output.push_str("&lt;"),
+                '>' => output.push_str("&gt;"),
+                '\'' => output.push_str("&apos;"),
+                '"' => output.push_str("&quot;"),
+                '\r' => output.push_str("&#xD;"),
+                other
+                    if matches!(
+                        u32::from(other),
+                        0x9 | 0xa | 0x20..=0xd7ff | 0xe000..=0xfffd | 0x0001_0000..=0x0010_ffff
+                    ) =>
+                {
+                    output.push(other);
                 }
-            });
-            output
-        })
+                _ => return Err(ValueIoError::NotRepresentable),
+            }
+        }
+        Ok(output)
     }
 
-    fn csv_quote(text: &str) -> String {
+    /// A CSV cell written without quoting: a cell holding a comma, quote,
+    /// carriage return or line feed has no unquoted spelling and is refused,
+    /// since the canonical CSV writer writes no quoted field.
+    fn csv_text(text: &str) -> Result<String, ValueIoError> {
         if text.contains([',', '"', '\r', '\n']) {
-            format!("\"{}\"", text.replace('"', "\"\""))
+            Err(ValueIoError::NotRepresentable)
         } else {
-            text.to_owned()
+            Ok(text.to_owned())
         }
+    }
+
+    /// The output allowance of a canonical writer, in bytes.
+    pub const OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
+
+    /// A big integer in its digits when they fit [`OUTPUT_BYTES`], else in
+    /// the exponent form `[-]{significand}e{zeros}` on a route whose numeral
+    /// grammar reads it back under `BigInt` (every route but XML, whose XSD
+    /// integer lexemes have no exponent), else refused.
+    fn bigint_text(
+        route: Route,
+        value: &crate::exact::BigIntValue,
+    ) -> Result<String, ValueIoError> {
+        let sign = if value.negative { "-" } else { "" };
+        let significand = value.significand.to_string();
+        let zeros = value.zeros.to_u64();
+        let written = zeros.and_then(|zeros| {
+            zeros
+                .checked_add(u64::try_from(significand.len()).ok()?)?
+                .checked_add(u64::from(value.negative))
+        });
+        if written.is_some_and(|length| length <= OUTPUT_BYTES)
+            && let Some(zeros) = zeros.and_then(|zeros| usize::try_from(zeros).ok())
+        {
+            return Ok(format!("{sign}{significand}{}", "0".repeat(zeros)));
+        }
+        let compact = format!("{sign}{significand}e{}", value.zeros);
+        if route != Route::Xml && u64::try_from(compact.len()).is_ok_and(|len| len <= OUTPUT_BYTES)
+        {
+            return Ok(compact);
+        }
+        Err(ValueIoError::LimitExceeded)
     }
 
     fn numeric_text(route: Route, value: &Value) -> Result<String, ValueIoError> {
         let text = match value {
             Value::Int(value) => value.to_string(),
-            Value::BigInt(value) => format!(
-                "{}{}e{}",
-                if value.negative { "-" } else { "" },
-                value.significand,
-                value.zeros
-            ),
+            Value::BigInt(value) => bigint_text(route, value)?,
             Value::Decimal(Decimal::Finite(value)) if route == Route::Xml => {
                 let exponent = value
                     .exponent
@@ -506,7 +591,7 @@ pub mod implementation {
             }
             Value::Decimal(value @ Decimal::Finite(_)) => decimal_text(value),
             Value::Decimal(Decimal::Infinite { .. } | Decimal::NaN { .. }) => {
-                return Err(ValueIoError::NotRepresentable);
+                return Err(ValueIoError::NonFinite);
             }
             Value::Float(bits) => match decode(Format::B64, *bits) {
                 FloatValue::Finite { .. } => shortest(Format::B64, *bits)
@@ -517,7 +602,7 @@ pub mod implementation {
                     Route::Yaml => if negative { "-.inf" } else { ".inf" }.to_owned(),
                     Route::Xml => if negative { "-INF" } else { "INF" }.to_owned(),
                     Route::Json | Route::Csv | Route::Tsv => {
-                        return Err(ValueIoError::NotRepresentable);
+                        return Err(ValueIoError::NonFinite);
                     }
                 },
                 FloatValue::NaN { negative, .. }
@@ -533,9 +618,14 @@ pub mod implementation {
                         Route::Yaml => if negative { "-.nan" } else { ".nan" }.to_owned(),
                         Route::Xml => if negative { "-NaN" } else { "NaN" }.to_owned(),
                         Route::Json | Route::Csv | Route::Tsv => {
-                            return Err(ValueIoError::NotRepresentable);
+                            return Err(ValueIoError::NonFinite);
                         }
                     }
+                }
+                FloatValue::NaN { .. }
+                    if matches!(route, Route::Json | Route::Csv | Route::Tsv) =>
+                {
+                    return Err(ValueIoError::NonFinite);
                 }
                 FloatValue::NaN { .. } => return Err(ValueIoError::NotRepresentable),
             },
@@ -557,17 +647,17 @@ pub mod implementation {
             Value::Bool(value) if !matches!(route, Route::Xml | Route::Csv | Route::Tsv) => {
                 value.to_string()
             }
-            Value::Str(value) if route == Route::Xml => xml_quote(value),
-            Value::Str(value) if route == Route::Csv => csv_quote(value),
+            Value::Str(value) if route == Route::Xml => xml_quote(value)?,
+            Value::Str(value) if route == Route::Csv => csv_text(value)?,
             Value::Str(value) if route == Route::Tsv => {
                 if value.contains(['\t', '\r', '\n']) {
                     return Err(ValueIoError::NotRepresentable);
                 }
                 value.clone()
             }
-            Value::Str(value) => quote(value),
+            Value::Str(value) => quote(route, value),
             Value::Temporal(value) if temporal(route, value) => match route {
-                Route::Json => quote(&value.to_string()),
+                Route::Json => quote(route, &value.to_string()),
                 Route::Toml | Route::Yaml | Route::Xml | Route::Csv | Route::Tsv => {
                     value.to_string()
                 }
@@ -606,6 +696,12 @@ pub mod implementation {
             return false;
         };
         let typed = match value {
+            Value::Int(_) if matches!(route, Route::Xml | Route::Csv | Route::Tsv) => {
+                Some(ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                })
+            }
             Value::BigInt(_) => Some(ScalarKind::BigInt),
             Value::Decimal(_) => Some(ScalarKind::Decimal),
             Value::Float(_) => Some(ScalarKind::Float { bits: 64 }),
@@ -691,7 +787,8 @@ pub mod implementation {
                 }
             }
             Route::Json => value.is_complete(),
-            Route::Yaml | Route::Xml | Route::Csv | Route::Tsv => true,
+            Route::Yaml => value.offset != Offset::Local,
+            Route::Xml | Route::Csv | Route::Tsv => true,
         }
     }
 
@@ -779,23 +876,33 @@ pub mod implementation {
             && !emitted.starts_with(&[0xfe, 0xff])
     }
 
-    /// Definition: Canonical TOML scalar emission preserves the exact decimal
-    /// or integer representation, independently of the chosen token spelling.
+    /// Definition: Canonical TOML scalar emission preserves the exact carrier.
+    ///
+    /// Both tokens are read under the declared exact kind, whatever spelling
+    /// the writer chose: under
+    /// `ScalarKind::Decimal` as exact decimal carriers, so the scale and the
+    /// sign of zero are observed; under `ScalarKind::BigInt` as exact
+    /// integers, whatever their exponent. Every other kind is outside the
+    /// predicate's domain and gives `false`.
     ///
     /// Book anchors: `L-value-io-11`.
     #[must_use]
-    pub fn toml_scalar(source_token: &str, emitted_token: &str) -> bool {
-        let same_decimal = crate::exact::parse_decimal(source_token)
-            .zip(crate::exact::parse_decimal(emitted_token))
-            .is_some_and(|(source, emitted)| source == emitted);
-        let same_integer = crate::exact::parse_numeral(source_token)
-            .and_then(|numeral| crate::exact::integer_of_numeral(&numeral))
-            .zip(
-                crate::exact::parse_numeral(emitted_token)
-                    .and_then(|numeral| crate::exact::integer_of_numeral(&numeral)),
-            )
-            .is_some_and(|(source, emitted)| source == emitted);
-        same_decimal || same_integer
+    pub fn toml_scalar(kind: &ScalarKind, source_token: &str, emitted_token: &str) -> bool {
+        match kind {
+            ScalarKind::Decimal => crate::exact::parse_decimal(source_token)
+                .zip(crate::exact::parse_decimal(emitted_token))
+                .is_some_and(|(source, emitted)| source == emitted),
+            ScalarKind::BigInt => {
+                let integer = |token: &str| {
+                    crate::exact::parse_numeral(token)
+                        .and_then(|numeral| crate::exact::integer_of_numeral(&numeral))
+                };
+                integer(source_token)
+                    .zip(integer(emitted_token))
+                    .is_some_and(|(source, emitted)| source == emitted)
+            }
+            _ => false,
+        }
     }
 
     /// XML entity expansion delegates to the bounded XML reference.
@@ -807,43 +914,61 @@ pub mod implementation {
     /// Definition: Canonical XML is UTF-8 without a byte-order mark or a
     /// declaration naming another encoding.
     ///
+    /// The XML declaration is present exactly when the bytes begin with
+    /// `<?xml` followed by XML white space (so `<?xml-stylesheet` is a
+    /// processing instruction, not a declaration); it ends at the first `?>`
+    /// or at the end of the bytes, and its encoding pseudo-attribute is the
+    /// name `encoding` preceded by white space and followed by optional white
+    /// space and `=`.
+    ///
     /// Book anchors: `L-value-io-13`.
     #[must_use]
     pub fn xml_encoding(emitted: &[u8]) -> bool {
+        const fn xml_space(byte: u8) -> bool {
+            matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
+        }
         if !encoding(emitted) {
             return false;
         }
-        let Ok(text) = std::str::from_utf8(emitted) else {
-            return false;
-        };
-        let Some(end) = text.find("?>") else {
+        let Some(after_target) = emitted.strip_prefix(b"<?xml") else {
             return true;
         };
-        let declaration = &text[..end];
-        if !declaration.trim_start().starts_with("<?xml") {
+        if !after_target.first().copied().is_some_and(xml_space) {
             return true;
         }
-        let lower = declaration.to_ascii_lowercase();
-        let Some(start) = lower.find("encoding") else {
-            return true;
-        };
-        let rest = lower[start + "encoding".len()..].trim_start();
-        let Some(rest) = rest.strip_prefix('=') else {
-            return false;
-        };
-        let rest = rest.trim_start();
-        let Some(quote) = rest
-            .chars()
-            .next()
-            .filter(|quote| matches!(quote, '\'' | '"'))
-        else {
-            return false;
-        };
-        let value = &rest[quote.len_utf8()..];
-        let Some(end) = value.find(quote) else {
-            return false;
-        };
-        matches!(&value[..end], "utf-8" | "utf8")
+        let end = after_target
+            .windows(2)
+            .position(|pair| pair == b"?>")
+            .unwrap_or(after_target.len());
+        let declaration = &after_target[..end];
+        let mut index = 0;
+        while index < declaration.len() {
+            let preceded_by_space = index > 0 && xml_space(declaration[index - 1]);
+            if preceded_by_space && declaration[index..].starts_with(b"encoding") {
+                let mut rest = &declaration[index + b"encoding".len()..];
+                while rest.first().copied().is_some_and(xml_space) {
+                    rest = &rest[1..];
+                }
+                if let Some(mut value) = rest.strip_prefix(b"=") {
+                    while value.first().copied().is_some_and(xml_space) {
+                        value = &value[1..];
+                    }
+                    let Some((&quote, value)) = value.split_first() else {
+                        return false;
+                    };
+                    if !matches!(quote, b'"' | b'\'') {
+                        return false;
+                    }
+                    let Some(close) = value.iter().position(|byte| *byte == quote) else {
+                        return false;
+                    };
+                    return value[..close].eq_ignore_ascii_case(b"utf-8")
+                        || value[..close].eq_ignore_ascii_case(b"utf8");
+                }
+            }
+            index += 1;
+        }
+        true
     }
 
     /// Definition: TSV has no implicit comment syntax.
@@ -889,15 +1014,15 @@ pub mod implementation {
         (namespace.to_owned(), local.to_owned())
     }
 
-    /// Definition: The canonical ATProto JSON object for a blob value.
+    /// Definition: The canonical AT Protocol JSON object for a blob value.
     ///
     /// Book anchors: `L-value-io-19`.
     #[must_use]
     pub fn blob_writer(ref_: &str, mime: &str, size: u64) -> Vec<u8> {
         format!(
             "{{\"$type\":\"blob\",\"mimeType\":{},\"ref\":{{\"$link\":{}}},\"size\":{size}}}",
-            quote(mime),
-            quote(ref_)
+            quote(Route::Json, mime),
+            quote(Route::Json, ref_)
         )
         .into_bytes()
     }
@@ -922,7 +1047,9 @@ pub mod implementation {
 
     #[cfg(test)]
     mod tests {
-        use super::{FidelityReason, Route, Value, ValueIoError, json_number_token, parse};
+        use super::{
+            FidelityReason, Route, Value, ValueIoError, emit, json_number_token, parse, round_trip,
+        };
 
         #[test]
         fn json_number_grammar_precedes_exact_coercion() {
@@ -998,6 +1125,194 @@ pub mod implementation {
                     "input={input:?}"
                 );
             }
+        }
+
+        #[test]
+        fn double_quoted_literals_follow_each_route_grammar() {
+            // RFC 8259 admits every scalar from U+0020 unescaped, DEL and the
+            // C1 controls included, and no C0 control.
+            for (input, expected) in [
+                ("\"\u{7f}\"", Some("\u{7f}")),
+                ("\"\u{80}\u{9f}\"", Some("\u{80}\u{9f}")),
+                ("\"\t\"", None),
+                ("\"\u{1f}\"", None),
+            ] {
+                assert_eq!(
+                    parse(Route::Json, input.as_bytes()).ok(),
+                    expected.map(|text| Value::Str(text.to_owned())),
+                    "JSON {input:?}"
+                );
+            }
+            // TOML basic strings admit a literal tab and refuse DEL.
+            assert_eq!(
+                parse(Route::Toml, b"\"\t\""),
+                Ok(Value::Str("\t".to_owned()))
+            );
+            assert_eq!(
+                parse(Route::Toml, b"\"\x7f\""),
+                Err(ValueIoError::Malformed)
+            );
+            assert_eq!(
+                parse(Route::Toml, "\"\u{80}\"".as_bytes()),
+                Ok(Value::Str("\u{80}".to_owned()))
+            );
+            // YAML double-quoted scalars admit `nb-json`: tab and every scalar
+            // from U+0020.
+            for input in ["\"\t\"", "\"\u{7f}\"", "\"\u{85}\""] {
+                assert_eq!(
+                    parse(Route::Yaml, input.as_bytes()),
+                    Ok(Value::Str(input[1..input.len() - 1].to_owned())),
+                    "YAML {input:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn emitted_strings_read_back_on_every_route() {
+            for character in [
+                '\0', '\t', '\n', '\r', '"', '\\', '&', '<', '\u{7f}', '\u{85}',
+            ] {
+                let value = Value::Str(character.to_string());
+                for route in [
+                    Route::Json,
+                    Route::Toml,
+                    Route::Yaml,
+                    Route::Xml,
+                    Route::Csv,
+                    Route::Tsv,
+                ] {
+                    if let Ok(bytes) = emit(route, &value) {
+                        assert_eq!(
+                            parse(route, &bytes),
+                            Ok(value.clone()),
+                            "route={route:?}, character={character:?}"
+                        );
+                    }
+                }
+            }
+            assert_eq!(
+                emit(Route::Toml, &Value::Str("\u{7f}".to_owned())),
+                Ok(b"\"\\u007F\"".to_vec())
+            );
+            assert_eq!(
+                emit(Route::Json, &Value::Str("\u{7f}".to_owned())),
+                Ok(b"\"\x7f\"".to_vec())
+            );
+            assert_eq!(
+                emit(Route::Xml, &Value::Str("\r".to_owned())),
+                Ok(b"&#xD;".to_vec())
+            );
+            assert_eq!(
+                emit(Route::Xml, &Value::Str("\0".to_owned())),
+                Err(ValueIoError::NotRepresentable)
+            );
+        }
+
+        #[test]
+        fn integers_and_special_values_follow_the_writer_rules() {
+            use crate::exact::{Decimal, ExactInteger, parse_decimal};
+            use crate::num::Nat;
+            let ExactInteger::Big(big) =
+                ExactInteger::from_parts(false, &Nat::one(), &Nat::from_u64(20))
+            else {
+                panic!("10^20 is outside i64");
+            };
+            for route in [
+                Route::Json,
+                Route::Toml,
+                Route::Yaml,
+                Route::Xml,
+                Route::Csv,
+                Route::Tsv,
+            ] {
+                assert_eq!(
+                    emit(route, &Value::BigInt(big.clone())),
+                    Ok(b"100000000000000000000".to_vec()),
+                    "route={route:?}"
+                );
+                assert!(
+                    round_trip(route, &Value::BigInt(big.clone())),
+                    "route={route:?}"
+                );
+                assert!(round_trip(route, &Value::Int(-7)), "route={route:?}");
+                for special in ["Infinity", "-Infinity", "NaN", "-NaN", "sNaN", "NaN12"] {
+                    let Some(decimal) = parse_decimal(special) else {
+                        panic!("special decimal {special}");
+                    };
+                    assert!(!matches!(decimal, Decimal::Finite(_)));
+                    assert_eq!(
+                        emit(route, &Value::Decimal(decimal)),
+                        Err(ValueIoError::NonFinite),
+                        "route={route:?}, special={special}"
+                    );
+                }
+            }
+            for route in [Route::Json, Route::Csv, Route::Tsv] {
+                for bits in [
+                    f64::INFINITY.to_bits(),
+                    f64::NEG_INFINITY.to_bits(),
+                    crate::float::CANONICAL_NAN_BITS,
+                    0x7ff8_0000_0000_0001,
+                ] {
+                    assert_eq!(
+                        emit(route, &Value::Float(bits)),
+                        Err(ValueIoError::NonFinite),
+                        "route={route:?}, bits={bits:#x}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn yaml_refuses_local_temporals() {
+            use crate::temporal::{TemporalForm, parse as parse_temporal};
+            let Some(local) = parse_temporal(TemporalForm::Date, "2000-01-01") else {
+                panic!("local date");
+            };
+            assert!(!super::temporal(Route::Yaml, &local));
+            assert_eq!(
+                emit(Route::Yaml, &Value::Temporal(local)),
+                Err(ValueIoError::NotRepresentable)
+            );
+            let Some(zulu) = parse_temporal(TemporalForm::DateTime, "2000-01-01T00:00:00Z") else {
+                panic!("zulu date-time");
+            };
+            assert!(super::temporal(Route::Yaml, &zulu));
+        }
+
+        #[test]
+        fn toml_scalar_observes_scale_and_the_sign_of_zero() {
+            use super::{ScalarKind, toml_scalar};
+            let decimal = ScalarKind::Decimal;
+            assert!(!toml_scalar(&decimal, "10e-1", "1e0"));
+            assert!(!toml_scalar(&decimal, "-0e-1", "0e0"));
+            assert!(!toml_scalar(&decimal, "-0", "0"));
+            assert!(toml_scalar(&decimal, "0e-1", "0.0"));
+            assert!(toml_scalar(&decimal, "1.50", "150e-2"));
+            assert!(toml_scalar(&decimal, "10", "10"));
+            assert!(!toml_scalar(&decimal, "10", "1e1"));
+            let big = ScalarKind::BigInt;
+            assert!(toml_scalar(&big, "1e20", "100000000000000000000"));
+            assert!(!toml_scalar(&big, "1e20", "10000000000000000000"));
+            assert!(!toml_scalar(&ScalarKind::Str, "1", "1"));
+        }
+
+        #[test]
+        fn xml_encoding_reads_only_the_xml_declaration() {
+            use super::xml_encoding;
+            assert!(xml_encoding(
+                b"<?xml-stylesheet href=\"encoding.xsl\"?><d/>"
+            ));
+            assert!(xml_encoding(
+                b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><d/>"
+            ));
+            assert!(xml_encoding(b"<?xml version='1.0' encoding = 'utf8'?><d/>"));
+            assert!(xml_encoding(b"<?xml version=\"1.0\"?><d/>"));
+            assert!(xml_encoding(b"<d/>"));
+            assert!(!xml_encoding(
+                b"<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><d/>"
+            ));
+            assert!(!xml_encoding(b"\xef\xbb\xbf<d/>"));
         }
 
         #[test]
@@ -1078,17 +1393,33 @@ pub mod xml {
         Ok(())
     }
 
+    /// The value of one XML 1.0 `CharRef` body: `#` then one or more ASCII
+    /// decimal digits, or `#x` then one or more ASCII hexadecimal digits of
+    /// either case. Every other byte, a sign included, is malformed.
     fn character_reference(name: &str) -> Option<Result<char, EntityError>> {
-        let digits = name.strip_prefix('#')?;
-        let (radix, digits) = digits
+        let body = name.strip_prefix('#')?;
+        let (radix, digits) = body
             .strip_prefix('x')
-            .map_or((10, digits), |hex| (16, hex));
+            .map_or((10_u32, body), |hexadecimal| (16_u32, hexadecimal));
         if digits.is_empty() {
             return Some(Err(EntityError::Malformed));
         }
-        let Ok(value) = u32::from_str_radix(digits, radix) else {
-            return Some(Err(EntityError::Malformed));
-        };
+        let mut value = 0_u32;
+        for byte in digits.bytes() {
+            let digit = match byte {
+                b'0'..=b'9' => u32::from(byte - b'0'),
+                b'a'..=b'f' if radix == 16 => u32::from(byte - b'a') + 10,
+                b'A'..=b'F' if radix == 16 => u32::from(byte - b'A') + 10,
+                _ => return Some(Err(EntityError::Malformed)),
+            };
+            let Some(next) = value
+                .checked_mul(radix)
+                .and_then(|shifted| shifted.checked_add(digit))
+            else {
+                return Some(Err(EntityError::Malformed));
+            };
+            value = next;
+        }
         let valid = matches!(
             value,
             0x9 | 0xa | 0xd | 0x20..=0xd7ff | 0xe000..=0xfffd | 0x0001_0000..=0x0010_ffff
@@ -1218,6 +1549,35 @@ pub mod xml {
         use std::collections::BTreeMap;
 
         use super::{EntityError, expand_entities};
+
+        #[test]
+        fn character_references_admit_only_unsigned_ascii_digits() {
+            for reference in [
+                "&#+65;",
+                "&#-65;",
+                "&#x+41;",
+                "&#x-41;",
+                "&# 65;",
+                "&#X41;",
+                "&#65 ;",
+                "&#٦٥;",
+                "&#;",
+                "&#x;",
+                "&#4294967361;",
+            ] {
+                assert_eq!(
+                    expand_entities(reference, &BTreeMap::new()),
+                    Err(EntityError::Malformed),
+                    "{reference}"
+                );
+            }
+            for reference in ["&#65;", "&#0065;", "&#x41;", "&#x0041;", "&#x4a;", "&#x4A;"] {
+                assert!(
+                    expand_entities(reference, &BTreeMap::new()).is_ok(),
+                    "{reference}"
+                );
+            }
+        }
 
         #[test]
         fn literal_xml_text_obeys_the_xml_10_character_domain() {

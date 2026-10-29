@@ -768,8 +768,10 @@ fn production_classes(schema: &reference::Schema) -> (Vec<DeclarationClass>, Vec
     let mut common = Vec::new();
     let mut structural = Vec::new();
     for finding in panproto_schema::validate(&production_schema(schema), &Protocol::default()) {
+        // Every carrier schema is well formed apart from its declarations, so
+        // a finding of any other family is a disagreement, never spill.
         let ValidationError::KeyRef(error) = finding else {
-            continue;
+            panic!("production reported a non-declaration finding: {finding:?}");
         };
         let class = match error {
             KeyRefError::EqualityArity { .. } => Some(DeclarationClass::EqualityArity),
@@ -930,6 +932,109 @@ fn reference_target_signatures(
         .collect()
 }
 
+type MemberMismatch = (String, String, String);
+
+fn reference_member_mismatches(schema: &reference::Schema) -> Vec<MemberMismatch> {
+    reference::validate_declarations(schema)
+        .err()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|error| match error {
+            reference::DeclarationError::TargetSetMemberMismatch { set, vertex, key } => {
+                Some((set, vertex, key))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn production_member_mismatches(schema: &reference::Schema) -> Vec<MemberMismatch> {
+    panproto_schema::validate(&production_schema(schema), &Protocol::default())
+        .into_iter()
+        .filter_map(|finding| match finding {
+            ValidationError::KeyRef(KeyRefError::TargetSetMemberMismatch { set, vertex, key }) => {
+                Some((set.to_string(), vertex.to_string(), key.to_string()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn target_set_members_need_a_well_formed_equality_and_a_resolving_role() {
+    let member = |vertex: &str, key: &str| (vertex.to_owned(), key.to_owned());
+    let flagged = |key: &str| ("targets".to_owned(), "b".to_owned(), key.to_owned());
+    let cases = [
+        (
+            "wrong-length equality vector",
+            vec![member("a", "id"), member("b", "malformed")],
+            vec![
+                DeclarationClass::EqualityArity,
+                DeclarationClass::TargetSetMemberMismatch,
+            ],
+            vec![flagged("malformed")],
+        ),
+        (
+            "index member",
+            vec![member("a", "id"), member("b", "index")],
+            vec![
+                DeclarationClass::EqualityArity,
+                DeclarationClass::TargetSetMemberMismatch,
+            ],
+            vec![flagged("index")],
+        ),
+        (
+            "index member first does not anchor the signature",
+            vec![member("b", "index"), member("a", "id")],
+            vec![
+                DeclarationClass::EqualityArity,
+                DeclarationClass::TargetSetMemberMismatch,
+            ],
+            vec![flagged("index")],
+        ),
+    ];
+    for (name, members, classes, mismatches) in cases {
+        let mut schema = target_set_predicate_base();
+        let keys = schema.keys.get_mut("b").expect("b keys");
+        let mut malformed = keys[0].clone();
+        "malformed".clone_into(&mut malformed.id);
+        malformed.equality = vec![reference_keys::KeyEquality::NumericValue; 2];
+        let mut index = keys[0].clone();
+        "index".clone_into(&mut index.id);
+        index.role = reference::KeyRole::Index;
+        keys.extend([malformed, index]);
+        let signatures = reference_target_signatures(&schema, &members)
+            .expect("every member names a declared key");
+        let well_formed = !name.starts_with("wrong-length");
+        assert_eq!(
+            reference_keys::target_set(&signatures),
+            well_formed,
+            "independent local predicate: {name}"
+        );
+        schema.target_sets.insert(
+            "targets".to_owned(),
+            reference::TargetSet {
+                members,
+                scope: reference::KeyScope::Document,
+            },
+        );
+        assert_eq!(reference_classes(&schema), classes, "reference: {name}");
+        let (production, structural) = production_classes(&schema);
+        assert!(structural.is_empty(), "{name}: {structural:?}");
+        assert_eq!(production, classes, "production: {name}");
+        assert_eq!(
+            reference_member_mismatches(&schema),
+            mismatches,
+            "reference member: {name}"
+        );
+        assert_eq!(
+            production_member_mismatches(&schema),
+            mismatches,
+            "production member: {name}"
+        );
+    }
+}
+
 #[test]
 fn target_sets_match_on_the_complete_local_predicate() {
     let cases = [
@@ -1039,6 +1144,11 @@ fn target_sets_match_on_the_complete_local_predicate() {
             production, declaration_expected,
             "production declaration admission: {name}"
         );
+        assert_eq!(
+            reference_member_mismatches(&schema),
+            production_member_mismatches(&schema),
+            "flagged members: {name}"
+        );
     }
 }
 
@@ -1057,12 +1167,20 @@ fn target_set_references_check_every_member_key_role() {
         ),
         (
             reference::KeyRole::Index,
-            vec![DeclarationClass::KeyNotResolvable],
+            vec![
+                DeclarationClass::TargetSetMemberMismatch,
+                DeclarationClass::KeyNotResolvable,
+            ],
         ),
     ];
     for (role, expected) in cases {
         let mut schema = target_set_schema();
         schema.keys.get_mut("target").expect("target keys")[0].role = role;
+        assert_eq!(
+            reference_member_mismatches(&schema),
+            production_member_mismatches(&schema),
+            "flagged members: {role:?}"
+        );
         assert_eq!(reference_classes(&schema), expected, "reference: {role:?}");
         let (production, structural) = production_classes(&schema);
         assert!(
@@ -1071,6 +1189,54 @@ fn target_set_references_check_every_member_key_role() {
         );
         assert_eq!(production, expected, "production: {role:?}");
     }
+}
+
+/// An `Index` key is never a resolving key: a reference that targets one is
+/// refused with `KeyNotResolvable` under either unresolved policy, a
+/// `Complement` reference included, and the reference declaration validator
+/// refuses exactly the same schemas. The `Complement` case is the one a
+/// MySQL foreign key to a non-unique index would need; its carrying is
+/// deferred, so it is a typed refusal here.
+#[test]
+fn every_index_target_is_refused_under_both_unresolved_policies() {
+    let mut observed = 0usize;
+    for role in [
+        reference::KeyRole::Primary,
+        reference::KeyRole::Unique,
+        reference::KeyRole::Identifier,
+        reference::KeyRole::Index,
+    ] {
+        for policy in [
+            reference::OnUnresolved::Error,
+            reference::OnUnresolved::Complement,
+        ] {
+            let mut schema = canonical_base();
+            schema.keys.get_mut("target").expect("target keys")[0].role = role;
+            schema
+                .references
+                .get_mut("r")
+                .expect("reference fixture")
+                .on_unresolved = policy;
+            let expected = if role == reference::KeyRole::Index {
+                vec![DeclarationClass::KeyNotResolvable]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(
+                reference_classes(&schema),
+                expected,
+                "reference: {role:?} under {policy:?}"
+            );
+            let (production, structural) = production_classes(&schema);
+            assert!(structural.is_empty(), "{role:?} {policy:?}: {structural:?}");
+            assert_eq!(
+                production, expected,
+                "production: {role:?} under {policy:?}"
+            );
+            observed += 1;
+        }
+    }
+    assert_eq!(observed, 8);
 }
 
 #[test]
@@ -1235,7 +1401,10 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
     cases.push((
         "non-resolvable target-set member",
         non_resolvable_member,
-        vec![DeclarationClass::KeyNotResolvable],
+        vec![
+            DeclarationClass::TargetSetMemberMismatch,
+            DeclarationClass::KeyNotResolvable,
+        ],
     ));
 
     let mut unknown = canonical_base();
@@ -1501,7 +1670,54 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
     });
     cases.push(("scope via", scope, vec![DeclarationClass::ScopeViaInvalid]));
 
-    assert_eq!(cases.len(), 27);
+    let variable = |binding| reference::RefSource::Variable {
+        field: vec![reference_edge("holder", "scalar", "field")],
+        binder_key: "id".to_owned(),
+        binding,
+    };
+    let mut set_variable = target_set_schema();
+    set_variable.keys.get_mut("target").expect("target keys")[0].role =
+        reference::KeyRole::Identifier;
+    set_variable
+        .references
+        .get_mut("r")
+        .expect("reference fixture")
+        .source = variable(reference::VariableBinding::FirstDefines);
+    cases.push((
+        "variable binder over a target set names no key of the set",
+        set_variable,
+        vec![DeclarationClass::UnknownTarget],
+    ));
+
+    let mut named_variable = canonical_base();
+    named_variable.keys.get_mut("target").expect("target keys")[0].role =
+        reference::KeyRole::Identifier;
+    let declaration = named_variable
+        .references
+        .get_mut("r")
+        .expect("reference fixture");
+    declaration.source = variable(reference::VariableBinding::FirstDefines);
+    declaration.target_key = Some("missing".to_owned());
+    cases.push((
+        "variable with a missing named target key",
+        named_variable,
+        vec![DeclarationClass::UnknownTarget],
+    ));
+
+    let mut keyless = canonical_base();
+    keyless.keys.clear();
+    keyless
+        .references
+        .get_mut("r")
+        .expect("reference fixture")
+        .target_key = None;
+    cases.push((
+        "key-value parts against the empty key",
+        keyless,
+        vec![DeclarationClass::ReferenceArity],
+    ));
+
+    assert_eq!(cases.len(), 30);
     for (name, schema, expected) in cases {
         assert_eq!(reference_classes(&schema), expected, "reference: {name}");
         let (production, structural) = production_classes(&schema);
@@ -1582,4 +1798,475 @@ fn canonical_declaration_factorization_reconciles_the_exact_carrier() {
     println!(
         "O17 keys certificate: 148 structural graphs; descriptors [90, 240, 450]; 27,329,908 schemas; 816,223,680 directed classifications"
     );
+}
+
+/// The audit's pair of valid declarations whose one-byte extension marker
+/// aliased the length prefix of a 511-byte target vertex name.
+fn marker_counterexample() -> (reference::Schema, reference::Schema) {
+    let first_target = format!("\0\0\u{1}\0\u{2}\0\0\0\0\0\0{}", "a".repeat(500));
+    let second_target = format!("{}\u{1}\u{3}\0\0\0\0\0\0\0abc", "a".repeat(500));
+    assert_eq!(first_target.len(), 511);
+    assert_eq!(second_target.len(), 512);
+    let identifier = |id: &str| reference::Key {
+        id: id.to_owned(),
+        parts: vec![reference::KeyPart::Path(Vec::new())],
+        role: reference::KeyRole::Identifier,
+        scope: reference::KeyScope::Document,
+        equality: Vec::new(),
+    };
+    let schema = |binding, target: &str, target_key: &str| {
+        let mut schema = reference::Schema::default()
+            .vertex("holder", "object")
+            .vertex(&first_target, "object")
+            .vertex("", "object");
+        // Each vertex's keys are stored in key-id order, the order both
+        // encoders write.
+        schema.keys.insert(
+            first_target.clone(),
+            vec![identifier("abc"), identifier("b")],
+        );
+        schema.keys.insert(
+            String::new(),
+            vec![identifier(&second_target), identifier("b")],
+        );
+        schema.references.insert(
+            "r".to_owned(),
+            reference::Reference {
+                id: "r".to_owned(),
+                holder: "holder".to_owned(),
+                source: reference::RefSource::Variable {
+                    field: Vec::new(),
+                    binder_key: "b".to_owned(),
+                    binding,
+                },
+                target_vertex: target.to_owned(),
+                target_key: Some(target_key.to_owned()),
+                edge: None,
+                cardinality: reference::Cardinality::One,
+                nullable: false,
+                on_unresolved: reference::OnUnresolved::Error,
+                mode: reference::ResolveMode::AddEdge,
+                guard: None,
+                null_match: reference::NullMatch::Simple,
+                null_vertex: None,
+                scope_via: None,
+            },
+        );
+        schema
+    };
+    (
+        schema(
+            reference::VariableBinding::FirstDefines,
+            &first_target,
+            "abc",
+        ),
+        schema(
+            reference::VariableBinding::NearestPreceding,
+            "",
+            &second_target,
+        ),
+    )
+}
+
+#[test]
+fn extension_markers_separate_the_audit_counterexample() {
+    let (first, second) = marker_counterexample();
+    for schema in [&first, &second] {
+        assert_eq!(reference::validate_declarations(schema), Ok(()));
+        let (production, structural) = production_classes(schema);
+        assert!(production.is_empty(), "{production:?}");
+        assert!(structural.is_empty(), "{structural:?}");
+    }
+    let (first_reference, first_production) = paired_declaration_bytes(&first);
+    let (second_reference, second_production) = paired_declaration_bytes(&second);
+    assert_eq!(first_reference, first_production);
+    assert_eq!(second_reference, second_production);
+    assert_ne!(first_reference, second_reference);
+    assert_ne!(first_production, second_production);
+}
+
+/// A decoder for the declaration segment, written from the encoding grammar.
+///
+/// Every optional extension is decided by the grammar's rule: present
+/// exactly when the next eight bytes are the extension marker, and the
+/// trailing target sets present exactly when bytes remain. A decoder that
+/// inverts the encoder on a carrier proves the encoder injective there.
+struct DeclarationReader<'a> {
+    bytes: &'a [u8],
+}
+
+type Declarations = (
+    std::collections::BTreeMap<String, Vec<reference::Key>>,
+    std::collections::BTreeMap<String, reference::Reference>,
+    std::collections::BTreeMap<String, reference::TargetSet>,
+);
+
+impl DeclarationReader<'_> {
+    fn take(&mut self, count: usize) -> &[u8] {
+        assert!(self.bytes.len() >= count, "short declaration bytes");
+        let (head, tail) = self.bytes.split_at(count);
+        self.bytes = tail;
+        head
+    }
+
+    fn tag(&mut self) -> u8 {
+        self.take(1)[0]
+    }
+
+    fn u64(&mut self) -> u64 {
+        u64::from_le_bytes(self.take(8).try_into().expect("eight bytes"))
+    }
+
+    fn len(&mut self) -> usize {
+        usize::try_from(self.u64()).expect("length fits usize")
+    }
+
+    fn str(&mut self) -> String {
+        let len = self.len();
+        String::from_utf8(self.take(len).to_vec()).expect("utf-8 name")
+    }
+
+    fn opt_str(&mut self) -> Option<String> {
+        match self.tag() {
+            0 => None,
+            1 => Some(self.str()),
+            tag => panic!("option tag {tag}"),
+        }
+    }
+
+    fn edge(&mut self) -> panproto_reference::model::SEdge {
+        let src = self.str();
+        let tgt = self.str();
+        let kind = self.str();
+        let name = self.opt_str();
+        panproto_reference::model::SEdge::new(&src, &tgt, &kind, name.as_deref())
+    }
+
+    fn edges(&mut self) -> Vec<panproto_reference::model::SEdge> {
+        (0..self.len()).map(|_| self.edge()).collect()
+    }
+
+    fn extension(&mut self) -> bool {
+        let marker = reference::EXTENSION_MARKER.to_le_bytes();
+        if self.bytes.starts_with(&marker) {
+            self.take(marker.len());
+            true
+        } else {
+            false
+        }
+    }
+
+    fn scope(&mut self) -> reference::KeyScope {
+        match self.tag() {
+            0 => reference::KeyScope::Document,
+            1 => reference::KeyScope::Global,
+            2 => reference::KeyScope::Within(self.str()),
+            tag => panic!("scope tag {tag}"),
+        }
+    }
+
+    fn key(&mut self) -> reference::Key {
+        let id = self.str();
+        let parts = (0..self.len())
+            .map(|_| match self.tag() {
+                0 => reference::KeyPart::Path(self.edges()),
+                1 => reference::KeyPart::Position {
+                    within: self.edge(),
+                },
+                tag => panic!("key part tag {tag}"),
+            })
+            .collect();
+        let role_byte = self.tag();
+        let role = match role_byte & 0x7f {
+            0 => reference::KeyRole::Primary,
+            1 => reference::KeyRole::Unique,
+            2 => reference::KeyRole::Identifier,
+            3 => reference::KeyRole::SortKey,
+            4 => reference::KeyRole::Index,
+            tag => panic!("role tag {tag}"),
+        };
+        let scope = self.scope();
+        let equality = if role_byte & 0x80 == 0 {
+            Vec::new()
+        } else {
+            (0..self.len())
+                .map(|_| match self.tag() {
+                    0 => reference_keys::KeyEquality::Representation,
+                    1 => reference_keys::KeyEquality::NumericValue,
+                    4 => reference_keys::KeyEquality::XmlNonCdata,
+                    tag => panic!("equality tag outside the decoded carrier: {tag}"),
+                })
+                .collect()
+        };
+        reference::Key {
+            id,
+            parts,
+            role,
+            scope,
+            equality,
+        }
+    }
+
+    fn source(&mut self) -> reference::RefSource {
+        match self.tag() {
+            0 => reference::RefSource::KeyValue {
+                parts: (0..self.len()).map(|_| self.edges()).collect(),
+            },
+            2 => {
+                let text = match self.tag() {
+                    0 => reference::RefTextSource::Local(self.edges()),
+                    1 => reference::RefTextSource::External(self.edges()),
+                    tag => panic!("text source tag outside the decoded carrier: {tag}"),
+                };
+                let start = self.edges();
+                let end = self.edges();
+                let unit = match self.tag() {
+                    0 => reference::OffsetUnit::Byte,
+                    1 => reference::OffsetUnit::Utf8Char,
+                    2 => reference::OffsetUnit::Utf16,
+                    3 => reference::OffsetUnit::Token,
+                    tag => panic!("unit tag {tag}"),
+                };
+                let end_inclusive = self.tag() == 1;
+                let (end_form, origin, fragments) = if self.extension() {
+                    let end_form = match self.tag() {
+                        0 => reference::SpanEnd::Offset,
+                        1 => reference::SpanEnd::Length,
+                        tag => panic!("end form tag {tag}"),
+                    };
+                    let origin = self.u64();
+                    let fragments = match self.tag() {
+                        0 => None,
+                        1 => Some(self.edge()),
+                        tag => panic!("fragments tag {tag}"),
+                    };
+                    (end_form, origin, fragments)
+                } else {
+                    (reference::SpanEnd::Offset, 0, None)
+                };
+                reference::RefSource::Standoff {
+                    text,
+                    start,
+                    end,
+                    unit,
+                    end_inclusive,
+                    end_form,
+                    origin,
+                    fragments,
+                }
+            }
+            3 => {
+                let field = self.edges();
+                let binder_key = self.str();
+                let binding = if self.extension() {
+                    match self.tag() {
+                        0 => reference::VariableBinding::FirstDefines,
+                        1 => reference::VariableBinding::NearestPreceding,
+                        tag => panic!("binding tag {tag}"),
+                    }
+                } else {
+                    reference::VariableBinding::FirstDefines
+                };
+                reference::RefSource::Variable {
+                    field,
+                    binder_key,
+                    binding,
+                }
+            }
+            4 => reference::RefSource::Inline {
+                field: self.edges(),
+            },
+            tag => panic!("source tag outside the decoded carrier: {tag}"),
+        }
+    }
+
+    fn reference(&mut self) -> reference::Reference {
+        let id = self.str();
+        let holder = self.str();
+        let source = self.source();
+        let target_vertex = self.str();
+        let target_key = self.opt_str();
+        let edge = match self.tag() {
+            0 => None,
+            1 => Some(self.edge()),
+            tag => panic!("edge tag {tag}"),
+        };
+        let cardinality = match self.tag() {
+            0 => reference::Cardinality::One,
+            1 => reference::Cardinality::Many,
+            tag => panic!("cardinality tag {tag}"),
+        };
+        let nullable = self.tag() == 1;
+        let on_unresolved = match self.tag() {
+            0 => reference::OnUnresolved::Error,
+            1 => reference::OnUnresolved::Complement,
+            tag => panic!("on_unresolved tag {tag}"),
+        };
+        let mode = match self.tag() {
+            0 => reference::ResolveMode::AddEdge,
+            1 => reference::ResolveMode::Redirect,
+            tag => panic!("mode tag {tag}"),
+        };
+        let (null_match, null_vertex, scope_via) = if self.extension() {
+            assert_eq!(self.tag(), 0, "guards lie outside the decoded carrier");
+            let null_match = match self.tag() {
+                0 => reference::NullMatch::Simple,
+                1 => reference::NullMatch::Full,
+                tag => panic!("null match tag {tag}"),
+            };
+            let null_vertex = self.opt_str();
+            let scope_via = match self.tag() {
+                0 => None,
+                1 => Some(reference::ScopeVia {
+                    ancestor: self.str(),
+                    hops: (0..self.len()).map(|_| self.str()).collect(),
+                }),
+                tag => panic!("scope_via tag {tag}"),
+            };
+            (null_match, null_vertex, scope_via)
+        } else {
+            (reference::NullMatch::Simple, None, None)
+        };
+        reference::Reference {
+            id,
+            holder,
+            source,
+            target_vertex,
+            target_key,
+            edge,
+            cardinality,
+            nullable,
+            on_unresolved,
+            mode,
+            guard: None,
+            null_match,
+            null_vertex,
+            scope_via,
+        }
+    }
+
+    fn declarations(mut self) -> Declarations {
+        let mut keys = std::collections::BTreeMap::new();
+        for _ in 0..self.len() {
+            let vertex = self.str();
+            let declared = (0..self.len()).map(|_| self.key()).collect();
+            keys.insert(vertex, declared);
+        }
+        let mut references = std::collections::BTreeMap::new();
+        for _ in 0..self.len() {
+            let id = self.str();
+            references.insert(id, self.reference());
+        }
+        let mut target_sets = std::collections::BTreeMap::new();
+        if !self.bytes.is_empty() {
+            assert_eq!(self.tag(), reference::TARGET_SET_MARKER);
+            for _ in 0..self.len() {
+                let id = self.str();
+                let members = (0..self.len()).map(|_| (self.str(), self.str())).collect();
+                let scope = self.scope();
+                target_sets.insert(id, reference::TargetSet { members, scope });
+            }
+        }
+        assert!(self.bytes.is_empty(), "trailing declaration bytes");
+        (keys, references, target_sets)
+    }
+}
+
+/// Every combination of the four optional extensions with neighbours whose
+/// length prefix begins with `0xff`, the byte a one-byte marker would take.
+fn extension_carrier() -> Vec<reference::Schema> {
+    let long = |symbol: &str| symbol.repeat(255);
+    let mut carrier = Vec::new();
+    for binding in [
+        reference::VariableBinding::FirstDefines,
+        reference::VariableBinding::NearestPreceding,
+    ] {
+        for target in ["t".to_owned(), long("t")] {
+            for standoff in 0..3_u64 {
+                for envelope in 0..4 {
+                    for second in ["s".to_owned(), long("s")] {
+                        for sets in [false, true] {
+                            let mut schema = canonical_base();
+                            let mut variable = schema.references["r"].clone();
+                            variable.source = reference::RefSource::Variable {
+                                field: Vec::new(),
+                                binder_key: "id".to_owned(),
+                                binding,
+                            };
+                            variable.target_vertex.clone_from(&target);
+                            variable.edge = None;
+                            match envelope {
+                                0 => {}
+                                1 => variable.null_match = reference::NullMatch::Full,
+                                2 => variable.null_vertex = Some(long("n")),
+                                _ => {
+                                    variable.scope_via = Some(reference::ScopeVia {
+                                        ancestor: long("a"),
+                                        hops: vec![long("h")],
+                                    });
+                                }
+                            }
+                            let mut standoff_reference = variable.clone();
+                            standoff_reference.id.clone_from(&second);
+                            standoff_reference.source = reference::RefSource::Standoff {
+                                text: reference::RefTextSource::Local(Vec::new()),
+                                start: Vec::new(),
+                                end: Vec::new(),
+                                unit: reference::OffsetUnit::Byte,
+                                end_inclusive: false,
+                                end_form: if standoff == 1 {
+                                    reference::SpanEnd::Length
+                                } else {
+                                    reference::SpanEnd::Offset
+                                },
+                                origin: if standoff == 2 { 255 } else { 0 },
+                                fragments: None,
+                            };
+                            schema.references.insert("r".to_owned(), variable);
+                            schema.references.insert(second.clone(), standoff_reference);
+                            if sets {
+                                schema.target_sets.insert(
+                                    long("u"),
+                                    reference::TargetSet {
+                                        members: vec![(target.clone(), "id".to_owned())],
+                                        scope: reference::KeyScope::Document,
+                                    },
+                                );
+                            }
+                            carrier.push(schema);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let (first, second) = marker_counterexample();
+    carrier.push(first);
+    carrier.push(second);
+    carrier
+}
+
+#[test]
+fn declaration_bytes_decode_back_on_every_extension_combination() {
+    let carrier = extension_carrier();
+    assert_eq!(carrier.len(), 2 * 2 * 3 * 4 * 2 * 2 + 2);
+    let mut encodings = BTreeSet::new();
+    for schema in &carrier {
+        let (reference_bytes, production_bytes) = paired_declaration_bytes(schema);
+        assert_eq!(production_bytes, reference_bytes);
+        let decoded = DeclarationReader {
+            bytes: &reference_bytes,
+        }
+        .declarations();
+        assert_eq!(
+            decoded,
+            (
+                schema.keys.clone(),
+                schema.references.clone(),
+                schema.target_sets.clone()
+            )
+        );
+        assert!(encodings.insert(reference_bytes));
+    }
+    assert_eq!(encodings.len(), carrier.len());
 }

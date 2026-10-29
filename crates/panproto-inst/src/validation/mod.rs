@@ -64,6 +64,7 @@ mod state;
 #[cfg(test)]
 mod state_tests;
 mod witness;
+mod xsd_lexical;
 
 use std::collections::{BTreeMap, BTreeSet};
 

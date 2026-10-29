@@ -650,6 +650,7 @@ pub mod theory {
         }
         let mut explicit = arguments.iter();
         let mut explicit_index = 0;
+        let mut unification_failure: Option<String> = None;
         for (name, declared, implicit) in &operation.inputs {
             if *implicit == Implicit::Yes {
                 continue;
@@ -672,14 +673,24 @@ pub mod theory {
                         operation.name
                     ));
                 }
-                let unifier = unify_sorts(&expected, &found).map_err(|reason| {
-                    format!(
-                        "sort unification failure: implicit inference for {}: {reason}",
-                        operation.name
-                    )
-                })?;
-                for value in substitution.values_mut() {
-                    *value = substitute_term_map(value, &unifier);
+                // Solvability does not depend on the order of the
+                // equations, and the judgement solves them only after
+                // every argument is typed, so a failure waits for the
+                // later arguments' own refusals.
+                if unification_failure.is_none() {
+                    match unify_sorts(&expected, &found) {
+                        Ok(unifier) => {
+                            for value in substitution.values_mut() {
+                                *value = substitute_term_map(value, &unifier);
+                            }
+                        }
+                        Err(reason) => {
+                            unification_failure = Some(format!(
+                                "sort unification failure: implicit inference for {}: {reason}",
+                                operation.name
+                            ));
+                        }
+                    }
                 }
             } else if !sorts_agree(&found, &[], &expected, &[]) {
                 return Err(format!(
@@ -689,6 +700,9 @@ pub mod theory {
             }
             substitution.insert(name.clone(), argument.clone());
             explicit_index += 1;
+        }
+        if let Some(failure) = unification_failure {
+            return Err(failure);
         }
         Ok(substitute_sort_map(&operation.output, &substitution))
     }
@@ -873,6 +887,11 @@ pub mod theory {
         })
     }
 
+    /// The prefix of the refusal [`infer_term`] gives for a variable outside
+    /// the context, followed by the variable's name. No other refusal starts
+    /// with it, and every enclosing step passes a refusal through unchanged.
+    const UNBOUND_VARIABLE: &str = "unbound variable: ";
+
     /// Infer a term's sort under the strict production judgement.
     fn infer_term_with_expected(
         t: &Theory,
@@ -886,7 +905,7 @@ pub mod theory {
                 .rev()
                 .find(|(n, _)| n == x)
                 .map(|(_, s)| s.clone())
-                .ok_or_else(|| format!("unbound variable: {x}")),
+                .ok_or_else(|| format!("{UNBOUND_VARIABLE}{x}")),
             Term::App(o, args) => {
                 let operation = find_op(t, o).ok_or_else(|| format!("operation not found: {o}"))?;
                 application_sort(t, ctx, operation, args)
@@ -2748,11 +2767,11 @@ pub mod theory {
     }
 
     fn check_named_op_image(
+        src: &Theory,
+        m: &Morphism,
         operation: &Op,
         target: &Op,
         names: &[Name],
-        inputs: &[(Name, SortExpr, Implicit)],
-        output: &SortExpr,
     ) -> Result<(), MorphismError> {
         let id = |x: &str| x.to_owned();
         let name_free = |binders: &[Name], sort: &SortExpr| name_free_sort(binders, sort, &id, &id);
@@ -2771,9 +2790,11 @@ pub mod theory {
             .iter()
             .map(|(name, _, _)| name.clone())
             .collect::<Vec<_>>();
-        for (index, ((_, mapped_sort, _), (_, target_sort, _))) in
-            inputs.iter().zip(&target.inputs).enumerate()
+        for (index, ((_, sort, _), (_, target_sort, _))) in
+            operation.inputs.iter().zip(&target.inputs).enumerate()
         {
+            mapped_head(m, sort)?;
+            let mapped_sort = &translate_sort(src, m, sort);
             if name_free(&names[..index], mapped_sort)
                 != name_free(&target_names[..index], target_sort)
             {
@@ -2785,6 +2806,8 @@ pub mod theory {
                 });
             }
         }
+        mapped_head(m, &operation.output)?;
+        let output = &translate_sort(src, m, &operation.output);
         if name_free(names, output) != name_free(&target_names, &target.output) {
             return Err(MorphismError::OpTypeMismatch {
                 op: operation.name.clone(),
@@ -2808,6 +2831,15 @@ pub mod theory {
     /// sort renamed with every argument term translated, derived-term images
     /// substituted into sort arguments.
     ///
+    /// Refusal order, per operation in declaration order: an unmapped
+    /// operation; for an operation image, an undeclared target, then the
+    /// input count, then input by input an unmapped head and then a sort
+    /// that differs, then the output's head and then its sort; for a term
+    /// image, the first input with an unmapped head, then the first defect
+    /// the typing judgement meets (unbound when that defect is a variable
+    /// outside the context, ill-typed otherwise), then the output's head and
+    /// then its sort.
+    ///
     /// Book anchors: `L-theories-7`.
     fn morphism_structure(src: &Theory, tgt: &Theory, m: &Morphism) -> Result<(), MorphismError> {
         morphism_sort_structure(src, tgt, m)?;
@@ -2816,52 +2848,37 @@ pub mod theory {
                 .ops
                 .get(&operation.name)
                 .ok_or_else(|| MorphismError::MissingOpMapping(operation.name.clone()))?;
-            for (_, sort, _) in &operation.inputs {
-                if !m.sorts.contains_key(sort.head()) {
-                    return Err(MorphismError::MissingSortMapping(sort.head().to_owned()));
-                }
-            }
-            if !m.sorts.contains_key(operation.output.head()) {
-                return Err(MorphismError::MissingSortMapping(
-                    operation.output.head().to_owned(),
-                ));
-            }
             let names: Vec<Name> = operation
                 .inputs
                 .iter()
                 .map(|(name, _, _)| name.clone())
                 .collect();
-            let inputs = operation
-                .inputs
-                .iter()
-                .map(|(name, sort, implicit)| {
-                    (name.clone(), translate_sort(src, m, sort), *implicit)
-                })
-                .collect::<Vec<_>>();
-            let output = translate_sort(src, m, &operation.output);
             match image {
                 OpImage::Op(target_name) => {
                     let target = find_op(tgt, target_name)
                         .ok_or_else(|| MorphismError::OpNotFound(target_name.clone()))?;
-                    check_named_op_image(operation, target, &names, &inputs, &output)?;
+                    check_named_op_image(src, m, operation, target, &names)?;
                 }
                 OpImage::Term(term) => {
-                    let context = inputs
-                        .iter()
-                        .map(|(name, sort, _)| (name.clone(), sort.clone()))
-                        .collect::<Vec<_>>();
-                    if let Some(variable) = unbound(&context, term) {
-                        return Err(MorphismError::TermAssignmentUnboundVar {
-                            op: operation.name.clone(),
-                            var: variable,
-                        });
+                    let mut context = Vec::with_capacity(operation.inputs.len());
+                    for (name, sort, _) in &operation.inputs {
+                        mapped_head(m, sort)?;
+                        context.push((name.clone(), translate_sort(src, m, sort)));
                     }
-                    let found = infer_term(tgt, &context, term).map_err(|detail| {
-                        MorphismError::TermAssignmentIllTyped {
+                    let found = infer_term(tgt, &context, term).map_err(|refusal| match refusal
+                        .strip_prefix(UNBOUND_VARIABLE)
+                    {
+                        Some(variable) => MorphismError::TermAssignmentUnboundVar {
                             op: operation.name.clone(),
-                            detail,
-                        }
+                            var: variable.to_owned(),
+                        },
+                        None => MorphismError::TermAssignmentIllTyped {
+                            op: operation.name.clone(),
+                            detail: refusal,
+                        },
                     })?;
+                    mapped_head(m, &operation.output)?;
+                    let output = translate_sort(src, m, &operation.output);
                     if !sorts_agree(&found, &names, &output, &names) {
                         return Err(MorphismError::TermAssignmentSortMismatch {
                             op: operation.name.clone(),
@@ -2873,6 +2890,16 @@ pub mod theory {
             }
         }
         Ok(())
+    }
+
+    /// `MissingSortMapping` for a sort expression whose head the sort map
+    /// leaves undefined.
+    fn mapped_head(m: &Morphism, sort: &SortExpr) -> Result<(), MorphismError> {
+        if m.sorts.contains_key(sort.head()) {
+            Ok(())
+        } else {
+            Err(MorphismError::MissingSortMapping(sort.head().to_owned()))
+        }
     }
 
     /// Definition: a theory morphism preserves the declared theory structure.
@@ -3377,6 +3404,14 @@ pub mod theory {
         MissingShared(Name),
         /// Composition refused the reconstructed diagram.
         Composition(Box<ComposeError>),
+        /// A diagram step carries two inline theories of one name: the step's
+        /// index and the name.
+        DuplicateInline {
+            /// The step's index in the recipe.
+            step: usize,
+            /// The repeated name.
+            name: Name,
+        },
     }
 
     /// Definition: Replay every legacy, mode-bearing and full-diagram step of
@@ -3384,7 +3419,9 @@ pub mod theory {
     ///
     /// # Errors
     ///
-    /// Returns the first [`RecomposeError`] in step order.
+    /// Returns the first [`RecomposeError`] in step order; a diagram step
+    /// whose inline theories repeat a name is refused before any of its
+    /// node names is resolved.
     ///
     /// Book anchors: `L-theories-8`.
     pub fn recompose(
@@ -3395,6 +3432,9 @@ pub mod theory {
         let mut last = None;
         for (index, step) in spec.steps.iter().enumerate() {
             let step_name = format!("step_{index}");
+            if let Some(name) = repeated_inline_name(step) {
+                return Err(RecomposeError::DuplicateInline { step: index, name });
+            }
             let Some(result) = replay_step(&step_name, step, &theories)? else {
                 let CompositionStep::Base(name) = step else {
                     unreachable!("only a base step selects an existing theory")
@@ -3414,6 +3454,22 @@ pub mod theory {
             .ok_or(RecomposeError::TheoryNotFound(final_name))?;
         result.name.clone_from(&spec.result_name);
         Ok(result)
+    }
+
+    /// Definition: the first inline theory of a diagram step, in order, whose
+    /// name an earlier inline theory of the step already carries.
+    ///
+    /// Book anchors: `L-theories-8`.
+    fn repeated_inline_name(step: &CompositionStep) -> Option<Name> {
+        let CompositionStep::Diagram { inline, .. } = step else {
+            return None;
+        };
+        inline.iter().enumerate().find_map(|(later, theory)| {
+            inline[..later]
+                .iter()
+                .any(|earlier| earlier.name == theory.name)
+                .then(|| theory.name.clone())
+        })
     }
 
     fn replay_step(

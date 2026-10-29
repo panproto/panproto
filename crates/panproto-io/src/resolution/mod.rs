@@ -68,9 +68,13 @@ pub use self::error::{
 pub use self::laws::{ResolutionLawReport, ResolutionLawViolation, check_resolution_laws};
 pub use self::occur::text_identity as resolution_text_identity;
 pub use self::standoff::{
-    form_to_offsets as decode_standoff_form, offsets_to_form as encode_standoff_form,
+    bytes_to_written_form, form_to_offsets as decode_standoff_form,
+    offsets_to_form as encode_standoff_form, written_form_to_bytes,
 };
-pub use self::uri::{fold_uri_environment, resolve_inherited_uri_base, resolve_uri_reference};
+pub use self::uri::{
+    UriDirective, UriEnvironment, fold_uri_environment, resolve_inherited_uri_base,
+    resolve_uri_against, resolve_uri_reference,
+};
 pub use panproto_inst::resolution_complement::{
     AnyInstance, AssemblyPlanId, AssemblyResidue, AssemblyTrace, DefinitionKey, RedirectedArc,
     RedirectedAttachment, RedirectedFragment, RefOccurrence, ResolutionComplement,

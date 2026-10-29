@@ -100,3 +100,68 @@ fn a_numeral_is_read_in_its_dialect() {
         Ok(Value::Decimal(DecimalValue::infinity(true)))
     );
 }
+
+/// SQL reads exactly PostgreSQL's spellings of the special values: `NaN`,
+/// `Infinity` and `-Infinity` in any case, and `inf` and `-inf` (PostgreSQL
+/// 16, Secs 8.1.2 and 8.1.3: "On input, these strings are recognized in a
+/// case-insensitive manner. The infinity values can alternatively be spelled
+/// `inf` and `-inf`."). A spelling no cited rule admits, `+inf`,
+/// `+infinity` or a signed NaN, is no numeral.
+#[test]
+fn sql_reads_exactly_the_postgresql_special_spellings() {
+    use NumeralDialect as D;
+    let inf = 0x7ff0_0000_0000_0000_u64;
+    let neg_inf = 0xfff0_0000_0000_0000_u64;
+    let nan = 0x7ff8_0000_0000_0000_u64;
+    for kind in [FLOAT, ScalarKind::Decimal] {
+        for text in [
+            "NaN",
+            "nan",
+            "NAN",
+            "nAn",
+            "Infinity",
+            "infinity",
+            "INFINITY",
+            "inf",
+            "INF",
+            "Inf",
+            "-Infinity",
+            "-infinity",
+            "-INFINITY",
+            "-inf",
+            "-INF",
+        ] {
+            let result = number(text, kind.clone(), D::Sql);
+            assert!(result.is_ok(), "{text} under {kind:?}: {result:?}");
+            if kind == FLOAT {
+                let expected = if text.eq_ignore_ascii_case("nan") {
+                    nan
+                } else if text.starts_with('-') {
+                    neg_inf
+                } else {
+                    inf
+                };
+                assert_eq!(float_bits(result), Ok(expected), "{text}");
+            }
+        }
+        for text in [
+            "+inf",
+            "+INF",
+            "+infinity",
+            "+Infinity",
+            "-nan",
+            "-NaN",
+            "+nan",
+            "+NaN",
+            "infinit",
+            "infinityy",
+            "-in",
+        ] {
+            assert_eq!(
+                number(text, kind.clone(), D::Sql),
+                Err(FidelityReason::NotANumber),
+                "{text} under {kind:?}"
+            );
+        }
+    }
+}

@@ -52,7 +52,11 @@ struct DiffFixtureTests {
     @Test("the engine leaves the thirteen enrichment and rename fields out")
     func schemaDiffOmitsTheEmptyEnrichmentFields() throws {
         let payload = try CBORValue(decoding: try fixtureBytes("diff-full-post-profile"))
-        #expect(payload.mapValue?.count == 26)
+        // The post and profile lexicons declare different entry records,
+        // so the optional entry change is written alongside the
+        // twenty-six fields every full diff carries.
+        #expect(payload.mapValue?.count == 27)
+        #expect(payload["entry_change"] != nil)
         #expect(payload["added_coercions"] == nil)
         #expect(payload["renamed_vertices"] == nil)
 
@@ -61,7 +65,7 @@ struct DiffFixtureTests {
         #expect(diff.renamedVertices.isEmpty)
 
         let reencoded = try CBORValue(decoding: try CBOREncoder().encode(diff))
-        #expect(reencoded.mapValue?.count == 26)
+        #expect(reencoded.mapValue?.count == 27)
         #expect(reencoded["added_coercions"] == nil)
         #expect(reencoded["renamed_vertices"] == nil)
     }
@@ -91,7 +95,7 @@ struct CompatReportFixtureTests {
 
         #expect(report.compatible == false)
         #expect(report.classification == .breaking)
-        #expect(report.breaking.count == 77)
+        #expect(report.breaking.count == 78)
         #expect(report.nonBreaking.count == 29)
     }
 
@@ -128,12 +132,14 @@ struct CompatReportFixtureTests {
         var removedEdges = 0
         var requiredEdgesRemoved = 0
         var nsidsRemoved = 0
+        var unclassified: [String: UInt64] = [:]
         for change in report.breaking {
             switch change {
             case .removedVertex: removedVertices += 1
             case .removedEdge: removedEdges += 1
             case .requiredEdgeRemoved: requiredEdgesRemoved += 1
             case .nsidRemoved: nsidsRemoved += 1
+            case .unclassifiedChange(let category, let count): unclassified[category] = count
             default: Issue.record("an unexpected breaking case reached this pair of schemas")
             }
         }
@@ -141,6 +147,10 @@ struct CompatReportFixtureTests {
         #expect(removedEdges == 30)
         #expect(requiredEdgesRemoved == 9)
         #expect(nsidsRemoved == 1)
+        // The protocol carries no rule for a change of entry record, so
+        // the classifier reports it as one unclassified breaking change
+        // rather than passing over it.
+        #expect(unclassified == ["entries": 1])
 
         var addedVertices = 0
         var addedEdges = 0

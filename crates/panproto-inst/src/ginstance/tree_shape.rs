@@ -499,8 +499,12 @@ impl GInstance {
     /// the root node's anchor, the vertex [`WInstance::schema_root`] names.
     ///
     /// For every tree `t` that [`Self::from_wtype_embedded`] accepts under
-    /// `schema` and whose schema root is its root node's anchor, this returns
-    /// `t` from `t`'s graph form, whichever entry vertices `schema` declares.
+    /// `schema`, that is rooted at its root (no arc enters the root and every
+    /// node reaches the root along arcs) and whose schema root is its root
+    /// node's anchor, this returns `t` from `t`'s graph form, whichever entry
+    /// vertices `schema` declares. [`Self::from_wtype_embedded`] does not
+    /// check rootedness: the two arcs `0 -> 1` and `1 -> 0` embed, and their
+    /// graph form has no tree form.
     /// A tree whose schema root names another vertex comes back with only
     /// its schema root changed, to the root's anchor, since the graph holds
     /// no other.

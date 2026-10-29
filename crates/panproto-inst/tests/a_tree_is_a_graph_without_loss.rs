@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_inst::{
     EdgeId, FInstance, Fan, FanViolation, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND,
-    HYPER_PARENT_KIND, InstError, Node, NodeShape, NotTreeReason, RowId, Value, WInstance,
-    from_node_link_json, reify_fans, to_node_link_json, unreify_fans,
+    HYPER_PARENT_KIND, InstError, Node, NodeShape, NotTreeReason, RowId, Value, ViewRef, WInstance,
+    from_node_link_json, reify_fans, to_node_link_json, unreify_fans, wtype_check,
 };
 use panproto_schema::{Edge, HyperEdge, Protocol, SchemaBuilder};
 use proptest::prelude::*;
@@ -548,7 +548,8 @@ fn a_schema_root_other_than_the_root_anchor_comes_back() {
 fn a_root_of_the_fan_shape_is_reserved_vocabulary() {
     // The root has the fan-node shape and a single `hyper_parent` out-edge,
     // so on shape alone it reads as a fan node. The fan shape and kinds are
-    // reserved for fans, so the tree is refused.
+    // reserved for fans, so the tree is refused at its least reserved
+    // element, the node, before any graph is built.
     let root = Node::new(0, "doc").with_shape(NodeShape::HyperEdge);
     let nodes = HashMap::from([(0, root), (1, Node::new(1, "para"))]);
     let arc = Edge {
@@ -558,13 +559,26 @@ fn a_root_of_the_fan_shape_is_reserved_vocabulary() {
         name: None,
     };
     let tree = WInstance::new(nodes, vec![(0, 1, arc)], vec![], 0, "doc".into());
-    assert!(matches!(
-        GInstance::from_wtype(&tree),
-        Err(InstError::MalformedFan {
-            node: 0,
-            reason: FanViolation::ReservedKindOutsideFan { edge: EdgeId(0) }
-        })
-    ));
+    assert_eq!(
+        wtype_check::reserved_vocabulary(&tree),
+        vec![
+            ViewRef::Node(0),
+            ViewRef::Arc {
+                parent: 0,
+                child: 1
+            }
+        ]
+    );
+    let refused = GInstance::from_wtype(&tree);
+    assert!(
+        matches!(
+            refused,
+            Err(InstError::ReservedVocabulary {
+                at: ViewRef::Node(0)
+            })
+        ),
+        "{refused:?}"
+    );
 }
 
 #[test]
@@ -608,13 +622,26 @@ fn from_wtype_refuses_reserved_vocabulary_its_graph_form_would_read_as_a_fan() {
         tree_bytes(&fan_graph.to_wtype(0).expect("the graph form is a tree")),
         tree_bytes(&as_fan)
     );
-    assert!(matches!(
-        GInstance::from_wtype(&orphan),
-        Err(InstError::MalformedFan {
-            node: 1,
-            reason: FanViolation::ReservedKindOutsideFan { .. }
-        })
-    ));
+    assert_eq!(
+        wtype_check::reserved_vocabulary(&orphan),
+        vec![
+            ViewRef::Node(1),
+            ViewRef::Arc {
+                parent: 1,
+                child: 0
+            }
+        ]
+    );
+    let refused = GInstance::from_wtype(&orphan);
+    assert!(
+        matches!(
+            refused,
+            Err(InstError::ReservedVocabulary {
+                at: ViewRef::Node(1)
+            })
+        ),
+        "{refused:?}"
+    );
 }
 
 #[test]

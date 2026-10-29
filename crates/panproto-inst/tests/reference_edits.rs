@@ -1231,7 +1231,27 @@ fn tree_release_cases() -> Vec<(&'static str, reference_model::Tree, reference::
                 produce: reference_model::Node::new(2, "a"),
             },
         ),
-        ("sequence", base, tree_release_sequence()),
+        ("sequence", base.clone(), tree_release_sequence()),
+        (
+            "delete-then-reinsert",
+            base.clone(),
+            reference::TreeEdit::Sequence(vec![
+                reference::TreeEdit::DeleteNode { id: 2 },
+                reference::TreeEdit::InsertNode {
+                    parent: 1,
+                    child_id: 2,
+                    node: reference_model::Node::new(2, "b"),
+                    edge: reference_model::SEdge::new("a", "b", "child", Some("b")),
+                },
+            ]),
+        ),
+        {
+            let case = carrier::join_cases()
+                .into_iter()
+                .find(|case| case.name == "join-two-with-fans")
+                .expect("the carrier has the two-node join");
+            ("join-two-with-fans", case.tree, case.edit)
+        },
     ]
 }
 
@@ -1649,7 +1669,7 @@ fn table_translation_refuses_malformed_embeddings_and_non_table_graph_content_at
 #[test]
 fn e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive() {
     let cases = tree_release_cases();
-    assert_eq!(cases.len(), 12);
+    assert_eq!(cases.len(), 14);
     for (name, tree, edit) in cases {
         let (reference_graph, mut reference_embedding_state) =
             panproto_reference::encode::tree_to_graph(&tree, None)
@@ -1740,7 +1760,7 @@ fn e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence() {
         assert_eq!(actual, expected, "{name}");
         distinct.insert(actual);
     }
-    assert_eq!(distinct.len(), 12);
+    assert_eq!(distinct.len(), 14);
 }
 
 #[test]
@@ -1799,4 +1819,640 @@ fn e3_malformed_tree_embeddings_refuse_without_mutating_the_embedding() {
     assert!(matches!(production_error, EditError::ApplyFailed(_)));
     assert_eq!(reference_embedding_state, reference_before);
     assert_eq!(production_embedding_state, production_before);
+}
+
+/// The distinct normalized deltas of the composable words of length at most
+/// two over the atomic alphabet: the atomic deltas themselves and every
+/// defined composite of two, each once.
+fn two_letter_net_deltas() -> Vec<reference::GraphDelta> {
+    let cases = carrier::graph_delta_cases();
+    let mut out: Vec<reference::GraphDelta> = Vec::new();
+    let mut push = |delta: reference::GraphDelta| {
+        if !out.contains(&delta) {
+            out.push(delta);
+        }
+    };
+    for first in &cases {
+        push(first.delta.clone());
+        for second in &cases {
+            if let Ok(net) = reference::Delta::compose(&first.delta, &second.delta) {
+                push(net);
+            }
+        }
+    }
+    out
+}
+
+fn production_applied(delta: &reference::GraphDelta, graph: &GInstance) -> Option<GInstance> {
+    let mut out = graph.clone();
+    delta_to_production(delta)
+        .apply(&mut out)
+        .ok()
+        .map(|()| out)
+}
+
+#[test]
+fn e1_independent_deltas_commute_and_merge_on_every_carrier_graph() {
+    let graphs = carrier::graphs();
+    let deltas = two_letter_net_deltas();
+    let mut independent_pairs = 0usize;
+    let mut squares = 0usize;
+    for first in &deltas {
+        for second in &deltas {
+            if !reference::independence(first, second).is_empty() {
+                continue;
+            }
+            independent_pairs += 1;
+            let merged = reference::merge(first, second).expect("independent deltas merge");
+            let production_merged = delta_to_production(first)
+                .merge(&delta_to_production(second))
+                .expect("production merges independent deltas");
+            assert_eq!(delta_to_reference(&production_merged), merged);
+            for graph in &graphs {
+                let (Ok(after_first), Ok(after_second)) = (
+                    reference::apply(first, graph),
+                    reference::apply(second, graph),
+                ) else {
+                    continue;
+                };
+                let first_then_second = reference::apply(second, &after_first)
+                    .unwrap_or_else(|error| panic!("second after first refused: {error:?}"));
+                let second_then_first = reference::apply(first, &after_second)
+                    .unwrap_or_else(|error| panic!("first after second refused: {error:?}"));
+                let at_once = reference::apply(&merged, graph)
+                    .unwrap_or_else(|error| panic!("merge refused: {error:?}"));
+                assert_eq!(
+                    first_then_second, second_then_first,
+                    "{first:?} | {second:?}"
+                );
+                assert_eq!(first_then_second, at_once, "{first:?} | {second:?}");
+
+                let production_graph = graph_to_production(graph);
+                let production_first = production_applied(first, &production_graph)
+                    .expect("production applies the first delta");
+                let production_second = production_applied(second, &production_graph)
+                    .expect("production applies the second delta");
+                let production_one_two = production_applied(second, &production_first)
+                    .expect("production applies the second after the first");
+                let production_two_one = production_applied(first, &production_second)
+                    .expect("production applies the first after the second");
+                let mut production_at_once = production_graph.clone();
+                production_merged
+                    .apply(&mut production_at_once)
+                    .expect("production applies the merge");
+                for actual in [production_one_two, production_two_one, production_at_once] {
+                    assert_eq!(graph_to_reference(&actual), at_once);
+                }
+                squares += 1;
+            }
+        }
+    }
+    assert!(independent_pairs > 0);
+    assert!(squares > 0);
+    println!(
+        "net deltas {}, independent ordered pairs {independent_pairs}, applicable squares {squares}",
+        deltas.len()
+    );
+}
+
+#[test]
+fn e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair() {
+    let tables = carrier::tables();
+    let mut count = 0usize;
+    for before in &tables {
+        for after in &tables {
+            let delta = reference::diff_table(before, after);
+            assert_eq!(
+                reference::apply_table(&delta, before).as_ref(),
+                Ok(after),
+                "{before:?} -> {after:?}"
+            );
+            assert_eq!(delta == reference::TableDelta::identity(), before == after);
+
+            let production =
+                TableDelta::diff(&table_to_production(before), &table_to_production(after));
+            let mut applied = table_to_production(before);
+            production
+                .apply(&mut applied)
+                .expect("production diff applies");
+            assert_eq!(table_to_reference(&applied), *after);
+            assert_eq!(production.is_identity(), before == after);
+            count += 1;
+        }
+    }
+    assert_eq!(count, 105 * 105);
+}
+
+#[test]
+fn e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
+    let malformed = reference_model::Table {
+        rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
+        pairs: BTreeSet::from([(reference_model::SEdge::new("a", "b", "e", None), 0, 0)]),
+    };
+    let identity = reference::diff_table(&malformed, &malformed);
+    assert_eq!(identity, reference::TableDelta::identity());
+    assert!(matches!(
+        reference::apply_table(&identity, &malformed),
+        Err(reference::TableApplyError::MissingRowEndpoint { row: 0, .. })
+    ));
+}
+
+#[test]
+fn e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
+    let cases = carrier::graph_delta_cases();
+    let identity = reference::GraphDelta::identity();
+    for case in &cases {
+        let delta = &case.delta;
+        assert_eq!(
+            reference::Delta::compose(&identity, delta).as_ref(),
+            Ok(delta)
+        );
+        assert_eq!(
+            reference::Delta::compose(delta, &identity).as_ref(),
+            Ok(delta)
+        );
+        let production = delta_to_production(delta);
+        assert_eq!(
+            GraphDelta::identity()
+                .compose(&production)
+                .map(|net| delta_to_reference(&net))
+                .as_ref(),
+            Ok(delta)
+        );
+        assert_eq!(
+            production
+                .compose(&GraphDelta::identity())
+                .map(|net| delta_to_reference(&net))
+                .as_ref(),
+            Ok(delta)
+        );
+        let regular = reference::Delta::compose(delta, &delta.invert())
+            .and_then(|net| reference::Delta::compose(&net, delta))
+            .expect("regularity composites are defined");
+        assert_eq!(&regular, delta);
+    }
+
+    let mut defined_pairs = 0usize;
+    for first in &cases {
+        for second in &cases {
+            let Ok(net) = reference::Delta::compose(&first.delta, &second.delta) else {
+                continue;
+            };
+            defined_pairs += 1;
+            let reversed = reference::Delta::compose(&second.delta.invert(), &first.delta.invert())
+                .expect("the inverted pair composes in reverse order");
+            assert_eq!(net.invert(), reversed);
+            let production = delta_to_production(&first.delta)
+                .compose(&delta_to_production(&second.delta))
+                .expect("production composes the pair");
+            let production_reversed = delta_to_production(&second.delta)
+                .invert()
+                .compose(&delta_to_production(&first.delta).invert())
+                .expect("production composes the inverted pair");
+            assert_eq!(production.invert(), production_reversed);
+        }
+    }
+    assert!(defined_pairs > 0);
+
+    let mut both_defined = 0usize;
+    for a in &cases {
+        for b in &cases {
+            let ab = reference::Delta::compose(&a.delta, &b.delta);
+            let production_ab =
+                delta_to_production(&a.delta).compose(&delta_to_production(&b.delta));
+            for c in &cases {
+                let bc = reference::Delta::compose(&b.delta, &c.delta);
+                let left = ab
+                    .as_ref()
+                    .ok()
+                    .and_then(|ab| reference::Delta::compose(ab, &c.delta).ok());
+                let right = bc
+                    .as_ref()
+                    .ok()
+                    .and_then(|bc| reference::Delta::compose(&a.delta, bc).ok());
+                let production_left = production_ab
+                    .as_ref()
+                    .ok()
+                    .and_then(|ab| ab.compose(&delta_to_production(&c.delta)).ok());
+                let production_right = delta_to_production(&b.delta)
+                    .compose(&delta_to_production(&c.delta))
+                    .ok()
+                    .and_then(|bc| delta_to_production(&a.delta).compose(&bc).ok());
+                if let (Some(left), Some(right)) = (&left, &right) {
+                    assert_eq!(left, right, "{:?} {:?} {:?}", a.delta, b.delta, c.delta);
+                    both_defined += 1;
+                }
+                if let (Some(left), Some(right)) = (&production_left, &production_right) {
+                    assert_eq!(left, right);
+                }
+            }
+        }
+    }
+    assert!(both_defined > 0);
+    println!("defined pairs {defined_pairs}, triples with both bracketings defined {both_defined}");
+}
+
+/// A tree-edit refusal at the granularity both implementations share.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum JoinRefusalObs {
+    NodeNotFound(u32),
+    Rejected,
+    Cycle { node: u32, parent: u32 },
+}
+
+fn reference_join_refusal(error: &reference::TreeApplyError) -> JoinRefusalObs {
+    match error {
+        reference::TreeApplyError::NodeNotFound(id) => JoinRefusalObs::NodeNotFound(*id),
+        reference::TreeApplyError::MisfiledNode { .. }
+        | reference::TreeApplyError::InvalidJoin(_)
+        | reference::TreeApplyError::RootOperation(_) => JoinRefusalObs::Rejected,
+        reference::TreeApplyError::Cycle { node, parent } => JoinRefusalObs::Cycle {
+            node: *node,
+            parent: *parent,
+        },
+        other => panic!("unexpected reference join refusal: {other:?}"),
+    }
+}
+
+fn production_join_refusal(error: &EditError) -> JoinRefusalObs {
+    match error {
+        EditError::NodeNotFound(id) => JoinRefusalObs::NodeNotFound(*id),
+        EditError::ApplyFailed(_) => JoinRefusalObs::Rejected,
+        EditError::CycleDetected {
+            node_id,
+            new_parent,
+        } => JoinRefusalObs::Cycle {
+            node: *node_id,
+            parent: *new_parent,
+        },
+        other => panic!("unexpected production join refusal: {other:?}"),
+    }
+}
+
+#[test]
+fn tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged() {
+    let cases = carrier::join_cases();
+    assert_eq!(
+        u64::try_from(cases.len()).unwrap(),
+        carrier::join_cases_count_certificate()
+    );
+    let expected_refusal = |name: &str| match name {
+        "joined-ancestor" => JoinRefusalObs::Cycle { node: 1, parent: 3 },
+        "missing-primary" | "missing-joined" => JoinRefusalObs::NodeNotFound(9),
+        "joined-root" | "repeated-joined" | "joined-primary" | "misfiled-product" => {
+            JoinRefusalObs::Rejected
+        }
+        other => panic!("unexpected refusal case {other}"),
+    };
+    let mut refusals = 0usize;
+    for case in cases.into_iter().filter(|case| !case.applies) {
+        let (name, probe, edit) = (case.name, case.tree, case.edit);
+        let expected = expected_refusal(name);
+        refusals += 1;
+        let (_, mut reference_embedding_state) =
+            panproto_reference::encode::tree_to_graph(&probe, None).expect("probe tree embeds");
+        let reference_before = reference_embedding_state.clone();
+        let reference_error =
+            reference::apply_tree(&edit, &probe, &mut reference_embedding_state).expect_err(name);
+        assert_eq!(reference_join_refusal(&reference_error), expected, "{name}");
+        assert_eq!(reference_embedding_state, reference_before, "{name}");
+        let reference_lowering = reference::graph_delta_from_tree_edit(
+            &probe,
+            &mut reference_embedding_state,
+            &edit,
+            None,
+        )
+        .expect_err(name);
+        assert_eq!(
+            reference_join_refusal(&reference_lowering),
+            expected,
+            "{name}"
+        );
+        assert_eq!(reference_embedding_state, reference_before, "{name}");
+
+        let production_edit = tree_edit_to_production(&edit);
+        let production_tree = tree_to_production(&probe);
+        let mut applied = production_tree.clone();
+        let production_error = production_edit.apply(&mut applied).expect_err(name);
+        assert_eq!(
+            production_join_refusal(&production_error),
+            expected,
+            "{name}"
+        );
+        assert_eq!(tree_to_reference(&applied), probe, "{name}");
+        let (production_graph, mut production_embedding_state) =
+            GInstance::from_wtype_embedded(&production_tree, None).expect("probe tree embeds");
+        let production_before = production_embedding_state.clone();
+        let production_lowering = GraphDelta::from_tree_edit(
+            &production_graph,
+            &mut production_embedding_state,
+            &production_edit,
+        )
+        .expect_err(name);
+        assert_eq!(
+            production_join_refusal(&production_lowering),
+            expected,
+            "{name}"
+        );
+        assert_eq!(production_embedding_state, production_before, "{name}");
+    }
+    assert_eq!(refusals, 7);
+}
+
+fn cells_to_production(cells: &BTreeMap<String, ReferenceValue>) -> HashMap<String, Value> {
+    cells
+        .iter()
+        .map(|(column, value)| (column.clone(), value_to_production(value)))
+        .collect()
+}
+
+fn table_edit_to_production(edit: &reference::TableEdit) -> panproto_inst::TableEdit {
+    use panproto_inst::TableEdit as P;
+    match edit {
+        reference::TableEdit::Identity => P::Identity,
+        reference::TableEdit::InsertRow { table, id, row } => P::InsertRow {
+            table: table.as_str().into(),
+            id: RowId(*id),
+            row: cells_to_production(row),
+        },
+        reference::TableEdit::DeleteRow {
+            table,
+            id,
+            row,
+            incident,
+        } => P::DeleteRow {
+            table: table.as_str().into(),
+            id: RowId(*id),
+            row: cells_to_production(row),
+            incident_fks: incident
+                .iter()
+                .map(|(edge, src, tgt)| (edge_to_production(edge), RowId(*src), RowId(*tgt)))
+                .collect(),
+        },
+        reference::TableEdit::UpdateCell {
+            table,
+            id,
+            column,
+            old,
+            new,
+        } => P::UpdateCell {
+            table: table.as_str().into(),
+            id: RowId(*id),
+            column: column.clone(),
+            old: old.as_ref().map(value_to_production),
+            new: new.as_ref().map(value_to_production),
+        },
+        reference::TableEdit::MoveRow {
+            id,
+            old_table,
+            new_table,
+        } => P::MoveRow {
+            id: RowId(*id),
+            old_table: old_table.as_str().into(),
+            new_table: new_table.as_str().into(),
+        },
+        reference::TableEdit::AddForeignKey { edge, src, tgt } => P::AddForeignKey {
+            edge: edge_to_production(edge),
+            src: RowId(*src),
+            tgt: RowId(*tgt),
+        },
+        reference::TableEdit::RemoveForeignKey { edge, src, tgt } => P::RemoveForeignKey {
+            edge: edge_to_production(edge),
+            src: RowId(*src),
+            tgt: RowId(*tgt),
+        },
+        reference::TableEdit::Batch(steps) => {
+            P::Batch(steps.iter().map(table_edit_to_production).collect())
+        }
+        reference::TableEdit::Delta(delta) => P::Delta(table_delta_to_production(delta)),
+    }
+}
+
+/// Every single surface table step the carrier table admits or refuses:
+/// insertions under a fresh and an occupied id, exact and stale deletions,
+/// cell updates in both directions with a stale one, moves to another table
+/// with a stale one, and every foreign-key addition and removal over the
+/// rows and one fresh id.
+fn surface_table_steps(table: &reference_model::Table) -> Vec<reference::TableEdit> {
+    let edge = reference_model::SEdge::new("a", "a", "e", None);
+    let fresh = u32::try_from(table.rows.len()).expect("small carrier");
+    let zero = BTreeMap::from([("f".to_owned(), ReferenceValue::Int(0))]);
+    let mut out = Vec::new();
+    for id in [fresh, 0] {
+        for row in [BTreeMap::new(), zero.clone()] {
+            out.push(reference::TableEdit::InsertRow {
+                table: "a".to_owned(),
+                id,
+                row,
+            });
+        }
+    }
+    for (id, (name, cells)) in &table.rows {
+        let incident: Vec<_> = table
+            .pairs
+            .iter()
+            .filter(|(_, src, tgt)| src == id || tgt == id)
+            .cloned()
+            .collect();
+        let flipped = if cells.is_empty() {
+            zero.clone()
+        } else {
+            BTreeMap::new()
+        };
+        let stale_incidence = if incident.is_empty() {
+            vec![(edge.clone(), *id, *id)]
+        } else {
+            Vec::new()
+        };
+        for (table_name, row, listed) in [
+            (name.clone(), cells.clone(), incident.clone()),
+            ("b".to_owned(), cells.clone(), incident.clone()),
+            (name.clone(), flipped, incident.clone()),
+            (name.clone(), cells.clone(), stale_incidence),
+        ] {
+            out.push(reference::TableEdit::DeleteRow {
+                table: table_name,
+                id: *id,
+                row,
+                incident: listed,
+            });
+        }
+        for (old, new) in [
+            (None, Some(ReferenceValue::Int(0))),
+            (Some(ReferenceValue::Int(0)), None),
+        ] {
+            out.push(reference::TableEdit::UpdateCell {
+                table: name.clone(),
+                id: *id,
+                column: "f".to_owned(),
+                old,
+                new,
+            });
+        }
+        out.push(reference::TableEdit::UpdateCell {
+            table: "b".to_owned(),
+            id: *id,
+            column: "f".to_owned(),
+            old: cells.get("f").cloned(),
+            new: Some(ReferenceValue::Int(1)),
+        });
+        for old_table in [name.clone(), "b".to_owned()] {
+            out.push(reference::TableEdit::MoveRow {
+                id: *id,
+                old_table,
+                new_table: "b".to_owned(),
+            });
+        }
+    }
+    let ids: Vec<u32> = table.rows.keys().copied().chain([fresh]).collect();
+    for src in &ids {
+        for tgt in &ids {
+            out.push(reference::TableEdit::AddForeignKey {
+                edge: edge.clone(),
+                src: *src,
+                tgt: *tgt,
+            });
+            out.push(reference::TableEdit::RemoveForeignKey {
+                edge: edge.clone(),
+                src: *src,
+                tgt: *tgt,
+            });
+        }
+    }
+    out
+}
+
+#[test]
+fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
+    let mut steps_checked = 0usize;
+    let mut applied = 0usize;
+    let mut batches_inverted = 0usize;
+    let mut outcomes = BTreeSet::new();
+    for table in carrier::tables() {
+        let production_table = table_to_production(&table);
+        let steps = surface_table_steps(&table);
+        for edit in &steps {
+            let expected_delta = reference::table_edit_delta(edit).expect("a single step lowers");
+            let production_edit = table_edit_to_production(edit);
+            let actual_delta = production_edit.to_delta().expect("a single step lowers");
+            assert_eq!(
+                table_delta_to_reference(&actual_delta),
+                expected_delta,
+                "{edit:?}"
+            );
+
+            if let reference::TableEdit::DeleteRow {
+                table: name,
+                id,
+                row,
+                incident,
+            } = edit
+            {
+                let checked = reference::delete_row_delta(
+                    &table,
+                    *id,
+                    name,
+                    row,
+                    &incident.iter().cloned().collect(),
+                );
+                let stepped = reference::apply_table_step(edit, &table);
+                match (&checked, &stepped) {
+                    (Ok(delta), Ok(_)) => assert_eq!(delta, &expected_delta),
+                    (Err(left), Err(right)) => assert_eq!(left, right),
+                    _ => panic!("surface deletion checks differ: {checked:?} vs {stepped:?}"),
+                }
+            }
+            let expected = reference::apply_table_step(edit, &table)
+                .map_err(|error| reference_table_apply_error(&error));
+            let mut actual_table = production_table.clone();
+            let actual = production_edit
+                .apply(&mut actual_table)
+                .map(|()| table_to_reference(&actual_table))
+                .map_err(|error| production_table_apply_error(&error));
+            assert_eq!(actual, expected, "table={table:?}; edit={edit:?}");
+            outcomes.insert(format!(
+                "{:?}",
+                expected
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:?}")
+                        .split('(')
+                        .next()
+                        .unwrap_or_default()
+                        .to_owned())
+            ));
+            steps_checked += 1;
+            let Ok(after) = expected else {
+                assert_eq!(table_to_reference(&actual_table), table, "{edit:?}");
+                continue;
+            };
+            assert_eq!(
+                reference::apply_table(&expected_delta.invert(), &after).as_ref(),
+                Ok(&table),
+                "reference inversion: {edit:?}"
+            );
+            production_edit
+                .invert()
+                .expect("a single step inverts")
+                .apply(&mut actual_table)
+                .unwrap_or_else(|error| panic!("production inversion {edit:?}: {error:?}"));
+            assert_eq!(table_to_reference(&actual_table), table, "{edit:?}");
+            applied += 1;
+        }
+        for first in &steps {
+            for second in &steps {
+                let batch = reference::TableEdit::Batch(vec![first.clone(), second.clone()]);
+                let expected = reference::table_edit_delta(&batch);
+                let production_batch = table_edit_to_production(&batch);
+                match (expected, production_batch.to_delta()) {
+                    (Ok(expected), Ok(actual)) => {
+                        assert_eq!(table_delta_to_reference(&actual), expected, "{batch:?}");
+                        let Ok(after) = reference::apply_table(&expected, &table) else {
+                            continue;
+                        };
+                        assert_eq!(
+                            reference::apply_table(&expected.invert(), &after).as_ref(),
+                            Ok(&table)
+                        );
+                        let mut production_after = production_table.clone();
+                        actual
+                            .apply(&mut production_after)
+                            .expect("production applies the lowered batch");
+                        production_batch
+                            .invert()
+                            .expect("a defined batch inverts")
+                            .apply(&mut production_after)
+                            .expect("production applies the inverted batch");
+                        assert_eq!(table_to_reference(&production_after), table);
+                        batches_inverted += 1;
+                    }
+                    (Err(expected), Err(actual)) => assert_eq!(
+                        production_table_compose_error(&actual),
+                        reference_table_compose_error(&expected)
+                    ),
+                    (expected, actual) => panic!(
+                        "batch lowering domain differs for {batch:?}: reference={expected:?}, production={actual:?}"
+                    ),
+                }
+            }
+        }
+    }
+    println!(
+        "single steps {steps_checked}, applied {applied}, inverted batches {batches_inverted}, outcomes {outcomes:?}"
+    );
+    assert!(applied > 0 && batches_inverted > 0);
+    for refusal in [
+        "StaleIncidence",
+        "StaleTable",
+        "StaleCell",
+        "DuplicateRow",
+        "MissingRowEndpoint",
+        "ForeignKeyNotFound",
+        "DuplicateForeignKey",
+    ] {
+        assert!(
+            outcomes.iter().any(|outcome| outcome.contains(refusal)),
+            "{refusal} not reached: {outcomes:?}"
+        );
+    }
 }

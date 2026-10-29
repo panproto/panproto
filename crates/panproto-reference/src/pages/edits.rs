@@ -1672,10 +1672,89 @@ pub mod edit {
             .map(|(arcs, fans)| build_embedded_graph(tree, &arcs, &fans, schema))
     }
 
+    /// The delta of one lowered step between the graph forms before and
+    /// after it: the differ, except that a node id that holds a fan node on
+    /// one side and a tree node on the other is a replacement. A step that
+    /// gives a tree node the id of a fan node relocates that fan node, which
+    /// deletes the fan node and adds the tree node under its id, and an id in
+    /// both parts of a delta is a replacement (E.1).
+    fn tree_step_delta(before: &Graph, after: &Graph) -> GraphDelta {
+        let mut delta = diff(before, after);
+        for (id, old) in &before.nodes {
+            let Some(new) = after.nodes.get(id) else {
+                continue;
+            };
+            if (old.shape == NodeShape::HyperEdge) != (new.shape == NodeShape::HyperEdge) {
+                delta
+                    .attrs
+                    .retain(|key, _| GraphSpace::owner(key) != GElem::Node(*id));
+                delta
+                    .del
+                    .insert(GElem::Node(*id), GPayload::Node(old.clone()));
+                delta
+                    .add
+                    .insert(GElem::Node(*id), GPayload::Node(new.clone()));
+            }
+        }
+        delta
+    }
+
+    /// Lower `edit` step by step: apply the whole edit first (so a refusal
+    /// is the edit's), then replay its flattened steps, take each step's
+    /// [`tree_step_delta`] between the graph forms `graph_of` builds, and
+    /// compose them left to right. `Ok(None)` when some intermediate graph
+    /// form does not exist. On success `embedding` becomes the one the edit
+    /// reaches; on every error it is unchanged.
+    fn lower_tree_steps<I: TreeId>(
+        tree: &crate::model::Tree,
+        embedding: &mut crate::encode::TreeEmbedding<I>,
+        edit: &TreeEdit,
+        graph_of: impl Fn(&crate::model::Tree, &crate::encode::TreeEmbedding<I>) -> Option<Graph>,
+    ) -> Result<Option<GraphDelta>, TreeApplyError> {
+        let mut reached = embedding.clone();
+        apply_tree_in(edit, tree, &mut reached)?;
+        // The steps replay the run `apply_tree_in` has just accepted, so
+        // none of them refuses and the replay reaches `reached`.
+        let mut current = tree.clone();
+        let mut followed = embedding.clone();
+        let mut graph = graph_of(&current, &followed);
+        let mut net = Some(GraphDelta::identity());
+        for step in edit.steps() {
+            apply_tree_step(step, &mut current, &mut followed)?;
+            let next = graph_of(&current, &followed);
+            net = match (net, &graph, &next) {
+                (Some(prefix), Some(before), Some(after)) => {
+                    // Each step delta applies to the state the steps before
+                    // it reach, so the composite of applicable deltas is
+                    // defined at every element (E.1 case table): a deletion
+                    // or replacement reads the payload its predecessor
+                    // wrote, an addition takes an id absent there, and an
+                    // attribute change reads the value written before it.
+                    match prefix.compose(&tree_step_delta(before, after)) {
+                        Ok(composite) => Some(composite),
+                        Err(mismatch) => unreachable!(
+                            "sequentially applicable step deltas compose: {mismatch:?}"
+                        ),
+                    }
+                }
+                _ => None,
+            };
+            graph = next;
+        }
+        *embedding = reached;
+        Ok(net)
+    }
+
     /// Definition: Lower a tree edit to its exact graph delta.
     ///
-    /// Its application is the graph of the edited tree under the updated durable embedding.
-    /// Fresh ids are drawn from the embedding floors in tree-apply order.
+    /// Each step lowers to the change of the graph form it makes (the
+    /// differ, with a node id that changes between a fan node and a tree
+    /// node read as a replacement), and a sequence to the left-to-right
+    /// composite of its steps (E.3: Sequence lowers to compose). So deleting
+    /// a node and inserting a node under its id is a replacement of that
+    /// node (E.1, identity policy (ii)). Applying the result gives the graph
+    /// of the edited tree under the updated durable embedding. Fresh ids are
+    /// drawn from the embedding floors in tree-apply order.
     ///
     /// # Errors
     ///
@@ -1689,33 +1768,31 @@ pub mod edit {
         edit: &TreeEdit,
         schema: Option<&crate::schema::Schema>,
     ) -> Result<GraphDelta, TreeApplyError> {
-        let mut next_embedding = embedding.clone();
-        let after_tree = apply_tree(edit, tree, &mut next_embedding)?;
-        // Tree apply checks the embedding before and after the edit, so both
-        // graph forms exist.
-        let before = build_embedded_graph(tree, &embedding.arcs, &embedding.fans, schema);
-        let after = build_embedded_graph(
-            &after_tree,
-            &next_embedding.arcs,
-            &next_embedding.fans,
-            schema,
-        );
-        *embedding = next_embedding;
-        Ok(diff(&before, &after))
+        // A valid `u32` embedding has every carrier id in `u32`, so every
+        // intermediate graph form exists.
+        lower_tree_steps(tree, embedding, edit, |tree, embedding| {
+            Some(build_embedded_graph(
+                tree,
+                &embedding.arcs,
+                &embedding.fans,
+                schema,
+            ))
+        })?
+        .ok_or(TreeApplyError::IdsExhausted)
     }
 
     /// Definition: Lower a tree edit over unbounded ids.
     ///
-    /// The delta from the graph of `tree` to the graph of
-    /// [`apply_tree_unbounded`]'s result, each the graph
-    /// [`graph_delta_from_tree_edit`] builds from the same carriers; floors
-    /// are not part of a graph, so a floor beyond `u32` (after inserting
-    /// node `u32::MAX`, say) does not prevent one. `Ok(None)` when either
-    /// graph has a carrier id that is no `u32`; the edit has still applied,
-    /// so the embedding becomes the one [`apply_tree_unbounded`] reaches,
-    /// as it does on `Ok(Some(_))`. The `u32` form refines it: for every
-    /// edit and valid embedding E, [`graph_delta_from_tree_edit`] from E
-    /// returns `IdsExhausted` or what this function returns from
+    /// The step-by-step composite [`graph_delta_from_tree_edit`] builds,
+    /// over the graph forms of `tree` and of each intermediate tree under
+    /// [`apply_tree_unbounded`]'s embeddings; floors are not part of a
+    /// graph, so a floor beyond `u32` (after inserting node `u32::MAX`,
+    /// say) does not prevent one. `Ok(None)` when some intermediate graph
+    /// has a carrier id that is no `u32`; the edit has still applied, so
+    /// the embedding becomes the one [`apply_tree_unbounded`] reaches, as
+    /// it does on `Ok(Some(_))`. The `u32` form refines it: for every edit
+    /// and valid embedding E, [`graph_delta_from_tree_edit`] from E returns
+    /// `IdsExhausted` or what this function returns from
     /// [`unbounded_embedding`] of E, `Ok(d)` standing for `Ok(Some(d))`
     /// (so never `Ok` where this function returns `Ok(None)`), and leaves
     /// the embedding this function leaves, read in `u32`.
@@ -1733,15 +1810,9 @@ pub mod edit {
         edit: &TreeEdit,
         schema: Option<&crate::schema::Schema>,
     ) -> Result<Option<GraphDelta>, TreeApplyError> {
-        let mut next_embedding = embedding.clone();
-        let after_tree = apply_tree_unbounded(edit, tree, &mut next_embedding)?;
-        // As in the `u32` form, tree apply has checked both embeddings.
-        let before = graph_of_checked_unbounded_embedding(tree, embedding, schema);
-        let after = graph_of_checked_unbounded_embedding(&after_tree, &next_embedding, schema);
-        *embedding = next_embedding;
-        Ok(before
-            .zip(after)
-            .map(|(before, after)| diff(&before, &after)))
+        lower_tree_steps(tree, embedding, edit, |tree, embedding| {
+            graph_of_checked_unbounded_embedding(tree, embedding, schema)
+        })
     }
 
     fn tree_depth(tree: &crate::model::Tree, node: u32) -> usize {
@@ -1888,8 +1959,12 @@ pub mod edit {
         Ok(())
     }
 
+    /// Remove every node the result lacks, and every node the delta
+    /// replaces (`replaced`), which a later step inserts again; deepest
+    /// first, contracting a node that still has children.
     fn remove_missing_tree_nodes<I: TreeId>(
         after: &crate::model::Tree,
+        replaced: &BTreeSet<u32>,
         current: &mut crate::model::Tree,
         embedding: &mut crate::encode::TreeEmbedding<I>,
         steps: &mut Vec<TreeEdit>,
@@ -1897,7 +1972,7 @@ pub mod edit {
         let mut deleted: Vec<_> = current
             .nodes
             .keys()
-            .filter(|node| !after.nodes.contains_key(node))
+            .filter(|node| !after.nodes.contains_key(node) || replaced.contains(node))
             .copied()
             .collect();
         deleted.sort_by_key(|node| std::cmp::Reverse(tree_depth(current, *node)));
@@ -2135,11 +2210,18 @@ pub mod edit {
         embedding: &crate::encode::TreeEmbedding<I>,
         after: &crate::model::Tree,
         refreshed: &BTreeSet<u32>,
+        replaced: &BTreeSet<u32>,
     ) -> Result<(TreeEdit, crate::encode::TreeEmbedding<I>), TreeApplyError> {
         let mut current = before.clone();
         let mut current_embedding = embedding.clone();
         let mut steps = Vec::new();
-        remove_missing_tree_nodes(after, &mut current, &mut current_embedding, &mut steps)?;
+        remove_missing_tree_nodes(
+            after,
+            replaced,
+            &mut current,
+            &mut current_embedding,
+            &mut steps,
+        )?;
         remove_changed_tree_fans(
             after,
             refreshed,
@@ -2583,14 +2665,48 @@ pub mod edit {
             })
             .map(|(_, edge)| edge.tgt)
             .collect();
+        // A tree node other than the root in both parts of the delta is a
+        // replacement: a node deleted and inserted again under its id (E.1,
+        // identity policy (ii)), which the reconstruction deletes and
+        // re-inserts. No tree edit deletes the root, so a root replacement
+        // is left to the fixed-carrier comparison, which refuses it.
+        let replaced: BTreeSet<u32> = delta
+            .del
+            .keys()
+            .filter_map(|element| match element {
+                GElem::Node(id)
+                    if delta.add.contains_key(element)
+                        && *id != tree.root
+                        && tree.nodes.contains_key(id)
+                        && after_tree.nodes.contains_key(id) =>
+                {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .collect();
         let (edit, reached) = tree_transform_edit(
             tree,
             &unbounded_embedding(embedding),
             &after_tree,
             &refreshed,
+            &replaced,
         )?;
         let kept = fixed_graph(&after_tree, &reached, schema);
-        if fixed_delta_parts_match(&before_graph, delta, &diff(&before_graph, &kept)) {
+        let mut lowered = tree_step_delta(&before_graph, &kept);
+        for id in &replaced {
+            lowered
+                .attrs
+                .retain(|key, _| GraphSpace::owner(key) != GElem::Node(*id));
+            lowered.del.insert(
+                GElem::Node(*id),
+                GPayload::Node(before_graph.nodes[id].clone()),
+            );
+            lowered
+                .add
+                .insert(GElem::Node(*id), GPayload::Node(kept.nodes[id].clone()));
+        }
+        if fixed_delta_parts_match(&before_graph, delta, &lowered) {
             Ok(edit)
         } else {
             Err(fixed_carriers_refusal())
@@ -2882,9 +2998,47 @@ pub mod edit {
     /// Whole-state put oracle used by the reference edit translator.
     pub type EditPut<C, E> = dyn Fn(&Graph, &Graph, &C) -> Result<(Graph, C), E>;
 
+    /// The element `x` of `graph` with its payload, if present.
+    fn graph_element(graph: &Graph, x: &GElem) -> Option<GPayload> {
+        match x {
+            GElem::Node(id) => graph.nodes.get(id).cloned().map(GPayload::Node),
+            GElem::Edge(id) => graph.edges.get(id).cloned().map(GPayload::Edge),
+        }
+    }
+
+    /// Definition: The differ from `before` to `after`, keeping the
+    /// replacements of an input delta: every element the input replaces (an
+    /// id in both of its parts) that is present in both states becomes a
+    /// replacement from its `before` payload to its `after` payload, with no
+    /// attribute change of its own, even when the payloads are equal. A
+    /// state differ cannot see such a replacement, and a replacement is a
+    /// new element under a reused id, never an unchanged one (identity
+    /// policy (ii)), so a translation that composes with the translations
+    /// of a delete and a later add (E.6 (6)) carries it.
+    ///
+    /// Book anchors: `L-edits-8`.
+    #[must_use]
+    pub fn diff_keeping_replacements(
+        before: &Graph,
+        after: &Graph,
+        input: &GraphDelta,
+    ) -> GraphDelta {
+        let mut delta = diff(before, after);
+        for x in input.del.keys().filter(|x| input.add.contains_key(*x)) {
+            let (Some(old), Some(new)) = (graph_element(before, x), graph_element(after, x)) else {
+                continue;
+            };
+            delta.attrs.retain(|key, _| GraphSpace::owner(key) != *x);
+            delta.del.insert(x.clone(), old);
+            delta.add.insert(x.clone(), new);
+        }
+        delta
+    }
+
     /// Definition: The reference translation of a source edit through a lens: the differ
     /// between the views of the source before and after the edit (whole-state
-    /// get on both sides).
+    /// get on both sides), keeping the edit's replacements of elements both
+    /// views hold ([`diff_keeping_replacements`]).
     ///
     /// # Errors
     ///
@@ -2900,13 +3054,15 @@ pub mod edit {
         let (before, _) = get(s).map_err(EditTranslationError::Lens)?;
         let (after, complement) = get(&s2).map_err(EditTranslationError::Lens)?;
         Ok(EditTranslation {
-            delta: diff(&before, &after),
+            delta: diff_keeping_replacements(&before, &after, d),
             complement,
         })
     }
 
     /// Definition: The reference translation of a view edit through a lens: the differ
-    /// between the source and the put of the edited view.
+    /// between the source and the put of the edited view, keeping the view
+    /// edit's replacements of elements both sources hold
+    /// ([`diff_keeping_replacements`]).
     ///
     /// # Errors
     ///
@@ -2923,7 +3079,7 @@ pub mod edit {
         let v2 = apply(dv, v).map_err(EditTranslationError::Apply)?;
         let (source, complement) = put(s, &v2, complement).map_err(EditTranslationError::Lens)?;
         Ok(EditTranslation {
-            delta: diff(s, &source),
+            delta: diff_keeping_replacements(s, &source, dv),
             complement,
         })
     }
@@ -3145,6 +3301,300 @@ pub mod edit {
                 .map(|(edge, src, tgt)| (TElem::Pair(edge, src, tgt), TPayload::Pair)),
         );
         Ok(delta)
+    }
+
+    /// A surface table edit (T.5): an invertible compare-and-set request
+    /// that lowers to a [`TableDelta`].
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum TableEdit {
+        /// No change.
+        Identity,
+        /// Insert a row under an unused id.
+        InsertRow {
+            /// The table.
+            table: Name,
+            /// The new row id.
+            id: u32,
+            /// The row's cells.
+            row: BTreeMap<String, Value>,
+        },
+        /// Delete a row with its incident pairs.
+        DeleteRow {
+            /// The table the row is expected in.
+            table: Name,
+            /// The row.
+            id: u32,
+            /// The cells the row is expected to hold.
+            row: BTreeMap<String, Value>,
+            /// Every pair incident to the row, ascending.
+            incident: Vec<(SEdge, u32, u32)>,
+        },
+        /// Change one cell; `old: None` adds it and `new: None` removes it.
+        UpdateCell {
+            /// The table the row is expected in.
+            table: Name,
+            /// The row.
+            id: u32,
+            /// The column.
+            column: String,
+            /// The expected value.
+            old: Option<Value>,
+            /// The written value.
+            new: Option<Value>,
+        },
+        /// Move a row to another table.
+        MoveRow {
+            /// The row.
+            id: u32,
+            /// The table it is expected in.
+            old_table: Name,
+            /// The table it moves to.
+            new_table: Name,
+        },
+        /// Add one pair.
+        AddForeignKey {
+            /// The foreign-key edge.
+            edge: SEdge,
+            /// Source row.
+            src: u32,
+            /// Target row.
+            tgt: u32,
+        },
+        /// Remove one pair.
+        RemoveForeignKey {
+            /// The foreign-key edge.
+            edge: SEdge,
+            /// Source row.
+            src: u32,
+            /// Target row.
+            tgt: u32,
+        },
+        /// Steps in order.
+        Batch(Vec<Self>),
+        /// A canonical delta.
+        Delta(TableDelta),
+    }
+
+    /// Definition: The canonical delta of a surface table edit, read
+    /// without a state (T.5, E.2). `InsertRow` adds the row; `DeleteRow`
+    /// deletes the row with its stated payload and every listed pair;
+    /// `UpdateCell` is a cell change; `MoveRow` a table change of the row;
+    /// `AddForeignKey` and `RemoveForeignKey` add and delete the pair;
+    /// `Delta` is itself; `Batch` is the left-to-right composite of its
+    /// steps.
+    ///
+    /// # Errors
+    ///
+    /// The first [`Mismatch`] when the steps of a batch do not compose.
+    ///
+    /// Book anchors: `L-edits-5`.
+    pub fn table_edit_delta(edit: &TableEdit) -> Result<TableDelta, Mismatch<TElem, TKey>> {
+        let mut delta = TableDelta::identity();
+        match edit {
+            TableEdit::Identity => {}
+            TableEdit::InsertRow { table, id, row } => {
+                delta
+                    .add
+                    .insert(TElem::Row(*id), TPayload::Row(table.clone(), row.clone()));
+            }
+            TableEdit::DeleteRow {
+                table,
+                id,
+                row,
+                incident,
+            } => {
+                delta
+                    .del
+                    .insert(TElem::Row(*id), TPayload::Row(table.clone(), row.clone()));
+                delta.del.extend(
+                    incident
+                        .iter()
+                        .cloned()
+                        .map(|(edge, src, tgt)| (TElem::Pair(edge, src, tgt), TPayload::Pair)),
+                );
+            }
+            TableEdit::UpdateCell {
+                id,
+                column,
+                old,
+                new,
+                ..
+            } => {
+                if old != new {
+                    delta.attrs.insert(
+                        TKey::Cell(*id, column.clone()),
+                        (TVal::Cell(old.clone()), TVal::Cell(new.clone())),
+                    );
+                }
+            }
+            TableEdit::MoveRow {
+                id,
+                old_table,
+                new_table,
+            } => {
+                if old_table != new_table {
+                    delta.attrs.insert(
+                        TKey::Table(*id),
+                        (
+                            TVal::Table(old_table.clone()),
+                            TVal::Table(new_table.clone()),
+                        ),
+                    );
+                }
+            }
+            TableEdit::AddForeignKey { edge, src, tgt } => {
+                delta
+                    .add
+                    .insert(TElem::Pair(edge.clone(), *src, *tgt), TPayload::Pair);
+            }
+            TableEdit::RemoveForeignKey { edge, src, tgt } => {
+                delta
+                    .del
+                    .insert(TElem::Pair(edge.clone(), *src, *tgt), TPayload::Pair);
+            }
+            TableEdit::Batch(steps) => {
+                for step in steps {
+                    delta = delta.compose(&table_edit_delta(step)?)?;
+                }
+            }
+            TableEdit::Delta(inner) => delta = inner.clone(),
+        }
+        Ok(delta)
+    }
+
+    /// The row's table, which must exist and be `expected`.
+    fn expect_row_table(table: &Table, id: u32, expected: &str) -> Result<(), TableApplyError> {
+        match table.rows.get(&id) {
+            None => Err(TableApplyError::RowNotFound(id)),
+            Some((found, _)) if found.as_str() != expected => {
+                Err(TableApplyError::StaleTable { row: id })
+            }
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Definition: Apply one surface table step: check it against the table as T.5's compare-and-set surface
+    /// requires, then apply its lowering ([`table_edit_delta`]) with
+    /// [`apply_table`]. The surface checks are: an inserted id is free
+    /// (`DuplicateRow`); a deleted, updated or moved row exists
+    /// (`RowNotFound`) in the named table (`StaleTable`); a deleted row
+    /// holds exactly the stated cells (`StaleCell`, least differing column)
+    /// and its stated pairs are exactly its incident pairs, ascending
+    /// (`StaleIncidence`); an updated cell holds its old value
+    /// (`StaleCell`); a row moved to another table has no incident pair
+    /// (`MissingRowEndpoint`, naming the least such pair's edge); an added
+    /// pair is absent (`DuplicateForeignKey`) and its rows lie in the
+    /// edge's endpoint tables (`MissingRowEndpoint`, source first); a
+    /// removed pair is present (`ForeignKeyNotFound`). `StaleIncidence` is
+    /// thus a surface refusal: the delta-level incidence refusal is
+    /// `DanglingForeignKeys`. A batch or a delta is applied as its lowering,
+    /// with the checks of [`apply_table`] only: this function states the
+    /// surface checks of single steps.
+    ///
+    /// # Errors
+    ///
+    /// The first failing surface check, then any refusal of
+    /// [`apply_table`].
+    ///
+    /// Book anchors: `L-edits-5`.
+    pub fn apply_table_step(edit: &TableEdit, table: &Table) -> Result<Table, TableApplyError> {
+        let incident = |id: u32| -> Vec<(SEdge, u32, u32)> {
+            table
+                .pairs
+                .iter()
+                .filter(|(_, src, tgt)| *src == id || *tgt == id)
+                .cloned()
+                .collect()
+        };
+        match edit {
+            TableEdit::Identity => {}
+            TableEdit::InsertRow { id, .. } => {
+                if table.rows.contains_key(id) {
+                    return Err(TableApplyError::DuplicateRow(*id));
+                }
+            }
+            TableEdit::DeleteRow {
+                table: name,
+                id,
+                row,
+                incident: stated,
+            } => {
+                expect_row_table(table, *id, name)?;
+                let cells = &table.rows[id].1;
+                let columns: BTreeSet<&String> = cells.keys().chain(row.keys()).collect();
+                if let Some(column) = columns
+                    .into_iter()
+                    .find(|column| cells.get(*column) != row.get(*column))
+                {
+                    return Err(TableApplyError::StaleCell {
+                        row: *id,
+                        column: column.clone(),
+                    });
+                }
+                if incident(*id) != *stated {
+                    return Err(TableApplyError::StaleIncidence { row: *id });
+                }
+            }
+            TableEdit::UpdateCell {
+                table: name,
+                id,
+                column,
+                old,
+                ..
+            } => {
+                expect_row_table(table, *id, name)?;
+                if table.rows[id].1.get(column) != old.as_ref() {
+                    return Err(TableApplyError::StaleCell {
+                        row: *id,
+                        column: column.clone(),
+                    });
+                }
+            }
+            TableEdit::MoveRow {
+                id,
+                old_table,
+                new_table,
+            } => {
+                expect_row_table(table, *id, old_table)?;
+                if old_table != new_table
+                    && let Some((edge, _, _)) = incident(*id).into_iter().next()
+                {
+                    return Err(TableApplyError::MissingRowEndpoint { edge, row: *id });
+                }
+            }
+            TableEdit::AddForeignKey { edge, src, tgt } => {
+                if table.pairs.contains(&(edge.clone(), *src, *tgt)) {
+                    return Err(TableApplyError::DuplicateForeignKey {
+                        edge: edge.clone(),
+                        src: *src,
+                        tgt: *tgt,
+                    });
+                }
+                for (row, expected) in [(*src, &edge.src), (*tgt, &edge.tgt)] {
+                    if table.rows.get(&row).map(|(name, _)| name) != Some(expected) {
+                        return Err(TableApplyError::MissingRowEndpoint {
+                            edge: edge.clone(),
+                            row,
+                        });
+                    }
+                }
+            }
+            TableEdit::RemoveForeignKey { edge, src, tgt } => {
+                if !table.pairs.contains(&(edge.clone(), *src, *tgt)) {
+                    return Err(TableApplyError::ForeignKeyNotFound {
+                        edge: edge.clone(),
+                        src: *src,
+                        tgt: *tgt,
+                    });
+                }
+            }
+            TableEdit::Batch(_) | TableEdit::Delta(_) => {}
+        }
+        let delta = table_edit_delta(edit).map_err(|mismatch| match mismatch {
+            Mismatch::Elem(element) => TableApplyError::ElementTypeMismatch(element),
+            Mismatch::Attr(key) => TableApplyError::AttributeTypeMismatch(key),
+        })?;
+        apply_table(&delta, table)
     }
 
     fn table_payload(table: &Table, element: &TElem) -> Option<TPayload> {

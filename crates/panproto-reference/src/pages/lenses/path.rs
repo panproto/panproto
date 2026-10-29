@@ -947,6 +947,35 @@ impl<L: Clone> LensPath<L> {
     }
 }
 
+/// Definition: Whether a graph source is declared by a schema: every node
+/// has a declared anchor and is not a reified fan node, and every edge
+/// carries a declared label whose endpoints are the anchors of the nodes it
+/// joins.
+///
+/// A fused group of a graph path runs as one lens exactly on declared
+/// sources and as its atomic stages in sequence otherwise. On a declared
+/// source the first stage of an admitted pair, a structural identity with
+/// no value layer, keeps every node and edge and refuses nothing.
+///
+/// Book anchors: `L-lenses-16`.
+#[must_use]
+pub fn declared_graph_source(schema: &Schema, graph: &crate::model::Graph) -> bool {
+    graph.nodes.values().all(|node| {
+        node.shape != crate::model::NodeShape::HyperEdge
+            && schema.vertices.contains_key(&node.anchor)
+    }) && graph.edges.values().all(|edge| {
+        schema.edges.contains(&edge.label)
+            && graph
+                .nodes
+                .get(&edge.src)
+                .is_some_and(|node| node.anchor == edge.label.src)
+            && graph
+                .nodes
+                .get(&edge.tgt)
+                .is_some_and(|node| node.anchor == edge.label.tgt)
+    })
+}
+
 const fn stage_index(index: usize) -> StageIndex {
     StageIndex {
         group: index,

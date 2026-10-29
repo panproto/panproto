@@ -461,18 +461,31 @@ pub struct EditTranslationCase {
     pub edit: crate::edit::TreeEdit,
 }
 
-/// The five edits in the named projection-lens translation carrier.
+/// The eight edits in the named projection-lens translation carrier.
 ///
 /// The source is a root with one retained leaf and one hidden leaf. The get
-/// cases contain identity and deletion of each kind of leaf. The put cases
-/// contain identity and deletion of the retained leaf. Together they
-/// distinguish an observable edit from an edit absorbed into the complement
-/// in the forward direction and check residue restoration in the backward
-/// direction.
+/// cases contain identity, deletion of each kind of leaf, and replacement of
+/// each kind of leaf (deleting it and inserting an equal leaf under its id).
+/// The put cases contain identity, deletion of the retained leaf and its
+/// replacement. Together they distinguish an observable edit from an edit
+/// absorbed into the complement in the forward direction, check residue
+/// restoration in the backward direction, and check that a replacement is
+/// carried through the translation rather than read back as no change.
 #[must_use]
 pub fn edit_translation_cases() -> Vec<EditTranslationCase> {
     use crate::edit::TreeEdit;
 
+    let replace = |id: u32, anchor: &str| {
+        TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id },
+            TreeEdit::InsertNode {
+                parent: 0,
+                child_id: id,
+                node: crate::model::Node::new(id, anchor),
+                edge: SEdge::new("root", anchor, "prop", Some(anchor)),
+            },
+        ])
+    };
     vec![
         EditTranslationCase {
             name: "get-identity",
@@ -490,6 +503,16 @@ pub fn edit_translation_cases() -> Vec<EditTranslationCase> {
             edit: TreeEdit::DeleteNode { id: 2 },
         },
         EditTranslationCase {
+            name: "get-replace-visible",
+            direction: EditTranslationDirection::Get,
+            edit: replace(1, "visible"),
+        },
+        EditTranslationCase {
+            name: "get-replace-hidden",
+            direction: EditTranslationDirection::Get,
+            edit: replace(2, "hidden"),
+        },
+        EditTranslationCase {
             name: "put-identity",
             direction: EditTranslationDirection::Put,
             edit: TreeEdit::Identity,
@@ -499,12 +522,149 @@ pub fn edit_translation_cases() -> Vec<EditTranslationCase> {
             direction: EditTranslationDirection::Put,
             edit: TreeEdit::DeleteNode { id: 1 },
         },
+        EditTranslationCase {
+            name: "put-replace-visible",
+            direction: EditTranslationDirection::Put,
+            edit: replace(1, "visible"),
+        },
     ]
 }
 
-/// Independent count of [`edit_translation_cases`]: three get cases and two
-/// put cases.
+/// Independent count of [`edit_translation_cases`]: five get cases
+/// (identity, two deletions, two replacements) and three put cases
+/// (identity, one deletion, one replacement).
 #[must_use]
 pub const fn edit_translation_cases_count_certificate() -> u64 {
-    3 + 2
+    5 + 3
+}
+
+/// One named `JoinFeatures` case of the TR14 carrier.
+#[derive(Clone, Debug, PartialEq)]
+pub struct JoinCase {
+    /// Stable diagnostic name for the case.
+    pub name: &'static str,
+    /// The tree the join is applied to.
+    pub tree: crate::model::Tree,
+    /// The join.
+    pub edit: crate::edit::TreeEdit,
+    /// Whether the join applies.
+    pub applies: bool,
+}
+
+fn join_tree(nodes: &[(u32, &str)], arcs: &[(u32, u32, &str)]) -> crate::model::Tree {
+    let anchor = |id: u32| {
+        nodes
+            .iter()
+            .find(|(node, _)| *node == id)
+            .map_or("", |(_, anchor)| *anchor)
+    };
+    crate::model::Tree {
+        nodes: nodes
+            .iter()
+            .map(|(id, anchor)| (*id, crate::model::Node::new(*id, anchor)))
+            .collect(),
+        arcs: arcs
+            .iter()
+            .map(|(parent, child, name)| {
+                (
+                    *parent,
+                    *child,
+                    SEdge::new(anchor(*parent), anchor(*child), "child", Some(name)),
+                )
+            })
+            .collect(),
+        fans: Vec::new(),
+        root: 0,
+    }
+}
+
+fn join(primary: u32, joined: Vec<u32>, anchor: &str, id: u32) -> crate::edit::TreeEdit {
+    crate::edit::TreeEdit::JoinFeatures {
+        primary,
+        joined,
+        produce: crate::model::Node::new(id, anchor),
+    }
+}
+
+/// The TR14 join carrier.
+///
+/// Two joins apply. The first joins one node with one child on the probe
+/// tree `r(0) -> a(1) -> c(3), r -> a(2)`. The second joins nodes 3 and 2,
+/// in that order, into node 1 of a tree in which each joined node has two
+/// children, one fan names joined node 2 and one fan names node 4, a child
+/// that the join re-parents; the product changes the primary's anchor. The
+/// seven refusals on the probe tree join the root, an ancestor of the
+/// primary, a missing primary, a missing node, one node twice and the
+/// primary itself, and give the product another id.
+#[must_use]
+pub fn join_cases() -> Vec<JoinCase> {
+    let probe = join_tree(
+        &[(0, "r"), (1, "a"), (2, "a"), (3, "c")],
+        &[(0, 1, "one"), (0, 2, "two"), (1, 3, "child")],
+    );
+    let mut two = join_tree(
+        &[
+            (0, "r"),
+            (1, "p"),
+            (2, "j"),
+            (3, "j"),
+            (4, "x"),
+            (5, "x"),
+            (6, "x"),
+            (7, "x"),
+        ],
+        &[
+            (0, 1, "p"),
+            (0, 2, "j1"),
+            (0, 3, "j2"),
+            (2, 4, "c1"),
+            (2, 5, "c2"),
+            (3, 6, "c3"),
+            (3, 7, "c4"),
+        ],
+    );
+    two.fans.push(crate::model::Fan {
+        parent: 0,
+        hyper_edge: "h".to_owned(),
+        children: BTreeMap::from([("arm".to_owned(), 2)]),
+    });
+    two.fans.push(crate::model::Fan {
+        parent: 1,
+        hyper_edge: "g".to_owned(),
+        children: BTreeMap::from([("arm".to_owned(), 4)]),
+    });
+    let case = |name, tree: &crate::model::Tree, edit, applies| JoinCase {
+        name,
+        tree: tree.clone(),
+        edit,
+        applies,
+    };
+    vec![
+        case("join-one", &probe, join(2, vec![1], "a", 2), true),
+        case(
+            "join-two-with-fans",
+            &two,
+            join(1, vec![3, 2], "q", 1),
+            true,
+        ),
+        case("joined-root", &probe, join(1, vec![0], "a", 1), false),
+        case("joined-ancestor", &probe, join(3, vec![1], "c", 3), false),
+        case("missing-primary", &probe, join(9, vec![2], "a", 9), false),
+        case("missing-joined", &probe, join(1, vec![9], "a", 1), false),
+        case(
+            "repeated-joined",
+            &probe,
+            join(1, vec![2, 2], "a", 1),
+            false,
+        ),
+        case("joined-primary", &probe, join(1, vec![1], "a", 1), false),
+        case("misfiled-product", &probe, join(1, vec![2], "a", 2), false),
+    ]
+}
+
+/// Independent count of [`join_cases`]: two joins that apply and seven
+/// refusals.
+#[must_use]
+pub const fn join_cases_count_certificate() -> u64 {
+    2 + 7
 }

@@ -86,6 +86,7 @@ fn ref_value(value: &Value) -> RefValue {
     match value {
         Value::Bool(b) => RefValue::Bool(*b),
         Value::Int(i) => RefValue::Int(*i),
+        Value::Float(f) => RefValue::Float(f.to_bits()),
         Value::Str(s) => RefValue::Str(s.clone()),
         Value::Null => RefValue::Null,
         other => panic!("value outside the lens differential alphabet: {other:?}"),
@@ -96,9 +97,22 @@ fn prod_value(value: &RefValue) -> Value {
     match value {
         RefValue::Bool(b) => Value::Bool(*b),
         RefValue::Int(i) => Value::Int(*i),
+        RefValue::Float(bits) => Value::Float(f64::from_bits(*bits)),
         RefValue::Str(s) => Value::Str(s.clone()),
         RefValue::Null => Value::Null,
         other => panic!("value outside the lens differential alphabet: {other:?}"),
+    }
+}
+
+#[test]
+fn float_values_cross_the_differential_alphabet_bit_exactly() {
+    for bits in panproto_reference::enumerate::lenses::LAW_EQUIVALENCE_FLOAT_WITNESSES {
+        let value = Value::Float(f64::from_bits(bits));
+        assert_eq!(ref_value(&value), RefValue::Float(bits));
+        let Value::Float(back) = prod_value(&ref_value(&value)) else {
+            panic!("a float converts back to a float");
+        };
+        assert_eq!(back.to_bits(), bits);
     }
 }
 
@@ -5149,6 +5163,171 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
 
+/// The anchor no C11 schema declares.
+const UNDECLARED_ANCHOR: &str = "\u{1}undeclared";
+
+/// `source` with one more node, at an anchor its schema does not declare,
+/// under the next free node id.
+fn with_undeclared_anchor(source: &RefGraph) -> RefGraph {
+    let mut augmented = source.clone();
+    let id = source.nodes.keys().next_back().map_or(0, |last| last + 1);
+    augmented.nodes.insert(
+        id,
+        panproto_reference::model::Node::new(id, UNDECLARED_ANCHOR),
+    );
+    augmented
+}
+
+/// `source` with one more edge, a self-loop on its least node under a label
+/// its schema does not declare and the next free edge id; `None` for a
+/// source without nodes.
+fn with_undeclared_label(source: &RefGraph) -> Option<RefGraph> {
+    let (&node, carrier) = source.nodes.iter().next()?;
+    let mut augmented = source.clone();
+    let id = source.edges.keys().next_back().map_or(0, |last| last + 1);
+    augmented.edges.insert(
+        id,
+        panproto_reference::model::GEdge {
+            src: node,
+            tgt: node,
+            label: RefSEdge::new(
+                &carrier.anchor,
+                &carrier.anchor,
+                "prop",
+                Some(UNDECLARED_ANCHOR),
+            ),
+            position: None,
+        },
+    );
+    Some(augmented)
+}
+
+/// The undeclared-source census: every composite of the path differential
+/// whose graph normal form fuses a group, on every certified source state
+/// of its first stage, with one undeclared anchor added and, when the state
+/// has a node, with one undeclared edge label added.
+///
+/// On these sources the first stage of a fused pair would drop the
+/// undeclared node as residue or refuse the undeclared label, so the fused
+/// group must run its stages in sequence. The comparison is the one of
+/// [`lens_paths_agree_with_the_reference_exhaustively`], against the
+/// atomic reference fold, with every edit of the final-stage basis.
+fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
+    let stages = c11_stages();
+    let composable_words = composable_c11_words(&stages);
+    let composites = || path_context(&stages, &composable_words);
+    let (_, built) = composites();
+    let fused: Vec<usize> = built
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, path, _))| {
+            path.graph_normal_form()
+                .iter()
+                .any(|group| group.stages.len() > 1)
+        })
+        .map(|(index, _)| index)
+        .collect();
+    drop(built);
+    let sources = c11_stage_sources(&stages);
+    let mut anchors = 0_usize;
+    let mut labels = 0_usize;
+    let units: Vec<(usize, RefGraph)> = fused
+        .iter()
+        .flat_map(|&index| {
+            let first = composable_words[index / 3][0];
+            sources[first].iter().flat_map(move |source| {
+                std::iter::once(with_undeclared_anchor(source))
+                    .chain(with_undeclared_label(source))
+                    .map(move |augmented| (index, augmented))
+            })
+        })
+        .collect();
+    for (_, source) in &units {
+        if source
+            .nodes
+            .values()
+            .any(|node| node.anchor == UNDECLARED_ANCHOR)
+        {
+            anchors += 1;
+        } else {
+            labels += 1;
+        }
+    }
+    let states: usize = fused
+        .iter()
+        .map(|&index| sources[composable_words[index / 3][0]].len())
+        .sum();
+    let bound = format!(
+        "C11 undeclared sources: fused composites={}, source states={states}, undeclared-anchor sources={anchors}, undeclared-label sources={labels}, cases={}",
+        fused.len(),
+        units.len()
+    );
+    assert_eq!(anchors, states);
+    assert_eq!(anchors + labels, units.len());
+    println!("{bound}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        composites,
+        |(pairs, composites), (index, source)| {
+            let word = composites[*index].0.clone();
+            let (edits, _) = edits_of_reference_view(pairs, &word, source);
+            vec![PathCase {
+                index: *index,
+                source: source.clone(),
+                edits,
+            }]
+        },
+        |(_, composites): &PathContext, case: &PathCase| {
+            let (word, path, _) = &composites[case.index];
+            assert_undeclared_groups_run_in_sequence(&stages, word, path, &case.source);
+            production_path_outcome(path, &case.source, &case.edits)
+        },
+        |(pairs, composites): &PathContext, case: &PathCase| {
+            let (_, _, reference) = &composites[case.index];
+            reference_path_outcome(pairs, reference, &case.source, &case.edits)
+        },
+        path_outcomes_agree,
+    ));
+    assert_eq!(compared, u64::try_from(units.len()).unwrap());
+}
+
+/// The first multi-stage group of `path` records the form the independent
+/// declared-source predicate selects: one complement per atomic stage on an
+/// undeclared source, one fused complement otherwise.
+fn assert_undeclared_groups_run_in_sequence(
+    stages: &[C11Stage],
+    word: &[usize],
+    path: &LensPath,
+    source: &RefGraph,
+) {
+    let groups = path.graph_normal_form();
+    let Some((group_index, group)) = groups
+        .iter()
+        .enumerate()
+        .find(|(_, group)| group.stages.len() > 1)
+    else {
+        return;
+    };
+    // Only the first group's source is the path source; a later group's
+    // input is an intermediate view, whose form follows from its own source.
+    if group_index != 0 {
+        return;
+    }
+    let declared = panproto_reference::path::declared_graph_source(&stages[word[0]].source, source);
+    if let Ok((_, complement)) = path.get_graph(&prod_graph(source)) {
+        let sequential = matches!(
+            complement.entries()[group_index].complement,
+            panproto_lens::GroupComplement::Sequential(_)
+        );
+        assert_eq!(
+            sequential, !declared,
+            "group {:?} of {word:?} on {source:?}",
+            group.stages
+        );
+    }
+}
+
 fn composable_c11_words(stages: &[C11Stage]) -> Vec<Vec<usize>> {
     words(stages.len())
         .into_iter()
@@ -8145,6 +8324,7 @@ fn lens_path_law_certificate() {
     lens_path_category_laws_agree_with_the_reference_exhaustively();
     the_c11_alphabet_witnesses_every_tree_fusion_condition();
     lens_paths_agree_with_the_reference_exhaustively();
+    fused_graph_groups_agree_with_the_reference_on_undeclared_sources();
     tree_path_normal_forms_match_independent_atomic_folds();
     table_path_normal_forms_match_independent_atomic_folds();
 }
@@ -9626,7 +9806,12 @@ fn reference_carrier_migration(target: &RefSchema) -> RefMigration {
 fn reference_protolens(index: usize, schema: &RefSchema) -> RefProtolens {
     match index {
         0 => {
-            let applies = schema.vertices.values().any(|kind| kind == "obj");
+            // Dropping a sort removes every vertex whose id or kind is the
+            // name, and its precondition admits exactly those schemas.
+            let applies = schema
+                .vertices
+                .iter()
+                .any(|(id, kind)| id == "obj" || kind == "obj");
             let mut target = schema.clone();
             let dropped = target
                 .vertices

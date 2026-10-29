@@ -70,11 +70,12 @@ pub fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef
     let mut remote_targets: BTreeMap<u32, SegmentId> = BTreeMap::new();
     for edge in seg.owned_edges() {
         let elem = edge.elem.clone();
-        // (a) owned edges: the source is an owned node.
+        // (a) owned edges: the source is an owned node. A source violation
+        // does not hide the edge's target violations: the contract lists
+        // every violation.
         match index.owner_of_node(edge.src) {
             None => {
                 out.push((elem.clone(), SegmentError::Unowned { elem: elem.clone() }));
-                continue;
             }
             Some(owner) if owner != me => {
                 out.push((
@@ -85,7 +86,6 @@ pub fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef
                         found: me,
                     },
                 ));
-                continue;
             }
             Some(_) => {
                 if seg.anchor_of(edge.src).is_none() {
@@ -255,7 +255,10 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
                 .iter()
                 .map(|(label, id)| (Some(label.as_str()), *id)),
         );
-        let mut well_formed = ordered && is_fan_node(node) && seen_nodes.insert(fan.node);
+        // Record the fan node even when it is out of order, so the misordered
+        // fan is reported once and not again as a fan node without a record.
+        let first = seen_nodes.insert(fan.node);
+        let mut well_formed = ordered && is_fan_node(node) && first;
         for (label, id) in ids {
             well_formed &= seen_edges.insert(id);
             well_formed &= tree.arcs.get(&id).is_some_and(|(src, tgt, edge)| {
@@ -386,13 +389,14 @@ fn counter_violations(tree: &TreeSegment) -> Vec<ViewRef> {
 ///
 /// # Errors
 ///
-/// [`SegmentError::ShapeMismatch`] when the segment's shape is not the
-/// partition's, [`SegmentError::MalformedPartition`] when the partition
-/// does not list the segment or a tree segment holds the embedding's
-/// counters without the root, the partition's own error when it is invalid,
-/// and [`SegmentError::Invalid`] with every violation, sorted by the element
-/// it is about, when the segment breaks its contract.
+/// In this order: [`SegmentError::ShapeMismatch`] when the segment's shape
+/// is not the partition's, the partition's own error when it is invalid,
+/// [`SegmentError::MalformedPartition`] when the partition does not list the
+/// segment or a tree segment holds the embedding's counters without the
+/// root, and [`SegmentError::Invalid`] with every violation, sorted by the
+/// element it is about, when the segment breaks its contract.
 pub fn check_segment(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
+    check_shape(segment, partition)?;
     let index = partition.owner_index()?;
     check_listed(segment, partition)?;
     check_segment_with(segment, &index)
@@ -440,14 +444,26 @@ pub fn check_segment_with(segment: &AnySegment, index: &OwnerIndex) -> Result<()
     })
 }
 
-/// Check that the partition lists `segment` with its shape.
-pub fn check_listed(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
-    if segment.shape() != partition.shape() {
-        return Err(SegmentError::ShapeMismatch {
+/// Check that `segment` has the partition's shape. Every segment entry
+/// point checks this before it validates the partition.
+///
+/// # Errors
+///
+/// [`SegmentError::ShapeMismatch`] when the shapes differ.
+pub fn check_shape(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
+    if segment.shape() == partition.shape() {
+        Ok(())
+    } else {
+        Err(SegmentError::ShapeMismatch {
             expected: partition.shape(),
             found: segment.shape(),
-        });
+        })
     }
+}
+
+/// Check that the partition lists `segment` with its shape.
+pub fn check_listed(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
+    check_shape(segment, partition)?;
     if partition.spec(segment.segment()).is_none() {
         return Err(SegmentError::MalformedPartition {
             segment: segment.segment(),
@@ -701,6 +717,9 @@ pub fn verify_partition(
     segments: &[AnySegment],
     partition: &Partition,
 ) -> Result<(), SegmentError> {
+    for segment in segments {
+        check_shape(segment, partition)?;
+    }
     let index = partition.owner_index()?;
     let segs = arrange(segments, partition)?;
     first_located(all_violations(&segs, &index))

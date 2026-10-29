@@ -955,10 +955,11 @@ fn shared_keys(
 /// each fan's record with the reason it breaks.
 fn tree_square(case: &Case, spec: &TreeSpec) -> Result<(), TestCaseError> {
     let tree = tree_of(spec);
+    // A tree with reserved vocabulary or a fan naming an absent node has no
+    // graph form. The case is rejected rather than passed, so proptest draws
+    // a replacement and every counted case is compared.
     let Ok((graph, emb)) = GInstance::from_wtype_embedded(&tree, None) else {
-        // A tree with reserved vocabulary or a fan naming an absent node
-        // has no graph form.
-        return Ok(());
+        return Err(TestCaseError::reject("the tree has no graph form"));
     };
     let plan = audited(case, InstanceShapeKind::Tree);
     let verdicts = audit_verdicts(tree.nodes.keys().map(|id| ViewRef::Node(*id)));
@@ -968,20 +969,24 @@ fn tree_square(case: &Case, spec: &TreeSpec) -> Result<(), TestCaseError> {
     let map = |r: &ViewRef| emb.map_ref(r).unwrap_or_else(|| r.clone());
     let id = |r: &ViewRef| r.clone();
     let fan_kind = |d: &Diagnostic| d.check.kind == CheckKind::FanWellFormed;
-    let mapped: BTreeSet<String> = w
+    // Non-fan diagnostics are compared as sorted vectors, so multiplicity
+    // counts as well as membership.
+    let mut mapped: Vec<String> = w
         .diagnostics
         .iter()
         .filter(|d| shared.contains(&d.check) && !fan_kind(d))
         .map(|d| compared(d, &map))
         .collect();
-    let direct: BTreeSet<String> = g
+    let mut direct: Vec<String> = g
         .diagnostics
         .iter()
         .filter(|d| shared.contains(&d.check) && !fan_kind(d))
         .map(|d| compared(d, &id))
         .collect();
+    mapped.sort();
+    direct.sort();
     prop_assert_eq!(&mapped, &direct);
-    let tree_fans: BTreeSet<(FanRecord, FanViolation)> = w
+    let tree_pairs: Vec<(FanRecord, FanViolation)> = w
         .diagnostics
         .iter()
         .filter_map(|d| match &d.violation {
@@ -992,6 +997,12 @@ fn tree_square(case: &Case, spec: &TreeSpec) -> Result<(), TestCaseError> {
             _ => None,
         })
         .collect();
+    prop_assert_eq!(
+        tree_pairs.len(),
+        w.diagnostics.iter().filter(|d| fan_kind(d)).count(),
+        "every tree fan diagnostic names its fan"
+    );
+    let tree_fans: BTreeSet<(FanRecord, FanViolation)> = tree_pairs.into_iter().collect();
     // Equal tree fans are one element of the tree's fan multiset and give
     // one diagnostic per reason, while the graph form has a fan node, and a
     // diagnostic, for each; so every graph diagnostic is mapped before the
@@ -1044,18 +1055,20 @@ proptest! {
         let g = plan.validate_graph(&graph, &unlimited(), &graph_verdicts);
         let map = |r: &ViewRef| emb.map_ref(r).unwrap_or_else(|| r.clone());
         let id = |r: &ViewRef| r.clone();
-        let mapped: BTreeSet<String> = t
+        let mut mapped: Vec<String> = t
             .diagnostics
             .iter()
             .filter(|d| shared.contains(&d.check))
             .map(|d| compared(d, &map))
             .collect();
-        let direct: BTreeSet<String> = g
+        let mut direct: Vec<String> = g
             .diagnostics
             .iter()
             .filter(|d| shared.contains(&d.check))
             .map(|d| compared(d, &id))
             .collect();
+        mapped.sort();
+        direct.sort();
         prop_assert_eq!(mapped, direct);
     }
 }
@@ -1838,9 +1851,9 @@ fn key_value(oracle: Oracle<'_>, element: &ViewRef, parts: &[Edge]) -> Option<Ve
 
 /// The `KeyUnique` and `ReferenceResolves` diagnostics the oracle expects,
 /// written as [`compared`] writes a diagnostic (with no source).
-fn oracle_diagnostics(case: &Case, oracle: Oracle<'_>, references: bool) -> BTreeSet<String> {
+fn oracle_diagnostics(case: &Case, oracle: Oracle<'_>, references: bool) -> Vec<String> {
     let (keys, refs) = oracle_declarations(case);
-    let mut out = BTreeSet::new();
+    let mut out = Vec::new();
     let id = |r: &ViewRef| r.clone();
     let name = |e: &Edge| e.name.as_ref().map(ToString::to_string).unwrap_or_default();
     for key in &keys {
@@ -1871,7 +1884,7 @@ fn oracle_diagnostics(case: &Case, oracle: Oracle<'_>, references: bool) -> BTre
                     },
                     source: None,
                 };
-                out.insert(compared(&d, &id));
+                out.push(compared(&d, &id));
                 continue;
             }
             buckets
@@ -1899,18 +1912,19 @@ fn oracle_diagnostics(case: &Case, oracle: Oracle<'_>, references: bool) -> BTre
                 },
                 source: None,
             };
-            out.insert(compared(&d, &id));
+            out.push(compared(&d, &id));
         }
     }
     if references {
         out.extend(oracle_references(&refs, oracle));
     }
+    out.sort();
     out
 }
 
 /// The `ReferenceResolves` diagnostics the oracle expects of `refs`.
-fn oracle_references(refs: &[OracleRef], oracle: Oracle<'_>) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
+fn oracle_references(refs: &[OracleRef], oracle: Oracle<'_>) -> Vec<String> {
+    let mut out = Vec::new();
     let id = |r: &ViewRef| r.clone();
     let name = |e: &Edge| e.name.as_ref().map(ToString::to_string).unwrap_or_default();
     for r in refs {
@@ -1937,7 +1951,7 @@ fn oracle_references(refs: &[OracleRef], oracle: Oracle<'_>) -> BTreeSet<String>
                             field: Some(name(&r.part)),
                         },
                     );
-                    out.insert(compared(&d, &id));
+                    out.push(compared(&d, &id));
                 }
                 continue;
             };
@@ -1981,7 +1995,7 @@ fn oracle_references(refs: &[OracleRef], oracle: Oracle<'_>) -> BTreeSet<String>
                     )
                 }
             };
-            out.insert(compared(&d, &id));
+            out.push(compared(&d, &id));
         }
     }
     out
@@ -2009,12 +2023,14 @@ proptest! {
             Validated::Table(f) => Oracle::Table(f),
         };
         let id = |r: &ViewRef| r.clone();
-        let found: BTreeSet<String> = report
+        // Sorted vectors, so a duplicated diagnostic on either side fails.
+        let mut found: Vec<String> = report
             .diagnostics
             .iter()
             .filter(|d| matches!(d.check.kind, CheckKind::KeyUnique | CheckKind::ReferenceResolves))
             .map(|d| compared(d, &id))
             .collect();
+        found.sort();
         prop_assert_eq!(found, oracle_diagnostics(&case, oracle, true));
     }
 }
@@ -2044,7 +2060,7 @@ fn the_oracle_expects_every_key_and_reference_failure() {
                 "DanglingReference",
                 "AmbiguousReference",
                 "MissingValue",
-                "Within",
+                "OutsideKeyScope",
             ] {
                 if expected.contains(kind) {
                     *seen.entry((instance.syntactic(), kind)).or_default() += 1;
@@ -2068,6 +2084,16 @@ fn the_oracle_expects_every_key_and_reference_failure() {
                 "no {kind} expected on a {shape:?}: {seen:?}"
             );
         }
+    }
+    // The scope boundary of a `Within` key: an element with no ancestor of
+    // the scope vertex is outside the key and named by an advisory
+    // observation. Tables have no ancestors, so the boundary is reached on
+    // the hierarchical shapes.
+    for shape in [InstanceShapeKind::Graph, InstanceShapeKind::Tree] {
+        assert!(
+            seen.get(&(shape, "OutsideKeyScope")).copied().unwrap_or(0) > 0,
+            "no OutsideKeyScope expected on a {shape:?}: {seen:?}"
+        );
     }
 }
 

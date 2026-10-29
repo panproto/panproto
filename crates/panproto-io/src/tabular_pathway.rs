@@ -14,6 +14,7 @@ use panproto_gat::Name;
 use panproto_inst::value::coerce::{LexClass, Lexeme};
 use panproto_inst::value::{BigIntValue, Value};
 use panproto_inst::{FInstance, Row, RowId, ValueSite};
+use panproto_schema::value_kinds::NumeralDialect;
 use panproto_schema::{Protocol, ScalarKind, Schema, ValueSpec};
 
 use crate::error::{EmitInstanceError, EmitValueError, EmitValueReason, ParseInstanceError};
@@ -96,16 +97,19 @@ fn finish_csv_cell(cells: &mut Vec<ParsedCell<'_>>, bytes: &mut Vec<u8>, source_
     });
 }
 
+/// Read the CSV records of `input` from byte `start`, every offset counted
+/// from byte 0 of `input`.
 fn parse_csv_records<'input>(
     input: &'input [u8],
+    start: usize,
     protocol: &str,
 ) -> Result<Vec<CsvRecord<'input>>, ParseInstanceError> {
     let mut records = Vec::new();
     let mut cells = Vec::new();
     let mut cell = Vec::new();
-    let mut record_start = 0;
-    let mut cell_start = 0;
-    let mut index = 0;
+    let mut record_start = start;
+    let mut cell_start = start;
+    let mut index = start;
     let mut in_quotes = false;
     let mut after_quote = false;
 
@@ -195,15 +199,25 @@ fn parse_csv_records<'input>(
     Ok(records)
 }
 
+/// The UTF-8 encoding of U+FEFF. At the start of a delimited text it is an
+/// encoding signature, not content: the canonical reader starts after it,
+/// with every offset still counted from byte 0, and the writer never adds it.
+const UTF8_BYTE_ORDER_MARK: &[u8] = &[0xEF, 0xBB, 0xBF];
+
 fn tabular_rows<'input>(
     input: &'input [u8],
     protocol: &str,
     delimiter: u8,
     comment_prefix: Option<u8>,
 ) -> Result<Vec<Vec<ParsedCell<'input>>>, ParseInstanceError> {
+    let start = if input.starts_with(UTF8_BYTE_ORDER_MARK) {
+        UTF8_BYTE_ORDER_MARK.len()
+    } else {
+        0
+    };
     if delimiter == b',' {
         let mut saw_header = false;
-        return parse_csv_records(input, protocol).map(|records| {
+        return parse_csv_records(input, start, protocol).map(|records| {
             records
                 .into_iter()
                 .filter(|record| {
@@ -221,7 +235,7 @@ fn tabular_rows<'input>(
         });
     }
 
-    Ok(tabular_data_lines(input, comment_prefix)
+    Ok(tabular_data_lines(&input[start..], comment_prefix)
         .into_iter()
         .map(|line| {
             split_fields(line, delimiter)
@@ -307,7 +321,8 @@ pub fn parse_tsv(
         for (field, col_name) in fields.iter().zip(&headers) {
             let col_name = col_name.clone();
             let text = parse_utf8_field(field.bytes.as_ref(), protocol)?;
-            let (vertex, spec) = cell_spec(schema, &protocol_definition, table_vertex, &col_name);
+            let (vertex, spec) =
+                delimited_cell_spec(schema, &protocol_definition, table_vertex, &col_name);
             match crate::json_pathway::coerce_exact_lexeme(
                 &Lexeme::new(&text, LexClass::String),
                 &spec,
@@ -536,6 +551,24 @@ fn cell_spec(
     (target, spec)
 }
 
+/// The spec of a CSV or TSV cell: the column's spec in the JSON numeral
+/// grammar, which has no non-finite spelling and no special decimal.
+fn delimited_cell_spec(
+    schema: &Schema,
+    protocol: &Protocol,
+    table_vertex: &str,
+    column: &str,
+) -> (Name, ValueSpec) {
+    let (vertex, spec) = cell_spec(schema, protocol, table_vertex, column);
+    (
+        vertex,
+        ValueSpec {
+            numeral: Some(NumeralDialect::Json),
+            ..spec
+        },
+    )
+}
+
 /// Emit an `FInstance` to tab-separated bytes.
 ///
 /// Writes a header row followed by data rows. The `table_vertex` specifies
@@ -749,7 +782,8 @@ fn emit_tabular_row(
             let (site_vertex, _) = context.schema.zip(context.protocol_definition).map_or_else(
                 || (Name::from(column.as_str()), None),
                 |(schema, protocol)| {
-                    let (vertex, spec) = cell_spec(schema, protocol, context.table_vertex, column);
+                    let (vertex, spec) =
+                        delimited_cell_spec(schema, protocol, context.table_vertex, column);
                     (vertex, Some(spec))
                 },
             );
@@ -764,7 +798,8 @@ fn emit_tabular_row(
         let (site_vertex, spec) = context.schema.zip(context.protocol_definition).map_or_else(
             || (Name::from(column.as_str()), None),
             |(schema, protocol)| {
-                let (vertex, spec) = cell_spec(schema, protocol, context.table_vertex, column);
+                let (vertex, spec) =
+                    delimited_cell_spec(schema, protocol, context.table_vertex, column);
                 (vertex, Some(spec))
             },
         );
@@ -1282,6 +1317,20 @@ fn tabular_value_bytes(
     spec: Option<&ValueSpec>,
 ) -> Result<Vec<u8>, EmitInstanceError> {
     let site = || ValueSite::new(site_vertex, None);
+    // A CSV or TSV cell reads numerals in the JSON grammar, which spells no
+    // infinity, NaN or special decimal.
+    if matches!(format, "csv" | "tsv" | "tabular")
+        && (matches!(value, Value::Float(number) if !number.is_finite())
+            || matches!(value, Value::Decimal(number) if !number.is_finite()))
+    {
+        return Err(EmitValueError::new(
+            site(),
+            value.type_name(),
+            format,
+            EmitValueReason::NonFinite,
+        )
+        .into());
+    }
     let bigint_bytes = if let Value::BigInt(number) = value {
         Some(tabular_bigint_bytes(number, site_vertex, format)?)
     } else {
@@ -1458,6 +1507,115 @@ mod tests {
             .expect("column edge")
             .build()
             .expect("schema")
+    }
+
+    fn double_table_schema(kind: &str) -> Schema {
+        let protocol = crate::json_pathway::protocol_definition("cassandra");
+        panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("rows", "table", None)
+            .expect("table vertex")
+            .vertex("value", kind, None)
+            .expect("value vertex")
+            .edge("rows", "value", "prop", Some("value"))
+            .expect("column edge")
+            .build()
+            .expect("schema")
+    }
+
+    #[test]
+    fn delimited_cells_use_the_json_numeral_dialect() {
+        let double = double_table_schema("double");
+        let decimal = double_table_schema("decimal");
+        for delimiter in [b',', b'\t'] {
+            for value in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -f64::NAN] {
+                let error = emit_tsv_with_schema(
+                    &double,
+                    &table_with(Value::Float(value)),
+                    "cassandra",
+                    "rows",
+                    delimiter,
+                )
+                .expect_err("JSON numerals have no non-finite spelling");
+                assert!(matches!(
+                    error,
+                    EmitInstanceError::Value(ref error) if error.reason == EmitValueReason::NonFinite
+                ));
+            }
+            for lexeme in ["Infinity", "-Infinity", "NaN", "sNaN"] {
+                let special = panproto_inst::value::DecimalValue::parse(lexeme).expect("special");
+                let error = emit_tsv_with_schema(
+                    &decimal,
+                    &table_with(Value::Decimal(special)),
+                    "cassandra",
+                    "rows",
+                    delimiter,
+                )
+                .expect_err("JSON numerals have no special decimal");
+                assert!(matches!(
+                    error,
+                    EmitInstanceError::Value(ref error) if error.reason == EmitValueReason::NonFinite
+                ));
+            }
+            for (schema, cell) in [
+                (&double, "Infinity"),
+                (&double, "NaN"),
+                (&double, "+1"),
+                (&decimal, "Infinity"),
+                (&decimal, ".5"),
+            ] {
+                let input = format!("value\n{cell}\n");
+                assert!(
+                    matches!(
+                        parse_tsv(
+                            schema,
+                            input.as_bytes(),
+                            "cassandra",
+                            "rows",
+                            delimiter,
+                            None
+                        ),
+                        Err(ParseInstanceError::Fidelity(_))
+                    ),
+                    "{cell} is not a JSON numeral"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_leading_byte_order_mark_is_read_past_and_never_written() {
+        let schema = typed_table_schema();
+        for (delimiter, text) in [(b'\t', b"amount\n1\n".as_slice()), (b',', b"amount\n1\n")] {
+            let mut input = vec![0xEF, 0xBB, 0xBF];
+            input.extend_from_slice(text);
+            let parsed = parse_tsv(&schema, &input, "sql", "rows", delimiter, None)
+                .expect("a leading byte order mark is an encoding signature");
+            let rows = parsed.rows("rows");
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].1.get("amount"), Some(&Value::Int(1)));
+            assert_eq!(
+                emit_tsv_with_schema(&schema, &parsed, "sql", "rows", delimiter).expect("emit"),
+                text
+            );
+            // Offsets count from byte 0 of the input, the mark included.
+            let mut malformed = vec![0xEF, 0xBB, 0xBF];
+            malformed.extend_from_slice(b"amount\nx\n");
+            assert!(matches!(
+                parse_tsv(&schema, &malformed, "sql", "rows", delimiter, None),
+                Err(ParseInstanceError::Fidelity(ref errors))
+                    if errors.len() == 1 && errors[0].site.byte_offset == Some(10)
+            ));
+        }
+        let mut two_columns = vec![0xEF, 0xBB, 0xBF];
+        two_columns.extend_from_slice(b"a\tb\n1\t2\n");
+        let parsed = parse_tsv(&Schema::default(), &two_columns, "tsv", "rows", b'\t', None)
+            .expect("two-column table after a mark");
+        let mut names: Vec<_> = parsed.rows("rows")[0].1.keys().cloned().collect();
+        names.sort();
+        assert_eq!(names, ["a", "b"]);
+        // A mark after the start is content of the first cell.
+        let inner = b"amount\n\xEF\xBB\xBF1\n";
+        assert!(parse_tsv(&schema, inner, "sql", "rows", b'\t', None).is_err());
     }
 
     #[test]

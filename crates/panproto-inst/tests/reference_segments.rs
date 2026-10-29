@@ -9,14 +9,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_inst::segment::{
-    AnySegment, ArtifactKind, Boundary, EdgeIdRun, GraphSegment, IdAllocator, IdRange,
-    ManifestHeader, ManifestRole, Partition, Phase, RunJournal, SegmentId, SegmentRecord,
-    SegmentSpec, TaskKey, TaskRecord, assemble_graph, assemble_table, assemble_tree, check_segment,
-    partition_graph, partition_table, partition_tree, seal_full, verify_manifest, verify_segment,
+    AnySegment, ArtifactKind, Boundary, EdgeIdRun, Ghost, GraphSegment, IdAllocator, IdKind,
+    IdRange, InStub, ManifestHeader, ManifestRole, Partition, PartitionDefect, Phase, RunJournal,
+    SegmentError, SegmentId, SegmentRecord, SegmentSpec, TaskKey, TaskRecord, TreeSegment,
+    assemble_graph, assemble_table, assemble_tree, check_segment, partition_graph, partition_table,
+    partition_tree, seal_full, verify_manifest, verify_segment,
 };
 use panproto_inst::{
-    Digest, EdgeId, FInstance, GEdge, GInstance, Node, NodeShape, RowId, TreeEmbedding, WInstance,
-    canonical_finstance_bytes, canonical_ginstance_bytes,
+    Digest, EdgeId, FInstance, Fan, FanEmbedding, GEdge, GInstance, Node, NodeShape, RowId,
+    TreeEmbedding, ViewRef, WInstance, canonical_finstance_bytes, canonical_ginstance_bytes,
 };
 use panproto_reference::enumerate::segments as carrier;
 use panproto_reference::model as reference_model;
@@ -24,7 +25,11 @@ use panproto_reference::segment as reference;
 use panproto_schema::{Edge, InstanceShapeKind};
 
 const GRAPH_PARTITION_CASES: usize = 290;
-const SMALL_ALLOCATION_CASES: usize = 1_812;
+const FAN_TREE_PARTITION_CASES: usize = 40;
+const PARTITION_CASES: usize = GRAPH_PARTITION_CASES + FAN_TREE_PARTITION_CASES;
+const ALLOCATED_GRAPH_PARTITION_CASES: usize = 3 * GRAPH_PARTITION_CASES;
+const SHAPE_WITNESSES: usize = 5;
+const ALLOCATION_CASES: usize = 61_440;
 const FIRST_MANIFEST_RECORD_OFFSET: usize = 2 + 1 + 32 + 1 + 1 + 8;
 
 type ProductionRowGroups = BTreeMap<String, Vec<(RowId, HashMap<String, panproto_inst::Value>)>>;
@@ -119,10 +124,16 @@ fn tree_to_production(
     tree: &reference_model::Tree,
     embedding: &panproto_reference::encode::TreeEmbedding,
 ) -> (WInstance, TreeEmbedding) {
-    assert!(
-        tree.fans.is_empty(),
-        "the release shape witness has no fans"
-    );
+    let fans = tree
+        .fans
+        .iter()
+        .map(|fan| {
+            fan.children.iter().fold(
+                Fan::new(fan.hyper_edge.as_str(), fan.parent),
+                |out, (label, child)| out.with_child(label.as_str(), *child),
+            )
+        })
+        .collect();
     let tree = WInstance::new(
         tree.nodes
             .iter()
@@ -132,7 +143,7 @@ fn tree_to_production(
             .iter()
             .map(|(parent, child, edge)| (*parent, *child, edge_to_production(edge)))
             .collect(),
-        Vec::new(),
+        fans,
         tree.root,
         tree.nodes[&tree.root].anchor.as_str().into(),
     );
@@ -142,11 +153,234 @@ fn tree_to_production(
             .iter()
             .map(|(child, edge)| (*child, EdgeId(*edge)))
             .collect(),
-        fans: Vec::new(),
+        fans: embedding
+            .fans
+            .iter()
+            .map(|(node, parent_edge, child_edges)| {
+                fan_embedding_to_production(*node, *parent_edge, child_edges)
+            })
+            .collect(),
         next_node: embedding.next_node,
         next_edge: embedding.next_edge,
     };
     (tree, embedding)
+}
+
+fn fan_embedding_to_production(
+    node: u32,
+    parent_edge: u32,
+    child_edges: &BTreeMap<String, u32>,
+) -> FanEmbedding {
+    FanEmbedding {
+        node,
+        parent_edge: EdgeId(parent_edge),
+        child_edges: child_edges
+            .iter()
+            .map(|(label, edge)| (label.clone(), EdgeId(*edge)))
+            .collect(),
+    }
+}
+
+fn view_ref_to_production(elem: &reference::ViewRef) -> ViewRef {
+    match elem {
+        reference::ViewRef::Node(node) => ViewRef::Node(*node),
+        reference::ViewRef::Edge(edge) => ViewRef::Edge(EdgeId(*edge)),
+        reference::ViewRef::Arc { parent, child } => ViewRef::Arc {
+            parent: *parent,
+            child: *child,
+        },
+        reference::ViewRef::Row(row) => ViewRef::Row(RowId(*row)),
+        reference::ViewRef::Pair { edge, src, tgt } => ViewRef::Pair {
+            edge: edge_to_production(edge),
+            src: RowId(*src),
+            tgt: RowId(*tgt),
+        },
+    }
+}
+
+fn boundary_to_production(boundary: &reference::Boundary) -> Boundary {
+    Boundary {
+        ghosts: boundary
+            .ghosts
+            .iter()
+            .map(|(node, ghost)| {
+                (
+                    *node,
+                    Ghost {
+                        node: ghost.node,
+                        owner: SegmentId(ghost.owner.0),
+                        anchor: ghost.anchor.as_str().into(),
+                    },
+                )
+            })
+            .collect(),
+        in_stubs: boundary
+            .in_stubs
+            .iter()
+            .map(|(elem, stub)| {
+                (
+                    view_ref_to_production(elem),
+                    InStub {
+                        src: stub.src,
+                        src_owner: SegmentId(stub.src_owner.0),
+                        src_anchor: stub.src_anchor.as_str().into(),
+                        tgt: stub.tgt,
+                        label: edge_to_production(&stub.label),
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+fn segment_to_production(segment: &reference::AnySegment) -> AnySegment {
+    match segment {
+        reference::AnySegment::Graph(graph) => AnySegment::Graph(GraphSegment {
+            segment: SegmentId(graph.segment.0),
+            nodes: graph
+                .nodes
+                .iter()
+                .map(|(id, node)| (*id, node_to_production(node)))
+                .collect(),
+            edges: graph
+                .edges
+                .iter()
+                .map(|(id, edge)| {
+                    (
+                        EdgeId(*id),
+                        GEdge {
+                            src: edge.src,
+                            tgt: edge.tgt,
+                            edge: edge_to_production(&edge.label),
+                            position: edge.position,
+                        },
+                    )
+                })
+                .collect(),
+            boundary: boundary_to_production(&graph.boundary),
+        }),
+        reference::AnySegment::Tree(tree) => AnySegment::Tree(TreeSegment {
+            segment: SegmentId(tree.segment.0),
+            nodes: tree
+                .nodes
+                .iter()
+                .map(|(id, node)| (*id, node_to_production(node)))
+                .collect(),
+            arcs: tree
+                .arcs
+                .iter()
+                .map(|(id, (parent, child, edge))| {
+                    (EdgeId(*id), (*parent, *child, edge_to_production(edge)))
+                })
+                .collect(),
+            fans: tree
+                .fans
+                .iter()
+                .map(|fan| fan_embedding_to_production(fan.node, fan.parent_edge, &fan.child_edges))
+                .collect(),
+            root: tree.root,
+            next_node: tree.next_node,
+            next_edge: tree.next_edge,
+            boundary: boundary_to_production(&tree.boundary),
+        }),
+        reference::AnySegment::Table(_) => {
+            unreachable!("the segment refusal carrier holds no table segment")
+        }
+    }
+}
+
+const fn id_kind_to_production(kind: reference::IdKind) -> IdKind {
+    match kind {
+        reference::IdKind::Node => IdKind::Node,
+        reference::IdKind::Edge => IdKind::Edge,
+    }
+}
+
+const fn defect_to_production(defect: reference::PartitionDefect) -> PartitionDefect {
+    match defect {
+        reference::PartitionDefect::NotDense { found } => PartitionDefect::NotDense {
+            found: SegmentId(found.0),
+        },
+        reference::PartitionDefect::UnsortedRanges => PartitionDefect::UnsortedRanges,
+        reference::PartitionDefect::AllocationOutsideNodes => {
+            PartitionDefect::AllocationOutsideNodes
+        }
+        reference::PartitionDefect::EdgeAllocationOnTable => PartitionDefect::EdgeAllocationOnTable,
+        reference::PartitionDefect::SegmentMissing => PartitionDefect::SegmentMissing,
+        reference::PartitionDefect::SegmentRepeated => PartitionDefect::SegmentRepeated,
+        reference::PartitionDefect::UnknownSegment => PartitionDefect::UnknownSegment,
+        reference::PartitionDefect::CountersWithoutRoot => PartitionDefect::CountersWithoutRoot,
+    }
+}
+
+/// The production value of a reference refusal, field for field, for every
+/// variant the segment-core refusal carriers produce.
+fn error_to_production(error: &reference::SegmentError) -> SegmentError {
+    use reference::SegmentError as R;
+    let segment = |id: reference::SegmentId| SegmentId(id.0);
+    match error {
+        R::InvertedRange { segment: id, range } => SegmentError::InvertedRange {
+            segment: segment(*id),
+            range: IdRange {
+                lo: range.lo,
+                hi: range.hi,
+            },
+        },
+        R::OverlappingRanges { a, b } => SegmentError::OverlappingRanges {
+            a: segment(*a),
+            b: segment(*b),
+        },
+        R::Unowned { elem } => SegmentError::Unowned {
+            elem: view_ref_to_production(elem),
+        },
+        R::WrongOwner {
+            elem,
+            expected,
+            found,
+        } => SegmentError::WrongOwner {
+            elem: view_ref_to_production(elem),
+            expected: segment(*expected),
+            found: segment(*found),
+        },
+        R::NodeIdMismatch { key, found } => SegmentError::NodeIdMismatch {
+            key: *key,
+            found: *found,
+        },
+        R::GhostMismatch { node } => SegmentError::GhostMismatch { node: *node },
+        R::InStubMismatch { elem } => SegmentError::InStubMismatch {
+            elem: view_ref_to_production(elem),
+        },
+        R::DuplicateEdgeId { edge, segments } => SegmentError::DuplicateEdgeId {
+            edge: EdgeId(*edge),
+            segments: segments.iter().copied().map(segment).collect(),
+        },
+        R::ShapeMismatch { expected, found } => SegmentError::ShapeMismatch {
+            expected: shape_to_production(*expected),
+            found: shape_to_production(*found),
+        },
+        R::AllocationBelowFloor { segment: id, kind } => SegmentError::AllocationBelowFloor {
+            segment: segment(*id),
+            kind: id_kind_to_production(*kind),
+        },
+        R::Invalid { violations } => SegmentError::Invalid {
+            violations: violations.iter().map(error_to_production).collect(),
+        },
+        R::MalformedPartition {
+            segment: id,
+            defect,
+        } => SegmentError::MalformedPartition {
+            segment: segment(*id),
+            defect: defect_to_production(*defect),
+        },
+        R::DanglingEndpoint { elem, node } => SegmentError::DanglingEndpoint {
+            elem: view_ref_to_production(elem),
+            node: *node,
+        },
+        R::NotEmbedded { elem } => SegmentError::NotEmbedded {
+            elem: view_ref_to_production(elem),
+        },
+        other => unreachable!("no segment-core refusal carrier produces {other:?}"),
+    }
 }
 
 const fn shape_to_production(shape: reference::InstanceShapeKind) -> InstanceShapeKind {
@@ -293,6 +527,14 @@ fn seal_production_manifest(
     partition: &Partition,
     schema: Digest,
 ) -> panproto_inst::segment::SegmentManifest {
+    try_seal_production_manifest(segments, partition, schema).expect("production manifest")
+}
+
+fn try_seal_production_manifest(
+    segments: &[AnySegment],
+    partition: &Partition,
+    schema: Digest,
+) -> Result<panproto_inst::segment::SegmentManifest, SegmentError> {
     let records: Vec<_> = segments
         .iter()
         .zip(partition.specs())
@@ -324,19 +566,6 @@ fn seal_production_manifest(
         runs,
         sources,
     )
-    .expect("production manifest")
-}
-
-fn subsets(values: &[u32]) -> Vec<BTreeSet<u32>> {
-    (0..(1_usize << values.len()))
-        .map(|mask| {
-            values
-                .iter()
-                .enumerate()
-                .filter_map(|(bit, value)| ((mask >> bit) & 1 == 1).then_some(*value))
-                .collect()
-        })
-        .collect()
 }
 
 #[test]
@@ -409,7 +638,9 @@ fn bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively() {
 
 #[test]
 fn graph_table_and_tree_artifacts_match_the_reference_exactly() {
-    for (whole, reference_partition) in carrier::shape_witnesses() {
+    let witnesses = carrier::shape_witnesses();
+    assert_eq!(witnesses.len(), SHAPE_WITNESSES);
+    for (index, (whole, reference_partition)) in witnesses.into_iter().enumerate() {
         let production_partition = partition_to_production(&reference_partition);
         let reference_segments =
             reference::partition(&whole, &reference_partition).expect("reference shape partition");
@@ -453,26 +684,28 @@ fn graph_table_and_tree_artifacts_match_the_reference_exactly() {
         for segment in &production_segments {
             verify_segment(&production_manifest, segment).expect("production segment verifies");
         }
-        let expected_payload_bytes = match &whole {
-            reference::AnyInstance::Table(_) => [8_u64, 8],
-            reference::AnyInstance::Graph(_) | reference::AnyInstance::Tree(_, _) => [16_u64, 16],
-        };
-        assert_eq!(
-            production_manifest
-                .segments
-                .iter()
-                .map(|record| record.stats.payload_bytes)
-                .collect::<Vec<_>>(),
-            expected_payload_bytes
-        );
-        assert_eq!(
-            reference_manifest
-                .segments
-                .iter()
-                .map(|record| record.stats.payload_bytes)
-                .collect::<Vec<_>>(),
-            expected_payload_bytes
-        );
+        let production_payload_bytes: Vec<u64> = production_manifest
+            .segments
+            .iter()
+            .map(|record| record.stats.payload_bytes)
+            .collect();
+        let reference_payload_bytes: Vec<u64> = reference_manifest
+            .segments
+            .iter()
+            .map(|record| record.stats.payload_bytes)
+            .collect();
+        assert_eq!(production_payload_bytes, reference_payload_bytes);
+        // The first three witnesses, one per shape, hold one node or row and
+        // at most one edge, arc or pair per segment.
+        if index < 3 {
+            let expected_payload_bytes = match &whole {
+                reference::AnyInstance::Table(_) => [8_u64, 8],
+                reference::AnyInstance::Graph(_) | reference::AnyInstance::Tree(_, _) => {
+                    [16_u64, 16]
+                }
+            };
+            assert_eq!(production_payload_bytes, expected_payload_bytes);
+        }
 
         let production_manifest_bytes = production_manifest.canonical_bytes();
         let reference_manifest_bytes = reference::canonical_manifest_bytes(&reference_manifest);
@@ -497,25 +730,122 @@ fn graph_table_and_tree_artifacts_match_the_reference_exactly() {
 }
 
 #[test]
-fn append_floor_and_exhaustion_agree_on_an_independently_counted_carrier() {
-    let mut checked = 0_usize;
-    for lo in 0..=4 {
-        for hi in lo..=4 {
-            let values: Vec<u32> = (lo..=hi).collect();
-            for source in subsets(&values) {
-                for used in subsets(&values) {
-                    let reference = reference::fresh(reference::IdRange { lo, hi }, &source, &used);
-                    let production =
-                        IdAllocator::from_source(IdRange { lo, hi }, source.iter().copied())
-                            .fresh(used.iter().copied())
-                            .ok();
-                    assert_eq!(production, reference);
-                    checked += 1;
-                }
-            }
+fn bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively() {
+    let cases = carrier::partition_cases();
+    assert_eq!(cases.len(), PARTITION_CASES);
+    assert_eq!(
+        carrier::partition_case_count(),
+        u64::try_from(PARTITION_CASES).unwrap()
+    );
+    assert_eq!(
+        carrier::fan_tree_partition_cases().len(),
+        FAN_TREE_PARTITION_CASES
+    );
+    let (reference_schema, production_schema) = schema_digest();
+    let mut fans_in_different_segments = 0;
+    for (whole, reference_partition) in cases {
+        let production_partition = partition_to_production(&reference_partition);
+        let reference_segments = reference::partition(&whole, &reference_partition)
+            .expect("reference fan tree partition");
+        assert_eq!(
+            reference::glue(&reference_segments, &reference_partition),
+            Ok(whole.clone())
+        );
+        assert_eq!(
+            reference::segmented(
+                &reference_segments,
+                &reference_partition,
+                &|value: &reference::AnyInstance| value.clone(),
+            ),
+            Ok(whole.clone())
+        );
+        let production_segments = partition_and_assemble_shape(&whole, &production_partition);
+        assert_segment_bytes_agree(
+            &reference_segments,
+            &production_segments,
+            &reference_partition,
+            &production_partition,
+        );
+        let reference_manifest = reference::seal_manifest(
+            &reference_segments,
+            &reference_partition,
+            reference_schema,
+            reference::ManifestRole::Source,
+            None,
+        )
+        .expect("reference manifest");
+        let production_manifest = seal_production_manifest(
+            &production_segments,
+            &production_partition,
+            production_schema,
+        );
+        assert_eq!(
+            production_manifest.canonical_bytes(),
+            reference::canonical_manifest_bytes(&reference_manifest)
+        );
+        assert_eq!(
+            production_manifest.instance_digest.map(|digest| digest.0),
+            reference_manifest.instance_digest.map(|digest| digest.0)
+        );
+        let fans_per_segment: Vec<usize> = reference_segments
+            .iter()
+            .filter_map(|segment| match segment {
+                reference::AnySegment::Tree(tree) => Some(tree.fans.len()),
+                _ => None,
+            })
+            .collect();
+        if fans_per_segment == [1, 1] {
+            fans_in_different_segments += 1;
         }
     }
-    assert_eq!(checked, SMALL_ALLOCATION_CASES);
+    // The two-fan tree's fan nodes are split in half of its 32 assignments.
+    assert_eq!(fans_in_different_segments, 16);
+}
+
+#[test]
+fn append_floor_and_exhaustion_agree_on_an_independently_counted_carrier() {
+    let cases = carrier::allocation_cases();
+    assert_eq!(cases.len(), ALLOCATION_CASES);
+    assert_eq!(
+        carrier::allocation_case_count(),
+        u64::try_from(ALLOCATION_CASES).unwrap()
+    );
+    // An allocator that does not restrict source identifiers to the range
+    // (the floor raised by every source identifier) must disagree somewhere
+    // on the carrier, so the carrier observes the range filter.
+    let unfiltered_source = |range: IdRange, source: &BTreeSet<u32>, used: &BTreeSet<u32>| {
+        let floor = source
+            .iter()
+            .map(|id| id.saturating_add(1))
+            .fold(range.lo, u32::max);
+        let candidate = used
+            .iter()
+            .filter(|id| range.contains(**id))
+            .map(|id| id.saturating_add(1))
+            .fold(floor, u32::max);
+        (candidate <= range.hi && candidate != u32::MAX).then_some(candidate)
+    };
+    let mut outside_ids = 0_usize;
+    let mut unfiltered_disagreements = 0_usize;
+    for (range, source, used) in &cases {
+        let production_range = IdRange {
+            lo: range.lo,
+            hi: range.hi,
+        };
+        let reference = reference::fresh(*range, source, used);
+        let production = IdAllocator::from_source(production_range, source.iter().copied())
+            .fresh(used.iter().copied())
+            .ok();
+        assert_eq!(production, reference);
+        if source.iter().chain(used).any(|id| !range.contains(*id)) {
+            outside_ids += 1;
+        }
+        if unfiltered_source(production_range, source, used) != production {
+            unfiltered_disagreements += 1;
+        }
+    }
+    assert!(outside_ids > 0);
+    assert!(unfiltered_disagreements > 0);
 
     let top_cases = [
         (u32::MAX - 1, u32::MAX, BTreeSet::new(), BTreeSet::new()),
@@ -526,6 +856,12 @@ fn append_floor_and_exhaustion_agree_on_an_independently_counted_carrier() {
             BTreeSet::new(),
         ),
         (u32::MAX, u32::MAX, BTreeSet::new(), BTreeSet::new()),
+        (
+            u32::MAX - 1,
+            u32::MAX,
+            BTreeSet::from([0]),
+            BTreeSet::from([5]),
+        ),
     ];
     for (lo, hi, source, used) in top_cases {
         assert_eq!(
@@ -537,85 +873,235 @@ fn append_floor_and_exhaustion_agree_on_an_independently_counted_carrier() {
     }
 }
 
-fn assert_partition_refusals() {
-    let reference_overlap = reference::Partition {
-        shape: reference::InstanceShapeKind::Graph,
-        specs: vec![
-            reference::SegmentSpec {
-                id: reference::SegmentId(0),
-                nodes: vec![reference::IdRange { lo: 0, hi: 2 }],
-                alloc_nodes: None,
-                alloc_edges: None,
-            },
-            reference::SegmentSpec {
-                id: reference::SegmentId(1),
-                nodes: vec![reference::IdRange { lo: 2, hi: 3 }],
-                alloc_nodes: None,
-                alloc_edges: None,
-            },
-        ],
-    };
-    let production_overlap = partition_to_production(&reference_overlap);
+#[test]
+fn segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal() {
+    let (reference_schema, production_schema) = schema_digest();
+    let cases = carrier::allocated_graph_partition_cases();
+    assert_eq!(cases.len(), ALLOCATED_GRAPH_PARTITION_CASES);
     assert_eq!(
-        production_overlap.validate().unwrap_err().kind(),
-        reference_overlap.validate().unwrap_err().external_name()
+        carrier::allocated_graph_partition_case_count(),
+        u64::try_from(ALLOCATED_GRAPH_PARTITION_CASES).unwrap()
     );
-
-    // The malformed allocation payload is reported before the fact that a
-    // table must not carry an edge allocation range at all.
-    let reference_inverted_table_allocation = reference::Partition {
-        shape: reference::InstanceShapeKind::Table,
-        specs: vec![reference::SegmentSpec {
-            id: reference::SegmentId(0),
-            nodes: vec![reference::IdRange { lo: 0, hi: 9 }],
-            alloc_nodes: None,
-            alloc_edges: Some(reference::IdRange { lo: 29, hi: 20 }),
-        }],
-    };
-    assert_eq!(
-        reference_inverted_table_allocation.validate(),
-        Err(reference::SegmentError::InvertedRange {
-            segment: reference::SegmentId(0),
-            range: reference::IdRange { lo: 29, hi: 20 },
-        })
-    );
-    assert_eq!(
-        partition_to_production(&reference_inverted_table_allocation).validate(),
-        Err(panproto_inst::segment::SegmentError::InvertedRange {
-            segment: SegmentId(0),
-            range: IdRange { lo: 29, hi: 20 },
-        })
-    );
-
-    let mut graph = reference_model::Graph::default();
-    graph.nodes.insert(4, reference_model::Node::new(4, "a"));
-    let reference_partition = reference::Partition {
-        shape: reference::InstanceShapeKind::Graph,
-        specs: vec![reference::SegmentSpec {
-            id: reference::SegmentId(0),
-            nodes: vec![reference::IdRange { lo: 0, hi: 3 }],
-            alloc_nodes: None,
-            alloc_edges: None,
-        }],
-    };
-    let production_partition = partition_to_production(&reference_partition);
-    let reference_error = reference::partition(
-        &reference::AnyInstance::Graph(graph.clone()),
-        &reference_partition,
-    )
-    .unwrap_err();
-    let production_error =
-        partition_graph(&graph_to_production(&graph), &production_partition).unwrap_err();
-    assert_eq!(production_error.kind(), reference_error.external_name());
-    assert_eq!(
-        production_error,
-        panproto_inst::segment::SegmentError::Unowned {
-            elem: panproto_inst::ViewRef::Node(4)
+    let mut observed = 0_usize;
+    let mut refused = 0_usize;
+    for case in cases {
+        let reference_partition = case.partition;
+        let production_partition = partition_to_production(&reference_partition);
+        reference_partition.validate().expect("reference partition");
+        production_partition
+            .validate()
+            .expect("production partition");
+        let whole = reference::AnyInstance::Graph(case.graph.clone());
+        let reference_segments =
+            reference::partition(&whole, &reference_partition).expect("reference graph partition");
+        assert_eq!(
+            reference::glue(&reference_segments, &reference_partition),
+            Ok(whole.clone())
+        );
+        let max_edge = case.graph.edges.keys().next_back().copied();
+        let expected = match max_edge.and_then(|max| {
+            reference_partition
+                .specs
+                .iter()
+                .find(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= max))
+        }) {
+            Some(spec) => Err(reference::SegmentError::AllocationBelowFloor {
+                segment: spec.id,
+                kind: reference::IdKind::Edge,
+            }),
+            None => Ok(whole.clone()),
+        };
+        assert_eq!(
+            reference::segmented(
+                &reference_segments,
+                &reference_partition,
+                &|value: &reference::AnyInstance| value.clone(),
+            ),
+            expected
+        );
+        let production_segments: Vec<AnySegment> =
+            partition_graph(&graph_to_production(&case.graph), &production_partition)
+                .expect("production graph partition")
+                .into_iter()
+                .map(AnySegment::Graph)
+                .collect();
+        let production_seal = try_seal_production_manifest(
+            &production_segments,
+            &production_partition,
+            production_schema,
+        );
+        let reference_seal = reference::seal_manifest(
+            &reference_segments,
+            &reference_partition,
+            reference_schema,
+            reference::ManifestRole::Source,
+            None,
+        );
+        match (&expected, production_seal, reference_seal) {
+            (Ok(_), Ok(production), Ok(reference)) => {
+                assert_eq!(
+                    production.canonical_bytes(),
+                    reference::canonical_manifest_bytes(&reference)
+                );
+                observed += 1;
+            }
+            (Err(expected), Err(production), Err(reference)) => {
+                assert_eq!(&reference, expected);
+                assert_eq!(production, error_to_production(expected));
+                refused += 1;
+            }
+            (expected, production, reference) => panic!(
+                "seal outcomes differ: expected {expected:?}, production {:?}, reference {:?}",
+                production.map(|_| ()),
+                reference.map(|_| ())
+            ),
         }
+    }
+    // Only the graphs holding edge id 1 (two edges) refuse, and only under
+    // the ranges starting at 1: one 1-node and sixteen 2-node graphs, under
+    // 2 + 3 and 4 + 9 ownership splits.
+    let two_edge_cases = 5 + 16 * 13;
+    assert_eq!(refused, two_edge_cases);
+    assert_eq!(observed, ALLOCATED_GRAPH_PARTITION_CASES - two_edge_cases);
+}
+
+fn reference_refusal(input: &carrier::RefusalInput) -> reference::SegmentError {
+    match input {
+        carrier::RefusalInput::Validate(partition) => partition
+            .validate()
+            .expect_err("the carrier partition is invalid"),
+        carrier::RefusalInput::Split(whole, partition) => {
+            reference::partition(whole, partition).expect_err("the carrier instance is refused")
+        }
+        carrier::RefusalInput::Contract(segment, partition) => {
+            reference::validate_segment_contract(segment, partition)
+                .expect_err("the carrier segment is refused")
+        }
+    }
+}
+
+fn production_refusal(input: &carrier::RefusalInput) -> SegmentError {
+    match input {
+        carrier::RefusalInput::Validate(partition) => partition_to_production(partition)
+            .validate()
+            .expect_err("the carrier partition is invalid"),
+        carrier::RefusalInput::Split(whole, partition) => {
+            let partition = partition_to_production(partition);
+            match whole {
+                reference::AnyInstance::Graph(graph) => {
+                    partition_graph(&graph_to_production(graph), &partition).map(|_| ())
+                }
+                reference::AnyInstance::Table(table) => {
+                    partition_table(&table_to_production(table), &partition).map(|_| ())
+                }
+                reference::AnyInstance::Tree(tree, embedding) => {
+                    let (tree, embedding) = tree_to_production(tree, embedding);
+                    partition_tree(&tree, &embedding, &partition).map(|_| ())
+                }
+            }
+            .expect_err("the carrier instance is refused")
+        }
+        carrier::RefusalInput::Contract(segment, partition) => check_segment(
+            &segment_to_production(segment),
+            &partition_to_production(partition),
+        )
+        .expect_err("the carrier segment is refused"),
+    }
+}
+
+const fn artifact_to_production(kind: reference::ArtifactKind) -> ArtifactKind {
+    match kind {
+        reference::ArtifactKind::Segment => ArtifactKind::Segment,
+        reference::ArtifactKind::ComplementSegment => ArtifactKind::ComplementSegment,
+        reference::ArtifactKind::Export => ArtifactKind::Export,
+        reference::ArtifactKind::Summary => ArtifactKind::Summary,
+        reference::ArtifactKind::Assembly => ArtifactKind::Assembly,
+        reference::ArtifactKind::Manifest => ArtifactKind::Manifest,
+        reference::ArtifactKind::EdgeIdRun => ArtifactKind::EdgeIdRun,
+    }
+}
+
+fn assert_carrier_refusals() {
+    let cases = carrier::refusal_cases();
+    assert_eq!(cases.len(), carrier::REFUSAL_CASE_COUNT);
+    let refusals: Vec<SegmentError> = cases
+        .iter()
+        .map(|case| {
+            let reference = reference_refusal(case);
+            let production = production_refusal(case);
+            assert_eq!(production, error_to_production(&reference), "{case:?}");
+            production
+        })
+        .collect();
+    let segment = SegmentId;
+    let edge = |id| ViewRef::Edge(EdgeId(id));
+    assert_eq!(
+        refusals,
+        [
+            SegmentError::OverlappingRanges {
+                a: segment(0),
+                b: segment(1),
+            },
+            SegmentError::InvertedRange {
+                segment: segment(0),
+                range: IdRange { lo: 29, hi: 20 },
+            },
+            SegmentError::Unowned {
+                elem: ViewRef::Node(4),
+            },
+            SegmentError::Invalid {
+                violations: vec![SegmentError::NodeIdMismatch { key: 0, found: 1 }],
+            },
+            SegmentError::MalformedPartition {
+                segment: segment(0),
+                defect: PartitionDefect::CountersWithoutRoot,
+            },
+            SegmentError::Invalid {
+                violations: vec![
+                    SegmentError::WrongOwner {
+                        elem: edge(0),
+                        expected: segment(1),
+                        found: segment(0),
+                    },
+                    SegmentError::Unowned { elem: edge(0) },
+                ],
+            },
+            SegmentError::Invalid {
+                violations: vec![
+                    SegmentError::NodeIdMismatch { key: 0, found: 2 },
+                    SegmentError::WrongOwner {
+                        elem: ViewRef::Node(1),
+                        expected: segment(1),
+                        found: segment(0),
+                    },
+                    SegmentError::GhostMismatch { node: 5 },
+                    SegmentError::Unowned { elem: edge(0) },
+                    SegmentError::Unowned { elem: edge(1) },
+                ],
+            },
+            SegmentError::Invalid {
+                violations: vec![SegmentError::NotEmbedded {
+                    elem: ViewRef::Node(3),
+                }],
+            },
+            SegmentError::NotEmbedded {
+                elem: ViewRef::Node(4),
+            },
+            // The shape check precedes partition validation.
+            SegmentError::ShapeMismatch {
+                expected: InstanceShapeKind::Table,
+                found: InstanceShapeKind::Graph,
+            },
+            // A whole tree whose node key is not its node id does not agree
+            // with its embedding.
+            SegmentError::NotEmbedded {
+                elem: ViewRef::Node(0),
+            },
+        ]
     );
 }
 
-fn assert_decoder_and_contract_refusals() {
+fn assert_decoder_refusal() {
     let valid_reference = reference::Partition {
         shape: reference::InstanceShapeKind::Graph,
         specs: vec![reference::SegmentSpec {
@@ -626,24 +1112,19 @@ fn assert_decoder_and_contract_refusals() {
         }],
     };
     let valid_production = partition_to_production(&valid_reference);
+    let graph = reference_model::Graph {
+        nodes: BTreeMap::from([(0, reference_model::Node::new(0, "a"))]),
+        edges: BTreeMap::new(),
+    };
     let reference_segment = reference::partition(
-        &reference::AnyInstance::Graph(reference_model::Graph {
-            nodes: BTreeMap::from([(0, reference_model::Node::new(0, "a"))]),
-            edges: BTreeMap::new(),
-        }),
+        &reference::AnyInstance::Graph(graph.clone()),
         &valid_reference,
     )
     .unwrap()
     .remove(0);
-    let production_segment = partition_graph(
-        &graph_to_production(&reference_model::Graph {
-            nodes: BTreeMap::from([(0, reference_model::Node::new(0, "a"))]),
-            edges: BTreeMap::new(),
-        }),
-        &valid_production,
-    )
-    .unwrap()
-    .remove(0);
+    let production_segment = partition_graph(&graph_to_production(&graph), &valid_production)
+        .unwrap()
+        .remove(0);
     let (reference_schema, production_schema) = schema_digest();
     let mut reference_bytes =
         reference::canonical_segment_bytes(&reference_segment, reference_schema, &valid_reference)
@@ -651,47 +1132,31 @@ fn assert_decoder_and_contract_refusals() {
     let mut production_bytes = AnySegment::Graph(production_segment)
         .canonical_bytes(&production_schema, &valid_production)
         .unwrap();
+    assert_eq!(production_bytes, reference_bytes);
     reference_bytes.push(0);
     production_bytes.push(0);
-    assert_eq!(
-        AnySegment::from_canonical_bytes(&production_bytes, &valid_production)
-            .unwrap_err()
-            .kind(),
-        reference::decode_segment_bytes(&reference_bytes, &valid_reference)
-            .unwrap_err()
-            .external_name()
-    );
+    // `Decode.message` is the one free-text field; its variant and artifact
+    // are compared exactly.
+    let production =
+        AnySegment::from_canonical_bytes(&production_bytes, &valid_production).unwrap_err();
+    let reference =
+        reference::decode_segment_bytes(&reference_bytes, &valid_reference).unwrap_err();
+    match (production, reference) {
+        (
+            SegmentError::Decode { artifact, .. },
+            reference::SegmentError::Decode {
+                artifact: reference_artifact,
+                ..
+            },
+        ) => {
+            assert_eq!(artifact, ArtifactKind::Segment);
+            assert_eq!(artifact, artifact_to_production(reference_artifact));
+        }
+        (production, reference) => {
+            panic!("trailing bytes: production {production:?}, reference {reference:?}")
+        }
+    }
 
-    let reference_invalid = reference::AnySegment::Graph(reference::GraphSegment {
-        segment: reference::SegmentId(0),
-        nodes: BTreeMap::from([(0, reference_model::Node::new(1, "a"))]),
-        edges: BTreeMap::new(),
-        boundary: reference::Boundary::default(),
-    });
-    let production_invalid = AnySegment::Graph(GraphSegment {
-        segment: SegmentId(0),
-        nodes: BTreeMap::from([(0, node_to_production(&reference_model::Node::new(1, "a")))]),
-        edges: BTreeMap::new(),
-        boundary: Boundary::default(),
-    });
-    let reference_error =
-        reference::validate_segment_contract(&reference_invalid, &valid_reference).unwrap_err();
-    let production_error = check_segment(&production_invalid, &valid_production).unwrap_err();
-    assert_eq!(
-        reference_error,
-        reference::SegmentError::Invalid {
-            violations: vec![reference::SegmentError::NodeIdMismatch { key: 0, found: 1 }],
-        }
-    );
-    assert_eq!(
-        production_error,
-        panproto_inst::segment::SegmentError::Invalid {
-            violations: vec![panproto_inst::segment::SegmentError::NodeIdMismatch {
-                key: 0,
-                found: 1,
-            }],
-        }
-    );
     assert_eq!(
         reference::validation_view_preflight(
             reference::SegmentId(7),
@@ -715,8 +1180,8 @@ fn assert_decoder_and_contract_refusals() {
 
 #[test]
 fn partition_and_decoder_refusals_preserve_typed_error_precedence() {
-    assert_partition_refusals();
-    assert_decoder_and_contract_refusals();
+    assert_carrier_refusals();
+    assert_decoder_refusal();
 }
 
 #[test]
@@ -958,7 +1423,24 @@ fn release_carrier_has_no_unstated_scope_expansion() {
     assert_eq!(carrier::FULL_SCOPE_GAPS.len(), 12);
     assert_eq!(carrier::graph_count(), 25);
     assert_eq!(carrier::graph_partition_case_count(), 290);
-    assert_eq!(carrier::shape_witnesses().len(), 3);
+    assert_eq!(carrier::shape_witnesses().len(), SHAPE_WITNESSES);
+    assert_eq!(
+        carrier::fan_tree_partition_case_count(),
+        u64::try_from(FAN_TREE_PARTITION_CASES).unwrap()
+    );
+    assert_eq!(
+        carrier::partition_case_count(),
+        u64::try_from(PARTITION_CASES).unwrap()
+    );
+    assert_eq!(
+        carrier::allocated_graph_partition_case_count(),
+        u64::try_from(ALLOCATED_GRAPH_PARTITION_CASES).unwrap()
+    );
+    assert_eq!(carrier::refusal_cases().len(), carrier::REFUSAL_CASE_COUNT);
+    assert_eq!(
+        carrier::allocation_case_count(),
+        u64::try_from(ALLOCATION_CASES).unwrap()
+    );
     assert_eq!(reference::VALIDATION_VIEW_EDGE_CAPACITY, 1_u64 << 32);
     assert_eq!(
         reference::validation_view_preflight(

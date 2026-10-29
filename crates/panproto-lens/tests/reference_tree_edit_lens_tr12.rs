@@ -387,12 +387,12 @@ fn translated_get(
     view_embedding: &TreeEmbedding,
     plan: &Plan,
     sequential: bool,
-) -> (GraphDelta, panproto_inst::Complement) {
+) -> (GraphDelta, panproto_inst::Complement, WInstance) {
     let mut lens = edit_lens(kind, source);
     if !sequential {
         let translated = lens.get_edit(production_edit(&plan.atoms)).unwrap();
         let lowered = lower(view, view_embedding, &translated).unwrap();
-        return (lowered.delta, lens.complement);
+        return (lowered.delta, lens.complement, lowered.tree);
     }
 
     let mut current = view.clone();
@@ -407,7 +407,7 @@ fn translated_get(
         current = lowered.tree;
         embedding = lowered.embedding;
     }
-    (net, lens.complement)
+    (net, lens.complement, current)
 }
 
 fn translated_put(
@@ -481,10 +481,53 @@ fn tr12_get_functoriality_replacement_and_minimality_match_the_reference() {
                 reference::Lens::get_edit(ref_lens, &ref_input, &mut expected_complement).unwrap();
             assert!(reference::is_minimal(&ref_input, &expected));
 
-            let (whole, whole_complement) =
+            let (whole, whole_complement, edited_view) =
                 translated_get(kind, &source, &view, &view_embedding, &plan, false);
-            let (steps, steps_complement) =
+            let (steps, steps_complement, steps_view) =
                 translated_get(kind, &source, &view, &view_embedding, &plan, true);
+
+            // Get consistency, E.6 law (1): the translated edit applied to
+            // the view is the view of the edited source, with the residue of
+            // the edited source. Reference first, then production.
+            let mut expected_view = ref_view.clone();
+            reference::Delta::apply(&expected, &mut expected_view).unwrap();
+            let (recomputed_view, recomputed_complement) = ref_lens.initialize(&applied);
+            assert_eq!(
+                expected_view, recomputed_view,
+                "reference get consistency: {}",
+                plan.name
+            );
+            assert_eq!(
+                expected_complement, recomputed_complement,
+                "reference complement consistency: {}",
+                plan.name
+            );
+            let (fresh_view, fresh_complement) =
+                panproto_lens::get(&state_lens, &input.tree).unwrap();
+            assert_eq!(
+                reference_tree(&edited_view),
+                reference_tree(&fresh_view),
+                "production get consistency: {}",
+                plan.name
+            );
+            assert_eq!(
+                reference_tree(&steps_view),
+                reference_tree(&fresh_view),
+                "production sequential get consistency: {}",
+                plan.name
+            );
+            assert_eq!(
+                reference_tree(&fresh_view),
+                expected_view,
+                "production recomputed view against the reference: {}",
+                plan.name
+            );
+            assert_eq!(
+                complement_carrier(&fresh_complement),
+                complement_carrier(&whole_complement),
+                "production complement consistency: {}",
+                plan.name
+            );
             assert_eq!(whole, steps, "strict get composition: {}", plan.name);
             assert!(
                 <TreeShape as LensShape>::complement_divergence(
@@ -786,7 +829,68 @@ fn tr12_late_sequence_refusal_is_atomic_for_reference_and_production() {
         "a late reference refusal must not retain the first id's mutation"
     );
 
+    // The common late word, through each side's source editor: delete the
+    // hidden leaf, then a missing id. The production edit lens translates
+    // admitted edits only, so the common refusal is the source editor's.
+    let late_word = [Atom::Delete { id: HIDDEN }, Atom::Delete { id: 99 }];
+    let expected = reference::lower(&ref_source, &late_word).unwrap_err();
+    assert_eq!(expected, Refusal::Missing { id: 99 });
     let source = production_source();
+    let embedding = initial_embedding(&source);
+    let edit = production_edit(&late_word);
+    let graph = GInstance::from_wtype_under(&source, &embedding, None).unwrap();
+    let mut next_embedding = embedding.clone();
+    let mut next_source = source.clone();
+    let actual = match GraphDelta::from_tree_edit(&graph, &mut next_embedding, &edit) {
+        Err(error) => error,
+        Ok(_) => edit.apply(&mut next_source).unwrap_err(),
+    };
+    assert_eq!(
+        production_refusal(&actual),
+        reference_refusal(&expected),
+        "the common late word refuses with the same typed cause"
+    );
+    assert!(
+        panproto_lens::instances_equivalent(&source, &next_source),
+        "the common late word leaves the production source unchanged"
+    );
+    assert_eq!(
+        reference_tree(&source),
+        ref_source,
+        "the common late word leaves the reference source unchanged"
+    );
+
+    // The production edit lens refuses the same word itself: a delete of an
+    // id absent from its tracked source is a typed refusal, and the staged
+    // first step is discarded with it.
+    for kind in [LensKind::Identity, LensKind::Projection] {
+        let mut lens = edit_lens(kind, &source);
+        let initial_complement = lens.complement.clone();
+        let initial_tracked_source = lens.pipeline.as_ref().unwrap().source().clone();
+        let refused = lens.get_edit(edit.clone()).unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                panproto_lens::EditLensError::EditApply(EditError::NodeNotFound(99))
+            ),
+            "{refused:?}"
+        );
+        assert!(
+            <TreeShape as LensShape>::complement_divergence(&lens.complement, &initial_complement)
+                .is_none(),
+            "a refused absent delete must leave the complement unchanged"
+        );
+        assert!(
+            panproto_lens::instances_equivalent(
+                lens.pipeline.as_ref().unwrap().source(),
+                &initial_tracked_source
+            ),
+            "a refused absent delete must leave the tracked source unchanged"
+        );
+    }
+
+    // A production-only late refusal, raised by the restrict stage after the
+    // first edit of the sequence has been staged.
     let mut state_lens = production_lens(LensKind::Projection);
     state_lens.compiled.field_transforms.insert(
         panproto_gat::Name::from("visible"),

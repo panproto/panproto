@@ -17,8 +17,10 @@ import PanprotoFFI
 /// resource, which is why ``rawValue`` is the basis for
 /// ``PanprotoHandle/==(_:_:)``.
 ///
-/// Subclasses are the fourteen slab variants. They add no stored
-/// state; they exist to make the variant a compile-time fact.
+/// Fourteen subclasses represent the engine's fifteen slab variants. They
+/// add no stored state and make each accepted variant family a compile-time
+/// fact. ``ProtolensChainHandle`` is the one compatibility family: it accepts
+/// both `ProtolensChain` and `CompiledLensDoc` resources.
 @PanprotoEngine
 open class PanprotoHandle {
     /// The slab index this handle owns.
@@ -31,9 +33,11 @@ open class PanprotoHandle {
     /// Whether ``release()`` has already returned this entry.
     private var isReleased = false
 
-    /// The slab variant name the engine reports in a type-mismatch
-    /// error, so a caught ``PanprotoError/Fault/typeMismatch(expected:actual:)``
-    /// can be compared against a Swift type.
+    /// The slab variant name for this handle family's ordinary
+    /// representation, so a caught
+    /// ``PanprotoError/Fault/typeMismatch(expected:actual:)`` can be compared
+    /// against a Swift type. ``ProtolensChainHandle`` also accepts the engine's
+    /// `CompiledLensDoc` variant, which is reported under that distinct name.
     ///
     /// Overridable from outside this module, which is what lets the
     /// vcs, parse, project, and git tiers declare the slab variants
@@ -155,8 +159,16 @@ public final class ModelHandle: PanprotoHandle {
     public override class var slabVariant: String { "Model" }
 }
 
-/// A protolens chain: a schema-parameterized lens family, not yet
-/// instantiated at a schema.
+/// A protolens chain or a chain-compatible directional lens document.
+///
+/// Ordinary constructors store a schema-parameterized `ProtolensChain`.
+/// The lens-document compilers reject symmetric bodies and store an accepted
+/// directional body as a `CompiledLensDoc` that retains authoritative ordered
+/// stages and value transforms. Instantiation uses those retained stages and
+/// transforms. Chain inspection, complement planning, composition, and fusion
+/// use only its compatibility-chain projection. Thus, composition and fusion
+/// return ordinary chains without the ordered stage boundaries or value
+/// transforms.
 @PanprotoEngine
 public final class ProtolensChainHandle: PanprotoHandle {
     public override class var slabVariant: String { "ProtolensChain" }

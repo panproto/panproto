@@ -8,9 +8,9 @@ Let $S$ and $T$ be source and target schemas, let $m : S \to T$ be a compiled mi
 
 Cross-shape statements quantify only over the validated common conversion image. Thus a tree, its graph encoding, and a table-shaped graph are compared only when the relevant encodings and schema-relative shape checks succeed; no law identifies malformed carriers merely because they can be stored by one raw representation.
 
-The reference operations live in [`panproto_reference::restrict`](https://docs.rs/panproto-reference/latest/panproto_reference/restrict/) and [`panproto_reference::lens`](https://docs.rs/panproto-reference/latest/panproto_reference/lens/). The release carrier contains 57 schemas crossed with 27 survival classifications, 375 pair-resolution cases, 12,366 graph cases, 585 ordered child-binding words, nine column-fate cases, and 70 tree cases. The tree-edit carrier adds 38 get words, 27 put words, two typed lowering refusals, and one atomic late refusal.
+The reference operations live in [`panproto_reference::restrict`](https://docs.rs/panproto-reference/latest/panproto_reference/restrict/) and [`panproto_reference::lens`](https://docs.rs/panproto-reference/latest/panproto_reference/lens/). The release carrier contains 57 schemas crossed with 27 survival classifications, 375 pair-resolution cases, 12,366 graph cases (each run bare and with decorated node payloads), 585 ordered child-binding words, nine column-fate cases, 70 tree cases, 16 `Keep`/`Drop`-between-survivors tree cases, and one fan-plus-expansion tree case. The tree-edit carrier adds 38 get words, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal.
 
-The final seven-test production/reference suite passed in nextest run `48b515aa-2743-41e9-b7d0-deb5764ec3e5`. The two lens-level tree-complement conversion tests passed in run `780bbc32-545b-469b-bc55-8f0304c32815`, and the 42 affected reference tests passed in run `0e864e92-d9cc-4729-91d1-8179545c5db9`. Strict Clippy passed for both production differentials, the lens differential, and the affected reference targets. The audit records retain the separate requirement for an independent verifier.
+The final seven-test production/reference suite passed in nextest run `1fd27c71-e5b1-4f57-ad12-1cb8333d5bc6`, and the four tree-edit tests passed in run `f1d891d1-cdea-41a5-a0dc-c344231a4a8f`. The two lens-level tree-complement conversion tests passed in run `780bbc32-545b-469b-bc55-8f0304c32815`, and the 42 affected reference tests passed in run `0e864e92-d9cc-4729-91d1-8179545c5db9`. Strict Clippy passed for both production differentials, the lens differential, and the affected reference targets. The audit records retain the separate requirement for an independent verifier.
 
 ## The edge image is total and endpoint coherent {#L-restrict-and-contraction-1}
 
@@ -38,7 +38,7 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - Enumerator: `panproto_reference::enumerate::restrict_and_contraction::release_schemas` and `survival_classifications`; exact carrier: 1,539 schema/classification cases, plus 6 explicit nonidentity branch witnesses
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers` in `crates/panproto-inst/tests/reference_restrict.rs`
 - Boundary pins: production `restrict_plan_compile` and reference `lenses` accept 65,536 hops and refuse 65,537
-- Dynamic result: the final 7/7 suite passed in nextest run `48b515aa-2743-41e9-b7d0-deb5764ec3e5`
+- Dynamic result: the final 7/7 suite passed in nextest run `1fd27c71-e5b1-4f57-ad12-1cb8333d5bc6`
 - Evidence scope: `1,539 schema/classification cases, six nonidentity branch witnesses, and the 65,536/65,537-hop boundary`
 - Production certificate: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
@@ -165,7 +165,7 @@ The *fan domain* consists of graphs in which every hyper-edge-shaped node and ev
 
 ### Proof
 
-`get_with_plan` validates the plan stamp and fan domain before it constructs `Run`. It records both floors, then calls `nodes`, `edges`, `contract`, `fans`, `allocate`, and `record` in the order stated. Each stage iterates a `BTreeMap` or `BTreeSet`, hence ascending key order. The node and edge stages implement the compiled fates directly. `realized_pairs` uses one visited set per surviving source and inserts pairs into an ordered set, so cycles terminate and duplicate witnesses collapse. Allocation sorts pending objects by synthesis key and draws from half-open ranges ending before `u32::MAX`. The 12,366-case differential compares the complete view, complement, synthesis keys, floors, and typed refusals with production.
+`get_with_plan` validates the plan stamp and fan domain before it constructs `Run`. It records both floors, then calls `nodes`, `edges`, `contract`, `fans`, `allocate`, and `record` in the order stated. Each stage iterates a `BTreeMap` or `BTreeSet`, hence ascending key order. The node and edge stages implement the compiled fates directly. `realized_pairs` uses one visited set per surviving source and inserts pairs into an ordered set, so cycles terminate and duplicate witnesses collapse. Allocation sorts pending objects by synthesis key and draws from half-open ranges ending before `u32::MAX`. The 12,366-case differential runs every graph twice, once bare and once with every node carrying a value, a discriminator, a field, and an annotation. Each run compares the complete view, with every node's id, anchor, value, discriminator, fields, position, shape, and annotations, and the complete complement, with its original fields and original values, together with synthesis keys, floors, and typed refusals. The decorated run also checks that every kept node keeps its payload. The carrier holds no predicate, transform, or fan, so the predicate, transform, fan, overlong-expansion, and id-exhaustion clauses rest on the stage argument above and on the pins of the other laws on this page, not on this differential.
 
 ### Executable counterpart
 
@@ -174,8 +174,8 @@ The *fan domain* consists of graphs in which every hyper-edge-shaped node and ev
 - Reference: `panproto_reference::restrict::edge_image`
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers`
-- Compared result: complete view, complement, id floors, synthesis keys, and deterministic typed errors
-- Evidence scope: `12,366 graph/plan cases from the release graph carrier`
+- Compared result: complete view and complement, including node values, discriminators, fields, shapes, annotations, original fields, and original values; id floors, synthesis keys, and deterministic typed errors
+- Evidence scope: `12,366 graph/plan cases from the release graph carrier, each run bare and with decorated node payloads; no predicate, transform, or fan in the carrier`
 - Production certificate: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
 - Independent reference anchor: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
@@ -199,11 +199,13 @@ None. The stage order, id retention, set semantics for realized pairs, and separ
 
 ### Statement
 
-For a tree and graph that encode the same source carrier, tree restriction and graph restriction make the same decision for every direct source arc. Both read the fate from the compiled edge image. `Keep` preserves the carrier under its target label, `Drop` removes it, `Expand` replaces it by the same labelled path, and `Unresolved` returns the same missing-or-ambiguous-hop refusal.
+Let the plan preserve tree shape, that is, let no source schema edge between two endpoint-capable vertices have the fate `Drop`. For a tree whose root survives and its graph encoding, tree restriction and graph restriction make the same decision for every direct source arc. Both read the fate from the compiled edge image. `Keep` preserves the carrier under its target label, `Expand` replaces it by the same labelled path, and `Unresolved` returns the same missing-or-ambiguous-hop refusal. Thus the tree view is the graph view of the encoding read back as a tree from the same root.
 
 ### Outside the domain
 
 The comparison requires a well-formed tree embedding and a plan valid for the same schemas and migration. Tree-specific root pruning is outside the graph result and is compared only after projecting the graph result back through the embedding.
+
+A `Drop` fate between two surviving vertices is outside the domain, because there the engines decide the arc differently by design: the tree engine drops the arc together with the subtree below it, while the graph engine drops the edge alone. The counterexample is the source schema $a \to b$, $b \to c$ with all three vertices surviving, a target without $a \to b$ and no expansion path for $(a,b)$, so that $a \to b$ has fate `Drop` and $b \to c$ has fate `Keep`. On the tree $0(a) \to 1(b) \to 2(c)$ the tree view is the root alone, while the graph view keeps nodes 1 and 2 and the edge $1 \to 2$. What does hold outside the domain is weaker: the tree view is the component of the graph view that hangs from the root. The reference tree lens is undefined on such plans, and `preserves_tree_shape` is false exactly on them.
 
 ### Definitions used
 
@@ -211,15 +213,17 @@ Two carriers are *embedding-equivalent* when tree-to-graph encoding identifies t
 
 ### Proof
 
-`tree_get` lowers the ordered tree carrier to the graph rule, applies the same compiled edge image, and lifts the result with its synthesis data. The differential builds both plans from the same schemas and migration, then checks every direct and expanded route on the 70-case tree carrier. Explicit drop and unresolved witnesses additionally run through both graph and tree engines and compare the resulting view or typed cause. Thus the production tree engine and the reference tree oracle consume the same edge fate rather than recomputing a shape-local substitute.
+The reference `tree_get` is a native tree engine, not a call to graph get: it encodes the tree as its graph carrier, walks the tree breadth-first from the root, and shares only the compiled fates and pair resolutions with the graph engine. On a surviving parent and surviving child it applies the arc's fate; on a dropped parent it contracts the child to its nearest surviving ancestor. First, without a `Drop` fate between survivors, every surviving node is reached: either its direct arc is kept or expanded, or it is contracted to its nearest surviving ancestor, which exists because the root survives. Second, in a tree the walk through dropped nodes into a surviving node is unique and starts at that ancestor, so graph contraction realizes exactly the pairs tree contraction joins. Third, kept arcs keep their ids, and synthesized carriers take the same synthesis keys from the same floors ([L-restrict-and-contraction-8](#L-restrict-and-contraction-8)) in the same sibling order ([L-restrict-and-contraction-12](#L-restrict-and-contraction-12)). The two views therefore coincide. Outside the domain, a `Drop`-fated arc $(x,y)$ between survivors removes $y$'s subtree from the tree view, while in the graph view no edge enters that subtree from outside it: a contraction walk into it would have to pass through the surviving node $y$. So the tree view is the root component of the graph view.
+
+The differential builds both plans from the same schemas and migration and checks every direct and expanded route on the 70-case tree carrier against the reference tree engine. On each of the 43 successful cases, and on the `[Expand, Keep]` witness, it also runs graph get on the tree's graph encoding and checks that the graph view read back from the root equals the production tree view. Explicit drop and unresolved witnesses run through both graph and tree engines and compare the resulting view or typed cause. A further 16 cases cross the four `Keep`/`Drop` assignments to the arcs of $a \to b \to c$, with every vertex surviving, with four source trees. On the shape-preserving assignment the tree view equals the graph view and the reference tree view; on the other three the reference tree lens is undefined, the tree view equals the root component of the graph view, and 8 of the 12 cases show the engines' views differ. The counterexample above is pinned separately.
 
 ### Executable counterpart
 
 - Law ID: `restrict.tr6`
 - Reference: `panproto_reference::lens::tree_get`
-- Enumerator: `tree_restrict_cases`; exact carrier: 14 nonempty keep/expand route words crossed with five id-floor shapes, for 70 cases, plus explicit `Drop` and `Unresolved` graph/tree witnesses
-- Exhaustive differential test: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`; census: 43 successes and 27 typed node-id exhaustion refusals
-- Evidence scope: `70 keep/expand route-and-floor cases plus explicit Drop and Unresolved witnesses`
+- Enumerator: `tree_restrict_cases`; exact carrier: 14 nonempty keep/expand route words crossed with five id-floor shapes, for 70 cases, plus explicit `Drop` and `Unresolved` graph/tree witnesses and the 16-case `Keep`/`Drop`-between-survivors carrier
+- Exhaustive differential test: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`; census: 43 successes, each also compared with graph get, and 27 typed node-id exhaustion refusals; 16 `Keep`/`Drop` cases, 8 of them with different tree and graph views
+- Evidence scope: `70 keep/expand route-and-floor cases compared with the reference tree engine and with graph get, explicit Drop and Unresolved witnesses, and 16 Keep/Drop-between-survivors cases`
 - Production certificate: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
 - Independent reference anchor: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
@@ -347,16 +351,16 @@ The three synthesis-key variants are `Contract { src, tgt, edge }`, `Expand { so
 
 ### Proof
 
-Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restrict-and-contraction-4), and `tree_get` carries the synthesis map and node floor into its tree complement. The lens-level differential calls production tree get and graph get, reads the graph view through `to_wtype_embedded`, and verifies that this tree is the production tree view. It then calls public `tree_complement_to_graph` with the real source graph, graph view, tree complement, and both embeddings. The converted complement is compared field by field, including its identity and complete `SynthIndex`, with graph get and the independent reference complement. The raw `Complement::synth_index` is not compared across representations: its documented tree coordinates intentionally let `contraction_choices` classify expansion presentation arcs as `Contract`, while the public conversion translates them to graph `Expand` or `ContractExpand` keys. The differential separately compares the tree node floor and source-embedding edge floor with the reference pair. The 70-case comparison ranges over compact, gapped, last-free, saturated, and already-maximum id shapes: 43 cases succeed and 27 agree on typed node-id exhaustion. Five additional successful observations cover `Contract`, `Expand`, and `ContractExpand`, with compact, gapped, and last-free contraction-expansion floors.
+Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restrict-and-contraction-4), and `tree_get` carries the synthesis map and node floor into its tree complement. The tree floor counts fan carriers for the following reason. Tree get takes its floors over the tree's graph carrier, not over the tree's own nodes. That carrier is the tree's graph encoding, in which each fan becomes a fan node whose id is drawn from the first node id above the tree's nodes. The node floor is therefore one above the greatest tree or fan node id, which is the node floor graph get computes on the same encoding. A synthesized id can thus never equal a fan node id. The fan case pins this: a source with nodes 0, 1, and 2, a fan on the root whose fan node is 3, and an expansion of arc $0 \to 1$. Tree get and graph get both set the node floor to 4 and allocate the expansion's node as 4, and both views agree with the reference. The lens-level differential calls production tree get and graph get, reads the graph view through `to_wtype_embedded`, and verifies that this tree is the production tree view. It then calls public `tree_complement_to_graph` with the real source graph, graph view, tree complement, and both embeddings. The converted complement is compared field by field, including its identity and complete `SynthIndex`, with graph get and the independent reference complement. The raw `Complement::synth_index` is not compared across representations: its documented tree coordinates intentionally let `contraction_choices` classify expansion presentation arcs as `Contract`, while the public conversion translates them to graph `Expand` or `ContractExpand` keys. The differential separately compares the tree node floor and source-embedding edge floor with the reference pair. The 70-case comparison ranges over compact, gapped, last-free, saturated, and already-maximum id shapes: 43 cases succeed and 27 agree on typed node-id exhaustion. Five additional successful observations cover `Contract`, `Expand`, and `ContractExpand`, with compact, gapped, and last-free contraction-expansion floors.
 
 ### Executable counterpart
 
 - Law ID: `restrict.tr9`
 - Reference: `panproto_reference::lens::tree_get`
-- Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases plus 5 structural-key observations
+- Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases plus 5 structural-key observations and one fan-plus-expansion case
 - Exhaustive differential tests: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`, `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier`, and `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors`; census: 43 successes and 27 typed exhaustion refusals on the enumerated carrier, plus 5 successful structural-key observations
 - Dynamic result: the two lens-level conversion tests passed in nextest run `780bbc32-545b-469b-bc55-8f0304c32815`
-- Evidence scope: `70 route/floor cases and five successful structural-key observations`
+- Evidence scope: `70 route/floor cases, five successful structural-key observations, and one fan-plus-expansion case in tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`
 - Production certificate: `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier)'`
 - Independent reference anchor: `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
@@ -475,11 +479,16 @@ None. A graph-only gate is not an observational substitute for a tree gate.
 
 ### Statement
 
-Tree edit-lens get and put preserve the replacement semantics of element identity: deleting an id and adding that id creates a new element, so old residue does not attach to it; inversion and complement restoration recreate the original element when asked. Translation of edits through restriction preserves identity and composition on admitted edits, and it agrees with recomputation of the restricted view.
+Let $s$ be a source tree with view $v$ and complement $c$, and write $d \cdot s$ for the application of a canonical delta $d$. For admitted deltas, the tree edit lens satisfies four laws.
+
+1. Get consistency: if `get_edit` translates $d$ to $d'$ with complement $c'$, then $d' \cdot v$ and $c'$ are the view and complement of $d \cdot s$.
+2. Strict functoriality: `get_edit` and `put_edit` send the identity to the identity, and the translation of $a$ composed with $b$ equals the composite of the translations of $a$ and $b$, with the complement threaded through both. This holds for every composable pair, including add-then-delete of one id, which cancels to the identity and restores the residue exactly, and delete-then-add, which is a replacement and never the identity.
+3. Minimality: every id a translated delta touches is touched by the input delta, and the translation replaces an id only if the input replaces it.
+4. Undo through the source: if `put_edit` translates $e$ to $e'$, then translating the inverse of $e'$ with `get_edit` yields the inverse of $e$ and restores the complement.
 
 ### Outside the domain
 
-An edit rejected by the source editor, target editor, or lens put domain has no translated result. Fresh allocation never reuses an id below the recorded floor.
+An edit rejected by the source editor, the target editor, or the lens put domain is outside the domain, and the laws say nothing about its translation. One such edit has a fixed translation: once the edit lens tracks a source, its `get_edit` refuses a delete of an id that source does not hold with `NodeNotFound`, inside a sequence as well, where the source is read as the earlier steps leave it, and the refusal leaves the complement and the tracked source unchanged. Fresh allocation never reuses an id below the recorded floor.
 
 ### Definitions used
 
@@ -487,7 +496,14 @@ Replacement semantics and edit-lens functoriality are part of the registered edi
 
 ### Proof
 
-The page-local tree-edit oracle defines lowering, edit translation in both directions, composition, inversion, application, and minimality independently of the production edit lens. The differential compares 38 get words and 27 put words, then pins 15 exact tree-edit inverses and 12 cases whose canonical inverse exists only as a graph delta. Two state-reading lowering failures and one late sequence failure agree on typed refusal and leave both states unchanged.
+The page-local tree-edit oracle defines lowering, edit translation in both directions, composition, inversion, application, and minimality independently of the production edit lens. The four laws hold for the oracle by a per-id argument. A canonical delta is a map from ids to changes, each with an optional leaf before and after; composition and application act on each id separately. The identity lens translates every delta to itself, so the laws are immediate for it. The projection lens's `get_edit` sends the change at an id to the change whose before and after are the visible parts of the original's, drops it when both are empty, and moves hidden leaves between the change and the complement.
+
+- Get consistency follows because the view of $d \cdot s$ at an id is the after-leaf of $d$ there when that leaf is visible, which is the after-leaf of the translated change.
+- Functoriality: composition keeps the first change's before-leaf and the second change's after-leaf, and visibility is a property of a leaf alone. Filtering the composite therefore equals composing the filtered changes. When an intermediate leaf is hidden, both filtered sides meet at an empty boundary and compose to the same pair. Add-then-delete has an empty before and after, so it vanishes on both sides, and the hidden leaf it added and removed leaves the complement as it was.
+- Minimality: the translation is computed id by id, and a replacement survives filtering only when both its leaves are visible, that is, only when the input is a replacement.
+- Undo: `put_edit` admits only deltas whose leaves are all visible and returns them unchanged, so the inverse of $e'$ is the inverse of $e$, all visible, and `get_edit` returns it without touching the complement.
+
+The differential checks the production edit lens against the oracle. On each of the 38 get words it compares the translated delta, the threaded complement, minimality, and strict composition. It then checks get consistency on both sides: the oracle's translated view against the oracle's view of the edited source, and the production view after the translated edit, applied whole and step by step, against production get recomputed on the edited source and against the oracle. On the 27 put words it compares translation, composition, minimality, and undo, and pins 15 exact tree-edit inverses and 12 cases whose canonical inverse exists only as a graph delta. Two state-reading lowering failures agree on typed refusal. One common late sequence word, which deletes the hidden leaf and then a missing id, is refused by both source editors with the same typed cause, and both sources stay unchanged. The same word is refused by both `get_edit` implementations: the oracle refuses its canonical delta at the complement, and the production edit lens, under the identity and the projection lens, refuses it with `NodeNotFound` for the missing id; each leaves its complement unchanged, and production also leaves its tracked source unchanged. One production-only late refusal, raised by the restrict stage after the first edit of a sequence is staged, is checked for atomicity alone.
 
 ### Executable counterpart
 
@@ -499,10 +515,10 @@ The page-local tree-edit oracle defines lowering, edit translation in both direc
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::invert`
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::apply`
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
-- Exact carrier: 38 get words, 27 put words, two typed lowering refusals, and one atomic late refusal
+- Exact carrier: 38 get words, each also checked for get consistency, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal
 - Exhaustive differential tests: all four `tr12_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens_tr12.rs`
-- Dynamic result: 4/4 tests passed in nextest run `6e90be77-e4d0-48e0-b25a-b36239cbd6ec`; the post-refactor refusal pin passed 1/1 in run `104a9218-37f3-42c1-b249-dafaa93b6cf1`
-- Evidence scope: `38 get words, 27 put words, two typed lowering refusals, and one atomic late refusal`
+- Dynamic result: 4/4 tests passed in nextest run `f1d891d1-cdea-41a5-a0dc-c344231a4a8f`
+- Evidence scope: `38 get words with get consistency, 27 put words, two typed lowering refusals, one common late refusal through both source editors and both get_edit implementations, and one production-only atomic late refusal`
 - Production certificate: `tr12_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_get_functoriality_replacement_and_minimality_match_the_reference)'`
 - Independent reference anchor: `tr12_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_put_functoriality_minimality_and_source_undo_match_the_reference)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
@@ -539,7 +555,9 @@ The *witnessing attachment* is the first edge on the breadth-first witness path 
 
 ### Proof
 
-`tree_get` first appends kept arcs while walking the source siblings, then allocates pending synthesized material after sorting by synthesis key. The differential compares the complete ordered reference and production trees, not unordered graph projections, on all 70 route/floor cases. The explicit `[Expand, Keep]` counterexample to source-position insertion pins the observed `[Keep, synthesized]` order.
+`tree_get` first appends kept arcs while walking the source siblings, then allocates pending synthesized material after sorting by synthesis key, and emits each parent's children in ascending view edge id. That order is the claimed order for two reasons. First, a kept arc keeps the id of its source arc, and source arc ids are numbered in source sibling order. All of them lie below the edge floor. Second, synthesized edges take ids from the edge floor upward in ascending synthesis-key order. Hence kept arcs precede synthesized attachments, the kept arcs keep their source order, and the synthesized attachments follow `SynthKey` order.
+
+For the re-encoding clause, graph encoding numbers a tree's arcs $0,1,\ldots$ in arc order and gives them no position. Reading a graph back as a tree lists each node's children by `ordered_out_edges`, which sorts by position and then by edge id. With every position absent, that is arc order, so the read-back tree has the same sibling sequence as the encoded one. The differential compares the complete ordered reference and production trees, not unordered graph projections, on all 70 route/floor cases. On each of the 43 successful cases and on the `[Expand, Keep]` witness, it encodes the production tree view as a graph, reads it back from the root, and checks equality with the view. The explicit `[Expand, Keep]` counterexample to source-position insertion pins the observed `[Keep, synthesized]` order.
 
 ### Executable counterpart
 
@@ -547,7 +565,7 @@ The *witnessing attachment* is the first edge on the breadth-first witness path 
 - Reference: `panproto_reference::lens::tree_get`
 - Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases
 - Exhaustive differential test: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`
-- Evidence scope: `70 route/floor cases with exact sibling-order observations`
+- Evidence scope: `70 route/floor cases with exact sibling-order observations, and a graph re-encoding round trip on the 43 successful cases and the [Expand, Keep] witness`
 - Production certificate: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
 - Independent reference anchor: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=tree_get_uses_the_graph_plan_keys_floor_and_sibling_order)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
@@ -568,23 +586,23 @@ None. Equal unordered graph carriers do not witness equality of ordered trees.
 - Verdict: fail
 - Defects: Independent audit is pending; the bounded production/reference differential passes.
 
-## Contraction preserves and reflects covered reachability {#L-restrict-and-contraction-13}
+## Contraction preserves and reflects dropped-interior reachability {#L-restrict-and-contraction-13}
 
 ### Statement
 
-Fix a successful get and ignore fan edges. For surviving source nodes $x$ and $y$, call the pair *region-covered* when every nonempty $x$-to-$y$ walk whose internal nodes include at least one node and are all dropped projects to schema edges in the region of the declared pair $(\operatorname{anchor}(x),\operatorname{anchor}(y))$. On region-covered pairs, such a source walk exists exactly when the view contains the label or expansion path synthesized for the realized pair $(x,y)$. Thus contraction preserves and reflects dropped-interior reachability on this domain. The statement concerns the contraction stage; a direct source edge with no dropped interior is governed by its edge fate and does not by itself witness the premise.
+Fix a successful get and ignore fan edges. For every pair of surviving source nodes $x$ and $y$, there is a nonempty $x$-to-$y$ walk whose internal nodes include at least one node and are all dropped non-fan nodes exactly when the view contains the label or expansion path synthesized for the realized pair $(x,y)$. Thus contraction preserves and reflects dropped-interior reachability among all survivors. The statement concerns the contraction stage; a direct source edge with no dropped interior is governed by its edge fate and does not by itself witness the premise.
 
 ### Outside the domain
 
-The law makes no claim for a survivor pair with a dropped-interior walk outside the declared region. An unresolved pair and a realized pair absent from the plan make get fail, so they produce no view to which the equivalence applies. The unrestricted claim over every survivor pair is not asserted.
+An unresolved pair and a realized pair absent from the plan make get fail, so they produce no view to which the equivalence applies. No survivor pair is excluded: neither the proof nor the 12,366-case scope yields a pair at which the statement fails, so the law is stated over all survivor pairs.
 
 ### Definitions used
 
-A schema-edge projection replaces each instance edge by its declared source label. A view *contains the synthesized route* when it contains the single `Contract` edge or every adjacent edge of the `ContractExpand` path named by that pair's synthesis keys. Region coverage is a predicate on the complete set of dropped-interior walks, not on the first breadth-first witness alone.
+A view *contains the synthesized route* when it contains the single `Contract` edge or every adjacent edge of the `ContractExpand` path named by that pair's synthesis keys. The walk may repeat nodes; fan nodes are never internal nodes of it.
 
 ### Proof
 
-For preservation, let a covered source walk exist. The per-source breadth-first search reaches $y$ through dropped nodes and inserts $(x,y)$ into the realized-pair set. Successful get supplies the declared pair and a resolved label or expansion, and allocation inserts its synthesized route. For reflection, every synthesized contraction route originates in a realized pair. The breadth-first search inserts such a pair only after traversing a source walk from $x$ through at least one dropped node to $y$, so the source reachability witness exists. The differential derives the realized pairs again through `realized_pairs_by_walks` and compares both derivations with production on 12,366 graph cases.
+For preservation, let such a source walk exist. The per-source breadth-first search follows non-fan edges through dropped non-fan nodes, so it reaches $y$ and inserts $(x,y)$ into the realized-pair set. Successful get supplies the declared pair and a resolved label or expansion, and allocation inserts its synthesized route. For reflection, every synthesized contraction route originates in a realized pair. The breadth-first search inserts such a pair only after traversing a source walk from $x$ through at least one dropped non-fan node to $y$, so the source reachability witness exists. Neither direction uses the declared region, so no narrower domain is needed. The differential derives the realized pairs again through `realized_pairs_by_walks`, over every survivor pair, and compares that census with the synthesized contraction routes on every successful get of the 12,366 graph cases.
 
 ### Executable counterpart
 
@@ -592,8 +610,8 @@ For preservation, let a covered source walk exist. The per-source breadth-first 
 - Reference: `panproto_reference::restrict::get`
 - Reference: `panproto_reference::restrict::realized_pairs_by_walks`
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
-- Exhaustive differential test: `graph_get_and_covered_reachability_agree_on_three_node_carriers`
-- Evidence scope: `12,366 graph/plan cases from the three-node release carrier`
+- Exhaustive differential test: `graph_get_and_covered_reachability_agree_on_three_node_carriers`, over all survivor pairs
+- Evidence scope: `12,366 graph/plan cases from the three-node release carrier, all survivor pairs`
 - Production certificate: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
 - Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
@@ -603,7 +621,7 @@ For preservation, let a covered source walk exist. The per-source breadth-first 
 
 ### Mutation equivalences
 
-None. Dropping the region-covered premise would assert a stronger law outside the registered contract and is not an equivalent mutation.
+None. Admitting fan nodes as interior nodes or omitting any realized pair changes the census the differential compares.
 
 ### Audit record
 

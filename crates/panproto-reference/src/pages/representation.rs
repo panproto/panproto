@@ -396,6 +396,13 @@ pub mod encode {
     /// Why a tree has no graph form.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TreeEncodeError {
+        /// A node filed under a key other than its own id; the least such key.
+        NodeIdMismatch {
+            /// The node-map key.
+            key: u32,
+            /// The id the node stores.
+            node_id: u32,
+        },
         /// A node of the fan shape or an arc of a reserved kind.
         ReservedVocabulary,
         /// A node with two parent arcs.
@@ -432,8 +439,9 @@ pub mod encode {
     ///
     /// # Errors
     ///
-    /// [`TreeEncodeError`] for reserved vocabulary, a second parent, a
-    /// dangling arc or fan, or exhausted node or edge ids. The id `u32::MAX`
+    /// [`TreeEncodeError`] for a node filed under another id (checked first,
+    /// at the least key), reserved vocabulary, a second parent, a dangling
+    /// arc or fan, or exhausted node or edge ids. The id `u32::MAX`
     /// is reserved and is never allocated. A tree may already hold that id,
     /// but adding a fan at the resulting saturated floor is refused as
     /// `NodeIdsExhausted`.
@@ -443,6 +451,12 @@ pub mod encode {
         t: &Tree,
         schema: Option<&Schema>,
     ) -> Result<(Graph, TreeEmbedding), TreeEncodeError> {
+        if let Some((key, node)) = t.nodes.iter().find(|(key, node)| node.id != **key) {
+            return Err(TreeEncodeError::NodeIdMismatch {
+                key: *key,
+                node_id: node.id,
+            });
+        }
         let mut g = Graph {
             nodes: t.nodes.clone(),
             edges: BTreeMap::new(),
@@ -673,8 +687,11 @@ pub mod encode {
 
     /// Definition: The tree form of a graph with this root.
     ///
-    /// Definition: the inverse of [`tree_to_graph`] on its image, up to the
-    /// ids of fan nodes and edges. A graph has a tree form iff the root is a
+    /// Definition: a left inverse of [`tree_to_graph`] on the trees rooted at
+    /// their stored root (no arc enters the root and every node reaches it
+    /// along arcs), read at that root with [`schema_parent_name`] of the
+    /// encoding's schema, up to the ids of fan nodes and edges. On the other
+    /// trees [`tree_to_graph`] accepts, it refuses. A graph has a tree form iff the root is a
     /// node that is no fan node; every edge joins two nodes and has no
     /// position; an edge out of a fan node (a node of the hyper-edge shape) is
     /// labelled from the fan's anchor to the anchor of its target, a parent
@@ -792,9 +809,10 @@ pub mod encode {
     /// Why a table has no graph form.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum TableEncodeError {
-        /// A relation pair names a row absent from the table.
+        /// A relation pair names a row absent from the table, or a row
+        /// outside the table its label declares at that end.
         MalformedTable {
-            /// The first dangling pair in ascending order.
+            /// The first dangling or incoherent pair in ascending order.
             pair: Box<(SEdge, u32, u32)>,
         },
         /// The first pair for which no edge id below the reserved maximum
@@ -810,7 +828,20 @@ pub mod encode {
 
     /// The graph form of a table.
     ///
-    /// Definition: on a [`Table::well_formed`] input, row r is node r anchored at its
+    /// Whether every pair of `t` names a row of its label's source table and
+    /// a row of its label's target table: the coherent tables, which are
+    /// exactly the raw tables a production `FInstance` holds.
+    #[must_use]
+    pub fn table_coherent(t: &Table) -> bool {
+        t.pairs.iter().all(|pair| pair_coherent(t, pair))
+    }
+
+    fn pair_coherent(t: &Table, (e, s, d): &(SEdge, u32, u32)) -> bool {
+        t.rows.get(s).is_some_and(|(table, _)| *table == e.src)
+            && t.rows.get(d).is_some_and(|(table, _)| *table == e.tgt)
+    }
+
+    /// Definition: on a [`table_coherent`] input, row r is node r anchored at its
     /// table with its cells as fields; pair (e, s, t) is an edge s -> t labelled
     /// e with no position, edge ids from 0 in ascending `(e, s, t)`. Returns the
     /// pair ids as the embedding. The id `u32::MAX` is reserved and is never
@@ -818,17 +849,14 @@ pub mod encode {
     ///
     /// # Errors
     ///
-    /// [`TableEncodeError::MalformedTable`] for the first dangling pair, then
+    /// [`TableEncodeError::MalformedTable`] for the first pair that is
+    /// dangling or names a row outside its label's endpoint table, then
     /// [`TableEncodeError::EdgeIdsExhausted`] for the first pair beyond the
     /// representable edge-id carrier.
     ///
     /// Book anchors: `L-representation-6`.
     pub fn table_to_graph(t: &Table) -> Result<(Graph, TableEmbedding), TableEncodeError> {
-        if let Some(pair) = t
-            .pairs
-            .iter()
-            .find(|(_, src, tgt)| !t.rows.contains_key(src) || !t.rows.contains_key(tgt))
-        {
+        if let Some(pair) = t.pairs.iter().find(|pair| !pair_coherent(t, pair)) {
             return Err(TableEncodeError::MalformedTable {
                 pair: Box::new(pair.clone()),
             });
@@ -865,7 +893,8 @@ pub mod encode {
     /// Definition: The table form of a table-shaped graph.
     ///
     /// Every node is a plain row (no value, discriminator, position,
-    /// annotations, non-plain shape or nested cell). Every edge is
+    /// annotations, non-plain shape or nested cell) and sources no edge of a
+    /// reserved fan kind. Every edge is
     /// unpositioned, declared by `schema`, coherent with the anchors at its
     /// endpoints, and unique for its label and endpoints. An edge declared by
     /// a cardinality-one reference has at most one lift from each source row;
@@ -900,7 +929,8 @@ pub mod encode {
         for e in g.edges.values() {
             let endpoints_match = g.nodes.get(&e.src).map(|n| &n.anchor) == Some(&e.label.src)
                 && g.nodes.get(&e.tgt).map(|n| &n.anchor) == Some(&e.label.tgt);
-            if e.position.is_some()
+            if is_fan_kind(&e.label.kind)
+                || e.position.is_some()
                 || !schema.edges.contains(&e.label)
                 || !endpoints_match
                 || !t.pairs.insert((e.label.clone(), e.src, e.tgt))

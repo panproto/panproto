@@ -27,8 +27,14 @@ conventions for each function.
   JSON or raw text.
 - Every function returns `int32_t` (a `PpStatus`): `0` Ok, `1` Err,
   `2` Panic, `3` InvalidHandle, `4` TypeMismatch, `5` Serialization,
-  `6` Internal, `7` Operation. On a non-zero status the host calls
-  `pp_last_error_take` to retrieve a CBOR `ErrorEnvelope`.
+  `6` Internal, `7` Operation, `8` NotSingleStage. On a non-zero status
+  the host calls `pp_last_error_take` to retrieve a CBOR `ErrorEnvelope`.
+- `8` NotSingleStage (envelope tag `not_single_stage`) is returned by
+  `pp_lens_compose` and by `pp_protolens_instantiate` on a compiled
+  document when the resulting lens path normalizes to more than one group.
+  These entry points return one concrete lens, and the groups of such a
+  path cannot be collapsed into one without changing what get and put
+  observe. The message names the operation and the group count.
 
 ## Resource handle taxonomy
 

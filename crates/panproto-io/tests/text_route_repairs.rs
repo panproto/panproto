@@ -61,7 +61,8 @@ const fn extreme_decimal_zeros() -> [(&'static str, &'static str, bool); 3] {
     [
         ("0.0e-3000000000", "-3000000001", false),
         ("0e3000000000", "3000000000", false),
-        ("-0e3000000000", "3000000000", false),
+        // Under a declared `Decimal` a negative zero keeps its sign.
+        ("-0e3000000000", "3000000000", true),
     ]
 }
 
@@ -300,12 +301,25 @@ fn bigint_text_routes_observe_the_output_allowance() {
             .contains(TWENTY)
     );
 
-    let huge_xml = parse_xml_bytes(
-        &xml_schema,
-        b"<doc><integer>1e100000000</integer></doc>",
-        "cassandra",
-    )
-    .expect("parse compact XML bigint");
+    // XML Schema integer lexemes have no exponent, so the compact form is
+    // not an XML numeral; the huge value read from JSON is placed instead.
+    assert!(matches!(
+        parse_xml_bytes(
+            &xml_schema,
+            b"<doc><integer>1e100000000</integer></doc>",
+            "cassandra",
+        ),
+        Err(panproto_io::error::ParseInstanceError::Fidelity(ref errors))
+            if matches!(errors.as_slice(), [error]
+                if error.reason == panproto_inst::FidelityReason::NotANumber)
+    ));
+    let mut huge_xml = xml.clone();
+    huge_xml
+        .nodes
+        .values_mut()
+        .find(|node| node.anchor.as_ref() == "integer")
+        .expect("XML integer node")
+        .value = Some(FieldPresence::Present(tree_value(&json, "integer").clone()));
     let error = emit_xml_bytes(&xml_schema, &huge_xml, "cassandra")
         .expect_err("expanded XML bigint exceeds the allowance");
     assert!(matches!(
@@ -344,11 +358,19 @@ fn canonical_routes_keep_extreme_decimal_zero_scale_and_sign() {
             .unwrap_or_else(|error| panic!("canonical JSON {text}: {error}"));
         assert_extreme_decimal_zero(tree_value(&json, "decimal"), exponent, negative, "JSON");
 
+        // XML Schema decimal lexemes have no exponent, so these numerals are
+        // typed refusals on the canonical XML route.
         let xml_schema = one_decimal_column("doc");
         let xml_input = format!("<doc><decimal>{text}</decimal></doc>");
-        let xml = parse_xml_bytes(&xml_schema, xml_input.as_bytes(), "cassandra")
-            .unwrap_or_else(|error| panic!("canonical XML {text}: {error}"));
-        assert_extreme_decimal_zero(tree_value(&xml, "decimal"), exponent, negative, "XML");
+        assert!(
+            matches!(
+                parse_xml_bytes(&xml_schema, xml_input.as_bytes(), "cassandra"),
+                Err(panproto_io::error::ParseInstanceError::Fidelity(ref errors))
+                    if matches!(errors.as_slice(), [error]
+                        if error.reason == panproto_inst::FidelityReason::NotANumber)
+            ),
+            "canonical XML {text}"
+        );
 
         let tabular_schema = one_decimal_column("rows");
         for (delimiter, route) in [(b',', "CSV"), (b'\t', "TSV")] {

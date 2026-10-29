@@ -39,6 +39,146 @@ public struct NodePair: Codable, Hashable, Sendable, Comparable {
     }
 }
 
+// MARK: - Complement identity and synthesized keys
+
+/// The stable key of a node synthesized by `get`.
+public struct SynthKey: Codable, Hashable, Sendable {
+    /// The exact externally tagged synthesized-key representation.
+    public var representation: CBORValue
+
+    /// Admit one known synthesized-key variant.
+    public init(representation: CBORValue) throws {
+        guard case .map(let entries) = representation.untagged, entries.count == 1,
+            case .textString(let tag) = entries[0].key,
+            ["contract", "expand", "contract_expand", "resolution_reference", "resolution_span"]
+                .contains(tag)
+        else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "unknown synthesized-key variant"))
+        }
+        self.representation = representation
+    }
+
+    /// Read and validate a synthesized key.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained synthesized-key representation.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+}
+
+/// The kind of complement named by an identity envelope.
+public enum ComplementShape: String, Codable, Hashable, Sendable, CaseIterable {
+    case wtype
+    case graph
+    case functor
+    case resolution
+}
+
+/// A complement shape paired with its wire-layout version.
+public struct ComplementFormat: Codable, Hashable, Sendable {
+    /// The instance or resolution shape.
+    public var shape: ComplementShape
+    /// The shape-specific complement layout version.
+    public var version: UInt16
+
+    /// Pair a shape with its layout version.
+    public init(shape: ComplementShape, version: UInt16) {
+        self.shape = shape
+        self.version = version
+    }
+}
+
+/// The lens identity carried by a current complement.
+public struct IdentityEnvelope: Codable, Hashable, Sendable {
+    /// The envelope layout version this Swift package reads.
+    public static let supportedVersion: UInt16 = 2
+
+    /// The envelope layout version.
+    public var version: UInt16
+    /// The 32-byte source-schema digest.
+    public var sourceSchema: Data
+    /// The 32-byte target-schema digest.
+    public var targetSchema: Data
+    /// The 32-byte compiled-lens digest.
+    public var lens: Data
+    /// The complement shape and its layout version.
+    public var complementFormat: ComplementFormat
+
+    /// Assemble a checked identity envelope.
+    public init(
+        version: UInt16 = supportedVersion,
+        sourceSchema: Data,
+        targetSchema: Data,
+        lens: Data,
+        complementFormat: ComplementFormat
+    ) {
+        self.version = version
+        self.sourceSchema = sourceSchema
+        self.targetSchema = targetSchema
+        self.lens = lens
+        self.complementFormat = complementFormat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case sourceSchema = "source_schema"
+        case targetSchema = "target_schema"
+        case lens
+        case complementFormat = "complement_format"
+    }
+
+    /// Read an envelope, refusing unsupported versions and invalid digests.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try container.decode(UInt16.self, forKey: .version)
+        guard version == Self.supportedVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .version,
+                in: container,
+                debugDescription: "unsupported identity envelope version \(version)"
+            )
+        }
+        let source = try container.decode(Data.self, forKey: .sourceSchema)
+        let target = try container.decode(Data.self, forKey: .targetSchema)
+        let lens = try container.decode(Data.self, forKey: .lens)
+        guard source.count == 32, target.count == 32, lens.count == 32 else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: container.codingPath, debugDescription: "a digest is 32 bytes"))
+        }
+        self.init(
+            version: version,
+            sourceSchema: source,
+            targetSchema: target,
+            lens: lens,
+            complementFormat: try container.decode(
+                ComplementFormat.self, forKey: .complementFormat)
+        )
+    }
+
+    /// Write an envelope after checking its version and digest widths.
+    public func encode(to encoder: any Encoder) throws {
+        guard version == Self.supportedVersion,
+            sourceSchema.count == 32, targetSchema.count == 32, lens.count == 32
+        else {
+            throw EncodingError.invalidValue(
+                self,
+                .init(codingPath: encoder.codingPath, debugDescription: "invalid identity envelope")
+            )
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(sourceSchema, forKey: .sourceSchema)
+        try container.encode(targetSchema, forKey: .targetSchema)
+        try container.encode(lens, forKey: .lens)
+        try container.encode(complementFormat, forKey: .complementFormat)
+    }
+}
+
 // MARK: - Complements
 
 /// What a forward projection discarded, and what the backward direction
@@ -53,9 +193,9 @@ public struct NodePair: Codable, Hashable, Sendable, Comparable {
 ///
 /// Not every producer fills every field. The lens path fills the
 /// structural-reconstruction fields; the restrict pipeline additionally
-/// fills ``contractedInto``. The six fields from ``originalExtraFields``
-/// onward are left out of the payload when they are empty, and the five
-/// before ``sourceFingerprint`` are always written, empty or not.
+/// fills ``contractedInto``. Every field through ``synthesizedKeys`` is
+/// written, empty or not, because MessagePack also carries this struct
+/// positionally. Only the final optional ``identity`` field may be omitted.
 ///
 /// ``contractionChoices`` and ``arcEdges`` are keyed by a pair, and the
 /// C ABI rewrites both into arrays of `[[parent, child], edge]` before
@@ -104,6 +244,14 @@ public struct Complement: Codable, Hashable, Sendable {
     public var synthesizedNodes: Set<UInt32>
     /// For each dropped node, the surviving ancestor it collapsed into.
     public var contractedInto: [UInt32: UInt32]
+    /// Original anchors whose inverse image is not unique.
+    public var originalAnchors: [UInt32: Name]
+    /// The first node id fresh view allocation may use.
+    public var idFloor: UInt32
+    /// Stable keys for nodes synthesized by `get`.
+    public var synthesizedKeys: [UInt32: SynthKey]
+    /// The schema and lens identity that produced this complement.
+    public var identity: IdentityEnvelope?
 
     /// Assemble a complement, defaulting every field to empty.
     ///
@@ -121,7 +269,11 @@ public struct Complement: Codable, Hashable, Sendable {
         arcOrder: [NodePair] = [],
         originalValues: [UInt32: FieldPresence?] = [:],
         synthesizedNodes: Set<UInt32> = [],
-        contractedInto: [UInt32: UInt32] = [:]
+        contractedInto: [UInt32: UInt32] = [:],
+        originalAnchors: [UInt32: Name] = [:],
+        idFloor: UInt32 = 0,
+        synthesizedKeys: [UInt32: SynthKey] = [:],
+        identity: IdentityEnvelope? = nil
     ) {
         self.droppedNodes = droppedNodes
         self.droppedArcs = droppedArcs
@@ -135,11 +287,15 @@ public struct Complement: Codable, Hashable, Sendable {
         self.originalValues = originalValues
         self.synthesizedNodes = synthesizedNodes
         self.contractedInto = contractedInto
+        self.originalAnchors = originalAnchors
+        self.idFloor = idFloor
+        self.synthesizedKeys = synthesizedKeys
+        self.identity = identity
     }
 }
 
 extension Complement {
-    /// The wire spellings of the twelve fields, in Rust declaration
+    /// The wire spellings of the sixteen fields, in Rust declaration
     /// order.
     private enum CodingKeys: String, CodingKey {
         case droppedNodes = "dropped_nodes"
@@ -154,13 +310,16 @@ extension Complement {
         case originalValues = "original_values"
         case synthesizedNodes = "synthesized_nodes"
         case contractedInto = "contracted_into"
+        case originalAnchors = "original_anchors"
+        case idFloor = "id_floor"
+        case synthesizedKeys = "synthesized_keys"
+        case identity
     }
 
     /// Read a complement.
     ///
-    /// The first five fields are required, matching the engine. The
-    /// rest fall back to their defaults, so a payload that omitted them
-    /// because they were empty reads back the same value.
+    /// The first five fields are required, matching the engine. The rest
+    /// fall back to their append-only defaults so historical payloads read.
     ///
     /// - Throws: `DecodingError` when one of the five required fields
     ///   is missing, or when a pair-keyed field is neither of the two
@@ -198,16 +357,25 @@ extension Complement {
             contractedInto: try container.decodeIfPresent(
                 UInt32KeyedMap<UInt32>.self,
                 forKey: .contractedInto
-            )?.entries ?? [:]
+            )?.entries ?? [:],
+            originalAnchors: try container.decodeIfPresent(
+                UInt32KeyedMap<Name>.self,
+                forKey: .originalAnchors
+            )?.entries ?? [:],
+            idFloor: try container.decodeIfPresent(UInt32.self, forKey: .idFloor) ?? 0,
+            synthesizedKeys: try container.decodeIfPresent(
+                UInt32KeyedMap<SynthKey>.self,
+                forKey: .synthesizedKeys
+            )?.entries ?? [:],
+            identity: try container.decodeIfPresent(IdentityEnvelope.self, forKey: .identity)
         )
     }
 
     /// Write a complement.
     ///
-    /// The first six fields are always written, empty or not, because
-    /// the engine requires the first five and writes the sixth
-    /// unconditionally. The last six are left out when empty, which is
-    /// what their `skip_serializing_if` does on the Rust side.
+    /// Every nonoptional field is written, empty or not. This also preserves
+    /// the positional MessagePack layout used by the engine. The final
+    /// identity field alone is omitted when absent.
     ///
     /// The two pair-keyed maps take the array-of-pairs shape the C ABI
     /// hands to hosts and prefers on the way back in, sorted by key so
@@ -220,24 +388,16 @@ extension Complement {
         try container.encode(WireMap.pairs(of: contractionChoices), forKey: .contractionChoices)
         try container.encode(UInt32KeyedMap(originalParent), forKey: .originalParent)
         try container.encode(sourceFingerprint, forKey: .sourceFingerprint)
-        if !originalExtraFields.isEmpty {
-            try container.encode(UInt32KeyedMap(originalExtraFields), forKey: .originalExtraFields)
-        }
-        if !arcEdges.isEmpty {
-            try container.encode(WireMap.pairs(of: arcEdges), forKey: .arcEdges)
-        }
-        if !arcOrder.isEmpty {
-            try container.encode(arcOrder, forKey: .arcOrder)
-        }
-        if !originalValues.isEmpty {
-            try container.encode(UInt32KeyedMap(originalValues), forKey: .originalValues)
-        }
-        if !synthesizedNodes.isEmpty {
-            try container.encode(synthesizedNodes, forKey: .synthesizedNodes)
-        }
-        if !contractedInto.isEmpty {
-            try container.encode(UInt32KeyedMap(contractedInto), forKey: .contractedInto)
-        }
+        try container.encode(UInt32KeyedMap(originalExtraFields), forKey: .originalExtraFields)
+        try container.encode(WireMap.pairs(of: arcEdges), forKey: .arcEdges)
+        try container.encode(arcOrder, forKey: .arcOrder)
+        try container.encode(UInt32KeyedMap(originalValues), forKey: .originalValues)
+        try container.encode(synthesizedNodes, forKey: .synthesizedNodes)
+        try container.encode(UInt32KeyedMap(contractedInto), forKey: .contractedInto)
+        try container.encode(UInt32KeyedMap(originalAnchors), forKey: .originalAnchors)
+        try container.encode(idFloor, forKey: .idFloor)
+        try container.encode(UInt32KeyedMap(synthesizedKeys), forKey: .synthesizedKeys)
+        if let identity { try container.encode(identity, forKey: .identity) }
     }
 
     /// The pair-keyed edge map filed under `key`, in whichever of the
@@ -287,6 +447,7 @@ extension Complement {
             && contractionChoices.isEmpty && originalParent.isEmpty
             && originalExtraFields.isEmpty && arcEdges.isEmpty && arcOrder.isEmpty
             && originalValues.isEmpty && synthesizedNodes.isEmpty && contractedInto.isEmpty
+            && originalAnchors.isEmpty
     }
 
     /// How many nodes the projection discarded.

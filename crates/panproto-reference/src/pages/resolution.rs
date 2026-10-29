@@ -34,8 +34,8 @@ pub mod implementation {
     use crate::lens::ViewRef;
     use crate::model::{GEdge, Graph, Name, Node, NodeShape, SEdge, Tree};
     use crate::schema::{
-        Cardinality, KeyScope, OffsetUnit, OnUnresolved, PathSyntax, RefSource, RefTextSource,
-        Reference, ResolveMode, Schema, SpanEnd, UriBase, UriJoin, VariableBinding,
+        Cardinality, KeyRole, KeyScope, OffsetUnit, OnUnresolved, PathSyntax, RefSource,
+        RefTextSource, Reference, ResolveMode, Schema, SpanEnd, UriBase, UriJoin, VariableBinding,
     };
     use crate::value::{Presence, Value};
 
@@ -244,6 +244,14 @@ pub mod implementation {
         },
         /// The tree has no graph form or the result is no tree.
         NotATree,
+        /// A reference resolves through a key, or a target-set member key,
+        /// that promises no unique resolution (a sort key or an index).
+        KeyNotResolvable {
+            /// Reference id.
+            reference: Name,
+            /// The key's id.
+            key: Name,
+        },
     }
 
     /// The target key of a reference.
@@ -362,6 +370,9 @@ pub mod implementation {
                             found,
                         }
                     }
+                    keys::KeyingError::NoCanonicalBytes => ResolveError::UnsupportedSource {
+                        reference: reference.id.clone(),
+                    },
                 })?;
             if equal {
                 result.push(*id);
@@ -438,6 +449,9 @@ pub mod implementation {
                         found,
                     }
                 }
+                keys::KeyingError::NoCanonicalBytes => ResolveError::UnsupportedSource {
+                    reference: reference.id.clone(),
+                },
             })? {
                 result.push(*id);
             }
@@ -991,41 +1005,21 @@ pub mod implementation {
                 UriBase::Positional { base, prefix } => {
                     let order = document_order(graph);
                     let before = order.iter().position(|node| *node == holder)?;
-                    let mut current: Option<String> = None;
-                    let mut prefixes = BTreeMap::new();
+                    let mut directives = Vec::new();
                     for node in &order[..before] {
                         let anchor = &graph.nodes.get(node)?.anchor;
                         if base.as_ref() == Some(anchor)
                             && let Some(value) = own_string(graph, *node)
                         {
-                            current = Some(match current {
-                                Some(previous) => rfc3986(&previous, &value)?,
-                                None => value,
-                            });
+                            directives.push(UriDirective::Base(value));
                         }
                         if prefix.as_ref() == Some(anchor)
-                            && let Some((label, value)) = prefix_directive(graph, *node)
+                            && let Some((label, iri)) = prefix_directive(graph, *node)
                         {
-                            let iri = if uri(&value).scheme.is_some() {
-                                value
-                            } else {
-                                rfc3986(current.as_deref()?, &value)?
-                            };
-                            prefixes.insert(label, iri);
+                            directives.push(UriDirective::Prefix { label, iri });
                         }
                     }
-                    if written == "a" {
-                        return Some("http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_owned());
-                    }
-                    if let Some((label, local)) = written.split_once(':')
-                        && let Some(namespace) = prefixes.get(label)
-                    {
-                        return Some(format!("{namespace}{local}"));
-                    }
-                    if uri(written).scheme.is_some() {
-                        return Some(written.to_owned());
-                    }
-                    rfc3986(&current?, written)
+                    uri_environment(&directives).resolve(written)
                 }
                 UriBase::Ancestor {
                     ancestor,
@@ -1043,20 +1037,11 @@ pub mod implementation {
                     let mut chain = Vec::new();
                     let mut node = Some(holder);
                     while let Some(current) = node {
-                        chain.push(current);
+                        chain.push(field_string(graph, current, field));
                         node = parent_of(graph, current);
                     }
                     chain.reverse();
-                    let mut base: Option<String> = None;
-                    for node in chain {
-                        if let Some(value) = field_string(graph, node, field) {
-                            base = Some(match base {
-                                Some(previous) => rfc3986(&previous, &value)?,
-                                None => value,
-                            });
-                        }
-                    }
-                    rfc3986(&base?, written)
+                    inherited_base(&chain, written)
                 }
             },
         }
@@ -1258,7 +1243,8 @@ pub mod implementation {
     fn unit_boundary(text: &str, offset: u64, unit: OffsetUnit) -> Option<u64> {
         let requested = usize::try_from(offset).ok()?;
         let byte = match unit {
-            OffsetUnit::Byte => text.is_char_boundary(requested).then_some(requested)?,
+            // O9 (20) (a): a byte offset names any byte of the exact text.
+            OffsetUnit::Byte => (requested <= text.len()).then_some(requested)?,
             OffsetUnit::Utf8Char => text
                 .char_indices()
                 .map(|(at, _)| at)
@@ -1286,6 +1272,12 @@ pub mod implementation {
 
     fn boundary_unit(text: &str, byte: u64, unit: OffsetUnit) -> Option<u64> {
         let byte = usize::try_from(byte).ok()?;
+        if unit == OffsetUnit::Byte {
+            if byte > text.len() {
+                return None;
+            }
+            return u64::try_from(byte).ok();
+        }
         if !text.is_char_boundary(byte) {
             return None;
         }
@@ -1592,6 +1584,9 @@ pub mod implementation {
                 expected,
                 found,
             },
+            keys::KeyingError::NoCanonicalBytes => ResolveError::UnsupportedSource {
+                reference: reference.id.clone(),
+            },
         }
     }
 
@@ -1773,22 +1768,44 @@ pub mod implementation {
         Ok(())
     }
 
+    /// Refuse, in reference-id order, the first reference whose resolving key
+    /// or target-set member key is a sort key or an index: such a key
+    /// promises no uniqueness, so it derives no resolved pair, whatever the
+    /// reference's unresolved policy.
+    fn check_resolvable_keys(schema: &Schema) -> Result<(), ResolveError> {
+        for reference in schema.references.values() {
+            if let Some((_, key)) = target_keys(schema, reference)
+                .into_iter()
+                .find(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
+            {
+                return Err(ResolveError::KeyNotResolvable {
+                    reference: reference.id.clone(),
+                    key: key.id.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Definition: Resolution get.
     ///
     /// # Errors
     ///
-    /// [`ResolveError::NotATree`] when the tree has no graph form; the first
+    /// [`ResolveError::KeyNotResolvable`] for a reference through a sort key
+    /// or an index, before the tree is read; [`ResolveError::NotATree`] when
+    /// the tree has no graph form; the first
     /// [`ResolveError::ReferenceCardinalityMismatch`] or strict unresolved
     /// occurrence in (holder, reference, index) order; a checked allocation
     /// refusal while materializing spans or edges; and
     /// [`ResolveError::TargetRemoved`] for a target inside a redirected subtree.
     ///
-    /// Book anchors: `L-resolution-1`, `L-resolution-2`.
+    /// Book anchors: `L-resolution-1`, `L-resolution-2`, `L-resolution-12`.
     pub fn get(
         schema: &Schema,
         t: &Tree,
         lenient: bool,
     ) -> Result<(Graph, ResComplement), ResolveError> {
+        check_resolvable_keys(schema)?;
         let (mut g, _) = tree_to_graph(t, Some(schema)).map_err(|_| ResolveError::NotATree)?;
         let base = g.clone();
         let mut c = ResComplement {
@@ -2208,10 +2225,11 @@ pub mod implementation {
         Field(u32, String),
     }
 
-    /// The site a key path reads or writes at `n`: the first node of the last
-    /// hop's frontier that has a target along the last edge (its first
-    /// target's own value), else the first frontier node (its field named by
-    /// the last edge).
+    /// The site a key path reads or writes at `n`. The candidate sites, in
+    /// frontier order, are each target's own value along the last edge, or
+    /// the node's field named by that edge when it has no such target. The
+    /// site is the first candidate holding a non-null value, which is where
+    /// `keys::path_value` reads, else the first candidate.
     fn path_site(g: &Graph, n: u32, path: &[SEdge]) -> Option<Site> {
         let (last, hops) = path.split_last()?;
         let mut frontier = vec![n];
@@ -2226,24 +2244,47 @@ pub mod implementation {
                 })
                 .collect();
         }
-        frontier.into_iter().find_map(|x| {
-            let targets: Vec<u32> = g
-                .edges
-                .values()
-                .filter(|e| e.src == x && e.label == *last)
-                .map(|e| e.tgt)
-                .collect();
-            if targets.is_empty() {
-                g.nodes
-                    .contains_key(&x)
-                    .then(|| Site::Field(x, last.column().to_owned()))
-            } else {
-                targets
-                    .into_iter()
-                    .find(|target| g.nodes.contains_key(target))
-                    .map(Site::Own)
-            }
-        })
+        let sites: Vec<(Site, bool)> = frontier
+            .into_iter()
+            .filter_map(|x| {
+                let targets: Vec<u32> = g
+                    .edges
+                    .values()
+                    .filter(|e| e.src == x && e.label == *last)
+                    .map(|e| e.tgt)
+                    .collect();
+                if targets.is_empty() {
+                    let node = g.nodes.get(&x)?;
+                    let present = node
+                        .fields
+                        .get(last.column())
+                        .is_some_and(|value| *value != Value::Null);
+                    Some(vec![(Site::Field(x, last.column().to_owned()), present)])
+                } else {
+                    Some(
+                        targets
+                            .into_iter()
+                            .filter_map(|target| {
+                                let node = g.nodes.get(&target)?;
+                                let present = matches!(
+                                    node.value.as_ref(),
+                                    Some(Presence::Present(value)) if *value != Value::Null
+                                );
+                                Some((Site::Own(target), present))
+                            })
+                            .collect(),
+                    )
+                }
+            })
+            .flatten()
+            .collect();
+        // The site get reads, the first holding a non-null value, is the one
+        // put writes; with none, the first site the path reaches.
+        sites
+            .iter()
+            .find(|(_, present)| *present)
+            .or_else(|| sites.first())
+            .map(|(site, _)| site.clone())
     }
 
     /// Write `value` at a site (`None` removes it).
@@ -2889,6 +2930,68 @@ pub mod implementation {
         }
     }
 
+    /// A declaration form outside the domain of the phase-three resolution
+    /// laws.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum DeferredForm {
+        /// An identified inline occurrence.
+        InlineReference,
+        /// A target that is a declared target set.
+        TargetSet,
+        /// A null vertex for a reference sequence.
+        NullVertex,
+        /// A scope reached through references.
+        ScopeVia,
+        /// Standoff spans read from ordered fragments.
+        StandoffFragments,
+        /// Standoff text relative to another standoff span.
+        SpanText,
+        /// Standoff text reached through another reference.
+        ReferencedText,
+        /// External standoff text named by a URI under a base.
+        ExternalUriText,
+    }
+
+    /// Definition: The first form of `reference` outside the domain of the
+    /// phase-three laws, in a fixed order: an inline source, a target-set
+    /// target, a null vertex, a scope reached through references, standoff
+    /// fragments, then a span-relative, referenced, or URI-named standoff
+    /// text. `None` when the declaration uses none of them. Reference `get`
+    /// and `put` still interpret these forms; the laws quantify only over
+    /// declarations for which this function returns `None`.
+    ///
+    /// Book anchors: `L-resolution-1`, `L-resolution-2`, `L-resolution-3`, `L-resolution-4`, `L-resolution-5`.
+    #[must_use]
+    pub fn deferred_form(schema: &Schema, reference: &Reference) -> Option<DeferredForm> {
+        if matches!(reference.source, RefSource::Inline { .. }) {
+            return Some(DeferredForm::InlineReference);
+        }
+        if schema.target_sets.contains_key(&reference.target_vertex) {
+            return Some(DeferredForm::TargetSet);
+        }
+        if reference.null_vertex.is_some() {
+            return Some(DeferredForm::NullVertex);
+        }
+        if reference.scope_via.is_some() {
+            return Some(DeferredForm::ScopeVia);
+        }
+        let RefSource::Standoff {
+            text, fragments, ..
+        } = &reference.source
+        else {
+            return None;
+        };
+        if fragments.is_some() {
+            return Some(DeferredForm::StandoffFragments);
+        }
+        match text {
+            RefTextSource::Span { .. } => Some(DeferredForm::SpanText),
+            RefTextSource::Referenced { .. } => Some(DeferredForm::ReferencedText),
+            RefTextSource::ExternalUri { .. } => Some(DeferredForm::ExternalUriText),
+            RefTextSource::Local(_) | RefTextSource::External(_) => None,
+        }
+    }
+
     /// Definition: Partition a guard value by representation equality.
     ///
     /// Book anchors: `L-resolution-9`.
@@ -2992,13 +3095,44 @@ pub mod implementation {
         Some((written_start, written_end))
     }
 
-    /// Definition: An index field selects a position and never derives a
-    /// resolved pair, even when its written index equals a target row's index.
+    /// Definition: Decode one written standoff form over `text` in `unit` to
+    /// a half-open byte span: [`standoff_form`] gives the declared offsets,
+    /// and each converts to the byte offset it names (O9 (20) (a)). `None`
+    /// when the form is refused or an offset lies past the text or inside a
+    /// unit.
     ///
-    /// Book anchors: `L-resolution-12`.
+    /// Book anchors: `L-resolution-10`.
     #[must_use]
-    pub const fn index_target(_index: Option<u64>, _target_index: Option<u64>) -> bool {
-        false
+    pub fn standoff_byte_span(
+        text: &str,
+        written: (u64, u64),
+        origin: u64,
+        end_is_length: bool,
+        unit: OffsetUnit,
+    ) -> Option<(u64, u64)> {
+        let (start, end) = standoff_form(written.0, written.1, origin, end_is_length)?;
+        Some((
+            unit_boundary(text, start, unit)?,
+            unit_boundary(text, end, unit)?,
+        ))
+    }
+
+    /// Definition: Encode a half-open byte span over `text` in the written
+    /// form of `unit`, `origin` and end form: each byte offset converts to
+    /// the unit offset naming it, then [`standoff_inverse`] writes the form.
+    ///
+    /// Book anchors: `L-resolution-11`.
+    #[must_use]
+    pub fn standoff_byte_inverse(
+        text: &str,
+        span: (u64, u64),
+        origin: u64,
+        end_is_length: bool,
+        unit: OffsetUnit,
+    ) -> Option<(u64, u64)> {
+        let start = boundary_unit(text, span.0, unit)?;
+        let end = boundary_unit(text, span.1, unit)?;
+        standoff_inverse(start, end, origin, end_is_length)
     }
 
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -3151,31 +3285,108 @@ pub mod implementation {
         Some(result)
     }
 
-    /// Definition: Fold positional base directives that precede an occurrence.
+    /// Resolve `reference` against an optional base by RFC 3986 section 5.2.
+    ///
+    /// A reference with a scheme needs no base (section 5.2.2 then reads only
+    /// the reference, removing its dot segments); a relative reference with
+    /// no base is unresolved, never resolved against a guessed base.
+    fn resolve_against(base: Option<&str>, reference: &str) -> Option<String> {
+        if uri(reference).scheme.is_some() {
+            rfc3986(reference, reference)
+        } else {
+            rfc3986(base?, reference)
+        }
+    }
+
+    /// One positional directive of a `Positional` URI environment.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum UriDirective {
+        /// A base directive, Turtle's `@base`.
+        Base(String),
+        /// A prefix binding, Turtle's `@prefix label: <iri>`.
+        Prefix {
+            /// The bound label.
+            label: String,
+            /// The written IRI, resolved against the base then in scope.
+            iri: String,
+        },
+    }
+
+    /// The URI environment in scope at one occurrence.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct UriEnvironment {
+        /// The base in scope, if any.
+        pub base: Option<String>,
+        /// Each bound label's IRI.
+        pub prefixes: BTreeMap<String, String>,
+    }
+
+    impl UriEnvironment {
+        /// Resolve one written form in this environment: `a` is `rdf:type`, a
+        /// prefixed name under a bound label expands, and anything else is an
+        /// IRI reference resolved against the base by RFC 3986 section 5.2.
+        #[must_use]
+        pub fn resolve(&self, written: &str) -> Option<String> {
+            if written == "a" {
+                return Some("http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_owned());
+            }
+            if let Some((label, local)) = written.split_once(':')
+                && let Some(namespace) = self.prefixes.get(label)
+            {
+                return Some(format!("{namespace}{local}"));
+            }
+            resolve_against(self.base.as_deref(), written)
+        }
+    }
+
+    /// Definition: Fold the positional directives that precede an occurrence,
+    /// in document order, starting from no base and no bindings. A base
+    /// directive sets the base to its IRI resolved against the previous base
+    /// (no base when that is undefined); a prefix directive binds its label to
+    /// its IRI resolved against the base then in scope, re-mapping an earlier
+    /// binding, and leaves the label unbound when that IRI is undefined.
     ///
     /// Book anchors: `L-resolution-6`.
     #[must_use]
-    pub fn uri_environment(directives: &[String]) -> Option<String> {
-        directives.iter().try_fold(None, |base, directive| {
-            if uri(directive).scheme.is_some() {
-                Some(Some(directive.clone()))
-            } else {
-                Some(Some(rfc3986(base.as_deref()?, directive)?))
+    pub fn uri_environment(directives: &[UriDirective]) -> UriEnvironment {
+        let mut environment = UriEnvironment::default();
+        for directive in directives {
+            match directive {
+                UriDirective::Base(iri) => {
+                    environment.base = resolve_against(environment.base.as_deref(), iri);
+                }
+                UriDirective::Prefix { label, iri } => {
+                    match resolve_against(environment.base.as_deref(), iri) {
+                        Some(resolved) => {
+                            environment.prefixes.insert(label.clone(), resolved);
+                        }
+                        None => {
+                            environment.prefixes.remove(label);
+                        }
+                    }
+                }
             }
-        })?
+        }
+        environment
     }
 
-    /// Definition: Resolve against the nearest inherited base, if there is one.
+    /// Definition: Resolve against the base inherited along an
+    /// ancestor-or-self chain (XML Base section 4.2 with RFC 3986 section
+    /// 5.2). `ancestor_bases` lists the chain root first, holder last; the
+    /// base is the left fold of its present values, each resolved against
+    /// the base so far, starting from no base, a relative value met with no
+    /// base giving no base. The reference is then resolved against that base.
     ///
     /// Book anchors: `L-resolution-13`.
     #[must_use]
     pub fn inherited_base(ancestor_bases: &[Option<String>], reference: &str) -> Option<String> {
-        ancestor_bases
+        let base = ancestor_bases
             .iter()
-            .rev()
             .flatten()
-            .next()
-            .and_then(|base| rfc3986(base, reference))
+            .fold(None, |base: Option<String>, value| {
+                resolve_against(base.as_deref(), value)
+            });
+        resolve_against(base.as_deref(), reference)
     }
 
     /// Definition: Cartesian product of preserving choices, in registry-key order.
@@ -3249,6 +3460,8 @@ pub mod implementation {
     /// Source members are traversed in name order and allocated consecutive
     /// ids from zero. The returned index is intentionally a separate value,
     /// even though it initially equals the view.
+    ///
+    /// Book anchors: `L-resolution-2`, `L-resolution-5`.
     #[must_use]
     pub fn indexed_get(source: &IndexedSource) -> (IndexedView, SynthIndex) {
         let edges: BTreeMap<u32, Name> = (0u32..).zip(source.iter().cloned()).collect();
@@ -3260,6 +3473,8 @@ pub mod implementation {
     /// Violations are complete and deterministic: edited synthesized ids in
     /// id order, followed by repeated targets in target order. This predicate
     /// does not call [`indexed_put`] or any production law helper.
+    ///
+    /// Book anchors: `L-resolution-3`, `L-resolution-4`.
     #[must_use]
     pub fn check_put_domain(view: &IndexedView, index: &SynthIndex) -> Vec<ResolveDomainViolation> {
         let mut violations: Vec<ResolveDomainViolation> = view
@@ -3292,6 +3507,8 @@ pub mod implementation {
     /// # Errors
     ///
     /// The complete ordered result of [`check_put_domain`].
+    ///
+    /// Book anchors: `L-resolution-2`, `L-resolution-3`, `L-resolution-4`, `L-resolution-5`.
     pub fn indexed_put(
         view: &IndexedView,
         index: &SynthIndex,
@@ -3309,6 +3526,8 @@ pub mod implementation {
     /// Every carrier must be named by its index, each index must be injective,
     /// and the two stable-key multisets must be equal. Thus an unindexed new
     /// carrier and a duplicate key cannot be hidden by presentation erasure.
+    ///
+    /// Book anchors: `L-resolution-2`.
     #[must_use]
     pub fn equivalent(
         left: &IndexedView,
@@ -3344,6 +3563,8 @@ pub mod implementation {
     /// Each stable key is renamed to the unique id under which `view` carries
     /// it. Keys absent from `view` retain their current presentation so the
     /// function is total; the put-domain predicate rejects a later collision.
+    ///
+    /// Book anchors: `L-resolution-2`, `L-resolution-5`.
     #[must_use]
     pub fn coherent_rekey(index: &SynthIndex, view: &IndexedView) -> SynthIndex {
         let by_key: BTreeMap<&str, u32> = view
@@ -3365,6 +3586,8 @@ pub mod implementation {
     }
 
     /// Rename a view and index coherently by an injective id map.
+    ///
+    /// Book anchors: `L-resolution-4`.
     #[must_use]
     pub fn coherent_rename(
         view: &IndexedView,
@@ -3417,6 +3640,8 @@ pub mod implementation {
     /// source, coherently transport the second index onto the candidate's
     /// presentation, and put the candidate again. The raw, untransported
     /// second put is deliberately not used.
+    ///
+    /// Book anchors: `L-resolution-5`.
     #[must_use]
     pub fn gated_put_twice(candidate: &IndexedView, index: &SynthIndex) -> bool {
         let Ok(once) = indexed_put(candidate, index) else {
@@ -3751,9 +3976,10 @@ pub mod implementation {
 }
 
 pub use self::implementation::{
-    IndexedSource, IndexedView, ResolveDomainViolation, SingleStep, SynthIndex, apply_single_step,
-    check_put_domain, coherent_rekey, coherent_rename, declared_key_equality, equivalent,
-    gated_put_twice, get, guarded_partition, index_target, indexed_get, indexed_put,
-    inherited_base, nearest_preceding, preserving_registry, put, rfc3986, standoff_form,
+    DeferredForm, IndexedSource, IndexedView, ResolveDomainViolation, SingleStep, SynthIndex,
+    UriDirective, UriEnvironment, apply_single_step, check_put_domain, coherent_rekey,
+    coherent_rename, declared_key_equality, deferred_form, equivalent, gated_put_twice, get,
+    guarded_partition, indexed_get, indexed_put, inherited_base, nearest_preceding,
+    preserving_registry, put, rfc3986, standoff_byte_inverse, standoff_byte_span, standoff_form,
     standoff_inverse, text_identity, uri_environment,
 };

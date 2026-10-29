@@ -25,7 +25,7 @@ use panproto_schema::{
 
 use super::compile::{CompiledRef, RefForm};
 use super::error::{KeyEqualityReason, ResolutionFeature, ResolveError};
-use super::source::{KeyIndex, ScopeOf, Source, key_bytes};
+use super::source::{KeyIndex, ScopeOf, Source};
 use super::standoff::{self, UnitFailure};
 use super::{ResolutionProvider, ResolveContext};
 use panproto_schema::Key;
@@ -438,29 +438,32 @@ impl Reader<'_, '_> {
                 Cardinality::Many => self.values(holder, path).into_iter().cloned().collect(),
             })
             .collect();
-        Ok(tuples(reference, holder, parts)?
+        tuples(reference, holder, parts)?
             .into_iter()
             .filter(|values| match reference.null_match {
                 NullMatch::Simple => values.iter().all(|value| *value != Value::Null),
                 NullMatch::Full => values.iter().any(|value| *value != Value::Null),
             })
             .map(|values| {
-                let lookup = binding.map_or_else(
-                    || Lookup::Key {
+                let lookup = match binding {
+                    None => Lookup::Key {
                         vertex: reference.target_vertex.clone(),
                         key: key.clone(),
                         scope: scope.clone(),
                         values: values.clone(),
                     },
-                    |binding| Lookup::Binding {
+                    // A binding partitions definitions and occurrences by the
+                    // binder key's declared equality, as the key lookup does.
+                    Some(binding) => Lookup::Binding {
                         scope: scope.clone(),
-                        bytes: key_bytes(&values),
+                        bytes: canonical_key_bytes(key, &values)
+                            .map_err(|error| key_equality_error(key, error))?,
                         binding,
                     },
-                );
-                (tuple_literal(&values), None, lookup)
+                };
+                Ok((tuple_literal(&values), None, lookup))
             })
-            .collect())
+            .collect()
     }
 
     /// The occurrences of a path reference, each resolved by the provider.
@@ -595,16 +598,22 @@ impl Reader<'_, '_> {
         let (path, local) = match source {
             RefTextSource::Local(path) => (path, true),
             RefTextSource::External(path) => (path, false),
-            RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {
+            RefTextSource::Referenced { .. } => {
                 return Err(ResolveError::UnsupportedFeature {
                     provider: Some(self.provider_id.clone()),
-                    feature: ResolutionFeature::ResolutionState,
+                    feature: ResolutionFeature::ReferencedText,
+                });
+            }
+            RefTextSource::Span { .. } => {
+                return Err(ResolveError::UnsupportedFeature {
+                    provider: Some(self.provider_id.clone()),
+                    feature: ResolutionFeature::SpanText,
                 });
             }
             RefTextSource::ExternalUri { .. } => {
                 return Err(ResolveError::UnsupportedFeature {
                     provider: Some(self.provider_id.clone()),
-                    feature: ResolutionFeature::ExternalText,
+                    feature: ResolutionFeature::ExternalUriText,
                 });
             }
         };
@@ -699,19 +708,25 @@ impl Text {
         };
         let start = offset(start, reference)?;
         let end = offset(end, reference)?;
+        let out_of_range = || ResolveError::OffsetOutOfRange {
+            reference: reference.id.clone(),
+            at: Box::new(holder.clone()),
+            start,
+            end,
+            len: self
+                .boundaries
+                .as_ref()
+                .map_or(0, |boundaries| standoff::unit_len(boundaries)),
+        };
         let (declared_start, declared_end) =
-            standoff::form_to_offsets(start, end, declared.origin, declared.end_form).map_err(
-                |_| ResolveError::OffsetOutOfRange {
-                    reference: reference.id.clone(),
-                    at: Box::new(holder.clone()),
-                    start,
-                    end,
-                    len: self
-                        .boundaries
-                        .as_ref()
-                        .map_or(0, |boundaries| standoff::unit_len(boundaries)),
-                },
-            )?;
+            standoff::form_to_declared(start, end, declared.origin, declared.end_form)
+                .map_err(|_| out_of_range())?;
+        // A reversed pair is out of range. An inclusive end one before its
+        // start is the empty inclusive span, which the unit conversion
+        // refuses with its own reason.
+        if declared_start > declared_end.saturating_add(u64::from(declared.end_inclusive)) {
+            return Err(out_of_range());
+        }
         let boundaries =
             self.boundaries
                 .as_ref()

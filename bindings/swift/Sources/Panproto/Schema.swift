@@ -62,8 +62,10 @@ extension SchemaHandle {
     ///
     /// - Returns: the schema behind this handle.
     /// - Throws: ``PanprotoError`` in the
-    ///   ``PanprotoError/schemaValidation(_:)`` domain when the handle
-    ///   is stale or names another slab variant.
+    ///   ``PanprotoError/schemaValidation(_:)`` domain when the index is
+    ///   unallocated or names another slab variant. Calling this method
+    ///   after `release()` is forbidden because a same-variant allocation
+    ///   may have reused the numeric index.
     @PanprotoEngine
     public func schema() throws(PanprotoError) -> Schema {
         let operation = "SchemaHandle.schema"
@@ -85,8 +87,10 @@ extension SchemaHandle {
     ///
     /// - Returns: the flattened view of this schema.
     /// - Throws: ``PanprotoError`` in the
-    ///   ``PanprotoError/schemaValidation(_:)`` domain when the handle
-    ///   is stale or names another slab variant.
+    ///   ``PanprotoError/schemaValidation(_:)`` domain when the index is
+    ///   unallocated or names another slab variant. Calling this method
+    ///   after `release()` is forbidden because a same-variant allocation
+    ///   may have reused the numeric index.
     @PanprotoEngine
     public func metadata() throws(PanprotoError) -> SchemaMetadata {
         let operation = "SchemaHandle.metadata"
@@ -115,8 +119,10 @@ extension SchemaHandle {
     /// - Parameter protocolHandle: the protocol to validate against.
     /// - Returns: one message per violation, empty when there are none.
     /// - Throws: ``PanprotoError`` in the
-    ///   ``PanprotoError/schemaValidation(_:)`` domain when either
-    ///   handle is stale or names another slab variant.
+    ///   ``PanprotoError/schemaValidation(_:)`` domain when either index
+    ///   is unallocated or names another slab variant. Calling this method
+    ///   with a released wrapper is forbidden because a same-variant
+    ///   allocation may have reused its numeric index.
     @PanprotoEngine
     public func violations(
         against protocolHandle: ProtocolHandle
@@ -146,8 +152,10 @@ extension SchemaHandle {
     ///
     /// - Returns: a handle on the normalized schema.
     /// - Throws: ``PanprotoError`` in the
-    ///   ``PanprotoError/schemaValidation(_:)`` domain when the handle
-    ///   is stale or names another slab variant.
+    ///   ``PanprotoError/schemaValidation(_:)`` domain when the index is
+    ///   unallocated or names another slab variant. Calling this method
+    ///   after `release()` is forbidden because a same-variant allocation
+    ///   may have reused the numeric index.
     @PanprotoEngine
     public func normalized() throws(PanprotoError) -> SchemaHandle {
         let normalized = Raw.schemaNormalize(schemaHandle: rawValue)

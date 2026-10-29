@@ -57,6 +57,8 @@ fn production_value(value: &ReferenceValue) -> Result<Value, io::Error> {
             } => DecimalValue::nan(*negative, *signalling, payload.to_string()),
         }),
         ReferenceValue::Str(value) => Value::Str(value.clone()),
+        ReferenceValue::Null => Value::Null,
+        ReferenceValue::Bool(value) => Value::Bool(*value),
         other => {
             return Err(invalid(format!(
                 "value outside the O17 equality carrier: {other:?}"
@@ -709,6 +711,10 @@ fn validation_reconstructs_within_buckets_and_outside_cases() -> Result<(), Box<
         "item",
         &key,
     );
+    let (buckets, outside) = reference_keys::buckets(&pair.reference, "item", &key)
+        .map_err(|error| invalid(format!("reference bucket refusal: {error:?}")))?;
+    assert_eq!(buckets.len(), 2);
+    assert_eq!(outside, vec![30, 31]);
     assert_validation_key_index(&pair, &schema, "item", &key)
 }
 
@@ -749,6 +755,10 @@ fn within_scope_does_not_traverse_fan_incidence() -> Result<(), Box<dyn Error>> 
         "item",
         &key,
     );
+    let (buckets, outside) = reference_keys::buckets(&pair.reference, "item", &key)
+        .map_err(|error| invalid(format!("reference bucket refusal: {error:?}")))?;
+    assert_eq!(buckets.len(), 1);
+    assert_eq!(outside, vec![12]);
     assert_validation_key_index(&pair, &schema, "item", &key)
 }
 
@@ -833,6 +843,27 @@ fn validation_preserves_both_reference_keying_refusals() -> Result<(), Box<dyn E
                     if detail == "key arity on item has 1 equality declarations for 2 parts"
             )
     }));
+
+    // Both refusals are raised by the first keyed element: with no element
+    // anchored at the key's vertex, or with a keyed value that is not text,
+    // the buckets are empty or ordinary.
+    assert_eq!(
+        reference_keys::buckets(&pair.reference, "absent", &arity),
+        Ok((reference_keys::Buckets::new(), Vec::new()))
+    );
+    assert_eq!(
+        reference_keys::buckets(&pair.reference, "absent", &named),
+        Ok((reference_keys::Buckets::new(), Vec::new()))
+    );
+    let mut numeric = GraphPair::default();
+    numeric.add_node(
+        0,
+        "item",
+        Some(ReferencePresence::Present(ReferenceValue::Int(1))),
+    )?;
+    let (buckets, outside) = reference_keys::buckets(&numeric.reference, "item", &named)
+        .map_err(|error| invalid(format!("reference bucket refusal: {error:?}")))?;
+    assert_eq!((buckets.len(), outside.len()), (1, 0));
     Ok(())
 }
 
@@ -926,26 +957,52 @@ fn named_collation_has_the_exact_typed_refusal_boundary() -> Result<(), Box<dyn 
         pad: reference_keys::SqlPad::NoPad,
     };
     let production_equality = production_equality(&reference_equality);
-    for reference_value in enumerate::equality_values() {
-        let production_value = production_value(&reference_value)?;
-        let reference_result = reference_keys::key_equivalence(
-            &reference_equality,
-            &reference_value,
-            &reference_value,
-        );
-        let production_result =
-            production::key_equivalence(&production_equality, &production_value, &production_value);
-        if matches!(reference_value, ReferenceValue::Str(_)) {
-            assert_eq!(reference_result, None);
-            assert!(matches!(
-                production_result,
-                Err(production::KeyingError::UnsupportedCollation(name)) if name == "locale"
-            ));
-        } else {
-            assert_eq!(reference_result, Some(true));
-            assert_eq!(production_result, Ok(true));
+    // The O17 carrier and the two non-numeric, non-text values a named
+    // collation meets beside text.
+    let mut values = enumerate::equality_values();
+    values.extend([ReferenceValue::Null, ReferenceValue::Bool(true)]);
+    let mut undecided = 0_usize;
+    for left in &values {
+        let production_left = production_value(left)?;
+        for right in &values {
+            let production_right = production_value(right)?;
+            let reference_result =
+                reference_keys::key_equivalence(&reference_equality, left, right);
+            let production_result = production::key_equivalence(
+                &production_equality,
+                &production_left,
+                &production_right,
+            );
+            // The key function is undefined on text under a named collation,
+            // so a pair holding text on either side, against null, a number
+            // or other text, is undecided.
+            if matches!(left, ReferenceValue::Str(_)) || matches!(right, ReferenceValue::Str(_)) {
+                assert_eq!(reference_result, None, "{left:?} {right:?}");
+                assert!(
+                    matches!(
+                        &production_result,
+                        Err(production::KeyingError::UnsupportedCollation(name)) if name == "locale"
+                    ),
+                    "{left:?} {right:?}: {production_result:?}"
+                );
+                undecided += 1;
+            } else {
+                assert_eq!(
+                    reference_result.map(Ok),
+                    Some(production_result.map_err(|error| error.to_string())),
+                    "{left:?} {right:?}"
+                );
+            }
         }
     }
+    let text = values
+        .iter()
+        .filter(|value| matches!(value, ReferenceValue::Str(_)))
+        .count();
+    assert_eq!(
+        undecided,
+        values.len() * values.len() - (values.len() - text).pow(2)
+    );
     Ok(())
 }
 
@@ -1047,23 +1104,377 @@ fn sort_preorder_and_adjacent_descent_match_the_reference() -> Result<(), Box<dy
 #[test]
 fn xml_kernel_executes_the_exact_o17_carrier() {
     let strings = enumerate::xml_strings();
-    assert_eq!(strings.len(), 341);
+    assert_eq!(strings.len(), 1 + 4 + 16 + 64 + 256);
+    assert_eq!(
+        strings
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        341
+    );
+    assert!(
+        strings
+            .iter()
+            .all(|text| text.chars().all(|symbol| "ab \t".contains(symbol)))
+    );
     let mut pairs = 0_usize;
+    let mut equivalent = 0_usize;
+    let mut classes = std::collections::BTreeSet::new();
     for left in &strings {
         let production_left = production::xml_noncdata(left);
         let reference_left = reference_keys::xml_noncdata(left);
         assert_eq!(production_left, reference_left);
         assert_eq!(production::xml_noncdata(&production_left), production_left);
+        classes.insert(reference_left.clone());
         for right in &strings {
+            let production_equal = production_left == production::xml_noncdata(right);
             assert_eq!(
-                production_left == production::xml_noncdata(right),
+                production_equal,
                 reference_left == reference_keys::xml_noncdata(right)
             );
             pairs += 1;
+            equivalent += usize::from(production_equal);
         }
     }
     assert_eq!(pairs, 116_281);
-    assert_eq!(production::xml_noncdata("\r a \r"), "\r a \r");
-    assert_eq!(reference_keys::xml_noncdata("\r a \r"), "\r a \r");
-    println!("O17 XML carrier: strings={}, pairs={pairs}", strings.len());
+    // Counted independently by a regular-expression model of the
+    // normalization (collapse U+0020 runs, trim U+0020 at both ends):
+    // 184 classes, whose squared sizes sum to 1,171 equivalent ordered pairs.
+    assert_eq!(classes.len(), 184);
+    assert_eq!(equivalent, 1_171);
+    for preserved in ["\r a \r", "\n a \n", "a\tb", "b a"] {
+        assert_eq!(production::xml_noncdata(preserved), preserved);
+        assert_eq!(reference_keys::xml_noncdata(preserved), preserved);
+    }
+    assert_ne!(
+        production::xml_noncdata("a b"),
+        production::xml_noncdata("b a")
+    );
+    assert_ne!(production::xml_noncdata("a"), production::xml_noncdata("b"));
+    println!(
+        "XML carrier: strings={}, pairs={pairs}, classes={}, equivalent={equivalent}",
+        strings.len(),
+        classes.len()
+    );
+}
+
+/// Production validation of one stored lexeme under a datatype read through
+/// a lexical-space declaration: whether the report passes, whether it holds
+/// a diagnostic, whether it holds an incomplete record, and the lexeme read
+/// back from the graph afterwards.
+fn production_lexical_outcome(text: &str, datatype: &str) -> (bool, bool, bool, String) {
+    let datatype_edge = Edge {
+        src: "literal".into(),
+        tgt: "datatype".into(),
+        kind: "prop".into(),
+        name: Some("datatype".into()),
+    };
+    let mut protocol = Protocol {
+        name: "keys-lexical-space".to_owned(),
+        edge_rules: vec![panproto_schema::EdgeRule {
+            edge_kind: "prop".to_owned(),
+            src_kinds: vec!["string".to_owned()],
+            tgt_kinds: vec!["string".to_owned()],
+        }],
+        constraint_sorts: vec!["lexical_space".to_owned()],
+        constraint_semantics: BTreeMap::from([(
+            "lexical_space".to_owned(),
+            panproto_schema::ConstraintSemantics::LexicalSpace,
+        )]),
+        value_kinds: lexical_table()
+            .into_iter()
+            .map(|(name, kind)| (name, production_scalar_kind(kind)))
+            .chain([("string".to_owned(), panproto_schema::ScalarKind::Str)])
+            .collect(),
+        ..Protocol::default()
+    };
+    protocol.syntactic_shape = panproto_schema::InstanceShapeKind::Graph;
+    protocol.semantic_shape = panproto_schema::InstanceShapeKind::Graph;
+    let schema = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("literal", "string", None)
+        .unwrap_or_else(|error| panic!("lexical carrier vertex: {error}"))
+        .vertex("datatype", "string", None)
+        .unwrap_or_else(|error| panic!("datatype carrier vertex: {error}"))
+        .edge("literal", "datatype", "prop", Some("datatype"))
+        .unwrap_or_else(|error| panic!("datatype edge: {error}"))
+        .constraint("literal", "lexical_space", "datatype")
+        .build()
+        .unwrap_or_else(|error| panic!("lexical carrier schema: {error}"));
+    let graph = GInstance::new()
+        .with_node(
+            Node::new(0, "literal").with_value(FieldPresence::Present(Value::Str(text.to_owned()))),
+        )
+        .with_node(
+            Node::new(1, "datatype")
+                .with_value(FieldPresence::Present(Value::Str(datatype.to_owned()))),
+        )
+        .with_edge(0, 1, datatype_edge);
+    let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+    let report = plan.validate_graph(
+        &graph,
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.requirement == Requirement::Advisory),
+        "lexical-space findings are advisory"
+    );
+    let preserved = match graph.node(0).and_then(|node| node.value.as_ref()) {
+        Some(FieldPresence::Present(Value::Str(value))) => value.clone(),
+        other => panic!("validation changed the stored lexeme: {other:?}"),
+    };
+    (
+        report.passed(),
+        !report.diagnostics.is_empty(),
+        report.incomplete.iter().any(|incomplete| {
+            matches!(
+                &incomplete.reason,
+                IncompleteReason::UnsupportedDeclaration { sort } if sort.as_ref() == datatype
+            )
+        }),
+        preserved,
+    )
+}
+
+/// The datatype table both sides read: one integer and one decimal kind.
+fn lexical_table() -> BTreeMap<String, panproto_reference::coerce::ScalarKind> {
+    BTreeMap::from([
+        (
+            "integer".to_owned(),
+            panproto_reference::coerce::ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        ),
+        (
+            "decimal".to_owned(),
+            panproto_reference::coerce::ScalarKind::Decimal,
+        ),
+    ])
+}
+
+fn production_scalar_kind(
+    kind: panproto_reference::coerce::ScalarKind,
+) -> panproto_schema::ScalarKind {
+    match kind {
+        panproto_reference::coerce::ScalarKind::Int { bits, signed } => {
+            panproto_schema::ScalarKind::Int { bits, signed }
+        }
+        panproto_reference::coerce::ScalarKind::Decimal => panproto_schema::ScalarKind::Decimal,
+        other => panic!("no production kind in the lexical table for {other:?}"),
+    }
+}
+
+#[test]
+fn lexical_space_outcomes_match_the_datatype_table_reference() {
+    let lexemes = [
+        "0",
+        "42",
+        "-1",
+        "+1",
+        "007",
+        " 1",
+        "1.5",
+        "1e3",
+        "9223372036854775807",
+        "9223372036854775808",
+        "not-an-integer",
+        "",
+    ];
+    let datatypes = ["integer", "decimal", "unknown-datatype"];
+    let table = lexical_table();
+    let mut counts = BTreeMap::new();
+    for datatype in datatypes {
+        for text in lexemes {
+            let outcome = reference_keys::lexical_space_outcome(text, datatype, &table);
+            let (passed, reported, unsupported, preserved) =
+                production_lexical_outcome(text, datatype);
+            assert!(
+                passed,
+                "{datatype} {text:?}: lexical findings never fail admission"
+            );
+            assert_eq!(preserved, text, "{datatype} {text:?}: the lexeme is kept");
+            assert_eq!(
+                (reported, unsupported),
+                match outcome {
+                    reference_keys::LexicalOutcome::Coerces => (false, false),
+                    reference_keys::LexicalOutcome::IllTyped => (true, false),
+                    reference_keys::LexicalOutcome::UnsupportedDeclaration => (false, true),
+                },
+                "{datatype} {text:?}"
+            );
+            *counts.entry(format!("{outcome:?}")).or_insert(0_usize) += 1;
+        }
+    }
+    let total: usize = counts.values().sum();
+    assert_eq!(total, lexemes.len() * datatypes.len());
+    assert_eq!(counts["UnsupportedDeclaration"], lexemes.len());
+    assert!(
+        counts["Coerces"] > 0 && counts["IllTyped"] > 0,
+        "{counts:?}"
+    );
+    println!("lexical-space carrier: {counts:?}");
+}
+
+/// Production validation of one string under a `format` constraint, as an
+/// annotation or as an assertion.
+fn production_format_outcome(
+    format: &str,
+    text: &str,
+    asserting: bool,
+) -> (bool, bool, bool, String) {
+    let semantics = if asserting {
+        panproto_schema::ConstraintSemantics::Format("test".into())
+    } else {
+        panproto_schema::ConstraintSemantics::AnnotatedFormat("test".into())
+    };
+    let mut protocol = Protocol {
+        name: "keys-annotated-format".to_owned(),
+        constraint_sorts: vec!["format".to_owned()],
+        constraint_semantics: BTreeMap::from([("format".to_owned(), semantics)]),
+        value_kinds: BTreeMap::from([("string".to_owned(), panproto_schema::ScalarKind::Str)]),
+        ..Protocol::default()
+    };
+    protocol.syntactic_shape = panproto_schema::InstanceShapeKind::Graph;
+    protocol.semantic_shape = panproto_schema::InstanceShapeKind::Graph;
+    let schema = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("value", "string", None)
+        .unwrap_or_else(|error| panic!("format carrier vertex: {error}"))
+        .constraint("value", "format", format)
+        .build()
+        .unwrap_or_else(|error| panic!("format carrier schema: {error}"));
+    let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+    let graph = GInstance::new().with_node(
+        Node::new(0, "value").with_value(FieldPresence::Present(Value::Str(text.to_owned()))),
+    );
+    let report = plan.validate_graph(
+        &graph,
+        &ValidationBudget::default(),
+        &ExternalVerdicts::default(),
+    );
+    let preserved = match graph.node(0).and_then(|node| node.value.as_ref()) {
+        Some(FieldPresence::Present(Value::Str(value))) => value.clone(),
+        other => panic!("validation changed the format carrier: {other:?}"),
+    };
+    (
+        report.passed(),
+        !report.diagnostics.is_empty(),
+        !report.incomplete.is_empty(),
+        preserved,
+    )
+}
+
+#[test]
+fn annotated_formats_match_the_independent_recognizer() {
+    let texts = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "550E8400-E29B-41D4-A716-446655440000",
+        "550e8400-e29b-41d4-a716-44665544000",
+        "550e8400e29b-41d4-a716-4466554400000",
+        "{550e8400-e29b-41d4-a716-446655440000}",
+        "550e8400-e29b-41d4-a716-44665544000g",
+        "not-a-uuid",
+        "",
+    ];
+    let mut counts = BTreeMap::new();
+    for format in ["uuid", "x-unrecognized"] {
+        for asserting in [false, true] {
+            if asserting && format != "uuid" {
+                // An asserting declaration of an unrecognized format is the
+                // separate `Format` semantics, outside this law.
+                continue;
+            }
+            for text in texts {
+                let outcome = reference_keys::annotated_format_outcome(format, text, asserting);
+                let (passed, reported, incomplete, preserved) =
+                    production_format_outcome(format, text, asserting);
+                assert_eq!(preserved, text, "{format} {text:?}: the value is kept");
+                assert!(!incomplete, "{format} {text:?}: no undecided check");
+                assert_eq!(
+                    (passed, reported),
+                    match outcome {
+                        reference_keys::FormatOutcome::Unchecked
+                        | reference_keys::FormatOutcome::Recognized => (true, false),
+                        reference_keys::FormatOutcome::Advisory => (true, true),
+                        reference_keys::FormatOutcome::Refused => (false, true),
+                    },
+                    "{format} {text:?} asserting={asserting}"
+                );
+                *counts.entry(format!("{outcome:?}")).or_insert(0_usize) += 1;
+            }
+        }
+    }
+    assert_eq!(
+        counts,
+        BTreeMap::from([
+            ("Advisory".to_owned(), 6),
+            ("Recognized".to_owned(), 4),
+            ("Refused".to_owned(), 6),
+            ("Unchecked".to_owned(), 8),
+        ])
+    );
+}
+
+/// A temporal value outside the canonical encoder's domain: a fixed offset
+/// of a whole day or more.
+fn ill_formed_temporal(minutes: i16) -> ReferenceValue {
+    use panproto_reference::temporal::{Offset, OffsetForm, Temporal};
+    ReferenceValue::Temporal(Temporal {
+        date: None,
+        time: None,
+        separator: None,
+        offset: Offset::Fixed(minutes, OffsetForm::Extended),
+        infinity: None,
+    })
+}
+
+#[test]
+fn values_without_canonical_bytes_are_a_typed_keying_refusal() -> Result<(), Box<dyn Error>> {
+    let first = ill_formed_temporal(1440);
+    let second = ill_formed_temporal(1441);
+    assert_eq!(panproto_reference::canonical::value_bytes(&first), None);
+    assert_eq!(panproto_reference::canonical::value_bytes(&second), None);
+    for equality in enumerate::equality_configurations()
+        .into_iter()
+        .map(|(_, equality)| equality)
+    {
+        let key = reference::Key {
+            id: "temporal".to_owned(),
+            parts: vec![reference::KeyPart::Path(Vec::new())],
+            role: reference::KeyRole::Unique,
+            scope: reference::KeyScope::Document,
+            equality: vec![equality.clone()],
+        };
+        assert_eq!(
+            reference_keys::key_equivalence(&equality, &first, &second),
+            None,
+            "{equality:?}"
+        );
+        assert_eq!(
+            reference_keys::tuple_equivalence(
+                &key,
+                std::slice::from_ref(&first),
+                std::slice::from_ref(&second)
+            ),
+            Err(reference_keys::KeyingError::NoCanonicalBytes),
+            "{equality:?}"
+        );
+        // Two distinct such values no longer share one empty-payload bucket.
+        let mut graph = ReferenceGraph::default();
+        graph
+            .nodes
+            .insert(0, ReferenceNode::new(0, "item").with_value(first.clone()));
+        graph
+            .nodes
+            .insert(1, ReferenceNode::new(1, "item").with_value(second.clone()));
+        assert_eq!(
+            reference_keys::buckets(&graph, "item", &key),
+            Err(reference_keys::KeyingError::NoCanonicalBytes),
+            "{equality:?}"
+        );
+    }
+    Ok(())
 }

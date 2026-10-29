@@ -503,14 +503,17 @@ pub fn equality_configurations() -> Vec<(&'static str, KeyEquality)> {
     ]
 }
 
-/// Every string of length at most four over the O17 XML alphabet.
+/// Every string of length at most four over the XML alphabet {`a`, `b`,
+/// U+0020, U+0009}.
 ///
-/// The alphabet contains content, U+0020 (the normalization character), and
-/// two XML-whitespace characters that this post-attribute-processing kernel
-/// must preserve. CR preservation is pinned separately by the differential.
+/// Two content symbols let the carrier tell a kernel that reorders tokens or
+/// substitutes content from the normalization; U+0020 is the normalization
+/// character, and U+0009 stands for a character reference the
+/// post-attribute-processing kernel must preserve. LF and CR preservation
+/// are pinned separately by the differential.
 #[must_use]
 pub fn xml_strings() -> Vec<String> {
-    const ALPHABET: [char; 4] = ['a', ' ', '\t', '\n'];
+    const ALPHABET: [char; 4] = ['a', 'b', ' ', '\t'];
     let mut strings = vec![String::new()];
     let mut frontier = vec![String::new()];
     for _ in 0..4 {

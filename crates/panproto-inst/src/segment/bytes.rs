@@ -527,8 +527,14 @@ impl AnySegment {
     ) -> Result<(Self, Digest), SegmentError> {
         let mut r = Reader::new(bytes, ArtifactKind::Segment);
         let header = read_header(&mut r)?;
-        if shape_from_tag(header.shape_tag).is_none() {
+        let Some(shape) = shape_from_tag(header.shape_tag) else {
             return Err(r.error(format!("shape tag {}", header.shape_tag)));
+        };
+        if shape != partition.shape() {
+            return Err(SegmentError::ShapeMismatch {
+                expected: partition.shape(),
+                found: shape,
+            });
         }
         let segment = read_body(&mut r, header.spec.id, header.shape_tag)?;
         r.finish()?;

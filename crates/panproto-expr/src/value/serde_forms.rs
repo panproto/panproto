@@ -1,12 +1,28 @@
-//! Stable serialized payload forms used by [`Value`](super::Value).
+//! The serialized forms of the [`Value`](super::Value) payloads whose form
+//! depends on the format: floats and byte strings.
 
+/// A float: a number, or in a human-readable format a string for a
+/// non-finite one.
+///
+/// The strings are `"Infinity"` and `"-Infinity"` for the infinities,
+/// `"NaN"` for [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN), `"-NaN"` for
+/// [`NEGATIVE_CANONICAL_NAN`](crate::exact::NEGATIVE_CANONICAL_NAN), and,
+/// for every other NaN, `"NaN:0x"` followed by the 16 lowercase hexadecimal
+/// digits of its bits, so a NaN keeps its sign and payload. Each NaN has
+/// exactly one spelling: a `"NaN:0x"` string that is not 16 lowercase
+/// hexadecimal digits, whose bits are not a NaN, or whose bits are those of
+/// one of the two named NaNs is refused, and the refusal names every
+/// spelling a float may take. Compact formats write the native float.
 pub mod float {
     use crate::exact::{CANONICAL_NAN, NEGATIVE_CANONICAL_NAN};
     use serde::de::{self, Visitor};
     use serde::{Deserializer, Serializer};
 
+    /// The prefix of the spelling of a NaN other than the two named ones.
     const PAYLOAD_PREFIX: &str = "NaN:0x";
 
+    /// The spelling of a non-finite float in a human-readable format, or
+    /// `None` for a finite one.
     fn spelling(value: f64) -> Option<String> {
         if value.is_nan() {
             let bits = value.to_bits();
@@ -28,6 +44,8 @@ pub mod float {
         }
     }
 
+    /// The non-finite float `text` spells, or `None` when it spells none:
+    /// the inverse of [`spelling`] on non-finite floats, bit for bit.
     fn from_spelling(text: &str) -> Option<f64> {
         match text {
             "NaN" => Some(CANONICAL_NAN),
@@ -76,7 +94,7 @@ pub mod float {
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             formatter.write_str(
-                "a number, a named infinity or NaN, or NaN:0x followed by 16 lowercase hexadecimal digits",
+                "a number or one of \"NaN\", \"-NaN\", \"Infinity\", \"-Infinity\" or \"NaN:0x\" with 16 lowercase hexadecimal digits",
             )
         }
 

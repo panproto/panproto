@@ -39,9 +39,10 @@
 //! - A spec goes to the spec of the corresponding kind (the four production
 //!   byte texts to the reference's of the same name) with the same
 //!   precision, scale, offset requirement, integer width and signedness,
-//!   the exact float reading and no numeral dialect. The conversion is
-//!   defined on specs with no `max_length`, the only specs the scope holds
-//!   (neither coercion reads a length bound).
+//!   the float reading of the same name and the numeral dialect of the same
+//!   name. The conversion is defined on specs with no `max_length`,
+//!   discriminator table, time unit or time zone, the only specs the scope
+//!   holds (neither coercion reads a length bound).
 //! - Each of the ten refusal reasons goes to the reason of the same name
 //!   with the same payload.
 //!
@@ -1106,6 +1107,12 @@ fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
                 continue;
             };
             let Some(reference) = r::coerce_value(x, spec) else {
+                assert!(
+                    matches!(spec.kind, r::ScalarKind::Float { .. })
+                        && spec.float_reading == r::FloatReading::NearestKeepingLexeme,
+                    "the reference refuses no admissible case outside the nearest-keeping-lexeme \
+                     float specs: {x:?} under {spec:?}"
+                );
                 tally.outside_reference += 1;
                 continue;
             };
@@ -1134,6 +1141,27 @@ fn coerce_value_agrees_with_the_reference_over_the_values_scope() {
         }
     });
     tally.print("coerce_value", total, started);
+    // Production holds every value and spec of the scope, and the reference
+    // is `None` exactly under the three nearest-keeping-lexeme float specs
+    // (widths 16, 32 and 64), on every value.
+    let nearest = specs
+        .iter()
+        .filter(|spec| {
+            matches!(spec.kind, r::ScalarKind::Float { .. })
+                && spec.float_reading == r::FloatReading::NearestKeepingLexeme
+        })
+        .count();
+    assert_eq!(nearest, 3);
+    assert_eq!(
+        tally.outside_production, 0,
+        "coerce_value: outside production"
+    );
+    assert_eq!(
+        tally.outside_reference,
+        3 * 337_876,
+        "coerce_value: outside the reference"
+    );
+    assert_eq!(tally.compared, (81 - 3) * 337_876, "coerce_value: compared");
 }
 
 #[test]
@@ -1185,6 +1213,11 @@ fn coerce_agrees_with_the_reference_over_the_values_scope() {
         }
     });
     tally.print("coerce", total, started);
+    // Every spec of the scope is admissible and production holds it, so the
+    // reference reads every case and none is set aside.
+    assert_eq!(tally.outside_production, 0, "coerce: outside production");
+    assert_eq!(tally.outside_reference, 0, "coerce: outside the reference");
+    assert_eq!(tally.compared, 20_986 * 22 * 81, "coerce: compared");
 }
 
 // ---------------------------------------------------------------------------
@@ -1520,7 +1553,11 @@ fn a_coerced_value_is_a_fixed_point_under_every_dialect() {
 /// Under the discriminator table {integer, float, text}, every tag of the
 /// table, two unknown tags and no tag, crossed with every class and a set
 /// of lexemes, under specs of several own kinds, agrees with the
-/// reference's discriminated coercion.
+/// reference's discriminated coercion; and under the same specs with no
+/// table, where the tag argument is ignored, agrees with the reference's
+/// `coerce`. The tagged classes are every scalar-kind name of the open-tag
+/// reading, `null` and an unknown name, each written bare, with `!!` and
+/// with `tag:yaml.org,2002:`.
 #[test]
 fn discriminated_coercion_agrees_with_the_reference() {
     let table: BTreeMap<String, ScalarKind> = BTreeMap::from([
@@ -1558,8 +1595,43 @@ fn discriminated_coercion_agrees_with_the_reference() {
         LexClass::DateTime,
         LexClass::Bytes,
     ];
-    classes.extend(["int", "custom"].map(|t| LexClass::Tagged(t.into())));
+    // The scalar-kind names of the open-tag reading, `null` and an unknown
+    // name, under each written prefix.
+    let names = [
+        "bool",
+        "boolean",
+        "int",
+        "integer",
+        "numberLong",
+        "numberInt",
+        "float",
+        "double",
+        "numberDouble",
+        "decimal",
+        "numberDecimal",
+        "str",
+        "string",
+        "binary",
+        "base64",
+        "hex",
+        "timestamp",
+        "datetime",
+        "date-time",
+        "date",
+        "time",
+        "null",
+        "custom",
+    ];
+    for prefix in ["", "!!", "tag:yaml.org,2002:"] {
+        classes.extend(
+            names
+                .iter()
+                .map(|name| LexClass::Tagged(format!("{prefix}{name}").into())),
+        );
+    }
+    assert_eq!(classes.len(), 6 + 3 * 23);
     let mut cases = 0_u64;
+    let mut untabled = 0_u64;
     for own in [ScalarKind::Any, ScalarKind::Str, ScalarKind::Decimal] {
         let spec = ValueSpec {
             discriminators: Some(table.clone()),
@@ -1569,10 +1641,20 @@ fn discriminated_coercion_agrees_with_the_reference() {
         for tag in tags {
             for class in &classes {
                 for text in &lexemes {
-                    let production =
-                        coerce_discriminated(&Lexeme::new(text, class.clone()), tag, &spec)
-                            .map(|v| to_ref(&v))
-                            .map_err(|e| reason_to_ref(&e.reason));
+                    let lexeme = Lexeme::new(text, class.clone());
+                    let production = coerce_discriminated(&lexeme, tag, &plain)
+                        .map(|v| to_ref(&v))
+                        .map_err(|e| reason_to_ref(&e.reason));
+                    let reference =
+                        r::coerce(text, &class_to_ref(class), &spec_to_ref(&plain)).unwrap();
+                    assert_eq!(
+                        production, reference,
+                        "{text:?} {class:?} tagged {tag:?} under {own:?} with no table"
+                    );
+                    untabled += 1;
+                    let production = coerce_discriminated(&lexeme, tag, &spec)
+                        .map(|v| to_ref(&v))
+                        .map_err(|e| reason_to_ref(&e.reason));
                     let reference = r::coerce_tagged(
                         text,
                         &class_to_ref(class),
@@ -1591,15 +1673,14 @@ fn discriminated_coercion_agrees_with_the_reference() {
         }
     }
     println!(
-        "discriminators: 3 own kinds by {} tags by {} classes by {} lexemes: {cases} cases",
+        "discriminators: 3 own kinds by {} tags by {} classes by {} lexemes: {cases} cases \
+         under the table, {untabled} with no table",
         tags.len(),
         classes.len(),
         lexemes.len()
     );
-    assert_eq!(
-        cases,
-        3 * (tags.len() * classes.len() * lexemes.len()) as u64
-    );
+    assert_eq!(cases, 3 * 6 * 75 * 8);
+    assert_eq!(untabled, 3 * 6 * 75 * 8);
 }
 
 // ---------------------------------------------------------------------------

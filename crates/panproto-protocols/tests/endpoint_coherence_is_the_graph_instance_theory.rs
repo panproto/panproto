@@ -22,7 +22,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeSet;
 
 use panproto_gat::{CheckModelOptions, ModelValue, verify_model};
 use panproto_inst::validation::{
@@ -92,7 +91,7 @@ fn assert_reference_validation_on_the_endpoint_carrier() {
     let diagnostic = |edge, node, source, expected: &str, found: &str| ReferenceDiagnostic {
         check: ReferenceCheckKey {
             kind: ReferenceCheckKind::EndpointCoherence,
-            decl: ReferenceSchemaRef::Edge(label.clone()),
+            decl: ReferenceSchemaRef::Schema,
         },
         class: ReferenceClass::GraphLocal,
         requirement: ReferenceRequirement::Required,
@@ -187,39 +186,125 @@ fn multisets(options: usize, max: usize) -> Vec<Vec<usize>> {
     out
 }
 
-/// The edges and sides the validator reports incoherent.
-fn reported(plan: &ValidationPlan, graph: &GInstance) -> BTreeSet<(u32, &'static str)> {
-    plan.validate_graph(
-        graph,
-        &ValidationBudget::default(),
-        &ExternalVerdicts::default(),
-    )
-    .diagnostics
-    .iter()
-    .filter(|d| d.check.kind == CheckKind::EndpointCoherence)
-    .map(|d| match (&d.subject, &d.violation) {
-        (Some(ViewRef::Edge(e)), Violation::IncoherentEndpoint { side, .. }) => (
-            e.0,
-            match side {
-                EndpointSide::Src => "ie_src_anchor",
-                EndpointSide::Tgt => "ie_tgt_anchor",
-            },
-        ),
-        other => panic!("not an endpoint diagnostic: {other:?}"),
-    })
-    .collect()
+/// One endpoint finding: the edge, the side, the expected anchor (the
+/// label's endpoint vertex) and the found anchor (the endpoint node's).
+type Finding = (u32, &'static str, String, String);
+
+/// The endpoint findings the validator reports, with multiplicity, in
+/// ascending order.
+fn reported(plan: &ValidationPlan, graph: &GInstance) -> Vec<Finding> {
+    let mut out: Vec<Finding> = plan
+        .validate_graph(
+            graph,
+            &ValidationBudget::default(),
+            &ExternalVerdicts::default(),
+        )
+        .diagnostics
+        .iter()
+        .filter(|d| d.check.kind == CheckKind::EndpointCoherence)
+        .map(|d| match (&d.subject, &d.violation) {
+            (
+                Some(ViewRef::Edge(e)),
+                Violation::IncoherentEndpoint {
+                    side,
+                    expected,
+                    found,
+                },
+            ) => (
+                e.0,
+                match side {
+                    EndpointSide::Src => "ie_src_anchor",
+                    EndpointSide::Tgt => "ie_tgt_anchor",
+                },
+                expected.to_string(),
+                found.to_string(),
+            ),
+            other => panic!("not an endpoint diagnostic: {other:?}"),
+        })
+        .collect();
+    out.sort();
+    out
 }
 
-/// The edges and equations `verify_model` refutes, and whether it
-/// completed.
-fn refuted(graph: &GInstance, schema: &Schema) -> (BTreeSet<(u32, &'static str)>, bool) {
+/// The endpoint findings of the reference validator on the same plain
+/// schema and graph. The reference has no anchor families, so it is run on
+/// the schemas without unions, recursion points or reference vertices.
+fn reference_reported(schema: &Schema, graph: &GInstance) -> Vec<Finding> {
+    use panproto_reference::model::{GEdge as ReferenceEdge, Graph, Node as ReferenceNode, SEdge};
+    use panproto_reference::validation::Violation as ReferenceViolation;
+    let mut reference = panproto_reference::schema::Schema::default();
+    for (id, vertex) in &schema.vertices {
+        reference = reference.vertex(id, &vertex.kind);
+    }
+    for edge in schema.edges.keys() {
+        reference = reference.edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref());
+    }
+    let model = Graph {
+        nodes: graph
+            .max_node_id()
+            .map_or(0..0, |max| 0..max + 1)
+            .filter_map(|id| {
+                graph
+                    .node(id)
+                    .map(|node| (id, ReferenceNode::new(id, &node.anchor)))
+            })
+            .collect(),
+        edges: graph
+            .edges_sorted()
+            .map(|(id, edge)| {
+                (
+                    id.0,
+                    ReferenceEdge {
+                        src: edge.src,
+                        tgt: edge.tgt,
+                        label: SEdge::new(
+                            &edge.edge.src,
+                            &edge.edge.tgt,
+                            &edge.edge.kind,
+                            edge.edge.name.as_deref(),
+                        ),
+                        position: edge.position,
+                    },
+                )
+            })
+            .collect(),
+    };
+    let mut out: Vec<Finding> =
+        panproto_reference::validation::validate(&reference, &Default::default(), &model)
+            .diagnostics
+            .iter()
+            .filter_map(|d| match (&d.subject, &d.violation) {
+                (
+                    Some(panproto_reference::lens::ViewRef::Edge(e)),
+                    ReferenceViolation::IncoherentEndpoint(source, expected, found),
+                ) => Some((
+                    *e,
+                    if *source {
+                        "ie_src_anchor"
+                    } else {
+                        "ie_tgt_anchor"
+                    },
+                    expected.clone(),
+                    found.clone(),
+                )),
+                _ => None,
+            })
+            .collect();
+    out.sort();
+    out
+}
+
+/// The endpoint findings `verify_model` refutes, each completed from the
+/// graph with the label's endpoint vertex and the endpoint node's anchor,
+/// with multiplicity, in ascending order; and whether it completed.
+fn refuted(graph: &GInstance, schema: &Schema) -> (Vec<Finding>, bool) {
     let theory = th_graph_instance();
     let report = verify_model(
         &graph_instance_model(graph, schema),
         &theory,
         &CheckModelOptions::default(),
     );
-    let set = report
+    let mut out: Vec<Finding> = report
         .violations
         .iter()
         .map(|v| {
@@ -227,15 +312,24 @@ fn refuted(graph: &GInstance, schema: &Schema) -> (BTreeSet<(u32, &'static str)>
                 Some(ModelValue::Int(n)) => u32::try_from(*n).unwrap(),
                 other => panic!("an edge assignment, not {other:?}"),
             };
-            let equation = match v.equation.as_ref() {
-                "ie_src_anchor" => "ie_src_anchor",
-                "ie_tgt_anchor" => "ie_tgt_anchor",
+            let edge = graph
+                .edge(panproto_inst::EdgeId(e))
+                .unwrap_or_else(|| panic!("edge {e} of the graph"));
+            let (equation, expected, node) = match v.equation.as_ref() {
+                "ie_src_anchor" => ("ie_src_anchor", &edge.edge.src, edge.src),
+                "ie_tgt_anchor" => ("ie_tgt_anchor", &edge.edge.tgt, edge.tgt),
                 other => panic!("an unexpected equation {other}"),
             };
-            (e, equation)
+            let found = graph
+                .node(node)
+                .unwrap_or_else(|| panic!("node {node} of the graph"))
+                .anchor
+                .to_string();
+            (e, equation, expected.to_string(), found)
         })
         .collect();
-    (set, report.incomplete.is_none())
+    out.sort();
+    (out, report.incomplete.is_none())
 }
 
 /// Check every graph with nodes anchored by `anchors` (ascending by node
@@ -247,6 +341,7 @@ fn sweep(
     labels: &[Edge],
     max_nodes: u32,
     max_edges: usize,
+    with_reference: bool,
 ) -> (usize, usize) {
     let plan = ValidationPlan::compile(schema, &Protocol::default(), &ValidationOptions::default());
     let mut work = Vec::new();
@@ -267,7 +362,15 @@ fn sweep(
         let mut handles = Vec::with_capacity(work.len());
         for (n, assignment) in &work {
             handles.push(scope.spawn(move || {
-                sweep_one(plan, schema, anchors, labels, *n, assignment, max_edges)
+                sweep_one(
+                    plan,
+                    schema,
+                    anchors,
+                    labels,
+                    (*n, assignment),
+                    max_edges,
+                    with_reference,
+                )
             }));
         }
         let (mut graphs, mut incoherent) = (0, 0);
@@ -286,9 +389,9 @@ fn sweep_one(
     schema: &Schema,
     anchors: &[&str],
     labels: &[Edge],
-    n: u32,
-    assignment: &[usize],
+    (n, assignment): (u32, &[usize]),
     max_edges: usize,
+    with_reference: bool,
 ) -> (usize, usize) {
     let (mut graphs, mut incoherent) = (0, 0);
     let options: Vec<(u32, u32, &Edge)> = (0..n)
@@ -307,6 +410,9 @@ fn sweep_one(
         let (found, complete) = refuted(&graph, schema);
         assert!(complete, "verify_model did not complete on {graph:?}");
         assert_eq!(expected, found, "{graph:?}");
+        if with_reference {
+            assert_eq!(expected, reference_reported(schema, &graph), "{graph:?}");
+        }
         graphs += 1;
         if !expected.is_empty() {
             incoherent += 1;
@@ -325,6 +431,7 @@ fn v10_endpoint_coherence_agrees_with_the_graph_instance_theory() {
         &[edge("a", "b", "ab"), edge("a", "a", "aa")],
         4,
         4,
+        true,
     );
     assert!(graphs > 300_000, "{graphs} graphs");
     assert!(
@@ -349,6 +456,7 @@ fn v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels() {
         ],
         3,
         3,
+        true,
     );
     assert!(graphs > 10_000, "{graphs} graphs");
     assert!(incoherent > 0);
@@ -417,8 +525,8 @@ fn an_edge_into_a_union_may_end_at_a_variant() {
         .with_edge(0, 1, au);
     let plan =
         ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
-    assert_eq!(reported(&plan, &graph), BTreeSet::new());
-    assert_eq!(refuted(&graph, &schema), (BTreeSet::new(), true));
+    assert_eq!(reported(&plan, &graph), Vec::new());
+    assert_eq!(refuted(&graph, &schema), (Vec::new(), true));
 }
 
 /// The agreement on a schema with anchor families (a union with two
@@ -438,6 +546,7 @@ fn v10_endpoint_coherence_agrees_on_anchor_families() {
         ],
         3,
         3,
+        false,
     );
     assert!(graphs > 100_000, "{graphs} graphs");
     assert!(

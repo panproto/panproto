@@ -135,6 +135,11 @@ pub fn compile(
     let references = merge_references(syntactic, &spec)?;
     let mut merged = syntactic.clone();
     merged.declarations.references.clone_from(&references);
+    // A deferred declaration form is refused as such, before its own
+    // well-formedness is checked, so the refusal names the form.
+    for reference in references.values() {
+        check_supported_reference(&merged, reference, Some(&spec.provider))?;
+    }
     if let Some(error) = panproto_schema::validate(&merged, protocol)
         .into_iter()
         .find_map(|error| {
@@ -453,46 +458,62 @@ fn compile_reference(
     })
 }
 
+/// The first declaration form of `reference` that this engine refuses, in
+/// a fixed order: an inline source, a target-set target, a null vertex, a
+/// scope reached through references, standoff fragments, then a standoff
+/// text that is span-relative, reached by reference, or named by a URI.
+#[must_use]
+pub fn deferred_feature(schema: &Schema, reference: &Reference) -> Option<ResolutionFeature> {
+    if matches!(reference.source, RefSource::Inline { .. }) {
+        return Some(ResolutionFeature::InlineReference);
+    }
+    if schema
+        .declarations
+        .target_set(&reference.target_vertex)
+        .is_some()
+    {
+        return Some(ResolutionFeature::TargetSet);
+    }
+    if reference.null_vertex.is_some() {
+        return Some(ResolutionFeature::NullVertex);
+    }
+    if reference.scope_via.is_some() {
+        return Some(ResolutionFeature::ScopeVia);
+    }
+    let RefSource::Standoff {
+        text, fragments, ..
+    } = &reference.source
+    else {
+        return None;
+    };
+    if fragments.is_some() {
+        return Some(ResolutionFeature::StandoffFragments);
+    }
+    deferred_text_feature(text)
+}
+
+/// The refusal of a standoff text source this engine does not read.
+#[must_use]
+const fn deferred_text_feature(text: &RefTextSource) -> Option<ResolutionFeature> {
+    match text {
+        RefTextSource::Span { .. } => Some(ResolutionFeature::SpanText),
+        RefTextSource::Referenced { .. } => Some(ResolutionFeature::ReferencedText),
+        RefTextSource::ExternalUri { .. } => Some(ResolutionFeature::ExternalUriText),
+        RefTextSource::Local(_) | RefTextSource::External(_) => None,
+    }
+}
+
 fn check_supported_reference(
     schema: &Schema,
     reference: &Reference,
     provider: Option<&panproto_inst::ResolutionProviderId>,
 ) -> Result<(), ResolveError> {
-    let declarations = &schema.declarations;
-    let unsupported = |feature| ResolveError::UnsupportedFeature {
-        provider: provider.cloned(),
-        feature,
-    };
-    if reference.null_vertex.is_some()
-        || reference.scope_via.is_some()
-        || declarations.target_set(&reference.target_vertex).is_some()
-        || matches!(reference.source, RefSource::Inline { .. })
-    {
-        return Err(unsupported(ResolutionFeature::ResolutionState));
-    }
-    match &reference.source {
-        RefSource::Standoff {
-            text, fragments, ..
-        } => {
-            if fragments.is_some() {
-                return Err(unsupported(ResolutionFeature::ResolutionState));
-            }
-            match text {
-                RefTextSource::Referenced { .. } | RefTextSource::Span { .. } => {
-                    return Err(unsupported(ResolutionFeature::ResolutionState));
-                }
-                RefTextSource::ExternalUri { .. } => {
-                    return Err(unsupported(ResolutionFeature::ExternalText));
-                }
-                RefTextSource::Local(_) | RefTextSource::External(_) => {}
-            }
-        }
-        RefSource::KeyValue { .. }
-        | RefSource::Path { .. }
-        | RefSource::Variable { .. }
-        | RefSource::Inline { .. } => {}
-    }
-    Ok(())
+    deferred_feature(schema, reference).map_or(Ok(()), |feature| {
+        Err(ResolveError::UnsupportedFeature {
+            provider: provider.cloned(),
+            feature,
+        })
+    })
 }
 
 /// The key of a reference whose holder names its target by no parts: every

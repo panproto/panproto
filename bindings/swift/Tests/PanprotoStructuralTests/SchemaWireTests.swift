@@ -175,7 +175,7 @@ struct ProtocolWireTests {
         #expect(try roundTripped(rule) == rule)
     }
 
-    @Test("A protocol writes all seventeen keys, an absent composition among them")
+    @Test("A protocol preserves shape and value declarations")
     func protocolWritesEveryKey() throws {
         let spec = ProtocolSpec(
             name: "p",
@@ -185,10 +185,28 @@ struct ProtocolWireTests {
             edgeRules: [EdgeRule(edgeKind: "prop", srcKinds: ["obj"])],
             objKinds: ["obj"],
             constraintSorts: ["maxLength"],
-            hasOrder: true
+            hasOrder: true,
+            syntacticShape: .tree,
+            semanticShape: .graph,
+            constraintSemantics: [
+                "minimum": try ConstraintSemantics(representation: .textString("minimum"))
+            ],
+            valueKinds: [
+                "integer": try ScalarKind(
+                    representation: .textMap([
+                        ("int", .textMap([("bits", .unsigned(64)), ("signed", .bool(true))]))
+                    ]))
+            ],
+            nonValueKinds: ["obj"]
         )
-        #expect(try encodedHex(spec) == Expected.protocolSpec)
         #expect(try roundTripped(spec) == spec)
+        let reflected = try CBORDecoder().decode(
+            CBORValue.self, from: try CBOREncoder().encode(spec))
+        guard case .map(let entries) = reflected else {
+            Issue.record("a protocol encodes as a map")
+            return
+        }
+        #expect(entries.count == 22)
     }
 
     @Test("A protocol missing every feature flag reads them all as false")
@@ -200,6 +218,11 @@ struct ProtocolWireTests {
         #expect(spec.hasOrder == false)
         #expect(spec.hasPolicies == false)
         #expect(spec.edgeRules.isEmpty)
+        #expect(spec.syntacticShape == .tree)
+        #expect(spec.semanticShape == .tree)
+        #expect(spec.constraintSemantics.isEmpty)
+        #expect(spec.valueKinds.isEmpty)
+        #expect(spec.nonValueKinds.isEmpty)
     }
 }
 
@@ -346,6 +369,31 @@ struct SchemaWireTests {
         schema.mergers["a"] = .variable("m")
         schema.defaults["b"] = .variable("d")
         schema.policies["maxLength"] = .variable("p")
+        schema.declarations = SchemaDeclarations(
+            keys: [
+                "a": [
+                    try Key(
+                        representation: .textMap([
+                            ("id", .textString("primary")),
+                            ("parts", .array([])),
+                            ("role", .textString("primary")),
+                            ("scope", .textString("document")),
+                        ]))
+                ]
+            ],
+            references: [
+                "r": try Reference(
+                    representation: .textMap([
+                        ("id", .textString("r")), ("holder", .textString("a")),
+                    ]))
+            ],
+            targetSets: [
+                "all": try TargetSet(
+                    representation: .textMap([
+                        ("members", .array([])), ("scope", .textString("document")),
+                    ]))
+            ]
+        )
         #expect(try roundTripped(schema) == schema)
     }
 

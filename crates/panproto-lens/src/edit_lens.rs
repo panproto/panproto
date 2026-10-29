@@ -718,8 +718,28 @@ impl EditLens {
     ///
     /// # Errors
     ///
-    /// Returns [`EditLensError`] if the edit cannot be translated.
+    /// Returns [`EditLensError`] if the edit cannot be translated, and
+    /// [`EditLensError::EditApply`] with
+    /// [`NodeNotFound`](panproto_inst::EditError::NodeNotFound) when, after
+    /// [`initialize`](Self::initialize), a delete names an id the tracked
+    /// source does not hold. A refused sequence leaves the lens unchanged.
     pub fn get_edit(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
+        // A delete names an existing source node. Once the lens tracks a
+        // source, deleting an id that source does not hold is refused before
+        // anything is tracked or translated. Inside a sequence this reads the
+        // source as the earlier steps left it, and the sequence's staging
+        // discards those steps with the refusal.
+        if let TreeEdit::DeleteNode { id } = edit {
+            if self
+                .pipeline
+                .as_ref()
+                .is_some_and(|pipeline| !pipeline.source().nodes.contains_key(&id))
+            {
+                return Err(EditLensError::EditApply(
+                    panproto_inst::EditError::NodeNotFound(id),
+                ));
+            }
+        }
         // Keep the tracked source in step with the edits this lens has seen, so
         // an edit that takes a node out of the view can still read the payload
         // the complement must absorb. A sequence is tracked step by step
@@ -1730,6 +1750,7 @@ mod tests {
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
 
     use super::EditLens;
+    use crate::edit_error::EditLensError;
 
     fn test_protocol() -> Protocol {
         Protocol {
@@ -2145,6 +2166,65 @@ mod tests {
             TreeEdit::DeleteNode { id } => assert_eq!(id, 1),
             other => panic!("expected DeleteNode, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn deleting_an_absent_id_is_refused_and_leaves_the_lens_unchanged() {
+        let schema = three_node_schema();
+        let instance = three_node_instance();
+        let lens = crate::tests::projection_lens(&schema, "createdAt");
+        let mut edit_lens = EditLens::from_lens(lens, test_protocol());
+        edit_lens.initialize(&instance).unwrap();
+        let snapshot = |lens: &EditLens| serde_json::to_value(&lens.complement).unwrap();
+        let before = snapshot(&edit_lens);
+        let tracked = edit_lens.pipeline.as_ref().map(|p| p.source().clone());
+
+        let alone = edit_lens.get_edit(TreeEdit::DeleteNode { id: 99 });
+        assert!(
+            matches!(
+                alone,
+                Err(EditLensError::EditApply(
+                    panproto_inst::EditError::NodeNotFound(99)
+                ))
+            ),
+            "{alone:?}"
+        );
+
+        let late = edit_lens.get_edit(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 2 },
+            TreeEdit::DeleteNode { id: 99 },
+        ]));
+        assert!(
+            matches!(
+                late,
+                Err(EditLensError::EditApply(
+                    panproto_inst::EditError::NodeNotFound(99)
+                ))
+            ),
+            "{late:?}"
+        );
+        assert_eq!(snapshot(&edit_lens), before);
+        let after = edit_lens.pipeline.as_ref().map(|p| p.source().clone());
+        assert_eq!(
+            after.map(|t| crate::instances_equivalent(&t, tracked.as_ref().unwrap())),
+            Some(true),
+            "a refused edit leaves the tracked source unchanged"
+        );
+
+        // A node the sequence itself deleted is absent for its later steps.
+        let twice = edit_lens.get_edit(TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 2 },
+            TreeEdit::DeleteNode { id: 2 },
+        ]));
+        assert!(
+            matches!(
+                twice,
+                Err(EditLensError::EditApply(
+                    panproto_inst::EditError::NodeNotFound(2)
+                ))
+            ),
+            "{twice:?}"
+        );
     }
 
     #[test]

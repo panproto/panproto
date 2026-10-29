@@ -43,11 +43,41 @@ pub struct StageIndex {
     pub stages: Range<usize>,
 }
 
+/// The complement a normal-form group's get records.
+///
+/// A group of several atomic stages runs as its fused lens when every
+/// anchor and edge label of its source is declared by the group's source
+/// schema, and as its atomic stages in sequence otherwise. The two forms
+/// keep the group observationally equal to its stages: on a declared source
+/// the first stage of a fused pair leaves no residue, while an undeclared
+/// anchor or label would make it drop or refuse what the fused lens cannot
+/// attribute to that stage.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupComplement<C> {
+    /// The complement of the group's lens, fused or atomic.
+    Fused(C),
+    /// One complement per atomic stage of the group, in forward order.
+    Sequential(Vec<C>),
+}
+
+impl<C> GroupComplement<C> {
+    /// The recorded complements in forward order: the one complement of a
+    /// fused form, or one per atomic stage of a sequential form.
+    #[must_use]
+    pub fn complements(&self) -> &[C] {
+        match self {
+            Self::Fused(complement) => std::slice::from_ref(complement),
+            Self::Sequential(complements) => complements,
+        }
+    }
+}
+
 /// One complement entry produced by a normal-form group.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PathComplementEntry<C> {
     /// The complement produced by the group's get.
-    pub complement: C,
+    pub complement: GroupComplement<C>,
     /// The identity envelope of the fused group lens.
     pub envelope: IdentityEnvelope,
     /// Lens digests of the atomic stages covered by the group, in order.
@@ -345,9 +375,28 @@ impl LensPath {
         let mut entries = Vec::with_capacity(groups.len());
         for (group_index, group) in groups.iter().enumerate() {
             let at = stage_index(group_index, group);
-            let context = table_context(protocols, group);
-            let (next, complement) =
-                table_lens::get(&group.lens, &view, context).map_err(|error| locate(at, error))?;
+            let (next, complement) = if self.runs_fused(group, |schema| {
+                table_source_declared(schema, &protocols[group.stages.start], &view)
+            }) {
+                let context = table_context(protocols, group);
+                let (next, complement) = table_lens::get(&group.lens, &view, context)
+                    .map_err(|error| locate(at, error))?;
+                (next, GroupComplement::Fused(complement))
+            } else {
+                let mut next = view.clone();
+                let mut complements = Vec::with_capacity(group.stages.len());
+                for stage in group.stages.clone() {
+                    let context = BoundaryProtocols {
+                        src: &protocols[stage],
+                        tgt: &protocols[stage + 1],
+                    };
+                    let (staged, complement) = table_lens::get(&self.stages[stage], &next, context)
+                        .map_err(|error| locate(at.clone(), error))?;
+                    complements.push(complement);
+                    next = staged;
+                }
+                (next, GroupComplement::Sequential(complements))
+            };
             entries.push(PathComplementEntry {
                 complement,
                 envelope: group.lens.identity(ComplementShape::Functor),
@@ -395,14 +444,40 @@ impl LensPath {
             let at = stage_index(group_index, group);
             self.check_table_entry(group, entry)
                 .map_err(|error| locate(at.clone(), error))?;
-            let (next, status) = table_lens::put_checked(
-                &group.lens,
-                &source,
-                &entry.complement,
-                table_context(protocols, group),
-                policy,
-            )
-            .map_err(|error| locate(at, error))?;
+            let (next, status) = match &entry.complement {
+                GroupComplement::Fused(complement) => table_lens::put_checked(
+                    &group.lens,
+                    &source,
+                    complement,
+                    table_context(protocols, group),
+                    policy,
+                )
+                .map_err(|error| locate(at, error))?,
+                GroupComplement::Sequential(complements) => {
+                    check_sequential_count(group, complements.len())
+                        .map_err(|error| locate(at.clone(), error))?;
+                    let mut staged = source.clone();
+                    let mut group_statuses = Vec::with_capacity(complements.len());
+                    for (stage, complement) in group.stages.clone().zip(complements).rev() {
+                        let context = BoundaryProtocols {
+                            src: &protocols[stage],
+                            tgt: &protocols[stage + 1],
+                        };
+                        let (next, status) = table_lens::put_checked(
+                            &self.stages[stage],
+                            &staged,
+                            complement,
+                            context,
+                            policy,
+                        )
+                        .map_err(|error| locate(at.clone(), error))?;
+                        group_statuses.push(status);
+                        staged = next;
+                    }
+                    group_statuses.reverse();
+                    (staged, group_status(group_statuses))
+                }
+            };
             statuses[group_index] = status;
             source = next;
         }
@@ -435,21 +510,46 @@ impl LensPath {
             let group = &groups[group_index];
             let entry = &complement.0[group_index];
             let at = stage_index(group_index, group);
-            let context = table_context(protocols, group);
-            if let Err(violations) =
-                table_lens::check_put_domain(&group.lens, &source, &entry.complement, context)
-            {
-                return Err((at, violations));
-            }
-            let mut for_domain = entry.complement.clone();
-            for_domain.stamp(
-                group.lens.identity(ComplementShape::Functor),
-                &group.lens.src_schema,
-            );
-            match table_lens::put(&group.lens, &source, &for_domain, context) {
-                Ok(next) => source = next,
-                Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
-                Err(_) => return Ok(()),
+            let steps: Vec<(&Lens, &TableComplement, BoundaryProtocols<'_>)> =
+                match &entry.complement {
+                    GroupComplement::Fused(complement) => {
+                        vec![(&group.lens, complement, table_context(protocols, group))]
+                    }
+                    GroupComplement::Sequential(complements) => {
+                        if complements.len() != group.stages.len() {
+                            return Ok(());
+                        }
+                        group
+                            .stages
+                            .clone()
+                            .zip(complements)
+                            .rev()
+                            .map(|(stage, complement)| {
+                                (
+                                    &self.stages[stage],
+                                    complement,
+                                    BoundaryProtocols {
+                                        src: &protocols[stage],
+                                        tgt: &protocols[stage + 1],
+                                    },
+                                )
+                            })
+                            .collect()
+                    }
+                };
+            for (lens, complement, context) in steps {
+                if let Err(violations) =
+                    table_lens::check_put_domain(lens, &source, complement, context)
+                {
+                    return Err((at, violations));
+                }
+                let mut for_domain = complement.clone();
+                for_domain.stamp(lens.identity(ComplementShape::Functor), &lens.src_schema);
+                match table_lens::put(lens, &source, &for_domain, context) {
+                    Ok(next) => source = next,
+                    Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
+                    Err(_) => return Ok(()),
+                }
             }
         }
         Ok(())
@@ -494,7 +594,21 @@ impl LensPath {
         for (group_index, group) in groups.iter().enumerate() {
             let at = stage_index(group_index, group);
             let (next, complement) =
-                graph_lens::get(&group.lens, &view).map_err(|error| locate(at, error))?;
+                if self.runs_fused(group, |schema| graph_source_declared(schema, &view)) {
+                    let (next, complement) =
+                        graph_lens::get(&group.lens, &view).map_err(|error| locate(at, error))?;
+                    (next, GroupComplement::Fused(complement))
+                } else {
+                    let mut next = view.clone();
+                    let mut complements = Vec::with_capacity(group.stages.len());
+                    for stage in group.stages.clone() {
+                        let (staged, complement) = graph_lens::get(&self.stages[stage], &next)
+                            .map_err(|error| locate(at.clone(), error))?;
+                        complements.push(complement);
+                        next = staged;
+                    }
+                    (next, GroupComplement::Sequential(complements))
+                };
             entries.push(PathComplementEntry {
                 complement,
                 envelope: group.lens.identity(ComplementShape::Graph),
@@ -540,9 +654,31 @@ impl LensPath {
             let at = stage_index(group_index, group);
             self.check_graph_entry(group, entry)
                 .map_err(|error| locate(at.clone(), error))?;
-            let (next, status) =
-                graph_lens::put_checked(&group.lens, &source, &entry.complement, policy)
-                    .map_err(|error| locate(at, error))?;
+            let (next, status) = match &entry.complement {
+                GroupComplement::Fused(complement) => {
+                    graph_lens::put_checked(&group.lens, &source, complement, policy)
+                        .map_err(|error| locate(at, error))?
+                }
+                GroupComplement::Sequential(complements) => {
+                    check_sequential_count(group, complements.len())
+                        .map_err(|error| locate(at.clone(), error))?;
+                    let mut staged = source.clone();
+                    let mut group_statuses = Vec::with_capacity(complements.len());
+                    for (stage, complement) in group.stages.clone().zip(complements).rev() {
+                        let (next, status) = graph_lens::put_checked(
+                            &self.stages[stage],
+                            &staged,
+                            complement,
+                            policy,
+                        )
+                        .map_err(|error| locate(at.clone(), error))?;
+                        group_statuses.push(status);
+                        staged = next;
+                    }
+                    group_statuses.reverse();
+                    (staged, group_status(group_statuses))
+                }
+            };
             statuses[group_index] = status;
             source = next;
         }
@@ -570,20 +706,20 @@ impl LensPath {
             let group = &groups[group_index];
             let entry = &complement.0[group_index];
             let at = stage_index(group_index, group);
-            if let Err(violations) =
-                graph_lens::check_put_domain(&group.lens, &source, &entry.complement)
-            {
-                return Err((at, violations));
-            }
-            let mut for_domain = entry.complement.clone();
-            for_domain.stamp(
-                group.lens.identity(ComplementShape::Graph),
-                &group.lens.src_schema,
-            );
-            match graph_lens::put(&group.lens, &source, &for_domain) {
-                Ok(next) => source = next,
-                Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
-                Err(_) => return Ok(()),
+            let Some(steps) = self.group_steps(group, &entry.complement) else {
+                return Ok(());
+            };
+            for (lens, complement) in steps {
+                if let Err(violations) = graph_lens::check_put_domain(lens, &source, complement) {
+                    return Err((at, violations));
+                }
+                let mut for_domain = complement.clone();
+                for_domain.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
+                match graph_lens::put(lens, &source, &for_domain) {
+                    Ok(next) => source = next,
+                    Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
+                    Err(_) => return Ok(()),
+                }
             }
         }
         Ok(())
@@ -620,7 +756,21 @@ impl LensPath {
         for (group_index, group) in groups.iter().enumerate() {
             let at = stage_index(group_index, group);
             let (next, complement) =
-                asymmetric::get(&group.lens, &view).map_err(|error| locate(at.clone(), error))?;
+                if self.runs_fused(group, |schema| tree_source_declared(schema, &view)) {
+                    let (next, complement) = asymmetric::get(&group.lens, &view)
+                        .map_err(|error| locate(at.clone(), error))?;
+                    (next, GroupComplement::Fused(complement))
+                } else {
+                    let mut next = view.clone();
+                    let mut complements = Vec::with_capacity(group.stages.len());
+                    for stage in group.stages.clone() {
+                        let (staged, complement) = asymmetric::get(&self.stages[stage], &next)
+                            .map_err(|error| locate(at.clone(), error))?;
+                        complements.push(complement);
+                        next = staged;
+                    }
+                    (next, GroupComplement::Sequential(complements))
+                };
             let envelope = group.lens.identity(ComplementShape::WType);
             entries.push(PathComplementEntry {
                 complement,
@@ -669,9 +819,31 @@ impl LensPath {
             let at = stage_index(group_index, group);
             self.check_entry(group, entry)
                 .map_err(|error| locate(at.clone(), error))?;
-            let (next, status) =
-                asymmetric::put_checked(&group.lens, &source, &entry.complement, policy)
-                    .map_err(|error| locate(at, error))?;
+            let (next, status) = match &entry.complement {
+                GroupComplement::Fused(complement) => {
+                    asymmetric::put_checked(&group.lens, &source, complement, policy)
+                        .map_err(|error| locate(at, error))?
+                }
+                GroupComplement::Sequential(complements) => {
+                    check_sequential_count(group, complements.len())
+                        .map_err(|error| locate(at.clone(), error))?;
+                    let mut staged = source.clone();
+                    let mut group_statuses = Vec::with_capacity(complements.len());
+                    for (stage, complement) in group.stages.clone().zip(complements).rev() {
+                        let (next, status) = asymmetric::put_checked(
+                            &self.stages[stage],
+                            &staged,
+                            complement,
+                            policy,
+                        )
+                        .map_err(|error| locate(at.clone(), error))?;
+                        group_statuses.push(status);
+                        staged = next;
+                    }
+                    group_statuses.reverse();
+                    (staged, group_status(group_statuses))
+                }
+            };
             statuses[group_index] = status;
             source = next;
         }
@@ -702,24 +874,24 @@ impl LensPath {
             let group = &groups[group_index];
             let entry = &complement.0[group_index];
             let at = stage_index(group_index, group);
-            if let Err(violations) =
-                asymmetric::check_put_domain(&group.lens, &source, &entry.complement)
-            {
-                return Err((at, violations));
-            }
+            let Some(steps) = self.group_steps(group, &entry.complement) else {
+                return Ok(());
+            };
+            for (lens, complement) in steps {
+                if let Err(violations) = asymmetric::check_put_domain(lens, &source, complement) {
+                    return Err((at, violations));
+                }
 
-            // Identity is not part of the put domain. Stamp a private copy
-            // with the expected group identity so the accepted group can be
-            // run to produce the view for the group to its left.
-            let mut for_domain = entry.complement.clone();
-            for_domain.stamp(
-                group.lens.identity(ComplementShape::WType),
-                &group.lens.src_schema,
-            );
-            match asymmetric::put(&group.lens, &source, &for_domain) {
-                Ok(next) => source = next,
-                Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
-                Err(_) => return Ok(()),
+                // Identity is not part of the put domain. Stamp a private
+                // copy with the expected identity so the accepted step can
+                // be run to produce the view for the step to its left.
+                let mut for_domain = complement.clone();
+                for_domain.stamp(lens.identity(ComplementShape::WType), &lens.src_schema);
+                match asymmetric::put(lens, &source, &for_domain) {
+                    Ok(next) => source = next,
+                    Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
+                    Err(_) => return Ok(()),
+                }
             }
         }
         Ok(())
@@ -756,6 +928,36 @@ impl LensPath {
             });
         }
         Ok(groups.remove(0).lens)
+    }
+
+    /// Whether a group runs as its one lens: always for a one-stage group,
+    /// and for a fused group exactly when `declared` holds of its source
+    /// schema.
+    fn runs_fused(&self, group: &NormalGroup, declared: impl FnOnce(&Schema) -> bool) -> bool {
+        group.stages.len() == 1 || declared(&self.stages[group.stages.start].src_schema)
+    }
+
+    /// The lens and complement of each step of a group's put, in put order
+    /// (right to left), or `None` for a sequential complement whose length
+    /// is not the group's stage count.
+    fn group_steps<'a, C>(
+        &'a self,
+        group: &'a NormalGroup,
+        complement: &'a GroupComplement<C>,
+    ) -> Option<Vec<(&'a Lens, &'a C)>> {
+        match complement {
+            GroupComplement::Fused(complement) => Some(vec![(&group.lens, complement)]),
+            GroupComplement::Sequential(complements) => (complements.len() == group.stages.len())
+                .then(|| {
+                    group
+                        .stages
+                        .clone()
+                        .zip(complements)
+                        .rev()
+                        .map(|(stage, complement)| (&self.stages[stage], complement))
+                        .collect()
+                }),
+        }
     }
 
     fn duplicate(&self) -> Self {
@@ -850,6 +1052,85 @@ impl LensPath {
             })
         }
     }
+}
+
+/// Check that a sequential complement has one entry per atomic stage of
+/// its group.
+const fn check_sequential_count(group: &NormalGroup, found: usize) -> Result<(), LensError> {
+    check_entry_count(group.stages.end - group.stages.start, found)
+}
+
+/// The identity status of a sequential group: the first stage status, in
+/// forward order, that is not [`IdentityStatus::Verified`], or `Verified`
+/// when every stage verified.
+fn group_status(statuses: Vec<IdentityStatus>) -> IdentityStatus {
+    statuses
+        .into_iter()
+        .find(|status| !matches!(status, IdentityStatus::Verified))
+        .unwrap_or(IdentityStatus::Verified)
+}
+
+/// Whether every node anchor and edge label of `source` is declared by
+/// `schema`, each edge joining nodes at its label's endpoints, with no
+/// node of the fan shape.
+fn graph_source_declared(schema: &Schema, source: &GInstance) -> bool {
+    source.nodes().values().all(|node| {
+        node.shape != panproto_inst::NodeShape::HyperEdge
+            && schema.vertices.contains_key(&node.anchor)
+    }) && source.edges_sorted().all(|(_, edge)| {
+        schema.edges.contains_key(&edge.edge)
+            && source
+                .node(edge.src)
+                .is_some_and(|node| node.anchor == edge.edge.src)
+            && source
+                .node(edge.tgt)
+                .is_some_and(|node| node.anchor == edge.edge.tgt)
+    })
+}
+
+/// Whether every node anchor and arc label of `source` is declared by
+/// `schema`, each arc joining nodes at its label's endpoints, with no fan
+/// and no node of the fan shape.
+fn tree_source_declared(schema: &Schema, source: &WInstance) -> bool {
+    source.fans.is_empty()
+        && source.nodes.values().all(|node| {
+            node.shape != panproto_inst::NodeShape::HyperEdge
+                && schema.vertices.contains_key(&node.anchor)
+        })
+        && source.arcs.iter().all(|(parent, child, edge)| {
+            schema.edges.contains_key(edge)
+                && source
+                    .nodes
+                    .get(parent)
+                    .is_some_and(|node| node.anchor == edge.src)
+                && source
+                    .nodes
+                    .get(child)
+                    .is_some_and(|node| node.anchor == edge.tgt)
+        })
+}
+
+/// Whether every row of `source` lies in a table of `schema`'s relational
+/// form under `protocol`, every cell in a column of its row's table, and
+/// every foreign-key pair in a declared relation between rows of its
+/// endpoint tables.
+fn table_source_declared(schema: &Schema, protocol: &Protocol, source: &FInstance) -> bool {
+    let Ok(relational) = panproto_inst::RelSchema::new(schema, protocol) else {
+        return false;
+    };
+    source.tables().into_iter().all(|(table, rows)| {
+        relational.is_table(table)
+            && schema.vertices.contains_key(table)
+            && rows.rows().into_iter().all(|(_, row)| {
+                let columns = relational.columns(table);
+                row.keys().all(|column| columns.contains_key(column))
+            })
+    }) && source.foreign_keys().into_iter().all(|(edge, pairs)| {
+        relational.is_relation(edge)
+            && pairs.iter().all(|(src, tgt)| {
+                source.table_of(*src) == Some(&edge.src) && source.table_of(*tgt) == Some(&edge.tgt)
+            })
+    })
 }
 
 const fn check_entry_count(expected: usize, found: usize) -> Result<(), LensError> {
@@ -1059,12 +1340,14 @@ mod tests {
             .get(&source)
             .unwrap_or_else(|error| panic!("path get failed: {error}"));
         for (group, entry) in groups.iter().zip(&mut complement.0) {
-            entry
-                .complement
+            let GroupComplement::Fused(group_complement) = &mut entry.complement else {
+                panic!("a one-stage group records its one complement");
+            };
+            group_complement
                 .dropped_nodes
                 .insert(0, source.nodes[&0].clone());
             assert!(matches!(
-                asymmetric::check_put_domain(&group.lens, &view, &entry.complement),
+                asymmetric::check_put_domain(&group.lens, &view, group_complement),
                 Err(violations)
                     if matches!(violations.as_slice(), [PutDomainError::IdCollision {
                         elem: ViewRef::Node(0)
@@ -1085,6 +1368,225 @@ mod tests {
                     elem: ViewRef::Node(0)
                 }])
         ));
+    }
+
+    /// An edge label `three_node_schema` does not declare.
+    fn undeclared_label(tgt: &str) -> panproto_schema::Edge {
+        panproto_schema::Edge {
+            src: "post:body".into(),
+            tgt: tgt.into(),
+            kind: "prop".into(),
+            name: Some("undeclared".into()),
+        }
+    }
+
+    /// The unlocated error inside a path or stage refusal.
+    fn unlocated(error: &LensError) -> String {
+        match error {
+            LensError::AtStage { error, .. } => format!("{error:?}"),
+            other => format!("{other:?}"),
+        }
+    }
+
+    /// The atomic graph fold: get left to right, keeping each stage's
+    /// complement, then put `edited` right to left.
+    fn atomic_graph_fold(
+        stages: &[Lens],
+        source: &GInstance,
+        edited: impl FnOnce(&GInstance) -> GInstance,
+    ) -> (Result<GInstance, String>, Option<Result<GInstance, String>>) {
+        let mut view = source.clone();
+        let mut complements = Vec::new();
+        for stage in stages {
+            match graph_lens::get(stage, &view) {
+                Ok((next, complement)) => {
+                    complements.push(complement);
+                    view = next;
+                }
+                Err(error) => return (Err(unlocated(&error)), None),
+            }
+        }
+        let mut restored = edited(&view);
+        for (stage, complement) in stages.iter().zip(&complements).rev() {
+            match graph_lens::put(stage, &restored, complement) {
+                Ok(next) => restored = next,
+                Err(error) => return (Ok(view), Some(Err(unlocated(&error)))),
+            }
+        }
+        (Ok(view), Some(Ok(restored)))
+    }
+
+    /// The normal-form graph fold of `path`, in the shape of
+    /// [`atomic_graph_fold`].
+    fn normal_graph_fold(
+        path: &LensPath,
+        source: &GInstance,
+        edited: impl FnOnce(&GInstance) -> GInstance,
+    ) -> (Result<GInstance, String>, Option<Result<GInstance, String>>) {
+        match path.get_graph(source) {
+            Err(error) => (Err(unlocated(&error)), None),
+            Ok((view, complement)) => {
+                let put = path
+                    .put_graph(&edited(&view), &complement)
+                    .map_err(|error| unlocated(&error));
+                (Ok(view), Some(put))
+            }
+        }
+    }
+
+    #[test]
+    fn a_fused_identity_pair_keeps_put_precedence_on_an_undeclared_anchor() {
+        let schema = three_node_schema();
+        let stages = [identity_lens(&schema), identity_lens(&schema)];
+        let path = LensPath::single(identity_lens(&schema))
+            .then(&LensPath::single(identity_lens(&schema)))
+            .unwrap_or_else(|error| panic!("path construction failed: {error}"));
+        assert_eq!(path.graph_normal_form().len(), 1, "the pair fuses");
+        let source = GInstance::new()
+            .with_node(panproto_inst::Node::new(0, "post:body"))
+            .with_node(panproto_inst::Node::new(1, "undeclared"));
+        // Reuse the dropped node's id at a declared anchor and attach it by
+        // an undeclared label, so the second stage alone refuses the label
+        // while the first alone would refuse the reused id.
+        let edit = |view: &GInstance| {
+            let mut edited = view.clone();
+            edited
+                .insert_node(panproto_inst::Node::new(1, "post:body"))
+                .unwrap_or_else(|error| panic!("fresh node: {error}"));
+            edited
+                .insert_edge(
+                    panproto_inst::EdgeId(0),
+                    panproto_inst::GEdge::new(0, 1, undeclared_label("post:body")),
+                )
+                .unwrap_or_else(|error| panic!("fresh edge: {error}"));
+            edited
+        };
+        let atomic = atomic_graph_fold(&stages, &source, edit);
+        let normal = normal_graph_fold(&path, &source, edit);
+        assert!(matches!(atomic.1, Some(Err(_))), "the atomic put refuses");
+        assert_eq!(normal, atomic);
+    }
+
+    #[test]
+    fn a_fused_predicate_pair_keeps_the_get_refusal_on_an_undeclared_label() {
+        let schema = three_node_schema();
+        let mut predicate = identity_lens(&schema);
+        predicate
+            .compiled
+            .conditional_survival
+            .insert("post:body".into(), panproto_expr::Expr::var("x"));
+        let stages = [identity_lens(&schema), duplicate(&predicate)];
+        let path = LensPath::single(identity_lens(&schema))
+            .then(&LensPath::single(predicate))
+            .unwrap_or_else(|error| panic!("path construction failed: {error}"));
+        assert_eq!(path.graph_normal_form().len(), 1, "the pair fuses");
+        let mut hidden = panproto_inst::Node::new(0, "post:body");
+        hidden
+            .extra_fields
+            .insert("x".into(), panproto_inst::Value::Bool(false));
+        let mut kept = panproto_inst::Node::new(1, "post:body");
+        kept.extra_fields
+            .insert("x".into(), panproto_inst::Value::Bool(true));
+        let mut source = GInstance::new().with_node(hidden).with_node(kept);
+        source
+            .insert_edge(
+                panproto_inst::EdgeId(0),
+                panproto_inst::GEdge::new(0, 1, undeclared_label("post:body")),
+            )
+            .unwrap_or_else(|error| panic!("source edge: {error}"));
+        let atomic = atomic_graph_fold(&stages, &source, Clone::clone);
+        let normal = normal_graph_fold(&path, &source, Clone::clone);
+        assert!(atomic.0.is_err(), "the atomic get refuses");
+        assert_eq!(normal, atomic);
+    }
+
+    #[test]
+    fn a_fused_tree_identity_pair_keeps_put_precedence_on_an_undeclared_anchor() {
+        let schema = three_node_schema();
+        let stages = [identity_lens(&schema), identity_lens(&schema)];
+        let path = LensPath::single(identity_lens(&schema))
+            .then(&LensPath::single(identity_lens(&schema)))
+            .unwrap_or_else(|error| panic!("path construction failed: {error}"));
+        assert_eq!(path.tree_normal_form().len(), 1, "the pair fuses");
+        let mut source = three_node_instance();
+        source
+            .nodes
+            .insert(9, panproto_inst::Node::new(9, "undeclared"));
+        source.arcs.push((0, 9, undeclared_label("undeclared")));
+        let source = WInstance::new(
+            source.nodes,
+            source.arcs,
+            source.fans,
+            source.root,
+            source.schema_root,
+        );
+        let edit = |view: &WInstance| {
+            let mut nodes = view.nodes.clone();
+            nodes.insert(9, panproto_inst::Node::new(9, "post:body.text"));
+            let mut arcs = view.arcs.clone();
+            arcs.push((0, 9, undeclared_label("post:body.text")));
+            WInstance::new(
+                nodes,
+                arcs,
+                view.fans.clone(),
+                view.root,
+                view.schema_root.clone(),
+            )
+        };
+        let atomic = {
+            let mut view = source.clone();
+            let mut complements = Vec::new();
+            let mut refusal = None;
+            for stage in &stages {
+                match asymmetric::get(stage, &view) {
+                    Ok((next, complement)) => {
+                        complements.push(complement);
+                        view = next;
+                    }
+                    Err(error) => {
+                        refusal = Some(unlocated(&error));
+                        break;
+                    }
+                }
+            }
+            match refusal {
+                Some(error) => (Err(error), None),
+                None => {
+                    let mut restored = edit(&view);
+                    let mut put = None;
+                    for (stage, complement) in stages.iter().zip(&complements).rev() {
+                        match asymmetric::put(stage, &restored, complement) {
+                            Ok(next) => restored = next,
+                            Err(error) => {
+                                put = Some(Err(unlocated(&error)));
+                                break;
+                            }
+                        }
+                    }
+                    (Ok(view), Some(put.unwrap_or(Ok(restored))))
+                }
+            }
+        };
+        let normal = match path.get(&source) {
+            Err(error) => (Err(unlocated(&error)), None),
+            Ok((view, complement)) => {
+                let put = path
+                    .put(&edit(&view), &complement)
+                    .map_err(|error| unlocated(&error));
+                (Ok(view), Some(put))
+            }
+        };
+        let same = match (&atomic, &normal) {
+            ((Ok(a), Some(Ok(ra))), (Ok(b), Some(Ok(rb)))) => {
+                crate::laws::instances_equivalent(a, b) && crate::laws::instances_equivalent(ra, rb)
+            }
+            ((Ok(a), Some(Err(ea))), (Ok(b), Some(Err(eb)))) => {
+                crate::laws::instances_equivalent(a, b) && ea == eb
+            }
+            ((Err(ea), None), (Err(eb), None)) => ea == eb,
+            _ => false,
+        };
+        assert!(same, "atomic {atomic:?} against normal {normal:?}");
     }
 
     #[test]

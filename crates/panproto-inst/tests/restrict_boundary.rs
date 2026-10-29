@@ -363,6 +363,96 @@ fn restricting_the_probe_under_an_unrelated_schema_fails_at_input() {
     );
 }
 
+/// `schema` with one constraint whose sort the default protocol does not
+/// declare: a required static finding, so every report under it is
+/// `Incomplete` unless a required diagnostic makes it `Failed`.
+fn with_static_finding(mut schema: Schema, vertex: &str) -> Schema {
+    schema.constraints.insert(
+        vertex.into(),
+        vec![panproto_schema::Constraint {
+            sort: "undeclared_sort".into(),
+            value: "1".to_owned(),
+        }],
+    );
+    schema
+}
+
+/// Every one of the nine `(input, output)` status pairs, each realized by a
+/// source schema, a target schema and an instance, is observed on the
+/// production boundary and on the reference boundary from the same two
+/// statuses, which are computed by validating the input and the engine's
+/// output independently of the boundary.
+#[test]
+fn restrict_boundary_agrees_with_the_reference_on_every_status_pair() {
+    use panproto_reference::validation::{
+        CheckStatus as ReferenceCheckStatus, ValidationBoundarySide, restriction_boundary,
+    };
+
+    let reference_status = |status: CheckStatus| match status {
+        CheckStatus::Passed => ReferenceCheckStatus::Passed,
+        CheckStatus::Failed => ReferenceCheckStatus::Failed,
+        CheckStatus::Incomplete => ReferenceCheckStatus::Incomplete,
+    };
+    let p = Protocol::default();
+    let c = e("r", "c", "c");
+    let d = e("r", "c", "d");
+    let (_, required_tgt, m) = required_child();
+    let plain_src = schema(&["r", "c"], &[&c, &d], &[]);
+    let failing_src = schema(&["r", "c"], &[&c, &d], &[("r", &d)]);
+    let incomplete_src = with_static_finding(plain_src.clone(), "r");
+    let plain_tgt = schema(&["r", "c"], &[&c], &[]);
+    let incomplete_tgt = with_static_finding(plain_tgt.clone(), "r");
+    let statuses = [
+        CheckStatus::Passed,
+        CheckStatus::Failed,
+        CheckStatus::Incomplete,
+    ];
+    let mut pairs = BTreeSet::new();
+    for input in statuses {
+        for output in statuses {
+            let src = match input {
+                CheckStatus::Passed => &plain_src,
+                CheckStatus::Failed => &failing_src,
+                CheckStatus::Incomplete => &incomplete_src,
+            };
+            let (tgt, graph) = match output {
+                CheckStatus::Passed => (&plain_tgt, rc_graph(1)),
+                CheckStatus::Failed => (&required_tgt, rc_graph(5)),
+                CheckStatus::Incomplete => (&incomplete_tgt, rc_graph(1)),
+            };
+            let observed_input = panproto_inst::validate_graph(&graph, src, &p).status;
+            assert_eq!(observed_input, input, "input realization of {input:?}");
+            let plan = RestrictPlan::compile_with_protocols(src, tgt, &m, both(&p))
+                .expect("the boundary carrier compiles");
+            let (view, _) = graph_restrict_with_plan(&graph, &plan).expect("the engine runs");
+            let observed_output = panproto_inst::validate_graph(&view, tgt, &p).status;
+            assert_eq!(observed_output, output, "output realization of {output:?}");
+            let expected = restriction_boundary(
+                reference_status(observed_input),
+                reference_status(observed_output),
+            );
+            let actual = match graph_restrict(&graph, src, tgt, &m, both(&p)) {
+                Ok(_) => Ok(()),
+                Err(RestrictError::Validation { side, report }) => {
+                    let boundary = match side {
+                        BoundarySide::Input => observed_input,
+                        BoundarySide::Output => observed_output,
+                    };
+                    assert_eq!(report.status, boundary, "{input:?}/{output:?}");
+                    Err(match side {
+                        BoundarySide::Input => ValidationBoundarySide::Input,
+                        BoundarySide::Output => ValidationBoundarySide::Output,
+                    })
+                }
+                Err(other) => panic!("{input:?}/{output:?}: unexpected {other}"),
+            };
+            assert_eq!(actual, expected, "{input:?}/{output:?}");
+            pairs.insert((format!("{input:?}"), format!("{output:?}")));
+        }
+    }
+    assert_eq!(pairs.len(), 9);
+}
+
 /// What the composition of V9 gives: the input side, then compilation,
 /// then the engine, then the output side.
 fn composition(

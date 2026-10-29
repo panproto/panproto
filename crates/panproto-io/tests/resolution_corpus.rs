@@ -5581,6 +5581,14 @@ fn every_resolution_feature_reason_and_instance_error_has_its_wire_form() {
         ResolutionFeature::ReferenceWriter,
         ResolutionFeature::ResolutionState,
         ResolutionFeature::NormalizedOffsets,
+        ResolutionFeature::InlineReference,
+        ResolutionFeature::TargetSet,
+        ResolutionFeature::NullVertex,
+        ResolutionFeature::ScopeVia,
+        ResolutionFeature::StandoffFragments,
+        ResolutionFeature::SpanText,
+        ResolutionFeature::ReferencedText,
+        ResolutionFeature::ExternalUriText,
     ];
     let feature_tags: Vec<String> = features.iter().map(tag).collect();
     assert_eq!(
@@ -5592,7 +5600,15 @@ fn every_resolution_feature_reason_and_instance_error_has_its_wire_form() {
             "assembly",
             "reference_writer",
             "resolution_state",
-            "normalized_offsets"
+            "normalized_offsets",
+            "inline_reference",
+            "target_set",
+            "null_vertex",
+            "scope_via",
+            "standoff_fragments",
+            "span_text",
+            "referenced_text",
+            "external_uri_text"
         ]
     );
     let reasons = [

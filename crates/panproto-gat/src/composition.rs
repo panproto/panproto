@@ -165,7 +165,11 @@ pub enum RecipeOpImage {
 /// missing from the inline theories, the registry and intermediate
 /// results; [`GatError::FactorizationError`] for a shared sort or
 /// operation one side lacks, the shared sorts checked before the shared
-/// operations; and a refused composition as [`GatError::Composition`].
+/// operations; a refused composition as [`GatError::Composition`]; and
+/// [`GatError::DuplicateInlineTheory`] for a diagram step two of whose
+/// inline theories share a name, checked before any of its node names is
+/// resolved. Steps are replayed in order and the first refusal is
+/// returned.
 pub fn recompose<S: ::std::hash::BuildHasher>(
     spec: &CompositionSpec,
     registry: &HashMap<String, Theory, S>,
@@ -211,6 +215,9 @@ pub fn recompose<S: ::std::hash::BuildHasher>(
                 rewrite_budget,
                 inline,
             } => {
+                if let Some(name) = repeated_inline_name(inline) {
+                    return Err(GatError::DuplicateInlineTheory { step: i, name });
+                }
                 let opts = ComposeOptions {
                     mode: *mode,
                     result_name: Arc::from(step_name.as_str()),
@@ -295,6 +302,16 @@ fn replay_colimit(
         rewrite_budget: DEFAULT_VERIFY_BUDGET,
     };
     Ok(compose(&diagram, &opts)?.theory)
+}
+
+/// The name of the first inline theory, in order, whose name an earlier
+/// one already carries.
+fn repeated_inline_name(inline: &[Theory]) -> Option<String> {
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    inline
+        .iter()
+        .find(|theory| !seen.insert(theory.name.as_ref()))
+        .map(|theory| theory.name.to_string())
 }
 
 /// Rebuild the diagram of a [`CompositionStep::Diagram`].

@@ -6,6 +6,12 @@ ignore = [
     # nickel-lang-core used only at Nickel evaluation time (not in hot paths).
     # No security impact; will be resolved when nickel-lang updates.
     "RUSTSEC-2024-0436",
+    # unsafe-libyaml is unmaintained (RUSTSEC-2024-0449). It arrives only
+    # through nickel-lang and nickel-lang-core -> serde_yaml 0.9 and is
+    # reached only when Nickel evaluates YAML. The advisory records no
+    # vulnerability, and no maintained serde_yaml release replaces it for
+    # nickel-lang 2.2.0.
+    "RUSTSEC-2024-0449",
     # bitmaps is unmaintained (RUSTSEC-2026-0247, repository archived
     # 2026-05-03). It arrives through nickel-lang -> nickel-lang-vector ->
     # imbl-sized-chunks and is reached only at Nickel evaluation time. The

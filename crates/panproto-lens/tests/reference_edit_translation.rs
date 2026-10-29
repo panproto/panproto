@@ -167,6 +167,25 @@ fn delta_to_reference(delta: &GraphDelta) -> reference::GraphDelta {
     out
 }
 
+/// `delta` with its added edges at or above `floor` renumbered, in
+/// ascending order, from `u32::MAX / 2`: fresh ids that two presentations
+/// allocate from different floors.
+fn fresh_edges_renamed(delta: &reference::GraphDelta, floor: u32) -> reference::GraphDelta {
+    let mut out = delta.clone();
+    let fresh: Vec<_> = delta
+        .add
+        .iter()
+        .filter(|(element, _)| matches!(element, reference::GElem::Edge(id) if *id >= floor))
+        .map(|(element, payload)| (element.clone(), payload.clone()))
+        .collect();
+    for (offset, (element, payload)) in (0u32..).zip(fresh) {
+        out.add.remove(&element);
+        out.add
+            .insert(reference::GElem::Edge(u32::MAX / 2 + offset), payload);
+    }
+    out
+}
+
 fn project(graph: &reference_model::Graph) -> (reference_model::Graph, ComplementObs) {
     let retained: BTreeMap<_, _> = graph
         .nodes
@@ -245,6 +264,28 @@ fn edit_to_production(edit: &reference::TreeEdit) -> TreeEdit {
     match edit {
         reference::TreeEdit::Identity => TreeEdit::Identity,
         reference::TreeEdit::DeleteNode { id } => TreeEdit::DeleteNode { id: *id },
+        reference::TreeEdit::InsertNode {
+            parent,
+            child_id,
+            node,
+            edge,
+        } => {
+            assert!(node.fields.is_empty() && node.value.is_none());
+            TreeEdit::InsertNode {
+                parent: *parent,
+                child_id: *child_id,
+                node: Node::new(node.id, node.anchor.as_str()),
+                edge: Edge {
+                    src: edge.src.as_str().into(),
+                    tgt: edge.tgt.as_str().into(),
+                    kind: edge.kind.as_str().into(),
+                    name: edge.name.as_deref().map(Into::into),
+                },
+            }
+        }
+        reference::TreeEdit::Sequence(steps) => {
+            TreeEdit::Sequence(steps.iter().map(edit_to_production).collect())
+        }
         other => panic!("edit outside the translation carrier: {other:?}"),
     }
 }
@@ -321,9 +362,14 @@ fn assert_get_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
     let tree_actual = tree_lens
         .get_edit(edit.clone())
         .unwrap_or_else(|error| panic!("tree get translation {name}: {error:?}"));
+    // The tree path lowers in the view's own presentation, whose floor
+    // allocates fresh arc ids; those are compared up to renaming, in order.
     assert_eq!(
-        delta_to_reference(&lower(&fixture.view, &fixture.view_embedding, &tree_actual,)),
-        expected.delta,
+        fresh_edges_renamed(
+            &delta_to_reference(&lower(&fixture.view, &fixture.view_embedding, &tree_actual)),
+            fixture.view_embedding.next_edge,
+        ),
+        fresh_edges_renamed(&expected.delta, fixture.source_embedding.next_edge),
         "tree lowering: {name}"
     );
     assert_eq!(
@@ -369,9 +415,10 @@ fn assert_put_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
         panproto_reference::edit::apply(&reference_view_delta, &fixture.reference_view).unwrap();
     assert_eq!(
         expected.delta,
-        panproto_reference::edit::diff(
+        panproto_reference::edit::diff_keeping_replacements(
             &fixture.reference_source,
-            &restore(&edited_reference_view, &fixture.reference_complement)
+            &restore(&edited_reference_view, &fixture.reference_complement),
+            &reference_view_delta,
         ),
         "explicit differ: {name}"
     );
@@ -403,4 +450,53 @@ fn generic_whole_state_edit_oracles_match_actual_tree_lens_translation() {
             carrier::EditTranslationDirection::Put => assert_put_case(&fixture, case),
         }
     }
+}
+
+/// A graph delta replacing the retained leaf and its arc by equal payloads
+/// applies to the source; the translated view delta keeps both replacements,
+/// as the reference oracle does, instead of the identity a state differ
+/// returns.
+#[test]
+fn graph_get_keeps_same_payload_replacements_of_the_input() {
+    let fixture = translation_fixture();
+    let source_graph =
+        GInstance::from_wtype_under(&fixture.source, &fixture.source_embedding, None).unwrap();
+    let arc = *fixture.source_embedding.arcs.get(&VISIBLE).unwrap();
+    let mut parts = panproto_inst::graph_edit::GraphDeltaParts::default();
+    let node = source_graph.node(VISIBLE).unwrap().clone();
+    let gedge = source_graph.edge(arc).unwrap().clone();
+    parts.del_nodes.insert(VISIBLE, node.clone());
+    parts.add_nodes.insert(VISIBLE, node);
+    parts.del_edges.insert(arc, gedge.clone());
+    parts.add_edges.insert(arc, gedge);
+    let delta = GraphDelta::normalize(parts).unwrap();
+    let reference_delta = delta_to_reference(&delta);
+    let expected = panproto_reference::edit::get_edit(
+        &|state| Ok::<_, &'static str>(project(state)),
+        &fixture.reference_source,
+        &reference_delta,
+    )
+    .unwrap();
+    assert_eq!(expected.delta.del.len(), 2);
+    assert_eq!(expected.delta.del, expected.delta.add);
+    assert_ne!(
+        expected.delta,
+        panproto_reference::edit::diff(&fixture.reference_view, &fixture.reference_view)
+    );
+
+    let mut lens = edit_lens(&fixture.source);
+    let actual = lens
+        .get_graph_edit(
+            &fixture.source,
+            &fixture.source_embedding,
+            &fixture.view,
+            &fixture.view_embedding,
+            &delta,
+        )
+        .unwrap();
+    assert_eq!(delta_to_reference(&actual), expected.delta);
+    assert_eq!(
+        complement_to_reference(&lens.complement, &fixture.source_embedding),
+        expected.complement
+    );
 }

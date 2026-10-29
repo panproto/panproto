@@ -387,7 +387,9 @@ fn every_get_path_stamps_its_complement() {
     assert_eq!(path_complement.entries().len(), 1);
     assert_eq!(path_complement.entries()[0].envelope, expected);
     assert_eq!(
-        path_complement.entries()[0].complement.identity.as_ref(),
+        path_complement.entries()[0].complement.complements()[0]
+            .identity
+            .as_ref(),
         Some(&expected)
     );
 }
@@ -2729,7 +2731,11 @@ proptest! {
                 normal_complement
                     .entries()
                     .iter()
-                    .any(|entry| !entry.complement.synthesized_fk_pairs.is_empty())
+                    .any(|entry| entry
+                        .complement
+                        .complements()
+                        .iter()
+                        .any(|complement| !complement.synthesized_fk_pairs.is_empty()))
             );
         }
 

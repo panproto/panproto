@@ -47,13 +47,62 @@ pub mod implementation {
         }
     }
 
-    /// Definition: Lexical-space validation applies the declared recognizer to
-    /// the literal source text exactly once.
+    /// Definition: Membership of `text` in the lexical space of the XSD
+    /// datatype `datatype` (XSD 1.1 Part 2), for `integer`, `decimal`,
+    /// `double`, `float`, `boolean`, `date`, `dateTime`, `time` and `gYear`;
+    /// `None` for any other datatype. Each space is its regular production,
+    /// matched by this crate's backtracking pattern engine, with the
+    /// constraints the productions state in prose: the day of the month
+    /// exists in its month and year, and a time is below 24:00:00 or is
+    /// exactly 24:00:00 with a zero fraction. A leap second is outside every
+    /// space, and a year of more than four digits has no leading zero.
     ///
     /// Book anchors: `L-validation-17`.
     #[must_use]
-    pub fn lexical_space(text: &str, accepts: impl FnOnce(&str) -> bool) -> bool {
-        accepts(text)
+    pub fn lexical_space(text: &str, datatype: &str) -> Option<bool> {
+        const YEAR: &str = "-?(?:[1-9][0-9]{3,}|0[0-9]{3})";
+        const TIME: &str = "(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?|24:00:00(?:\\.0+)?";
+        const ZONE: &str = "(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))?";
+        const DECIMAL: &str = "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)";
+        let local = datatype.strip_prefix("http://www.w3.org/2001/XMLSchema#")?;
+        let pattern = match local {
+            "integer" => "^[+-]?[0-9]+$".to_owned(),
+            "decimal" => format!("^{DECIMAL}$"),
+            "double" | "float" => {
+                format!("^(?:{DECIMAL}(?:[eE][+-]?[0-9]+)?|[+-]?INF|NaN)$")
+            }
+            "boolean" => "^(?:true|false|1|0)$".to_owned(),
+            "date" => format!("^(?:{YEAR})-[0-9]{{2}}-[0-9]{{2}}{ZONE}$"),
+            "dateTime" => format!("^(?:{YEAR})-[0-9]{{2}}-[0-9]{{2}}T(?:{TIME}){ZONE}$"),
+            "time" => format!("^(?:{TIME}){ZONE}$"),
+            "gYear" => format!("^{YEAR}{ZONE}$"),
+            _ => return None,
+        };
+        let matched = crate::pattern::compile(&pattern)
+            .is_ok_and(|compiled| compiled.is_match(text));
+        if !matched {
+            return Some(false);
+        }
+        if matches!(local, "date" | "dateTime") {
+            // The productions leave the day of the month to prose.
+            let negative = text.starts_with('-');
+            let body = text.trim_start_matches('-');
+            let mut fields = body.splitn(3, '-');
+            let year: i64 = fields.next()?.parse().ok()?;
+            let month: u32 = fields.next()?.parse().ok()?;
+            let day: u32 = fields.next()?.get(..2)?.parse().ok()?;
+            let year = if negative { -year } else { year };
+            let leap = year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
+            let last = match month {
+                1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                4 | 6 | 9 | 11 => 30,
+                2 if leap => 29,
+                2 => 28,
+                _ => return Some(false),
+            };
+            return Some((1..=last).contains(&day));
+        }
+        Some(true)
     }
 
     /// The number of candidates at a selector boundary.
@@ -687,7 +736,7 @@ pub mod implementation {
             if !schema.vertices.contains_key(&n.anchor) {
                 out.push(diag(
                     CheckKind::NodeAnchor,
-                    SchemaRef::Vertex(n.anchor.clone()),
+                    SchemaRef::Schema,
                     Some(ViewRef::Node(*id)),
                     vec![ViewRef::Node(*id)],
                     Violation::UnknownAnchor(n.anchor.clone()),
@@ -772,7 +821,7 @@ pub mod implementation {
             if !schema.edges.contains(&e.label) {
                 out.push(diag(
                     CheckKind::EdgeDeclared,
-                    SchemaRef::Edge(e.label.clone()),
+                    SchemaRef::Schema,
                     Some(me.clone()),
                     vec![me.clone()],
                     Violation::UndeclaredEdge(e.label.clone()),
@@ -784,7 +833,7 @@ pub mod implementation {
                 let Some(found) = g.nodes.get(&node).map(|n| &n.anchor) else {
                     out.push(diag(
                         CheckKind::EndpointCoherence,
-                        SchemaRef::Edge(e.label.clone()),
+                        SchemaRef::Schema,
                         Some(me.clone()),
                         vec![me.clone()],
                         Violation::DanglingEndpoint(src_side, node),
@@ -796,7 +845,7 @@ pub mod implementation {
                         Violation::IncoherentEndpoint(src_side, expected.clone(), found.clone());
                     out.push(diag(
                         CheckKind::EndpointCoherence,
-                        SchemaRef::Edge(e.label.clone()),
+                        SchemaRef::Schema,
                         Some(me.clone()),
                         vec![me.clone(), ViewRef::Node(node)],
                         v,
@@ -3268,11 +3317,11 @@ pub mod implementation {
                     }
                 }
             }
-            for (id, node) in &tree.nodes {
+            for id in tree.nodes.keys() {
                 if !reached.contains(id) {
                     diagnostics.push(diag(
                         CheckKind::TreeReachable,
-                        SchemaRef::Vertex(node.anchor.clone()),
+                        SchemaRef::Schema,
                         Some(ViewRef::Node(*id)),
                         vec![ViewRef::Node(*id)],
                         Violation::Unreachable,
@@ -3280,10 +3329,10 @@ pub mod implementation {
                 }
             }
         } else if !complete_segment {
-            incomplete.extend(tree.nodes.iter().map(|(id, node)| {
+            incomplete.extend(tree.nodes.keys().map(|id| {
                 undecided(
                     CheckKind::TreeReachable,
-                    SchemaRef::Vertex(node.anchor.clone()),
+                    SchemaRef::Schema,
                     Requirement::Required,
                     Some(ViewRef::Node(*id)),
                     IncompleteReason::OutsideSegment {
@@ -3955,6 +4004,23 @@ pub mod implementation {
     }
 
     impl TrustedSchedule {
+        /// The schedule restricted to the instances `keep` selects, in the
+        /// same order: the schedule of a plan that compiles only those
+        /// checks.
+        #[must_use]
+        pub fn restricted(&self, keep: impl Fn(&CheckInstance) -> bool) -> Self {
+            Self {
+                shape: self.shape,
+                runs: self
+                    .runs
+                    .iter()
+                    .filter(|run| keep(&run.instance))
+                    .cloned()
+                    .collect(),
+                plan_error: self.plan_error.clone(),
+            }
+        }
+
         /// Complete ordered check identities.
         #[must_use]
         pub fn instances(&self) -> Vec<CheckInstance> {
@@ -4350,7 +4416,7 @@ pub mod implementation {
                 runs,
                 CheckKey {
                     kind: CheckKind::NodeAnchor,
-                    decl: SchemaRef::Vertex(anchor.clone()),
+                    decl: SchemaRef::Schema,
                 },
                 Some(subject.clone()),
                 Requirement::Required,
@@ -4393,7 +4459,7 @@ pub mod implementation {
                     runs,
                     CheckKey {
                         kind: CheckKind::TreeReachable,
-                        decl: SchemaRef::Vertex(anchor.clone()),
+                        decl: SchemaRef::Schema,
                     },
                     Some(subject.clone()),
                     Requirement::Required,
@@ -4408,12 +4474,12 @@ pub mod implementation {
         edges: &[(ViewRef, SEdge, ViewRef, ViewRef)],
         runs: &mut BTreeMap<CheckInstance, CheckRun>,
     ) {
-        for (subject, edge, source, target) in edges {
+        for (subject, _, source, target) in edges {
             insert_plan_run(
                 runs,
                 CheckKey {
                     kind: CheckKind::EdgeDeclared,
-                    decl: SchemaRef::Edge(edge.clone()),
+                    decl: SchemaRef::Schema,
                 },
                 Some(subject.clone()),
                 Requirement::Required,
@@ -4423,7 +4489,7 @@ pub mod implementation {
                 runs,
                 CheckKey {
                     kind: CheckKind::EndpointCoherence,
-                    decl: SchemaRef::Edge(edge.clone()),
+                    decl: SchemaRef::Schema,
                 },
                 Some(subject.clone()),
                 Requirement::Required,
@@ -5507,12 +5573,132 @@ pub mod implementation {
         Ok(())
     }
 
+    /// The exact footprint of one transition between two complete schedules.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct IncrementalFootprint {
+        /// Instances of the target schedule that the baseline lacks.
+        pub created: BTreeSet<CheckInstance>,
+        /// Instances of the baseline schedule that the target lacks.
+        pub retired: BTreeSet<CheckInstance>,
+        /// Persistent instances whose complete outcome or read set differs
+        /// between the two schedules: the least set a transition must rerun.
+        pub changed: BTreeSet<CheckInstance>,
+    }
+
+    fn run_outcome(run: &CheckRun) -> (&[Diagnostic], &[IncompleteCheck]) {
+        (&run.diagnostics, &run.incomplete)
+    }
+
+    /// Definition: The exact footprint of the transition from `baseline` to
+    /// `target`, two complete schedules of one plan: `created` and `retired`
+    /// are the two set differences of their check instances, and `changed`
+    /// holds every persistent instance whose ordered outcome or exact read
+    /// set differs. A transition is sound when its rerun set contains
+    /// `changed`; carrying every other persistent outcome is then exact.
+    ///
+    /// Book anchors: `L-validation-3`.
+    #[must_use]
+    pub fn incremental_footprint(
+        baseline: &TrustedSchedule,
+        target: &TrustedSchedule,
+    ) -> IncrementalFootprint {
+        let before: BTreeMap<&CheckInstance, &CheckRun> =
+            baseline.runs.iter().map(|run| (&run.instance, run)).collect();
+        let after: BTreeMap<&CheckInstance, &CheckRun> =
+            target.runs.iter().map(|run| (&run.instance, run)).collect();
+        let mut footprint = IncrementalFootprint::default();
+        for (instance, run) in &after {
+            match before.get(instance) {
+                None => {
+                    footprint.created.insert((*instance).clone());
+                }
+                Some(old) => {
+                    if run_outcome(old) != run_outcome(run) || old.reads != run.reads {
+                        footprint.changed.insert((*instance).clone());
+                    }
+                }
+            }
+        }
+        for instance in before.keys() {
+            if !after.contains_key(instance) {
+                footprint.retired.insert((*instance).clone());
+            }
+        }
+        footprint
+    }
+
+    /// Definition: The read set a transition that reruns `rerun` must
+    /// report: baseline and target reads of every rerun instance, target
+    /// reads of every created instance and baseline reads of every retired
+    /// instance.
+    ///
+    /// Book anchors: `L-validation-3`.
+    #[must_use]
+    pub fn footprint_reads(
+        baseline: &TrustedSchedule,
+        target: &TrustedSchedule,
+        rerun: &BTreeSet<CheckInstance>,
+    ) -> BTreeSet<ViewRef> {
+        let footprint = incremental_footprint(baseline, target);
+        let mut reads = BTreeSet::new();
+        for run in &baseline.runs {
+            if rerun.contains(&run.instance) || footprint.retired.contains(&run.instance) {
+                reads.extend(run.reads.iter().cloned());
+            }
+        }
+        for run in &target.runs {
+            if rerun.contains(&run.instance) || footprint.created.contains(&run.instance) {
+                reads.extend(run.reads.iter().cloned());
+            }
+        }
+        reads
+    }
+
+    /// Definition: The report an unlimited transition from `baseline` to
+    /// `target` builds when it reruns `rerun`: every created or rerun
+    /// instance takes its target outcome, every other persistent instance
+    /// carries its baseline outcome, and retired instances are dropped.
+    /// When `rerun` contains the footprint's `changed` set, this report is
+    /// the target's whole report; a smaller rerun set may carry a stale
+    /// outcome.
+    ///
+    /// Book anchors: `L-validation-4`, `L-validation-5`.
+    #[must_use]
+    pub fn incremental_report(
+        baseline: &TrustedSchedule,
+        target: &TrustedSchedule,
+        rerun: &BTreeSet<CheckInstance>,
+    ) -> Report {
+        let before: BTreeMap<&CheckInstance, &CheckRun> =
+            baseline.runs.iter().map(|run| (&run.instance, run)).collect();
+        let mut diagnostics = Vec::new();
+        let mut incomplete = Vec::new();
+        for run in &target.runs {
+            let source = match before.get(&run.instance) {
+                Some(old) if !rerun.contains(&run.instance) => *old,
+                _ => run,
+            };
+            diagnostics.extend(source.diagnostics.iter().cloned());
+            incomplete.extend(source.incomplete.iter().cloned());
+        }
+        finish_report(target.shape, diagnostics, incomplete)
+    }
+
     /// Definition: The admission policies over outcome bundles of required check instances.
     ///
-    /// `RequirePassed` admits exactly a result with no failed or incomplete bundle; `NoNewFailures`
-    /// admits iff every failed or incomplete bundle of the result was already open in the baseline with
-    /// equal bytes, where each instance of a baseline budget cut counts as open with the given virtual
-    /// incomplete bundle.
+    /// A state is presented as a map from keys to bundles. A bundle is the
+    /// canonical bytes of the required entries of one key: the required
+    /// diagnostics and incomplete entries of an open check instance (its
+    /// advisory entries projected away), the virtual budget incompleteness of
+    /// a budget-skipped required instance, or one required plan-static
+    /// finding. A key with no required entry has no bundle, so a state is
+    /// `Passed` exactly when its map is empty.
+    ///
+    /// `RequirePassed` admits exactly a result whose map is empty, that is a
+    /// `Passed` result; `NoNewFailures` admits iff every bundle of the result
+    /// was already present in the baseline with equal bytes, where each
+    /// instance of a baseline budget cut counts as present with the given
+    /// virtual incomplete bundle.
     ///
     /// Book anchors: `L-validation-12`.
     #[must_use]
@@ -5575,52 +5761,126 @@ pub mod implementation {
         crate::schema::validate_declarations(schema)
     }
 
-    /// Definition: Advisory format validation leaves the stored optional value
-    /// unchanged.
+    /// The value kind a width format names, or `None` for any other format:
+    /// `int8`, `int16`, `int`/`int32` and `long`/`int64` the signed integers
+    /// of that width, `float` and `double` the binary floats of 32 and 64
+    /// bits.
+    #[must_use]
+    pub fn width_format_kind(format: &str) -> Option<crate::coerce::ScalarKind> {
+        use crate::coerce::ScalarKind as K;
+        Some(match format {
+            "int8" => K::Int {
+                bits: 8,
+                signed: true,
+            },
+            "int16" => K::Int {
+                bits: 16,
+                signed: true,
+            },
+            "int" | "int32" => K::Int {
+                bits: 32,
+                signed: true,
+            },
+            "long" | "int64" => K::Int {
+                bits: 64,
+                signed: true,
+            },
+            "float" => K::Float { bits: 32 },
+            "double" => K::Float { bits: 64 },
+            _ => return None,
+        })
+    }
+
+    /// Whether `text` is an RFC 4122 UUID in its textual form: 32
+    /// hexadecimal digits, either case, grouped 8-4-4-4-12 by hyphens.
+    #[must_use]
+    pub fn uuid_text(text: &str) -> bool {
+        let groups: Vec<&str> = text.split('-').collect();
+        groups.len() == 5
+            && groups
+                .iter()
+                .zip([8, 4, 4, 4, 12])
+                .all(|(group, len)| group.len() == len && group.chars().all(|c| c.is_ascii_hexdigit()))
+    }
+
+    /// Definition: Without the format-assertion vocabulary, the value a parse
+    /// gives the lexeme `text` of class `class` at a position whose kind is
+    /// `kind` and whose annotated format is `format`: the coercion under the
+    /// kind alone. An annotated format never enters coercion, so the parse
+    /// with the format is the parse with it removed.
     ///
     /// Book anchors: `L-validation-18`.
     #[must_use]
-    pub fn annotated_format_parse<T: Eq>(without: &Option<T>, with: &Option<T>) -> bool {
-        without == with
+    pub fn annotated_format_parse(
+        text: &str,
+        class: &crate::coerce::LexClass,
+        kind: crate::coerce::ScalarKind,
+        _format: Option<&str>,
+    ) -> crate::coerce::Coerced {
+        crate::coerce::coerce(text, class, &crate::coerce::ValueSpec::of(kind))
     }
 
-    /// Definition: For a recognized advisory format, validation reports precisely
-    /// the complement of the declared recognizer.
+    /// Definition: Whether an annotated (advisory) format reports `value`:
+    /// for a width format, exactly when the value does not coerce under the
+    /// format's kind; for `uuid`, exactly when the value is text not in the
+    /// UUID form (a value of another kind is outside a named format's
+    /// domain); `None` for any other format, which compiles to no check.
     ///
     /// Book anchors: `L-validation-19`.
     #[must_use]
-    pub fn annotated_format_advisory(
-        text: &str,
-        accepts: impl FnOnce(&str) -> bool,
-        reports: bool,
-    ) -> bool {
-        reports != accepts(text)
+    pub fn annotated_format_advisory(value: &Value, format: &str) -> Option<bool> {
+        if let Some(kind) = width_format_kind(format) {
+            let coerces = matches!(
+                crate::coerce::coerce_value(value, &crate::coerce::ValueSpec::of(kind)),
+                Some(Ok(_))
+            );
+            return Some(!coerces);
+        }
+        match format {
+            // A named format constrains text only; a value of another kind
+            // is outside its domain, as JSON Schema's formats are.
+            "uuid" => Some(matches!(value, Value::Str(text) if !uuid_text(text))),
+            _ => None,
+        }
     }
 
-    /// Definition: For a recognized asserting format, validation passes exactly the
-    /// values admitted by its recognizer.
+    /// Definition: With the format-assertion vocabulary, whether a parse
+    /// accepts the lexeme `text` of class `class` at a position of kind
+    /// `kind` asserting the integer width format `format`: exactly when the
+    /// lexeme coerces under the kind with the format's width as its integer
+    /// width parameter. `None` for a format that names no integer width.
     ///
     /// Book anchors: `L-validation-20`.
     #[must_use]
     pub fn format_assertion_acceptance(
         text: &str,
-        accepts: impl FnOnce(&str) -> bool,
-        accepted: bool,
-    ) -> bool {
-        accepted == accepts(text)
+        class: &crate::coerce::LexClass,
+        kind: crate::coerce::ScalarKind,
+        format: &str,
+    ) -> Option<bool> {
+        let crate::coerce::ScalarKind::Int { bits, .. } = width_format_kind(format)? else {
+            return None;
+        };
+        let spec = crate::coerce::ValueSpec {
+            int_bits: Some(bits),
+            ..crate::coerce::ValueSpec::of(kind)
+        };
+        Some(matches!(crate::coerce::coerce(text, class, &spec), Some(Ok(_))))
     }
 }
 
 pub use self::implementation::{
     BaselineBudgetEvidence, BudgetEvaluation, CheckClass, CheckCoverage, CheckInstance, CheckKey,
-    CheckKind, CheckRun, CheckStatus, Diagnostic, IncompleteCheck, IncompleteReason, InstanceShape,
+    CheckKind, CheckRun, CheckStatus, Diagnostic, IncompleteCheck, IncompleteReason,
+    IncrementalFootprint, InstanceShape,
     NativeRef, PriorAdmissionPolicy, Report, Requirement, RunBundleError, SchemaRef,
     SelectorClassification, Semantics, ShapeRefusal, TrustedSchedule, ValidationBoundarySide,
     ValidationBudget, ValidationContext, ValidationInput, ValidationOutcome, ValidationTrust,
     ValidationWitness, Violation, WitnessError, admits, annotated_format_advisory,
-    annotated_format_parse, classify_selector, evaluate_runs, format_assertion_acceptance,
-    index_and_null_match, key_equality, key_forms, lexical_space, restriction_boundary, status,
-    trusted_schedule, validate, validate_graph, validate_graph_with_context, validate_table,
+    annotated_format_parse, classify_selector, evaluate_runs, footprint_reads,
+    format_assertion_acceptance, incremental_footprint, incremental_report, index_and_null_match,
+    key_equality, key_forms, lexical_space, restriction_boundary, status,
+    trusted_schedule, uuid_text, validate, validate_graph, validate_graph_with_context, validate_table,
     validate_table_with_context, validate_tree, validate_tree_with_context, value_sites,
-    variable_binding, witness, witness_with_trust,
+    variable_binding, width_format_kind, witness, witness_with_trust,
 };

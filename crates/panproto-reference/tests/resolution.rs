@@ -104,6 +104,21 @@ fn a_reference_resolves_and_a_reconnected_edge_rewrites_the_key() {
             ..moved.edges[&3].clone()
         },
     );
+    // The holder's key stays visible beside the edge, so an edge moved while
+    // the visible key still names the old target is not writable.
+    assert_eq!(
+        resolution::put(&s, &moved, &c),
+        Err(ResolveError::UnrepresentableReference {
+            carrier: panproto_reference::lens::ViewRef::Node(1),
+            reference: Some("film_lead".into()),
+        })
+    );
+    moved
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("lead".into(), Value::Str("Bob".into()));
     let back = resolution::put(&s, &moved, &c).unwrap();
     assert_eq!(back.nodes[&1].fields["lead"], Value::Str("Bob".into()));
 }
@@ -236,6 +251,10 @@ fn a_many_reference_resolves_each_position_and_writes_its_sequence_back() {
     let middle = *c.resolved.iter().find(|(_, o)| o.index == 1).unwrap().0;
     let mut removed = view.clone();
     removed.edges.remove(&middle);
+    removed.nodes.get_mut(&1).unwrap().fields.insert(
+        "lead".into(),
+        Value::List(vec![Value::Str("Bob".into()), Value::Str("Bob".into())]),
+    );
     let back = resolution::put(&s, &removed, &c).unwrap();
     assert_eq!(
         back.nodes[&1].fields["lead"],
@@ -245,6 +264,18 @@ fn a_many_reference_resolves_each_position_and_writes_its_sequence_back() {
     let first = *c.resolved.iter().find(|(_, o)| o.index == 0).unwrap().0;
     let mut moved = view;
     moved.edges.get_mut(&first).unwrap().tgt = 2;
+    assert!(
+        resolution::put(&s, &moved, &c).is_err(),
+        "a moved edge beside its stale visible sequence is refused"
+    );
+    moved.nodes.get_mut(&1).unwrap().fields.insert(
+        "lead".into(),
+        Value::List(vec![
+            Value::Str("Ann".into()),
+            Value::Str("Ann".into()),
+            Value::Str("Bob".into()),
+        ]),
+    );
     let back = resolution::put(&s, &moved, &c).unwrap();
     assert_eq!(
         back.nodes[&1].fields["lead"],

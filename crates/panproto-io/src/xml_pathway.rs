@@ -19,13 +19,14 @@
 //!   exact round trip. This spelling is a deliberate departure from XSD 1.1
 //!   Part 2, Sections 3.3.4.1-3.3.4.2.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use panproto_inst::WInstance;
 use panproto_inst::metadata::Node;
 use panproto_inst::value::coerce::{LexClass, Lexeme};
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{NodeShape, ValueFidelityError, ValueSite};
+use panproto_schema::value_kinds::NumeralDialect;
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, ValueSpec};
 use quick_xml::NsReader;
 use quick_xml::events::Event;
@@ -363,12 +364,24 @@ fn append_xml_entity_output(output: &mut String, text: &str) -> Result<(), XmlEn
     Ok(())
 }
 
+/// Resolve the body of an XML 1.0 `CharRef` (`'&#' [0-9]+ ';' | '&#x'
+/// [0-9a-fA-F]+ ';'`). Only ASCII digits of the reference's radix are read:
+/// `u32::from_str_radix` would also take a leading `+`, which the grammar
+/// does not admit.
 fn xml_character_reference(name: &str) -> Option<Result<char, XmlEntityError>> {
     let digits = name.strip_prefix('#')?;
     let (radix, digits) = digits
         .strip_prefix('x')
         .map_or((10, digits), |hexadecimal| (16, hexadecimal));
-    if digits.is_empty() {
+    let well_formed = !digits.is_empty()
+        && digits.bytes().all(|byte| {
+            if radix == 16 {
+                byte.is_ascii_hexdigit()
+            } else {
+                byte.is_ascii_digit()
+            }
+        });
+    if !well_formed {
         return Some(Err(XmlEntityError::Malformed));
     }
     let Ok(code_point) = u32::from_str_radix(digits, radix) else {
@@ -1105,8 +1118,83 @@ pub fn xml_expanded_name(namespace_uri: &str, local_name: &str) -> (String, Stri
     (namespace_uri.to_owned(), local_name.to_owned())
 }
 
+/// The spec under which XML text of `vertex` is read and written: the
+/// vertex's spec in the XML Schema numeral dialect, whose special doubles are
+/// `INF`, `-INF` and `NaN`.
+fn xml_value_spec(schema: &Schema, protocol: &Protocol, vertex: &panproto_gat::Name) -> ValueSpec {
+    ValueSpec {
+        numeral: Some(NumeralDialect::Xsd),
+        ..ValueSpec::for_vertex(schema, protocol, vertex)
+    }
+}
+
+/// The XML Schema spelling of a binary64 value: the shared finite printer,
+/// `INF` and `-INF`, `NaN`, and `-NaN` for the negative canonical NaN. A NaN
+/// with any other payload has no spelling.
+fn xml_float_lexeme(value: f64) -> Option<String> {
+    if value.is_finite() {
+        crate::json_pathway::finite_float_lexeme(value, true)
+    } else if value.to_bits() == f64::INFINITY.to_bits() {
+        Some("INF".to_owned())
+    } else if value.to_bits() == f64::NEG_INFINITY.to_bits() {
+        Some("-INF".to_owned())
+    } else if value.to_bits() == panproto_inst::value::CANONICAL_NAN.to_bits() {
+        Some("NaN".to_owned())
+    } else if value.to_bits() == panproto_inst::value::NEGATIVE_CANONICAL_NAN.to_bits() {
+        Some("-NaN".to_owned())
+    } else {
+        None
+    }
+}
+
 fn xml_clark_name(namespace_uri: &str, local_name: &str) -> String {
     format!("{{{namespace_uri}}}{local_name}")
+}
+
+/// The namespace name under which an attribute named `xmlns` or `xmlns:*`
+/// is bound by Namespaces in XML 1.0 Sec 3.
+const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
+
+/// Offsets, relative to the first byte after `<`, of each attribute name
+/// token of a start tag whose attribute syntax quick-xml has accepted, in
+/// source order. `source` is the tag's bytes after `<`, its element name
+/// first.
+fn xml_attribute_name_offsets(source: &[u8]) -> Vec<usize> {
+    let space = |byte: u8| matches!(byte, b' ' | b'\t' | b'\r' | b'\n');
+    let mut offsets = Vec::new();
+    let mut index = source
+        .iter()
+        .position(|byte| space(*byte))
+        .unwrap_or(source.len());
+    loop {
+        while source.get(index).copied().is_some_and(space) {
+            index += 1;
+        }
+        if index >= source.len() || source[index] == b'/' {
+            return offsets;
+        }
+        offsets.push(index);
+        while source
+            .get(index)
+            .is_some_and(|byte| !space(*byte) && *byte != b'=')
+        {
+            index += 1;
+        }
+        while source
+            .get(index)
+            .is_some_and(|byte| space(*byte) || *byte == b'=')
+        {
+            index += 1;
+        }
+        let Some(&quote) = source.get(index) else {
+            return offsets;
+        };
+        index += 1;
+        while source.get(index).is_some_and(|byte| *byte != quote) {
+            index += 1;
+        }
+        index += 1;
+    }
 }
 
 fn parse_xml_clark_name(name: &str) -> Option<(&str, &str)> {
@@ -1479,7 +1567,7 @@ fn materialize_declared_empty_xml_scalar(
     fidelity: &mut Vec<ValueFidelityError>,
 ) {
     let vertex = panproto_gat::Name::from(vertex);
-    let spec = ValueSpec::for_vertex(schema, protocol, &vertex);
+    let spec = xml_value_spec(schema, protocol, &vertex);
     if matches!(spec.kind, ScalarKind::Any)
         || state
             .nodes
@@ -1936,7 +2024,7 @@ fn flush_text(
                     },
                 ));
             } else if let Some(node) = state.nodes.get_mut(&current.0) {
-                let spec = ValueSpec::for_vertex(schema, protocol, &node.anchor);
+                let spec = xml_value_spec(schema, protocol, &node.anchor);
                 match crate::json_pathway::coerce_exact_lexeme(
                     &Lexeme::new(text_buf, LexClass::String),
                     &spec,
@@ -2119,8 +2207,7 @@ fn write_xml_scalar_value(
 
     match &node.value {
         Some(FieldPresence::Present(value)) if !matches!(value, Value::Null) => {
-            let spec =
-                ValueSpec::for_vertex(context.schema, context.protocol_definition, &node.anchor);
+            let spec = xml_value_spec(context.schema, context.protocol_definition, &node.anchor);
             let text = xml_value_text(value, Some(&spec), site, false)?;
             let escaped = escape_xml_source_text(&text, false);
             write_xml_event(
@@ -2586,6 +2673,17 @@ fn xml_value_text(
     site: &ValueSite,
     attribute: bool,
 ) -> Result<String, EmitInstanceError> {
+    // XML Schema's decimal has no infinity or NaN, so no spelling reads back
+    // as the same special `Decimal`.
+    if matches!(value, Value::Decimal(number) if !number.is_finite()) {
+        return Err(EmitValueError::new(
+            site.clone(),
+            value.type_name(),
+            "xml",
+            EmitValueReason::NonFinite,
+        )
+        .into());
+    }
     let bigint_text = if !attribute && let Value::BigInt(number) = value {
         Some(
             crate::json_pathway::bigint_lexeme(number, false).map_err(|limit| {
@@ -2612,16 +2710,14 @@ fn xml_value_text(
     let text = match value {
         Value::Str(text) | Value::Token(text) => text.clone(),
         Value::Int(number) => number.to_string(),
-        Value::Float(number) => {
-            crate::json_pathway::plain_text_float_lexeme(*number).ok_or_else(|| {
-                EmitValueError::new(
-                    site.clone(),
-                    value.type_name(),
-                    "xml",
-                    EmitValueReason::NonFinite,
-                )
-            })?
-        }
+        Value::Float(number) => xml_float_lexeme(*number).ok_or_else(|| {
+            EmitValueError::new(
+                site.clone(),
+                value.type_name(),
+                "xml",
+                EmitValueReason::NotRepresentable,
+            )
+        })?,
         Value::Bool(value) => value.to_string(),
         Value::Bytes(bytes) => xml_bytes_text(bytes, spec, site)?,
         Value::Decimal(number) => xml_decimal_lexeme(number).ok_or_else(|| {
@@ -2679,7 +2775,9 @@ fn validate_xml_value_text(
         )
         .into());
     }
-    if !attribute && text.is_empty() {
+    // An empty element reads as `Str("")` under a text kind, so the empty
+    // string is written as one; no other value has empty element text.
+    if !attribute && text.is_empty() && !matches!(value, Value::Str(_)) {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -2701,6 +2799,14 @@ fn xml_value_is_representable(
         matches!(value, Value::Str(_))
     } else if let Some(text) = bigint_text {
         spec.is_some_and(|spec| crate::json_pathway::plain_text_reparses_as(value, text, spec))
+    } else if let Value::Float(number) = value {
+        xml_float_lexeme(*number).is_some_and(|text| {
+            spec.is_some_and(|spec| crate::json_pathway::plain_text_reparses_as(value, &text, spec))
+        })
+    } else if let Value::Decimal(number) = value {
+        xml_decimal_lexeme(number).is_some_and(|text| {
+            spec.is_some_and(|spec| crate::json_pathway::plain_text_reparses_as(value, &text, spec))
+        })
     } else {
         spec.is_some_and(|spec| crate::json_pathway::plain_text_value_roundtrips(value, spec))
     }
@@ -2939,8 +3045,15 @@ fn parse_xml_element_attributes(
     let mut explicit_attributes = BTreeMap::new();
     let declarations = dtd.attributes.get(element_name);
     let element_source: &[u8] = element.as_ref();
+    let name_offsets = xml_attribute_name_offsets(element_source);
+    let mut identities = HashSet::new();
     let mut attribute_search_start = 0_usize;
-    for attribute in element.attributes() {
+    // Duplicates are decided below by expanded name, which also covers equal
+    // raw names, so quick-xml's raw-name check would only report the same
+    // refusal untyped.
+    let mut attributes = element.attributes();
+    attributes.with_checks(false);
+    for (ordinal, attribute) in attributes.enumerate() {
         let attribute = attribute.map_err(|error| ParseInstanceError::Parse {
             protocol: protocol.to_owned(),
             message: format!("XML attribute error: {error}"),
@@ -3028,8 +3141,8 @@ fn parse_xml_element_attributes(
             }
             ResolveResult::Unbound | ResolveResult::Bound(_) => {}
         }
-        let semantic_key = if is_xml_namespace_declaration(&key) {
-            key.clone()
+        let (identity, semantic_key) = if is_xml_namespace_declaration(&key) {
+            (xml_expanded_name(XMLNS_NAMESPACE, &key), key.clone())
         } else if let ResolveResult::Bound(namespace) = &namespace {
             let namespace = element
                 .decoder()
@@ -3045,19 +3158,24 @@ fn parse_xml_element_attributes(
                     protocol: protocol.to_owned(),
                     message: format!("XML attribute local-name decode error: {error}"),
                 })?;
-            xml_clark_name(&namespace, &local_name)
+            (
+                xml_expanded_name(&namespace, &local_name),
+                xml_clark_name(&namespace, &local_name),
+            )
         } else {
-            key.clone()
+            (xml_expanded_name("", &key), key.clone())
         };
-        if extra_fields
-            .insert(semantic_key.clone(), Value::Str(value.clone()))
-            .is_some()
-        {
-            return Err(ParseInstanceError::Parse {
+        if !identities.insert(identity) {
+            return Err(ParseInstanceError::DuplicateMember {
                 protocol: protocol.to_owned(),
-                message: format!("duplicate XML attribute expanded name {semantic_key:?}"),
+                name: semantic_key,
+                byte_offset: element_byte_offset.and_then(|offset| {
+                    let relative = u64::try_from(*name_offsets.get(ordinal)?).ok()?;
+                    offset.checked_add(1)?.checked_add(relative)
+                }),
             });
         }
+        extra_fields.insert(semantic_key, Value::Str(value.clone()));
         explicit_attributes.insert(key, value);
     }
     if let Some(declarations) = declarations {
@@ -3150,13 +3268,16 @@ fn parse_xml_element_attributes(
                     ParseInstanceError::Fidelity(vec![invalid_xsi_nil(vertex, &value)])
                 })?;
             }
+            // A supplied default has no name token in the start tag, so the
+            // refusal carries no offset.
             if extra_fields
                 .insert(semantic_key.clone(), Value::Str(value))
                 .is_some()
             {
-                return Err(ParseInstanceError::Parse {
+                return Err(ParseInstanceError::DuplicateMember {
                     protocol: protocol.to_owned(),
-                    message: format!("duplicate XML attribute expanded name {semantic_key:?}"),
+                    name: semantic_key,
+                    byte_offset: None,
                 });
             }
         }
@@ -3416,6 +3537,109 @@ mod tests {
         let instance = parse_xml_bytes(&schema, b"<root><value></value></root>", "cassandra")
             .expect("empty text leaf");
         let value = instance
+            .nodes
+            .values()
+            .find(|node| node.anchor.as_ref() == "value")
+            .expect("present value node");
+        assert_eq!(
+            value.value,
+            Some(FieldPresence::Present(Value::Str(String::new())))
+        );
+    }
+
+    #[test]
+    fn xml_floats_use_the_xsd_numeral_dialect() {
+        let protocol = panproto_protocols::database::cassandra::protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "table", None)
+            .expect("root")
+            .vertex("value", "double", None)
+            .expect("double value")
+            .edge("root", "value", "prop", Some("value"))
+            .expect("value edge")
+            .build()
+            .expect("double schema");
+        for (value, spelling) in [
+            (f64::INFINITY, "INF"),
+            (f64::NEG_INFINITY, "-INF"),
+            (f64::NAN, "NaN"),
+            (-f64::NAN, "-NaN"),
+        ] {
+            let mut instance = WInstance::new(
+                HashMap::from([
+                    (0, Node::new(0, "root")),
+                    (
+                        1,
+                        Node::new(1, "value")
+                            .with_value(FieldPresence::Present(Value::Float(value))),
+                    ),
+                ]),
+                vec![(
+                    0,
+                    1,
+                    Edge {
+                        src: "root".into(),
+                        tgt: "value".into(),
+                        kind: "prop".into(),
+                        name: Some("value".into()),
+                    },
+                )],
+                Vec::new(),
+                0,
+                "root".into(),
+            );
+            for node in instance.nodes.values_mut() {
+                node.shape = NodeShape::XmlElement {
+                    tag: node.anchor.clone(),
+                };
+            }
+            let emitted = emit_xml_bytes(&schema, &instance, "cassandra").expect("XSD spelling");
+            let text = String::from_utf8(emitted.clone()).expect("UTF-8");
+            assert!(
+                text.contains(&format!("<value>{spelling}</value>")),
+                "{text}"
+            );
+            let reparsed = parse_xml_bytes(&schema, &emitted, "cassandra").expect("reparse");
+            let read = reparsed
+                .nodes
+                .values()
+                .find(|node| node.anchor.as_ref() == "value")
+                .and_then(|node| node.value.clone());
+            assert!(
+                matches!(read, Some(FieldPresence::Present(Value::Float(actual))) if actual.to_bits() == value.to_bits()),
+                "{spelling}: {read:?}"
+            );
+        }
+        for lexeme in ["Infinity", "inf", "nan", "+NaN"] {
+            let input = format!("<root><value>{lexeme}</value></root>");
+            assert!(
+                matches!(
+                    parse_xml_bytes(&schema, input.as_bytes(), "cassandra"),
+                    Err(ParseInstanceError::Fidelity(_))
+                ),
+                "{lexeme} is not an XSD double"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_string_value_round_trips_through_an_empty_element() {
+        let protocol = panproto_protocols::database::cassandra::protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "table", None)
+            .expect("root")
+            .vertex("value", "text", None)
+            .expect("text value")
+            .edge("root", "value", "prop", Some("value"))
+            .expect("value edge")
+            .build()
+            .expect("text schema");
+        let source = b"<root><value></value></root>";
+        let instance = parse_xml_bytes(&schema, source, "cassandra").expect("empty text leaf");
+        let emitted = emit_xml_bytes(&schema, &instance, "cassandra")
+            .expect("the value an empty element reads as is writable");
+        let reparsed = parse_xml_bytes(&schema, &emitted, "cassandra").expect("reparse");
+        let value = reparsed
             .nodes
             .values()
             .find(|node| node.anchor.as_ref() == "value")
@@ -3811,8 +4035,23 @@ b"/>"#;
         let input = br#"<doc xmlns:p="urn:test" xmlns:q="urn:test" p:x="1" q:x="2"/>"#;
         assert!(matches!(
             parse_xml_bytes(&schema, input, "test_xml"),
-            Err(ParseInstanceError::Parse { message, .. })
-                if message.contains("duplicate XML attribute expanded name \"{urn:test}x\"")
+            Err(ParseInstanceError::DuplicateMember { protocol, name, byte_offset: Some(51) })
+                if protocol == "test_xml" && name == "{urn:test}x"
+        ));
+        let input = br#"<a xmlns:p="u" xmlns:q="u" p:x="1" q:x="2"/>"#;
+        let schema = SchemaBuilder::new(&Protocol {
+            name: "test_xml".into(),
+            obj_kinds: vec!["document".into()],
+            ..Protocol::default()
+        })
+        .vertex("a", "document", None)
+        .expect("root")
+        .build()
+        .expect("schema");
+        assert!(matches!(
+            parse_xml_bytes(&schema, input, "test_xml"),
+            Err(ParseInstanceError::DuplicateMember { protocol, name, byte_offset: Some(35) })
+                if protocol == "test_xml" && name == "{u}x"
         ));
     }
 
@@ -4117,7 +4356,80 @@ b"/>"#;
     fn malformed_or_duplicate_attributes_are_not_dropped() {
         let schema = xml_schema();
         let result = parse_xml_bytes(&schema, br#"<doc a="1" a="2"/>"#, "test_xml");
-        assert!(matches!(result, Err(ParseInstanceError::Parse { .. })));
+        assert!(matches!(
+            result,
+            Err(ParseInstanceError::DuplicateMember {
+                ref protocol,
+                ref name,
+                byte_offset: Some(11),
+            }) if protocol == "test_xml" && name == "a"
+        ));
+        let result = parse_xml_bytes(&schema, br#"<doc a="1" b="2" a="3"/>"#, "test_xml");
+        assert!(matches!(
+            result,
+            Err(ParseInstanceError::DuplicateMember {
+                ref name,
+                byte_offset: Some(17),
+                ..
+            }) if name == "a"
+        ));
+        let result = parse_xml_bytes(&schema, br#"<doc a="1" a ='2'/>"#, "test_xml");
+        assert!(matches!(
+            result,
+            Err(ParseInstanceError::DuplicateMember {
+                ref name,
+                byte_offset: Some(11),
+                ..
+            }) if name == "a"
+        ));
+        let result = parse_xml_bytes(&schema, br#"<doc a="" a=""/>"#, "test_xml");
+        assert!(matches!(
+            result,
+            Err(ParseInstanceError::DuplicateMember {
+                ref name,
+                byte_offset: Some(10),
+                ..
+            }) if name == "a"
+        ));
+    }
+
+    #[test]
+    fn character_references_admit_only_unsigned_digits() {
+        let empty = BTreeMap::new();
+        for reference in [
+            "&#+65;", "&#-65;", "&#x+41;", "&#x-41;", "&# 65;", "&#x 41;", "&#X41;", "&#65 ;",
+            "&#٦٥;",
+        ] {
+            assert_eq!(
+                expand_xml_entities(reference, &empty),
+                Err(XmlEntityError::Malformed),
+                "{reference}"
+            );
+            let schema = xml_schema();
+            for input in [
+                format!("<doc><title>{reference}</title></doc>"),
+                format!("<doc t=\"{reference}\"/>"),
+                format!(
+                    "<!DOCTYPE doc [<!ENTITY e \"{reference}\">]><doc><title>&e;</title></doc>"
+                ),
+            ] {
+                assert!(
+                    parse_xml_bytes(&schema, input.as_bytes(), "test_xml").is_err(),
+                    "{input}"
+                );
+            }
+        }
+        for (reference, expected) in [
+            ("&#65;", "A"),
+            ("&#x41;", "A"),
+            ("&#0065;", "A"),
+            ("&#x0041;", "A"),
+        ] {
+            assert_eq!(
+                expand_xml_entities(reference, &empty),
+                Ok(expected.to_owned())
+            );
+        }
     }
 
     #[test]

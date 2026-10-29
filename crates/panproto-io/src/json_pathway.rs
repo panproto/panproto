@@ -415,58 +415,98 @@ struct RawJsonParser<'a> {
     pos: usize,
 }
 
+/// Why the lossless JSON reader refused its input.
+enum RawJsonError {
+    /// A syntax or encoding error, described for `ParseInstanceError::Json`.
+    Syntax(String),
+    /// One object names a member twice; `name` is the decoded name and
+    /// `byte_offset` the offset of the second occurrence's name token.
+    DuplicateMember { name: String, byte_offset: usize },
+}
+
+impl From<String> for RawJsonError {
+    fn from(message: String) -> Self {
+        Self::Syntax(message)
+    }
+}
+
+impl RawJsonError {
+    fn into_parse_error(self, protocol: &str) -> ParseInstanceError {
+        match self {
+            Self::Syntax(message) => ParseInstanceError::Json(message),
+            Self::DuplicateMember { name, byte_offset } => ParseInstanceError::DuplicateMember {
+                protocol: protocol.to_owned(),
+                name,
+                byte_offset: u64::try_from(byte_offset).ok(),
+            },
+        }
+    }
+}
+
+/// The UTF-8 encoding of U+FEFF, which RFC 8259 Sec 8.1 lets a parser
+/// ignore at the start of a text and forbids a writer to add.
+const UTF8_BYTE_ORDER_MARK: &[u8] = &[0xEF, 0xBB, 0xBF];
+
 impl<'a> RawJsonParser<'a> {
-    fn parse(input: &'a [u8]) -> Result<RawJson<'a>, String> {
+    fn parse(input: &'a [u8]) -> Result<RawJson<'a>, RawJsonError> {
         let text =
             std::str::from_utf8(input).map_err(|e| format!("JSON input is not UTF-8: {e}"))?;
+        // A leading byte order mark is an encoding signature, not content:
+        // reading starts after it while every offset still counts from byte
+        // 0 of the input.
         let mut parser = Self {
             input,
             text,
-            pos: 0,
+            pos: if input.starts_with(UTF8_BYTE_ORDER_MARK) {
+                UTF8_BYTE_ORDER_MARK.len()
+            } else {
+                0
+            },
         };
         let value = parser.value(0)?;
         parser.whitespace();
         if parser.pos != parser.input.len() {
-            return Err(format!("trailing JSON input at byte {}", parser.pos));
+            return Err(format!("trailing JSON input at byte {}", parser.pos).into());
         }
         Ok(value)
     }
 
     /// Read one value inside `depth` enclosing containers, which puts it at
     /// level `depth + 1`.
-    fn value(&mut self, depth: usize) -> Result<RawJson<'a>, String> {
+    fn value(&mut self, depth: usize) -> Result<RawJson<'a>, RawJsonError> {
         if depth >= MAX_JSON_DEPTH {
-            return Err(format!("JSON nesting exceeds {MAX_JSON_DEPTH} levels"));
+            return Err(format!("JSON nesting exceeds {MAX_JSON_DEPTH} levels").into());
         }
         self.whitespace();
         match self.input.get(self.pos).copied() {
-            Some(b'n') => self.literal(b"null", RawJson::Null),
-            Some(b't') => self.literal(
+            Some(b'n') => Ok(self.literal(b"null", RawJson::Null)?),
+            Some(b't') => Ok(self.literal(
                 b"true",
                 RawJson::Bool {
                     value: true,
                     offset: self.pos,
                 },
-            ),
-            Some(b'f') => self.literal(
+            )?),
+            Some(b'f') => Ok(self.literal(
                 b"false",
                 RawJson::Bool {
                     value: false,
                     offset: self.pos,
                 },
-            ),
+            )?),
             Some(b'"') => {
                 let offset = self.pos;
-                self.string().map(|value| RawJson::String { value, offset })
+                Ok(self
+                    .string()
+                    .map(|value| RawJson::String { value, offset })?)
             }
             Some(b'[') => self.array(depth + 1),
             Some(b'{') => self.object(depth + 1),
-            Some(b'-' | b'0'..=b'9') => self.number(),
-            Some(byte) => Err(format!(
-                "unexpected JSON byte 0x{byte:02X} at byte {}",
-                self.pos
-            )),
-            None => Err("unexpected end of JSON input".to_owned()),
+            Some(b'-' | b'0'..=b'9') => Ok(self.number()?),
+            Some(byte) => {
+                Err(format!("unexpected JSON byte 0x{byte:02X} at byte {}", self.pos).into())
+            }
+            None => Err("unexpected end of JSON input".to_owned().into()),
         }
     }
 
@@ -576,7 +616,7 @@ impl<'a> RawJsonParser<'a> {
         })
     }
 
-    fn array(&mut self, depth: usize) -> Result<RawJson<'a>, String> {
+    fn array(&mut self, depth: usize) -> Result<RawJson<'a>, RawJsonError> {
         let offset = self.pos;
         self.pos += 1;
         self.whitespace();
@@ -594,12 +634,12 @@ impl<'a> RawJsonParser<'a> {
                     self.pos += 1;
                     return Ok(RawJson::Array { values, offset });
                 }
-                _ => return Err(format!("expected ',' or ']' at byte {}", self.pos)),
+                _ => return Err(format!("expected ',' or ']' at byte {}", self.pos).into()),
             }
         }
     }
 
-    fn object(&mut self, depth: usize) -> Result<RawJson<'a>, String> {
+    fn object(&mut self, depth: usize) -> Result<RawJson<'a>, RawJsonError> {
         let offset = self.pos;
         self.pos += 1;
         self.whitespace();
@@ -612,16 +652,19 @@ impl<'a> RawJsonParser<'a> {
         loop {
             self.whitespace();
             if self.input.get(self.pos) != Some(&b'"') {
-                return Err(format!("expected JSON object key at byte {}", self.pos));
+                return Err(format!("expected JSON object key at byte {}", self.pos).into());
             }
             let key_offset = self.pos;
             let key = self.string()?;
             if !seen.insert(key.clone()) {
-                return Err(format!("duplicate JSON object key at byte {key_offset}"));
+                return Err(RawJsonError::DuplicateMember {
+                    name: key,
+                    byte_offset: key_offset,
+                });
             }
             self.whitespace();
             if self.input.get(self.pos) != Some(&b':') {
-                return Err(format!("expected ':' at byte {}", self.pos));
+                return Err(format!("expected ':' at byte {}", self.pos).into());
             }
             self.pos += 1;
             fields.push((key, self.value(depth)?));
@@ -632,7 +675,7 @@ impl<'a> RawJsonParser<'a> {
                     self.pos += 1;
                     return Ok(RawJson::Object { fields, offset });
                 }
-                _ => return Err(format!("expected ',' or '}}' at byte {}", self.pos)),
+                _ => return Err(format!("expected ',' or '}}' at byte {}", self.pos).into()),
             }
         }
     }
@@ -695,7 +738,7 @@ pub fn parse_json_bytes(
             message: format!("root vertex {root_vertex:?} does not exist"),
         });
     }
-    let raw = RawJsonParser::parse(input).map_err(ParseInstanceError::Json)?;
+    let raw = RawJsonParser::parse(input).map_err(|error| error.into_parse_error(protocol))?;
     let protocol_definition = protocol_definition(protocol);
     let mut state = BuildState::new();
     let root_id = state.alloc_id();
@@ -1981,7 +2024,11 @@ fn write_json_value_at_depth(
         )
         .into());
     }
-    if matches!(value, Value::Float(number) if !number.is_finite()) {
+    // JSON has no number for an infinity or a NaN, binary or decimal, so no
+    // spelling reads back as the same value.
+    if matches!(value, Value::Float(number) if !number.is_finite())
+        || matches!(value, Value::Decimal(number) if !number.is_finite())
+    {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -2414,17 +2461,82 @@ mod tests {
     #[test]
     fn duplicate_object_keys_are_rejected_at_every_depth() {
         let schema = simple_schema();
-        for input in [
-            br#"{"same":1,"same":2}"#.as_slice(),
-            br#"{"outer":{"same":1,"same":2}}"#.as_slice(),
-            br#"{"$type":"a","$type":"b"}"#.as_slice(),
+        for (input, name, offset) in [
+            (br#"{"same":1,"same":2}"#.as_slice(), "same", 10),
+            (br#"{"outer":{"same":1,"same":2}}"#.as_slice(), "same", 19),
+            (br#"{"$type":"a","$type":"b"}"#.as_slice(), "$type", 13),
         ] {
-            assert!(matches!(
-                parse_json_bytes(&schema, "root", input, "test"),
-                Err(ParseInstanceError::Json(ref message))
-                    if message.contains("duplicate JSON object key")
-            ));
+            assert!(
+                matches!(
+                    parse_json_bytes(&schema, "root", input, "test"),
+                    Err(ParseInstanceError::DuplicateMember {
+                        ref protocol,
+                        name: ref actual,
+                        byte_offset: Some(actual_offset),
+                    }) if protocol == "test" && actual == name && actual_offset == offset
+                ),
+                "{}",
+                String::from_utf8_lossy(input)
+            );
         }
+    }
+
+    #[test]
+    fn duplicate_members_compare_decoded_names_at_the_second_name_token() {
+        let schema = simple_schema();
+        for input in [
+            br#"{"a":1,"a":2}"#.as_slice(),
+            br#"{"a":1,"\u0061":2}"#.as_slice(),
+            br#"{"\u0061":1,"a":2}"#.as_slice(),
+        ] {
+            assert!(
+                matches!(
+                    parse_json_bytes(&schema, "root", input, "test"),
+                    Err(ParseInstanceError::DuplicateMember {
+                        ref protocol,
+                        ref name,
+                        byte_offset,
+                    }) if protocol == "test"
+                        && name == "a"
+                        && byte_offset == input
+                            .iter()
+                            .rposition(|byte| *byte == b',')
+                            .and_then(|comma| u64::try_from(comma + 1).ok())
+                ),
+                "{}",
+                String::from_utf8_lossy(input)
+            );
+        }
+    }
+
+    #[test]
+    fn a_leading_byte_order_mark_is_read_past_and_never_written() {
+        let schema = cassandra_scalar_schema();
+        let mut input = vec![0xEF, 0xBB, 0xBF];
+        input.extend_from_slice(br#"{"value":"x"}"#);
+        let instance = parse_json_bytes(&schema, "root", &input, "cassandra")
+            .expect("RFC 8259 permits a parser to ignore a leading byte order mark");
+        assert_eq!(
+            emit_json_bytes(&schema, &instance, "cassandra").expect("emit"),
+            br#"{"value":"x"}"#
+        );
+        // Offsets still count from byte 0 of the input, the mark included.
+        let mut malformed = vec![0xEF, 0xBB, 0xBF];
+        malformed.extend_from_slice(br#"{"value":@}"#);
+        assert!(matches!(
+            parse_json_bytes(&schema, "root", &malformed, "cassandra"),
+            Err(ParseInstanceError::Json(ref message))
+                if message == "unexpected JSON byte 0x40 at byte 12"
+        ));
+        // A mark anywhere else is not whitespace.
+        let mut inner = br#"{"value":"#.to_vec();
+        inner.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+        inner.extend_from_slice(br#""x"}"#);
+        assert!(matches!(
+            parse_json_bytes(&schema, "root", &inner, "cassandra"),
+            Err(ParseInstanceError::Json(ref message))
+                if message == "unexpected JSON byte 0xEF at byte 9"
+        ));
     }
 
     #[test]
@@ -2449,10 +2561,10 @@ mod tests {
             other => panic!("{input:?} must be a JSON error, got {other:?}"),
         };
         // A non-ASCII byte is named by its value, not by the Latin-1 character
-        // of that value: a UTF-8 byte order mark starts with 0xEF.
+        // of that value: the UTF-8 encoding of U+00E9 starts with 0xC3.
         assert_eq!(
-            message("\u{feff}{\"integer\":1}".as_bytes()),
-            "unexpected JSON byte 0xEF at byte 0"
+            message("\u{e9}{\"integer\":1}".as_bytes()),
+            "unexpected JSON byte 0xC3 at byte 0"
         );
         assert_eq!(
             message(b"{\"integer\":@}"),
@@ -3370,7 +3482,13 @@ mod tests {
                         emitted.expect("a generically writable byte string is route-writable");
                         let actual: String = serde_json::from_slice(&route)
                             .expect("the JSON byte route emits a string token");
-                        assert_eq!(actual, expected, "encoding={encoding:?}, bytes={bytes:?}");
+                        assert!(
+                            panproto_reference::value_io::bytes(
+                                expected.as_bytes(),
+                                actual.as_bytes()
+                            ),
+                            "encoding={encoding:?}, bytes={bytes:?}, generic={expected:?}, route={actual:?}"
+                        );
                     }
                     None => assert!(
                         matches!(
@@ -3748,7 +3866,8 @@ mod tests {
         for (text, expected_exponent, expected_negative) in [
             ("0.0e-3000000000", "-3000000001", false),
             ("0e3000000000", "3000000000", false),
-            ("-0e3000000000", "3000000000", false),
+            // Under a declared `Decimal` a negative zero keeps its sign.
+            ("-0e3000000000", "3000000000", true),
         ] {
             let value = coerce_exact_lexeme(&Lexeme::new(text, LexClass::Number), &decimal)
                 .unwrap_or_else(|error| panic!("{text} must keep its scale: {error}"));

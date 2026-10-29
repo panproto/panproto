@@ -174,6 +174,9 @@ pub struct RelSchema {
     /// for one built from parts). Not an object of the entity category: the
     /// structure inside one cell.
     value_vertices: BTreeMap<Name, Name>,
+    /// The kind of each table of the schema it was built from (none for one
+    /// built from parts).
+    table_kinds: BTreeMap<Name, Name>,
     /// The inner value edges of the schema it was built from (none for one
     /// built from parts): the edges out of value vertices.
     inner_edges: BTreeSet<Edge>,
@@ -268,6 +271,10 @@ impl RelSchema {
             .iter()
             .filter_map(|vertex| Some(((*vertex).clone(), (*vertices.get(vertex)?).clone())))
             .collect();
+        let table_kinds = tables
+            .iter()
+            .filter_map(|table| Some((table.clone(), (*vertices.get(table)?).clone())))
+            .collect();
         let inner_edges = edges
             .iter()
             .filter(|edge| values.contains(&edge.src))
@@ -278,6 +285,7 @@ impl RelSchema {
             relations,
             columns,
             value_vertices,
+            table_kinds,
             inner_edges,
         ))
     }
@@ -332,6 +340,7 @@ impl RelSchema {
             relations,
             all,
             BTreeMap::new(),
+            BTreeMap::new(),
             BTreeSet::new(),
         ))
     }
@@ -342,6 +351,7 @@ impl RelSchema {
         relations: BTreeSet<Edge>,
         columns: BTreeMap<Name, BTreeMap<String, Edge>>,
         value_vertices: BTreeMap<Name, Name>,
+        table_kinds: BTreeMap<Name, Name>,
         inner_edges: BTreeSet<Edge>,
     ) -> Self {
         let attributes = columns
@@ -358,6 +368,7 @@ impl RelSchema {
             columns,
             attributes,
             value_vertices,
+            table_kinds,
             inner_edges,
         }
     }
@@ -422,6 +433,16 @@ impl RelSchema {
     #[must_use]
     pub fn value_kind(&self, vertex: &str) -> Option<&Name> {
         self.value_vertices.get(vertex)
+    }
+
+    /// The schema kind of a table or value vertex, or `None` when `vertex`
+    /// is neither (or the schema was built from parts and `vertex` is a
+    /// table).
+    #[must_use]
+    pub fn vertex_kind(&self, vertex: &str) -> Option<&Name> {
+        self.value_vertices
+            .get(vertex)
+            .or_else(|| self.table_kinds.get(vertex))
     }
 }
 

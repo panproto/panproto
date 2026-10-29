@@ -30,7 +30,8 @@ import sys
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-MODULE_SEARCH_PATH = PACKAGE_ROOT / ".build/debug/Modules"
+BUILD_DIRECTORY = PACKAGE_ROOT / ".build/debug"
+MODULE_SEARCH_PATH = BUILD_DIRECTORY / "Modules"
 MODULE_MAP = PACKAGE_ROOT / "Sources/CPanproto/module.modulemap"
 CPANPROTO_INCLUDE = PACKAGE_ROOT / "Sources/CPanproto"
 
@@ -45,7 +46,18 @@ def listings() -> list[Path]:
 
 
 def target_triple() -> str:
-    """The triple ``swift build`` compiles for on this host."""
+    """The triple ``swift build`` compiled the modules for.
+
+    SwiftPM links ``.build/debug`` to a directory named for the triple it
+    built, which is the one fact here that does not depend on how this
+    script was launched. Asking the compiler instead answers for the
+    architecture of the calling process: an x86_64 interpreter running
+    under Rosetta on an arm64 host spawns an x86_64 ``swift``, which
+    reports an x86_64 triple that the arm64 modules refuse to load.
+    """
+    built = BUILD_DIRECTORY.resolve().parent.name
+    if built != BUILD_DIRECTORY.parent.name:
+        return built
     info = json.loads(
         subprocess.run(
             ["swift", "-print-target-info"],

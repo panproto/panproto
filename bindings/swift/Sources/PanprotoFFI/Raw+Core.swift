@@ -18,9 +18,10 @@ import PanprotoStructural
 /// Handles index a process-global slab held behind a mutex, so a handle
 /// is valid from whichever thread reaches for it, and every handle goes
 /// back through ``handleFree(_:)`` when the host is done with it. The
-/// thread-affine part of the ABI is the last-error slot: a failing entry
-/// point stashes its envelope where only the calling thread can drain
-/// it, so ``lastErrorTake()`` has to run on the thread that failed.
+/// last-error slot is process-global rather than thread-affine, so a
+/// different OS thread may call ``lastErrorTake()``. Because the slot
+/// holds one envelope and its most recent write wins, hosts that may
+/// interleave failing calls must serialize each call with its drain.
 ///
 /// Call ``initialize()`` once per process before anything else so that
 /// caught panics stop printing to stderr.
@@ -49,8 +50,10 @@ extension Raw {
 
     /// Free a slab handle, marking its slot reusable.
     ///
-    /// `handle` may name any slab variant. Double-free is safe: a freed
-    /// slot stays freed. No payload crosses the boundary.
+    /// `handle` may name any slab variant. Call this exactly once and
+    /// discard the numeric value: a later allocation may reuse that slot,
+    /// after which the stale value names and would free the new resource.
+    /// No payload crosses the boundary.
     @inlinable
     public static func handleFree(_ handle: UInt32) -> RawStatus {
         RawStatus(code: pp_handle_free(handle))
@@ -92,9 +95,10 @@ extension Raw {
     /// Serialize a registered protocol to CBOR.
     ///
     /// `proto` must be a `Protocol` handle. The returned bytes are a
-    /// CBOR-encoded `Protocol`. A handle that is stale or points at
-    /// another slab variant answers ``RawStatus/invalidHandle`` or
-    /// ``RawStatus/typeMismatch``.
+    /// CBOR-encoded `Protocol`. An unallocated index answers
+    /// ``RawStatus/invalidHandle`` and a live different variant answers
+    /// ``RawStatus/typeMismatch``. Do not pass a released numeric handle:
+    /// its index may have been reissued to another protocol resource.
     @inlinable
     public static func protocolSerialize(proto: UInt32) -> (status: RawStatus, bytes: Data) {
         withPpOutBuffer { out in pp_protocol_serialize(proto, out) }

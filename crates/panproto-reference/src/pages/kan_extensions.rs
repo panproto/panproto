@@ -2304,108 +2304,59 @@ pub mod encode {
         ))
     }
 
-    fn inferred_hom(
-        domain: &Table,
-        codomain: &Table,
-        rows: BTreeMap<u32, u32>,
-    ) -> Result<rel::Hom, GraphKanError> {
-        let mut nulls: BTreeMap<u64, Value> = BTreeMap::new();
-        for (source, (_, cells)) in &domain.rows {
-            let target = rows.get(source).copied().ok_or_else(|| {
-                GraphKanError::Hom(Box::new(rel::HomError::NodeNotMapped(*source)))
-            })?;
-            let Some((_, target_cells)) = codomain.rows.get(&target) else {
-                return Err(GraphKanError::Hom(Box::new(
-                    rel::HomError::ImageNodeMissing {
-                        src: *source,
-                        tgt: target,
-                    },
-                )));
-            };
-            for (column, value) in cells {
-                let Some(image) = target_cells.get(column) else {
-                    return Err(GraphKanError::Hom(Box::new(
-                        rel::HomError::AttributeMismatch {
-                            src: *source,
-                            tgt: target,
-                        },
-                    )));
-                };
-                if let Value::LabeledNull(null) = value {
-                    if nulls.get(null).is_some_and(|prior| {
-                        crate::canonical::value_bytes(prior) != crate::canonical::value_bytes(image)
-                    }) {
-                        return Err(GraphKanError::Hom(Box::new(
-                            rel::HomError::AttributeMismatch {
-                                src: *source,
-                                tgt: target,
-                            },
-                        )));
-                    }
-                    nulls.insert(*null, image.clone());
-                }
-            }
-        }
-        let hom = rel::Hom { rows, nulls };
-        hom.check(domain, codomain)
-            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
-        Ok(hom)
-    }
-
     fn encode_for_hom(graph: &Graph, side: &GraphSide) -> Result<Table, GraphKanError> {
         encode_graph(graph, side)
             .map(|(table, _)| table)
             .map_err(|error| GraphKanError::NotEncodable(Box::new(error)))
     }
 
-    /// Unit of graph Sigma left adjoint to graph Delta on the kept source side.
+    /// A table unit, counit or transpose read through the encoding: a
+    /// homomorphism of the encodings is the graph homomorphism with that node
+    /// map, and a refusal keeps its typed reason.
+    fn graph_hom(
+        result: Result<rel::Hom, rel::TransposeError>,
+    ) -> Result<GraphKanHom, GraphKanError> {
+        result
+            .map(GraphKanHom::from_table)
+            .map_err(|error| match error {
+                rel::TransposeError::Adjunction(error) => GraphKanError::Adjunction(error),
+                rel::TransposeError::Hom(error) => GraphKanError::Hom(error),
+            })
+    }
+
+    /// Unit of graph Sigma left adjoint to graph Delta on the kept source side:
+    /// [`rel::sigma_unit`] of the encoding.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The encoding error, then the table unit's refusal.
     ///
     /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
     pub fn g_unit(graph: &Graph, f: &RelFunctor) -> Result<GraphKanHom, GraphKanError> {
         let input = encode_for_hom(graph, &GraphSide::kept(f))?;
-        let (sigma, _) = super::rel::sigma_restricted(f, &input).map_err(graph_adjunction_error)?;
-        let (delta, copies) = rel::delta(f, &sigma).map_err(graph_adjunction_error)?;
-        let rows = input
-            .rows
-            .iter()
-            .filter_map(|(row, (table, _))| {
-                copies
-                    .iter()
-                    .find(|(_, (source_table, original))| source_table == table && original == row)
-                    .map(|(copy, _)| (*row, *copy))
-            })
-            .collect();
-        inferred_hom(&input, &delta, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::sigma_unit(f, &input))
     }
 
-    /// Counit of graph Sigma left adjoint to graph Delta on the target side.
+    /// Counit of graph Sigma left adjoint to graph Delta on the target side:
+    /// [`rel::sigma_counit`] of the encoding.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The encoding error, then the table counit's refusal.
     ///
     /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
     pub fn g_counit(graph: &Graph, f: &RelFunctor) -> Result<GraphKanHom, GraphKanError> {
         let target = encode_for_hom(graph, &GraphSide::whole(&f.tgt))?;
-        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
-        let (sigma, _) = super::rel::sigma_restricted(f, &delta).map_err(graph_adjunction_error)?;
-        let rows = sigma
-            .rows
-            .keys()
-            .filter_map(|row| copies.get(row).map(|(_, original)| (*row, *original)))
-            .collect();
-        inferred_hom(&sigma, &target, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::sigma_counit(f, &target))
     }
 
-    /// Transpose `Hom(g_Sigma I, J)` to `Hom(I, g_Delta J)`.
+    /// Transpose `Hom(g_Sigma I, J)` to `Hom(I, g_Delta J)`:
+    /// [`rel::sigma_transpose_forward`] of the encodings.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The source, then the target encoding error, then the table
+    /// transpose's refusal in its order.
     ///
     /// Book anchors: `L-kan-extensions-4`.
     pub fn g_transpose_left(
@@ -2416,33 +2367,21 @@ pub mod encode {
     ) -> Result<GraphKanHom, GraphKanError> {
         let source = encode_for_hom(source, &GraphSide::kept(f))?;
         let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
-        let (sigma, _) =
-            super::rel::sigma_restricted(f, &source).map_err(graph_adjunction_error)?;
-        hom.as_table()
-            .check(&sigma, &target)
-            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
-        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
-        let rows = source
-            .rows
-            .iter()
-            .filter_map(|(row, (table, _))| {
-                let target_row = hom.node_map.get(row)?;
-                copies
-                    .iter()
-                    .find(|(_, (source_table, original))| {
-                        source_table == table && original == target_row
-                    })
-                    .map(|(copy, _)| (*row, *copy))
-            })
-            .collect();
-        inferred_hom(&source, &delta, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::sigma_transpose_forward(
+            f,
+            &source,
+            &target,
+            &hom.as_table(),
+        ))
     }
 
-    /// Inverse transpose `Hom(I, g_Delta J)` to `Hom(g_Sigma I, J)`.
+    /// Inverse transpose `Hom(I, g_Delta J)` to `Hom(g_Sigma I, J)`:
+    /// [`rel::sigma_transpose_inverse`] of the encodings.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The source, then the target encoding error, then the table
+    /// transpose's refusal in its order.
     ///
     /// Book anchors: `L-kan-extensions-4`.
     pub fn g_transpose_right(
@@ -2453,30 +2392,20 @@ pub mod encode {
     ) -> Result<GraphKanHom, GraphKanError> {
         let source = encode_for_hom(source, &GraphSide::kept(f))?;
         let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
-        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
-        hom.as_table()
-            .check(&source, &delta)
-            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
-        let (sigma, _) =
-            super::rel::sigma_restricted(f, &source).map_err(graph_adjunction_error)?;
-        let rows = sigma
-            .rows
-            .keys()
-            .filter_map(|row| {
-                hom.node_map
-                    .get(row)
-                    .and_then(|copy| copies.get(copy))
-                    .map(|(_, original)| (*row, *original))
-            })
-            .collect();
-        inferred_hom(&sigma, &target, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::sigma_transpose_inverse(
+            f,
+            &source,
+            &target,
+            &hom.as_table(),
+        ))
     }
 
-    /// Unit of graph Delta left adjoint to graph Pi on the target side.
+    /// Unit of graph Delta left adjoint to graph Pi on the target side:
+    /// [`rel::pi_unit`] of the encoding.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The encoding error, then the table unit's refusal.
     ///
     /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
     pub fn g_pi_unit(
@@ -2485,39 +2414,15 @@ pub mod encode {
         max_product_size: usize,
     ) -> Result<GraphKanHom, GraphKanError> {
         let target = encode_for_hom(graph, &GraphSide::whole(&f.tgt))?;
-        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
-        let (pi, tuples) = super::rel::pi_restricted(f, &delta, max_product_size)
-            .map_err(graph_adjunction_error)?;
-        let rows = target
-            .rows
-            .iter()
-            .filter_map(|(row, (table, _))| {
-                let fibre = f.fibre(table);
-                let tuple = fibre
-                    .iter()
-                    .map(|source_table| {
-                        copies
-                            .iter()
-                            .find(|(_, (candidate, original))| {
-                                candidate == source_table && original == row
-                            })
-                            .map(|(copy, _)| *copy)
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                tuples
-                    .iter()
-                    .find(|(_, (candidate, components))| candidate == table && components == &tuple)
-                    .map(|(product, _)| (*row, *product))
-            })
-            .collect();
-        inferred_hom(&target, &pi, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::pi_unit(f, &target, max_product_size))
     }
 
-    /// Counit of graph Delta left adjoint to graph Pi on the kept source side.
+    /// Counit of graph Delta left adjoint to graph Pi on the kept source side:
+    /// [`rel::pi_counit`] of the encoding.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The encoding error, then the table counit's refusal.
     ///
     /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
     pub fn g_pi_counit(
@@ -2526,30 +2431,16 @@ pub mod encode {
         max_product_size: usize,
     ) -> Result<GraphKanHom, GraphKanError> {
         let source = encode_for_hom(graph, &GraphSide::kept(f))?;
-        let (pi, tuples) = super::rel::pi_restricted(f, &source, max_product_size)
-            .map_err(graph_adjunction_error)?;
-        let (delta, copies) = rel::delta(f, &pi).map_err(graph_adjunction_error)?;
-        let rows = delta
-            .rows
-            .iter()
-            .filter_map(|(copy, (source_table, _))| {
-                let (_, product) = copies.get(copy)?;
-                let (target_table, tuple) = tuples.get(product)?;
-                let index = f
-                    .fibre(target_table)
-                    .iter()
-                    .position(|table| table == source_table)?;
-                tuple.get(index).map(|source_row| (*copy, *source_row))
-            })
-            .collect();
-        inferred_hom(&delta, &source, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::pi_counit(f, &source, max_product_size))
     }
 
-    /// Transpose `Hom(g_Delta J, I)` to `Hom(J, g_Pi I)`.
+    /// Transpose `Hom(g_Delta J, I)` to `Hom(J, g_Pi I)`:
+    /// [`rel::pi_transpose_forward`] of the encodings.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The target, then the source encoding error, then the table
+    /// transpose's refusal in its order.
     ///
     /// Book anchors: `L-kan-extensions-5`.
     pub fn g_pi_transpose_left(
@@ -2561,45 +2452,22 @@ pub mod encode {
     ) -> Result<GraphKanHom, GraphKanError> {
         let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
         let source = encode_for_hom(source, &GraphSide::kept(f))?;
-        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
-        hom.as_table()
-            .check(&delta, &source)
-            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
-        let (pi, tuples) = super::rel::pi_restricted(f, &source, max_product_size)
-            .map_err(graph_adjunction_error)?;
-        let rows = target
-            .rows
-            .iter()
-            .filter_map(|(row, (target_table, _))| {
-                let tuple = f
-                    .fibre(target_table)
-                    .iter()
-                    .map(|source_table| {
-                        copies
-                            .iter()
-                            .find(|(_, (candidate, original))| {
-                                candidate == source_table && original == row
-                            })
-                            .and_then(|(copy, _)| hom.node_map.get(copy))
-                            .copied()
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                tuples
-                    .iter()
-                    .find(|(_, (candidate, components))| {
-                        candidate == target_table && components == &tuple
-                    })
-                    .map(|(product, _)| (*row, *product))
-            })
-            .collect();
-        inferred_hom(&target, &pi, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::pi_transpose_forward(
+            f,
+            &target,
+            &source,
+            &hom.as_table(),
+            max_product_size,
+        ))
     }
 
-    /// Inverse transpose `Hom(J, g_Pi I)` to `Hom(g_Delta J, I)`.
+    /// Inverse transpose `Hom(J, g_Pi I)` to `Hom(g_Delta J, I)`:
+    /// [`rel::pi_transpose_inverse`] of the encodings.
     ///
     /// # Errors
     ///
-    /// The first encoding, table-extension or homomorphism error.
+    /// The target, then the source encoding error, then the table
+    /// transpose's refusal in its order.
     ///
     /// Book anchors: `L-kan-extensions-5`.
     pub fn g_pi_transpose_right(
@@ -2611,27 +2479,13 @@ pub mod encode {
     ) -> Result<GraphKanHom, GraphKanError> {
         let target = encode_for_hom(target, &GraphSide::whole(&f.tgt))?;
         let source = encode_for_hom(source, &GraphSide::kept(f))?;
-        let (pi, tuples) = super::rel::pi_restricted(f, &source, max_product_size)
-            .map_err(graph_adjunction_error)?;
-        hom.as_table()
-            .check(&target, &pi)
-            .map_err(|error| GraphKanError::Hom(Box::new(error)))?;
-        let (delta, copies) = rel::delta(f, &target).map_err(graph_adjunction_error)?;
-        let rows = delta
-            .rows
-            .iter()
-            .filter_map(|(copy, (source_table, _))| {
-                let (_, target_row) = copies.get(copy)?;
-                let product = hom.node_map.get(target_row)?;
-                let (target_table, tuple) = tuples.get(product)?;
-                let index = f
-                    .fibre(target_table)
-                    .iter()
-                    .position(|table| table == source_table)?;
-                tuple.get(index).map(|source_row| (*copy, *source_row))
-            })
-            .collect();
-        inferred_hom(&delta, &source, rows).map(GraphKanHom::from_table)
+        graph_hom(rel::pi_transpose_inverse(
+            f,
+            &target,
+            &source,
+            &hom.as_table(),
+            max_product_size,
+        ))
     }
 
     /// Why a tree Kan extension refuses.
@@ -3645,7 +3499,7 @@ pub mod encode {
         }
 
         #[test]
-        fn inferred_hom_rejects_one_null_for_two_different_values() {
+        fn one_null_sent_to_two_different_values_is_no_homomorphism() {
             let domain = Table {
                 rows: BTreeMap::from([
                     (
@@ -3684,7 +3538,12 @@ pub mod encode {
                 ]),
                 pairs: BTreeSet::new(),
             };
-            assert!(inferred_hom(&domain, &codomain, BTreeMap::from([(1, 11), (2, 12)])).is_err());
+            let hom = rel::Hom {
+                rows: BTreeMap::from([(1, 11), (2, 12)]),
+                nulls: BTreeMap::from([(4, Value::Int(1))]),
+            };
+            assert!(hom.check(&domain, &codomain).is_err());
+            assert_eq!(hom.first_unnatural_row(&domain, &codomain), Some(2));
         }
 
         fn merging_table_functor() -> RelFunctor {
@@ -4587,6 +4446,15 @@ pub mod rel {
         },
         /// An internal table result was malformed before graph decoding.
         MalformedTable,
+        /// A map offered as a homomorphism is none: the least row of its
+        /// domain that has no image, is sent outside its table, has cells
+        /// that are not exactly its image's cells under the null map, or is
+        /// the source of a pair not sent to a pair
+        /// ([`Hom::first_unnatural_row`]).
+        NotANaturalMap {
+            /// The least offending domain row.
+            row: u32,
+        },
     }
 
     impl From<KanError> for AdjunctionError {
@@ -4779,7 +4647,9 @@ pub mod rel {
     /// to the kept part). The equations generate classes over slots, nulls and
     /// constants (constants by canonical bytes); processed in `(r, β, α)`
     /// order, the first equation that joins two classes holding different
-    /// constants is `SigmaConstantClash`. A class is represented by its
+    /// constants is `SigmaConstantClash`. Every equation is processed before
+    /// any fresh null is drawn, so a clash is reported whatever null ids
+    /// remain. A class is represented by its
     /// constant, else its least null. The input is checked against the whole
     /// source schema and then restricted to the kept part. The provenance
     /// records each fresh null with its cell, and in `merged` each null of the
@@ -4802,6 +4672,7 @@ pub mod rel {
         let mut label: BTreeMap<Term, usize> = BTreeMap::new();
         let mut next_label = 0usize;
         let mut slots: Vec<(u32, String, Name)> = Vec::new();
+        let mut unconstrained: Vec<(u32, String)> = Vec::new();
         for (r, (s, cells)) in &i.rows {
             let t = &f.tables[s];
             for beta in f
@@ -4822,10 +4693,7 @@ pub mod rel {
                     .map(|((_, a), _)| a)
                     .collect();
                 if preimages.is_empty() {
-                    let fresh_id = fresh.take_null().ok_or(KanError::NullIdsExhausted)?;
-                    prov.fresh.insert(fresh_id, (*r, beta.clone()));
-                    join(&mut label, &mut next_label, &slot, &Term::Null(fresh_id))
-                        .map_err(|(l, rt)| clash(*r, &beta, &l, &rt))?;
+                    unconstrained.push((*r, beta.clone()));
                 }
                 for a in preimages {
                     let Some(v) = cells.get(a) else { continue };
@@ -4833,6 +4701,16 @@ pub mod rel {
                         .map_err(|(l, rt)| clash(*r, &beta, &l, &rt))?;
                 }
             }
+        }
+        // Only once every equation has been processed without a clash are
+        // the fresh nulls drawn, in ascending (r, β): a clash leaves no
+        // instance, so it is reported whatever ids remain.
+        for (r, beta) in unconstrained {
+            let fresh_id = fresh.take_null().ok_or(KanError::NullIdsExhausted)?;
+            let slot = Term::Slot(r, beta.clone());
+            join(&mut label, &mut next_label, &slot, &Term::Null(fresh_id))
+                .map_err(|(l, rt)| clash(r, &beta, &l, &rt))?;
+            prov.fresh.insert(fresh_id, (r, beta));
         }
         let value_of = |lbl: usize| -> Value {
             let members: Vec<&Term> = label
@@ -5282,6 +5160,10 @@ pub mod rel {
     impl Hom {
         /// Check the map in row-totality, image, table, cell and relation order.
         ///
+        /// Every row's own conditions are checked, rows ascending, before any
+        /// pair: the order of the graph homomorphism check. The row a
+        /// `NotANaturalMap` refusal names is [`Hom::first_unnatural_row`].
+        ///
         /// # Errors
         ///
         /// The first [`HomError`] in that order.
@@ -5342,6 +5224,71 @@ pub mod rel {
                 }
             }
             Ok(())
+        }
+
+        /// Definition: The row a `NotANaturalMap` refusal names.
+        ///
+        /// The least row of `domain` that has no image, is sent to a row
+        /// that is absent or lies at another table, has cells that are not
+        /// exactly its image's cells under the null map (a null without an
+        /// entry is sent to itself), or is the source of a pair of `domain`
+        /// not sent to a pair of `codomain`. Unlike [`Hom::check`], which
+        /// finishes every row's own conditions before any pair, a pair
+        /// violation is charged to its source row and competes with the
+        /// row conditions by that row. `None` exactly when the map is a
+        /// homomorphism `domain -> codomain`.
+        ///
+        /// Book anchors: `L-kan-extensions-1`, `L-kan-extensions-2`,
+        /// `L-kan-extensions-3`, `L-kan-extensions-6`, `L-kan-extensions-7`.
+        #[must_use]
+        pub fn first_unnatural_row(&self, domain: &Table, codomain: &Table) -> Option<u32> {
+            let row_fails = |source: &u32,
+                             source_table: &Name,
+                             source_cells: &BTreeMap<String, Value>| {
+                let Some(target) = self.rows.get(source) else {
+                    return true;
+                };
+                let Some((target_table, target_cells)) = codomain.rows.get(target) else {
+                    return true;
+                };
+                if source_table != target_table || source_cells.len() != target_cells.len() {
+                    return true;
+                }
+                source_cells.iter().any(|(column, value)| {
+                    let Some(image) = target_cells.get(column) else {
+                        return true;
+                    };
+                    let mapped = match value {
+                        Value::LabeledNull(null) => self
+                            .nulls
+                            .get(null)
+                            .cloned()
+                            .unwrap_or_else(|| value.clone()),
+                        _ => value.clone(),
+                    };
+                    crate::canonical::value_bytes(&mapped) != crate::canonical::value_bytes(image)
+                })
+            };
+            let by_row = domain
+                .rows
+                .iter()
+                .find(|(source, (table, cells))| row_fails(source, table, cells))
+                .map(|(source, _)| *source);
+            let by_pair = domain
+                .pairs
+                .iter()
+                .filter(|(edge, source, target)| {
+                    match (self.rows.get(source), self.rows.get(target)) {
+                        (Some(a), Some(b)) => !codomain.pairs.contains(&(edge.clone(), *a, *b)),
+                        _ => true,
+                    }
+                })
+                .map(|(_, source, _)| *source)
+                .min();
+            match (by_row, by_pair) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            }
         }
 
         /// Compose `self: A -> B` with `after: B -> C`, refusing a partial
@@ -5444,6 +5391,17 @@ pub mod rel {
 
     fn transpose_adjunction(error: KanError) -> TransposeError {
         TransposeError::Adjunction(Box::new(error.into()))
+    }
+
+    /// Refuse a supplied map that is no homomorphism `domain -> codomain`
+    /// with `NotANaturalMap` naming [`Hom::first_unnatural_row`].
+    fn require_natural(hom: &Hom, domain: &Table, codomain: &Table) -> Result<(), TransposeError> {
+        hom.first_unnatural_row(domain, codomain)
+            .map_or(Ok(()), |row| {
+                Err(TransposeError::Adjunction(Box::new(
+                    AdjunctionError::NotANaturalMap { row },
+                )))
+            })
     }
 
     fn infer_hom(
@@ -5551,17 +5509,18 @@ pub mod rel {
     /// Forward transpose `Hom(Sigma(I), J) -> Hom(I, Delta(J))`.
     ///
     /// `I` is over the restricted source and `J` over the target. The
-    /// operation forms restricted Sigma, checks the supplied homomorphism,
-    /// forms Delta, then infers the result.
+    /// operation forms restricted Sigma, the unit's Delta of it and Delta of
+    /// `J`, then checks the supplied map, then infers the result.
     /// For `h: Sigma(I) -> J`, row `r` is sent to the Delta copy
     /// `(table(r), h(r))`. `infer_hom` supplies the uniquely forced
     /// labelled-null image and checks the result.
     ///
     /// # Errors
     ///
-    /// In operation order: the first restricted-Sigma reason, the exact
-    /// supplied-homomorphism reason, the first Delta reason, or the first
-    /// induced-homomorphism reason.
+    /// In operation order: the first restricted-Sigma reason on `I`, the
+    /// first Delta reason on `Sigma(I)`, the first Delta reason on `J`,
+    /// `NotANaturalMap` naming [`Hom::first_unnatural_row`] of the supplied
+    /// map, or the first induced-homomorphism reason.
     ///
     /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
     pub fn sigma_transpose_forward(
@@ -5571,9 +5530,9 @@ pub mod rel {
         hom: &Hom,
     ) -> Result<Hom, TransposeError> {
         let (sigma_table, _) = sigma_restricted(f, input).map_err(transpose_adjunction)?;
-        hom.check(&sigma_table, target)
-            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        delta(f, &sigma_table).map_err(transpose_adjunction)?;
         let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        require_natural(hom, &sigma_table, target)?;
         let rows = input
             .rows
             .iter()
@@ -5593,17 +5552,19 @@ pub mod rel {
     /// Inverse transpose `Hom(I, Delta(J)) -> Hom(Sigma(I), J)`.
     ///
     /// `I` is over the restricted source and `J` over the target. The
-    /// operation forms Delta, checks the supplied homomorphism, forms
-    /// restricted Sigma, then infers the result.
+    /// operation forms restricted Sigma of `I`, Delta of `J` and the
+    /// counit's restricted Sigma of that Delta, then checks the supplied
+    /// map, then infers the result.
     /// For `h: I -> Delta(J)`, the image copy `h(r)` is projected through
     /// Delta provenance to the original target row. `infer_hom` supplies
     /// the uniquely forced null image and checks the result.
     ///
     /// # Errors
     ///
-    /// In operation order: the first Delta reason, the exact supplied-
-    /// homomorphism reason, the first restricted-Sigma reason, or the first
-    /// induced-homomorphism reason.
+    /// In operation order: the first restricted-Sigma reason on `I`, the
+    /// first Delta reason on `J`, the first restricted-Sigma reason on
+    /// `Delta(J)`, `NotANaturalMap` naming [`Hom::first_unnatural_row`] of
+    /// the supplied map, or the first induced-homomorphism reason.
     ///
     /// Book anchors: `L-kan-extensions-4`, `L-kan-extensions-6`.
     pub fn sigma_transpose_inverse(
@@ -5612,10 +5573,10 @@ pub mod rel {
         target: &Table,
         hom: &Hom,
     ) -> Result<Hom, TransposeError> {
-        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
-        hom.check(input, &delta_table)
-            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
         let (sigma_table, _) = sigma_restricted(f, input).map_err(transpose_adjunction)?;
+        let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        sigma_restricted(f, &delta_table).map_err(transpose_adjunction)?;
+        require_natural(hom, input, &delta_table)?;
         let rows = sigma_table
             .rows
             .keys()
@@ -5631,8 +5592,9 @@ pub mod rel {
 
     /// Unit `J -> Pi(Delta(J))` of the Delta–Pi adjunction.
     ///
-    /// `J` is over the target. The operation forms Delta over the restricted
-    /// source, forms bounded restricted Pi, then infers the result.
+    /// `J` is over the target. The operation checks surjectivity on
+    /// attributes, forms Delta over the restricted source, forms bounded
+    /// restricted Pi, then infers the result.
     /// This is the forward Pi transpose of the identity on `Delta(J)`: row
     /// `r` is sent to the Pi row whose ordered fibre tuple contains every
     /// Delta copy `(s,r)`. `infer_hom` supplies the forced null image and
@@ -5640,9 +5602,10 @@ pub mod rel {
     ///
     /// # Errors
     ///
-    /// In operation order: the first Delta reason, then the first bounded-
-    /// restricted-Pi reason, then the first induced row-totality, image,
-    /// table, cell, or relation reason.
+    /// In operation order: `AttributeOutsideImage` when the functor is not
+    /// surjective on attributes, then the first Delta reason, then the first
+    /// bounded-restricted-Pi reason, then the first induced row-totality,
+    /// image, table, cell, or relation reason.
     ///
     /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
     pub fn pi_unit(
@@ -5650,6 +5613,7 @@ pub mod rel {
         target: &Table,
         max_product_size: usize,
     ) -> Result<Hom, TransposeError> {
+        attribute_surjective(f).map_err(transpose_adjunction)?;
         let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
         let (pi_table, tuples) =
             pi_restricted(f, &delta_table, max_product_size).map_err(transpose_adjunction)?;
@@ -5730,9 +5694,10 @@ pub mod rel {
     ///
     /// # Errors
     ///
-    /// In operation order: the first Delta reason, the exact supplied-
-    /// homomorphism reason, the first bounded-restricted-Pi reason, or the
-    /// first induced-homomorphism reason.
+    /// In operation order: the first Delta reason, `NotANaturalMap` naming
+    /// [`Hom::first_unnatural_row`] of the supplied map, the first
+    /// bounded-restricted-Pi reason, or the first induced-homomorphism
+    /// reason.
     ///
     /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
     pub fn pi_transpose_forward(
@@ -5743,8 +5708,7 @@ pub mod rel {
         max_product_size: usize,
     ) -> Result<Hom, TransposeError> {
         let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
-        hom.check(&delta_table, input)
-            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
+        require_natural(hom, &delta_table, input)?;
         let (pi_table, tuples) =
             pi_restricted(f, input, max_product_size).map_err(transpose_adjunction)?;
         let rows = target
@@ -5778,17 +5742,19 @@ pub mod rel {
     /// Inverse transpose `Hom(J, Pi(I)) -> Hom(Delta(J), I)`.
     ///
     /// `J` is over the target and `I` over the restricted source. The
-    /// operation forms bounded restricted Pi, checks the supplied
-    /// homomorphism, forms Delta, then infers the result.
+    /// operation forms bounded restricted Pi of `I`, Delta of `J` and the
+    /// counit's Delta of that Pi, then checks the supplied map, then infers
+    /// the result.
     /// For `h: J -> Pi(I)`, a Delta copy at source table `s` is sent to the
     /// `s` component of the tuple recorded for `h(r)`. `infer_hom` supplies
     /// the uniquely forced null image and checks the result.
     ///
     /// # Errors
     ///
-    /// In operation order: the first bounded-restricted-Pi reason, the exact
-    /// supplied-homomorphism reason, the first Delta reason, or the first
-    /// induced-homomorphism reason.
+    /// In operation order: the first bounded-restricted-Pi reason on `I`,
+    /// the first Delta reason on `J`, the first Delta reason on `Pi(I)`,
+    /// `NotANaturalMap` naming [`Hom::first_unnatural_row`] of the supplied
+    /// map, or the first induced-homomorphism reason.
     ///
     /// Book anchors: `L-kan-extensions-5`, `L-kan-extensions-7`.
     pub fn pi_transpose_inverse(
@@ -5800,9 +5766,9 @@ pub mod rel {
     ) -> Result<Hom, TransposeError> {
         let (pi_table, tuples) =
             pi_restricted(f, input, max_product_size).map_err(transpose_adjunction)?;
-        hom.check(target, &pi_table)
-            .map_err(|error| TransposeError::Hom(Box::new(error)))?;
         let (delta_table, copies) = delta(f, target).map_err(transpose_adjunction)?;
+        delta(f, &pi_table).map_err(transpose_adjunction)?;
+        require_natural(hom, target, &pi_table)?;
         let rows = delta_table
             .rows
             .iter()
@@ -6428,41 +6394,6 @@ pub mod rel {
         }
         Some(false)
     }
-    /// The homomorphism `domain -> codomain` with row map `rows`, its null
-    /// map forced by the cells: each labelled null of the domain goes to the
-    /// cell it first meets in `(row, column)` order, every later occurrence
-    /// and every constant agreeing by canonical bytes. `None` when no such
-    /// homomorphism exists.
-    fn forced_hom(domain: &Table, codomain: &Table, rows: BTreeMap<u32, u32>) -> Option<Hom> {
-        let mut nulls = BTreeMap::new();
-        for (source, (_, source_cells)) in &domain.rows {
-            let target = rows.get(source)?;
-            let (_, target_cells) = codomain.rows.get(target)?;
-            for (column, value) in source_cells {
-                let image = target_cells.get(column)?;
-                let image_bytes = crate::canonical::value_bytes(image)?;
-                match value {
-                    Value::LabeledNull(id) => {
-                        if let Some(prior) = nulls.get(id) {
-                            if crate::canonical::value_bytes(prior)? != image_bytes {
-                                return None;
-                            }
-                        }
-                        nulls.insert(*id, image.clone());
-                    }
-                    other => {
-                        if crate::canonical::value_bytes(other)? != image_bytes {
-                            return None;
-                        }
-                    }
-                }
-            }
-        }
-        let hom = Hom { rows, nulls };
-        hom.check(domain, codomain).ok()?;
-        Some(hom)
-    }
-
     /// Definition: Sigma on a homomorphism of instances of the kept part.
     ///
     /// For `h: I -> I'`, `Sigma(h): Sigma(I) -> Sigma(I')` sends each row of
@@ -6471,26 +6402,29 @@ pub mod rel {
     /// unique homomorphism with that row map. Both Sigma results are
     /// [`sigma_restricted`].
     ///
-    /// `None` when either Sigma refuses, `h` is no homomorphism `I -> I'`, or
-    /// no homomorphism has that row map.
+    /// # Errors
+    ///
+    /// In this order: as restricted Sigma refuses on `I`, then on `I'`, then
+    /// `NotANaturalMap` naming [`Hom::first_unnatural_row`] when `h` is no
+    /// homomorphism `I -> I'`, then the induced-homomorphism reason (which a
+    /// homomorphism `h` never reaches).
     ///
     /// Book anchors: `L-kan-extensions-2`, `L-kan-extensions-4`.
-    #[must_use]
     pub fn sigma_on_hom(
         f: &RelFunctor,
         domain: &Table,
         codomain: &Table,
         hom: &Hom,
-    ) -> Option<Hom> {
-        let (sigma_domain, _) = sigma_restricted(f, domain).ok()?;
-        let (sigma_codomain, _) = sigma_restricted(f, codomain).ok()?;
-        hom.check(domain, codomain).ok()?;
+    ) -> Result<Hom, TransposeError> {
+        let (sigma_domain, _) = sigma_restricted(f, domain).map_err(transpose_adjunction)?;
+        let (sigma_codomain, _) = sigma_restricted(f, codomain).map_err(transpose_adjunction)?;
+        require_natural(hom, domain, codomain)?;
         let rows = sigma_domain
             .rows
             .keys()
-            .map(|row| Some((*row, *hom.rows.get(row)?)))
-            .collect::<Option<_>>()?;
-        forced_hom(&sigma_domain, &sigma_codomain, rows)
+            .filter_map(|row| Some((*row, *hom.rows.get(row)?)))
+            .collect();
+        infer_hom(&sigma_domain, &sigma_codomain, rows)
     }
 
     /// Definition: Delta on a homomorphism of target instances.
@@ -6499,33 +6433,36 @@ pub mod rel {
     /// copy at `s` of `h(r)`, as [`delta`]'s provenance names the copies; its
     /// null map is forced by the cells.
     ///
-    /// `None` when either Delta refuses, `h` is no homomorphism `J -> J'`, or
-    /// no homomorphism has that row map.
+    /// # Errors
+    ///
+    /// In this order: as Delta refuses on `J`, then on `J'`, then
+    /// `NotANaturalMap` naming [`Hom::first_unnatural_row`] when `h` is no
+    /// homomorphism `J -> J'`, then the induced-homomorphism reason (which a
+    /// homomorphism `h` never reaches).
     ///
     /// Book anchors: `L-kan-extensions-1`, `L-kan-extensions-4`,
     /// `L-kan-extensions-5`.
-    #[must_use]
     pub fn delta_on_hom(
         f: &RelFunctor,
         domain: &Table,
         codomain: &Table,
         hom: &Hom,
-    ) -> Option<Hom> {
-        let (delta_domain, domain_copies) = delta(f, domain).ok()?;
-        let (delta_codomain, codomain_copies) = delta(f, codomain).ok()?;
-        hom.check(domain, codomain).ok()?;
+    ) -> Result<Hom, TransposeError> {
+        let (delta_domain, domain_copies) = delta(f, domain).map_err(transpose_adjunction)?;
+        let (delta_codomain, codomain_copies) = delta(f, codomain).map_err(transpose_adjunction)?;
+        require_natural(hom, domain, codomain)?;
         let index: BTreeMap<(Name, u32), u32> = codomain_copies
             .iter()
             .map(|(copy, origin)| (origin.clone(), *copy))
             .collect();
         let rows = domain_copies
             .iter()
-            .map(|(copy, (table, row))| {
+            .filter_map(|(copy, (table, row))| {
                 let image = *hom.rows.get(row)?;
                 Some((*copy, *index.get(&(table.clone(), image))?))
             })
-            .collect::<Option<_>>()?;
-        forced_hom(&delta_domain, &delta_codomain, rows)
+            .collect();
+        infer_hom(&delta_domain, &delta_codomain, rows)
     }
 
     /// Definition: Pi on a homomorphism of instances of the kept part.
@@ -6536,36 +6473,42 @@ pub mod rel {
     /// (the one row of a table outside the image to the one row); its null
     /// map is forced by the cells.
     ///
-    /// `None` when either Pi refuses at `max_product_size`, `h` is no
-    /// homomorphism `I -> I'`, or no homomorphism has that row map.
+    /// # Errors
+    ///
+    /// In this order: as restricted Pi refuses on `I` at
+    /// `max_product_size`, then on `I'`, then `NotANaturalMap` naming
+    /// [`Hom::first_unnatural_row`] when `h` is no homomorphism `I -> I'`,
+    /// then the induced-homomorphism reason (which a homomorphism `h` never
+    /// reaches).
     ///
     /// Book anchors: `L-kan-extensions-3`, `L-kan-extensions-5`.
-    #[must_use]
     pub fn pi_on_hom(
         f: &RelFunctor,
         domain: &Table,
         codomain: &Table,
         hom: &Hom,
         max_product_size: usize,
-    ) -> Option<Hom> {
-        let (pi_domain, domain_tuples) = pi_restricted(f, domain, max_product_size).ok()?;
-        let (pi_codomain, codomain_tuples) = pi_restricted(f, codomain, max_product_size).ok()?;
-        hom.check(domain, codomain).ok()?;
+    ) -> Result<Hom, TransposeError> {
+        let (pi_domain, domain_tuples) =
+            pi_restricted(f, domain, max_product_size).map_err(transpose_adjunction)?;
+        let (pi_codomain, codomain_tuples) =
+            pi_restricted(f, codomain, max_product_size).map_err(transpose_adjunction)?;
+        require_natural(hom, domain, codomain)?;
         let index: BTreeMap<(Name, Vec<u32>), u32> = codomain_tuples
             .iter()
             .map(|(product, origin)| (origin.clone(), *product))
             .collect();
         let rows = domain_tuples
             .iter()
-            .map(|(product, (table, tuple))| {
+            .filter_map(|(product, (table, tuple))| {
                 let image = tuple
                     .iter()
                     .map(|row| hom.rows.get(row).copied())
                     .collect::<Option<Vec<_>>>()?;
                 Some((*product, *index.get(&(table.clone(), image))?))
             })
-            .collect::<Option<_>>()?;
-        forced_hom(&pi_domain, &pi_codomain, rows)
+            .collect();
+        infer_hom(&pi_domain, &pi_codomain, rows)
     }
 
     #[cfg(test)]
@@ -7973,6 +7916,13 @@ mod tests {
         }
     }
 
+    /// The `NotANaturalMap` refusal at `row`.
+    fn not_natural(row: u32) -> Result<Hom, rel::TransposeError> {
+        Err(rel::TransposeError::Adjunction(Box::new(
+            rel::AdjunctionError::NotANaturalMap { row },
+        )))
+    }
+
     #[test]
     fn kan_extensions_sigma_on_hom_forces_the_null_map() {
         let f = functor(false);
@@ -7997,26 +7947,40 @@ mod tests {
         // the null meets 1 first, at row 0, and again at row 1.
         assert_eq!(
             rel::sigma_on_hom(&f, &domain, &codomain, &h),
-            Some(hom(&[(0, 10), (1, 11), (2, 12)], &[(4, Value::Int(1))]))
+            Ok(hom(&[(0, 10), (1, 11), (2, 12)], &[(4, Value::Int(1))]))
         );
         // Row 2 to row 11 disagrees on y.
         let wrong = hom(&[(0, 10), (1, 11), (2, 11)], &[(4, Value::Int(1))]);
-        assert_eq!(rel::sigma_on_hom(&f, &domain, &codomain, &wrong), None);
-        // The pair at e2 is not preserved, though Sigma merges e2 with e.
+        assert_eq!(
+            rel::sigma_on_hom(&f, &domain, &codomain, &wrong),
+            not_natural(2)
+        );
+        // The pair at e2 is not preserved, though Sigma merges e2 with e;
+        // it is charged to its source row 0.
         let mut parallel = domain.clone();
         parallel.pairs = BTreeSet::from([(e2(), 0, 1)]);
-        assert_eq!(rel::sigma_on_hom(&f, &parallel, &codomain, &h), None);
-        // Sigma refuses the domain, then the codomain.
+        assert_eq!(
+            rel::sigma_on_hom(&f, &parallel, &codomain, &h),
+            not_natural(0)
+        );
+        // Sigma refuses the domain, then the codomain, before the map.
         let clash = instance(
             &[(0, "A", &[("x", Value::Int(1)), ("x3", Value::Int(2))])],
             &[],
         );
-        assert_eq!(rel::sigma_on_hom(&f, &clash, &codomain, &h), None);
-        assert_eq!(rel::sigma_on_hom(&f, &domain, &clash, &h), None);
+        let clashes = |result: Result<Hom, rel::TransposeError>| {
+            matches!(
+                result,
+                Err(rel::TransposeError::Adjunction(error))
+                    if matches!(*error, rel::AdjunctionError::SigmaConstantClash { row: 0, .. })
+            )
+        };
+        assert!(clashes(rel::sigma_on_hom(&f, &clash, &codomain, &wrong)));
+        assert!(clashes(rel::sigma_on_hom(&f, &domain, &clash, &wrong)));
         // The identity of the empty instance.
         assert_eq!(
             rel::sigma_on_hom(&f, &Table::default(), &Table::default(), &Hom::default()),
-            Some(Hom::default())
+            Ok(Hom::default())
         );
     }
 
@@ -8041,18 +8005,29 @@ mod tests {
         // E rows have no copy.
         assert_eq!(
             rel::delta_on_hom(&f, &domain, &codomain, &h),
-            Some(hom(
+            Ok(hom(
                 &[(0, 20), (1, 20), (6, 26), (7, 26)],
                 &[(7, Value::Int(2))]
             ))
         );
         // Row 5 at E to row 20 at D: no homomorphism, though Delta forgets E.
         let anchor = hom(&[(0, 20), (1, 20), (5, 20)], &[(7, Value::Int(2))]);
-        assert_eq!(rel::delta_on_hom(&f, &domain, &codomain, &anchor), None);
-        // Delta refuses an instance at a table outside the target.
+        assert_eq!(
+            rel::delta_on_hom(&f, &domain, &codomain, &anchor),
+            not_natural(5)
+        );
+        // Delta refuses an instance at a table outside the target, the
+        // domain first, before the map.
         let outside = instance(&[(0, "Z", &[])], &[]);
-        assert_eq!(rel::delta_on_hom(&f, &outside, &codomain, &h), None);
-        assert_eq!(rel::delta_on_hom(&f, &domain, &outside, &h), None);
+        let refused = |result: Result<Hom, rel::TransposeError>| {
+            matches!(
+                result,
+                Err(rel::TransposeError::Adjunction(error))
+                    if matches!(*error, rel::AdjunctionError::NonConforming(_))
+            )
+        };
+        assert!(refused(rel::delta_on_hom(&f, &outside, &codomain, &anchor)));
+        assert!(refused(rel::delta_on_hom(&f, &domain, &outside, &anchor)));
     }
 
     fn pi_codomain() -> Table {
@@ -8075,10 +8050,14 @@ mod tests {
         // codomain: 14 = [10, 11], 15 = [13, 12], 16 = E's empty tuple.
         assert_eq!(
             rel::pi_on_hom(&f, &pi_input(), &pi_codomain(), &h, 4),
-            Some(hom(&[(4, 14), (5, 15), (6, 16)], &[]))
+            Ok(hom(&[(4, 14), (5, 15), (6, 16)], &[]))
         );
         // One under the products 2 * 2.
-        assert_eq!(rel::pi_on_hom(&f, &pi_input(), &pi_codomain(), &h, 3), None);
+        assert!(matches!(
+            rel::pi_on_hom(&f, &pi_input(), &pi_codomain(), &h, 3),
+            Err(rel::TransposeError::Adjunction(error))
+                if matches!(*error, rel::AdjunctionError::ProductSizeExceeded { actual: 4, limit: 3, .. })
+        ));
         // Row 8 joins no tuple, so Pi forgets it; its image disagrees on y.
         let mut extra = pi_input();
         extra.rows.insert(
@@ -8091,7 +8070,7 @@ mod tests {
         let forgetful = hom(&[(0, 10), (1, 11), (2, 12), (3, 13), (8, 11)], &[]);
         assert_eq!(
             rel::pi_on_hom(&f, &extra, &pi_codomain(), &forgetful, 6),
-            None
+            not_natural(8)
         );
         // The same with row 8 at a row that agrees: 2 * 3 = 6 at the bound.
         let mut extra_codomain = pi_codomain();
@@ -8107,7 +8086,7 @@ mod tests {
         // 19, 20, 21 above row 18.
         assert_eq!(
             rel::pi_on_hom(&f, &extra, &extra_codomain, &total, 6),
-            Some(hom(&[(9, 19), (10, 20), (11, 21)], &[]))
+            Ok(hom(&[(9, 19), (10, 20), (11, 21)], &[]))
         );
     }
 

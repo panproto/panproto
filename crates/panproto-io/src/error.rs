@@ -142,6 +142,22 @@ pub enum ParseInstanceError {
         byte_offset: Option<u64>,
     },
 
+    /// One JSON object or one XML start tag names the same member twice.
+    ///
+    /// Names are compared after unescaping, and XML attribute names by their
+    /// expanded name, so `name` is the decoded name (an XML attribute in a
+    /// namespace is written `{uri}local`). The offset is that of the second
+    /// occurrence's name token, counted from byte 0 of the input.
+    #[error("duplicate member {name:?} for protocol '{protocol}' at byte {byte_offset:?}")]
+    DuplicateMember {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// The decoded member name.
+        name: String,
+        /// Zero-based offset of the second occurrence's name token.
+        byte_offset: Option<u64>,
+    },
+
     /// The parsed data does not conform to the provided schema.
     #[error("schema mismatch for protocol '{protocol}': {message}")]
     SchemaMismatch {

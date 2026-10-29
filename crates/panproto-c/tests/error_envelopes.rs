@@ -16,7 +16,9 @@ use panproto_c::api::data::{
     pp_data_migrate_backward, pp_data_migrate_forward, pp_data_store_dataset,
 };
 use panproto_c::api::helpers::default_protocol;
-use panproto_c::api::lens::{pp_lens_compile_document, pp_lens_compile_document_with_refs};
+use panproto_c::api::lens::{
+    pp_lens_compile_document, pp_lens_compile_document_with_refs, pp_lens_compose,
+};
 use panproto_c::api::protocol::pp_protocol_serialize;
 use panproto_c::api::schema::pp_schema_to_cbor;
 use panproto_c::api::vcs::{pp_vcs_branch, pp_vcs_commit, pp_vcs_init};
@@ -367,6 +369,57 @@ fn a_short_complement_list_names_both_lengths() {
     );
 
     for h in [ds_h, data_h, comp_h, src_h, tgt_h] {
+        assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Lens composition
+// ---------------------------------------------------------------------
+
+/// A lens handle over `src` keeping exactly the vertices and edges of `tgt`.
+fn alloc_lens(src: &Schema, tgt: &Schema) -> u32 {
+    let compiled = panproto_core::inst::CompiledMigration {
+        surviving_verts: tgt.vertices.keys().cloned().collect(),
+        surviving_edges: tgt.edges.keys().cloned().collect(),
+        ..Default::default()
+    };
+    handle::alloc(Resource::MigrationWithSchemas {
+        compiled: Box::new(compiled),
+        src_schema: Arc::new(src.clone()),
+        tgt_schema: Arc::new(tgt.clone()),
+    })
+}
+
+#[test]
+fn composing_lenses_that_stay_two_groups_is_not_single_stage() {
+    let _slot = exclusive_slot();
+    let source = post_schema("post");
+    let mut middle = source.clone();
+    middle.edges.clear();
+    middle.vertices.retain(|id, _| id.as_ref() == "post");
+    middle.outgoing.clear();
+    middle.incoming.clear();
+    middle.between.clear();
+    // A lossy first stage keeps the pair from fusing into one lens.
+    let first = alloc_lens(&source, &middle);
+    let second = alloc_lens(&middle, &middle);
+
+    let mut composed: u32 = u32::MAX;
+    let status = pp_lens_compose(first, second, &mut composed);
+    assert_eq!(status, PpStatus::NotSingleStage as i32);
+    assert_eq!(composed, u32::MAX, "no handle is allocated on failure");
+
+    let env = drain().expect("an envelope is stashed");
+    assert_eq!(env.status, PpStatus::NotSingleStage as i32);
+    assert_eq!(env.tag, "not_single_stage");
+    assert!(
+        env.message.contains("compose") && env.message.contains('2'),
+        "the message names the operation and the group count, got: {}",
+        env.message
+    );
+
+    for h in [first, second] {
         assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
     }
 }

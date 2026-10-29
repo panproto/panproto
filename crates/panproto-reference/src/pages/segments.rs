@@ -752,6 +752,9 @@ pub mod segment {
         pub in_stubs: BTreeMap<ViewRef, InStub>,
     }
     /// One fan's stable graph ids.
+    ///
+    /// A segment carries no global fan position: the tree's fan order is
+    /// ascending parent edge id, which every valid embedding keeps.
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     pub struct FanEmbedding {
         /// Reified fan node.
@@ -760,8 +763,6 @@ pub mod segment {
         pub parent_edge: u32,
         /// Child edge ids by label.
         pub child_edges: BTreeMap<Name, u32>,
-        /// Original position in `Tree.fans` and `TreeEmbedding.fans`.
-        pub ordinal: u64,
     }
     /// Graph segment.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1601,10 +1602,16 @@ pub mod segment {
         edges: &mut BTreeSet<u32>,
     ) -> Result<BTreeSet<u32>, SegmentError> {
         let mut fan_nodes = BTreeSet::new();
+        let mut previous_parent: Option<u32> = None;
         for (fan, (node, parent, children)) in t.fans.iter().zip(&e.fans) {
+            // Fan order is ascending parent edge id: segments carry no
+            // global fan position, so assembly recovers the order from it.
+            let ordered = previous_parent.is_none_or(|old| old < *parent);
+            previous_parent = Some(*parent);
             if t.nodes.contains_key(node)
                 || !fan_nodes.insert(*node)
                 || children.keys().ne(fan.children.keys())
+                || !ordered
             {
                 return Err(SegmentError::NotEmbedded {
                     elem: ViewRef::Node(*node),
@@ -1665,6 +1672,16 @@ pub mod segment {
     }
 
     fn check_tree_embedding(t: &Tree, e: &TreeEmbedding) -> Result<(), SegmentError> {
+        // A node whose key is not its id does not agree with the embedding.
+        if let Some(key) = t
+            .nodes
+            .iter()
+            .find_map(|(key, node)| (*key != node.id).then_some(*key))
+        {
+            return Err(SegmentError::NotEmbedded {
+                elem: ViewRef::Node(key),
+            });
+        }
         if !t.nodes.contains_key(&t.root)
             || e.arcs.len() != t.arcs.len()
             || e.fans.len() != t.fans.len()
@@ -1699,9 +1716,7 @@ pub mod segment {
         out: &mut [TreeSegment],
         boundaries: &mut [Boundary],
     ) -> Result<(), SegmentError> {
-        for (ordinal, (fan, (node, parent_edge, child_edges))) in
-            t.fans.iter().zip(&e.fans).enumerate()
-        {
+        for (fan, (node, parent_edge, child_edges)) in t.fans.iter().zip(&e.fans) {
             let so = owner(p, *node, ViewRef::Node(*node))?;
             let mut fan_node = Node::new(*node, &fan.hyper_edge);
             fan_node.shape = NodeShape::HyperEdge;
@@ -1710,7 +1725,6 @@ pub mod segment {
                 node: *node,
                 parent_edge: *parent_edge,
                 child_edges: child_edges.clone(),
-                ordinal: u64::try_from(ordinal).unwrap_or(u64::MAX),
             });
             let occurrences = std::iter::once((None, *parent_edge, fan.parent)).chain(
                 fan.children
@@ -1770,12 +1784,6 @@ pub mod segment {
             })
             .collect();
         for (id, node) in &t.nodes {
-            if *id != node.id {
-                return Err(SegmentError::NodeIdMismatch {
-                    key: *id,
-                    found: node.id,
-                });
-            }
             let holder = owner(p, *id, ViewRef::Node(*id))?;
             out[index(holder)].nodes.insert(*id, node.clone());
             if *id == t.root {
@@ -1815,7 +1823,7 @@ pub mod segment {
         partition_tree_fans(t, e, p, &mut out, &mut boundaries)?;
         for (segment, boundary) in out.iter_mut().zip(boundaries) {
             segment.boundary = boundary;
-            segment.fans.sort_by_key(|fan| fan.ordinal);
+            segment.fans.sort_by_key(|fan| fan.node);
         }
         Ok(out)
     }
@@ -1855,15 +1863,17 @@ pub mod segment {
         segments: &'a [AnySegment],
         p: &Partition,
     ) -> Result<Vec<&'a AnySegment>, SegmentError> {
+        // Shapes are checked before the partition is validated, at every
+        // segment entry point.
+        if let Some(segment) = segments.iter().find(|segment| segment.shape() != p.shape) {
+            return Err(SegmentError::ShapeMismatch {
+                expected: p.shape,
+                found: segment.shape(),
+            });
+        }
         p.validate()?;
         let mut slots = vec![None; p.specs.len()];
         for segment in segments {
-            if segment.shape() != p.shape {
-                return Err(SegmentError::ShapeMismatch {
-                    expected: p.shape,
-                    found: segment.shape(),
-                });
-            }
             let Some(slot) = slots.get_mut(index(segment.segment())) else {
                 return Err(SegmentError::MalformedPartition {
                     segment: segment.segment(),
@@ -2358,13 +2368,17 @@ pub mod segment {
     ) -> (BTreeSet<u32>, BTreeSet<u32>) {
         let mut fan_nodes = BTreeSet::new();
         let mut fan_edges = BTreeSet::new();
-        let mut previous_ordinal = None;
+        let mut previous_node = None;
         for fan in &tree.fans {
             let fan_node = tree.nodes.get(&fan.node);
-            let node_ok = previous_ordinal.is_none_or(|old| old < fan.ordinal)
-                && fan_nodes.insert(fan.node)
+            // The fan node is recorded even when it is out of order, so the
+            // misordered fan is reported once and not again as a fan node
+            // without a record.
+            let first = fan_nodes.insert(fan.node);
+            let node_ok = previous_node.is_none_or(|old| old < fan.node)
+                && first
                 && fan_node.is_some_and(|node| node.shape == NodeShape::HyperEdge);
-            previous_ordinal = Some(fan.ordinal);
+            previous_node = Some(fan.node);
             let anchor_of = |target: u32| {
                 tree.nodes
                     .get(&target)
@@ -2530,6 +2544,17 @@ pub mod segment {
                 defect: PartitionDefect::UnknownSegment,
             });
         }
+        // Counters without the root name no element, so the defect is a
+        // partition defect reported before the element-located contract.
+        if let AnySegment::Tree(tree) = segment
+            && tree.root.is_none()
+            && (tree.next_node.is_some() || tree.next_edge.is_some())
+        {
+            return Err(SegmentError::MalformedPartition {
+                segment: tree.segment,
+                defect: PartitionDefect::CountersWithoutRoot,
+            });
+        }
         let violations = local_violations(segment, p);
         if !violations.is_empty() {
             return Err(SegmentError::Invalid {
@@ -2674,7 +2699,7 @@ pub mod segment {
         }
     }
 
-    type AssembledFan = (u64, Fan, (u32, u32, BTreeMap<Name, u32>));
+    type AssembledFan = (Fan, (u32, u32, BTreeMap<Name, u32>));
 
     #[derive(Default)]
     struct TreeAssemblyParts {
@@ -2731,7 +2756,6 @@ pub mod segment {
                 children.insert(label.clone(), *child);
             }
             parts.fans.push((
-                fan.ordinal,
                 Fan {
                     parent: *parent,
                     hyper_edge: node.anchor.clone(),
@@ -2766,22 +2790,13 @@ pub mod segment {
                 elem: ViewRef::Node(parts.roots[0].0),
             });
         };
-        parts.fans.sort_by_key(|(ordinal, _, _)| *ordinal);
-        for (expected, (ordinal, _, ids)) in parts.fans.iter().enumerate() {
-            if *ordinal != u64::try_from(expected).unwrap_or(u64::MAX) {
-                return Err(SegmentError::NotEmbedded {
-                    elem: ViewRef::Node(ids.0),
-                });
-            }
-        }
+        // Fan order is ascending parent edge id (edge ids are unique
+        // across segments, checked before assembly).
+        parts.fans.sort_by_key(|(_, ids)| ids.1);
         let tree = Tree {
             nodes: parts.nodes,
             arcs: parts.ordinary.values().cloned().collect(),
-            fans: parts
-                .fans
-                .iter()
-                .map(|(_, value, _)| value.clone())
-                .collect(),
+            fans: parts.fans.iter().map(|(value, _)| value.clone()).collect(),
             root,
         };
         let embedding = TreeEmbedding {
@@ -2790,7 +2805,7 @@ pub mod segment {
                 .iter()
                 .map(|(edge, (_, child, _))| (*child, *edge))
                 .collect(),
-            fans: parts.fans.into_iter().map(|(_, _, ids)| ids).collect(),
+            fans: parts.fans.into_iter().map(|(_, ids)| ids).collect(),
             next_node,
             next_edge,
         };
@@ -3413,7 +3428,6 @@ pub mod segment {
                         w.string(label);
                         w.u32(*edge);
                     }
-                    w.u64(fan.ordinal);
                 }
                 write_boundary(&mut w, &value.boundary);
             }
@@ -3969,7 +3983,6 @@ pub mod segment {
         let fan_count = reader.count()?;
         let mut fans = Vec::with_capacity(fan_count);
         let mut previous_fan_node = None;
-        let mut ordinals = BTreeSet::new();
         for _ in 0..fan_count {
             let node = reader.u32()?;
             if previous_fan_node.is_some_and(|old| old >= node) {
@@ -3989,18 +4002,12 @@ pub mod segment {
                 }
                 child_edges.insert(label, reader.u32()?);
             }
-            let ordinal = reader.u64()?;
-            if !ordinals.insert(ordinal) {
-                return None;
-            }
             fans.push(FanEmbedding {
                 node,
                 parent_edge,
                 child_edges,
-                ordinal,
             });
         }
-        fans.sort_by_key(|fan| fan.ordinal);
         Some(AnySegment::Tree(TreeSegment {
             segment: id,
             nodes,
@@ -4025,7 +4032,6 @@ pub mod segment {
         bytes: &[u8],
         p: &Partition,
     ) -> Result<(AnySegment, Digest), SegmentError> {
-        p.validate()?;
         let mut reader = Reader::new(bytes);
         let version = u16::from_le_bytes(
             reader
@@ -4051,6 +4057,7 @@ pub mod segment {
                 found: shape,
             });
         }
+        p.validate()?;
         let schema = read_digest(&mut reader)
             .ok_or_else(|| decode_error(ArtifactKind::Segment, "truncated schema digest"))?;
         let encoded_spec = read_spec(&mut reader)

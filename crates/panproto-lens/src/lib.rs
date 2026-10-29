@@ -111,7 +111,9 @@ pub use laws::{
     check_weak_put_get_for_shape, instances_equivalent,
 };
 pub use lens_graph::LensGraph;
-pub use lens_path::{LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex};
+pub use lens_path::{
+    GroupComplement, LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex,
+};
 pub use lens_shape::{GraphShape, LensShape, TreeShape};
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use panproto_inst::{ErrorDetail, PutDomainError};

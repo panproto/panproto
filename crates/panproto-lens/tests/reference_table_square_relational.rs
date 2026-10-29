@@ -10,7 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_inst::{
-    BoundaryProtocols, CompiledMigration, FInstance, GInstance, PutDomainError, RowId, Value,
+    BoundaryProtocols, CompiledMigration, ComplementShape, FInstance, GInstance, PutDomainError,
+    RowId, Value,
 };
 use panproto_lens::{
     GraphShape, Lens, LensError, LensShape, graph_get_via_table, graph_lens, graph_put_via_table,
@@ -476,6 +477,23 @@ fn graph_and_table_routes_commute_on_the_independent_relational_carrier() {
                 None,
                 "{context}: complement conversion differs; fast={fast_complement:?}; graph={graph_complement:?}"
             );
+            // The observational comparison above excludes the identity
+            // envelope, so the envelope half of the square is asserted here:
+            // the conversion re-stamps the graph envelope that graph get
+            // stamps, and both routes take the same node and edge floors.
+            assert_eq!(
+                fast_complement.identity,
+                Some(lens.identity(ComplementShape::Graph)),
+                "{context}: converted complement envelope"
+            );
+            assert_eq!(
+                fast_complement.identity, graph_complement.identity,
+                "{context}: complement envelopes differ"
+            );
+            assert_eq!(
+                fast_complement.id_floor, graph_complement.id_floor,
+                "{context}: complement id floors differ"
+            );
             let (observed_view, _) = graph_view
                 .try_to_finstance(&lens.tgt_schema)
                 .unwrap_or_else(|error| {
@@ -650,6 +668,18 @@ proptest! {
                 GraphShape::complement_divergence(&fast_complement, &graph_complement),
                 None,
                 "{}: complement",
+                context
+            );
+            prop_assert_eq!(
+                &fast_complement.identity,
+                &graph_complement.identity,
+                "{}: envelope",
+                context
+            );
+            prop_assert_eq!(
+                &fast_complement.id_floor,
+                &graph_complement.id_floor,
+                "{}: floor",
                 context
             );
             let (observed_view, _) = graph_view

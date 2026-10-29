@@ -25,6 +25,7 @@
 //! | The migration's entity functor | [`rel::entity_functor`] | `kan-extensions.md` |
 //! | Relation-ified schemas (classification) | [`rel::classify`] | `kan-extensions.md` |
 //! | Homomorphisms and structure-preserving bijections of instances | [`rel::homs`], [`rel::row_bijection`] | `kan-extensions.md` |
+//! | Delta, Sigma and Pi on maps, with the `NotANaturalMap` row | [`rel::delta_on_hom`], [`rel::sigma_on_hom`], [`rel::pi_on_hom`] | `kan-extensions.md` |
 //! | Sigma--Delta unit, counit and hom-set transposes | [`rel::sigma_unit`], [`rel::sigma_counit`], [`rel::sigma_transpose_forward`], [`rel::sigma_transpose_inverse`] | `kan-extensions.md` |
 //! | Delta--Pi unit, counit and hom-set transposes | [`rel::pi_unit`], [`rel::pi_counit`], [`rel::pi_transpose_forward`], [`rel::pi_transpose_inverse`] | `kan-extensions.md` |
 //! | Graph Delta, Sigma and Pi (encode, presheaf operation, decode) | [`encode::g_delta`], [`encode::g_sigma`], [`encode::g_pi`] | `kan-extensions.md` |
@@ -47,14 +48,14 @@
 //! | The table plan and cell writers | [`table::compile_for_tables`], [`table::TablePlan::writer`] | `lenses.md` |
 //! | Get and put of the tree lens | [`lens::tree_get`], [`lens::tree_put`] | `lenses.md` |
 //! | Shape-specific path folds | [`lens::TreeShape::get`], [`lens::TreeShape::put`], [`lens::TableShape::get`], [`lens::TableShape::put`] | `lenses.md` |
-//! | Get and put of the resolution lens | [`resolution::get`], [`resolution::put`] | `resolution.md` |
+//! | Get and put of the resolution lens | [`resolution::get`], [`resolution::put`], [`resolution::deferred_form`] | `resolution.md` |
 //! | Lens-path composition (the free category; no fusion) | [`path::LensPath::then`], [`path::get_path`], [`path::put_path`] | `lenses.md` |
 //! | The edit algebra: invert, compose, independence and merge | [`edit::Delta::invert`], [`edit::Delta::compose`], [`edit::invert_table`], [`edit::compose_table`], [`edit::independence`], [`edit::merge`] | `edits.md` |
 //! | Edit application and the differ | [`edit::apply`], [`edit::diff`], [`edit::apply_table`], [`edit::diff_table`] | `edits.md` |
 //! | Canonical graph, table and tree edit bytes | [`edit::canonical_graph_delta_bytes`], [`edit::canonical_table_delta_bytes`], [`edit::canonical_tree_edit_bytes`] | `edits.md` |
 //! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`], [`edit::graph_delta_from_tree_edit`] | `edits.md` |
 //! | Validation as predicates over instances | [`validation::validate`], [`validation::validate_table`], [`validation::validate_tree`] | `validation.md` |
-//! | Validation transition and boundary observations | [`validation::witness_with_trust`], [`validation::restriction_boundary`] | `validation.md` |
+//! | Validation transition and boundary observations | [`validation::witness_with_trust`], [`validation::incremental_footprint`], [`validation::incremental_report`], [`validation::restriction_boundary`] | `validation.md` |
 //! | Admission policies | [`validation::admits`] | `validation.md` |
 //! | Key values, scopes and buckets | [`keys::key_value`], [`keys::buckets`] | `keys-and-registration.md` |
 //! | Segment ownership, boundaries and splitting | [`segment::partition`] | `segments.md` |
@@ -77,7 +78,8 @@
 //! | Byte-text mappings | [`bytes::latin1_encode`], [`bytes::latin1_decode`], [`bytes::encode_base64`], [`bytes::decode_base64`] | `values.md` |
 //! | Declared key equality and sort order | [`keys::key_equivalence`], [`keys::sort_order`], [`keys::key_order`] | `keys-and-registration.md` |
 //! | Schema bytes and change classification | [`schema::canonical_bytes`], [`schema::classify_change`] | `keys-and-registration.md` |
-//! | URI, standoff and rebinding references | [`resolution::rfc3986`], [`resolution::standoff_form`], [`resolution::standoff_inverse`], [`resolution::nearest_preceding`] | `resolution.md` |
+//! | URI, standoff and rebinding references | [`resolution::rfc3986`], [`resolution::standoff_form`], [`resolution::standoff_inverse`], [`resolution::standoff_byte_span`], [`resolution::standoff_byte_inverse`], [`resolution::nearest_preceding`] | `resolution.md` |
+//! | The bounded S8 resolution state model | [`resolution::indexed_get`], [`resolution::indexed_put`], [`resolution::check_put_domain`], [`resolution::coherent_rekey`], [`resolution::coherent_rename`], [`resolution::equivalent`], [`resolution::gated_put_twice`] | `resolution.md` |
 //! | Bounded XML expansion and tabular edge cases | [`xml::expand_entities`], [`tabular::missing_token_cst`], [`tabular::one_column_empty_cst`], [`tabular::tsv_quote_cst`] | `value-io.md` |
 //! | Canonical value-I/O and presence laws | [`value_io::round_trip`], [`value_io::presence`], [`value_io::duplicate_member`] | `value-io.md` |
 //! | Injectivity witnesses of the canonical byte encoders | [`canonical::decode_value`], [`canonical::value_bytes`], [`canonical::decode_graph`], [`canonical::decode_table`], [`canonical::decode_tree`] | `representation.md` |
@@ -91,9 +93,10 @@
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
 //! | Migration observable squares | [`migration::graph_square`], [`migration::table_square`], [`migration::tree_square`] | `lenses.md` |
 //! | Declared equality, refinement, target sets and XML lexical boundaries | [`keys::representation_refines`], [`keys::target_set`], [`keys::xml_noncdata`] | `keys-and-registration.md`, `validation.md` |
+//! | Lexical-space and annotated-format declarations | [`keys::lexical_space_outcome`], [`keys::annotated_format_outcome`], [`keys::uuid_format`] | `keys-and-registration.md` |
 //! | Schema declaration validation | [`schema::validate_declarations`] | `validation.md` |
 //! | Theory morphisms, quotients and recomposition | [`theory::check_morphism`], [`theory::quotient`], [`theory::recompose`] | `theories.md` |
-//! | Declared resolution observables | [`resolution::declared_key_equality`], [`resolution::guarded_partition`], [`resolution::index_target`], [`resolution::inherited_base`], [`resolution::preserving_registry`], [`resolution::text_identity`], [`resolution::uri_environment`] | `resolution.md` |
+//! | Declared resolution observables | [`resolution::declared_key_equality`], [`resolution::guarded_partition`], [`resolution::inherited_base`], [`resolution::preserving_registry`], [`resolution::text_identity`], [`resolution::uri_environment`] | `resolution.md` |
 //! | Validation observables for new declarations | [`validation::annotated_format_advisory`], [`validation::annotated_format_parse`], [`validation::classify_selector`], [`validation::format_assertion_acceptance`], [`validation::lexical_space`] | `validation.md` |
 //! | Canonical theory and composition bytes | [`theory::canonical_theory_bytes`], [`theory::canonical_composition_bytes`] | `keys-and-registration.md` |
 //! | Generic parse, emit and route agreement | [`value_io::parse`], [`value_io::emit`], [`value_io::bytes`], [`value_io::blob_writer`], [`value_io::decimal`], [`value_io::temporal`], [`value_io::raw_numeric`] | `value-io.md` |

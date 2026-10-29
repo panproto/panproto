@@ -255,6 +255,44 @@ fn step_law_remove_field() {
 }
 
 #[test]
+fn remove_field_drops_the_named_vertex_whose_id_differs_from_its_kind() {
+    // `doc.title` has kind `string`, so its vertex id is not a vertex kind.
+    // The compiled step names the vertex by id and must still instantiate,
+    // drop exactly that vertex, and leave the other `string` vertex alone.
+    let schema = nested_schema();
+    assert!(
+        schema
+            .vertices
+            .values()
+            .all(|vertex| vertex.kind != "doc.title"),
+        "the fixture's field id must not double as a vertex kind"
+    );
+    let compiled = compile_doc(
+        r#"{ "id": "l", "source": "s", "target": "t",
+             "steps": [{ "remove_field": "title" }] }"#,
+    );
+    let lens = compiled
+        .instantiate(&schema, &step_protocol())
+        .expect("a field named by vertex id instantiates");
+    let target = lens.tgt_schema();
+    assert!(!target.vertices.contains_key("doc.title"));
+    assert!(target.vertices.contains_key("doc.meta.author"));
+    let (view, complement) = lens.get(&nested_instance()).expect("path get succeeds");
+    assert!(!view.nodes.contains_key(&1), "the named field is dropped");
+    assert!(
+        view.nodes.contains_key(&3),
+        "a sibling of the same kind stays"
+    );
+    let dropped: Vec<u32> = complement
+        .entries()
+        .iter()
+        .flat_map(|entry| entry.complement.complements().to_vec())
+        .flat_map(|complement| complement.dropped_nodes.into_keys())
+        .collect();
+    assert_eq!(dropped, vec![1], "the complement holds the dropped field");
+}
+
+#[test]
 fn step_law_rename_field() {
     // `rename_field` relabels the `title` edge; a bijective relabel is
     // lossless.

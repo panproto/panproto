@@ -15,7 +15,7 @@ public enum RawStatus: Sendable, Hashable {
     case err
     /// A Rust panic was caught at the boundary.
     case panic
-    /// A handle was out of bounds or already freed.
+    /// A handle was out of bounds or its slot is currently free.
     case invalidHandle
     /// A handle pointed at a resource of a different slab variant.
     case typeMismatch

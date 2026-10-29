@@ -1308,3 +1308,75 @@ fn a_group_helper_keeps_a_building_block_already_in_the_registry() {
         canonical_theory_bytes(&th_graph())
     );
 }
+
+/// One protocol as panproto-protocols 0.74.4 registered it.
+#[derive(serde::Deserialize)]
+struct Frozen074 {
+    schema_theory: String,
+    instance_theory: String,
+    schema: Theory,
+    instance: Theory,
+}
+
+/// The theories panproto-protocols 0.74.4, built from crates.io, registered
+/// for every protocol, as that build serialized them.
+fn frozen_0_74_4() -> std::collections::BTreeMap<String, Frozen074> {
+    #[derive(serde::Deserialize)]
+    struct Document {
+        protocols: std::collections::BTreeMap<String, Frozen074>,
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/registration-0.74.4.json");
+    let text = std::fs::read_to_string(&path).unwrap();
+    serde_json::from_str::<Document>(&text).unwrap().protocols
+}
+
+#[test]
+fn registration_reproduces_the_frozen_0_74_4_theories() {
+    let frozen = frozen_0_74_4();
+    let zero_74: BTreeSet<&str> = ZERO_74.iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        frozen.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+        zero_74,
+        "the frozen build registers exactly the 0.74 protocols"
+    );
+    let mut schema_changed = Vec::new();
+    let mut instance_changed = Vec::new();
+    for (name, old) in &frozen {
+        let (protocol, registry) = register(name);
+        assert_eq!(protocol.schema_theory, old.schema_theory, "{name}");
+        assert_eq!(protocol.instance_theory, old.instance_theory, "{name}");
+        if canonical_theory_bytes(&registry[&protocol.schema_theory])
+            != canonical_theory_bytes(&old.schema)
+        {
+            schema_changed.push(name.as_str());
+        }
+        if canonical_theory_bytes(&registry[&protocol.instance_theory])
+            != canonical_theory_bytes(&old.instance)
+        {
+            instance_changed.push(name.as_str());
+        }
+    }
+    // Every schema theory keeps its 0.74.4 bytes. An instance theory
+    // changes exactly when its shape declaration re-declares it, or when it
+    // registers through a building block the shape theories amended: the
+    // functor (table), graph-instance and flat blocks gained the vertex and
+    // edge sorts and coherence axioms their shapes need.
+    let amended = |name: &str| {
+        REDECLARED
+            .iter()
+            .any(|(redeclared, ..)| *redeclared == name)
+            || ZERO_74.iter().any(|(protocol, group)| {
+                *protocol == name && matches!(group, Group::B | Group::C | Group::F)
+            })
+    };
+    let expected: Vec<&str> = frozen
+        .keys()
+        .map(String::as_str)
+        .filter(|name| amended(name))
+        .collect();
+    assert_eq!(schema_changed, Vec::<&str>::new());
+    assert_eq!(instance_changed, expected);
+    assert_eq!(instance_changed.len(), 17);
+    assert_eq!(frozen.len() - instance_changed.len(), 37);
+}

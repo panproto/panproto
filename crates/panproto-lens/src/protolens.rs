@@ -192,22 +192,54 @@ pub struct Protolens {
 impl Protolens {
     /// Check if this protolens can be instantiated at the given schema.
     ///
-    /// A protolens applies when the source endofunctor's precondition
-    /// is satisfied by the schema's implicit theory (vertex kinds as
-    /// sorts, edge kinds as operations).
+    /// A protolens applies when its [`Self::schema_precondition`] holds
+    /// at the schema.
     #[must_use]
     pub fn applicable_to(&self, schema: &Schema) -> bool {
         self.check_applicability(schema).is_ok()
+    }
+
+    /// The source precondition read at the schema level, on exactly the
+    /// schema objects the target transform matches.
+    ///
+    /// A theory constraint names sorts, operations and equations; the
+    /// schema's implicit theory takes vertex kinds as sorts and edge kinds as
+    /// operations, and carries no equations. Three schema transforms read a
+    /// name differently, and each precondition atom on that name is read the
+    /// way its transform reads it:
+    ///
+    /// - [`TheoryTransform::DropSort`] removes every vertex whose id or kind
+    ///   is the name, so `HasSort` on that name holds when some vertex has
+    ///   that id or that kind;
+    /// - [`TheoryTransform::ScopedTransform`] scopes to the vertex whose id
+    ///   is its focus, so `HasSort` on the focus holds when that vertex
+    ///   exists;
+    /// - [`TheoryTransform::DropEquation`] and
+    ///   [`TheoryTransform::DropDirectedEquation`] are the identity on every
+    ///   schema, so `HasEquation` and `HasDirectedEq` on their names hold at
+    ///   every schema.
+    ///
+    /// Every other atom keeps the reading of
+    /// [`SchemaConstraint::from_theory_constraint`]. Thus the precondition
+    /// admits a schema exactly when the transform has an object to act on,
+    /// or is total there.
+    #[must_use]
+    pub fn schema_precondition(&self) -> SchemaConstraint {
+        let mut reads = TransformReads::default();
+        reads.collect(&self.target.transform);
+        reads.refine(SchemaConstraint::from_theory_constraint(
+            &self.source.precondition,
+        ))
     }
 
     /// Check applicability with failure reasons.
     ///
     /// # Errors
     ///
-    /// Returns a list of human-readable reasons why the precondition
-    /// is not satisfied.
+    /// Returns a list of human-readable reasons why
+    /// [`Self::schema_precondition`] is not satisfied.
     pub fn check_applicability(&self, schema: &Schema) -> Result<(), Vec<String>> {
-        let constraint = SchemaConstraint::from_theory_constraint(&self.source.precondition);
+        let constraint = self.schema_precondition();
         let reasons = constraint.check(schema);
         if reasons.is_empty() {
             Ok(())
@@ -576,6 +608,67 @@ impl SchemaConstraint {
             | panproto_gat::TheoryConstraint::HasCoercion { .. }
             | panproto_gat::TheoryConstraint::HasMerger(_)
             | panproto_gat::TheoryConstraint::HasPolicy(_)) => Self::Theory(other.clone()),
+        }
+    }
+}
+
+/// The names a schema transform reads other than as theory sorts,
+/// operations or equations, collected through composition.
+#[derive(Default)]
+struct TransformReads {
+    /// Names a [`TheoryTransform::DropSort`] matches by vertex id or kind.
+    id_or_kind: HashSet<Arc<str>>,
+    /// Names a [`TheoryTransform::ScopedTransform`] matches by vertex id.
+    vertex_id: HashSet<Arc<str>>,
+    /// Equation names whose drop is the identity on every schema.
+    schema_free_equations: HashSet<Arc<str>>,
+}
+
+impl TransformReads {
+    fn collect(&mut self, transform: &TheoryTransform) {
+        match transform {
+            TheoryTransform::DropSort(name) => {
+                self.id_or_kind.insert(Arc::clone(name));
+            }
+            TheoryTransform::ScopedTransform { focus, .. } => {
+                self.vertex_id.insert(Arc::clone(focus));
+            }
+            TheoryTransform::DropEquation(name) | TheoryTransform::DropDirectedEquation(name) => {
+                self.schema_free_equations.insert(Arc::clone(name));
+            }
+            TheoryTransform::Compose(first, second) => {
+                self.collect(first);
+                self.collect(second);
+            }
+            _ => {}
+        }
+    }
+
+    fn refine(&self, constraint: SchemaConstraint) -> SchemaConstraint {
+        match constraint {
+            SchemaConstraint::HasVertexKind(name) if self.id_or_kind.contains(name.as_str()) => {
+                SchemaConstraint::Any(vec![
+                    SchemaConstraint::HasVertexKind(name.clone()),
+                    SchemaConstraint::HasVertex(name),
+                ])
+            }
+            SchemaConstraint::HasVertexKind(name) if self.vertex_id.contains(name.as_str()) => {
+                SchemaConstraint::HasVertex(name)
+            }
+            SchemaConstraint::Theory(
+                panproto_gat::TheoryConstraint::HasEquation(name)
+                | panproto_gat::TheoryConstraint::HasDirectedEq(name),
+            ) if self.schema_free_equations.contains(&name) => SchemaConstraint::Unconstrained,
+            SchemaConstraint::All(constraints) => {
+                SchemaConstraint::All(constraints.into_iter().map(|c| self.refine(c)).collect())
+            }
+            SchemaConstraint::Any(constraints) => {
+                SchemaConstraint::Any(constraints.into_iter().map(|c| self.refine(c)).collect())
+            }
+            SchemaConstraint::Not(constraint) => {
+                SchemaConstraint::Not(Box::new(self.refine(*constraint)))
+            }
+            other => other,
         }
     }
 }

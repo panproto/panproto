@@ -121,6 +121,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          # The workflow sets CARGO_TERM_COLOR=always, which nextest reads, so
+          # each listing turns colour off to compare plain test names.
           check_gate() {
             local package="$1"
             local binary="$2"
@@ -130,7 +132,7 @@ jobs:
             local expected="${package}::${binary} ${test_name}"
 
             selected="$(cargo nextest list --locked -p "${package}" --test "${binary}" \
-              --profile ci -E "test(=${test_name})" -T oneline \
+              --profile ci -E "test(=${test_name})" -T oneline --color never \
               --cargo-quiet --cargo-quiet)"
             if [[ -n "${selected}" ]]; then
               echo "${expected} entered the ordinary CI profile" >&2
@@ -139,7 +141,7 @@ jobs:
 
             available="$(cargo nextest list --locked -p "${package}" --test "${binary}" \
               --profile ci --ignore-default-filter -E "test(=${test_name})" \
-              -T oneline --cargo-quiet --cargo-quiet)"
+              -T oneline --color never --cargo-quiet --cargo-quiet)"
             if [[ "${available}" != "${expected}" ]]; then
               echo "${expected} is missing or no longer explicitly selectable" >&2
               exit 1

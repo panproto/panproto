@@ -182,7 +182,7 @@ fn guarded_partition_selects_the_first_representationally_equal_guard() {
 }
 
 #[test]
-fn inherited_base_uses_the_nearest_present_ancestor() {
+fn inherited_base_folds_the_present_ancestor_bases() {
     let ancestors = vec![
         Some("https://outer.example/root/".to_owned()),
         None,
@@ -191,7 +191,15 @@ fn inherited_base_uses_the_nearest_present_ancestor() {
     assert_eq!(
         resolution::inherited_base(&ancestors, "../item?q=1"),
         Some("https://inner.example/a/item?q=1".to_owned()),
-        "the nearest present base wins over a more distant ancestor"
+        "an absolute nearer base replaces a more distant one"
+    );
+    assert_eq!(
+        resolution::inherited_base(
+            &[Some("http://a/b/".to_owned()), Some("c/".to_owned())],
+            "x"
+        ),
+        Some("http://a/b/c/x".to_owned()),
+        "a relative nearer base resolves against the base above it"
     );
     assert_eq!(
         resolution::inherited_base(&[None, None], "item"),
@@ -234,20 +242,36 @@ fn preserving_registry_is_the_ordered_cartesian_product() {
 
 #[test]
 fn uri_environment_folds_every_directive_in_order() {
+    let base = |iri: &str| resolution::UriDirective::Base(iri.to_owned());
     let directives = vec![
-        "https://example.test/root/a/".to_owned(),
-        "../b/".to_owned(),
-        "leaf?version=1".to_owned(),
+        base("https://example.test/root/a/"),
+        base("../b/"),
+        resolution::UriDirective::Prefix {
+            label: "p".to_owned(),
+            iri: "leaf#".to_owned(),
+        },
     ];
+    let environment = resolution::uri_environment(&directives);
     assert_eq!(
-        resolution::uri_environment(&directives),
-        Some("https://example.test/root/b/leaf?version=1".to_owned()),
-        "both relative directives refine the preceding environment"
+        environment.base.as_deref(),
+        Some("https://example.test/root/b/"),
+        "a relative base directive refines the preceding base"
     );
     assert_eq!(
-        resolution::uri_environment(&["relative-only".to_owned()]),
+        environment.resolve("p:x").as_deref(),
+        Some("https://example.test/root/b/leaf#x"),
+        "a prefix IRI resolves against the base in scope at its directive"
+    );
+    let relative_first = resolution::uri_environment(&[base("c/"), base("http://a/b/")]);
+    assert_eq!(
+        relative_first.base.as_deref(),
+        Some("http://a/b/"),
+        "a relative first directive gives no base, and a later absolute one sets it"
+    );
+    assert_eq!(
+        resolution::uri_environment(&[base("relative-only")]).resolve("g"),
         None,
-        "the first directive must establish an absolute environment"
+        "a relative reference with no base in scope is unresolved"
     );
 }
 

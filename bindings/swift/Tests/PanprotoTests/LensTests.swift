@@ -390,10 +390,15 @@ struct LensTests {
             let fixtures = try LensFixtures()
             let lens = try fixtures.selfLens()
             let projection = try lens.get(fixtures.record)
-            // A complement whose fingerprint names no schema this lens
-            // was built against is the failure `put` exists to catch.
+            // A complement whose identity envelope names a source schema
+            // this lens was not built against is the failure `put` exists
+            // to catch. The envelope is the binding the engine checks; the
+            // legacy fingerprint beside it is read only when no envelope
+            // is present.
             var foreign = projection.complement
-            foreign.sourceFingerprint = 0xDEAD_BEEF
+            var envelope = try #require(foreign.identity)
+            envelope.sourceSchema = Data(repeating: 0xAB, count: 32)
+            foreign.identity = envelope
             do {
                 _ = try lens.put(view: projection.view, complement: foreign)
                 return nil
@@ -442,12 +447,21 @@ struct LensTests {
     func lensCompositionProjectsThroughBoth() async throws {
         let (single, composed) = try await PanprotoEngine.run {
             () throws -> (Instance, Instance) in
-            let fixtures = try LensFixtures()
-            let lens = try fixtures.selfLens()
+            // The engine hands back one lens only when the pair fuses
+            // into a single stage, which the tree fusion rule refuses for
+            // the atproto post lens. The self lens of a small schema of
+            // optional strings is one the rule admits.
+            let schema = try smallSchema(fields: ["text", "subtitle"])
+            let record = try smallInstance(
+                schema,
+                json: #"{"text":"hello","subtitle":"world"}"#
+            )
+            let lens = try ProtolensChainHandle.autoGenerate(from: schema, to: schema)
+                .instantiate(at: schema)
             let twice = try lens.composedLens(with: lens)
             return (
-                try lens.get(fixtures.record).view,
-                try twice.get(fixtures.record).view
+                try lens.get(record).view,
+                try twice.get(record).view
             )
         }
 
@@ -756,11 +770,11 @@ struct LensTests {
 
         // The two halves of a symmetric lens run from the middle schema
         // the span was discovered at, so a complement captured against
-        // either end names the wrong source.
+        // either end names the wrong source in its identity envelope.
         let raised = try #require(error)
         #expect(raised.domain == .lens)
         #expect(raised.detail.operation == "SymmetricLensHandle.sync")
-        #expect(raised.detail.message.contains("fingerprint"))
+        #expect(raised.detail.message.contains("identity mismatch on source_schema"))
     }
 
     @Test("the two sync directions are the bytes the ABI reads")

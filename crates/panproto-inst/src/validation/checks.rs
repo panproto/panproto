@@ -1561,12 +1561,18 @@ fn discover_local(
             if let Compiled::Value { vertex, test, .. } = compiled {
                 let _ = view.value_sites_at(&ctx.plan.schema, vertex, node);
                 if let ValueTest::LexicalSpace { tag, .. } = test {
-                    for edge in view
+                    // As `lexical_bound` does: the selector's target value is
+                    // read only when exactly one selector edge leaves the
+                    // subject; several edges are refused before any target
+                    // value is read.
+                    let targets: Vec<ViewRef> = view
                         .out_edges(node)
                         .into_iter()
                         .filter(|edge| edge.label == tag)
-                    {
-                        let _ = view.own_value(&edge.tgt);
+                        .map(|edge| edge.tgt)
+                        .collect();
+                    if let [target] = targets.as_slice() {
+                        let _ = view.own_value(target);
                     }
                 }
             }
@@ -2009,12 +2015,21 @@ fn value_constraint(
         if let Some(lexical) = &lexical {
             match lexical {
                 Ok((datatype, spec)) => {
-                    if crate::value::coerce::coerce_value(
-                        value,
-                        spec,
-                        ValueSite::new(vertex.clone(), None),
-                    )
-                    .is_err()
+                    // An XSD lexeme outside its datatype's lexical space is
+                    // ill-typed even where the kind's reader would take it.
+                    let outside_lexical_space = match value {
+                        Value::Str(text) | Value::Token(text) => {
+                            super::xsd_lexical::in_lexical_space(datatype, text) == Some(false)
+                        }
+                        _ => false,
+                    };
+                    if outside_lexical_space
+                        || crate::value::coerce::coerce_value(
+                            value,
+                            spec,
+                            ValueSite::new(vertex.clone(), None),
+                        )
+                        .is_err()
                     {
                         out.findings.push(Finding::new(
                             vec![n.clone()],

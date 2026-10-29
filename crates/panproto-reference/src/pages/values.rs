@@ -1893,8 +1893,7 @@ pub mod coerce {
         if admits_specials {
             match text.to_ascii_lowercase().as_str() {
                 "nan" => return Some("NaN".to_owned()),
-                "-nan" => return Some("-NaN".to_owned()),
-                "infinity" | "+infinity" | "inf" | "+inf" => return Some("Infinity".to_owned()),
+                "infinity" | "inf" => return Some("Infinity".to_owned()),
                 "-infinity" | "-inf" => return Some("-Infinity".to_owned()),
                 _ => {}
             }

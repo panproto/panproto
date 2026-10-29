@@ -2079,33 +2079,45 @@ fn sort_class_verdict(
     Ok(reference_verdict)
 }
 
-/// The spans of the span scope: apex, feet and both legs, each leg a
-/// morphism by the reference check.
-fn spans(apexes: &[r::Theory], feet: &[r::Theory]) -> Vec<r::TheoryDiagram> {
-    let mut out = Vec::new();
-    for apex in apexes {
-        let legs: Vec<(&r::Theory, r::Morphism)> = feet
-            .iter()
-            .flat_map(|foot| {
-                scope::morphisms(apex, foot)
-                    .into_iter()
-                    .filter(|m| r::check_morphism(apex, foot, m).is_ok())
-                    .map(move |m| (foot, m))
-            })
-            .collect();
-        for (left, i1) in &legs {
-            for (right, i2) in &legs {
-                out.push(r::TheoryDiagram::span(
-                    ("S".to_owned(), apex.clone()),
-                    ("L".to_owned(), (*left).clone()),
-                    ("R".to_owned(), (*right).clone()),
-                    i1.clone(),
-                    i2.clone(),
-                ));
-            }
-        }
-    }
-    out
+/// The legs of the span scope, per apex: every total assignment from the
+/// apex into a foot that the reference check accepts, with its foot.
+///
+/// A span is an apex with an ordered pair of its legs. The spans are built
+/// one at a time from these lists ([`span_of`]) and dropped once compared,
+/// so memory stays bounded by the legs (a few thousand morphisms) rather
+/// than by the 944,638 spans of the scope, each holding three theories.
+fn span_legs<'a>(
+    apexes: &[r::Theory],
+    feet: &'a [r::Theory],
+) -> Vec<Vec<(&'a r::Theory, r::Morphism)>> {
+    apexes
+        .iter()
+        .map(|apex| {
+            feet.iter()
+                .flat_map(|foot| {
+                    scope::morphisms(apex, foot)
+                        .into_iter()
+                        .filter(|m| r::check_morphism(apex, foot, m).is_ok())
+                        .map(move |m| (foot, m))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// The span of `apex` with legs `left` and `right`.
+fn span_of(
+    apex: &r::Theory,
+    (left, i1): &(&r::Theory, r::Morphism),
+    (right, i2): &(&r::Theory, r::Morphism),
+) -> r::TheoryDiagram {
+    r::TheoryDiagram::span(
+        ("S".to_owned(), apex.clone()),
+        ("L".to_owned(), (*left).clone()),
+        ("R".to_owned(), (*right).clone()),
+        i1.clone(),
+        i2.clone(),
+    )
 }
 
 /// The span scope's signatures: the bare signatures with at most one
@@ -2120,7 +2132,7 @@ fn span_signatures() -> Vec<r::Theory> {
 #[test]
 fn composition_agrees_with_the_reference_on_every_span() {
     let signatures = span_signatures();
-    let diagrams = spans(&signatures, &signatures);
+    let legs = span_legs(&signatures, &signatures);
     let options = scope::option_sets();
     let (_, one_operation_bare) = one_operation_counts();
     assert_eq!(signatures.len() as u64, one_operation_bare);
@@ -2141,30 +2153,37 @@ fn composition_agrees_with_the_reference_on_every_span() {
             k * k
         })
         .sum();
-    assert_eq!(diagrams.len() as u64, by_product);
+    let span_count: u64 = legs.iter().map(|l| (l.len() as u64).pow(2)).sum();
+    assert_eq!(span_count, by_product);
     println!(
         "bound: apex and feet every bare signature with at most one operation ({}); legs every \
          total assignment the reference accepts; options: both modes x both clash policies",
         signatures.len()
     );
     println!(
-        "spans: {} (by the leg product {by_product}); compositions: {}",
-        diagrams.len(),
-        diagrams.len() * options.len()
+        "spans: {span_count} (by the leg product {by_product}); compositions: {}",
+        span_count * options.len() as u64
     );
-    let compared = parallel(&diagrams, |d| {
+    // One work item per apex and left leg; its spans, one per right leg,
+    // are built, compared under every option set and dropped in turn.
+    let items: Vec<(usize, usize)> = legs
+        .iter()
+        .enumerate()
+        .flat_map(|(apex, l)| (0..l.len()).map(move |left| (apex, left)))
+        .collect();
+    let compared = parallel(&items, |&(apex, left)| {
         let mut n = 0;
-        for o in &options {
-            compose_agrees(d, o)?;
-            n += 1;
+        for right in &legs[apex] {
+            let d = span_of(&signatures[apex], &legs[apex][left], right);
+            for o in &options {
+                compose_agrees(&d, o)?;
+                n += 1;
+            }
         }
         Ok(n)
     });
     println!("compared {compared}");
-    assert_eq!(
-        usize::try_from(compared).expect("the count fits in usize"),
-        diagrams.len() * options.len()
-    );
+    assert_eq!(compared, span_count * options.len() as u64);
 
     let fibres = scope::fibre_spans();
     assert_eq!(fibres.len(), 4, "two binary leg-image choices");
@@ -2522,6 +2541,7 @@ fn production_replay_refusal(e: &panproto_gat::GatError) -> String {
             "Composition({})",
             replay_composition_refusal(production_refusal(&r::TheoryDiagram::default(), inner))
         ),
+        G::DuplicateInlineTheory { step, name } => format!("DuplicateInline({step}, {name})"),
         other => format!("unmapped {other:?}"),
     }
 }
@@ -2535,6 +2555,9 @@ fn reference_replay_refusal(e: &r::RecomposeError) -> String {
             "Composition({})",
             replay_composition_refusal(reference_refusal(inner))
         ),
+        r::RecomposeError::DuplicateInline { step, name } => {
+            format!("DuplicateInline({step}, {name})")
+        }
     }
 }
 
@@ -2548,7 +2571,8 @@ fn recipe_replay_agrees_with_the_reference_on_every_recipe() {
         for right in &signatures {
             // Three base steps; per mode, one colimit per subset of the
             // common sort names and of the common operation names, and one
-            // over the absent `Z`; two diagram steps per option set.
+            // over the absent `Z`; three diagram steps per option set, the
+            // third with two inline theories of one name.
             let common = left
                 .sorts
                 .iter()
@@ -2559,7 +2583,7 @@ fn recipe_replay_agrees_with_the_reference_on_every_recipe() {
                     .iter()
                     .filter(|o| right.ops.iter().any(|t| t.name == o.name))
                     .count();
-            by_formula += 3 + 2 * ((1 << common) + 1) + 2 * 4;
+            by_formula += 3 + 2 * ((1 << common) + 1) + 3 * 4;
             for spec in scope::recipes(left, right) {
                 recipes += 1;
                 let (production, reference) = recompose_outcomes(left, right, &spec);
@@ -2574,6 +2598,30 @@ fn recipe_replay_agrees_with_the_reference_on_every_recipe() {
     println!("recipes: {recipes} ({by_formula} by formula); compared {compared}");
     assert_eq!(recipes, by_formula);
     assert_eq!(compared, recipes);
+
+    // One diagram step over the node `I` with two inline theories of that
+    // name, declaring `A` and `B`: refused before resolution, whichever
+    // theory a lookup would pick.
+    let single = |sort: &str| r::Theory {
+        name: "I".to_owned(),
+        sorts: vec![outside_scope::sort(sort, Vec::new())],
+        ..r::Theory::default()
+    };
+    let duplicated = r::CompositionSpec {
+        result_name: "out".to_owned(),
+        steps: vec![r::CompositionStep::Diagram {
+            nodes: vec!["I".to_owned()],
+            edges: Vec::new(),
+            mode: r::CompositionMode::ExplicitIdentity,
+            clash: r::ClashPolicy::Reject,
+            rewrite_budget: 512,
+            inline: vec![single("A"), single("B")],
+        }],
+        version: 1,
+    };
+    let (production, reference) = recompose_outcomes(&single("A"), &single("B"), &duplicated);
+    assert_eq!(reference, Err("DuplicateInline(0, I)".to_owned()));
+    assert_eq!(production, reference);
 }
 
 // ─── the property differential over the same constructor families ──
@@ -2902,7 +2950,9 @@ fn refusal_order_composition() -> r::TheoryDiagram {
 /// The compositions of the outside-scope differential: a free variable
 /// first met under a local binder, a node equation named like a generated
 /// one beside a directed conflict, two clashes out of byte order, one edge
-/// generating two equations, and a class joined by an edge and by name.
+/// generating two equations, a class joined by an edge and by name, and a
+/// leg sending an operation to a term whose sort differs from the
+/// translated output only in a local binder name.
 fn outside_scope_compositions() -> Vec<r::TheoryDiagram> {
     use outside_scope::{app, let_in, morphism, named, op, sort, theory, var};
 
@@ -2993,7 +3043,190 @@ fn outside_scope_compositions() -> Vec<r::TheoryDiagram> {
             vec![("g", r::OpImage::Op("f".to_owned()))],
         ),
     });
-    vec![free_under_let, refusal_order, clash, cocone, mixed]
+    let binder_leg = binder_renamed_term_leg();
+    vec![
+        free_under_let,
+        refusal_order,
+        clash,
+        cocone,
+        mixed,
+        binder_leg,
+    ]
+}
+
+/// A domain operation `k : () -> Y(let u = a() in u)`, a codomain
+/// operation `k2 : () -> Y(let v = a() in v)`, and the map sending `k` to
+/// the term `k2()`: the term's sort and the translated output sort differ
+/// only in the name of a local binder.
+fn binder_renamed_term_image() -> (r::Theory, r::Theory, r::Morphism) {
+    use outside_scope::{app, let_in, morphism, named, op, sort, theory, var};
+    let local = |u: &str| let_in(u, app("a", vec![]), var(u));
+    let side = |name: &str, k: &str, u: &str| {
+        theory(
+            name,
+            vec![sort("X", vec![]), sort("Y", vec![("x", named("X"))])],
+            vec![
+                op("a", &[], named("X")),
+                op(k, &[], r::SortExpr::App("Y".to_owned(), vec![local(u)])),
+            ],
+        )
+    };
+    let m = morphism(
+        "D",
+        "T",
+        &[("X", "X"), ("Y", "Y")],
+        vec![
+            ("a", r::OpImage::Op("a".to_owned())),
+            ("k", r::OpImage::Term(app("k2", vec![]))),
+        ],
+    );
+    (side("D", "k", "u"), side("T", "k2", "v"), m)
+}
+
+/// The leg of [`binder_renamed_term_image`] as the one edge of a diagram,
+/// so the composition's leg check meets a term image whose sort differs
+/// only in a local binder name.
+fn binder_renamed_term_leg() -> r::TheoryDiagram {
+    let (domain, codomain, m) = binder_renamed_term_image();
+    let mut diagram =
+        r::TheoryDiagram::discrete(vec![("D".to_owned(), domain), ("T".to_owned(), codomain)]);
+    diagram.edges.push(r::DiagramEdge {
+        src: "D".to_owned(),
+        tgt: "T".to_owned(),
+        morphism: m,
+    });
+    diagram
+}
+
+/// A reference outcome test.
+type OutcomeTest = fn(&Result<(), r::MorphismError>) -> bool;
+
+/// Morphisms whose refusal depends on the order of the operation checks,
+/// each with the refusal that order gives.
+///
+/// 1. `f : () -> C`, `C` undeclared and unmapped, sent to an operation
+///    `g` the codomain lacks: `OpNotFound(g)`, since the target operation
+///    is looked up before the heads of the signature.
+/// 2. `f : (x : A) -> A` sent to `h(z)`, `h` undeclared and `z` unbound:
+///    `TermAssignmentIllTyped`, since typing meets `h` before `z`.
+/// 3. `f` sent to `z`: `TermAssignmentUnboundVar(f, z)`.
+/// 4. `f : (x : X) -> X` sent to `p(k1(), k2(), z)`, `p` with an implicit
+///    input `i : X` and explicit inputs `Y(i), Y(i), X`, `k1 : Y(a)` and
+///    `k2 : Y(b)`: the implicit input cannot be solved, but unification
+///    runs after every argument is typed, so the unbound `z` is met first,
+///    `TermAssignmentUnboundVar(f, z)`.
+/// 5. As 4 with `x` for `z`: `TermAssignmentIllTyped`, the failed
+///    unification.
+fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeTest)> {
+    use outside_scope::{app, morphism, named, op, sort, theory, var};
+    let a_only = || theory("T", vec![sort("A", vec![])], Vec::new());
+    let unknown_target = (
+        theory("D", vec![sort("A", vec![])], vec![op("f", &[], named("C"))]),
+        a_only(),
+        morphism(
+            "D",
+            "T",
+            &[("A", "A")],
+            vec![("f", r::OpImage::Op("g".to_owned()))],
+        ),
+        (|o: &Result<(), r::MorphismError>| {
+            *o == Err(r::MorphismError::OpNotFound("g".to_owned()))
+        }) as OutcomeTest,
+    );
+    let unary = || {
+        theory(
+            "D",
+            vec![sort("A", vec![])],
+            vec![op("f", &[("x", "A")], named("A"))],
+        )
+    };
+    let to_term = |t: r::Term| morphism("D", "T", &[("A", "A")], vec![("f", r::OpImage::Term(t))]);
+    let ill_typed_first = (
+        unary(),
+        a_only(),
+        to_term(app("h", vec![var("z")])),
+        (|o: &Result<(), r::MorphismError>| {
+            matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f")
+        }) as OutcomeTest,
+    );
+    let unbound_only = (
+        unary(),
+        a_only(),
+        to_term(var("z")),
+        (|o: &Result<(), r::MorphismError>| {
+            *o == Err(r::MorphismError::TermAssignmentUnboundVar {
+                op: "f".to_owned(),
+                var: "z".to_owned(),
+            })
+        }) as OutcomeTest,
+    );
+    let y_of = |c: &str| r::SortExpr::App("Y".to_owned(), vec![app(c, vec![])]);
+    let y_i = r::SortExpr::App("Y".to_owned(), vec![var("i")]);
+    let implicit_codomain = theory(
+        "T",
+        vec![sort("X", vec![]), sort("Y", vec![("x", named("X"))])],
+        vec![
+            op("a", &[], named("X")),
+            op("b", &[], named("X")),
+            op("k1", &[], y_of("a")),
+            op("k2", &[], y_of("b")),
+            r::Op {
+                name: "p".to_owned(),
+                inputs: vec![
+                    ("i".to_owned(), named("X"), r::Implicit::Yes),
+                    ("u".to_owned(), y_i.clone(), r::Implicit::No),
+                    ("v".to_owned(), y_i, r::Implicit::No),
+                    ("w".to_owned(), named("X"), r::Implicit::No),
+                ],
+                output: named("X"),
+            },
+        ],
+    );
+    let x_unary = theory(
+        "D",
+        vec![sort("X", vec![])],
+        vec![op("f", &[("x", "X")], named("X"))],
+    );
+    let implicit_image = |last: &str| {
+        morphism(
+            "D",
+            "T",
+            &[("X", "X")],
+            vec![(
+                "f",
+                r::OpImage::Term(app(
+                    "p",
+                    vec![app("k1", vec![]), app("k2", vec![]), var(last)],
+                )),
+            )],
+        )
+    };
+    let unification_after_typing = (
+        x_unary.clone(),
+        implicit_codomain.clone(),
+        implicit_image("z"),
+        (|o: &Result<(), r::MorphismError>| {
+            *o == Err(r::MorphismError::TermAssignmentUnboundVar {
+                op: "f".to_owned(),
+                var: "z".to_owned(),
+            })
+        }) as OutcomeTest,
+    );
+    let unification_fails = (
+        x_unary,
+        implicit_codomain,
+        implicit_image("x"),
+        (|o: &Result<(), r::MorphismError>| {
+            matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f")
+        }) as OutcomeTest,
+    );
+    vec![
+        unknown_target,
+        ill_typed_first,
+        unbound_only,
+        unification_after_typing,
+        unification_fails,
+    ]
 }
 
 /// Inputs outside the enumerated scopes on which production and the
@@ -3001,7 +3234,9 @@ fn outside_scope_compositions() -> Vec<r::TheoryDiagram> {
 /// binder, the refusal order of equation and directed-equation name
 /// conflicts, the name a clash reports, an equation whose sides agree under
 /// a non-terminating rule, a parameter sort that differs only in a local
-/// binder name, and the equation a commuting cocone square names.
+/// binder name, the equation a commuting cocone square names, and a term
+/// image, alone and as a composition leg, whose sort differs only in a
+/// local binder name.
 #[test]
 fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
     use outside_scope::{app, directed, let_in, morphism, named, op, options, sort, theory, var};
@@ -3088,6 +3323,33 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
         typecheck_agrees(&binders),
         "signature checking compares sorts up to the names of local binders"
     );
-    println!("outside-scope compositions compared: {compared} (5 diagrams x 2 modes x 2 policies)");
-    assert_eq!(compared, 20);
+    // A term image whose sort differs from the translated output sort only
+    // in the name of a local binder: a morphism, so accepted.
+    let (domain, codomain, m) = binder_renamed_term_image();
+    let (production, reference) = morphism_outcomes(&domain, &codomain, &m);
+    assert_eq!(
+        reference,
+        Ok(()),
+        "the reference compares a term image's sort up to local binder names"
+    );
+    assert!(
+        same_morphism_outcome(&production, &reference),
+        "a term image's sort is compared up to local binder names: production {production:?}"
+    );
+    // The refusal order of an operation's image: the target operation is
+    // looked up before any head of the signature, and a term image is
+    // refused at the first defect the typing judgement meets.
+    for (domain, codomain, m, expected) in refusal_order_morphisms() {
+        let (production, reference) = morphism_outcomes(&domain, &codomain, &m);
+        assert!(
+            expected(&reference),
+            "the reference refuses {m:?} as stated: {reference:?}"
+        );
+        assert!(
+            same_morphism_outcome(&production, &reference),
+            "refusal order disagreement on {m:?}\n  production: {production:?}\n  reference: {reference:?}"
+        );
+    }
+    println!("outside-scope compositions compared: {compared} (6 diagrams x 2 modes x 2 policies)");
+    assert_eq!(compared, 24);
 }

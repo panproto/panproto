@@ -220,6 +220,14 @@ pub fn key_equivalence(
                 _ => Ok(left.canonical_cmp(right).is_eq()),
             }
         }
+        // The key function of text under a named collation is undefined, so
+        // every pair holding such text is refused.
+        KeyEquality::Sql {
+            collation: SqlCollation::Named(name),
+            ..
+        } if matches!(left, Value::Str(_)) || matches!(right, Value::Str(_)) => {
+            Err(KeyingError::UnsupportedCollation(name.clone()))
+        }
         KeyEquality::Sql { collation, pad } => match (numeric_key(left)?, numeric_key(right)?) {
             (Some(left), Some(right)) => Ok(left == right),
             (None, None) => match (left, right) {

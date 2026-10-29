@@ -340,9 +340,12 @@ fn coerce_in_dialect(
 /// - `ProtoJson`: JSON's numbers, and for a string lexeme under a float
 ///   kind the strings `NaN`, `Infinity` and `-Infinity` (Protocol Buffers,
 ///   `ProtoJSON` format, stated).
-/// - `Sql`: decimal numerals, and under a float or decimal kind
-///   PostgreSQL's `NaN`, `Infinity`, `-Infinity`, `inf` and `-inf`, in any
-///   case (PostgreSQL 16, Sec 8.1.3 and 8.1.2, stated).
+/// - `Sql`: decimal numerals with an optional sign (PostgreSQL 16, Sec
+///   4.1.2.6, a leading sign being an operator applied to the constant), and
+///   under a float or decimal kind PostgreSQL's `NaN`, `Infinity`,
+///   `-Infinity`, `inf` and `-inf`, in any case (PostgreSQL 16, Secs 8.1.3
+///   and 8.1.2); `+inf`, `+infinity` and a signed NaN are named by neither
+///   section and are no numerals.
 fn dialect_numeral(
     text: &str,
     class: &LexClass,
@@ -375,8 +378,7 @@ fn dialect_numeral(
             if float_kind || matches!(kind, ScalarKind::Decimal) {
                 let special = match text.to_ascii_lowercase().as_str() {
                     "nan" => Some("NaN"),
-                    "-nan" => Some("-NaN"),
-                    "infinity" | "+infinity" | "inf" | "+inf" => Some("Infinity"),
+                    "infinity" | "inf" => Some("Infinity"),
                     "-infinity" | "-inf" => Some("-Infinity"),
                     _ => None,
                 };

@@ -1224,8 +1224,9 @@ mod tests {
     }
 
     /// Every inclusion of `composition` is a morphism and the identity is
-    /// its universal mediator, each recorded as `Passed`, and no check of it
-    /// is inapplicable.
+    /// its universal mediator, each recorded as `Passed`; the report passes
+    /// and every record of every check kind passes, so none is failed,
+    /// incomplete or inapplicable.
     fn assert_total(composition: &Composition, what: &str) {
         for check in [
             CompositionCheckKind::InclusionIsMorphism,
@@ -1242,13 +1243,20 @@ mod tests {
                 );
             }
         }
-        let inapplicable: Vec<_> = composition
-            .report
-            .checks
-            .iter()
-            .filter(|r| matches!(r.outcome, CheckOutcome::Inapplicable { .. }))
-            .collect();
-        assert!(inapplicable.is_empty(), "{what}: {inapplicable:?}");
+        assert_eq!(
+            composition.report.status,
+            panproto_gat::CheckStatus::Passed,
+            "{what}"
+        );
+        for record in &composition.report.checks {
+            assert!(
+                matches!(
+                    record.outcome,
+                    CheckOutcome::Passed | CheckOutcome::PassedByEquation { .. }
+                ),
+                "{what}: {record:?}"
+            );
+        }
     }
 
     /// A building block typechecks on its own, signature and body.

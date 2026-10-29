@@ -238,7 +238,8 @@ fn entity_maps(
 }
 
 /// Step 3 of [`entity_maps`]: the image column of each kept column of each
-/// kept table, or the least column whose image is incoherent.
+/// kept table, or the incoherent attribute arrow least in [`Edge`] order
+/// (source, target, kind, name) over every kept table.
 fn column_maps(
     source: &RelSchema,
     target: &RelSchema,
@@ -246,41 +247,49 @@ fn column_maps(
     tables: &BTreeMap<Name, Name>,
     survives_edge: &dyn Fn(&Edge) -> bool,
 ) -> Result<BTreeMap<(Name, String), String>, RestrictError> {
+    let mut arrows: Vec<(&Name, &Name, &String, &Edge)> = tables
+        .iter()
+        .flat_map(|(table, image_table)| {
+            source
+                .columns(table)
+                .iter()
+                .map(move |(column, arrow)| (table, image_table, column, arrow))
+        })
+        .collect();
+    arrows.sort_by(|left, right| left.3.cmp(right.3));
     let mut columns = BTreeMap::new();
-    for (table, image_table) in tables {
-        for (column, arrow) in source.columns(table) {
-            let value_image = migration.vertex_remap.get(&arrow.tgt);
-            let image = if let Some(image) = migration.edge_remap.get(arrow) {
-                let coherent = target.attribute_column(image).is_some()
-                    && image.src == *image_table
-                    && value_image.is_none_or(|v| image.tgt == *v);
-                if !coherent {
-                    return Err(RestrictError::IncoherentAttributeImage {
-                        edge: Box::new(arrow.clone()),
-                        image: Some(Box::new(image.clone())),
-                    });
-                }
-                image.clone()
-            } else if survives_edge(arrow) {
-                let image = Edge {
-                    src: image_table.clone(),
-                    tgt: value_image.unwrap_or(&arrow.tgt).clone(),
-                    kind: arrow.kind.clone(),
-                    name: arrow.name.clone(),
-                };
-                if target.attribute_column(&image).is_none() {
-                    return Err(RestrictError::IncoherentAttributeImage {
-                        edge: Box::new(arrow.clone()),
-                        image: None,
-                    });
-                }
-                image
-            } else {
-                continue;
+    for (table, image_table, column, arrow) in arrows {
+        let value_image = migration.vertex_remap.get(&arrow.tgt);
+        let image = if let Some(image) = migration.edge_remap.get(arrow) {
+            let coherent = target.attribute_column(image).is_some()
+                && image.src == *image_table
+                && value_image.is_none_or(|v| image.tgt == *v);
+            if !coherent {
+                return Err(RestrictError::IncoherentAttributeImage {
+                    edge: Box::new(arrow.clone()),
+                    image: Some(Box::new(image.clone())),
+                });
+            }
+            image.clone()
+        } else if survives_edge(arrow) {
+            let image = Edge {
+                src: image_table.clone(),
+                tgt: value_image.unwrap_or(&arrow.tgt).clone(),
+                kind: arrow.kind.clone(),
+                name: arrow.name.clone(),
             };
-            let image_column = target.attribute_column(&image).unwrap_or_default();
-            columns.insert((table.clone(), column.clone()), image_column.to_owned());
-        }
+            if target.attribute_column(&image).is_none() {
+                return Err(RestrictError::IncoherentAttributeImage {
+                    edge: Box::new(arrow.clone()),
+                    image: None,
+                });
+            }
+            image
+        } else {
+            continue;
+        };
+        let image_column = target.attribute_column(&image).unwrap_or_default();
+        columns.insert((table.clone(), column.clone()), image_column.to_owned());
     }
     Ok(columns)
 }
@@ -306,9 +315,9 @@ impl EntityFunctor {
     ///
     /// A remap of an inner value edge `e` to `e'` is accepted when `e'` is an
     /// inner value edge of the target with the name and kind of `e`, and the
-    /// kinds of its endpoints are those of the images of `e`'s endpoints
-    /// under `vertex_remap` (an endpoint the migration does not remap keeps
-    /// its own kind). Such a remap only renames vertices, which a value does
+    /// schema kinds of its endpoints are those of the images of `e`'s
+    /// endpoints under `vertex_remap`, whether an image is a value vertex or
+    /// a table (an endpoint the migration does not remap keeps its own kind). Such a remap only renames vertices, which a value does
     /// not record, so every cell keeps its structure.
     ///
     /// The functor keeps the remaps of inner value edges and of value
@@ -321,20 +330,23 @@ impl EntityFunctor {
     /// whose remap is not accepted.
     pub fn into_kan(self) -> Result<MigrationFunctor, RestrictError> {
         let (source, target) = (&self.maps.source, &self.maps.target);
+        // The schema kind an endpoint of the image must have: that of the
+        // endpoint's remap image (a table included) when it has one, else
+        // its own.
         let expected = |vertex: &Name| {
             self.value_remap.get(vertex).map_or_else(
-                || source.value_kind(vertex),
-                |image| target.value_kind(image),
+                || source.vertex_kind(vertex),
+                |image| target.vertex_kind(image),
             )
         };
         for (edge, image) in &self.inner_edges {
             let keeps_structure = target.is_inner_edge(image)
                 && image.name == edge.name
                 && image.kind == edge.kind
-                && target.value_kind(&image.src).is_some()
-                && target.value_kind(&image.src) == expected(&edge.src)
-                && target.value_kind(&image.tgt).is_some()
-                && target.value_kind(&image.tgt) == expected(&edge.tgt);
+                && target.vertex_kind(&image.src).is_some()
+                && target.vertex_kind(&image.src) == expected(&edge.src)
+                && target.vertex_kind(&image.tgt).is_some()
+                && target.vertex_kind(&image.tgt) == expected(&edge.tgt);
             if !keeps_structure {
                 return Err(RestrictError::ValueStructureRemap { edge: edge.clone() });
             }

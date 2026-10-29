@@ -35,7 +35,10 @@
 //! included, and writes the last of them, `declarations`, with the legacy
 //! `keys` map followed by the `references` map. A nonempty target-set map is
 //! an optional trailing extension; its absence preserves the established
-//! declaration bytes. `panproto_vcs::hash::CanonicalSchema`
+//! declaration bytes. The optional extensions inside a reference are each
+//! introduced by an eight-byte marker that no length prefix can equal, so a
+//! declaration without them keeps its established bytes and the encoding
+//! stays injective with them. `panproto_vcs::hash::CanonicalSchema`
 //! covers eighteen: it omits `entries` and the three derived adjacency
 //! indices. The consequence is the
 //! one that matters in practice: two schemas that differ only in their
@@ -359,7 +362,7 @@ fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclaration
 
     // Optional declaration extension. Absence is the exact legacy byte form.
     if !declarations.target_sets.is_empty() {
-        out.tag(0xff);
+        out.tag(TARGET_SET_MARKER);
         out.len(declarations.target_sets.len());
         for (id, set) in &declarations.target_sets {
             out.name(id);
@@ -372,6 +375,30 @@ fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclaration
         }
     }
 }
+
+/// The word that introduces an optional extension written inside a
+/// reference: the reference envelope after `mode`, the standoff envelope
+/// after `end_inclusive`, and a non-default variable binding after
+/// `binder_key`.
+///
+/// Absent its extension, each of those sites is followed by a length prefix
+/// (the target vertex's name, the next reference's id), by
+/// [`TARGET_SET_MARKER`], or by the end of the encoding. A length prefix is
+/// the length of an allocated string, which Rust bounds by `isize::MAX`, so
+/// it is below `2^63` and never equals this word; and this word's first byte
+/// is `0x00`, never [`TARGET_SET_MARKER`]. The marker is thus decided on the
+/// bytes alone, which keeps every sub-encoding prefix-free and
+/// [`canonical_bytes`] injective. A one-byte marker would not: its byte can
+/// begin a length whose low byte is `0xff`.
+const EXTENSION_MARKER: u64 = 1 << 63;
+
+/// The byte that introduces the trailing target-set extension.
+///
+/// It follows the last reference (or the reference count when there is
+/// none), where the alternative is the end of the encoding, so one byte
+/// suffices; it differs from the first byte of [`EXTENSION_MARKER`], which
+/// may stand at the same position after the last reference.
+const TARGET_SET_MARKER: u8 = 0xff;
 
 /// Write a key: id, parts, role, scope.
 fn push_key(out: &mut CanonicalWriter, key: &Key) {
@@ -496,7 +523,7 @@ fn push_reference_extensions(out: &mut CanonicalWriter, reference: &Reference) {
     if !extended {
         return;
     }
-    out.tag(0xff);
+    out.u64(EXTENSION_MARKER);
     match &reference.guard {
         None => out.tag(0),
         Some(guard) => {
@@ -568,7 +595,7 @@ fn push_ref_source(out: &mut CanonicalWriter, source: &RefSource) {
             });
             out.bool(*end_inclusive);
             if *end_form != SpanEnd::Offset || *origin != 0 || fragments.is_some() {
-                out.tag(0xff);
+                out.u64(EXTENSION_MARKER);
                 out.tag(match end_form {
                     SpanEnd::Offset => 0,
                     SpanEnd::Length => 1,
@@ -592,7 +619,7 @@ fn push_ref_source(out: &mut CanonicalWriter, source: &RefSource) {
             push_edges(out, field);
             out.name(binder_key);
             if *binding != VariableBinding::FirstDefines {
-                out.tag(0xff);
+                out.u64(EXTENSION_MARKER);
                 out.tag(match binding {
                     VariableBinding::FirstDefines => 0,
                     VariableBinding::NearestPreceding => 1,

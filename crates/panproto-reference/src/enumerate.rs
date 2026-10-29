@@ -1088,6 +1088,16 @@ pub const fn graph_deltas_count(
 /// {local, Z, z, +00:00, -00:00, +04, +0400, +04:00, -14:00}.
 #[must_use]
 pub fn temporal_lexemes() -> Vec<String> {
+    temporal_lexemes_with_offsets(&[
+        "", "Z", "z", "+00:00", "-00:00", "+04", "+0400", "+04:00", "-14:00",
+    ])
+}
+
+/// The shapes and fields of [`temporal_lexemes`] with each written offset of
+/// `offsets` appended: per offset, the 64 dates, the 42 times and the 2016
+/// date-times, in that order.
+#[must_use]
+pub fn temporal_lexemes_with_offsets(offsets: &[&str]) -> Vec<String> {
     let years = ["-0001", "0000", "0001", "2000"];
     let months = ["01", "02", "12"];
     let days = ["01", "28", "29", "31"];
@@ -1095,9 +1105,6 @@ pub fn temporal_lexemes() -> Vec<String> {
     let minutes = ["00", "59"];
     let seconds = ["00", "59", "60"];
     let fracs = ["", ".0", ".5"];
-    let offsets = [
-        "", "Z", "z", "+00:00", "-00:00", "+04", "+0400", "+04:00", "-14:00",
-    ];
     let mut dates = Vec::new();
     for y in years {
         dates.push(y.to_owned());

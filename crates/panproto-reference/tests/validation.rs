@@ -498,52 +498,79 @@ fn validation_index_and_lexical_observables_are_owned_and_nonvacuous() {
     assert!(!validation::index_and_null_match(Some(4), None, true));
     assert!(!validation::index_and_null_match(None, Some(4), true));
 
-    let mut seen = None;
-    assert!(validation::lexical_space("urn:literal", |text| {
-        seen = Some(text.to_owned());
-        text == "urn:literal"
-    }));
-    assert_eq!(seen, Some("urn:literal".to_owned()));
-    assert!(!validation::lexical_space("urn:literal", |_| false));
+    let xsd = |local: &str| format!("http://www.w3.org/2001/XMLSchema#{local}");
+    for (local, text, inside) in [
+        ("integer", "-12", Some(true)),
+        ("integer", "1.0", Some(false)),
+        ("gYear", "01999", Some(false)),
+        ("gYear", "-0044", Some(true)),
+        ("date", "2024-02-29", Some(true)),
+        ("date", "2025-02-29", Some(false)),
+        ("dateTime", "2026-01-01T23:59:60Z", Some(false)),
+        ("dateTime", "2026-01-01T24:00:00.000+14:00", Some(true)),
+        ("double", "-INF", Some(true)),
+        ("double", "inf", Some(false)),
+        ("QName", "x", None),
+    ] {
+        assert_eq!(validation::lexical_space(text, &xsd(local)), inside, "{local} {text}");
+    }
+    assert_eq!(validation::lexical_space("x", "http://e/unknown"), None);
 }
 
 #[test]
 fn validation_format_observables_distinguish_advisory_and_asserting_use() {
-    assert!(validation::annotated_format_parse(&Some(7), &Some(7)));
-    assert!(!validation::annotated_format_parse(&Some(7), &Some(8)));
-    assert!(validation::annotated_format_parse::<u8>(&None, &None));
+    use panproto_reference::coerce::{LexClass, ScalarKind};
+    use panproto_reference::value::Value;
 
-    assert!(validation::annotated_format_advisory(
-        "accepted",
-        |text| text == "accepted",
-        false,
-    ));
-    assert!(validation::annotated_format_advisory(
-        "rejected",
-        |_| false,
-        true,
-    ));
-    assert!(!validation::annotated_format_advisory(
-        "accepted",
-        |_| true,
-        true,
-    ));
-
-    assert!(validation::format_assertion_acceptance(
-        "accepted",
-        |text| text == "accepted",
-        true,
-    ));
-    assert!(validation::format_assertion_acceptance(
-        "rejected",
-        |_| false,
-        false,
-    ));
-    assert!(!validation::format_assertion_acceptance(
-        "rejected",
-        |_| false,
-        true,
-    ));
+    let int64 = ScalarKind::Int {
+        bits: 64,
+        signed: true,
+    };
+    // An annotated format never enters coercion.
+    for format in [None, Some("int32"), Some("x-unknown")] {
+        assert!(matches!(
+            validation::annotated_format_parse("2147483648", &LexClass::Number, int64, format),
+            Some(Ok(Value::Int(2_147_483_648)))
+        ));
+    }
+    // Advisory: a width format reports a value outside its kind, a named
+    // format a value its recognizer rejects, any other format nothing.
+    assert_eq!(
+        validation::annotated_format_advisory(&Value::Int(2_147_483_648), "int32"),
+        Some(true)
+    );
+    assert_eq!(
+        validation::annotated_format_advisory(&Value::Int(7), "int32"),
+        Some(false)
+    );
+    assert_eq!(
+        validation::annotated_format_advisory(
+            &Value::Str("550E8400-E29B-41D4-A716-446655440000".to_owned()),
+            "uuid"
+        ),
+        Some(false)
+    );
+    assert_eq!(
+        validation::annotated_format_advisory(&Value::Str("not-a-uuid".to_owned()), "uuid"),
+        Some(true)
+    );
+    assert_eq!(
+        validation::annotated_format_advisory(&Value::Int(7), "x-unknown"),
+        None
+    );
+    // Asserting: acceptance is coercion under the kind with the width.
+    assert_eq!(
+        validation::format_assertion_acceptance("2147483647", &LexClass::Number, int64, "int32"),
+        Some(true)
+    );
+    assert_eq!(
+        validation::format_assertion_acceptance("2147483648", &LexClass::Number, int64, "int32"),
+        Some(false)
+    );
+    assert_eq!(
+        validation::format_assertion_acceptance("1", &LexClass::Number, int64, "uuid"),
+        None
+    );
 }
 
 #[test]
@@ -1536,7 +1563,10 @@ fn assert_trusted_schedule_rejects_omission_and_reordering() {
     );
     let complete = trusted.instances();
     assert!(complete.windows(2).all(|pair| pair[0] < pair[1]));
-    assert!(!complete.iter().any(|instance| {
+    // The structural families are one schema-wide key each, as production
+    // compiles them, so the canonical schedule orders their instances by
+    // subject and a budget cut falls where production's does.
+    assert!(complete.iter().any(|instance| {
         instance.check.kind == CheckKind::NodeAnchor && instance.check.decl == SchemaRef::Schema
     }));
     assert!(trusted.runs().iter().any(|run| {
@@ -1922,7 +1952,7 @@ fn structural_schedule_has_exact_local_reads_and_plain_reserved_fan_candidates()
         &CheckInstance {
             check: CheckKey {
                 kind: CheckKind::NodeAnchor,
-                decl: SchemaRef::Vertex("v".to_owned()),
+                decl: SchemaRef::Schema,
             },
             subject: Some(ViewRef::Node(1)),
         }

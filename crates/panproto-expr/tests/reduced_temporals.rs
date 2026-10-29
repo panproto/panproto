@@ -1392,17 +1392,105 @@ fn check_lexeme_order(accepted: &[AcceptedLexeme]) -> (usize, usize) {
     })
 }
 
+/// The comparability class key of a finite reference value: its shape, its
+/// zoning and, for a truncated shape, its offset's minutes.
+type ClassKey = (rt::Shape, bool, Option<i64>);
+
+fn class_key(value: &rt::Temporal) -> ClassKey {
+    let minutes = if value.is_truncated() {
+        value.offset.minutes()
+    } else {
+        None
+    };
+    (value.shape(), value.offset.is_zoned(), minutes)
+}
+
+/// On every comparability class of the accepted values (the finite values
+/// of one class key, joined by the infinities of their form and zoning) the
+/// production order is a total preorder. Each class is sorted by the
+/// production order, every value is ranked by the number of strict steps
+/// before it, and every ordered pair of the class must compare as its ranks
+/// do. A relation on a finite set is a total preorder exactly when it is the
+/// order of integers pulled back along some ranking, so this decides
+/// reflexivity, totality and transitivity over every triple of the class.
+/// Returns the classes and the class-local ordered pairs checked.
+fn check_lexeme_class_orders(accepted: &[AcceptedLexeme]) -> (usize, usize) {
+    let mut classes: std::collections::BTreeMap<ClassKey, Vec<&AcceptedLexeme>> =
+        std::collections::BTreeMap::new();
+    let mut infinities: std::collections::BTreeMap<(rt::TemporalForm, bool), Vec<&AcceptedLexeme>> =
+        std::collections::BTreeMap::new();
+    for item in accepted {
+        if let Some((_, form)) = item.reference.infinity {
+            infinities
+                .entry((form, item.reference.offset.is_zoned()))
+                .or_default()
+                .push(item);
+        } else {
+            classes
+                .entry(class_key(&item.reference))
+                .or_default()
+                .push(item);
+        }
+    }
+    let mut pairs = 0_usize;
+    for (key, members) in &classes {
+        let form = members[0].reference.form().unwrap();
+        let mut class: Vec<&AcceptedLexeme> = members.clone();
+        class.extend(infinities.get(&(form, key.1)).into_iter().flatten());
+        class.sort_by(|a, b| {
+            a.value
+                .cmp_chronological(&b.value)
+                .unwrap_or_else(|| panic!("{} and {} share a class", a.text, b.text))
+        });
+        let mut ranks = vec![0_usize; class.len()];
+        for index in 1..class.len() {
+            let step = class[index - 1]
+                .value
+                .cmp_chronological(&class[index].value)
+                .unwrap();
+            assert_ne!(step, Ordering::Greater, "{key:?}: sorted order");
+            ranks[index] = ranks[index - 1] + usize::from(step == Ordering::Less);
+        }
+        let (class, ranks) = (&class, &ranks);
+        pairs += std::thread::scope(|scope| {
+            let workers: [_; WORKERS] = std::array::from_fn(|worker| {
+                scope.spawn(move || {
+                    let mut checked = 0_usize;
+                    for left in (worker..class.len()).step_by(WORKERS) {
+                        for right in 0..class.len() {
+                            assert_eq!(
+                                class[left].value.cmp_chronological(&class[right].value),
+                                Some(ranks[left].cmp(&ranks[right])),
+                                "{} against {} in class {key:?}",
+                                class[left].text,
+                                class[right].text
+                            );
+                            checked += 1;
+                        }
+                    }
+                    checked
+                })
+            });
+            workers
+                .into_iter()
+                .map(|worker| worker.join().expect("a class worker panicked"))
+                .sum::<usize>()
+        });
+    }
+    (classes.len(), pairs)
+}
+
 /// Production epoch counts agree with the reference on every accepted
-/// date-time, unit and column kind. Returns the conversions checked and
-/// those that yield a count.
-fn check_lexeme_epoch_counts(accepted: &[AcceptedLexeme]) -> (usize, usize) {
+/// date-time, unit and column kind. Returns the conversions checked and,
+/// per unit in the order of [`UNITS`], those that yield a count.
+fn check_lexeme_epoch_counts(accepted: &[AcceptedLexeme]) -> (usize, [usize; 4]) {
     let mut conversions = 0_usize;
-    let mut counted = 0_usize;
+    let mut counted = [0_usize; 4];
     for item in accepted
         .iter()
         .filter(|item| item.kind == TemporalForm::DateTime)
     {
-        for unit in UNITS {
+        for (index, unit) in UNITS.into_iter().enumerate() {
             for instant in [true, false] {
                 let production = item.value.to_epoch_count(unit, instant);
                 assert_eq!(
@@ -1427,7 +1515,7 @@ fn check_lexeme_epoch_counts(accepted: &[AcceptedLexeme]) -> (usize, usize) {
                         "{} {unit:?} instant={instant}",
                         item.text
                     );
-                    counted += 1;
+                    counted[index] += 1;
                 }
             }
         }
@@ -1460,35 +1548,98 @@ fn read_forms(forms: &[(String, rt::TemporalLexicalForm)]) -> Vec<AcceptedLexeme
 
 #[test]
 fn temporal_lexemes_agree_with_the_reference() {
-    let (lexemes, forms) = panproto_reference::enumerate::values::chronological_scope();
+    let scope = panproto_reference::enumerate::values::chronological_scope();
+    let (lexemes, unwritten, forms) = (&scope.lexemes, &scope.unwritten, &scope.forms);
     assert_eq!(forms.len(), 12 * 11 + 14 * 11 + 4 * 8 * 11 + 2 * 5 * 2);
     // Per offset: dates 4 years x (1 + 3 months x (1 + 4 days)), times
     // 2 hours x (1 + 2 minutes x (1 + 3 seconds x 3 fractions)), and every
-    // complete date (4 x 3 x 4) joined to every time; nine offsets.
+    // complete date (4 x 3 x 4) joined to every time; the nine offsets of the
+    // order law and the two written offsets with seconds, `-04:56:02` and
+    // `+05:30:00`.
     let dates_per_offset = 4 * (1 + 3 * (1 + 4));
     let times_per_offset = 2 * (1 + 2 * (1 + 3 * 3));
     let date_times_per_offset = 4 * 3 * 4 * times_per_offset;
-    let bound = 9 * (dates_per_offset + times_per_offset + date_times_per_offset);
+    let per_offset = dates_per_offset + times_per_offset + date_times_per_offset;
+    let bound = 11 * per_offset;
     assert_eq!(lexemes.len(), bound);
-    assert_eq!(bound, 19_098);
+    assert_eq!(bound, 19_098 + 2 * 2122);
     assert_eq!(
         lexemes.iter().collect::<HashSet<_>>().len(),
         bound,
         "the lexemes are distinct"
     );
+    // The valid fields of one offset: every year and year-month (4 + 12),
+    // the full dates (months 1 and 12 take all four days; February takes 1
+    // and 28, and 29 in the leap years 0 and 2000: 4 x 8 + 2 x 3 + 2 x 2 =
+    // 42), every time (42), and every full date joined to every time.
+    let valid_dates = 4 + 12 + 42;
+    let valid_times = 42;
+    let valid_date_times = 42 * 42;
 
-    let (mut accepted, readings) = read_lexemes(&lexemes);
+    let (mut accepted, readings) = read_lexemes(lexemes);
     assert_eq!(readings, KINDS.len() * bound);
     let read_by_lexeme = accepted.len();
-    accepted.extend(read_forms(&forms));
-    assert_eq!(accepted.len(), read_by_lexeme + forms.len());
-    let accepted_of = |kind| accepted.iter().filter(|item| item.kind == kind).count();
-    let (dates, times, date_times) = (
-        accepted_of(TemporalForm::Date),
-        accepted_of(TemporalForm::Time),
-        accepted_of(TemporalForm::DateTime),
+    let accepted_of = |accepted: &[AcceptedLexeme], kind: TemporalForm| {
+        accepted.iter().filter(|item| item.kind == kind).count()
+    };
+    // Every offset of the product is admissible on every shape, so each
+    // offset adds exactly the valid fields, read under their own kind only.
+    assert_eq!(
+        [
+            accepted_of(&accepted, TemporalForm::Date),
+            accepted_of(&accepted, TemporalForm::Time),
+            accepted_of(&accepted, TemporalForm::DateTime),
+        ],
+        [11 * valid_dates, 11 * valid_times, 11 * valid_date_times]
     );
-    assert_eq!(dates + times + date_times, accepted.len());
+    assert_eq!(
+        read_by_lexeme,
+        11 * (valid_dates + valid_times + valid_date_times)
+    );
+    assert_eq!(read_by_lexeme, 20_504);
+    // The unwritten offsets 0 and +05:30 on every local value of the product.
+    let read_unwritten = read_forms(unwritten);
+    assert_eq!(
+        [
+            accepted_of(&read_unwritten, TemporalForm::Date),
+            accepted_of(&read_unwritten, TemporalForm::Time),
+            accepted_of(&read_unwritten, TemporalForm::DateTime),
+        ],
+        [2 * valid_dates, 2 * valid_times, 2 * valid_date_times]
+    );
+    for item in &read_unwritten {
+        assert!(
+            matches!(
+                item.reference.offset,
+                rt::Offset::Fixed(0 | 330, rt::OffsetForm::Unwritten)
+            ),
+            "{} carries an unwritten offset",
+            item.text
+        );
+        assert_eq!(item.value.to_string(), item.text, "{}", item.text);
+    }
+    accepted.extend(read_unwritten);
+    accepted.extend(read_forms(forms));
+    assert_eq!(
+        accepted.len(),
+        read_by_lexeme + 2 * (valid_dates + valid_times + valid_date_times) + forms.len()
+    );
+    let (dates, times, date_times) = (
+        accepted_of(&accepted, TemporalForm::Date),
+        accepted_of(&accepted, TemporalForm::Time),
+        accepted_of(&accepted, TemporalForm::DateTime),
+    );
+    // The forms add 132 dates and 10 date infinities, 154 times, and 352
+    // date-times and 10 date-time infinities.
+    assert_eq!(
+        [dates, times, date_times],
+        [
+            13 * valid_dates + 132 + 10,
+            13 * valid_times + 154,
+            13 * valid_date_times + 352 + 10
+        ]
+    );
+    assert_eq!(accepted.len(), 24_890);
 
     let (pairs, comparable) = check_lexeme_order(&accepted);
     assert_eq!(pairs, accepted.len() * accepted.len());
@@ -1512,15 +1663,35 @@ fn temporal_lexemes_agree_with_the_reference() {
         .len();
     assert_eq!(by_bytes.len(), distinct_values);
 
+    let (classes, class_pairs) = check_lexeme_class_orders(&accepted);
+    // The 54 classes of the form scope: the lexeme product adds no shape the
+    // forms lack, and its offsets give a truncated shape no new minutes.
+    assert_eq!(classes, 54);
+    assert_eq!(class_pairs, 340_699_116);
+
     let (conversions, counted) = check_lexeme_epoch_counts(&accepted);
     assert_eq!(conversions, date_times * UNITS.len() * 2);
+    // Only a date-time with the `T` separator, a full date with a canonical
+    // year, seconds 0 to 59, a local offset (wall clock) or `Z` (instant)
+    // and exactly as many fraction digits as the unit has is counted. The
+    // scope's fractions have at most one digit, so only `Seconds` counts:
+    // the 42 full dates by the 2 x 2 x 2 times with seconds 0 or 59 and no
+    // fraction, local and `Z`, and the two full dates of the forms at
+    // `00:00:00`, local and `Z`. The other units are covered on the count
+    // scope by `epoch_counts::an_epoch_count_round_trips`.
+    assert_eq!(counted, [2 * 42 * 8 + 2 * 2, 0, 0, 0]);
 
-    println!("bound: lexemes={bound}, forms={}", forms.len());
     println!(
-        "temporal lexemes: {bound} lexemes ({dates_per_offset} dates, {times_per_offset} times, {date_times_per_offset} date-times per offset over 9 offsets), {readings} kind readings, {} accepted ({dates} dates, {times} times, {date_times} date-times), {} rejected; {pairs} ordered pairs, {comparable} comparable; {} distinct canonical byte strings for {distinct_values} distinct values; {} forms read under their descriptors; {conversions} epoch conversions, {counted} with a count converted back; production agrees with the reference on every one",
-        read_by_lexeme,
+        "bound: lexemes={bound}, unwritten={}, forms={}",
+        unwritten.len(),
+        forms.len()
+    );
+    println!(
+        "temporal lexemes: {bound} lexemes ({dates_per_offset} dates, {times_per_offset} times, {date_times_per_offset} date-times per offset over 11 offsets), {readings} kind readings, {read_by_lexeme} accepted, {} rejected; {} unwritten-offset values and {} forms read under their descriptors; {} values ({dates} dates, {times} times, {date_times} date-times); {pairs} ordered pairs, {comparable} comparable; {classes} classes, {class_pairs} class-local ordered pairs, each class a total preorder; {} distinct canonical byte strings for {distinct_values} distinct values; {conversions} epoch conversions, {counted:?} per unit with a count converted back; production agrees with the reference on every one",
         readings - read_by_lexeme,
-        by_bytes.len(),
+        unwritten.len(),
         forms.len(),
+        accepted.len(),
+        by_bytes.len(),
     );
 }

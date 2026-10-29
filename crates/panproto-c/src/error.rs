@@ -47,6 +47,9 @@ pub enum PpStatus {
     Internal = 6,
     /// A domain operation (migration, lens, VCS, parse) failed.
     Operation = 7,
+    /// A lens path has more than one normal-form group where the entry
+    /// point returns one concrete lens.
+    NotSingleStage = 8,
 }
 
 impl From<PpStatus> for i32 {
@@ -74,6 +77,7 @@ impl TryFrom<i32> for PpStatus {
             5 => Ok(Self::Serialization),
             6 => Ok(Self::Internal),
             7 => Ok(Self::Operation),
+            8 => Ok(Self::NotSingleStage),
             other => Err(other),
         }
     }
@@ -123,6 +127,39 @@ pub enum FfiError {
     /// failing operation and underlying cause.
     #[error("operation error: {0}")]
     Operation(String),
+
+    /// A lens path normalized to more than one group where the entry point
+    /// returns one concrete lens.
+    ///
+    /// The stages of such a path cannot be collapsed into one lens without
+    /// changing what get and put observe, so the entry point refuses rather
+    /// than fusing them.
+    #[error("{operation}: the lens path has {stages} normal-form groups, and one lens is required")]
+    NotSingleStage {
+        /// The entry point's operation name, e.g. `"compose"`.
+        operation: &'static str,
+        /// The number of normal-form groups.
+        stages: usize,
+    },
+}
+
+impl FfiError {
+    /// Map a lens error from an operation that must return one lens: a
+    /// multi-group path is [`FfiError::NotSingleStage`], and every other
+    /// error is an [`FfiError::Operation`] prefixed with `operation`.
+    #[must_use]
+    pub fn from_single_lens_error(
+        operation: &'static str,
+        error: &panproto_core::lens::LensError,
+    ) -> Self {
+        match error {
+            panproto_core::lens::LensError::NotSingleStage { stages } => Self::NotSingleStage {
+                operation,
+                stages: *stages,
+            },
+            other => Self::Operation(format!("{operation}: {other}")),
+        }
+    }
 }
 
 impl FfiError {
@@ -136,6 +173,7 @@ impl FfiError {
             Self::Panic(_) => PpStatus::Panic,
             Self::Internal(_) => PpStatus::Internal,
             Self::Operation(_) => PpStatus::Operation,
+            Self::NotSingleStage { .. } => PpStatus::NotSingleStage,
         }
     }
 }
@@ -160,6 +198,7 @@ impl From<&FfiError> for ErrorEnvelope {
             FfiError::Panic(_) => "panic",
             FfiError::Internal(_) => "internal",
             FfiError::Operation(_) => "operation",
+            FfiError::NotSingleStage { .. } => "not_single_stage",
         };
         Self {
             status: err.status() as i32,
@@ -237,6 +276,7 @@ mod tests {
             PpStatus::Serialization,
             PpStatus::Internal,
             PpStatus::Operation,
+            PpStatus::NotSingleStage,
         ] {
             let n: i32 = status.into();
             assert_eq!(n, status as i32, "status {status:?} mismatched i32");
@@ -280,6 +320,14 @@ mod tests {
         assert_eq!(
             FfiError::Internal("kaput".into()).status(),
             PpStatus::Internal
+        );
+        assert_eq!(
+            FfiError::NotSingleStage {
+                operation: "compose",
+                stages: 2
+            }
+            .status(),
+            PpStatus::NotSingleStage
         );
     }
 
@@ -379,6 +427,10 @@ mod tests {
             ErrorEnvelope::from(&FfiError::Panic("p".into())),
             ErrorEnvelope::from(&FfiError::Internal("i".into())),
             ErrorEnvelope::from(&FfiError::Operation("o".into())),
+            ErrorEnvelope::from(&FfiError::NotSingleStage {
+                operation: "compose",
+                stages: 2,
+            }),
         ];
         let tags: Vec<&str> = envs.iter().map(|e| e.tag.as_str()).collect();
         let unique: std::collections::HashSet<&str> = tags.iter().copied().collect();

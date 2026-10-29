@@ -2,7 +2,7 @@
 
 A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The laws below cover the segment foundation only; execution runners, storage backends, checkpoints, and segmented edits belong to later components.
 
-Let $I$ be a finite tree, table, or graph instance, and let $P$ be a partition for the same shape. We write $P(n)$ for the segment that owns node or row identifier $n$, $\operatorname{split}_P(I)$ for partitioning, and $\operatorname{glue}_P$ for checked assembly. An edge is owned by the owner of its source endpoint. The finite differential carrier contains 25 labelled graphs and all 290 assignments of their nodes to two or three labelled segments; one crossing-boundary witness for each instance shape checks the shape-specific representation.
+Let $I$ be a finite tree, table, or graph instance, and let $P$ be a partition for the same shape. We write $P(n)$ for the segment that owns node or row identifier $n$, $\operatorname{split}_P(I)$ for partitioning, and $\operatorname{glue}_P$ for checked assembly. An edge is owned by the owner of its source endpoint. The finite differential carrier contains 25 labelled graphs and all 290 assignments of their nodes to two or three labelled segments, together with two fan-bearing trees and all 40 assignments of their tree and fan nodes to two segments; one crossing-boundary witness for each instance shape, and one for each fan-bearing tree, checks the shape-specific representation.
 
 First, the page establishes ownership, boundary, and assembly laws. Second, it fixes canonical artifacts, the storage vocabulary, and typed refusals. Third, it states the validation and allocation boundaries that the segment core must preserve.
 
@@ -72,7 +72,7 @@ Partitioning visits each edge once. A crossing edge inserts its target into the 
 
 - Law ID: `segments.sg2`
 - Reference: `panproto_reference::segment::partition`
-- Enumerator: `panproto_reference::enumerate::segments::shape_witnesses; bound: shapes=3, segments=2`
+- Enumerator: `panproto_reference::enumerate::segments::shape_witnesses; bound: shapes=3, witnesses=5, segments=2`
 - Exhaustive differential test: `graph_table_and_tree_artifacts_match_the_reference_exactly; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=graph_table_and_tree_artifacts_match_the_reference_exactly)'`
 - Property differential test: `segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles)'`
 - File: `crates/panproto-inst/src/segment/body.rs`
@@ -106,23 +106,27 @@ Equality is exact for graph and table instances. For trees it also includes the 
 
 ### Outside the domain
 
-The equation is stated only when every element is owned, the tree and its embedding agree, and the partition and all produced segments satisfy their contracts. Assembly refuses duplicate elements, inconsistent boundaries, missing root state, or counters below a held identifier.
+The equation is stated only when every element is owned, the tree and its embedding agree, and the partition and all produced segments satisfy their contracts. Assembly refuses duplicate elements, inconsistent boundaries, missing root state, or counters below a held identifier. Partitioning refuses a tree whose embedding does not agree with it, reporting `NotEmbedded` at the first element that breaks agreement; a tree whose fan parent edge identifiers do not ascend in fan order is refused at the first fan node out of order.
 
 ### Definitions used
 
 *Exact tree equality* pairs a tree with its `TreeEmbedding`; equality of the tree alone would omit the identifiers required by graph transport and later edits.
 
+A tree and its embedding *agree* when every node key equals its node identifier; the root is a node anchored at the schema root and reaches every node along arcs, each node having at most one parent; every arc has an edge identifier, and these ascend in arc order; every fan has a fan node that is no tree node, an edge identifier for its parent and for each of its labels, and endpoints that are tree nodes; fan parent edge identifiers ascend in fan order; no edge identifier is used twice; and both counters lie above every node and edge identifier the embedding uses. The initial embedding of a tree allocates each fan's edges after every arc and after the fans before it, and a tree edit appends new fans with fresh identifiers and keeps the edge identifiers of a relocated fan node, so every embedding produced from a tree keeps fan parent edges ascending.
+
 ### Proof
 
 Partitioning places each node and each source-owned edge in exactly one segment by [L-segments-1](#L-segments-1). Assembly verifies the boundaries from [L-segments-2](#L-segments-2), then unions the disjoint node maps and merges edge records in their canonical order. The root owner retains the tree root and counters, so no tree presentation data is lost.
+
+Fan order needs its own argument, because a segment lists its fans by fan node identifier and carries no global fan position. Fan node identifiers cannot stand for fan order: relocating a fan node gives it a fresh identifier without moving the fan. Partitioning copies each fan's embedding (its node, parent edge, and labelled child edges) to the owner of its fan node. Assembly collects every segment's fans and sorts them by parent edge identifier. Edge identifiers are unique across segments (assembly checks this before it merges), so the sort is a total order, and agreement makes it the original fan order. Each fan is rebuilt from the targets of its own edges, so the tree's fans and the embedding's fans are recovered in the same order.
 
 ### Executable counterpart
 
 - Law ID: `segments.sg3`
 - Reference: `panproto_reference::segment::partition`
 - Reference: `panproto_reference::segment::glue`
-- Enumerator: `panproto_reference::enumerate::segments::graph_partition_cases; bound: graphs=25, partitions=290`
-- Exhaustive differential test: `bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively)'`
+- Enumerator: `panproto_reference::enumerate::segments::partition_cases; bound: graphs=25, fan_trees=2, partitions=330`
+- Exhaustive differential test: `bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively)'`
 - Property differential test: `segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition)'`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
@@ -131,7 +135,7 @@ Partitioning places each node and each source-owned edge in exactly one segment 
 
 ### Mutation equivalences
 
-None. Any change to an owned element, boundary record, root, ordering identifier, or embedding counter is observable after assembly.
+None. Any change to an owned element, boundary record, root, ordering identifier, or embedding counter is observable after assembly. In particular, ordering fans by fan node identifier in place of parent edge identifier changes the assembled fan order of the second fan-bearing tree, whose fan node identifiers run opposite to its fan order.
 
 ### Audit record
 
@@ -146,7 +150,7 @@ None. Any change to an owned element, boundary record, root, ordering identifier
 
 ### Statement
 
-Canonical segment bytes contain the format version, shape, schema digest, segment specification, complete owned body, and complete boundary in a fixed order. Segment digests derive from exactly those bytes under the segment context. Manifest records bind the segment digest, counts, greatest identifiers, owned edge-identifier run, and crossing-edge digests; the manifest root and instance digest are deterministic functions of those records and their streams.
+Canonical segment bytes contain the format version, shape, schema digest, segment specification, complete owned body, and complete boundary in a fixed order. A tree body writes each fan as its fan node, parent edge, and labelled child edges, in ascending fan node order, and writes no global fan position. Segment digests derive from exactly those bytes under the segment context. Manifest records bind the segment digest, counts, greatest identifiers, owned edge-identifier run, and crossing-edge digests; the manifest root and instance digest are deterministic functions of those records and their streams.
 
 ### Outside the domain
 
@@ -167,7 +171,7 @@ Every byte writer traverses fields in declaration order and ordered collections 
 - Reference: `panproto_reference::segment::canonical_segment_bytes`
 - Reference: `panproto_reference::segment::seal_manifest`
 - Reference: `panproto_reference::segment::verify_manifest`
-- Enumerator: `panproto_reference::enumerate::segments::shape_witnesses; bound: shapes=3, segments=2`
+- Enumerator: `panproto_reference::enumerate::segments::shape_witnesses; bound: shapes=3, witnesses=5, segments=2`
 - Exhaustive differential test: `graph_table_and_tree_artifacts_match_the_reference_exactly; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=graph_table_and_tree_artifacts_match_the_reference_exactly)'`
 - Property differential test: `segment::tests::laws::streaming_instance_digest_equals_the_digest_of_the_assembled_instance; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::streaming_instance_digest_equals_the_digest_of_the_assembled_instance)'`
 - File: `crates/panproto-inst/src/segment/bytes.rs`
@@ -238,11 +242,11 @@ Permuting input digests is equivalent for `TaskRecord::inputs_digest`; changing 
 
 ### Statement
 
-For a fixed invalid input, segment operations return the same typed error variant and structured witness in every run. Structural validation precedes artifact and operation checks. Within one stage, errors are ordered by segment identifier, element reference, and the variant-specific precedence key.
+For a fixed invalid input, segment operations return the same typed error variant and structured witness in every run. Structural validation precedes artifact and operation checks. Within one stage, errors are ordered by segment identifier, element reference, and the variant-specific precedence key. A segment that breaks its contract returns `Invalid` listing every violation, sorted by element: an owned edge whose source is owned elsewhere is still checked at its target. Tree counters held without the root name no element, so the contract reports them as `MalformedPartition` with the `CountersWithoutRoot` defect before any element-located violation. Every segment entry point checks a segment's shape against the partition before it validates the partition, so a segment of the wrong shape under an invalid partition is a `ShapeMismatch`. Partitioning a whole tree whose node key differs from its node identifier returns `NotEmbedded` at that node, since such a tree does not agree with its embedding.
 
 ### Outside the domain
 
-Free-text messages of storage failures are supplied by an external store and are not compared here. This law covers the segment-core variants and their structured payloads; later runner reports add their own status laws.
+Free-text messages of storage failures are supplied by an external store and are not compared here, and the message of a `Decode` refusal is free text; its variant and artifact are compared. This law covers the segment-core variants and their structured payloads; later runner reports add their own status laws.
 
 ### Definitions used
 
@@ -250,20 +254,24 @@ A *typed witness* is the complete payload of a `SegmentError`, including element
 
 ### Proof
 
-Partition and segment checks traverse ordered carriers, accumulate local violations in canonical order, and select the first structural error before decoding later artifacts. The production and reference error vocabularies expose stable external names, so the differential observes both branch selection and error ordering.
+Partition and segment checks traverse ordered carriers, accumulate local violations in canonical order, and select the first structural error before decoding later artifacts. The differential maps each reference error field for field into the production vocabulary and compares the complete values, so it observes branch selection, the order of an `Invalid` list, and every payload field. The labelled refusal carrier covers each stage once: partition validation, splitting, and the segment contract, including a segment that breaks four contract clauses at once, a segment of the wrong shape under an invalid partition, and a whole tree whose node key differs from its node identifier.
 
 ### Executable counterpart
 
 - Law ID: `segments.sg9`
 - Reference: `panproto_reference::segment::decode_segment_bytes`
 - Reference: `panproto_reference::segment::partition`
-- Enumerator: `panproto_reference::enumerate::segments::graph_partition_cases; bound: graphs=25, partitions=290`
+- Reference: `panproto_reference::segment::validate_segment_contract`
+- Enumerator: `panproto_reference::enumerate::segments::refusal_cases; bound: refusals=11`
 - Exhaustive differential test: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
 - Property differential test: `segment::tests::segments::invalid_segments_list_every_violation_sorted; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::invalid_segments_list_every_violation_sorted)'`
 - File: `crates/panproto-inst/src/segment/error.rs`
 - File: `crates/panproto-inst/src/segment/check.rs`
+- File: `crates/panproto-inst/src/segment/bytes.rs`
+- File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`
 
 ### Mutation equivalences
 
@@ -370,15 +378,15 @@ None at the boundary $C$. Counting in `u32`, using a strict inequality, or omitt
 
 ### Statement
 
-For every valid segment family $S$ under $P$ and every deterministic whole-instance observation $f$,
+For every valid segment family $S$ under $P$ that seals, and every deterministic whole-instance observation $f$,
 
 $$\operatorname{segmented}(S,P,f) = f(\operatorname{glue}_P(S)).$$
 
-The certificate uses this equation as its semantic boundary and makes no claim about a checkpointed segmented runner.
+A family *seals* when every declared edge allocation range of $P$ starts above the greatest edge identifier the family owns. The certificate uses this equation as its semantic boundary and makes no claim about a checkpointed segmented runner.
 
 ### Outside the domain
 
-The equation requires a valid partition and segment family. An invalid family returns the same structural refusal that checked assembly returns, before $f$ is called.
+The equation requires a valid partition and segment family. An invalid family returns the same structural refusal that checked assembly returns, before $f$ is called. A valid family that does not seal assembles, but the segmented run refuses it with `AllocationBelowFloor` for the first segment whose edge allocation range starts at or below that greatest edge identifier, and production sealing returns the same refusal. Partition validation cannot see this condition, since it sees no identifiers.
 
 ### Definitions used
 
@@ -386,18 +394,20 @@ A *whole-instance observation* is a deterministic function of the assembled inst
 
 ### Proof
 
-The reference operation defines segmented observation by checked glue followed by $f$. Production partition and assembly satisfy [L-segments-3](#L-segments-3), and exact canonical bytes agree between implementations on every carrier case. Both sides thus present the same whole instance to the observation.
+The reference run validates every segment, assembles the family by checked glue, observes the glued instance with $f$, and seals the manifest. Validation and glue refuse exactly the invalid families. Sealing refuses exactly the families that do not seal, and on a family that seals it returns a manifest without changing the observed value. Production partition and assembly satisfy [L-segments-3](#L-segments-3), and exact canonical bytes agree between implementations on every carrier case, as do sealed manifests and seal refusals. Both sides thus present the same whole instance to the observation.
 
 ### Executable counterpart
 
 - Law ID: `segments.execution-equivalence`
 - Reference: `panproto_reference::segment::segmented`
-- Enumerator: `panproto_reference::enumerate::segments::graph_partition_cases; bound: graphs=25, partitions=290`
-- Exhaustive differential test: `bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively)'`
+- Enumerator: `panproto_reference::enumerate::segments::allocated_graph_partition_cases; bound: graphs=25, partitions=290, allocations=3`
+- Exhaustive differential test: `segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal)'`
 - Property differential test: `segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition)'`
 - File: `crates/panproto-inst/src/segment/split.rs`
+- File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`
 
 ### Mutation equivalences
 
@@ -428,13 +438,13 @@ The *source floor* includes retained and dropped source objects. The additional 
 
 ### Proof
 
-Both implementations filter source and used identifiers to $R$, take their maxima, and advance with checked or saturating addition followed by the same sentinel test. The resulting candidate is greater than every relevant identifier, so no identifier below the floor can be reused. Conversely, any smaller admissible candidate would violate the append-only order.
+Both implementations filter source and used identifiers to $R$, take their maxima, and advance with checked or saturating addition followed by the same sentinel test. The resulting candidate is greater than every relevant identifier, so no identifier below the floor can be reused. Conversely, any smaller admissible candidate would violate the append-only order. The carrier draws source and used sets from every subset of $[0, 5]$ for each range inside $[0, 4]$, so identifiers below, inside, and above the range all occur; an allocator that let a source identifier outside $R$ raise the floor disagrees with both implementations on the carrier.
 
 ### Executable counterpart
 
 - Law ID: `segments.id-floor`
 - Reference: `panproto_reference::segment::fresh`
-- Enumerator: `panproto_reference::enumerate::segments::graphs; bound: ranges=15, allocations=1812`
+- Enumerator: `panproto_reference::enumerate::segments::allocation_cases; bound: ranges=15, identifiers=6, allocations=61440`
 - Exhaustive differential test: `append_floor_and_exhaustion_agree_on_an_independently_counted_carrier; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=append_floor_and_exhaustion_agree_on_an_independently_counted_carrier)'`
 - Property differential test: `allocation_floor_is_append_only_on_the_exact_small_carrier; command: cargo nextest run -p panproto-reference --test segments --no-tests=fail -E 'test(=allocation_floor_is_append_only_on_the_exact_small_carrier)'`
 - File: `crates/panproto-inst/src/segment/ids.rs`

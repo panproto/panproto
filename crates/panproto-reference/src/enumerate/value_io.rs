@@ -114,6 +114,66 @@ pub fn canonical_xml_encoding_cases() -> Vec<XmlEncodingCase> {
     ]
 }
 
+/// Every Unicode scalar value, in code-point order: U+0000 to U+10FFFF less
+/// the 2,048 surrogates, 1,112,064 scalars.
+pub fn single_scalars() -> impl Iterator<Item = char> {
+    (0..=0x0010_ffff_u32).filter_map(char::from_u32)
+}
+
+/// Integer numerals at and beyond the `i64` boundary: the bounds themselves,
+/// small values of each sign, the first integers outside `i64`, and
+/// `10^20` and `2^64` of each sign.
+#[must_use]
+pub const fn exact_integer_lexemes() -> [&'static str; 13] {
+    [
+        "0",
+        "1",
+        "-1",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "9223372036854775808",
+        "-9223372036854775809",
+        "100000000000000000000",
+        "-100000000000000000000",
+        "18446744073709551616",
+        "-18446744073709551616",
+        "123456789012345678901234567890",
+        "-123456789012345678901234567890",
+    ]
+}
+
+/// The special decimal values: both infinities, and the quiet and signalling
+/// NaNs of each sign with payloads 0 and 1.
+#[must_use]
+pub const fn special_decimal_lexemes() -> [&'static str; 10] {
+    [
+        "Infinity",
+        "-Infinity",
+        "NaN",
+        "-NaN",
+        "NaN1",
+        "-NaN1",
+        "sNaN",
+        "-sNaN",
+        "sNaN1",
+        "-sNaN1",
+    ]
+}
+
+/// The non-finite binary64 bit patterns: both infinities, the two canonical
+/// NaNs, and a quiet NaN of each sign with payload 1.
+#[must_use]
+pub const fn nonfinite_float_bits() -> [u64; 6] {
+    [
+        0x7ff0_0000_0000_0000,
+        0xfff0_0000_0000_0000,
+        0x7ff8_0000_0000_0000,
+        0xfff8_0000_0000_0000,
+        0x7ff8_0000_0000_0001,
+        0xfff8_0000_0000_0001,
+    ]
+}
+
 /// Every byte string of length at most two.
 #[must_use]
 pub fn byte_strings() -> Option<super::ByteStrings> {

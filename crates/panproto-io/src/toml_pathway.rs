@@ -458,16 +458,14 @@ fn validate_toml_value_representability(
         )
         .into());
     }
-    // `toml::to_string` canonicalizes both NaN signs to `nan`. The CST
-    // pathway can write `-nan` directly, but the canonical data-model writer
-    // must refuse the bit it cannot retain.
-    if matches!(value, Value::Float(number) if number.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits())
-    {
+    // TOML has no decimal infinity or NaN: its `inf` and `nan` read back as
+    // binary floats, so no spelling reads back as the same `Decimal`.
+    if matches!(value, Value::Decimal(number) if !number.is_finite()) {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
             "toml",
-            EmitValueReason::NotRepresentable,
+            EmitValueReason::NonFinite,
         )
         .into());
     }
@@ -494,6 +492,11 @@ fn encode_toml_value(
     match value {
         Value::Str(text) | Value::Token(text) => Ok(toml::Value::String(text.clone())),
         Value::Int(number) => Ok(toml::Value::Integer(*number)),
+        // `toml::to_string` writes both NaN signs as `nan`, so the negative
+        // NaN is written by the token writer as TOML 1.0's `-nan`.
+        Value::Float(number) if number.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits() => {
+            raw.marker("-nan".to_owned())
+        }
         Value::Float(number) => Ok(toml::Value::Float(*number)),
         Value::Bool(value) => Ok(toml::Value::Boolean(*value)),
         Value::Bytes(bytes) => toml_bytes_value(bytes, spec, site),
@@ -1331,22 +1334,39 @@ mod tests {
     }
 
     #[test]
-    fn canonical_toml_refuses_negative_nan_sign_loss() {
-        let error = failure(
+    fn canonical_toml_writes_negative_nan_with_its_sign() {
+        let emitted = success(
             emit_toml_bytes(
                 &schema(),
                 &instance_with(FieldPresence::Present(Value::Float(-f64::NAN))),
                 "test",
             ),
-            "canonical TOML unexpectedly collapsed negative NaN",
+            "canonical TOML writes the negative NaN",
         );
-        assert!(matches!(
-            error,
-            EmitInstanceError::Value(EmitValueError {
-                reason: EmitValueReason::NotRepresentable,
-                ..
-            })
-        ));
+        let text = String::from_utf8(emitted).expect("TOML is UTF-8");
+        assert!(text.contains("= -nan\n"), "{text:?}");
+    }
+
+    #[test]
+    fn canonical_toml_refuses_special_decimals_as_non_finite() {
+        for lexeme in ["Infinity", "-Infinity", "NaN", "-NaN", "sNaN"] {
+            let decimal = panproto_inst::value::DecimalValue::parse(lexeme).expect("special");
+            let error = failure(
+                emit_toml_bytes(
+                    &schema(),
+                    &instance_with(FieldPresence::Present(Value::Decimal(decimal))),
+                    "test",
+                ),
+                "canonical TOML wrote a special decimal",
+            );
+            assert!(matches!(
+                error,
+                EmitInstanceError::Value(EmitValueError {
+                    reason: EmitValueReason::NonFinite,
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]

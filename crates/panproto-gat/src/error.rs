@@ -604,6 +604,18 @@ pub enum GatError {
         /// The configured per-equation assignment bound.
         limit: usize,
     },
+
+    /// A diagram step of a composition recipe carries two inline theories
+    /// with one name, so a node of that name has no single theory to
+    /// resolve to. Replay refuses the step before resolving any node.
+    #[error("recipe step {step} carries two inline theories named `{name}`")]
+    DuplicateInlineTheory {
+        /// The step's index in the recipe.
+        step: usize,
+        /// The repeated name: that of the first inline theory, in order,
+        /// whose name an earlier inline theory of the step carries.
+        name: String,
+    },
 }
 
 /// Render a list of signature defects for an error message.

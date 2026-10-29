@@ -2,7 +2,9 @@
 
 An edit is useful only when its payload records enough of the old state to reject stale input, compose without consulting a state, and run backward. The eight laws on this page fix that discipline for graph, table, and tree edits. They also fix canonical edit bytes, replacement semantics, and the two whole-state squares that define edit translation through a lens.
 
-The principal finite release carrier uses graphs with at most three nodes and one edge, tables with at most three rows and one relation pair, and edit words of length at most three. Its alphabets are deliberately small and labelled: anchors `a` and `b`, one edge kind `e`, one field `f`, values absent or integer zero, and the ids named by each enumerator. The translation square instead uses one named three-node tree whose two leaves distinguish retained data from hidden residue. These bounds support exhaustive comparison; the statements themselves are not restricted to either carrier.
+The principal finite release carrier uses graphs with at most three nodes and one edge, tables with at most three rows and one relation pair, and edit words of length at most three. Its alphabets are deliberately small and labelled: anchors `a` and `b`, one edge kind `e`, one field `f`, values absent or integer zero, and the ids named by each enumerator. Tree lowering and joining use named trees, and the translation square uses one named three-node tree whose two leaves distinguish retained data from hidden residue. These bounds support exhaustive comparison; the statements themselves are not restricted to any carrier unless a law says so.
+
+This carrier is not yet the full coverage scope intended for the edit algebra. That scope bounds schemas, graph nodes, table rows, tree nodes and sequence length, but it does not fix a bound on graph edges, the value and payload alphabets of added elements, or the policy for edits that stop applying partway through a sequence. Until those parameters are fixed, `c8_scope_status` in the enumerator reports the scope as incomplete and names the missing parameters, and the carrier above is a witness carrier only.
 
 ## Graph deltas apply atomically and merge exactly when independent {#L-edits-1}
 
@@ -26,8 +28,9 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 2. The dangling check compares every edge incident to each deleted node with the deletion set. Passing it makes the subsequent structural deletion closed under incidence.
 3. Deletion frees replacement ids before additions are checked. Endpoint checks run on the post-deletion node set with additions included, so every added edge is well founded.
 4. Attribute changes belong only to kept elements by normal form. Their old values were checked before mutation, which makes each write defined and gives the stated output.
-5. `independence` enumerates every shared structural or attribute footprint, both delete-use directions, anchor-sensitive edge use, and fan-domain interaction. An empty list therefore means that neither application invalidates the other's checked reads.
-6. On an independent pair the two maps have disjoint incompatible entries. Their normalized union has the same per-element action as either application order, so both composites and `merge` produce the same graph.
+5. `independence` enumerates every shared structural or attribute footprint, both delete-use directions, anchor-sensitive edge use, and fan-domain interaction. An empty list therefore means that neither application invalidates the other's checked reads: deletion payloads, old attribute values, incident-edge deletion, free added ids and present endpoints.
+6. The result checks also survive the merge. Ids and endpoints follow from step 5, since an `AddAdd` or `DeleteUse` conflict would otherwise be reported. For the fan domain, `violations_at(G, n)` reads only the shape of $n$ and the edges incident to $n$ with their labels, so it is local to $n$. If only one delta changes that local view, the merged result has the same view at $n$ as that delta's result, which is in the fan domain. If both change it, independence excludes every *strong* change at $n$: a shape change between plain and fan, an added or deleted reserved-kind edge leaving $n$, or a relabelling to or from a reserved kind. The remaining *weak* changes add or delete ordinary edges at $n$, replace their endpoints, or relabel them between ordinary kinds. At a plain node no weak change creates a reserved out-edge, and at a fan node every ordinary incident edge is already a violation in the single result that adds it, while a deleted one leaves the other delta's result in violation. Thus the merged result is in the fan domain whenever both single results are.
+7. On an independent pair the two maps have disjoint incompatible entries. Their normalized union has the same per-element action as either application order, so both composites and `merge` produce the same graph.
 
 ### Executable counterpart
 
@@ -38,6 +41,7 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 - Enumerator: `panproto_reference::enumerate::edits::graph_delta_cases; bound: atomic_deltas=25`
 - Exhaustive differential test: `e1_apply_matches_reference_on_every_graph_and_atomic_delta; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e1_apply_matches_reference_on_every_graph_and_atomic_delta)'`
 - Property differential test: `e1_independence_and_merge_match_reference_on_every_atomic_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e1_independence_and_merge_match_reference_on_every_atomic_pair)'`
+- Property differential test: `e1_independent_deltas_commute_and_merge_on_every_carrier_graph; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e1_independent_deltas_commute_and_merge_on_every_carrier_graph)'`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`
 - File: `crates/panproto-inst/src/graph_edit/independence.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -62,22 +66,24 @@ None recorded. Mutation closure is pending.
 
 Inverting a normalized delta exchanges its deleted and added elements and exchanges every attribute's old and new values. Inversion is involutive. Graph and table deltas share this construction; table rows are elements with complete table-and-cell payloads, relation pairs are payload-free elements, and cells and table names are attributes.
 
-For tables, `compose_table(a, b)` is the net compare-and-set delta of applying $a$ and then $b$, whenever their intermediate payloads agree. `diff_table(A, B)` is normalized, applies to $A$ with result $B$, and is the identity exactly when the table states are equal.
+For tables, `compose_table(a, b)` is the net compare-and-set delta of applying $a$ and then $b$, whenever their intermediate payloads agree. For well-formed tables $A$ and $B$, `diff_table(A, B)` is normalized, applies to $A$ with result $B$, and is the identity exactly when the table states are equal.
 
 ### Outside the domain
 
 Inversion is total on normalized deltas. Table composition returns the first `Mismatch` in element or attribute order when the second delta does not read the state written by the first. Applying an inverted delta may still refuse when it is presented to a state other than the original delta's result.
 
+The `diff_table` claim excludes tables that are not well formed. Applying a table delta checks the endpoints of every resulting pair, not only the touched ones, so on a table whose pair leaves its edge's tables even the identity is refused. For instance, with one row `0` in table `a` and the pair `(a -e-> b, 0, 0)`, `diff_table` of the table with itself is the identity and applying it returns `MissingRowEndpoint` for row `0`.
+
 ### Definitions used
 
-The two *legs* of a delta are its deleted and added structural parts. An attribute change is the ordered pair $(o,n)$ of its required old value and written new value. Table equality includes row ids, table names, cells, and relation pairs.
+The two *legs* of a delta are its deleted and added structural parts. An attribute change is the ordered pair $(o,n)$ of its required old value and written new value. Table equality includes row ids, table names, cells, and relation pairs. A table is *well formed* when the source row of every pair lies in the edge's source table and the target row in its target table; production tables are well formed by construction.
 
 ### Proof
 
 1. Exchanging the two structural maps twice restores both maps. Exchanging every ordered attribute pair twice restores each pair, proving involution.
 2. Each table row, pair, cell, and table name is represented by the same generic element-or-attribute cases as a graph delta. Thus the generic inversion and composition arguments apply without an additional case.
 3. Composition compares the first delta's written intermediate payload with the second delta's required payload. Equality selects the unique net action in the case table; inequality returns the owning element or attribute.
-4. `diff_table` walks the union of row ids and relation pairs. Missing items become deletions or additions, and unequal kept fields become attributes. Applying those disjoint changes reconstructs the second state.
+4. `diff_table` walks the union of row ids and relation pairs. Missing items become deletions or additions, and unequal kept fields become attributes. Every deletion and old value is read from $A$, so the checks on $A$ pass; a row of $A$ absent from $B$ has all its pairs absent from $B$, since $B$ is well formed, so those pairs are deleted with it. Applying those disjoint changes yields $B$, whose pairs pass the endpoint check because $B$ is well formed.
 5. Equal inputs emit no structural or attribute change. Conversely, identity output means every compared row, cell, table name, and pair agreed, so the inputs were equal.
 
 ### Executable counterpart
@@ -90,6 +96,8 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 - Enumerator: `panproto_reference::enumerate::edits::tables; bound: rows=3`
 - Exhaustive differential test: `e2_t5_table_apply_and_algebra_match_the_exact_release_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_t5_table_apply_and_algebra_match_the_exact_release_carrier)'`
 - Property differential test: `e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier)'`
+- Property differential test: `e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
+- Outside-domain test: `e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables; witness: row 0 in table a with pair (a -e-> b, 0, 0)`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -113,7 +121,7 @@ None recorded. Mutation closure is pending.
 
 `compose(a, b)` computes the net normalized graph delta of $a$ followed by $b$. Identity is a two-sided unit, composition agrees across both bracketings whenever both bracketings are defined, and inversion reverses composition order.
 
-For a valid tree $T$ with durable embedding $E$, `graph_delta_from_tree_edit(T, E, e)` lowers one tree edit $e$ to that same algebra. Applying the result to the embedded graph gives the graph of applying $e$ to $T$ under the updated embedding. A sequence is lowered left to right and composed into one net delta.
+For a valid tree $T$ with durable embedding $E$, `graph_delta_from_tree_edit(T, E, e)` lowers one tree edit $e$ to that same algebra. Each step lowers to the change of the embedded graph it makes, with a node id that passes between a fan node and a tree node read as a replacement, and a sequence is lowered step by step and composed left to right into one net delta. Applying the result to the embedded graph gives the graph of applying $e$ to $T$ under the updated embedding. The net delta need not be the graph differ of the two states: deleting a node and inserting a node under its id lowers to a replacement of that node.
 
 ### Outside the domain
 
@@ -121,16 +129,16 @@ Graph composition returns `Mismatch` when adjacent element payloads or attribute
 
 ### Definitions used
 
-The *per-element action* is one of none, deletion, addition, replacement, or a finite ordered map of attribute changes. A *durable embedding* records the graph edge of every tree arc and the graph nodes and edges of every fan, together with monotone allocation floors.
+The *per-element action* is one of none, deletion, addition, replacement, or a finite ordered map of attribute changes. A *durable embedding* records the graph edge of every tree arc and the graph nodes and edges of every fan, together with monotone allocation floors. Two bracketings are *both defined* when `compose(compose(a, b), c)` and `compose(a, compose(b, c))` both return a delta.
 
 ### Proof
 
 1. The composition implementation collects every element touched by either input and applies the complete action table independently at each element.
 2. Every successful table entry has the same observable effect as executing its row action and then its column action. Combining the entries therefore gives the net sequential effect.
-3. The none row and column prove both unit laws. Exhausting the finite action cases proves equality of both defined bracketings and proves that swapping legs reverses their order.
-4. Tree lowering clones the embedding, handles one edit variant, and commits the clone only after all checks succeed. Refusal is therefore atomic.
-5. Each primitive emits exactly the nodes, arcs, fan records, or kept-node attributes changed by the corresponding tree operation. Fresh graph ids are drawn from the cloned floors in edit order.
-6. Sequence lowering repeats the primitive construction and composes its outputs. Step 2 makes the resulting delta equal to the graph difference between the initial and final embedded trees.
+3. The none row and column prove both unit laws. Inversion maps `Del(p)` to `Add(p)`, `Repl(p,q)` to `Repl(q,p)` and `Attr(k: o -> n)` to `Attr(k: n -> o)`, and each defined entry of the table at $(a,b)$ is, after inversion, the defined entry at $(b^{-1},a^{-1})$; thus inversion reverses composition order. When both bracketings are defined at an element, each is the net action of running the three actions in order, by step 2 applied twice, so the two agree. The test asserts the unit laws, regularity, the reversal and agreement of both defined bracketings on every atomic pair and triple of the carrier.
+4. Tree lowering applies the whole edit to a clone of the embedding first and commits the clone only after all checks succeed. Refusal is therefore atomic.
+5. Each step lowers to the differ of the embedded graphs before and after it, except at an id whose node changes between a fan node and a tree node. Such an id arises only when a step gives a tree node the id of a fan node, which relocates the fan node to a fresh id; the step deletes the fan node and adds the tree node under that id, which is a replacement. Fresh graph ids are drawn from the cloned floors in edit order.
+6. Each step delta applies to the state the earlier steps reach, so their left-to-right composite is defined at every element, and by step 2 applying it gives the final embedded graph. The composite is not in general the differ of the initial and final graphs: a node deleted by one step and inserted by a later one is a replacement in the composite, while the differ would report at most attribute changes.
 
 ### Executable counterpart
 
@@ -140,6 +148,7 @@ The *per-element action* is one of none, deletion, addition, replacement, or a f
 - Enumerator: `panproto_reference::enumerate::edits::graph_delta_sequences; bound: word_length=3`
 - Exhaustive differential test: `e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier)'`
 - Property differential test: `e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive)'`
+- Property differential test: `e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-inst/src/tree_edit.rs`
@@ -214,11 +223,15 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-Applying a table delta checks complete deleted row payloads and relation pairs, the old values of every changed cell and table name, complete incidence for each deleted row, free added row ids, and existing endpoints for every resulting pair. Success deletes, updates, and adds in that order. A surface table edit lowers to this canonical compare-and-set form, and inversion retains enough information to reconstruct every deletion.
+Applying a table delta checks complete deleted row payloads and relation pairs, the old values of every changed cell and table name, complete incidence for each deleted row, free added row ids, and existing endpoints for every resulting pair. Success deletes, updates, and adds in that order.
+
+A surface table edit lowers, without reading a state, to this canonical compare-and-set form: `InsertRow` adds the row, `DeleteRow` deletes the row with its stated payload and every listed pair, `UpdateCell` and `MoveRow` are a cell and a table-name change, `AddForeignKey` and `RemoveForeignKey` add and delete one pair, `Delta` is itself, and `Batch` is the left-to-right composite of its steps. A single surface step first checks the state it names and then applies its lowering. Whenever an edit $e$ applies to a table $T$ with result $T'$, applying the inverse of its lowering to $T'$ gives $T$, and applying the production inverse edit to $T'$ gives $T$.
 
 ### Outside the domain
 
-The first absent row or pair yields `RowNotFound` or `ForeignKeyNotFound`. Payload disagreement yields `StaleTable`, `StaleCell`, or `StaleIncidence`; an undeleted incident pair yields `DanglingForeignKeys`. Reused additions yield `DuplicateRow` or `DuplicateForeignKey`, and a relation pair whose source or target has the wrong row table yields `MissingRowEndpoint`. Every refusal leaves the input table unchanged.
+Applying a delta refuses as follows. The first absent row or pair yields `RowNotFound` or `ForeignKeyNotFound`. Payload disagreement yields `StaleTable` or `StaleCell`, and an undeleted incident pair yields `DanglingForeignKeys`. Reused additions yield `DuplicateRow` or `DuplicateForeignKey`, and a relation pair whose source or target has the wrong row table yields `MissingRowEndpoint`.
+
+The surface checks of a single step refuse before its delta is applied. An inserted id already present yields `DuplicateRow`. A deleted, updated or moved row that is absent yields `RowNotFound`, and one in another table yields `StaleTable`. A deleted row whose cells differ yields `StaleCell` at the least differing column, and one whose listed pairs are not exactly its incident pairs in ascending order yields `StaleIncidence`; this is the only source of `StaleIncidence`, which delta application never returns. An updated cell with another old value yields `StaleCell`. A row moved to another table while it has an incident pair yields `MissingRowEndpoint`. An added pair already present yields `DuplicateForeignKey`, and one whose row is outside the edge's table yields `MissingRowEndpoint`, source first. A removed pair that is absent yields `ForeignKeyNotFound`. Batch lowering returns the first `Mismatch` when its steps do not compose. Every refusal leaves the input table unchanged.
 
 ### Definitions used
 
@@ -231,14 +244,18 @@ A row payload is its table name together with its complete cell map. A relation 
 3. Removing all checked structural deletions first frees replacement ids. Attribute changes then affect only retained rows by normal form.
 4. Adding rows before the final endpoint check makes newly added rows available to newly added pairs. The endpoint check compares each row's table name with the corresponding edge endpoint anchor.
 5. Since every possible refusal precedes assignment to the caller's table, failure is atomic. On success the three mutation phases implement exactly the structural and attribute maps of the delta.
+6. Each surface variant writes its whole compare-and-set payload into its lowering: `DeleteRow` records the row's table, every cell and every listed pair, `UpdateCell` and `MoveRow` record the old value, and the pair edits record the pair. Inversion exchanges the legs and the old and new values (L-edits-2), so the inverse adds back the deleted row with its cells and pairs and restores every old value. When the lowering $d$ applies to $T$, the inverse reads exactly what $d$ wrote, its deletions remove only what $d$ added, and the rows it re-adds carry the pairs it re-adds, so it applies to $T'$ and yields $T$. A `Batch` lowers to a composite, whose inverse is the reversed composite of the inverses (L-edits-3), and the same argument applies to that net delta.
 
 ### Executable counterpart
 
 - Law ID: `edits.t5`
 - Reference: `panproto_reference::edit::apply_table`
+- Reference: `panproto_reference::edit::table_edit_delta`
+- Reference: `panproto_reference::edit::apply_table_step`
+- Reference: `panproto_reference::edit::delete_row_delta`
 - Enumerator: `panproto_reference::enumerate::edits::tables; bound: rows=3`
 - Exhaustive differential test: `e2_t5_table_apply_and_algebra_match_the_exact_release_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_t5_table_apply_and_algebra_match_the_exact_release_carrier)'`
-- Property differential test: `table_translation_refuses_malformed_embeddings_and_non_table_graph_content_atomically; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_translation_refuses_malformed_embeddings_and_non_table_graph_content_atomically)'`
+- Property differential test: `t5_surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=t5_surface_table_edits_lower_check_and_invert_like_the_reference)'`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/src/table_edit.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -261,13 +278,13 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-For `JoinFeatures { primary, joined, produce }`, `produce.id` must equal `primary`. The operation removes every joined node and its incoming arc, replaces the primary payload by `produce`, and appends each joined node's children to the primary in joined-node order and then original child-arc order. Each reparented edge keeps its kind and name and changes its source anchor to the produced primary anchor. Stale parent-map entries are removed.
+For `JoinFeatures { primary, joined, produce }`, `produce.id` must equal `primary`. The operation removes every joined node and its incoming arc, replaces the primary payload by `produce`, and appends each joined node's children to the primary in joined-node order and then original child-arc order. Each reparented edge keeps its kind and name and changes its source anchor to the produced primary anchor. Every fan whose parent or member is a joined node is removed; other fans, including fans naming a reparented child or the primary, are kept in order. Stale parent-map entries are removed.
 
 Tree application and graph lowering agree: applying the tree edit and embedding the result yields the same graph as lowering the edit to a graph delta and applying that delta to the original embedded graph.
 
 ### Outside the domain
 
-A missing primary or joined node, a repeated joined id, a joined id equal to the primary, a produced node with the wrong id, a malformed embedding, or exhausted allocation floor returns its corresponding typed tree-edit refusal. The tree and embedding remain unchanged.
+A missing primary or joined node, a repeated joined id, a joined id equal to the primary, a joined id equal to the root, a joined node that is an ancestor of the primary, a produced node with the wrong id, a malformed embedding, or an exhausted allocation floor returns its corresponding typed tree-edit refusal. The reference names a joined root `RootOperation` and a joined ancestor `Cycle`; production returns `ApplyFailed` and `CycleDetected` with the same node and primary. The tree and embedding remain unchanged.
 
 ### Definitions used
 
@@ -275,19 +292,21 @@ The *incoming arc* of a nonroot tree node is its unique parent arc. *Joined-node
 
 ### Proof
 
-1. Preflight validates the primary, joined ids, produced id, and embedding before modifying cloned state.
+1. Preflight validates the primary, the produced id, each joined id (present, not the primary, not repeated, not the root, not an ancestor of the primary) and the embedding before modifying cloned state. Excluding the root and the ancestors of the primary keeps the result a tree: no joined node lies on the primary's root path, so reparenting under the primary closes no cycle.
 2. For each joined node, the algorithm records its outgoing arcs in their stored order, removes its incoming arc and node, and deletes its parent-map entry.
 3. Recorded child arcs are appended under the primary by the two stated iteration orders. Updating each edge's source anchor makes the label coherent with `produce`.
-4. The graph lowering performs the same deletions, emits the same replacement attributes on the primary, and allocates one new edge per reparented child in that order.
-5. The updated embedding records those allocated ids. Thus embedding the tree result and applying the graph delta produce identical nodes, edge payloads, and allocation floors.
+4. A fan naming a joined node would name an absent node, so it is removed with its fan node and fan edges; every other fan names only surviving nodes and is kept, its embedding entry unchanged.
+5. The graph lowering performs the same deletions, removes the same fan nodes and edges, emits the same replacement attributes on the primary (with the fan label changes a new anchor implies for fan edges into the primary), and allocates one new edge per reparented child in that order.
+6. The updated embedding records those allocated ids. Thus embedding the tree result and applying the graph delta produce identical nodes, edge payloads, and allocation floors.
 
 ### Executable counterpart
 
 - Law ID: `edits.tr14`
 - Reference: `panproto_reference::edit::apply_tree`
-- Enumerator: `panproto_reference::enumerate::edits::graph_delta_sequences; bound: word_length=3`
+- Reference: `panproto_reference::edit::graph_delta_from_tree_edit`
+- Enumerator: `panproto_reference::enumerate::edits::join_cases; bound: cases=9`
 - Exhaustive differential test: `e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive)'`
-- Property differential test: `e3_malformed_tree_embeddings_refuse_without_mutating_the_embedding; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_malformed_tree_embeddings_refuse_without_mutating_the_embedding)'`
+- Property differential test: `tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged)'`
 - File: `crates/panproto-inst/src/tree_edit.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -355,9 +374,9 @@ None recorded. Mutation closure is pending.
 
 ### Statement
 
-Let a lens map source graph $S$ to view $V$ and complement $C$. For an applicable source delta $d$, `get_edit` returns the delta `diff(V, get(apply(d,S)).view)` and the complement produced by that latter `get`. For an applicable view delta $d_V$, `put_edit` returns `diff(S, put(S, apply(d_V,V), C).source)` and the complement produced by that `put`.
+Let a lens map source graph $S$ to view $V$ and complement $C$. Write `diff_keeping_replacements(A, B, d)` for the differ from $A$ to $B$ in which every element that $d$ replaces and that both $A$ and $B$ hold becomes a replacement from its payload in $A$ to its payload in $B$. For an applicable source delta $d$, `get_edit` returns `diff_keeping_replacements(V, V', d)` with $V'$ = `get(apply(d,S)).view`, and the complement produced by that latter `get`. For an applicable view delta $d_V$, `put_edit` returns `diff_keeping_replacements(S, S', d_V)` with $S'$ = `put(S, apply(d_V,V), C).source`, and the complement produced by that `put`.
 
-The production tree edit lens satisfies these two equations after tree edits are lowered through their durable embeddings. Its graph-get entry point yields the same canonical view delta as the whole-state oracle on the graph-edit domain, and its threaded complement agrees with whole-state `get` or `put` after the edit.
+On the named projection carrier, the production tree edit lens satisfies these two equations after tree edits are lowered through their durable embeddings, its graph-get entry point yields the same view delta as the whole-state oracle, and its threaded complement agrees with whole-state `get` or `put` after the edit. Beyond that carrier the production claim is not made here.
 
 ### Outside the domain
 
@@ -365,26 +384,27 @@ If the incoming delta does not apply, the reference returns `EditTranslationErro
 
 ### Definitions used
 
-`diff(A,B)` is the normalized id-keyed graph delta that applies to $A$ with result $B$. A *translation square* commutes when applying the translated edit after the state operation equals performing the state edit first and then the state operation. Complement agreement uses the complement returned at the square's lower-right state.
+`diff(A,B)` is the normalized id-keyed graph delta that applies to $A$ with result $B$; it never contains a replacement with equal payloads. A delta *replaces* an element when the element's id is in both its deleted and added parts. A *translation square* commutes when applying the translated edit after the state operation equals performing the state edit first and then the state operation. Complement agreement uses the complement returned at the square's lower-right state.
 
 ### Proof
 
-1. The reference get translator applies $d$, runs whole-state `get` before and after, and takes the differ of the two views. The differ law gives the get square immediately.
-2. Its returned complement is taken from the edited source's `get`, which is the lower-right complement by definition.
-3. The reference put translator applies $d_V$, runs whole-state `put` with $C$, and differs the original and returned sources. The differ law gives the put square.
-4. Production `get_graph_edit` restricts the source graph before and after applying the incoming delta, preserves presentation ids through the supplied embeddings, and returns their normalized differ. These are the same two graph states used by the reference get closure.
-5. Production tree `get_edit` and `put_edit` update a staged complement and commit it only after translation succeeds. Lowering their results gives the graph deltas compared by the reference equations.
-6. The named projection carrier contains retained and hidden leaves. Deleting either kind distinguishes a view edit from absorbed residue, while the put carrier deletes a retained leaf and reconstructs the hidden residue. Exact delta and complement equality on every named case therefore checks both nontrivial paths.
+1. Keeping a replacement changes how a delta is read, not the state it reaches: at a kept element $x$ both the replacement and the differ's entry take the payload of $x$ in $A$ to its payload in $B$. Applying a node replacement also requires every edge incident to $x$ in $A$ to be deleted or replaced. In the get direction $d$ deletes or replaces every source edge incident to a node it replaces, and restriction keeps element ids, so an incident view edge held by both views is one that $d$ replaces and is itself kept as a replacement; any other is absent from one view and deleted or added by the differ. The put direction is the same argument with $d_V$ and the sources. Hence `diff_keeping_replacements` applies to the earlier state with the later one as result.
+2. Replacements are kept because the identity policy reads an id in both parts of a delta as a new element under a reused id, never as an unchanged one. Translation preserves composition (a delete followed by an add translates to the composite of their translations, which is a replacement), so the translation of a replacement is a replacement whenever both views hold the element; a state differ cannot see it.
+3. The reference get translator applies $d$, runs whole-state `get` before and after, and takes `diff_keeping_replacements` of the two views. Step 1 gives the get square, and the returned complement is that of the edited source's `get`, the lower-right complement by definition.
+4. The reference put translator applies $d_V$, runs whole-state `put` with $C$, and takes `diff_keeping_replacements` of the original and returned sources. Step 1 gives the put square.
+5. Production `get_graph_edit` restricts the source graph before and after applying the incoming delta, takes their differ, and re-inserts every replacement of the incoming delta whose element both restricted views hold, before mapping edge ids into the view presentation. This is the reference get translator on the same two states. Production tree `get_edit` and `put_edit` update a staged complement and commit it only after translation succeeds, and lowering their results gives the deltas compared by the reference equations.
+6. The named projection carrier contains retained and hidden leaves. Deleting either kind distinguishes a view edit from absorbed residue, replacing either kind checks that a replacement is carried when the leaf is retained and absorbed when it is hidden, and the put carrier deletes and replaces a retained leaf while reconstructing the hidden residue. A graph witness replaces the retained leaf and its arc by equal payloads, which the state differ alone would read as the identity. Exact delta and complement equality on every named case checks these paths; the production claim rests on these cases, not on a general argument.
 
 ### Executable counterpart
 
 - Law ID: `edits.translation-square`
 - Reference: `panproto_reference::edit::diff`
+- Reference: `panproto_reference::edit::diff_keeping_replacements`
 - Reference: `panproto_reference::edit::get_edit`
 - Reference: `panproto_reference::edit::put_edit`
-- Enumerator: `panproto_reference::enumerate::edits::edit_translation_cases; bound: cases=5`
+- Enumerator: `panproto_reference::enumerate::edits::edit_translation_cases; bound: cases=8`
 - Exhaustive differential test: `generic_whole_state_edit_oracles_match_actual_tree_lens_translation; command: cargo nextest run -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=generic_whole_state_edit_oracles_match_actual_tree_lens_translation)'`
-- Property differential test: `generic_whole_state_edit_oracles_match_actual_tree_lens_translation; command: cargo nextest run -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=generic_whole_state_edit_oracles_match_actual_tree_lens_translation)'`
+- Property differential test: `graph_get_keeps_same_payload_replacements_of_the_input; command: cargo nextest run -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=graph_get_keeps_same_payload_replacements_of_the_input)'`
 - File: `crates/panproto-lens/src/edit_lens.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`

@@ -368,6 +368,102 @@ public struct EdgeRule: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Protocol value declarations
+
+/// The native shape of a protocol instance.
+public enum InstanceShapeKind: String, Codable, Hashable, Sendable, CaseIterable {
+    case tree
+    case table
+    case graph
+}
+
+/// The declared meaning of one constraint sort.
+///
+/// The representation is retained as a CBOR item because several variants
+/// carry payloads. Construction and decoding still check the closed Rust tag
+/// set, so an unknown semantic meaning is refused instead of being silently
+/// treated as an annotation.
+public struct ConstraintSemantics: Codable, Hashable, Sendable {
+    /// The exact externally tagged semantics representation.
+    public var representation: CBORValue
+
+    /// Admit one known constraint-semantics variant.
+    public init(representation: CBORValue) throws {
+        try Self.validate(representation)
+        self.representation = representation
+    }
+
+    /// Read and validate a constraint meaning.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained constraint meaning.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+
+    private static let unitTags: Set<String> = [
+        "annotation", "minimum", "maximum", "enum", "const", "pattern",
+        "min_out_degree", "max_out_degree", "required_value", "acyclic", "external",
+        "value_parameter", "lexical_space",
+    ]
+    private static let payloadTags: Set<String> = [
+        "max_length", "min_length", "format", "annotated_format",
+    ]
+
+    private static func validate(_ value: CBORValue) throws {
+        if case .textString(let tag) = value.untagged, unitTags.contains(tag) { return }
+        if case .map(let entries) = value.untagged, entries.count == 1,
+            case .textString(let tag) = entries[0].key, payloadTags.contains(tag)
+        {
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            .init(codingPath: [], debugDescription: "unknown constraint semantics"))
+    }
+}
+
+/// The scalar kind assigned to a protocol vertex kind.
+public struct ScalarKind: Codable, Hashable, Sendable {
+    /// The exact externally tagged scalar-kind representation.
+    public var representation: CBORValue
+
+    /// Admit one known scalar-kind variant.
+    public init(representation: CBORValue) throws {
+        try Self.validate(representation)
+        self.representation = representation
+    }
+
+    /// Read and validate a scalar kind.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained scalar-kind representation.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+
+    private static let unitTags: Set<String> = [
+        "bool", "big_int", "decimal", "str", "date", "time", "date_time", "token", "any",
+    ]
+    private static let payloadTags: Set<String> = ["int", "float", "bytes"]
+
+    private static func validate(_ value: CBORValue) throws {
+        if case .textString(let tag) = value.untagged, unitTags.contains(tag) { return }
+        if case .map(let entries) = value.untagged, entries.count == 1,
+            case .textString(let tag) = entries[0].key, payloadTags.contains(tag)
+        {
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            .init(codingPath: [], debugDescription: "unknown scalar kind"))
+    }
+}
+
 // MARK: - Protocols
 
 /// The configuration that drives schema construction and validation for
@@ -421,6 +517,16 @@ public struct ProtocolSpec: Codable, Hashable, Sendable {
     public var hasMergers: Bool
     /// Whether the protocol admits conflict resolution policies.
     public var hasPolicies: Bool
+    /// The shape emitted directly by this protocol's codec.
+    public var syntacticShape: InstanceShapeKind
+    /// The shape after declared references have been resolved.
+    public var semanticShape: InstanceShapeKind
+    /// Constraint meanings, keyed by constraint sort.
+    public var constraintSemantics: [String: ConstraintSemantics]
+    /// Scalar kinds, keyed by vertex kind.
+    public var valueKinds: [String: ScalarKind]
+    /// Vertex kinds whose vertices carry no value of their own.
+    public var nonValueKinds: Set<String>
 
     /// Describe a protocol. Every field past the two theory names has a
     /// default, matching the engine's own empty protocol.
@@ -441,7 +547,12 @@ public struct ProtocolSpec: Codable, Hashable, Sendable {
         hasDefaults: Bool = false,
         hasCoercions: Bool = false,
         hasMergers: Bool = false,
-        hasPolicies: Bool = false
+        hasPolicies: Bool = false,
+        syntacticShape: InstanceShapeKind = .tree,
+        semanticShape: InstanceShapeKind = .tree,
+        constraintSemantics: [String: ConstraintSemantics] = [:],
+        valueKinds: [String: ScalarKind] = [:],
+        nonValueKinds: Set<String> = []
     ) {
         self.name = name
         self.schemaTheory = schemaTheory
@@ -460,6 +571,11 @@ public struct ProtocolSpec: Codable, Hashable, Sendable {
         self.hasCoercions = hasCoercions
         self.hasMergers = hasMergers
         self.hasPolicies = hasPolicies
+        self.syntacticShape = syntacticShape
+        self.semanticShape = semanticShape
+        self.constraintSemantics = constraintSemantics
+        self.valueKinds = valueKinds
+        self.nonValueKinds = nonValueKinds
     }
 
     /// The wire spelling of each field, in the order the engine writes
@@ -482,6 +598,11 @@ public struct ProtocolSpec: Codable, Hashable, Sendable {
         case hasCoercions = "has_coercions"
         case hasMergers = "has_mergers"
         case hasPolicies = "has_policies"
+        case syntacticShape = "syntactic_shape"
+        case semanticShape = "semantic_shape"
+        case constraintSemantics = "constraint_semantics"
+        case valueKinds = "value_kinds"
+        case nonValueKinds = "non_value_kinds"
     }
 
     /// Read a protocol, defaulting every feature flag the payload
@@ -514,9 +635,20 @@ public struct ProtocolSpec: Codable, Hashable, Sendable {
         self.hasCoercions = try container.decodeIfPresent(Bool.self, forKey: .hasCoercions) ?? false
         self.hasMergers = try container.decodeIfPresent(Bool.self, forKey: .hasMergers) ?? false
         self.hasPolicies = try container.decodeIfPresent(Bool.self, forKey: .hasPolicies) ?? false
+        self.syntacticShape =
+            try container.decodeIfPresent(InstanceShapeKind.self, forKey: .syntacticShape) ?? .tree
+        self.semanticShape =
+            try container.decodeIfPresent(InstanceShapeKind.self, forKey: .semanticShape) ?? .tree
+        self.constraintSemantics =
+            try container.decodeIfPresent(
+                [String: ConstraintSemantics].self, forKey: .constraintSemantics) ?? [:]
+        self.valueKinds =
+            try container.decodeIfPresent([String: ScalarKind].self, forKey: .valueKinds) ?? [:]
+        self.nonValueKinds =
+            try container.decodeIfPresent(Set<String>.self, forKey: .nonValueKinds) ?? []
     }
 
-    /// Write all seventeen fields in declaration order, spelling an
+    /// Write all twenty-two fields in declaration order, spelling an
     /// absent composition as CBOR null rather than leaving the key out.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -537,5 +669,10 @@ public struct ProtocolSpec: Codable, Hashable, Sendable {
         try container.encode(hasCoercions, forKey: .hasCoercions)
         try container.encode(hasMergers, forKey: .hasMergers)
         try container.encode(hasPolicies, forKey: .hasPolicies)
+        try container.encode(syntacticShape, forKey: .syntacticShape)
+        try container.encode(semanticShape, forKey: .semanticShape)
+        try container.encode(constraintSemantics, forKey: .constraintSemantics)
+        try container.encode(valueKinds, forKey: .valueKinds)
+        try container.encode(nonValueKinds.sorted(), forKey: .nonValueKinds)
     }
 }

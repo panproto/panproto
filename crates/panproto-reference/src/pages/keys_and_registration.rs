@@ -225,9 +225,10 @@ pub mod keys {
         }
     }
 
-    fn write_representation(writer: &mut Writer, value: &Value) {
-        let bytes = crate::canonical::value_bytes(value).unwrap_or_default();
+    fn write_representation(writer: &mut Writer, value: &Value) -> Result<(), KeyingError> {
+        let bytes = crate::canonical::value_bytes(value).ok_or(KeyingError::NoCanonicalBytes)?;
         writer.raw(&bytes);
+        Ok(())
     }
 
     fn write_primitive(writer: &mut Writer, primitive: NumericPrimitive) {
@@ -254,6 +255,10 @@ pub mod keys {
             /// Number of equality declarations.
             found: usize,
         },
+        /// A keyed value has no canonical bytes, such as a `Temporal` that
+        /// is not well formed or a value that contains one, so neither its
+        /// representation nor any declared equality is defined on it.
+        NoCanonicalBytes,
     }
 
     fn equality_key(equality: &KeyEquality, value: &Value) -> Result<Vec<u8>, KeyingError> {
@@ -261,7 +266,7 @@ pub mod keys {
         match equality {
             KeyEquality::Representation => {
                 writer.tag(0);
-                write_representation(&mut writer, value);
+                write_representation(&mut writer, value)?;
             }
             KeyEquality::NumericValue => {
                 writer.tag(1);
@@ -270,7 +275,7 @@ pub mod keys {
                     write_numeric_key(&mut writer, &key);
                 } else {
                     writer.tag(1);
-                    write_representation(&mut writer, value);
+                    write_representation(&mut writer, value)?;
                 }
             }
             KeyEquality::NumericValueWithinKind(declared) => {
@@ -286,7 +291,7 @@ pub mod keys {
                     write_numeric_key(&mut writer, &key);
                 } else {
                     writer.tag(1);
-                    write_representation(&mut writer, value);
+                    write_representation(&mut writer, value)?;
                 }
             }
             KeyEquality::Sql { collation, pad } => {
@@ -305,7 +310,7 @@ pub mod keys {
                     writer.str(&text);
                 } else {
                     writer.tag(2);
-                    write_representation(&mut writer, value);
+                    write_representation(&mut writer, value)?;
                 }
             }
             KeyEquality::XmlNonCdata => {
@@ -315,7 +320,7 @@ pub mod keys {
                     writer.str(&xml_noncdata(text));
                 } else {
                     writer.tag(1);
-                    write_representation(&mut writer, value);
+                    write_representation(&mut writer, value)?;
                 }
             }
         }
@@ -359,8 +364,12 @@ pub mod keys {
                 KeyEquality::Sql {
                     collation: SqlCollation::Named(name),
                     ..
-                } => KeyingError::UnsupportedCollation(name.clone()),
-                _ => unreachable!(),
+                } if matches!(left, Value::Str(_)) || matches!(right, Value::Str(_)) => {
+                    KeyingError::UnsupportedCollation(name.clone())
+                }
+                // Every other undecided pair holds a value without
+                // canonical bytes.
+                _ => KeyingError::NoCanonicalBytes,
             })? {
                 return Ok(false);
             }
@@ -428,6 +437,12 @@ pub mod keys {
                     _ => crate::value::representation(left, right),
                 }
             }
+            // The key function of text under a named collation is undefined,
+            // so every pair holding such text is undecided.
+            KeyEquality::Sql {
+                collation: SqlCollation::Named(_),
+                ..
+            } if matches!(left, Value::Str(_)) || matches!(right, Value::Str(_)) => None,
             KeyEquality::Sql { collation, pad } => match (numeric_key(left), numeric_key(right)) {
                 (Some(a), Some(b)) => Some(a == b),
                 (None, None) => match (left, right) {
@@ -498,8 +513,10 @@ pub mod keys {
             .try_fold(true, |all, ordered| ordered.map(|one| all && one))
     }
 
-    /// Definition: Validate a nonempty target-set declaration expressed as `(vertex, key, arity,
-    /// equality)` members.
+    /// Definition: Validate a target-set declaration given as `(vertex, key, arity, equality)`.
+    ///
+    /// Each equality vector is the member key's effective vector: the declared one, or
+    /// `Representation` per part when none is declared.
     ///
     /// Book anchors: `L-keys-and-registration-13`.
     #[must_use]
@@ -507,6 +524,9 @@ pub mod keys {
         let Some((_, _, arity, equality)) = members.first() else {
             return false;
         };
+        if equality.len() != *arity {
+            return false;
+        }
         let distinct = members
             .iter()
             .map(|(vertex, key, _, _)| (vertex, key))
@@ -685,6 +705,109 @@ pub mod keys {
                 .push(*id);
         }
         Ok((out, outside))
+    }
+
+    /// The outcome of lexical-space validation of one stored lexeme.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum LexicalOutcome {
+        /// The datatype has a kind and the lexeme coerces under it.
+        Coerces,
+        /// The datatype has a kind and the lexeme does not coerce: one
+        /// advisory `ValueConstraint` diagnostic.
+        IllTyped,
+        /// The datatype has no kind in the table: the typed incomplete
+        /// reason `UnsupportedDeclaration`.
+        UnsupportedDeclaration,
+    }
+
+    /// The namespace whose datatypes read numerals in the XML Schema dialect.
+    const XSD_NAMESPACE: &str = "http://www.w3.org/2001/XMLSchema#";
+
+    /// Definition: Lexical-space validation of a stored lexeme `text` whose
+    /// declared datatype is `datatype`, against the protocol's datatype
+    /// table.
+    ///
+    /// The table lookup comes first: a datatype it does not name is an
+    /// unsupported declaration, whatever the lexeme. A named kind reads the
+    /// lexeme by the value layer's coercion (in the XML Schema numeral
+    /// dialect for a datatype in that namespace), and the lexeme is
+    /// ill-typed exactly when that coercion does not produce a value. Every
+    /// outcome is advisory and none changes the lexeme.
+    ///
+    /// Book anchors: `L-keys-and-registration-17`.
+    #[must_use]
+    pub fn lexical_space_outcome(
+        text: &str,
+        datatype: &str,
+        table: &BTreeMap<String, crate::coerce::ScalarKind>,
+    ) -> LexicalOutcome {
+        let Some(kind) = table.get(datatype) else {
+            return LexicalOutcome::UnsupportedDeclaration;
+        };
+        let mut spec = crate::coerce::ValueSpec::of(*kind);
+        if datatype.starts_with(XSD_NAMESPACE) {
+            spec.numeral = Some(crate::coerce::NumeralDialect::Xsd);
+        }
+        match crate::coerce::coerce_value(&Value::Str(text.to_owned()), &spec) {
+            Some(Ok(_)) => LexicalOutcome::Coerces,
+            Some(Err(_)) | None => LexicalOutcome::IllTyped,
+        }
+    }
+
+    /// The outcome of a `format` declaration on one string.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum FormatOutcome {
+        /// The format is not recognized: no check is compiled.
+        Unchecked,
+        /// The format is recognized and the string satisfies it.
+        Recognized,
+        /// The annotated format is recognized and the string fails it: one
+        /// advisory diagnostic, admission unaffected.
+        Advisory,
+        /// The asserted format is recognized and the string fails it: one
+        /// required diagnostic, admission refused.
+        Refused,
+    }
+
+    /// Definition: RFC 9562's textual UUID: 36 characters, a hyphen at
+    /// positions 8, 13, 18 and 23, and a hexadecimal digit of either case at
+    /// every other position.
+    ///
+    /// Book anchors: `L-keys-and-registration-18`.
+    #[must_use]
+    pub fn uuid_format(text: &str) -> bool {
+        let bytes = text.as_bytes();
+        bytes.len() == 36
+            && bytes.iter().enumerate().all(|(index, byte)| {
+                if matches!(index, 8 | 13 | 18 | 23) {
+                    *byte == b'-'
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
+            })
+    }
+
+    /// Definition: A `format` declaration named `format` on the string
+    /// `text`, as an annotation (`asserting` false) or an assertion.
+    ///
+    /// Only `uuid` is recognized here; an unrecognized annotation compiles
+    /// no check and so imposes no assertion. A recognized annotation is
+    /// advisory and a recognized assertion is required. The string is never
+    /// changed.
+    ///
+    /// Book anchors: `L-keys-and-registration-18`.
+    #[must_use]
+    pub fn annotated_format_outcome(format: &str, text: &str, asserting: bool) -> FormatOutcome {
+        let recognized = match format {
+            "uuid" => Some(uuid_format(text)),
+            _ => None,
+        };
+        match (recognized, asserting) {
+            (None, _) => FormatOutcome::Unchecked,
+            (Some(true), _) => FormatOutcome::Recognized,
+            (Some(false), false) => FormatOutcome::Advisory,
+            (Some(false), true) => FormatOutcome::Refused,
+        }
     }
 }
 
@@ -1342,7 +1465,8 @@ pub mod schema {
                 let this = member.and_then(|key| {
                     key_equalities(key).map(|equality| (key.parts.len(), equality))
                 });
-                let base_valid = member.is_some_and(|key| key.scope == set.scope)
+                let base_valid = member
+                    .is_some_and(|key| key.scope == set.scope && key.role != KeyRole::Index)
                     && members.insert((vertex, key_id))
                     && this.is_some();
                 let agrees = signature
@@ -1388,7 +1512,7 @@ pub mod schema {
         let Some(targets) = validate_reference_target(schema, reference, errors) else {
             return;
         };
-        let expected = targets[0].1.parts.len();
+        let expected = targets.first().map_or(0, |(_, key)| key.parts.len());
         if let RefSource::KeyValue { parts } = &reference.source
             && parts.len() != expected
         {
@@ -1398,7 +1522,7 @@ pub mod schema {
                 found: parts.len(),
             });
         }
-        validate_reference_source(schema, reference, &targets, errors, binder_modes);
+        validate_reference_source(schema, reference, errors, binder_modes);
         if let Some(guard) = &reference.guard {
             guards.push((
                 reference.holder.as_str(),
@@ -1418,11 +1542,37 @@ pub mod schema {
         errors: &mut Vec<DeclarationError>,
     ) -> Option<Vec<(&'a Name, &'a Key)>> {
         let targets = target_members(schema, reference);
-        if targets.is_empty() {
+        let targets_set = schema.target_sets.contains_key(&reference.target_vertex);
+        // A key-value reference with no named key and no primary key
+        // resolves through the empty key; a nonempty source then fails the
+        // arity check against zero parts rather than naming a missing key.
+        let keyless = !targets_set
+            && reference.target_key.is_none()
+            && matches!(
+                reference.source,
+                RefSource::KeyValue { .. } | RefSource::Path { .. } | RefSource::Standoff { .. }
+            );
+        if targets.is_empty() && !keyless {
             errors.push(DeclarationError::UnknownTarget {
                 reference: reference.id.clone(),
             });
             return None;
+        }
+        // A named target key must exist whatever the source reads; a
+        // variable resolves through its binder, so its missing named key is
+        // reported without stopping the remaining checks.
+        if !targets_set
+            && matches!(reference.source, RefSource::Variable { .. })
+            && reference.target_key.as_ref().is_some_and(|id| {
+                schema
+                    .keys
+                    .get(&reference.target_vertex)
+                    .is_none_or(|keys| keys.iter().all(|key| key.id != *id))
+            })
+        {
+            errors.push(DeclarationError::UnknownTarget {
+                reference: reference.id.clone(),
+            });
         }
         for (_, key) in targets
             .iter()
@@ -1468,7 +1618,6 @@ pub mod schema {
     fn validate_reference_source<'a>(
         schema: &'a Schema,
         reference: &'a Reference,
-        targets: &[(&Name, &Key)],
         errors: &mut Vec<DeclarationError>,
         binder_modes: &mut BinderModes<'a>,
     ) {
@@ -1492,14 +1641,24 @@ pub mod schema {
             ..
         } = &reference.source
         {
-            if targets
-                .first()
-                .is_none_or(|(_, key)| key.id != *binder_key || key.role != KeyRole::Identifier)
+            // The binder is a key of the target vertex itself. A target set
+            // is no vertex and declares no key, so a variable over a set
+            // names no binder.
+            match schema
+                .keys
+                .get(&reference.target_vertex)
+                .and_then(|keys| keys.iter().find(|key| key.id == *binder_key))
             {
-                errors.push(DeclarationError::VariableBinderInvalid {
+                None => errors.push(DeclarationError::UnknownTarget {
                     reference: reference.id.clone(),
-                    key: binder_key.clone(),
-                });
+                }),
+                Some(key) if key.role != KeyRole::Identifier => {
+                    errors.push(DeclarationError::VariableBinderInvalid {
+                        reference: reference.id.clone(),
+                        key: binder_key.clone(),
+                    });
+                }
+                Some(_) => {}
             }
             binder_modes
                 .entry((reference.target_vertex.as_str(), binder_key.as_str()))
@@ -1938,7 +2097,7 @@ pub mod schema {
                 write_edges(writer, field.iter().cloned());
                 writer.str(binder_key);
                 if *binding != VariableBinding::FirstDefines {
-                    writer.tag(0xff);
+                    writer.u64(EXTENSION_MARKER);
                     writer.tag(match binding {
                         VariableBinding::FirstDefines => 0,
                         VariableBinding::NearestPreceding => 1,
@@ -1967,7 +2126,7 @@ pub mod schema {
                 });
                 writer.tag(u8::from(*end_inclusive));
                 if *end_form != SpanEnd::Offset || *origin != 0 || fragments.is_some() {
-                    writer.tag(0xff);
+                    writer.u64(EXTENSION_MARKER);
                     writer.tag(match end_form {
                         SpanEnd::Offset => 0,
                         SpanEnd::Length => 1,
@@ -1989,13 +2148,30 @@ pub mod schema {
         }
     }
 
+    /// Definition: The eight-byte word that opens an optional extension
+    /// inside a reference.
+    ///
+    /// Without the extension each such site is followed by a `u64` length
+    /// below `2^63`, by [`TARGET_SET_MARKER`], or by the end of the bytes;
+    /// this word is at least `2^63` and its first byte is `0x00`, so the
+    /// grammar decides the extension from the bytes and stays prefix-free.
+    ///
+    /// Book anchors: `L-keys-and-registration-3`, `L-keys-and-registration-15`.
+    pub const EXTENSION_MARKER: u64 = 1 << 63;
+
+    /// Definition: The byte that opens the trailing target-set extension,
+    /// whose alternative is the end of the bytes.
+    ///
+    /// Book anchors: `L-keys-and-registration-3`.
+    pub const TARGET_SET_MARKER: u8 = 0xff;
+
     fn write_reference_extensions(writer: &mut Writer, reference: &Reference) {
         let has_extensions = reference.guard.is_some()
             || reference.null_match != NullMatch::Simple
             || reference.null_vertex.is_some()
             || reference.scope_via.is_some();
         if has_extensions {
-            writer.tag(0xff);
+            writer.u64(EXTENSION_MARKER);
             match &reference.guard {
                 None => writer.tag(0),
                 Some(guard) => {
@@ -2090,7 +2266,7 @@ pub mod schema {
             write_reference(&mut writer, reference);
         }
         if !schema.target_sets.is_empty() {
-            writer.tag(0xff);
+            writer.tag(TARGET_SET_MARKER);
             writer.len(schema.target_sets.len());
             for (id, set) in &schema.target_sets {
                 writer.str(id);

@@ -10,6 +10,7 @@ use panproto_reference::bytes::{
     latin1_encode, latin1_encode_decode, optional, padded_bytes_decode_encode,
     padded_text_encode_decode,
 };
+use panproto_reference::coerce as rc;
 use panproto_schema::{BytesText, ScalarKind, ValueSpec};
 
 fn read(text: &str, form: BytesText) -> Result<Value, FidelityReason> {
@@ -31,6 +32,60 @@ fn read_reference(result: Result<Vec<u8>, ByteTextError>) -> Result<Value, Fidel
 
 fn url64(text: &str) -> String {
     text.replace('+', "-").replace('/', "_")
+}
+
+/// The reading the URL-safe forms give a raw text, as the statement states
+/// it: a text holding a standard-only character `+` or `/` is refused, and
+/// any other text is decoded with `-` and `_` read as `+` and `/`.
+fn url_reading(text: &str, padding_required: bool) -> Result<Value, FidelityReason> {
+    if text.contains(['+', '/']) {
+        return Err(FidelityReason::InvalidEncoding);
+    }
+    let standard = text.replace('-', "+").replace('_', "/");
+    read_reference(decode_base64(&standard, padding_required))
+}
+
+/// The reference value coercion of a raw text under a byte-text form, in
+/// production's terms.
+fn reference_read(text: &str, form: rc::BytesText) -> Result<Value, FidelityReason> {
+    match rc::coerce(
+        text,
+        &rc::LexClass::Bytes,
+        &rc::ValueSpec::of(rc::ScalarKind::Bytes(form)),
+    ) {
+        Some(Ok(panproto_reference::value::Value::Bytes(bytes))) => Ok(Value::Bytes(bytes)),
+        Some(Err(rc::FidelityReason::InvalidEncoding)) => Err(FidelityReason::InvalidEncoding),
+        other => panic!("{text:?} under {form:?}: {other:?}"),
+    }
+}
+
+/// Production and the reference read the raw `text` under both URL-safe
+/// forms as the statement states, refusing a text that holds `+` or `/`.
+/// Returns whether the padded and the optional URL-safe forms accept it.
+fn check_raw_url_text(text: &str) -> [bool; 2] {
+    let padded = url_reading(text, true);
+    let optional = url_reading(text, false);
+    assert_eq!(
+        read(text, BytesText::Base64UrlPadded),
+        padded,
+        "padded URL raw {text:?}"
+    );
+    assert_eq!(
+        read(text, BytesText::Base64Url),
+        optional,
+        "optional URL raw {text:?}"
+    );
+    assert_eq!(
+        reference_read(text, rc::BytesText::Base64UrlPadded),
+        padded,
+        "reference padded URL raw {text:?}"
+    );
+    assert_eq!(
+        reference_read(text, rc::BytesText::Base64Url),
+        optional,
+        "reference optional URL raw {text:?}"
+    );
+    [padded.is_ok(), optional.is_ok()]
 }
 
 /// The number of workers an exhaustive sweep is spread over.
@@ -240,6 +295,8 @@ struct TextCounts {
     texts: u64,
     padded: u64,
     optional: u64,
+    url_padded: u64,
+    url_optional: u64,
 }
 
 /// One text of the base64 text scope: production reading under each
@@ -260,6 +317,11 @@ fn check_base64_text(text: &str, counts: &mut TextCounts) {
         read_reference(decode_base64(text, false)),
         "optional URL {url:?}"
     );
+    // The raw text under the URL-safe forms: refused when it holds `+` or
+    // `/`, else read as the standard forms read it.
+    let [url_padded, url_optional] = check_raw_url_text(text);
+    counts.url_padded += u64::from(url_padded);
+    counts.url_optional += u64::from(url_optional);
     if let Ok(bytes) = decode_base64(text, true) {
         assert!(padded_text_encode_decode(text), "padded {text:?}");
         assert_eq!(
@@ -315,6 +377,8 @@ fn every_short_base64_text_reads_as_the_reference_decodes() {
             texts: sum.texts + part.texts,
             padded: sum.padded + part.padded,
             optional: sum.optional + part.optional,
+            url_padded: sum.url_padded + part.url_padded,
+            url_optional: sum.url_optional + part.url_optional,
         });
 
     let symbols = 64 + 2_u64;
@@ -327,11 +391,18 @@ fn every_short_base64_text_reads_as_the_reference_decodes() {
     // The optional form also accepts the two- and three-character unpadded
     // spellings of one and two bytes.
     assert_eq!(total.optional, byte_strings + 256 + 256_u64.pow(2));
+    // Read raw under the URL-safe forms, the texts accepted are the accepted
+    // spellings with neither `+` nor `/`: of the 16,843,009 padded spellings,
+    // 14,838,089, and of the optional ones also the 61,752 unpadded
+    // two- and three-character spellings of one and two bytes.
+    assert_eq!(total.url_padded, 14_838_089);
+    assert_eq!(total.url_optional, 14_838_089 + 61_752);
     println!(
         "base64 texts of length at most 4 over 66 symbols: {} texts (expected {expected_texts}); \
          {} accepted padded (expected {byte_strings}); {} accepted optional; \
+         raw under the URL-safe forms {} accepted padded and {} optional; \
          production agrees with the reference on all",
-        total.texts, total.padded, total.optional
+        total.texts, total.padded, total.optional, total.url_padded, total.url_optional
     );
 }
 
@@ -345,6 +416,7 @@ fn optional_padding_is_equivalent_on_every_short_unpadded_text() {
     let mut checked = 0_u64;
     let mut normalized = 0_u64;
     let mut decoded = 0_u64;
+    let mut url_decoded = 0_u64;
     for unpadded in &texts {
         let length = unpadded.chars().count();
         let padding = (4 - length % 4) % 4;
@@ -377,6 +449,17 @@ fn optional_padding_is_equivalent_on_every_short_unpadded_text() {
             "URL production {unpadded:?} {padded:?}"
         );
         assert_eq!(url_production, production, "URL {unpadded:?}");
+        // The raw texts under the URL-safe optional form: both spellings read
+        // alike, refused when they hold `+` or `/`.
+        let [_, raw_unpadded] = check_raw_url_text(unpadded);
+        let [_, raw_padded] = check_raw_url_text(&padded);
+        assert_eq!(
+            read(unpadded, BytesText::Base64Url),
+            read(&padded, BytesText::Base64Url),
+            "raw URL {unpadded:?} {padded:?}"
+        );
+        assert_eq!(raw_unpadded, raw_padded, "raw URL {unpadded:?} {padded:?}");
+        url_decoded += u64::from(raw_unpadded);
 
         checked += 1;
         normalized += u64::from(normal.is_ok());
@@ -386,9 +469,14 @@ fn optional_padding_is_equivalent_on_every_short_unpadded_text() {
     let symbols = 64 + 1_u64;
     let expected = 1 + symbols.pow(2) + symbols.pow(3);
     assert_eq!(checked, expected);
+    // The raw texts the URL-safe optional form accepts are the canonical
+    // unpadded spellings of the byte strings of length at most two that hold
+    // neither `+` nor `/`.
+    assert_eq!(url_decoded, 61_753);
     println!(
         "unpadded texts of length 0, 2, 3 over 65 symbols: {checked} pairs (expected {expected}); \
-         {normalized} normalize; {decoded} decode; both spellings agree on all"
+         {normalized} normalize; {decoded} decode; {url_decoded} decode raw under the URL-safe \
+         form; both spellings agree on all"
     );
 }
 

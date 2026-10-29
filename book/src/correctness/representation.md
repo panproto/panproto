@@ -16,7 +16,7 @@ The returned embedding maps each arc child to its edge id, records each fan node
 
 ### Outside the domain
 
-The function returns the first refusal encountered in construction order. It first returns `ReservedVocabulary` when a tree node already has the hyper-edge shape or an arc has a reserved fan kind. This preflight precedes every arc check: a hyper-edge-shaped node together with an arc to an absent endpoint therefore returns `ReservedVocabulary`, not the endpoint error. For each arc in stored order, it then checks endpoints, a second parent, and edge-id exhaustion immediately before allocating and inserting that arc. The reference calls the endpoint refusal `DanglingArc`; production reports `DanglingEdge` with the candidate edge id and absent endpoint. The node floor saturates at `u32::MAX`, so a fan-free tree that already holds that id still embeds. For each fan in stored order, allocating its node at a saturated floor may return `NodeIdsExhausted`; its parent is then checked for `DanglingFan` before the parent edge can return `EdgeIdsExhausted`; and each child in label order is checked for `DanglingFan` before its edge can return `EdgeIdsExhausted`. The empty tree maps to the empty graph and the default embedding.
+The function returns the first refusal encountered in construction order. It first returns `NodeIdMismatch` at the least node-map key whose node stores another id, as production does before any other check; the smallest witness files node 0 under key 1. It then returns `ReservedVocabulary` when a tree node already has the hyper-edge shape or an arc has a reserved fan kind. This preflight precedes every arc check: a hyper-edge-shaped node together with an arc to an absent endpoint therefore returns `ReservedVocabulary`, not the endpoint error. For each arc in stored order, it then checks endpoints, a second parent, and edge-id exhaustion immediately before allocating and inserting that arc. The reference calls the endpoint refusal `DanglingArc`; production reports `DanglingEdge` with the candidate edge id and absent endpoint. The node floor saturates at `u32::MAX`, so a fan-free tree that already holds that id still embeds. For each fan in stored order, allocating its node at a saturated floor may return `NodeIdsExhausted`; its parent is then checked for `DanglingFan` before the parent edge can return `EdgeIdsExhausted`; and each child in label order is checked for `DanglingFan` before its edge can return `EdgeIdsExhausted`. Production reports a dangling fan endpoint as `DanglingEdge`, naming the edge id the fan edge receives and the absent endpoint. Production draws that edge id before it checks the endpoint, so the two orders differ only when a fan endpoint dangles at an exhausted edge floor, which a tree reaches only after $2^{32}-1$ edges. The empty tree maps to the empty graph and the default embedding.
 
 ### Definitions used
 
@@ -24,7 +24,7 @@ The reserved fan kinds are `hyper_parent` and `hyper_label`. The *node floor* is
 
 ### Proof
 
-1. The implementation rejects reserved tree vocabulary before allocating anything, which gives the first refusal family.
+1. The implementation checks the key/id invariant at each key in ascending order, then rejects reserved tree vocabulary, before allocating anything. This gives the first two refusal families.
 2. It walks arcs in stored order with an edge counter initially zero. Endpoint membership is checked before insertion, and the embedding's child map detects a second parent. Thus the successful arc prefix has exactly the stated edges and arc record.
 3. The node counter is the saturated node floor. Drawing an id increments the counter with `checked_add`, so the last allocatable value is `u32::MAX - 1`; a tree already containing `u32::MAX` requires no draw unless it carries a fan.
 4. Fans are traversed in tree order. Their children come from an ordered map, so parent-before-children and ascending child-label order follow directly. Endpoint lookup both supplies each target anchor and produces `DanglingFan` at the first absent endpoint.
@@ -34,7 +34,7 @@ The reserved fan kinds are `hyper_parent` and `hyper_label`. The *node floor* is
 
 - Law ID: `representation.tree-to-graph-total`
 - Reference: `panproto_reference::encode::tree_to_graph`
-- Evidence scope: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, fans=0; explicit cases: 1 valid fan, 2 saturated-floor cases, 1 reserved-vocabulary refusal, 1 mixed reserved-plus-dangling precedence witness and 1 second-parent refusal`
+- Evidence scope: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, fans=0; explicit cases: 1 valid fan, 2 saturated-floor cases, 1 node-id mismatch, 1 reserved-vocabulary refusal, 1 mixed reserved-plus-dangling precedence witness, 1 second-parent refusal, 1 dangling arc and 2 dangling fan endpoints (parent and child)`
 - Production certificate: `tree_to_graph_matches_production_on_the_exact_carrier_and_refusals; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=tree_to_graph_matches_production_on_the_exact_carrier_and_refusals)'`
 - Independent reference anchor: `every_valid_tree_embeds_and_round_trips; command: cargo nextest run -p panproto-inst --test a_tree_embeds_in_its_graph_form --release --no-tests=fail -E 'test(=every_valid_tree_embeds_and_round_trips)'`
 - File: `crates/panproto-inst/src/ginstance/embed.rs`
@@ -44,7 +44,7 @@ The reserved fan kinds are `hyper_parent` and `hyper_label`. The *node floor* is
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None. The bounded differential compares every observable field, and every typed refusal named by this law except `EdgeIdsExhausted`. That refusal needs $2^{32}-1$ edges; the unit test `representation_counters_allocate_max_minus_one_but_never_max` pins the counter that produces it, and the saturated-fan case pins `NodeIdsExhausted`.
 
 ### Audit record
 
@@ -61,7 +61,7 @@ None. The bounded differential compares every observable field and typed refusal
 
 Fix a graph $G$, a proposed root $r$, and a parent-name policy $p$ for each hyper-edge anchor. A policy result is either unconstrained or an exact optional name. With no schema, the result is unconstrained: a schema-free fan parent may be named or unnamed. With a schema, the result is exact: a declared hyper-edge requires its declared parent label, while an undeclared hyper-edge requires no name. `graph_to_tree(G, r, p)` succeeds exactly when all of the following hold: $r$ exists and is not a fan node; every edge has existing endpoints and no position; every edge out of a fan node has the source and target anchors written by [L-representation-1](#L-representation-1), with a parent name admitted by $p$; every other edge has no reserved kind, does not enter a fan or the root, and is the sole ordinary edge into its target; every fan node is data-free and has no fan-domain violation without a schema; and every ordinary node reaches $r$ by repeatedly following its unique parent.
 
-On success, ordinary edges become arcs in ascending edge-id order, fan nodes become fans in ascending node-id order, and the ordinary nodes and root are unchanged. This operation is a left inverse of `tree_to_graph` on its image, apart from the fresh numeric ids of fan nodes and edges.
+On success, ordinary edges become arcs in ascending edge-id order, fan nodes become fans in ascending node-id order, and the ordinary nodes and root are unchanged. Let $T$ be a tree with `tree_to_graph(T, S) = G`. Then `graph_to_tree(G, root(T), p_S)`, with $p_S$ the parent-name function induced by $S$, succeeds exactly when $T$ is *rooted at its stored root*, and on success it returns $T$. The fresh numeric ids of fan nodes and edges are discarded. The encoding does not check rootedness: the tree with nodes 0 and 1, arcs $0 \to 1$ and $1 \to 0$, and root 0 encodes, and its graph form is refused with `RootHasParent { edge: 1 }`; a tree whose stored root is not a node encodes and is refused with `MissingRoot`.
 
 ### Outside the domain
 
@@ -69,7 +69,7 @@ The reference returns the first local `NotATree` witness in this order: `Missing
 
 ### Definitions used
 
-A *data-free fan node* has no value, discriminator, fields, position, or annotations. Its fan-domain conditions are those of [L-representation-8](#L-representation-8), evaluated without schema-relative label checks. A node *reaches the root* when finitely many parent-map steps end at $r$; the implementation bounds the walk by the number of ordinary nodes, so a cycle is refused as `Unreached`.
+A tree is *rooted at its stored root* when the root is a node, no arc enters it, and every node reaches it along arcs. A *data-free fan node* has no value, discriminator, fields, position, or annotations. Its fan-domain conditions are those of [L-representation-8](#L-representation-8), evaluated without schema-relative label checks. A node *reaches the root* when finitely many parent-map steps end at $r$; the implementation bounds the walk by the number of ordinary nodes, so a cycle is refused as `Unreached`.
 
 ### Proof
 
@@ -78,13 +78,13 @@ A *data-free fan node* has no value, discriminator, fields, position, or annotat
 3. The next ascending pass over fan nodes checks that each is data-free, then takes the first result of `violations_at` without a schema. It constructs one fan from the unique parent edge and the ordered child-label map.
 4. The remaining nodes are the ordinary nodes. Following the parent map for at most their count accepts exactly the nodes whose chains reach $r$ and refuses a missing link or cycle at the least such node.
 5. Filtering the ascending edge map yields arcs in edge-id order. The preceding passes retain the nodes and root and construct fans in node-id order, which proves the output clause.
-6. A graph emitted by `tree_to_graph` satisfies every check by construction; reading its arcs and fans restores the input data, with only the auxiliary graph ids discarded.
+6. Let $G$ be emitted by `tree_to_graph(T, S)`. Its edges are unpositioned with present endpoints, its fan edges carry the labels and the $p_S$ parent names checked in step 2, no ordinary edge has a reserved kind or enters a fan node (arcs join tree nodes, which the preflight keeps out of the hyper-edge shape), no node has two arcs, and every fan node is data-free and well formed. So the only checks $G$ can fail are `MissingRoot`, `RootHasParent` and `Unreached`, and these fail exactly when $T$ is not rooted at its stored root. When $T$ is rooted, reading the arcs in edge-id order restores the arc list, the fans in fan-node-id order restore the fan list, and the ordinary nodes and root are those of $T$.
 
 ### Executable counterpart
 
 - Law ID: `representation.graph-to-tree-decision`
 - Reference: `panproto_reference::encode::graph_to_tree`
-- Evidence scope: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, each checked at 3 proposed roots, plus 3 typed-refusal witnesses and 1 named schema-free fan-parent witness`
+- Evidence scope: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, each checked at 3 proposed roots, plus 3 typed-refusal witnesses, 1 named schema-free fan-parent witness, and the cyclic and rootless encoded trees outside the left-inverse domain`
 - Production certificate: `graph_to_tree_decision_matches_production_on_the_exact_carrier; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=graph_to_tree_decision_matches_production_on_the_exact_carrier)'`
 - Independent reference anchor: `a_tree_shaped_graph_round_trips_through_its_tree; command: cargo nextest run -p panproto-inst --test a_graph_is_a_tree_when_its_shape_says_so --release --no-tests=fail -E 'test(=a_tree_shaped_graph_round_trips_through_its_tree)'`
 - File: `crates/panproto-inst/src/ginstance/tree_shape.rs`
@@ -112,7 +112,7 @@ For every tree $T$ and optional schema $S$, `reify(T, S)` is defined exactly whe
 
 ### Outside the domain
 
-`reify` returns `None` for every refusal of either direction. This includes reserved fan vocabulary already present as ordinary tree material, malformed arcs or fans, exhausted ids, and an encoded graph that fails the tree-form checks.
+`reify` returns `None` for every refusal of either direction. This includes a node filed under another id, reserved fan vocabulary already present as ordinary tree material, malformed arcs or fans, exhausted ids, and an encoded graph that fails the tree-form checks, such as a cyclic tree or one whose stored root is not a node.
 
 ### Definitions used
 
@@ -129,7 +129,7 @@ The schema-induced parent-name function returns a declared hyper-edge's `parent_
 
 - Law ID: `representation.reify-round-trip`
 - Reference: `panproto_reference::encode::reify`
-- Evidence scope: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, plus 1 explicit fan image and 1 reserved-vocabulary refusal`
+- Evidence scope: `panproto_reference::enumerate::representation::trees; exact carrier: 2 two-node trees, plus 1 explicit fan image and 9 refusals: node-id mismatch, reserved vocabulary, dangling arc, dangling fan parent, dangling fan child, second parent, node-id exhaustion, a cycle and an absent root`
 - Production certificate: `reification_round_trip_matches_production_on_the_exact_image; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=reification_round_trip_matches_production_on_the_exact_image)'`
 - Independent reference anchor: `unreify_inverts_reify; command: cargo nextest run -p panproto-inst --test fans_reify_exactly_on_the_fan_domain --release --no-tests=fail -E 'test(=unreify_inverts_reify)'`
 - File: `crates/panproto-inst/src/ginstance/reify.rs`
@@ -138,7 +138,7 @@ The schema-induced parent-name function returns a declared hyper-edge's `parent_
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None. The bounded differential compares every observable field, and checks that both the reference and the production composite `from_wtype_embedded` then `to_wtype` refuse each refusal named by this law, except edge-id exhaustion, which needs $2^{32}-1$ edges and is pinned by the counter test of [L-representation-1](#L-representation-1).
 
 ### Audit record
 
@@ -179,7 +179,7 @@ Every variable-length sequence begins with its `u64` length. Strings, optional v
 - Reference: `panproto_reference::canonical::decode_graph`
 - Reference: `panproto_reference::canonical::decode_table`
 - Reference: `panproto_reference::canonical::decode_tree`
-- Evidence scope: `panproto_reference::enumerate::representation::{graphs,tables,trees}; exact carrier: 8 graphs, 2 tables, 2 validated trees, plus 3 trailing-byte refusals and 1 malformed tree-byte collision outside the theorem`
+- Evidence scope: `panproto_reference::enumerate::representation::{graphs,tables,trees}; exact carrier: 8 graphs, 2 tables, 2 validated trees, plus 3 trailing-byte refusals, every proper prefix of a graph, a table and a tree, 1 unknown node-shape tag, nonascending node, row and pair records, a dangling edge, a dangling pair, a two-root tree, and 1 malformed tree-byte collision outside the theorem`
 - Production certificate: `canonical_graph_table_and_tree_bytes_decode_to_the_same_values; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=canonical_graph_table_and_tree_bytes_decode_to_the_same_values)'`
 - Independent reference anchor: `a_graph_round_trips_through_its_encodings; command: cargo nextest run -p panproto-inst --test a_tree_is_a_graph_without_loss --release --no-tests=fail -E 'test(=a_graph_round_trips_through_its_encodings)'`
 - File: `crates/panproto-inst/src/ginstance/canonical.rs`
@@ -189,7 +189,7 @@ Every variable-length sequence begins with its `u64` length. Strings, optional v
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None. The bounded differential compares every observable field, and checks the decoders' refusal of each class named by this law on production bytes or on reference-writer bytes of malformed values.
 
 ### Audit record
 
@@ -249,19 +249,19 @@ None. The bounded differential compares every observable field and typed refusal
 
 ### Statement
 
-For every production `FInstance` $T$, `from_finstance(T)` maps row $r$ to plain node $r$, anchored at its table name and holding its cells as fields. Relation pair $(e,s,t)$ becomes an unpositioned edge from $s$ to $t$ labelled $e$. Pairs are traversed in ascending tuple order and receive edge ids from zero. The returned embedding maps each pair to its edge id, and `u32::MAX` is never allocated. The independent reference accepts a raw table record and performs the same mapping after checking that record.
+For every production `FInstance` $T$, and so for every coherent raw table, `from_finstance(T)` maps row $r$ to plain node $r$, anchored at its table name and holding its cells as fields. Relation pair $(e,s,t)$ becomes an unpositioned edge from $s$ to $t$ labelled $e$. Pairs are traversed in ascending tuple order and receive edge ids from zero. The returned embedding maps each pair to its edge id, and `u32::MAX` is never allocated. The independent reference accepts a raw table record and performs the same mapping after checking that record.
 
 ### Outside the domain
 
-The production converter receives an already validated `FInstance`; it does not emit a malformed-raw-table refusal. The differential's `prod_table` adapter rejects a raw reference pair whose endpoint row is absent before `from_finstance` runs, while the reference returns `MalformedTable` with the least such pair. Once adapted, the only converter refusal is `EdgeIdsExhausted` when the number of pairs exhausts the nonreserved edge-id carrier. This distinction assigns the malformed-input claim to the boundary that can observe it.
+The production converter receives an already validated `FInstance`; it does not emit a malformed-raw-table refusal. A raw reference table is outside the domain when some pair is not coherent: an endpoint row is absent, or names a row outside the label's endpoint table. The reference returns `MalformedTable` with the least such pair. The differential's `prod_table` adapter builds the `FInstance` first, and `FInstance::from_parts` refuses the same tables with `DanglingForeignKey`, naming a row rather than a pair: rows 0 in table `t` and 1 in table `u` with the pair $(t \to t, 0, 1)$ are refused at row 1 by both, although row 1 exists. Once adapted, the only converter refusal is `EdgeIdsExhausted` when the number of pairs exhausts the nonreserved edge-id carrier. This distinction assigns the malformed-input claim to the boundary that can observe it.
 
 ### Definitions used
 
-A table is well formed when both endpoints of every pair occur in its row map. The pair order is the lexicographic order of edge label, source row, and target row. A plain node has `Plain` shape and no value, discriminator, position, or annotations.
+A table is *coherent* when every pair's source row belongs to its label's source table and its target row to its label's target table; in particular both endpoints occur in the row map. The coherent raw tables are exactly the tables a production `FInstance` holds. The pair order is the lexicographic order of edge label, source row, and target row. A plain node has `Plain` shape and no value, discriminator, position, or annotations.
 
 ### Proof
 
-1. The raw-reference adapter's ordered search returns the least dangling pair. A successfully constructed `FInstance` has already discharged that condition.
+1. The reference's ordered search over pairs returns the least incoherent pair. A successfully constructed `FInstance` has already discharged coherence, so production never meets it.
 2. The converter's row loop copies every ordered row once into a plain node with the stated anchor and fields.
 3. The pair loop uses the same checked id allocator as [L-representation-1](#L-representation-1). It emits one unpositioned edge and one embedding entry per pair, in the same order.
 4. Checked increment permits `u32::MAX - 1` and refuses before allocating `u32::MAX`, which proves the exhaustion clause.
@@ -270,7 +270,7 @@ A table is well formed when both endpoints of every pair occur in its row map. T
 
 - Law ID: `representation.table-to-graph-total`
 - Reference: `panproto_reference::encode::table_to_graph`
-- Evidence scope: `panproto_reference::enumerate::representation::tables; exact carrier: 2 tables, plus 1 relation-pair table, 1 malformed-pair refusal and 1 saturated embedding refusal`
+- Evidence scope: `panproto_reference::enumerate::representation::tables; exact carrier: 2 tables, plus 1 one-pair table, 1 three-pair table, 1 dangling-pair refusal, 1 incoherent-pair refusal and 1 saturated embedding refusal`
 - Production certificate: `table_to_graph_matches_production_on_the_exact_carrier_and_refusals; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=table_to_graph_matches_production_on_the_exact_carrier_and_refusals)'`
 - Independent reference anchor: `the_table_graph_round_trip_is_a_bijection; command: cargo nextest run -p panproto-inst --test a_table_is_a_graph_without_loss --release --no-tests=fail -E 'test(=the_table_graph_round_trip_is_a_bijection)'`
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
@@ -279,7 +279,7 @@ A table is well formed when both endpoints of every pair occur in its row map. T
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None. The bounded differential compares every observable field and both malformed-table refusals with the adapter's `DanglingForeignKey`, and production's `EdgeIdsExhausted` at a saturated embedding. The reference's `EdgeIdsExhausted` needs $2^{32}-1$ pairs; its counter is pinned by the unit test `representation_counters_allocate_max_minus_one_but_never_max`.
 
 ### Audit record
 
@@ -294,11 +294,11 @@ None. The bounded differential compares every observable field and typed refusal
 
 ### Statement
 
-Fix a schema $S$. `graph_to_table(G,S)` returns a table exactly when $G$ is well formed and table-shaped relative to $S$: (i) every node is plain and carries only its anchor and flat fields, (ii) every edge is unpositioned, belongs to $S$, and joins nodes anchored at its declared endpoints, (iii) no two edges have the same label and endpoints, (iv) each functional foreign key has at most one lift from a source row, and (v) each required foreign key has a lift from every row of its source table. The result has row $r$ equal to node $r$'s anchor and fields and has one relation pair for each edge. On a graph produced by [L-representation-6](#L-representation-6), the reverse direction returns the original table only when its cells are flat and it satisfies these schema-relative lift conditions.
+Fix a schema $S$. `graph_to_table(G,S)` returns a table exactly when $G$ is well formed and table-shaped relative to $S$: (i) every node is plain, carries only its anchor and flat fields, and sources no edge of a reserved fan kind, (ii) every edge is unpositioned, belongs to $S$, and joins nodes anchored at its declared endpoints, (iii) no two edges have the same label and endpoints, (iv) each functional foreign key has at most one lift from a source row, and (v) each required foreign key has a lift from every row of its source table. The result has row $r$ equal to node $r$'s anchor and fields and has one relation pair for each edge. On a graph produced by [L-representation-6](#L-representation-6), the reverse direction returns the original table only when its cells are flat and it satisfies these schema-relative lift conditions.
 
 ### Outside the domain
 
-Every graph violating one of the stated conditions is refused. The reference oracle returns no table; production returns the first `NotTableReason` in its documented order. The focused witnesses cover a nested cell, an edge absent from the schema, two lifts of a functional foreign key, and a missing required lift. Edge ids need not be consecutive and are intentionally forgotten. A nested table still has a forward graph form under [L-representation-6](#L-representation-6), but that graph is outside this reverse domain; the smallest witness is row 0 of table `t` with field `c = [0]` and no relation pairs.
+Every graph violating one of the stated conditions is refused. The reference oracle returns no table; production returns the first `NotTableReason` in its documented order. The focused witnesses cover a nested cell, an edge absent from the schema, two lifts of a functional foreign key, a missing required lift, a plain node sourcing a declared `hyper_parent` edge, which production refuses as `FanNode`, a node carrying a discriminator, and an edge whose target anchor differs from its label's. Edge ids need not be consecutive and are intentionally forgotten. A nested table still has a forward graph form under [L-representation-6](#L-representation-6), but that graph is outside this reverse domain; the smallest witness is row 0 of table `t` with field `c = [0]` and no relation pairs.
 
 ### Definitions used
 
@@ -306,7 +306,7 @@ A well-formed graph has node-map keys equal to the stored node ids and has both 
 
 ### Proof
 
-1. The node pass checks representable node data and rejects the least nested field, establishing the flat-row condition.
+1. The node pass checks representable node data and rejects the least nested field, establishing the flat-row condition. Every edge has a source node, so refusing each edge of a reserved kind refuses exactly the nodes that source one.
 2. The edge pass rejects positions, edges absent from $S$, and incoherent endpoint anchors in edge-id order.
 3. Grouping by label and endpoints detects duplicate relation pairs. Grouping outgoing edges by node and declared foreign key detects multiple functional lifts.
 4. An ordered pass over required declarations and source rows finds the least missing lift. With no witness, the graph defines exactly one schema-relative table.
@@ -316,7 +316,7 @@ A well-formed graph has node-map keys equal to the stored node ids and has both 
 
 - Law ID: `representation.graph-to-table-decision`
 - Reference: `panproto_reference::encode::graph_to_table`
-- Evidence scope: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, plus positioned-edge, duplicate-pair, nested-cell, unknown-edge, functional-multiplicity and missing-required-lift refusals`
+- Evidence scope: `panproto_reference::enumerate::representation::graphs; exact carrier: 8 graphs, plus positioned-edge, duplicate-pair, nested-cell, unknown-edge, functional-multiplicity, missing-required-lift, reserved-kind-source, node-data and incoherent-endpoint refusals`
 - Production certificate: `graph_to_table_decision_matches_production_on_the_exact_carrier; command: cargo nextest run -p panproto-inst --test reference_representation --release --no-tests=fail -E 'test(=graph_to_table_decision_matches_production_on_the_exact_carrier)'`
 - Independent reference anchor: `a_table_shaped_graph_round_trips_through_its_table; command: cargo nextest run -p panproto-inst --test a_table_is_a_graph_without_loss --release --no-tests=fail -E 'test(=a_table_shaped_graph_round_trips_through_its_table)'`
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
@@ -325,7 +325,7 @@ A well-formed graph has node-map keys equal to the stored node ids and has both 
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None. The bounded differential compares every field of each accepted table, and for each refusal reason in the domain clause checks that the reference refuses and that production returns that `NotTableReason`.
 
 ### Audit record
 

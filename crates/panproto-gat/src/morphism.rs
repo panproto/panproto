@@ -797,9 +797,10 @@ fn check_op_rename(
 /// ⊢ t : F(S)` in the codomain, where `F` is the morphism's action on sort
 /// expressions (its sort map on heads and its whole action on argument
 /// terms, derived terms substituted). Every free variable of `t` must be
-/// one of `f`'s parameter names, and the inferred sort of `t` must equal
-/// `F(S)`. Both sorts are read in one context, `f`'s inputs, so they are
-/// compared syntactically.
+/// one of `f`'s parameter names, and the inferred sort of `t` must have the
+/// name-free form of `F(S)`. Both sorts are read under one binder list,
+/// `f`'s inputs, so the comparison is equality up to the names of the
+/// `let` and `case` binders inside their argument terms.
 fn check_op_term_assignment(
     op: &crate::op::Operation,
     term: &Term,
@@ -834,7 +835,8 @@ fn check_op_term_assignment(
         return Err(GatError::MissingSortMapping(op.output.head().to_string()));
     }
     let expected = map_sort_expr(m, &op.output, domain);
-    if !inferred.alpha_eq(&expected) {
+    let op_binders: Vec<Arc<str>> = op.inputs.iter().map(|(n, _, _)| Arc::clone(n)).collect();
+    if !sort_exprs_agree(&inferred, &op_binders, &expected, &op_binders) {
         return Err(GatError::TermAssignmentSortMismatch {
             op: op.name.to_string(),
             expected: expected.to_string(),

@@ -319,7 +319,10 @@ fn target_set_errors(schema: &Schema, errors: &mut Vec<KeyRefError>) {
             let this = member.and_then(|key| {
                 expanded_equalities(key).map(|equality| (key.parts.len(), equality))
             });
-            let base_valid = member.is_some_and(|key| key.scope == set.scope)
+            // An `Index` key promises no uniqueness and resolves no pair, so
+            // it is never a member of a key over several vertices.
+            let base_valid = member
+                .is_some_and(|key| key.scope == set.scope && key.role != KeyRole::Index)
                 && seen.insert((vertex, key_id))
                 && this.is_some();
             let agrees = signature
@@ -338,6 +341,24 @@ fn target_set_errors(schema: &Schema, errors: &mut Vec<KeyRefError>) {
             }
         }
     }
+}
+
+/// Whether a reference with no resolving key is still well formed.
+///
+/// A path reference is resolved by its provider and typed by its target
+/// vertex, a standoff reference without a target key materializes span
+/// nodes, and a key-value reference with no parts names its target by the
+/// empty key, so none of them needs a declared key. A named target key, a
+/// target set, a variable's binder and an inline identity do; a non-empty
+/// key-value source without one is checked against the empty key's arity.
+fn resolves_without_a_key(reference: &Reference, targets_set: bool) -> bool {
+    !targets_set
+        && reference.target_key.is_none()
+        && match &reference.source {
+            RefSource::KeyValue { parts } => parts.is_empty(),
+            RefSource::Path { .. } | RefSource::Standoff { .. } => true,
+            RefSource::Variable { .. } | RefSource::Inline { .. } => false,
+        }
 }
 
 fn target_members<'a>(schema: &'a Schema, reference: &'a Reference) -> Vec<(&'a Name, &'a Key)> {
@@ -437,22 +458,30 @@ fn reference_errors<'a>(
     }
 
     let targets = target_members(schema, reference);
-    if targets.is_empty() {
+    if targets.is_empty() && !resolves_without_a_key(reference, targets_set) {
         match &reference.source {
             RefSource::Variable { binder_key, .. } => {
                 errors.push(KeyRefError::UnknownTargetKey {
                     reference: reference.id.clone(),
                     key: binder_key.clone(),
                 });
+                return;
             }
+            // With no named key and no primary key, a key-value reference
+            // resolves through the empty key, so its parts are checked
+            // against arity zero below.
+            RefSource::KeyValue { .. } if !targets_set && reference.target_key.is_none() => {}
             _ if !targets_set && reference.target_key.is_some() => {
                 // The named-key error was appended above.
+                return;
             }
-            _ => errors.push(KeyRefError::UnknownTarget {
-                reference: reference.id.clone(),
-            }),
+            _ => {
+                errors.push(KeyRefError::UnknownTarget {
+                    reference: reference.id.clone(),
+                });
+                return;
+            }
         }
-        return;
     }
     for (_, key) in targets
         .iter()
