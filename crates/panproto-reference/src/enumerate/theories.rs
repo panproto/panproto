@@ -649,7 +649,7 @@ pub fn recipes(left: &Theory, right: &Theory) -> Vec<CompositionSpec> {
     // A second inline theory named `I`, declaring `B`: a recipe carrying both
     // is refused whichever one a lookup would pick.
     let mut shadow = interface.clone();
-    shadow.sorts[0].name = "B".to_owned();
+    "B".clone_into(&mut shadow.sorts[0].name);
     for options in option_sets() {
         for (nodes, inline) in [
             (["I", "L", "R"], vec![interface.clone()]),

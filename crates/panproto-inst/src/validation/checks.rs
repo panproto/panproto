@@ -1504,6 +1504,53 @@ fn discover_dependencies(ctx: &Context<'_>, key: &CheckKey, subject: Option<&Vie
     }
 }
 
+/// The reads of a `FanWellFormed` instance at `fan`.
+fn discover_fan(view: InstanceView<'_>, fan: &ViewRef) {
+    if !record_read(fan.clone()) {
+        return;
+    }
+    match view {
+        InstanceView::Tree(tree, _) => {
+            for record in tree
+                .fans
+                .iter()
+                .filter(|record| matches!(fan, ViewRef::Node(parent) if record.parent == *parent))
+            {
+                if !record_reads(record.children.values().copied().map(ViewRef::Node)) {
+                    break;
+                }
+            }
+        }
+        InstanceView::Graph(_) => {
+            let _ = view.out_edges(fan);
+            let _ = view.in_edges(fan);
+        }
+        InstanceView::Table(_) => {}
+    }
+}
+
+/// The reads of a `ValueConstraint` instance at `node`.
+fn discover_value(ctx: &Context<'_>, compiled: &Compiled, node: &ViewRef) {
+    let view = ctx.view;
+    if let Compiled::Value { vertex, test, .. } = compiled {
+        let _ = view.value_sites_at(&ctx.plan.schema, vertex, node);
+        if let ValueTest::LexicalSpace { tag, .. } = test {
+            // As `lexical_bound` does: the selector's target value is read
+            // only when exactly one selector edge leaves the subject; several
+            // edges are refused before any target value is read.
+            let targets: Vec<ViewRef> = view
+                .out_edges(node)
+                .into_iter()
+                .filter(|edge| edge.label == tag)
+                .map(|edge| edge.tgt)
+                .collect();
+            if let [target] = targets.as_slice() {
+                let _ = view.own_value(target);
+            }
+        }
+    }
+}
+
 /// [`discover_dependencies`] for every kind but the key, reference, cycle
 /// and external kinds.
 fn discover_local(
@@ -1530,53 +1577,14 @@ fn discover_local(
                 let _ = view.node(&record.tgt);
             }
         }
-        (CheckKind::FanWellFormed, Some(fan)) => {
-            if !record_read(fan.clone()) {
-                return;
-            }
-            match view {
-                InstanceView::Tree(tree, _) => {
-                    for record in tree.fans.iter().filter(
-                        |record| matches!(fan, ViewRef::Node(parent) if record.parent == *parent),
-                    ) {
-                        if !record_reads(record.children.values().copied().map(ViewRef::Node)) {
-                            break;
-                        }
-                    }
-                }
-                InstanceView::Graph(_) => {
-                    let _ = view.out_edges(fan);
-                    let _ = view.in_edges(fan);
-                }
-                InstanceView::Table(_) => {}
-            }
-        }
+        (CheckKind::FanWellFormed, Some(fan)) => discover_fan(view, fan),
         (
             CheckKind::RequiredEdge | CheckKind::OutDegree | CheckKind::PositionDistinct,
             Some(node),
         ) => {
             let _ = view.out_edges(node);
         }
-        (CheckKind::ValueConstraint, Some(node)) => {
-            if let Compiled::Value { vertex, test, .. } = compiled {
-                let _ = view.value_sites_at(&ctx.plan.schema, vertex, node);
-                if let ValueTest::LexicalSpace { tag, .. } = test {
-                    // As `lexical_bound` does: the selector's target value is
-                    // read only when exactly one selector edge leaves the
-                    // subject; several edges are refused before any target
-                    // value is read.
-                    let targets: Vec<ViewRef> = view
-                        .out_edges(node)
-                        .into_iter()
-                        .filter(|edge| edge.label == tag)
-                        .map(|edge| edge.tgt)
-                        .collect();
-                    if let [target] = targets.as_slice() {
-                        let _ = view.own_value(target);
-                    }
-                }
-            }
-        }
+        (CheckKind::ValueConstraint, Some(node)) => discover_value(ctx, compiled, node),
         (CheckKind::RequiredValue, Some(node)) => {
             if let Compiled::RequiredValue { vertex, parts } = compiled {
                 match parts {
@@ -2018,8 +2026,8 @@ fn value_constraint(
                     // An XSD lexeme outside its datatype's lexical space is
                     // ill-typed even where the kind's reader would take it.
                     let outside_lexical_space = match value {
-                        Value::Str(text) | Value::Token(text) => {
-                            super::xsd_lexical::in_lexical_space(datatype, text) == Some(false)
+                        Value::Str(lexeme) | Value::Token(lexeme) => {
+                            super::xsd_lexical::in_lexical_space(datatype, lexeme) == Some(false)
                         }
                         _ => false,
                     };
@@ -2731,6 +2739,7 @@ mod tests {
     use crate::fan_violation::FanViolation;
     use crate::functor::FInstance;
     use crate::ginstance::GInstance;
+    use crate::key::KeyingError;
     use crate::metadata::Node;
     use crate::validation::{FanRecord, ValidationOptions, ValidationPlan};
     use crate::view_ref::{RowId, ViewRef};
@@ -2873,7 +2882,7 @@ mod tests {
     }
 
     #[test]
-    fn key_index_cache_identity_and_bounded_overflow_are_exact() {
+    fn key_index_cache_identity_and_bounded_overflow_are_exact() -> Result<(), KeyingError> {
         let schema = Schema::default();
         let protocol = Protocol {
             syntactic_shape: InstanceShapeKind::Graph,
@@ -2900,53 +2909,26 @@ mod tests {
             ..key.clone()
         };
 
-        assert!(
-            ctx.key_index(&a, &key, true)
-                .expect("representation key is computable")
-                .is_some()
-        );
-        assert!(
-            ctx.key_index(&a, &key, true)
-                .expect("cached representation key is computable")
-                .is_some()
-        );
+        assert!(ctx.key_index(&a, &key, true)?.is_some());
+        assert!(ctx.key_index(&a, &key, true)?.is_some());
         assert_eq!(ctx.indexes.borrow().len(), 1);
-        assert!(
-            ctx.key_index(&a, &key, false)
-                .expect("unscoped representation key is computable")
-                .is_some()
-        );
-        assert!(
-            ctx.key_index(&b, &key, true)
-                .expect("second representation key is computable")
-                .is_some()
-        );
-        assert!(
-            ctx.key_index(&a, &other_key, true)
-                .expect("other representation key is computable")
-                .is_some()
-        );
+        assert!(ctx.key_index(&a, &key, false)?.is_some());
+        assert!(ctx.key_index(&b, &key, true)?.is_some());
+        assert!(ctx.key_index(&a, &other_key, true)?.is_some());
         assert_eq!(ctx.indexes.borrow().len(), 4);
 
         let bounded = Context::new(&plan, InstanceView::Graph(&graph), &external);
         let (index, trace) = traced_bounded(8, || bounded.key_index(&a, &key, true));
-        assert!(
-            index
-                .expect("bounded representation key is computable")
-                .is_some()
-        );
+        assert!(index?.is_some());
         assert!(!trace.overflowed);
         assert!(bounded.indexes.borrow().is_empty());
 
         let overflowed = Context::new(&plan, InstanceView::Graph(&graph), &external);
         let (index, trace) = traced_bounded(0, || overflowed.key_index(&a, &key, true));
-        assert!(
-            index
-                .expect("overflow precedes representation keying")
-                .is_none()
-        );
+        assert!(index?.is_none());
         assert!(trace.overflowed);
         assert!(overflowed.indexes.borrow().is_empty());
+        Ok(())
     }
 
     #[test]

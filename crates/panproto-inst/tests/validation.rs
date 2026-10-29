@@ -4166,11 +4166,11 @@ fn a_budget_cuts_a_suffix_in_check_instance_order() {
     assert_eq!((cov.passed, cov.incomplete), (10, 39));
     // A limit at least what the unlimited run spent gives the same report.
     let enough = ValidationBudget {
-        max_reads: Some(50 + 49 + 49 * 3 + 99),
+        max_reads: Some(50 + 49 + 49 * 3 + 50 + 99),
     };
     assert_eq!(plan.validate_graph(&g, &enough, &none()), full);
     let one_short = ValidationBudget {
-        max_reads: Some(50 + 49 + 49 * 3 + 98),
+        max_reads: Some(50 + 49 + 49 * 3 + 50 + 98),
     };
     let report = plan.validate_graph(&g, &one_short, &none());
     assert_eq!(report.status, CheckStatus::Incomplete);

@@ -2869,17 +2869,18 @@ pub mod theory {
                         mapped_head(m, sort)?;
                         context.push((name.clone(), translate_sort(src, m, sort)));
                     }
-                    let found = infer_term(tgt, &context, term).map_err(|refusal| match refusal
-                        .strip_prefix(UNBOUND_VARIABLE)
-                    {
-                        Some(variable) => MorphismError::TermAssignmentUnboundVar {
-                            op: operation.name.clone(),
-                            var: variable.to_owned(),
-                        },
-                        None => MorphismError::TermAssignmentIllTyped {
-                            op: operation.name.clone(),
-                            detail: refusal,
-                        },
+                    let found = infer_term(tgt, &context, term).map_err(|refusal| {
+                        let unbound = refusal.strip_prefix(UNBOUND_VARIABLE).map(str::to_owned);
+                        unbound.map_or_else(
+                            || MorphismError::TermAssignmentIllTyped {
+                                op: operation.name.clone(),
+                                detail: refusal,
+                            },
+                            |var| MorphismError::TermAssignmentUnboundVar {
+                                op: operation.name.clone(),
+                                var,
+                            },
+                        )
                     })?;
                     mapped_head(m, &operation.output)?;
                     let output = translate_sort(src, m, &operation.output);

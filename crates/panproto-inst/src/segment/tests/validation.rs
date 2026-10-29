@@ -2432,18 +2432,24 @@ fn local_law_graph() -> Result<GInstance, Box<dyn std::error::Error>> {
         Node::new(1, "value").with_value(FieldPresence::Present(Value::Str("ok".into()))),
         Node::new(2, "a").with_extra_field("bogus", Value::Int(1)),
         Node::new(3, "value").with_value(FieldPresence::Present(Value::Str("too-long".into()))),
-        Node::new(4, "value"),
+        // The value node with no value also carries an undeclared field.
+        Node::new(4, "value").with_extra_field("stray", Value::Int(1)),
         Node::new(5, "a"),
         Node::new(6, "unknown"),
         Node::new(8, "rel").with_shape(NodeShape::HyperEdge),
-        // One node for each vertex that declares no attribute, so every
-        // compiled attribute check has an instance; the first carries an
-        // undeclared field.
-        Node::new(9, "b").with_extra_field("stray", Value::Int(1)),
-        Node::new(10, "c"),
-        Node::new(11, "doc"),
-        Node::new(12, "para"),
-        Node::new(13, "word"),
+        // Two nodes for each vertex that declares no attribute, so every
+        // compiled attribute check has a passing instance and a failing one
+        // (an undeclared field).
+        Node::new(9, "b"),
+        Node::new(10, "b").with_extra_field("stray", Value::Int(1)),
+        Node::new(11, "c"),
+        Node::new(12, "c").with_extra_field("stray", Value::Int(1)),
+        Node::new(13, "doc"),
+        Node::new(14, "doc").with_extra_field("stray", Value::Int(1)),
+        Node::new(15, "para"),
+        Node::new(16, "para").with_extra_field("stray", Value::Int(1)),
+        Node::new(17, "word"),
+        Node::new(18, "word").with_extra_field("stray", Value::Int(1)),
     ] {
         graph.insert_node(node)?;
     }
@@ -2502,17 +2508,47 @@ fn local_law_table() -> Result<FInstance, Box<dyn std::error::Error>> {
         )?
         .with_rows(
             "value",
-            [(RowId(1), HashMap::new()), (RowId(4), HashMap::new())],
+            [
+                (RowId(1), HashMap::new()),
+                (RowId(4), HashMap::from([("stray".into(), Value::Int(1))])),
+            ],
         )?
         .with_rows("unknown", [(RowId(5), HashMap::new())])?
         .with_rows(
             "b",
-            [(RowId(6), HashMap::from([("stray".into(), Value::Int(1))]))],
+            [
+                (RowId(6), HashMap::new()),
+                (RowId(7), HashMap::from([("stray".into(), Value::Int(1))])),
+            ],
         )?
-        .with_rows("c", [(RowId(7), HashMap::new())])?
-        .with_rows("doc", [(RowId(8), HashMap::new())])?
-        .with_rows("para", [(RowId(9), HashMap::new())])?
-        .with_rows("word", [(RowId(10), HashMap::new())])?
+        .with_rows(
+            "c",
+            [
+                (RowId(8), HashMap::new()),
+                (RowId(9), HashMap::from([("stray".into(), Value::Int(1))])),
+            ],
+        )?
+        .with_rows(
+            "doc",
+            [
+                (RowId(10), HashMap::new()),
+                (RowId(11), HashMap::from([("stray".into(), Value::Int(1))])),
+            ],
+        )?
+        .with_rows(
+            "para",
+            [
+                (RowId(12), HashMap::new()),
+                (RowId(13), HashMap::from([("stray".into(), Value::Int(1))])),
+            ],
+        )?
+        .with_rows(
+            "word",
+            [
+                (RowId(14), HashMap::new()),
+                (RowId(15), HashMap::from([("stray".into(), Value::Int(1))])),
+            ],
+        )?
         .with_foreign_key(property, [(RowId(3), RowId(1))])?
         .with_foreign_key(unknown, [(RowId(2), RowId(4))])?)
 }
@@ -2538,21 +2574,41 @@ fn local_law_tree() -> WInstance {
             3,
             Node::new(3, "value").with_value(FieldPresence::Present(Value::Str("too-long".into()))),
         ),
-        (4, Node::new(4, "value")),
+        (
+            4,
+            Node::new(4, "value").with_extra_field("stray", Value::Int(1)),
+        ),
         (5, Node::new(5, "a")),
         (6, Node::new(6, "unknown")),
         (
             7,
             Node::new(7, "value").with_value(FieldPresence::Present(Value::Str("ok".into()))),
         ),
+        (8, Node::new(8, "b")),
         (
-            8,
-            Node::new(8, "b").with_extra_field("stray", Value::Int(1)),
+            9,
+            Node::new(9, "b").with_extra_field("stray", Value::Int(1)),
         ),
-        (9, Node::new(9, "c")),
-        (10, Node::new(10, "doc")),
-        (11, Node::new(11, "para")),
-        (12, Node::new(12, "word")),
+        (10, Node::new(10, "c")),
+        (
+            11,
+            Node::new(11, "c").with_extra_field("stray", Value::Int(1)),
+        ),
+        (12, Node::new(12, "doc")),
+        (
+            13,
+            Node::new(13, "doc").with_extra_field("stray", Value::Int(1)),
+        ),
+        (14, Node::new(14, "para")),
+        (
+            15,
+            Node::new(15, "para").with_extra_field("stray", Value::Int(1)),
+        ),
+        (16, Node::new(16, "word")),
+        (
+            17,
+            Node::new(17, "word").with_extra_field("stray", Value::Int(1)),
+        ),
     ]);
     let arcs = vec![
         (0, 1, property.clone()),
@@ -2563,10 +2619,15 @@ fn local_law_tree() -> WInstance {
         (0, 6, label("a", "value", "prop", Some("value"))),
         (0, 7, unknown),
         (0, 8, label("a", "b", "prop", Some("b"))),
-        (0, 9, label("a", "c", "prop", Some("c"))),
-        (0, 10, label("a", "doc", "prop", Some("doc"))),
-        (0, 11, label("a", "para", "prop", Some("para"))),
-        (0, 12, label("a", "word", "prop", Some("word"))),
+        (0, 9, label("a", "b", "prop", Some("b"))),
+        (0, 10, label("a", "c", "prop", Some("c"))),
+        (0, 11, label("a", "c", "prop", Some("c"))),
+        (0, 12, label("a", "doc", "prop", Some("doc"))),
+        (0, 13, label("a", "doc", "prop", Some("doc"))),
+        (0, 14, label("a", "para", "prop", Some("para"))),
+        (0, 15, label("a", "para", "prop", Some("para"))),
+        (0, 16, label("a", "word", "prop", Some("word"))),
+        (0, 17, label("a", "word", "prop", Some("word"))),
     ];
     WInstance::new(
         nodes,
@@ -2998,9 +3059,9 @@ proptest! {
             );
             (Just((tree, embedding)), arb_partition(InstanceShapeKind::Tree, free))
         }),
-        graph_corpus_partition in arb_partition(InstanceShapeKind::Graph, 16),
-        table_corpus_partition in arb_partition(InstanceShapeKind::Table, 16),
-        tree_corpus_partition in arb_partition(InstanceShapeKind::Tree, 16),
+        graph_corpus_partition in arb_partition(InstanceShapeKind::Graph, 32),
+        table_corpus_partition in arb_partition(InstanceShapeKind::Table, 32),
+        tree_corpus_partition in arb_partition(InstanceShapeKind::Tree, 32),
     ) {
         let plan = local_completeness_plan()
             .map_err(|error| TestCaseError::fail(error.to_string()))?;

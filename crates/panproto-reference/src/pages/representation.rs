@@ -841,10 +841,11 @@ pub mod encode {
             && t.rows.get(d).is_some_and(|(table, _)| *table == e.tgt)
     }
 
-    /// Definition: on a [`table_coherent`] input, row r is node r anchored at its
-    /// table with its cells as fields; pair (e, s, t) is an edge s -> t labelled
-    /// e with no position, edge ids from 0 in ascending `(e, s, t)`. Returns the
-    /// pair ids as the embedding. The id `u32::MAX` is reserved and is never
+    /// Definition: The graph presentation of a [`table_coherent`] input.
+    ///
+    /// Row r is node r anchored at its table with its cells as fields; pair
+    /// (e, s, t) is an edge s -> t labelled e with no position, edge ids from
+    /// 0 in ascending `(e, s, t)`. Returns the pair ids as the embedding. The id `u32::MAX` is reserved and is never
     /// allocated.
     ///
     /// # Errors
@@ -996,7 +997,8 @@ pub mod encode {
         }
 
         #[test]
-        fn tree_at_the_saturated_node_floor_only_refuses_required_allocation() {
+        fn tree_at_the_saturated_node_floor_only_refuses_required_allocation()
+        -> Result<(), TreeEncodeError> {
             let node = Node::new(u32::MAX, "a");
             let tree = Tree {
                 nodes: BTreeMap::from([(u32::MAX, node)]),
@@ -1005,8 +1007,8 @@ pub mod encode {
                 root: u32::MAX,
             };
 
-            let (graph, embedding) =
-                tree_to_graph(&tree, None).expect("fan-free tree needs no allocation");
+            // A fan-free tree needs no allocation.
+            let (graph, embedding) = tree_to_graph(&tree, None)?;
             assert_eq!(graph.nodes, tree.nodes);
             assert_eq!(embedding.next_node, u32::MAX);
 
@@ -1022,6 +1024,7 @@ pub mod encode {
                 tree_to_graph(&with_fan, None),
                 Err(TreeEncodeError::NodeIdsExhausted)
             );
+            Ok(())
         }
     }
 }

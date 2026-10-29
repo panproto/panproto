@@ -773,7 +773,7 @@ impl FInstance {
 
     /// The targets of the pairs of `edge` whose source is `src`, ascending,
     /// read in time logarithmic in the edge's pairs.
-    #[must_use]
+    #[must_use = "the iterator reads nothing unless it is consumed"]
     pub fn targets_of(
         &self,
         edge: &Edge,
@@ -787,7 +787,7 @@ impl FInstance {
 
     /// The sources of the pairs of `edge` whose target is `tgt`, ascending,
     /// read in time logarithmic in the edge's pairs.
-    #[must_use]
+    #[must_use = "the iterator reads nothing unless it is consumed"]
     pub fn sources_of(
         &self,
         edge: &Edge,

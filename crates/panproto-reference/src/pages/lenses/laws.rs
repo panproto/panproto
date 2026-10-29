@@ -2197,8 +2197,8 @@ impl<'a> LawShape<GraphLens<'a>> for GraphShape {
         edited_view: &Graph,
         producing_complement: &Complement,
     ) -> Complement {
-        let observed_index = GraphShape::synth_index(observed_view, complement);
-        let edited_index = GraphShape::synth_index(edited_view, producing_complement);
+        let observed_index = Self::synth_index(observed_view, complement);
+        let edited_index = Self::synth_index(edited_view, producing_complement);
         let Some(nodes) = synthesized_alignment(&observed_index.nodes, &edited_index.nodes) else {
             return complement.clone();
         };

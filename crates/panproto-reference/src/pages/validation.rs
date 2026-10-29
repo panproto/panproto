@@ -48,9 +48,11 @@ pub mod implementation {
     }
 
     /// Definition: Membership of `text` in the lexical space of the XSD
-    /// datatype `datatype` (XSD 1.1 Part 2), for `integer`, `decimal`,
-    /// `double`, `float`, `boolean`, `date`, `dateTime`, `time` and `gYear`;
-    /// `None` for any other datatype. Each space is its regular production,
+    /// datatype `datatype` (XSD 1.1 Part 2).
+    ///
+    /// It is defined for `integer`, `decimal`, `double`, `float`, `boolean`,
+    /// `date`, `dateTime`, `time` and `gYear`, and is `None` for any other
+    /// datatype. Each space is its regular production,
     /// matched by this crate's backtracking pattern engine, with the
     /// constraints the productions state in prose: the day of the month
     /// exists in its month and year, and a time is below 24:00:00 or is
@@ -61,7 +63,8 @@ pub mod implementation {
     #[must_use]
     pub fn lexical_space(text: &str, datatype: &str) -> Option<bool> {
         const YEAR: &str = "-?(?:[1-9][0-9]{3,}|0[0-9]{3})";
-        const TIME: &str = "(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?|24:00:00(?:\\.0+)?";
+        const TIME: &str =
+            "(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?|24:00:00(?:\\.0+)?";
         const ZONE: &str = "(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))?";
         const DECIMAL: &str = "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)";
         let local = datatype.strip_prefix("http://www.w3.org/2001/XMLSchema#")?;
@@ -78,8 +81,8 @@ pub mod implementation {
             "gYear" => format!("^{YEAR}{ZONE}$"),
             _ => return None,
         };
-        let matched = crate::pattern::compile(&pattern)
-            .is_ok_and(|compiled| compiled.is_match(text));
+        let matched =
+            crate::pattern::compile(&pattern).is_ok_and(|compiled| compiled.is_match(text));
         if !matched {
             return Some(false);
         }
@@ -92,7 +95,8 @@ pub mod implementation {
             let month: u32 = fields.next()?.parse().ok()?;
             let day: u32 = fields.next()?.get(..2)?.parse().ok()?;
             let year = if negative { -year } else { year };
-            let leap = year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
+            let leap =
+                year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0);
             let last = match month {
                 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
                 4 | 6 | 9 | 11 => 30,
@@ -5573,7 +5577,9 @@ pub mod implementation {
     }
 
     /// Definition: The exact footprint of the transition from `baseline` to
-    /// `target`, two complete schedules of one plan: `created` and `retired`
+    /// `target`, two complete schedules of one plan.
+    ///
+    /// `created` and `retired`
     /// are the two set differences of their check instances, and `changed`
     /// holds every persistent instance whose ordered outcome or exact read
     /// set differs. A transition is sound when its rerun set contains
@@ -5585,8 +5591,11 @@ pub mod implementation {
         baseline: &TrustedSchedule,
         target: &TrustedSchedule,
     ) -> IncrementalFootprint {
-        let before: BTreeMap<&CheckInstance, &CheckRun> =
-            baseline.runs.iter().map(|run| (&run.instance, run)).collect();
+        let before: BTreeMap<&CheckInstance, &CheckRun> = baseline
+            .runs
+            .iter()
+            .map(|run| (&run.instance, run))
+            .collect();
         let after: BTreeMap<&CheckInstance, &CheckRun> =
             target.runs.iter().map(|run| (&run.instance, run)).collect();
         let mut footprint = IncrementalFootprint::default();
@@ -5610,10 +5619,11 @@ pub mod implementation {
         footprint
     }
 
-    /// Definition: The read set a transition that reruns `rerun` must
-    /// report: baseline and target reads of every rerun instance, target
-    /// reads of every created instance and baseline reads of every retired
-    /// instance.
+    /// Definition: The read set a transition that reruns `rerun` must report.
+    ///
+    /// It holds the baseline and target reads of every rerun instance, the
+    /// target reads of every created instance and the baseline reads of every
+    /// retired instance.
     ///
     /// Book anchors: `L-validation-3`.
     #[must_use]
@@ -5638,7 +5648,9 @@ pub mod implementation {
     }
 
     /// Definition: The report an unlimited transition from `baseline` to
-    /// `target` builds when it reruns `rerun`: every created or rerun
+    /// `target` builds when it reruns `rerun`.
+    ///
+    /// Every created or rerun
     /// instance takes its target outcome, every other persistent instance
     /// carries its baseline outcome, and retired instances are dropped.
     /// When `rerun` contains the footprint's `changed` set, this report is
@@ -5652,8 +5664,11 @@ pub mod implementation {
         target: &TrustedSchedule,
         rerun: &BTreeSet<CheckInstance>,
     ) -> Report {
-        let before: BTreeMap<&CheckInstance, &CheckRun> =
-            baseline.runs.iter().map(|run| (&run.instance, run)).collect();
+        let before: BTreeMap<&CheckInstance, &CheckRun> = baseline
+            .runs
+            .iter()
+            .map(|run| (&run.instance, run))
+            .collect();
         let mut diagnostics = Vec::new();
         let mut incomplete = Vec::new();
         for run in &target.runs {
@@ -5744,10 +5759,11 @@ pub mod implementation {
         crate::schema::validate_declarations(schema)
     }
 
-    /// The value kind a width format names, or `None` for any other format:
-    /// `int8`, `int16`, `int`/`int32` and `long`/`int64` the signed integers
-    /// of that width, `float` and `double` the binary floats of 32 and 64
-    /// bits.
+    /// The value kind a width format names, or `None` for any other format.
+    ///
+    /// `int8`, `int16`, `int`/`int32` and `long`/`int64` name the signed
+    /// integers of that width, and `float` and `double` the binary floats of
+    /// 32 and 64 bits.
     #[must_use]
     pub fn width_format_kind(format: &str) -> Option<crate::coerce::ScalarKind> {
         use crate::coerce::ScalarKind as K;
@@ -5780,16 +5796,17 @@ pub mod implementation {
     pub fn uuid_text(text: &str) -> bool {
         let groups: Vec<&str> = text.split('-').collect();
         groups.len() == 5
-            && groups
-                .iter()
-                .zip([8, 4, 4, 4, 12])
-                .all(|(group, len)| group.len() == len && group.chars().all(|c| c.is_ascii_hexdigit()))
+            && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, len)| {
+                group.len() == len && group.chars().all(|c| c.is_ascii_hexdigit())
+            })
     }
 
     /// Definition: Without the format-assertion vocabulary, the value a parse
-    /// gives the lexeme `text` of class `class` at a position whose kind is
-    /// `kind` and whose annotated format is `format`: the coercion under the
-    /// kind alone. An annotated format never enters coercion, so the parse
+    /// gives a lexeme at a position with an annotated format.
+    ///
+    /// For the lexeme `text` of class `class` at a position whose kind is
+    /// `kind` and whose annotated format is `format`, it is the coercion under
+    /// the kind alone. An annotated format never enters coercion, so the parse
     /// with the format is the parse with it removed.
     ///
     /// Book anchors: `L-validation-18`.
@@ -5803,8 +5820,9 @@ pub mod implementation {
         crate::coerce::coerce(text, class, &crate::coerce::ValueSpec::of(kind))
     }
 
-    /// Definition: Whether an annotated (advisory) format reports `value`:
-    /// for a width format, exactly when the value does not coerce under the
+    /// Definition: Whether an annotated (advisory) format reports `value`.
+    ///
+    /// For a width format, exactly when the value does not coerce under the
     /// format's kind; for `uuid`, exactly when the value is text not in the
     /// UUID form (a value of another kind is outside a named format's
     /// domain); `None` for any other format, which compiles to no check.
@@ -5828,8 +5846,10 @@ pub mod implementation {
     }
 
     /// Definition: With the format-assertion vocabulary, whether a parse
-    /// accepts the lexeme `text` of class `class` at a position of kind
-    /// `kind` asserting the integer width format `format`: exactly when the
+    /// accepts a lexeme at a position asserting an integer width format.
+    ///
+    /// A parse accepts the lexeme `text` of class `class` at a position of
+    /// kind `kind` asserting the integer width format `format` exactly when the
     /// lexeme coerces under the kind with the format's width as its integer
     /// width parameter. `None` for a format that names no integer width.
     ///
@@ -5848,22 +5868,24 @@ pub mod implementation {
             int_bits: Some(bits),
             ..crate::coerce::ValueSpec::of(kind)
         };
-        Some(matches!(crate::coerce::coerce(text, class, &spec), Some(Ok(_))))
+        Some(matches!(
+            crate::coerce::coerce(text, class, &spec),
+            Some(Ok(_))
+        ))
     }
 }
 
 pub use self::implementation::{
     BaselineBudgetEvidence, BudgetEvaluation, CheckClass, CheckCoverage, CheckInstance, CheckKey,
     CheckKind, CheckRun, CheckStatus, Diagnostic, IncompleteCheck, IncompleteReason,
-    IncrementalFootprint, InstanceShape,
-    NativeRef, PriorAdmissionPolicy, Report, Requirement, RunBundleError, SchemaRef,
-    SelectorClassification, Semantics, ShapeRefusal, TrustedSchedule, ValidationBoundarySide,
-    ValidationBudget, ValidationContext, ValidationInput, ValidationOutcome, ValidationTrust,
-    ValidationWitness, Violation, WitnessError, admits, annotated_format_advisory,
-    annotated_format_parse, classify_selector, evaluate_runs, footprint_reads,
-    format_assertion_acceptance, incremental_footprint, incremental_report, index_and_null_match,
-    key_equality, key_forms, lexical_space, restriction_boundary, status,
-    trusted_schedule, uuid_text, validate, validate_graph, validate_graph_with_context, validate_table,
-    validate_table_with_context, validate_tree, validate_tree_with_context, value_sites,
-    variable_binding, width_format_kind, witness, witness_with_trust,
+    IncrementalFootprint, InstanceShape, NativeRef, PriorAdmissionPolicy, Report, Requirement,
+    RunBundleError, SchemaRef, SelectorClassification, Semantics, ShapeRefusal, TrustedSchedule,
+    ValidationBoundarySide, ValidationBudget, ValidationContext, ValidationInput,
+    ValidationOutcome, ValidationTrust, ValidationWitness, Violation, WitnessError, admits,
+    annotated_format_advisory, annotated_format_parse, classify_selector, evaluate_runs,
+    footprint_reads, format_assertion_acceptance, incremental_footprint, incremental_report,
+    index_and_null_match, key_equality, key_forms, lexical_space, restriction_boundary, status,
+    trusted_schedule, uuid_text, validate, validate_graph, validate_graph_with_context,
+    validate_table, validate_table_with_context, validate_tree, validate_tree_with_context,
+    value_sites, variable_binding, width_format_kind, witness, witness_with_trust,
 };

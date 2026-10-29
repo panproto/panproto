@@ -2973,7 +2973,9 @@ pub mod implementation {
     }
 
     /// Definition: The first form of `reference` outside the domain of the
-    /// phase-three laws, in a fixed order: an inline source, a target-set
+    /// phase-three laws.
+    ///
+    /// The forms are tried in a fixed order: an inline source, a target-set
     /// target, a null vertex, a scope reached through references, standoff
     /// fragments, then a span-relative, referenced, or URI-named standoff
     /// text. `None` when the declaration uses none of them. Reference `get`
@@ -3116,8 +3118,10 @@ pub mod implementation {
     }
 
     /// Definition: Decode one written standoff form over `text` in `unit` to
-    /// a half-open byte span: [`standoff_form`] gives the declared offsets,
-    /// and each converts to the byte offset it names (O9 (20) (a)). `None`
+    /// a half-open byte span.
+    ///
+    /// [`standoff_form`] gives the declared offsets, and each converts to the
+    /// byte offset it names (O9 (20) (a)). `None`
     /// when the form is refused or an offset lies past the text or inside a
     /// unit.
     ///
@@ -3138,8 +3142,10 @@ pub mod implementation {
     }
 
     /// Definition: Encode a half-open byte span over `text` in the written
-    /// form of `unit`, `origin` and end form: each byte offset converts to
-    /// the unit offset naming it, then [`standoff_inverse`] writes the form.
+    /// form of `unit`, `origin` and end form.
+    ///
+    /// Each byte offset converts to the unit offset naming it, then
+    /// [`standoff_inverse`] writes the form.
     ///
     /// Book anchors: `L-resolution-11`.
     #[must_use]
@@ -3360,7 +3366,9 @@ pub mod implementation {
     }
 
     /// Definition: Fold the positional directives that precede an occurrence,
-    /// in document order, starting from no base and no bindings. A base
+    /// in document order, starting from no base and no bindings.
+    ///
+    /// A base
     /// directive sets the base to its IRI resolved against the previous base
     /// (no base when that is undefined); a prefix directive binds its label to
     /// its IRI resolved against the base then in scope, re-mapping an earlier
@@ -3392,7 +3400,9 @@ pub mod implementation {
 
     /// Definition: Resolve against the base inherited along an
     /// ancestor-or-self chain (XML Base section 4.2 with RFC 3986 section
-    /// 5.2). `ancestor_bases` lists the chain root first, holder last; the
+    /// 5.2).
+    ///
+    /// `ancestor_bases` lists the chain root first, holder last; the
     /// base is the left fold of its present values, each resolved against
     /// the base so far, starting from no base, a relative value met with no
     /// base giving no base. The reference is then resolved against that base.

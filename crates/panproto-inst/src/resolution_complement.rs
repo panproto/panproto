@@ -565,7 +565,7 @@ mod tests {
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
             guard: None,
-            null_match: Default::default(),
+            null_match: panproto_schema::NullMatch::default(),
             null_vertex: None,
             scope_via: None,
         }
@@ -963,7 +963,7 @@ mod tests {
             end: Vec::new(),
             unit: OffsetUnit::Byte,
             end_inclusive: false,
-            end_form: Default::default(),
+            end_form: panproto_schema::SpanEnd::default(),
             origin: 0,
             fragments: None,
         };
@@ -1095,7 +1095,7 @@ mod tests {
             sources.push(RefSource::Variable {
                 field: field.clone(),
                 binder_key: "k".into(),
-                binding: Default::default(),
+                binding: panproto_schema::VariableBinding::default(),
             });
             for text in [
                 RefTextSource::Local(field.clone()),
@@ -1107,7 +1107,7 @@ mod tests {
                     end: Vec::new(),
                     unit: OffsetUnit::Byte,
                     end_inclusive: false,
-                    end_form: Default::default(),
+                    end_form: panproto_schema::SpanEnd::default(),
                     origin: 0,
                     fragments: None,
                 });
@@ -1118,7 +1118,7 @@ mod tests {
                 end: Vec::new(),
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
-                end_form: Default::default(),
+                end_form: panproto_schema::SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             });
@@ -1128,7 +1128,7 @@ mod tests {
                 end: field.clone(),
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
-                end_form: Default::default(),
+                end_form: panproto_schema::SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             });

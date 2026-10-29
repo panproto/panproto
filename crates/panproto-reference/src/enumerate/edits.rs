@@ -195,7 +195,11 @@ impl C8Schema {
 /// `{a, b}`, with each set of at most two edges between them.
 #[must_use]
 pub fn c8_schemas() -> Vec<C8Schema> {
-    let names: Vec<String> = C8.vertex_names.iter().map(|name| (*name).to_owned()).collect();
+    let names: Vec<String> = C8
+        .vertex_names
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
     let mut out = Vec::new();
     for vertices in super::subsets(&names, usize::from(C8.schema_vertices)) {
         let candidates: Vec<SEdge> = vertices
@@ -220,7 +224,10 @@ pub fn c8_schemas() -> Vec<C8Schema> {
 /// The value alphabet as values: absent, `0` and `1`.
 #[must_use]
 pub fn c8_values() -> Vec<Option<Value>> {
-    C8.values.iter().map(|value| value.map(Value::Int)).collect()
+    C8.values
+        .iter()
+        .map(|value| value.map(Value::Int))
+        .collect()
 }
 
 fn c8_fresh(ids: impl Iterator<Item = u32>) -> u32 {
@@ -406,7 +413,10 @@ pub fn c8_graph_letters(schema: &C8Schema, graph: &Graph, floors: C8Floors) -> V
                 let mut delta = GraphDelta::identity();
                 delta.attrs.insert(
                     AttrKey::Value(*id),
-                    (AttrVal::Presence(node.value.clone()), AttrVal::Presence(new)),
+                    (
+                        AttrVal::Presence(node.value.clone()),
+                        AttrVal::Presence(new),
+                    ),
                 );
                 out.push(delta);
             }
@@ -491,7 +501,13 @@ pub fn c8_graph_words(
         letters: &[],
         outcome: &start,
     });
-    c8_walk_graph(schema, graph, C8Floors::of_graph(graph), &mut Vec::new(), visit);
+    c8_walk_graph(
+        schema,
+        graph,
+        C8Floors::of_graph(graph),
+        &mut Vec::new(),
+        visit,
+    );
 }
 
 /// Every initial table over `schema`.
@@ -670,7 +686,13 @@ pub fn c8_table_words(
         letters: &[],
         outcome: &start,
     });
-    c8_walk_table(schema, table, C8Floors::of_table(table), &mut Vec::new(), visit);
+    c8_walk_table(
+        schema,
+        table,
+        C8Floors::of_table(table),
+        &mut Vec::new(),
+        visit,
+    );
 }
 
 /// Every initial tree over `schema`.

@@ -1722,24 +1722,25 @@ pub mod edit {
         for step in edit.steps() {
             apply_tree_step(step, &mut current, &mut followed)?;
             let stepped = graph_of(&current, &followed);
-            net = match (net, &graph, &stepped) {
-                (Some(prefix), Some(before), Some(after)) => {
-                    // Each step delta applies to the state the steps before
-                    // it reach, so the composite of applicable deltas is
-                    // defined at every element (E.1 case table): a deletion
-                    // or replacement reads the payload its predecessor
-                    // wrote, an addition takes an id absent there, and an
-                    // attribute change reads the value written before it.
-                    // A mismatch would mean the graph forms do not chain,
-                    // and is reported as a typed refusal, never a panic.
-                    Some(prefix.compose(&tree_step_delta(before, after)).map_err(
-                        |mismatch| TreeApplyError::NotTreeEdit {
-                            reason: format!("step deltas do not compose at {mismatch:?}"),
-                        },
-                    )?)
-                }
-                _ => None,
-            };
+            net =
+                match (net, &graph, &stepped) {
+                    (Some(prefix), Some(before), Some(after)) => {
+                        // Each step delta applies to the state the steps before
+                        // it reach, so the composite of applicable deltas is
+                        // defined at every element (E.1 case table): a deletion
+                        // or replacement reads the payload its predecessor
+                        // wrote, an addition takes an id absent there, and an
+                        // attribute change reads the value written before it.
+                        // A mismatch would mean the graph forms do not chain,
+                        // and is reported as a typed refusal, never a panic.
+                        Some(prefix.compose(&tree_step_delta(before, after)).map_err(
+                            |mismatch| TreeApplyError::NotTreeEdit {
+                                reason: format!("step deltas do not compose at {mismatch:?}"),
+                            },
+                        )?)
+                    }
+                    _ => None,
+                };
             graph = stepped;
         }
         *embedding = reached;

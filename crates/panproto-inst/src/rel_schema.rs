@@ -726,7 +726,7 @@ mod tests {
                 on_unresolved: OnUnresolved::Error,
                 mode: ResolveMode::AddEdge,
                 guard: None,
-                null_match: Default::default(),
+                null_match: panproto_schema::NullMatch::default(),
                 null_vertex: None,
                 scope_via: None,
             },

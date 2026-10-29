@@ -115,14 +115,15 @@ pub fn uri_directive_sequences() -> Vec<Vec<UriDirective>> {
 /// One occurrence of each written form that follows a directive sequence:
 /// an absolute IRI reference, a relative one, a prefixed name and `a`.
 #[must_use]
-pub fn uri_written_forms() -> [&'static str; 4] {
+pub const fn uri_written_forms() -> [&'static str; 4] {
     ["http://e/f", "g", "p:q", "a"]
 }
 
-/// Every ancestor-or-self chain of at most three elements, each holding no
-/// `xml:base` or one of `http://a/b/`, `c/` and `../d/`, root first:
-/// `4 + 16 + 64 = 84` chains. Every element of a tree of at most three
-/// elements, siblings included, has one of these chains.
+/// Every ancestor-or-self chain of at most three elements, root first.
+///
+/// Each element holds no `xml:base` or one of `http://a/b/`, `c/` and
+/// `../d/`, which gives `4 + 16 + 64 = 84` chains. Every element of a tree
+/// of at most three elements, siblings included, has one of these chains.
 #[must_use]
 pub fn inherited_base_chains() -> Vec<Vec<Option<String>>> {
     let values = [

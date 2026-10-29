@@ -38,7 +38,7 @@
 //! | Restrict (Delta, then contraction, then fans) | [`restrict::get`] | `restrict-and-contraction.md` |
 //! | Restrict reachability by explicit walks | [`restrict::realized_pairs_by_walks`] | `restrict-and-contraction.md` |
 //! | Relational-column and ordered-child restriction observables | [`restrict::column_fates`], [`restrict::scalar_child_bindings`] | `restrict-and-contraction.md` |
-//! | Tree restriction domain and law basis | [`lens::TreeShape::check_put_domain`], [`lens::TreeShape::single_step_basis`], [`lens::check_tree_laws`] | `restrict-and-contraction.md` |
+//! | Tree restriction domain and law basis | [`lens::TreeShape::check_put_domain`](lens::LawShape::check_put_domain), [`lens::TreeShape::single_step_basis`](lens::LawShape::single_step_basis), [`lens::check_tree_laws`] | `restrict-and-contraction.md` |
 //! | Tree-edit restriction translation | [`pages::restrict_and_contraction::tree_edit_lens::lower`], [`pages::restrict_and_contraction::tree_edit_lens::Lens::get_edit`], [`pages::restrict_and_contraction::tree_edit_lens::Lens::put_edit`], [`pages::restrict_and_contraction::tree_edit_lens::Delta::compose`], [`pages::restrict_and_contraction::tree_edit_lens::Delta::invert`], [`pages::restrict_and_contraction::tree_edit_lens::Delta::apply`], [`pages::restrict_and_contraction::tree_edit_lens::is_minimal`] | `restrict-and-contraction.md` |
 //! | The fan domain | [`fan::violations_at`] | `representation.md` |
 //! | Get and put of the graph lens | [`restrict::get`], [`lens::GraphLens::put`] | `lenses.md` |
@@ -47,7 +47,7 @@
 //! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`] | `lenses.md` |
 //! | The table plan and cell writers | [`table::compile_for_tables`], [`table::TablePlan::writer`] | `lenses.md` |
 //! | Get and put of the tree lens | [`lens::tree_get`], [`lens::tree_put`] | `lenses.md` |
-//! | Shape-specific path folds | [`lens::TreeShape::get`], [`lens::TreeShape::put`], [`lens::TableShape::get`], [`lens::TableShape::put`] | `lenses.md` |
+//! | Shape-specific path folds | [`lens::TreeShape::get`](lens::LawShape::get), [`lens::TreeShape::put`](lens::LawShape::put), [`lens::TableShape::get`](lens::LawShape::get), [`lens::TableShape::put`](lens::LawShape::put) | `lenses.md` |
 //! | Get and put of the resolution lens | [`resolution::get`], [`resolution::put`], [`resolution::deferred_form`] | `resolution.md` |
 //! | Lens-path composition (the free category; no fusion) | [`path::LensPath::then`], [`path::get_path`], [`path::put_path`] | `lenses.md` |
 //! | The edit algebra: invert, compose, independence and merge | [`edit::Delta::invert`], [`edit::Delta::compose`], [`edit::invert_table`], [`edit::compose_table`], [`edit::independence`], [`edit::merge`] | `edits.md` |

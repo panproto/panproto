@@ -89,6 +89,29 @@ pub enum FusionCondition {
     ContextCompiles,
 }
 
+/// Whether one table-fusion premise holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Premise {
+    /// The premise holds.
+    Holds,
+    /// The premise fails.
+    Fails,
+}
+
+impl Premise {
+    /// Whether the premise fails.
+    #[must_use]
+    pub const fn fails(self) -> bool {
+        matches!(self, Self::Fails)
+    }
+}
+
+impl From<bool> for Premise {
+    fn from(holds: bool) -> Self {
+        if holds { Self::Holds } else { Self::Fails }
+    }
+}
+
 /// Independently observed premises of production table fusion.
 ///
 /// The fields are facts about the two atomic stages and an explicit proposed
@@ -99,21 +122,21 @@ pub enum FusionCondition {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TableFusionPremises {
     /// The first stage has no field transform or operation assignment.
-    pub first_stage_structurally_pure: bool,
+    pub first_stage_structurally_pure: Premise,
     /// The first, second and proposed composite table plans compile.
-    pub plans_compile: bool,
+    pub plans_compile: Premise,
     /// The first table plan is a bijection with unit complement.
-    pub first_is_unit_bijection: bool,
+    pub first_is_unit_bijection: Premise,
     /// The first target and second source relational boundaries are equal.
-    pub middle_boundaries_equal: bool,
+    pub middle_boundaries_equal: Premise,
     /// The second source has no finite-table required-value obligation.
-    pub second_source_validation_free: bool,
+    pub second_source_validation_free: Premise,
     /// A second-stage value layer sees identical placeholder contexts.
-    pub typed_placeholders_agree: bool,
+    pub typed_placeholders_agree: Premise,
     /// The two atomic relational functors compose to the candidate functor.
-    pub functors_compose: bool,
+    pub functors_compose: Premise,
     /// The second-stage column map is injective within each source table.
-    pub second_columns_injective: bool,
+    pub second_columns_injective: Premise,
 }
 
 /// The first failed table-fusion premise, in production evaluation order.
@@ -144,25 +167,29 @@ pub enum TableFusionObstruction {
 /// separate premise, so a fixture may use this classifier to audit a
 /// redundant downstream guard without calling that guard an isolated
 /// normalization refusal.
-#[must_use]
+///
+/// # Errors
+///
+/// The first premise that fails, as its [`TableFusionObstruction`], in that
+/// order.
 pub const fn classify_table_fusion(
     premises: TableFusionPremises,
 ) -> Result<(), TableFusionObstruction> {
-    if !premises.first_stage_structurally_pure {
+    if premises.first_stage_structurally_pure.fails() {
         Err(TableFusionObstruction::FirstStageWritesFields)
-    } else if !premises.plans_compile {
+    } else if premises.plans_compile.fails() {
         Err(TableFusionObstruction::PlanCompilation)
-    } else if !premises.first_is_unit_bijection {
+    } else if premises.first_is_unit_bijection.fails() {
         Err(TableFusionObstruction::FirstStageNotUnitBijection)
-    } else if !premises.middle_boundaries_equal {
+    } else if premises.middle_boundaries_equal.fails() {
         Err(TableFusionObstruction::MiddleBoundaryMismatch)
-    } else if !premises.second_source_validation_free {
+    } else if premises.second_source_validation_free.fails() {
         Err(TableFusionObstruction::RequiredValueValidation)
-    } else if !premises.typed_placeholders_agree {
+    } else if premises.typed_placeholders_agree.fails() {
         Err(TableFusionObstruction::TypedPlaceholderMismatch)
-    } else if !premises.functors_compose {
+    } else if premises.functors_compose.fails() {
         Err(TableFusionObstruction::FunctorComposition)
-    } else if !premises.second_columns_injective {
+    } else if premises.second_columns_injective.fails() {
         Err(TableFusionObstruction::ColumnCollision)
     } else {
         Ok(())
@@ -947,10 +974,11 @@ impl<L: Clone> LensPath<L> {
     }
 }
 
-/// Definition: Whether a graph source is declared by a schema: every node
-/// has a declared anchor and is not a reified fan node, and every edge
-/// carries a declared label whose endpoints are the anchors of the nodes it
-/// joins.
+/// Definition: Whether a graph source is declared by a schema.
+///
+/// A source is declared when every node has a declared anchor and is not a
+/// reified fan node, and every edge carries a declared label whose endpoints
+/// are the anchors of the nodes it joins.
 ///
 /// A fused group of a graph path runs as one lens exactly on declared
 /// sources and as its atomic stages in sequence otherwise. On a declared

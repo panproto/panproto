@@ -7582,7 +7582,7 @@ fn reference_table_fusion_premises(
         .is_some_and(|plan| reference_columns_are_injective(plan.functor()));
 
     panproto_reference::path::TableFusionPremises {
-        first_stage_structurally_pure: first
+        first_stage_structurally_pure: (first
             .compiled
             .field_transforms
             .values()
@@ -7591,14 +7591,15 @@ fn reference_table_fusion_premises(
                 .compiled
                 .op_term_assignments
                 .values()
-                .all(|assignments| assignments.is_empty()),
-        plans_compile,
-        first_is_unit_bijection,
-        middle_boundaries_equal,
-        second_source_validation_free,
-        typed_placeholders_agree,
-        functors_compose,
-        second_columns_injective,
+                .all(|assignments| assignments.is_empty()))
+        .into(),
+        plans_compile: plans_compile.into(),
+        first_is_unit_bijection: first_is_unit_bijection.into(),
+        middle_boundaries_equal: middle_boundaries_equal.into(),
+        second_source_validation_free: second_source_validation_free.into(),
+        typed_placeholders_agree: typed_placeholders_agree.into(),
+        functors_compose: functors_compose.into(),
+        second_columns_injective: second_columns_injective.into(),
     }
 }
 
