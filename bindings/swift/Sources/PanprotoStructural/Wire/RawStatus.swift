@@ -25,6 +25,9 @@ public enum RawStatus: Sendable, Hashable {
     case engineInternal
     /// A domain operation (migration, lens, VCS, parse, ...) failed.
     case operation
+    /// A lens path has more than one normal-form group where the entry
+    /// point returns one concrete lens.
+    case notSingleStage
     /// A status code this binding does not recognize.
     case unknown(Int32)
 
@@ -39,6 +42,7 @@ public enum RawStatus: Sendable, Hashable {
         case 5: self = .serialization
         case 6: self = .engineInternal
         case 7: self = .operation
+        case 8: self = .notSingleStage
         default: self = .unknown(code)
         }
     }
@@ -54,6 +58,7 @@ public enum RawStatus: Sendable, Hashable {
         case .serialization: 5
         case .engineInternal: 6
         case .operation: 7
+        case .notSingleStage: 8
         case .unknown(let code): code
         }
     }
@@ -73,6 +78,7 @@ public enum RawStatus: Sendable, Hashable {
         case .serialization: "serialization"
         case .engineInternal: "internal"
         case .operation: "operation"
+        case .notSingleStage: "not_single_stage"
         }
     }
 }

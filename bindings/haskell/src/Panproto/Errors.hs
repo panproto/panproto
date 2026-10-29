@@ -75,6 +75,10 @@ data PpStatus
     -- code @7@, @PpStatus::Operation@). This is distinct from an invalid
     -- handle, a type mismatch, or a serialization failure: the call
     -- reached the engine and the engine reported a domain-level failure.
+    | StatusNotSingleStage
+    -- ^ A lens path has more than one normal-form group where the entry
+    -- point returns one concrete lens (wire code @8@,
+    -- @PpStatus::NotSingleStage@).
     | StatusUnknown !Int
     -- ^ Forward-compatibility: an unrecognized code from a newer
     -- @panproto-c@. Treated as a hard error by callers but preserves
@@ -93,6 +97,7 @@ statusFromInt = \case
     5 -> StatusSerialization
     6 -> StatusInternal
     7 -> StatusOperation
+    8 -> StatusNotSingleStage
     n -> StatusUnknown n
 
 -- | Convert a 'PpStatus' to its @i32@ wire form.
@@ -106,6 +111,7 @@ statusToInt = \case
     StatusSerialization -> 5
     StatusInternal -> 6
     StatusOperation -> 7
+    StatusNotSingleStage -> 8
     StatusUnknown n -> n
 
 -- | Decoded form of @panproto_c::error::ErrorEnvelope@.
