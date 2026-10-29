@@ -4004,23 +4004,6 @@ pub mod implementation {
     }
 
     impl TrustedSchedule {
-        /// The schedule restricted to the instances `keep` selects, in the
-        /// same order: the schedule of a plan that compiles only those
-        /// checks.
-        #[must_use]
-        pub fn restricted(&self, keep: impl Fn(&CheckInstance) -> bool) -> Self {
-            Self {
-                shape: self.shape,
-                runs: self
-                    .runs
-                    .iter()
-                    .filter(|run| keep(&run.instance))
-                    .cloned()
-                    .collect(),
-                plan_error: self.plan_error.clone(),
-            }
-        }
-
         /// Complete ordered check identities.
         #[must_use]
         pub fn instances(&self) -> Vec<CheckInstance> {

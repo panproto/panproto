@@ -1250,24 +1250,8 @@ fn incremental_transitions_agree_with_the_independent_reference() {
         for (name, edit, target) in carrier_edits(base, &edge) {
             let label = format!("graph-{index} {name}");
             let trust = reference::ValidationTrust::default();
-            // The reference plan also schedules an attribute check at every
-            // typed node, where production compiles one only for vertices
-            // with declared attributes; both schedules are restricted to the
-            // check keys production compiles, which pass on every value node.
-            let compiled: BTreeSet<String> = plan
-                .checks()
-                .keys()
-                .map(|key| format!("{:?}|{}", key.kind, production_schema_ref(&key.decl)))
-                .collect();
-            let keep = |instance: &reference::CheckInstance| {
-                compiled.contains(&format!(
-                    "{:?}|{}",
-                    instance.check.kind,
-                    reference_declaration(&instance.check)
-                ))
-            };
-            let before = reference::trusted_schedule(&input(base), &trust).restricted(keep);
-            let after = reference::trusted_schedule(&input(&target), &trust).restricted(keep);
+            let before = reference::trusted_schedule(&input(base), &trust);
+            let after = reference::trusted_schedule(&input(&target), &trust);
             let model = reference::incremental_footprint(&before, &after);
 
             let (validated, _) = panproto_inst::validation::ValidatedGraph::new(
@@ -2057,14 +2041,6 @@ fn finite_budget_law_holds_against_the_reference_on_failing_carriers() {
     let (schema, protocol) = production_fixture_schema(&reference_schema);
     let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
     let edge = reference_schema.edges.iter().next().unwrap().clone();
-    let compiled: BTreeSet<String> = plan
-        .checks()
-        .keys()
-        .map(|key| format!("{:?}|{}", key.kind, production_schema_ref(&key.decl)))
-        .collect();
-    let reference_key = |key: &reference::CheckKey| {
-        format!("{:?}|{}", key.kind, reference_declaration(key))
-    };
     let mut observed = 0usize;
     let mut cut_observed = 0usize;
     for (index, graph) in graph_cases(&edge).iter().enumerate().skip(1) {
@@ -2076,12 +2052,10 @@ fn finite_budget_law_holds_against_the_reference_on_failing_carriers() {
         let unlimited_reference =
             reference::witness_with_trust(input.clone(), reference::ValidationTrust::default())
                 .expect("unlimited reference witness");
-        // The reference plan also schedules an attribute check at every typed
-        // node; production compiles one only for vertices with declared
-        // attributes. The budget law is about one plan's schedule, so the
-        // reference schedule is restricted to the keys production compiles.
-        let schedule = reference::trusted_schedule(&input, &reference::ValidationTrust::default())
-            .restricted(|instance| compiled.contains(&reference_key(&instance.check)));
+        // Production and the reference schedule the same check instances,
+        // an attribute check at every typed node included, so the
+        // reference's complete schedule is compared directly.
+        let schedule = reference::trusted_schedule(&input, &reference::ValidationTrust::default());
         let evaluate = |max_reads: Option<u64>| {
             reference::evaluate_runs(
                 reference::InstanceShape::Graph,
@@ -2089,7 +2063,7 @@ fn finite_budget_law_holds_against_the_reference_on_failing_carriers() {
                 &[],
                 reference::ValidationBudget { max_reads },
             )
-            .expect("the restricted reference schedule is canonical")
+            .expect("the reference schedule is canonical")
         };
         let work = evaluate(None).spent;
         assert!(work > 0, "graph-{index} reads something");

@@ -1770,15 +1770,17 @@ pub mod edit {
     ) -> Result<GraphDelta, TreeApplyError> {
         // A valid `u32` embedding has every carrier id in `u32`, so every
         // intermediate graph form exists.
-        lower_tree_steps(tree, embedding, edit, |tree, embedding| {
-            Some(build_embedded_graph(
-                tree,
-                &embedding.arcs,
-                &embedding.fans,
-                schema,
-            ))
-        })?
-        .ok_or(TreeApplyError::IdsExhausted)
+        let mut next_embedding = embedding.clone();
+        let after_tree = apply_tree(edit, tree, &mut next_embedding)?;
+        let before = build_embedded_graph(tree, &embedding.arcs, &embedding.fans, schema);
+        let after = build_embedded_graph(
+            &after_tree,
+            &next_embedding.arcs,
+            &next_embedding.fans,
+            schema,
+        );
+        *embedding = next_embedding;
+        Ok(diff(&before, &after))
     }
 
     /// Definition: Lower a tree edit over unbounded ids.
@@ -3054,7 +3056,7 @@ pub mod edit {
         let (before, _) = get(s).map_err(EditTranslationError::Lens)?;
         let (after, complement) = get(&s2).map_err(EditTranslationError::Lens)?;
         Ok(EditTranslation {
-            delta: diff_keeping_replacements(&before, &after, d),
+            delta: diff(&before, &after),
             complement,
         })
     }
