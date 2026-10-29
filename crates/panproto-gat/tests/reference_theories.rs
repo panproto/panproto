@@ -3129,9 +3129,8 @@ fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeT
             &[("A", "A")],
             vec![("f", r::OpImage::Op("g".to_owned()))],
         ),
-        (|o: &Result<(), r::MorphismError>| {
-            *o == Err(r::MorphismError::OpNotFound("g".to_owned()))
-        }) as OutcomeTest,
+        (|o: &Result<(), r::MorphismError>| *o == Err(r::MorphismError::OpNotFound("g".to_owned())))
+            as OutcomeTest,
     );
     let unary = || {
         theory(
@@ -3145,9 +3144,8 @@ fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeT
         unary(),
         a_only(),
         to_term(app("h", vec![var("z")])),
-        (|o: &Result<(), r::MorphismError>| {
-            matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f")
-        }) as OutcomeTest,
+        (|o: &Result<(), r::MorphismError>| matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f"))
+            as OutcomeTest,
     );
     let unbound_only = (
         unary(),
@@ -3216,9 +3214,8 @@ fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeT
         x_unary,
         implicit_codomain,
         implicit_image("x"),
-        (|o: &Result<(), r::MorphismError>| {
-            matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f")
-        }) as OutcomeTest,
+        (|o: &Result<(), r::MorphismError>| matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f"))
+            as OutcomeTest,
     );
     vec![
         unknown_target,

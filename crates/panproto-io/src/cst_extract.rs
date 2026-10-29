@@ -3448,18 +3448,8 @@ fn extract_xml_element(
         // merely because the parent schema describes some other child.
         for child_name in &child_elements {
             let tag = extract_xml_tag_name(cst, child_name).unwrap_or_else(|| "child".into());
-            let domain_edge = domain_edges
-                .iter()
-                .find(|edge| {
-                    let field_name = edge.name.as_deref().unwrap_or(&edge.tgt);
-                    let is_item = *edge.kind == *"item" || edge.name.as_deref() == Some("item");
-                    !is_item && field_name == tag
-                })
-                .or_else(|| {
-                    domain_edges
-                        .iter()
-                        .find(|edge| *edge.kind == *"item" || edge.name.as_deref() == Some("item"))
-                });
+            let expanded = xml_child_expanded_tag(cst, child_name, &tag, &namespaces)?;
+            let domain_edge = xml_named_child_edge(&domain_edges, &tag, expanded.as_deref());
             let child_anchor = domain_edge.map_or_else(
                 || Name::from(format!("{domain_vertex}:{tag}")),
                 |edge| edge.tgt.clone(),
@@ -3540,19 +3530,9 @@ fn emit_mixed_content(
             ContentClass::Element => {
                 flush_text(state, &mut text_run)?;
                 let tag = extract_xml_tag_name(cst, child_vertex).unwrap_or_else(|| "child".into());
+                let expanded = xml_child_expanded_tag(cst, child_vertex, &tag, namespaces)?;
                 let domain_edges = domain.0.outgoing_edges(domain_vertex);
-                let domain_edge = domain_edges
-                    .iter()
-                    .find(|edge| {
-                        let field_name = edge.name.as_deref().unwrap_or(&edge.tgt);
-                        let is_item = *edge.kind == *"item" || edge.name.as_deref() == Some("item");
-                        !is_item && field_name == tag
-                    })
-                    .or_else(|| {
-                        domain_edges.iter().find(|edge| {
-                            *edge.kind == *"item" || edge.name.as_deref() == Some("item")
-                        })
-                    });
+                let domain_edge = xml_named_child_edge(domain_edges, &tag, expanded.as_deref());
                 let child_anchor = domain_edge.map_or_else(
                     || Name::from(format!("{domain_vertex}:{tag}")),
                     |edge| edge.tgt.clone(),
@@ -3597,6 +3577,66 @@ fn emit_mixed_content(
     }
     flush_text(state, &mut text_run)?;
     Ok(())
+}
+
+/// The Clark name `{uri}local` of a child element, resolved against the
+/// namespaces in scope at its parent and the child's own declarations, or
+/// `None` when the name is in no namespace.
+fn xml_child_expanded_tag(
+    cst: &Schema,
+    child: &Name,
+    tag: &str,
+    parent_namespaces: &HashMap<String, String>,
+) -> Result<Option<String>, CstCodecError> {
+    let mut namespaces = parent_namespaces.clone();
+    for edge in cst.outgoing_edges(child) {
+        if matches!(
+            cst_vertex_kind(cst, &edge.tgt).as_deref(),
+            Some("STag" | "EmptyElemTag")
+        ) {
+            let mut probe = Node::new(0, "probe");
+            extract_xml_attributes(cst, &edge.tgt, &mut probe)?;
+            for (key, value) in &probe.extra_fields {
+                let Value::Str(uri) = value else { continue };
+                if key == "xmlns" {
+                    namespaces.insert(String::new(), uri.clone());
+                } else if let Some(prefix) = key.strip_prefix("xmlns:") {
+                    namespaces.insert(prefix.to_owned(), uri.clone());
+                }
+            }
+        }
+    }
+    let (namespace, local) = match tag.split_once(':') {
+        Some(("xml", local)) => (Some(crate::xml_pathway::XML_NS.to_owned()), local),
+        Some((prefix, local)) => (namespaces.get(prefix).cloned(), local),
+        None => (namespaces.get("").cloned(), tag),
+    };
+    Ok(namespace
+        .filter(|uri| !uri.is_empty())
+        .map(|uri| format!("{{{uri}}}{local}")))
+}
+
+/// The schema edge a child element takes, as the canonical route matches
+/// names: an edge named by the child's Clark name first, then one named by
+/// its raw tag, then the first item edge as the collection fallback.
+fn xml_named_child_edge<'a>(
+    edges: &'a [Edge],
+    tag: &str,
+    expanded: Option<&str>,
+) -> Option<&'a Edge> {
+    let is_item = |edge: &Edge| *edge.kind == *"item" || edge.name.as_deref() == Some("item");
+    expanded
+        .and_then(|expanded| {
+            edges
+                .iter()
+                .find(|edge| !is_item(edge) && edge.name.as_deref() == Some(expanded))
+        })
+        .or_else(|| {
+            edges
+                .iter()
+                .find(|edge| !is_item(edge) && edge.name.as_deref().unwrap_or(&edge.tgt) == tag)
+        })
+        .or_else(|| edges.iter().find(|edge| is_item(edge)))
 }
 
 fn extract_xml_attributes(

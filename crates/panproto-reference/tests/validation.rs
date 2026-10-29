@@ -512,7 +512,11 @@ fn validation_index_and_lexical_observables_are_owned_and_nonvacuous() {
         ("double", "inf", Some(false)),
         ("QName", "x", None),
     ] {
-        assert_eq!(validation::lexical_space(text, &xsd(local)), inside, "{local} {text}");
+        assert_eq!(
+            validation::lexical_space(text, &xsd(local)),
+            inside,
+            "{local} {text}"
+        );
     }
     assert_eq!(validation::lexical_space("x", "http://e/unknown"), None);
 }

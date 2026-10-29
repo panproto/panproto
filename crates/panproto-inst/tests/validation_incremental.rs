@@ -1302,8 +1302,14 @@ fn validation_state_bytes_observe_nested_keys_and_payloads() {
 
 #[test]
 fn sparse_budget_cuts_commit_exact_scheduled_and_skipped_instances() -> TestResult {
+    // Every check of this plan is advisory, the attribute checks of both
+    // vertices included, so a zero budget cuts without refusing the edit.
     let options = ValidationOptions {
-        requirements: BTreeMap::from([(SchemaRef::Schema, Requirement::Advisory)]),
+        requirements: BTreeMap::from([
+            (SchemaRef::Schema, Requirement::Advisory),
+            (SchemaRef::Vertex("item".into()), Requirement::Advisory),
+            (SchemaRef::Vertex("renamed".into()), Requirement::Advisory),
+        ]),
         ..ValidationOptions::default()
     };
     let plan = two_anchor_plan_with_options(&options);
@@ -2038,8 +2044,12 @@ fn a_finite_transition_budget_breaks_sequence_agreement() -> TestResult {
     graph.insert_edge(EdgeId(0), GEdge::new(0, 1, contains).with_position(Some(0)))?;
     graph.insert_edge(EdgeId(1), GEdge::new(2, 1, resolves))?;
     let none = ExternalVerdicts::default();
-    let (validated, baseline) =
-        ValidatedGraph::new(plan.clone(), graph.clone(), &ValidationBudget::default(), &none);
+    let (validated, baseline) = ValidatedGraph::new(
+        plan.clone(),
+        graph.clone(),
+        &ValidationBudget::default(),
+        &none,
+    );
     assert_eq!(baseline.status, CheckStatus::Passed);
     let edit = GraphEdit::SetEdgePosition {
         id: EdgeId(0),
@@ -3855,7 +3865,9 @@ fn v3_endpoint_counterexample_has_the_independently_expected_footprint() -> Test
         subject: Some(ViewRef::Node(1)),
     };
     assert_eq!(footprint.created, BTreeSet::from([attribute("a")]));
-    assert_eq!(footprint.retired, BTreeSet::new());
+    // Every typed node carries an attribute check, so the node leaves the
+    // check of its old vertex as well as entering that of its new one.
+    assert_eq!(footprint.retired, BTreeSet::from([attribute("b")]));
     assert_eq!(footprint.rerun, BTreeSet::from([endpoint, anchor]));
     assert_eq!(
         footprint.reads,
@@ -4948,7 +4960,10 @@ fn v6_case<I: Surface>(
         replayed(&other_plan, &planned).as_ref() == Some(&bytes),
         "plan"
     );
-    prop_assert!(witness.verify(&planned).is_err(), "another plan never verifies");
+    prop_assert!(
+        witness.verify(&planned).is_err(),
+        "another plan never verifies"
+    );
     Ok(())
 }
 

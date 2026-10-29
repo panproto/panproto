@@ -1320,6 +1320,9 @@ pub mod theory {
 
     /// The first variable of a term that the context does not bind (a case
     /// branch's binders and a local binding's name bind in their bodies).
+    /// Only the binder tests read it: morphism checking reports an unbound
+    /// variable through the typing judgement.
+    #[cfg(test)]
     fn unbound(ctx: &[(Name, SortExpr)], term: &Term) -> Option<Name> {
         let mut free = BTreeSet::new();
         free_vars(term, &mut free);
@@ -1327,6 +1330,7 @@ pub mod theory {
         first_unbound(term, &|x: &str| ctx.iter().any(|(n, _)| n == x), &free)
     }
 
+    #[cfg(test)]
     fn first_unbound(
         term: &Term,
         bound: &dyn Fn(&str) -> bool,

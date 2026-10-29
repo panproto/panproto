@@ -2218,19 +2218,27 @@ fn bounded_tabular_cst_observables_match_reference() {
     for symbols in scope::sequences(&['"', '\t', '\r', '\n']) {
         let cell: String = symbols.into_iter().collect();
         let input = format!("value\n{cell}\n");
+        // The cell is one TSV cell exactly when the document reads back as
+        // one row holding it and is written back byte for byte. A document
+        // that parses as something else, such as `value\n\r\n`, whose CR LF
+        // ends an empty record, does not hold the cell.
         let production = codec
             .parse_functor_preserving(&schema, input.as_bytes())
             .map_err(|error| error.to_string())
             .and_then(|(instance, complement)| {
                 codec
                     .emit_functor_preserving(&schema, &instance, &complement)
+                    .map(|emitted| (instance, emitted))
                     .map_err(|error| error.to_string())
             });
+        let production_holds_cell = production.as_ref().is_ok_and(|(instance, emitted)| {
+            instance.rows("rows").len() == 1
+                && table_text(instance) == Some(cell.as_str())
+                && emitted == input.as_bytes()
+        });
         assert_eq!(
             panproto_reference::tabular::tsv_quote_cst(&cell),
-            production
-                .as_ref()
-                .is_ok_and(|emitted| emitted == input.as_bytes()),
+            production_holds_cell,
             "cell={cell:?}, result={production:?}"
         );
     }

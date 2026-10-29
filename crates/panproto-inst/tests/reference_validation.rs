@@ -407,7 +407,9 @@ fn variant_name(debug: &str) -> String {
 fn production_annotated_observation(value: &ReferenceValue, format: &str) -> (bool, bool, bool) {
     let mut protocol = format_parse_protocol();
     protocol.obj_kinds.push("any".to_owned());
-    protocol.value_kinds.insert("any".to_owned(), ScalarKind::Any);
+    protocol
+        .value_kinds
+        .insert("any".to_owned(), ScalarKind::Any);
     let schema = SchemaBuilder::new(&protocol)
         .vertex("value", "any", None)
         .expect("annotated carrier vertex")
@@ -419,9 +421,8 @@ fn production_annotated_observation(value: &ReferenceValue, format: &str) -> (bo
         .checks()
         .keys()
         .any(|key| key.kind == CheckKind::ValueConstraint);
-    let graph = GInstance::new().with_node(
-        Node::new(0, "value").with_value(FieldPresence::Present(keyed_value(value))),
-    );
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "value").with_value(FieldPresence::Present(keyed_value(value))));
     let report = plan.validate_graph(
         &graph,
         &ValidationBudget::default(),
@@ -1005,7 +1006,10 @@ fn reference_incomplete(entry: &reference::IncompleteCheck) -> IncompleteObserva
     };
     // The reference records one refusal per skipped instance; `from` names
     // the first skipped subject of the instance's check key.
-    assert!(entry.subject.is_some(), "a reference refusal names its instance");
+    assert!(
+        entry.subject.is_some(),
+        "a reference refusal names its instance"
+    );
     IncompleteObservation {
         check_kind: format!("{:?}", entry.check.kind),
         declaration: reference_declaration(&entry.check),
@@ -1172,7 +1176,11 @@ fn carrier_edits(
             ));
         }
     }
-    let other = if node.anchor == "child" { "ghost" } else { "child" };
+    let other = if node.anchor == "child" {
+        "ghost"
+    } else {
+        "child"
+    };
     let mut relabelled = graph.clone();
     other.clone_into(&mut relabelled.nodes.get_mut(&1).unwrap().anchor);
     edits.push((
@@ -1279,8 +1287,16 @@ fn incremental_transitions_agree_with_the_independent_reference() {
             let reference_names = |set: &BTreeSet<reference::CheckInstance>| {
                 set.iter().map(reference_instance).collect::<BTreeSet<_>>()
             };
-            assert_eq!(names(&footprint.created), reference_names(&model.created), "{label} created");
-            assert_eq!(names(&footprint.retired), reference_names(&model.retired), "{label} retired");
+            assert_eq!(
+                names(&footprint.created),
+                reference_names(&model.created),
+                "{label} created"
+            );
+            assert_eq!(
+                names(&footprint.retired),
+                reference_names(&model.retired),
+                "{label} retired"
+            );
             let rerun = names(&footprint.rerun);
             let changed = reference_names(&model.changed);
             assert!(
@@ -1298,7 +1314,11 @@ fn incremental_transitions_agree_with_the_independent_reference() {
                 .filter(|instance| rerun.contains(&reference_instance(instance)))
                 .collect();
             assert_eq!(
-                footprint.reads.iter().map(production_view).collect::<BTreeSet<_>>(),
+                footprint
+                    .reads
+                    .iter()
+                    .map(production_view)
+                    .collect::<BTreeSet<_>>(),
                 reference::footprint_reads(&before, &after, &reference_rerun)
                     .iter()
                     .map(reference_view)
@@ -1388,8 +1408,15 @@ fn incremental_transitions_agree_with_the_independent_reference() {
                         .get(&key)
                         .unwrap_or_else(|| panic!("{label}: {key} is in the target schedule"));
                     assert_eq!(
-                        run.reads.iter().map(production_view).collect::<BTreeSet<_>>(),
-                        expected.reads.iter().map(reference_view).collect::<BTreeSet<_>>(),
+                        run.reads
+                            .iter()
+                            .map(production_view)
+                            .collect::<BTreeSet<_>>(),
+                        expected
+                            .reads
+                            .iter()
+                            .map(reference_view)
+                            .collect::<BTreeSet<_>>(),
                         "{label} witness reads of {key}"
                     );
                     let panproto_inst::validation::RunVerdict::Evaluated {
@@ -1412,7 +1439,10 @@ fn incremental_transitions_agree_with_the_independent_reference() {
     }
     assert_eq!(transitions, 12);
     assert!(witnesses > 0);
-    assert!(changed_total > 0, "some transition changes a persistent outcome");
+    assert!(
+        changed_total > 0,
+        "some transition changes a persistent outcome"
+    );
     eprintln!(
         "incremental reference: {transitions} transitions, {changed_total} changed persistent \
          instances, {rerun_beyond_changed} rerun beyond the changed set"
@@ -1461,10 +1491,7 @@ fn lexical_space_reports_exactly_the_ill_typed_literals() {
         let datatype = format!("{XSD}{local}");
         let (passed, reported, incomplete) = production_lexical_observation(text, &datatype);
         assert!(passed, "{local} {text}: lexical-space entries are advisory");
-        match (
-            reference::lexical_space(text, &datatype),
-            kinds.get(local),
-        ) {
+        match (reference::lexical_space(text, &datatype), kinds.get(local)) {
             (Some(inside), Some(kind)) => {
                 let spec = ReferenceSpec {
                     numeral: Some(NumeralDialect::Xsd),
@@ -1493,7 +1520,10 @@ fn lexical_space_reports_exactly_the_ill_typed_literals() {
         observed += 1;
     }
     assert_eq!(observed, cases.len());
-    assert!(reported_count >= 7, "{reported_count} ill-typed literals reported");
+    assert!(
+        reported_count >= 7,
+        "{reported_count} ill-typed literals reported"
+    );
 }
 
 /// One incomplete entry of either report, every field kept.
@@ -1541,8 +1571,7 @@ fn general_production_incomplete(entry: &IncompleteCheck) -> IncompleteObservati
 fn reference_coverage(
     coverage: &BTreeMap<reference::CheckKey, reference::CheckCoverage>,
 ) -> BTreeMap<(String, String), (String, String, u64, u64, u64, u64)> {
-    let mut out: BTreeMap<(String, String), (String, String, u64, u64, u64, u64)> =
-        BTreeMap::new();
+    let mut out: BTreeMap<(String, String), (String, String, u64, u64, u64, u64)> = BTreeMap::new();
     for (key, entry) in coverage {
         let slot = out
             .entry((format!("{:?}", key.kind), reference_declaration(key)))
@@ -1589,10 +1618,7 @@ fn production_coverage(
         .iter()
         .map(|(key, entry)| {
             (
-                (
-                    format!("{:?}", key.kind),
-                    production_schema_ref(&key.decl),
-                ),
+                (format!("{:?}", key.kind), production_schema_ref(&key.decl)),
                 (
                     format!("{:?}", entry.class),
                     format!("{:?}", entry.requirement),
@@ -1626,7 +1652,11 @@ fn status_law_holds_with_external_verdicts_on_every_shape_status() {
         .constraint_semantics
         .insert("audit".to_owned(), ConstraintSemantics::External);
     let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
-    assert!(plan.static_findings().is_empty(), "{:?}", plan.static_findings());
+    assert!(
+        plan.static_findings().is_empty(),
+        "{:?}",
+        plan.static_findings()
+    );
     let edge = reference_schema.edges.iter().next().unwrap().clone();
     let mut statuses = BTreeSet::new();
     let mut cases = 0usize;
@@ -1665,8 +1695,11 @@ fn status_law_holds_with_external_verdicts_on_every_shape_status() {
             )
             .expect("reference witness");
             let report = &expected.evaluation.report;
-            let actual =
-                plan.validate_graph(&production_graph(graph), &ValidationBudget::default(), &external);
+            let actual = plan.validate_graph(
+                &production_graph(graph),
+                &ValidationBudget::default(),
+                &external,
+            );
             assert_eq!(
                 production_status_observation(actual.status),
                 status_observation(report.status),
@@ -1763,9 +1796,10 @@ fn status_fold_agrees_with_the_reference_on_every_short_entry_sequence() {
                         class: CheckClass::BoundedExternal,
                         requirement: production_requirement(*advisory),
                         subject: Some(subject),
-                        reason: panproto_inst::validation::IncompleteReason::MissingExternalWitness {
-                            name: "audit".into(),
-                        },
+                        reason:
+                            panproto_inst::validation::IncompleteReason::MissingExternalWitness {
+                                name: "audit".into(),
+                            },
                     });
                     reference_incomplete.push(reference::IncompleteCheck {
                         check: reference_key.clone(),
@@ -1979,7 +2013,11 @@ fn key_unique_under_a_named_collation_is_undecided_on_text() {
         &ValidationBudget::default(),
         &ExternalVerdicts::default(),
     );
-    assert_eq!(text.status, panproto_gat::CheckStatus::Incomplete, "{text:?}");
+    assert_eq!(
+        text.status,
+        panproto_gat::CheckStatus::Incomplete,
+        "{text:?}"
+    );
     assert!(
         text.incomplete.iter().any(|entry| {
             entry.check.kind == CheckKind::KeyUnique
@@ -2000,11 +2038,17 @@ fn key_unique_under_a_named_collation_is_undecided_on_text() {
         &ValidationBudget::default(),
         &ExternalVerdicts::default(),
     );
-    assert_eq!(numbers.status, panproto_gat::CheckStatus::Failed, "{numbers:?}");
-    assert!(numbers.diagnostics.iter().any(|d| matches!(
-        d.violation,
-        ProductionViolation::DuplicateKey { .. }
-    )));
+    assert_eq!(
+        numbers.status,
+        panproto_gat::CheckStatus::Failed,
+        "{numbers:?}"
+    );
+    assert!(
+        numbers
+            .diagnostics
+            .iter()
+            .any(|d| matches!(d.violation, ProductionViolation::DuplicateKey { .. }))
+    );
 }
 
 /// The reference's budget refusals collapsed to production's records. The
@@ -2320,7 +2364,10 @@ fn supplemental_validation_definitions_have_bounded_production_witnesses() {
         let bare = format_parse_spec(&format_protocol, vertex_kind, None, None);
         for format in formats {
             let annotated = format_parse_spec(&format_protocol, vertex_kind, *format, None);
-            assert_eq!(annotated, bare, "{vertex_kind} {format:?}: a format never enters the spec");
+            assert_eq!(
+                annotated, bare,
+                "{vertex_kind} {format:?}: a format never enters the spec"
+            );
             for lexeme in grid {
                 let production = panproto_inst::value::coerce::coerce(
                     &panproto_inst::value::coerce::Lexeme::new(

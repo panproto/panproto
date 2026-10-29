@@ -73,7 +73,9 @@ fn year(text: &str) -> Option<(i64, &str)> {
     let (negative, body) = text
         .strip_prefix('-')
         .map_or((false, text), |rest| (true, rest));
-    let end = body.find(|c: char| !c.is_ascii_digit()).unwrap_or(body.len());
+    let end = body
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(body.len());
     let year_digits = &body[..end];
     if year_digits.len() < 4 || (year_digits.len() > 4 && year_digits.starts_with('0')) {
         return None;
@@ -140,8 +142,10 @@ fn time_of_day(text: &str) -> Option<&str> {
         }
         None => (None, rest),
     };
-    let midnight_end =
-        hours == 24 && minutes == 0 && seconds == 0 && fraction.is_none_or(|f| f.bytes().all(|b| b == b'0'));
+    let midnight_end = hours == 24
+        && minutes == 0
+        && seconds == 0
+        && fraction.is_none_or(|f| f.bytes().all(|b| b == b'0'));
     (midnight_end || (hours <= 23 && minutes <= 59 && seconds <= 59)).then_some(rest)
 }
 

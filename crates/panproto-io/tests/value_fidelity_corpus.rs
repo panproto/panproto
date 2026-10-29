@@ -1002,12 +1002,33 @@ fn xml_distinguishes_null_empty_and_absent_then_rerenders() {
         .find(|node| node.anchor.as_ref() == "null_value")
         .expect("materialized null node")
         .extra_fields
-        .insert("xsi:nil".into(), Value::Str("false".into()));
+        // The canonical reader keys a namespaced attribute by its expanded
+        // name, so the read `xsi:nil` is edited under that name.
+        .insert(
+            "{http://www.w3.org/2001/XMLSchema-instance}nil".into(),
+            Value::Str("false".into()),
+        );
     insert_tree_child(
         &mut instance,
         &schema,
         "absent",
         FieldPresence::Present(Value::Str("materialized-absent".into())),
+    );
+    // An XML Schema decimal has no exponent, so the edited `2e400`, whose
+    // stored exponent is positive, has no spelling that reads back with its
+    // scale; the writer refuses it, and the edit is made positional.
+    assert!(matches!(
+        emit_xml_bytes(&schema, &instance, "cassandra"),
+        Err(EmitInstanceError::Value(ref error))
+            if error.site.vertex.as_ref() == "huge"
+                && error.reason == EmitValueReason::NotRepresentable
+    ));
+    set_tree_value(
+        &mut instance,
+        "huge",
+        FieldPresence::Present(Value::Decimal(
+            DecimalValue::parse(&format!("2{}", "0".repeat(400))).expect("positional edit"),
+        )),
     );
     let emitted = emit_xml_bytes(&schema, &instance, "cassandra").expect("emit XML");
     let text = std::str::from_utf8(&emitted).expect("XML UTF-8");

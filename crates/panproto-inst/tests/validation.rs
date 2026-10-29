@@ -4130,8 +4130,9 @@ fn a_budget_cuts_a_suffix_in_check_instance_order() {
     let full = plan.validate_graph(&g, &unlimited(), &none());
     assert!(full.passed());
     // NodeAnchor reads one node per instance (50), EdgeDeclared one edge
-    // (49), EndpointCoherence an edge and its two ends (49 * 3); Acyclic
-    // reads every labelled edge and its endpoints (99).
+    // (49), EndpointCoherence an edge and its two ends (49 * 3), Attribute
+    // one node per instance (50); Acyclic reads every labelled edge and its
+    // endpoints (99).
     let small = ValidationBudget {
         max_reads: Some(60),
     };
@@ -4156,6 +4157,7 @@ fn a_budget_cuts_a_suffix_in_check_instance_order() {
         vec![
             CheckKind::EdgeDeclared,
             CheckKind::EndpointCoherence,
+            CheckKind::Attribute,
             CheckKind::Acyclic
         ]
     );

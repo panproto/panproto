@@ -1644,12 +1644,13 @@ fn production_refuses_values_without_canonical_bytes_as_the_reference_does()
         Err(reference_keys::KeyingError::NoCanonicalBytes)
     );
     let schema = schema_with_key(&[("item", "string")], &[], &[], "item", &key);
-    let report = ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default())
-        .validate_graph(
-            &pair.production,
-            &ValidationBudget::default(),
-            &ExternalVerdicts::default(),
-        );
+    let report =
+        ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default())
+            .validate_graph(
+                &pair.production,
+                &ValidationBudget::default(),
+                &ExternalVerdicts::default(),
+            );
     assert!(
         report.incomplete.iter().any(|incomplete| {
             incomplete.check.kind == CheckKind::KeyUnique

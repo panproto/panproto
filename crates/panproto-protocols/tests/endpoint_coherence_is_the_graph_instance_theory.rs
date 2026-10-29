@@ -22,7 +22,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-
 use panproto_gat::{CheckModelOptions, ModelValue, verify_model};
 use panproto_inst::validation::{
     CheckKind, EndpointSide, ExternalVerdicts, ValidationBudget, ValidationOptions, ValidationPlan,

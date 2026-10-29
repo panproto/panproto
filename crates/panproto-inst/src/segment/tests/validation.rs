@@ -2436,6 +2436,14 @@ fn local_law_graph() -> Result<GInstance, Box<dyn std::error::Error>> {
         Node::new(5, "a"),
         Node::new(6, "unknown"),
         Node::new(8, "rel").with_shape(NodeShape::HyperEdge),
+        // One node for each vertex that declares no attribute, so every
+        // compiled attribute check has an instance; the first carries an
+        // undeclared field.
+        Node::new(9, "b").with_extra_field("stray", Value::Int(1)),
+        Node::new(10, "c"),
+        Node::new(11, "doc"),
+        Node::new(12, "para"),
+        Node::new(13, "word"),
     ] {
         graph.insert_node(node)?;
     }
@@ -2497,6 +2505,14 @@ fn local_law_table() -> Result<FInstance, Box<dyn std::error::Error>> {
             [(RowId(1), HashMap::new()), (RowId(4), HashMap::new())],
         )?
         .with_rows("unknown", [(RowId(5), HashMap::new())])?
+        .with_rows(
+            "b",
+            [(RowId(6), HashMap::from([("stray".into(), Value::Int(1))]))],
+        )?
+        .with_rows("c", [(RowId(7), HashMap::new())])?
+        .with_rows("doc", [(RowId(8), HashMap::new())])?
+        .with_rows("para", [(RowId(9), HashMap::new())])?
+        .with_rows("word", [(RowId(10), HashMap::new())])?
         .with_foreign_key(property, [(RowId(3), RowId(1))])?
         .with_foreign_key(unknown, [(RowId(2), RowId(4))])?)
 }
@@ -2529,6 +2545,14 @@ fn local_law_tree() -> WInstance {
             7,
             Node::new(7, "value").with_value(FieldPresence::Present(Value::Str("ok".into()))),
         ),
+        (
+            8,
+            Node::new(8, "b").with_extra_field("stray", Value::Int(1)),
+        ),
+        (9, Node::new(9, "c")),
+        (10, Node::new(10, "doc")),
+        (11, Node::new(11, "para")),
+        (12, Node::new(12, "word")),
     ]);
     let arcs = vec![
         (0, 1, property.clone()),
@@ -2538,6 +2562,11 @@ fn local_law_tree() -> WInstance {
         (0, 5, ordered),
         (0, 6, label("a", "value", "prop", Some("value"))),
         (0, 7, unknown),
+        (0, 8, label("a", "b", "prop", Some("b"))),
+        (0, 9, label("a", "c", "prop", Some("c"))),
+        (0, 10, label("a", "doc", "prop", Some("doc"))),
+        (0, 11, label("a", "para", "prop", Some("para"))),
+        (0, 12, label("a", "word", "prop", Some("word"))),
     ];
     WInstance::new(
         nodes,

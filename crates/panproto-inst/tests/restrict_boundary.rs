@@ -28,11 +28,21 @@ fn e(src: &str, tgt: &str, name: &str) -> Edge {
     }
 }
 
+/// A schema of `record` vertices. A `c` vertex declares the integer
+/// attribute `n` that the probe instances carry and the survival predicate
+/// reads.
 fn schema(vertices: &[&str], edges: &[&Edge], required: &[(&str, &Edge)]) -> Schema {
     let protocol = Protocol::default();
     let mut builder = SchemaBuilder::new(&protocol);
     for v in vertices {
         builder = builder.vertex(v, "record", None).unwrap();
+    }
+    if vertices.contains(&"c") {
+        builder = builder
+            .vertex("n", "int", None)
+            .unwrap()
+            .edge("c", "n", "prop", Some("n"))
+            .unwrap();
     }
     for edge in edges {
         builder = builder
