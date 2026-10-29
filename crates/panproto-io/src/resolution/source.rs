@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_inst::key::{KeyingError, canonical_key_bytes};
-use panproto_inst::{CanonicalSink, FInstance, FieldPresence, Value, ViewRef, WInstance};
+use panproto_inst::{FInstance, FieldPresence, Value, ViewRef, WInstance};
 use panproto_schema::{Edge, Key, KeyPart, KeyScope};
 
 use panproto_inst::resolution_complement::ResolutionValueSite;
