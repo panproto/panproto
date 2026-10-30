@@ -273,7 +273,11 @@ impl RestrictPlan {
     ///
     /// # Errors
     ///
-    /// [`RestrictError::IncoherentEdgeImage`] from [`EdgeImage::compile`],
+    /// In this order: [`RestrictError::SourceDeclarations`] and then
+    /// [`RestrictError::TargetDeclarations`] when a schema's key and
+    /// reference declarations are ill formed
+    /// ([`panproto_schema::validate_declarations`]);
+    /// [`RestrictError::IncoherentEdgeImage`] from [`EdgeImage::compile`];
     /// then [`RestrictError::IncoherentPairImage`] from
     /// [`ContractionPlan::compile`].
     pub fn compile(
@@ -281,6 +285,8 @@ impl RestrictPlan {
         tgt: &Schema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
+        panproto_schema::validate_declarations(src).map_err(RestrictError::SourceDeclarations)?;
+        panproto_schema::validate_declarations(tgt).map_err(RestrictError::TargetDeclarations)?;
         Ok(Self {
             src_schema: schema_digest(src),
             tgt_schema: schema_digest(tgt),
@@ -1012,6 +1018,8 @@ impl RestrictError {
             Self::SigmaConstantClash { .. } => 35,
             Self::NullIdsExhausted => 36,
             Self::MalformedFan { .. } => 37,
+            Self::SourceDeclarations(_) => 38,
+            Self::TargetDeclarations(_) => 39,
         }
     }
 

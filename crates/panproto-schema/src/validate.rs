@@ -166,7 +166,7 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
 
     // 6. Check key and reference declarations.
     errors.extend(
-        declaration_errors(schema, protocol)
+        declaration_errors(schema, protocol.syntactic_shape != protocol.semantic_shape)
             .into_iter()
             .map(ValidationError::KeyRef),
     );
@@ -174,9 +174,32 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
     errors
 }
 
+/// The protocol-independent well-formedness of the schema's key and reference
+/// declarations.
+///
+/// These are the declaration checks of [`validate`] except
+/// [`KeyRefError::EdgeRequired`], which depends on whether the protocol's
+/// syntactic and semantic shapes differ. A restrict plan refuses a source or
+/// target schema that fails them.
+///
+/// # Errors
+///
+/// Every violation, in the order of [`validate`]: keys (by vertex, then in
+/// declaration order), target sets, references, then cross-reference groups.
+pub fn validate_declarations(schema: &Schema) -> Result<(), Vec<KeyRefError>> {
+    let errors = declaration_errors(schema, false);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 /// Every well-formedness violation of the schema's key and reference
 /// declarations: keys, target sets, references, then cross-reference groups.
-fn declaration_errors(schema: &Schema, protocol: &Protocol) -> Vec<KeyRefError> {
+/// `shapes_differ` is whether the protocol's syntactic and semantic shapes
+/// differ, under which a reference must name its edge.
+fn declaration_errors(schema: &Schema, shapes_differ: bool) -> Vec<KeyRefError> {
     let mut errors = Vec::new();
     let ancestry = Ancestry::new(schema);
 
@@ -202,7 +225,6 @@ fn declaration_errors(schema: &Schema, protocol: &Protocol) -> Vec<KeyRefError> 
 
     target_set_errors(schema, &mut errors);
 
-    let shapes_differ = protocol.syntactic_shape != protocol.semantic_shape;
     let mut guards = Vec::new();
     let mut binder_modes: BTreeMap<(Name, Name), Vec<(Name, VariableBinding)>> = BTreeMap::new();
     for reference in schema.declarations.references.values() {

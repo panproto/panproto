@@ -365,37 +365,37 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
     );
 }
 
-/// Merging arc order stays linear in the arc count.
+/// Merging complements stays linear in their size.
 ///
 /// `Complement::compose` is called repeatedly (the edit-lens associativity
-/// proptests compose in a loop), so a membership test that scans the
+/// proptests compose in a loop), so a membership test that scans an
 /// accumulated sequence makes the merge quadratic. That is not a
-/// theoretical concern: a `Vec::contains` here took
+/// theoretical concern: a `Vec::contains` in the arc-order merge took
 /// `edit_laws::action_laws::compose_associativity` from 0.05s to over 55
 /// minutes, and nothing failed, because an unbounded test reads as slow
 /// rather than broken.
 ///
-/// The gap between the two implementations is several orders of magnitude,
-/// so the wall-clock bound below is loose enough not to be flaky while
-/// still being unreachable if the scan comes back.
+/// Arc order is one global sequence: two nonempty records compose only when
+/// they state the same sequence, and differing ones conflict. The keyed
+/// parent map overlaps on half its entries, so the merge does real work on
+/// both its branches. The wall-clock bound is loose enough not to be flaky
+/// while still being unreachable if a quadratic scan comes back.
 #[test]
 fn composing_arc_order_is_not_quadratic() {
-    use panproto_lens::ComplementCompose;
+    use panproto_lens::{ComplementCompose, LensError};
     use std::time::Instant;
 
     const ARCS: u32 = 120_000;
 
     let build = |offset: u32| {
         let mut c = panproto_inst::Complement::empty();
-        c.arc_order = (0..ARCS).map(|i| (i + offset, i + offset + 1)).collect();
+        c.arc_order = (0..ARCS).map(|i| (i, i + 1)).collect();
         c.original_parent = (0..ARCS).map(|i| (i + offset + 1, i + offset)).collect();
         // Complements that carry data compose only when bound to one lens;
         // a shared legacy fingerprint binds these two.
         c.source_fingerprint = 0x00C0_FFEE;
         c
     };
-    // Half the pairs overlap, so the merge does real work on both branches
-    // rather than short-circuiting on one.
     let left = build(0);
     let right = build(ARCS / 2);
 
@@ -404,15 +404,30 @@ fn composing_arc_order_is_not_quadratic() {
     let elapsed = start.elapsed();
 
     assert_eq!(
-        merged.arc_order.len(),
-        (ARCS + ARCS / 2) as usize,
-        "the union of the two sequences, deduplicated"
+        merged.arc_order, left.arc_order,
+        "equal arc-order records compose to that record"
     );
-    // Order is preserved: the left operand's sequence comes first.
-    assert_eq!(merged.arc_order[0], (0, 1));
+    assert_eq!(
+        merged.original_parent.len(),
+        (ARCS + ARCS / 2) as usize,
+        "the keyed union of the two parent maps"
+    );
     assert!(
         elapsed.as_secs() < 15,
         "merging {ARCS} arcs took {elapsed:?}; a linear merge is milliseconds, so this is \
-         the quadratic scan returning"
+         a quadratic scan returning"
+    );
+
+    let mut reordered = right;
+    reordered.arc_order.swap(0, 1);
+    assert!(
+        matches!(
+            left.compose(&reordered),
+            Err(LensError::ComplementConflict {
+                kind: "arc_order",
+                ..
+            })
+        ),
+        "two different nonempty arc orders conflict"
     );
 }

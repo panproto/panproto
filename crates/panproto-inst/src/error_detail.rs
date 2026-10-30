@@ -615,6 +615,8 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::SigmaConstantClash { .. } => "sigma_constant_clash",
         RestrictError::NullIdsExhausted => "null_ids_exhausted",
         RestrictError::MalformedFan { .. } => "malformed_fan",
+        RestrictError::SourceDeclarations(_) => "source_declarations",
+        RestrictError::TargetDeclarations(_) => "target_declarations",
     }
 }
 

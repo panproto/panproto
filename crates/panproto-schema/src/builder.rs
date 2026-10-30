@@ -14,7 +14,7 @@ use smallvec::SmallVec;
 use crate::error::SchemaError;
 use crate::keys::{Key, Reference, SchemaDeclarations};
 use crate::protocol::Protocol;
-use crate::schema::{CoercionSpec, Constraint, Edge, HyperEdge, Schema, Vertex};
+use crate::schema::{CoercionSpec, Constraint, Edge, HyperEdge, Schema, Variant, Vertex};
 use panproto_expr::Expr;
 
 /// A builder for incrementally constructing a validated [`Schema`].
@@ -44,6 +44,7 @@ pub struct SchemaBuilder {
     policies: HashMap<Name, Expr>,
     entries: Vec<Name>,
     entries_seen: FxHashSet<Name>,
+    variants: HashMap<Name, Vec<Variant>>,
     declarations: SchemaDeclarations,
     conflict: Option<SchemaError>,
 }
@@ -68,6 +69,7 @@ impl SchemaBuilder {
             policies: HashMap::new(),
             entries: Vec::new(),
             entries_seen: FxHashSet::default(),
+            variants: HashMap::new(),
             declarations: SchemaDeclarations::default(),
             conflict: None,
         }
@@ -91,6 +93,27 @@ impl SchemaBuilder {
         if self.entries_seen.insert(name.clone()) {
             self.entries.push(name);
         }
+        self
+    }
+
+    /// Declare `id` an arm of the coproduct vertex `parent`, read for a
+    /// value whose discriminant is `tag`. An untagged arm reads a value
+    /// whose discriminant no tagged arm of `parent` claims, as
+    /// [`Schema::variant_for_tag`] selects. Arms keep declaration order.
+    ///
+    /// Both endpoints are checked at [`Self::build`]: an arm whose parent
+    /// or id is not a vertex of the schema causes
+    /// [`SchemaError::UnknownVariantVertex`].
+    #[must_use]
+    pub fn variant(mut self, parent: &str, id: &str, tag: Option<&str>) -> Self {
+        self.variants
+            .entry(Name::from(parent))
+            .or_default()
+            .push(Variant {
+                id: Name::from(id),
+                parent_vertex: Name::from(parent),
+                tag: tag.map(Name::from),
+            });
         self
     }
 
@@ -399,7 +422,9 @@ impl SchemaBuilder {
     /// # Errors
     ///
     /// Returns [`SchemaError::EmptySchema`] if no vertices were added,
-    /// [`SchemaError::UnknownEntryVertex`] if an entry names no vertex, and
+    /// [`SchemaError::UnknownEntryVertex`] if an entry names no vertex,
+    /// [`SchemaError::UnknownVariantVertex`] if a variant arm or its
+    /// coproduct names no vertex, and
     /// the first [`SchemaError::KeyConflict`] or
     /// [`SchemaError::ReferenceConflict`] recorded by [`Self::key`] or
     /// [`Self::reference`].
@@ -419,6 +444,16 @@ impl SchemaBuilder {
             .find(|e| !self.vertices.contains_key(*e))
         {
             return Err(SchemaError::UnknownEntryVertex(bad.to_string()));
+        }
+        // Every arm and every coproduct it injects into is a vertex.
+        if let Some(bad) = self
+            .variants
+            .values()
+            .flatten()
+            .flat_map(|variant| [&variant.parent_vertex, &variant.id])
+            .find(|vertex| !self.vertices.contains_key(*vertex))
+        {
+            return Err(SchemaError::UnknownVariantVertex(bad.to_string()));
         }
 
         // Build edge map.
@@ -455,7 +490,7 @@ impl SchemaBuilder {
             required: self.required,
             nsids: self.nsids,
             entries: self.entries,
-            variants: HashMap::new(),
+            variants: self.variants,
             orderings: HashMap::new(),
             recursion_points: HashMap::new(),
             spans: HashMap::new(),
@@ -478,6 +513,37 @@ impl SchemaBuilder {
 mod tests {
     use super::*;
     use crate::protocol::EdgeRule;
+
+    /// A variant arm, or the coproduct it injects into, that names no
+    /// vertex is refused at build; declared arms keep their order.
+    #[test]
+    fn variant_endpoints_must_be_vertices() -> Result<(), SchemaError> {
+        let protocol = Protocol::default();
+        let base = || {
+            SchemaBuilder::new(&protocol)
+                .vertex("u", "union", None)
+                .and_then(|b| b.vertex("a", "object", None))
+        };
+        let schema = base()?
+            .variant("u", "a", Some("x"))
+            .variant("u", "u", None)
+            .build()?;
+        let arms: Vec<&str> = schema
+            .variants_of("u")
+            .iter()
+            .map(|arm| arm.id.as_ref())
+            .collect();
+        assert_eq!(arms, ["a", "u"]);
+        assert!(matches!(
+            base()?.variant("u", "ghost", None).build(),
+            Err(SchemaError::UnknownVariantVertex(name)) if name == "ghost"
+        ));
+        assert!(matches!(
+            base()?.variant("nowhere", "a", None).build(),
+            Err(SchemaError::UnknownVariantVertex(name)) if name == "nowhere"
+        ));
+        Ok(())
+    }
 
     /// Build a minimal ATProto-like protocol for testing.
     fn atproto_protocol() -> Protocol {

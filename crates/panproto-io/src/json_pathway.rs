@@ -881,10 +881,44 @@ fn canonical_anchor_for_route<'a>(
         return Err(format!("schema route '{route}' is not a declared vertex"));
     }
     if format == "JSON" && !node.is_list() && schema.has_vertex(route) {
-        resolve_transparent_indirection_checked(schema, route)
+        canonical_union_anchor(schema, route, node)
     } else {
         Ok(route)
     }
+}
+
+/// The anchor the JSON reader gives `node` read at `route`: `route`
+/// through its transparent indirections and, at a union, through the arm
+/// the node's `$type` selects, the reader's [`resolve_union_route`]. A
+/// node read whole carries its `$type` in its value; any other carries
+/// it as its discriminator.
+fn canonical_union_anchor<'a>(
+    schema: &'a Schema,
+    route: &'a str,
+    node: &Node,
+) -> Result<&'a str, String> {
+    let tag = node.discriminator.as_deref().or_else(|| match &node.value {
+        Some(FieldPresence::Present(Value::Unknown(fields))) => match fields.get("$type") {
+            Some(Value::Str(tag)) => Some(tag.as_str()),
+            _ => None,
+        },
+        _ => None,
+    });
+    let mut anchor = resolve_transparent_indirection_checked(schema, route)?;
+    let mut unions = HashSet::new();
+    while !schema.variants_of(anchor).is_empty() {
+        let Some(tag) = tag else {
+            return Err(format!(
+                "a node at union '{anchor}' carries no `$type` to select an arm"
+            ));
+        };
+        let arm = schema
+            .variant_for_tag(anchor, tag)
+            .filter(|_| unions.insert(anchor))
+            .ok_or_else(|| format!("no arm of union '{anchor}' reads `$type` {tag:?}"))?;
+        anchor = resolve_transparent_indirection_checked(schema, &arm.id)?;
+    }
+    Ok(anchor)
 }
 
 fn xml_parser_child_route(schema: &Schema, parent: &str, tag: &str) -> Option<Name> {
@@ -958,6 +992,59 @@ fn read_structured_value(
     Ok(true)
 }
 
+/// The vertex a value read at `route` is anchored at: `route` through its
+/// transparent indirections, and, while that is a union, the arm the
+/// value's `$type` selects through its own. A value at a union must be an
+/// object whose `$type` an arm reads, as [`Schema::variant_for_tag`]
+/// selects; any other value is refused, and so is a cycle of unions that
+/// selects no value-bearing vertex.
+fn resolve_union_route<'a>(
+    schema: &'a Schema,
+    protocol: &Protocol,
+    route: &'a str,
+    raw: &RawJson<'_>,
+) -> Result<&'a str, ParseInstanceError> {
+    let mut anchor = resolve_transparent_indirection(schema, route);
+    let mut unions = HashSet::new();
+    while !schema.variants_of(anchor).is_empty() {
+        let (tag, offset) = match raw {
+            RawJson::Object { fields, offset } => (
+                fields
+                    .iter()
+                    .rev()
+                    .find(|(key, _)| key == "$type")
+                    .and_then(|(_, value)| match value {
+                        RawJson::String { value, .. } => Some(value.as_str()),
+                        _ => None,
+                    }),
+                Some(*offset),
+            ),
+            RawJson::Array { offset, .. }
+            | RawJson::Bool { offset, .. }
+            | RawJson::Number { offset, .. }
+            | RawJson::String { offset, .. } => (None, Some(*offset)),
+            RawJson::Null => (None, None),
+        };
+        let refusal = || ParseInstanceError::NoUnionVariant {
+            protocol: protocol.name.clone(),
+            union: anchor.to_owned(),
+            found: tag.map(str::to_owned),
+            byte_offset: offset.and_then(|offset| u64::try_from(offset).ok()),
+        };
+        let Some(tag) = tag else {
+            return Err(refusal());
+        };
+        if !unions.insert(anchor) {
+            return Err(refusal());
+        }
+        let Some(arm) = schema.variant_for_tag(anchor, tag) else {
+            return Err(refusal());
+        };
+        anchor = resolve_transparent_indirection(schema, &arm.id);
+    }
+    Ok(anchor)
+}
+
 fn walk_raw_json(
     schema: &Schema,
     protocol: &Protocol,
@@ -966,7 +1053,7 @@ fn walk_raw_json(
     node_id: u32,
     state: &mut BuildState,
 ) -> Result<(), ParseInstanceError> {
-    let anchor = resolve_transparent_indirection(schema, vertex);
+    let anchor = resolve_union_route(schema, protocol, vertex, raw)?;
     if read_structured_value(schema, protocol, anchor, raw, node_id, state)? {
         return Ok(());
     }

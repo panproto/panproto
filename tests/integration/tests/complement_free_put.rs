@@ -19,6 +19,12 @@
 //! and `arc_order`, which are functions of the view's shape). An `arc_edges`
 //! entry is residue exactly when the view does not determine the source edge.
 //! Only the residue bears on whether `C ≅ 1`.
+//!
+//! The tree isomorphism classifier is certified on the transform-free
+//! fragment: a value transform is an obstruction even when it declares an
+//! inverse, since nothing checks that the declared inverse inverts it. So
+//! the reconstruction tests below use a transform-free lens, and a
+//! transform with a declared inverse is refused like any other.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -131,8 +137,8 @@ fn lens_with(schema: &Schema, transforms: Vec<FieldTransform>) -> Lens {
     }
 }
 
-/// `v -> v + 1`, inverse `v - 1`: a bijection on the integers, so the
-/// complement it produces is terminal.
+/// `v -> v + 1`, with the declared inverse `v - 1`: a bijection on the
+/// integers, though the classifier does not certify the declared inverse.
 fn shift_lens(schema: &Schema) -> Lens {
     lens_with(
         schema,
@@ -191,14 +197,14 @@ fn an_identity_lens_has_a_terminal_complement() {
 #[test]
 fn reconstruction_recovers_the_source() {
     let schema = pair_schema();
-    let lens = shift_lens(&schema);
+    let lens = lens_with(&schema, vec![]);
     let source = instance(&schema, 5, 7);
 
     let (view, _) = get(&lens, &source).expect("get");
     assert_eq!(
         to_json(&schema, &view),
-        serde_json::json!({"v": 6, "w": 7}),
-        "the forward direction shifts v"
+        serde_json::json!({"v": 5, "w": 7}),
+        "the forward direction keeps both fields"
     );
 
     let restored = put_without_complement(&lens, &view).expect("the lens is an isomorphism");
@@ -214,7 +220,7 @@ fn reconstruction_recovers_the_source() {
 #[test]
 fn reconstruction_is_a_two_sided_inverse() {
     let schema = pair_schema();
-    let lens = shift_lens(&schema);
+    let lens = lens_with(&schema, vec![]);
 
     for (v, w) in [(0, 0), (5, 7), (-3, 12), (i64::MAX - 1, 0)] {
         let source = instance(&schema, v, w);
@@ -240,7 +246,7 @@ fn reconstruction_is_a_two_sided_inverse() {
 #[test]
 fn reconstruction_agrees_with_the_complement_carrying_put() {
     let schema = pair_schema();
-    let lens = shift_lens(&schema);
+    let lens = lens_with(&schema, vec![]);
     let source = instance(&schema, 5, 7);
 
     let (view, complement) = get(&lens, &source).expect("get");
@@ -308,8 +314,8 @@ fn a_non_injective_transform_defeats_reconstruction() {
 
     match put_without_complement(&lens, &view) {
         Err(LensError::NotAnIsomorphism { detail }) => assert!(
-            detail.contains("Retraction"),
-            "the refusal names the coercion class that is not injective: {detail}"
+            detail.contains("`root`") && detail.contains("value transforms"),
+            "the refusal names the vertex whose transform obstructs: {detail}"
         ),
         other => panic!("expected a refusal naming the transform, got {other:?}"),
     }
@@ -349,6 +355,33 @@ fn refusal_does_not_depend_on_the_particular_record() {
             "a lens is invertible or not; it is not invertible at some records"
         );
     }
+}
+
+/// A transform with a declared inverse is still outside the certified
+/// transform-free fragment, so complement-free put refuses it, naming the
+/// vertex, while the complement-carrying put still restores the source.
+#[test]
+fn a_declared_inverse_is_not_certified_for_reconstruction() {
+    let schema = pair_schema();
+    let lens = shift_lens(&schema);
+    assert!(!lens.is_isomorphism());
+
+    let source = instance(&schema, 5, 7);
+    let (view, complement) = get(&lens, &source).expect("get");
+    assert_eq!(
+        to_json(&schema, &view),
+        serde_json::json!({"v": 6, "w": 7}),
+        "the forward direction shifts v"
+    );
+    match put_without_complement(&lens, &view) {
+        Err(LensError::NotAnIsomorphism { detail }) => assert!(
+            detail.contains("`root`") && detail.contains("value transforms"),
+            "the refusal names the vertex whose transform obstructs: {detail}"
+        ),
+        other => panic!("expected a refusal naming the transform, got {other:?}"),
+    }
+    let restored = put(&lens, &view, &complement).expect("put");
+    assert!(panproto_lens::instances_equivalent(&source, &restored));
 }
 
 // ---------------------------------------------------------------------------

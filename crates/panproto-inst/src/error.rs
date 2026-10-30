@@ -632,6 +632,17 @@ pub enum RestrictError {
         /// Its first violation.
         reason: FanViolation,
     },
+
+    /// The source schema's key and reference declarations are ill formed,
+    /// so no plan is compiled for it. Every violation of
+    /// [`panproto_schema::validate_declarations`], in its order.
+    #[error("the source schema's declarations are ill formed: {0:?}")]
+    SourceDeclarations(Vec<panproto_schema::KeyRefError>),
+
+    /// The target schema's key and reference declarations are ill formed,
+    /// checked after the source schema's.
+    #[error("the target schema's declarations are ill formed: {0:?}")]
+    TargetDeclarations(Vec<panproto_schema::KeyRefError>),
 }
 
 /// The place of a non-conforming row's violation in its message: ` at
@@ -669,6 +680,19 @@ pub enum ParseError {
         path: String,
         /// Details.
         detail: String,
+    },
+
+    /// A value at a union names no arm of it: its `$type` is one no arm
+    /// is tagged with and the union has no untagged arm, or it carries no
+    /// `$type`, as a value that is not an object never does.
+    #[error("no arm of union {union} reads the value at path {path} (`$type` {found:?})")]
+    NoUnionVariant {
+        /// JSON path where the error occurred.
+        path: String,
+        /// The union vertex.
+        union: String,
+        /// The value's `$type`, absent when it carries none.
+        found: Option<String>,
     },
 
     /// A value could not be parsed.

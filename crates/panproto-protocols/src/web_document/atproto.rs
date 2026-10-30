@@ -637,12 +637,20 @@ fn parse_def_bodies(
 }
 
 /// Resolve a lexicon `ref` string (`"#frag"`, `"nsid"`, or `"nsid#frag"`)
-/// to the full vertex id used by the schema graph.
+/// to the full vertex id used by the schema graph, which is also the
+/// `$type` a value of the referenced def carries. A `main` def is named
+/// by its bare NSID, so a `#main` fragment resolves to the NSID: the
+/// Lexicon specification names a `main` def in `$type` "as just the
+/// NSID, not including a `#main` suffix".
 fn resolve_ref_target(lexicon_id: &str, ref_target: &str) -> String {
-    if let Some(frag) = ref_target.strip_prefix('#') {
+    let full = if let Some(frag) = ref_target.strip_prefix('#') {
         format!("{lexicon_id}#{frag}")
     } else {
         ref_target.to_owned()
+    };
+    match full.strip_suffix("#main") {
+        Some(nsid) => nsid.to_owned(),
+        None => full,
     }
 }
 
@@ -825,36 +833,51 @@ fn parse_array_def(
     Ok(builder)
 }
 
-/// Parse a union definition, creating variant edges.
+/// Parse a union definition, creating its variant arms.
 ///
 /// A lexicon union is a coproduct `⊔_i T_i` where each `T_i` is the
-/// sort referenced by `refs[i]`. In the schema graph we realize the
-/// coproduct injections as pairs: a synthetic variant vertex carrying
-/// the discriminant, and a `ref` morphism from that vertex to the
-/// referenced sort. The variant edge remembers the lexicon discriminant
-/// string in its `name`, and the ref edge restores reachability from
-/// the union to the underlying sort so downstream machinery sees a
-/// connected signature.
+/// sort referenced by `refs[i]`. Each coproduct injection is a synthetic
+/// variant vertex of kind `"ref"` with a `ref` morphism to the
+/// referenced sort, so the variant stands for that sort, and a `variant`
+/// edge from the union named by the lexicon ref string, so the union
+/// reaches every sort and the lexicon emits back. Each arm is declared
+/// a variant of the union, tagged with the `$type` a value of that sort
+/// carries: the referenced def's full name, a `main` def by its bare
+/// NSID.
+///
+/// A union is open unless it sets `closed: true`. The Lexicon
+/// specification has an open union admit types beyond its refs, since a
+/// later revision of the schema may add them, and has implementations
+/// "be permissive when validating" such data; a union with no refs is
+/// "similar to `unknown`". An open union therefore also has an untagged
+/// arm of kind `"unknown"`, which reads a value whose `$type` names no
+/// ref as one opaque value, as an `unknown` field does.
 fn parse_union_def(
     mut builder: SchemaBuilder,
     union_id: &str,
     def: &serde_json::Value,
     lexicon_id: &str,
 ) -> Result<SchemaBuilder, ProtocolError> {
+    let closed = def.get("closed").and_then(serde_json::Value::as_bool);
+    if let Some(closed) = closed {
+        builder = builder.constraint(union_id, "closed", if closed { "true" } else { "false" });
+    }
     if let Some(refs) = def.get("refs").and_then(serde_json::Value::as_array) {
         for (i, ref_val) in refs.iter().enumerate() {
             if let Some(ref_str) = ref_val.as_str() {
                 let variant_id = format!("{union_id}:variant{i}");
-                // The variant vertex is a stand-in for the coproduct
-                // injection. Kind `"object"` reflects that in the
-                // absence of resolution it exposes the same observables
-                // as an object; the `ref` edge below then ties it to
-                // the actual target sort.
-                builder = builder.vertex(&variant_id, "object", None)?;
+                builder = builder.vertex(&variant_id, "ref", None)?;
                 builder = builder.edge(union_id, &variant_id, "variant", Some(ref_str))?;
                 builder = add_ref_edge(builder, &variant_id, lexicon_id, ref_str)?;
+                let tag = resolve_ref_target(lexicon_id, ref_str);
+                builder = builder.variant(union_id, &variant_id, Some(&tag));
             }
         }
+    }
+    if closed != Some(true) {
+        let open_id = format!("{union_id}:open");
+        builder = builder.vertex(&open_id, "unknown", None)?;
+        builder = builder.variant(union_id, &open_id, None);
     }
     Ok(builder)
 }
@@ -1089,6 +1112,11 @@ fn emit_lexicon_def(
                 .collect();
             if !refs.is_empty() {
                 obj.insert("refs".to_string(), serde_json::Value::Array(refs));
+            }
+            for c in crate::emit::vertex_constraints(schema, &vertex.id) {
+                if c.sort.as_ref() == "closed" {
+                    obj.insert("closed".to_string(), emit_constraint_value(c));
+                }
             }
 
             Ok(serde_json::Value::Object(obj))
@@ -1569,6 +1597,97 @@ mod tests {
     /// branch's target sort. The union-as-coproduct `⊔ᵢ Tᵢ` is
     /// realized by injection-labelled variant vertices plus a
     /// morphism from each variant to its branch.
+    /// Each union arm is declared a variant tagged with the `$type` its
+    /// values carry, a `main` def by its bare NSID; its vertex is a `ref`
+    /// standing for the referenced def. An open union also has an untagged
+    /// `unknown` arm and a closed one has none, and both emit back with
+    /// their `closed` flag.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn union_arms_are_tagged_variants_and_only_open_unions_have_an_open_arm() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.msg",
+            "defs": {
+                "main": {"type": "record", "record": {"type": "object", "properties": {
+                    "open": {"type": "union", "refs": ["#a", "com.example.other#main", "com.example.other#b"]},
+                    "shut": {"type": "union", "refs": ["#a"], "closed": true}
+                }}},
+                "a": {"type": "object", "properties": {}}
+            }
+        });
+        let schema = parse_lexicon(&lexicon).expect("parse");
+        let tags = |union: &str| {
+            schema
+                .variants_of(union)
+                .iter()
+                .map(|arm| {
+                    (
+                        arm.id.to_string(),
+                        arm.tag.as_ref().map(ToString::to_string),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let open = "com.example.msg:body.open";
+        assert_eq!(
+            tags(open),
+            vec![
+                (
+                    format!("{open}:variant0"),
+                    Some("com.example.msg#a".to_owned())
+                ),
+                (
+                    format!("{open}:variant1"),
+                    Some("com.example.other".to_owned())
+                ),
+                (
+                    format!("{open}:variant2"),
+                    Some("com.example.other#b".to_owned())
+                ),
+                (format!("{open}:open"), None),
+            ]
+        );
+        let shut = "com.example.msg:body.shut";
+        assert_eq!(
+            tags(shut),
+            vec![(
+                format!("{shut}:variant0"),
+                Some("com.example.msg#a".to_owned())
+            )]
+        );
+        for i in 0..3 {
+            assert_eq!(
+                &*schema.vertices[format!("{open}:variant{i}").as_str()].kind,
+                "ref"
+            );
+        }
+        assert_eq!(
+            &*schema.vertices[format!("{open}:open").as_str()].kind,
+            "unknown"
+        );
+        assert!(
+            schema.has_vertex("com.example.other"),
+            "`#main` names the bare NSID"
+        );
+        assert_eq!(
+            schema
+                .variant_for_tag(open, "com.example.unnamed")
+                .map(|arm| arm.id.to_string()),
+            Some(format!("{open}:open"))
+        );
+        assert!(
+            schema
+                .variant_for_tag(shut, "com.example.unnamed")
+                .is_none()
+        );
+
+        let emitted = emit_lexicon(&schema).expect("emit");
+        let properties = &emitted["defs"]["main"]["record"]["properties"];
+        assert_eq!(properties["shut"]["closed"], serde_json::json!(true));
+        assert!(properties["open"].get("closed").is_none());
+    }
+
     #[test]
     #[allow(clippy::expect_used)]
     fn union_variants_emit_ref_morphisms() {

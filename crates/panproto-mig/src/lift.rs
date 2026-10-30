@@ -713,16 +713,32 @@ mod tests {
             kind: "prop".into(),
             name: Some("text".into()),
         };
+        // The text's `$lang` attribute, declared in every schema so the
+        // instance's extra field is one its vertex declares.
+        let edge_lang = Edge {
+            src: "body.text".into(),
+            tgt: "body.text.lang".into(),
+            kind: "prop".into(),
+            name: Some("$lang".into()),
+        };
+        let edge_lang_renamed = Edge {
+            src: "post.text".into(),
+            tgt: "post.text.lang".into(),
+            kind: "prop".into(),
+            name: Some("$lang".into()),
+        };
 
         // Schema 1: body + body.text + body.createdAt (source, not used directly)
         let s1 = test_schema(
             &[
                 ("body", "object"),
                 ("body.text", "string"),
+                ("body.text.lang", "string"),
                 ("body.createdAt", "string"),
             ],
             &[
                 edge_text.clone(),
+                edge_lang.clone(),
                 Edge {
                     src: "body".into(),
                     tgt: "body.createdAt".into(),
@@ -734,8 +750,12 @@ mod tests {
 
         // Schema 2: body + body.text (drop createdAt)
         let s2 = test_schema(
-            &[("body", "object"), ("body.text", "string")],
-            std::slice::from_ref(&edge_text),
+            &[
+                ("body", "object"),
+                ("body.text", "string"),
+                ("body.text.lang", "string"),
+            ],
+            &[edge_text.clone(), edge_lang.clone()],
         );
 
         // Schema 3: post + post.text (rename body -> post)
@@ -746,14 +766,22 @@ mod tests {
             name: Some("text".into()),
         };
         let s3 = test_schema(
-            &[("post", "object"), ("post.text", "string")],
-            std::slice::from_ref(&edge_text_renamed),
+            &[
+                ("post", "object"),
+                ("post.text", "string"),
+                ("post.text.lang", "string"),
+            ],
+            &[edge_text_renamed.clone(), edge_lang_renamed.clone()],
         );
 
         // Migration m1: s1 -> s2 (drop createdAt)
         let m1 = CompiledMigration {
-            surviving_verts: HashSet::from(["body".into(), "body.text".into()]),
-            surviving_edges: HashSet::from([edge_text.clone()]),
+            surviving_verts: HashSet::from([
+                "body".into(),
+                "body.text".into(),
+                "body.text.lang".into(),
+            ]),
+            surviving_edges: HashSet::from([edge_text.clone(), edge_lang.clone()]),
             vertex_remap: HashMap::new(),
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
@@ -766,13 +794,21 @@ mod tests {
 
         // Migration m2: s2 -> s3 (rename body->post, body.text->post.text)
         let m2 = CompiledMigration {
-            surviving_verts: HashSet::from(["post".into(), "post.text".into()]),
-            surviving_edges: HashSet::from([edge_text_renamed.clone()]),
+            surviving_verts: HashSet::from([
+                "post".into(),
+                "post.text".into(),
+                "post.text.lang".into(),
+            ]),
+            surviving_edges: HashSet::from([edge_text_renamed.clone(), edge_lang_renamed.clone()]),
             vertex_remap: HashMap::from([
                 ("body".into(), "post".into()),
                 ("body.text".into(), "post.text".into()),
+                ("body.text.lang".into(), "post.text.lang".into()),
             ]),
-            edge_remap: HashMap::from([(edge_text.clone(), edge_text_renamed.clone())]),
+            edge_remap: HashMap::from([
+                (edge_text.clone(), edge_text_renamed.clone()),
+                (edge_lang.clone(), edge_lang_renamed.clone()),
+            ]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
@@ -783,21 +819,29 @@ mod tests {
 
         // Composed m12: s1 -> s3 directly
         let m12 = CompiledMigration {
-            surviving_verts: HashSet::from(["post".into(), "post.text".into()]),
-            surviving_edges: HashSet::from([edge_text_renamed]),
+            surviving_verts: HashSet::from([
+                "post".into(),
+                "post.text".into(),
+                "post.text.lang".into(),
+            ]),
+            surviving_edges: HashSet::from([edge_text_renamed, edge_lang_renamed.clone()]),
             vertex_remap: HashMap::from([
                 ("body".into(), "post".into()),
                 ("body.text".into(), "post.text".into()),
+                ("body.text.lang".into(), "post.text.lang".into()),
             ]),
-            edge_remap: HashMap::from([(
-                edge_text,
-                Edge {
-                    src: "post".into(),
-                    tgt: "post.text".into(),
-                    kind: "prop".into(),
-                    name: Some("text".into()),
-                },
-            )]),
+            edge_remap: HashMap::from([
+                (
+                    edge_text,
+                    Edge {
+                        src: "post".into(),
+                        tgt: "post.text".into(),
+                        kind: "prop".into(),
+                        name: Some("text".into()),
+                    },
+                ),
+                (edge_lang, edge_lang_renamed),
+            ]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),

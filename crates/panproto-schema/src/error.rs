@@ -91,6 +91,11 @@ pub enum SchemaError {
     #[error("entry vertex not found: {0}")]
     UnknownEntryVertex(String),
 
+    /// A declared variant arm, or the coproduct vertex it injects into,
+    /// does not exist in the schema.
+    #[error("variant vertex not found: {0}")]
+    UnknownVariantVertex(String),
+
     /// `SchemaBuilder::build_abstract` was called on a builder that
     /// has accumulated constraints in the layout enrichment fibre.
     /// Abstract schemas must carry no layout witnesses; call

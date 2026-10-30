@@ -352,6 +352,25 @@ impl Schema {
         &self.entries
     }
 
+    /// The arms of the coproduct vertex `vertex`, in declaration order;
+    /// empty when `vertex` is not a coproduct.
+    #[must_use]
+    pub fn variants_of(&self, vertex: &str) -> &[Variant] {
+        self.variants.get(vertex).map_or(&[], Vec::as_slice)
+    }
+
+    /// The arm of the coproduct vertex `union` that reads a value whose
+    /// discriminant is `tag`: the first arm tagged `tag`, else the first
+    /// untagged arm, which reads every discriminant no tagged arm claims,
+    /// else none.
+    #[must_use]
+    pub fn variant_for_tag(&self, union: &str, tag: &str) -> Option<&Variant> {
+        let arms = self.variants_of(union);
+        arms.iter()
+            .find(|arm| arm.tag.as_deref() == Some(tag))
+            .or_else(|| arms.iter().find(|arm| arm.tag.is_none()))
+    }
+
     /// Return every constraint attached to the given vertex.
     ///
     /// Tree-sitter-derived schemas attach byte ranges, interstitials,

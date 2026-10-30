@@ -324,8 +324,21 @@ impl LensShape for TreeShape {
         left == right
     }
 
-    fn synth_index(_: &Tree, complement: &TreeLawComplement) -> SynthIndex {
-        tree_synth_index(complement)
+    /// The synthesized identities of the elements `instance` holds: its
+    /// synthesized nodes, and the synthesized arcs whose child it holds
+    /// under the complement's embedding. Entries for elements a view no
+    /// longer holds (a removed contraction endpoint, say) identify nothing
+    /// in it, so they are left out, as the graph shape leaves them out.
+    fn synth_index(instance: &Tree, complement: &TreeLawComplement) -> SynthIndex {
+        let mut index = tree_synth_index(complement);
+        index.nodes.retain(|id, _| instance.nodes.contains_key(id));
+        let held_arcs: BTreeSet<u32> = instance
+            .arcs
+            .iter()
+            .filter_map(|(_, child, _)| complement.embedding.arcs.get(child).copied())
+            .collect();
+        index.edges.retain(|id, _| held_arcs.contains(id));
+        index
     }
 
     fn equivalent(

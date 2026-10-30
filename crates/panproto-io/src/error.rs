@@ -158,6 +158,24 @@ pub enum ParseInstanceError {
         byte_offset: Option<u64>,
     },
 
+    /// A value at a union names no arm of it: its discriminant is one no
+    /// arm is tagged with and the union has no untagged arm, or it carries
+    /// no discriminant at all, as a value that is not an object never
+    /// does.
+    #[error(
+        "no arm of union '{union}' reads the value at byte {byte_offset:?} for protocol '{protocol}' (discriminant {found:?})"
+    )]
+    NoUnionVariant {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// The union vertex.
+        union: String,
+        /// The value's discriminant, absent when it carries none.
+        found: Option<String>,
+        /// Zero-based offset of the value.
+        byte_offset: Option<u64>,
+    },
+
     /// The parsed data does not conform to the provided schema.
     #[error("schema mismatch for protocol '{protocol}': {message}")]
     SchemaMismatch {

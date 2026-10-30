@@ -229,3 +229,238 @@ fn opaque_data_is_one_value_in_both_readers() -> TestResult {
     }
     Ok(())
 }
+
+/// Real posts with an embed, one per kind the committed lexicon's `embed`
+/// union names, and one whose embed kind it does not name.
+const EMBED_POSTS: [(&str, &[u8]); 6] = [
+    (
+        "post-embed-images",
+        include_bytes!("../../../fixtures/atproto/records/post-embed-images.json"),
+    ),
+    (
+        "post-embed-external",
+        include_bytes!("../../../fixtures/atproto/records/post-embed-external.json"),
+    ),
+    (
+        "post-embed-record",
+        include_bytes!("../../../fixtures/atproto/records/post-embed-record.json"),
+    ),
+    (
+        "post-embed-record-with-media",
+        include_bytes!("../../../fixtures/atproto/records/post-embed-record-with-media.json"),
+    ),
+    (
+        "post-embed-video",
+        include_bytes!("../../../fixtures/atproto/records/post-embed-video.json"),
+    ),
+    (
+        "post-embed-gallery",
+        include_bytes!("../../../fixtures/atproto/records/post-embed-gallery.json"),
+    ),
+];
+
+/// Read `record` through the codec and through the schema parse, check
+/// the two readings agree and validate, and that both write the record
+/// back.
+fn reads_validates_and_writes_back(
+    name: &str,
+    schema: &Schema,
+    root: &str,
+    record: &serde_json::Value,
+) -> TestResult {
+    let protocol = atproto::protocol();
+    let registry = panproto_core::io::default_registry();
+    let bytes = serde_json::to_vec(record)?;
+    let through_codec = registry.parse_wtype("atproto", schema, &bytes)?;
+    let through_schema = panproto_core::inst::parse_json(schema, &protocol, root, record)?;
+    assert_eq!(
+        serde_json::to_value(&through_codec)?,
+        serde_json::to_value(&through_schema)?,
+        "{name}"
+    );
+    let report = validate_wtype(&through_codec, schema, &protocol);
+    assert_eq!(
+        report.status,
+        CheckStatus::Passed,
+        "{name}: {:?} {:?}",
+        report.diagnostics,
+        report.incomplete
+    );
+    let emitted: serde_json::Value =
+        serde_json::from_slice(&registry.emit_wtype("atproto", schema, &through_codec)?)?;
+    assert_eq!(&emitted, record, "{name}");
+    assert_eq!(
+        &panproto_core::inst::to_json(schema, &through_schema),
+        record,
+        "{name}"
+    );
+    Ok(())
+}
+
+/// A post's `embed` is an open union. Each embed is read through the arm
+/// its `$type` names, an embed kind the lexicon does not name through the
+/// open union's catch-all arm, and every post validates and writes back.
+#[test]
+fn real_posts_with_embeds_validate_and_write_back() -> TestResult {
+    let schema = feed_post()?;
+    for (name, bytes) in EMBED_POSTS {
+        let record: serde_json::Value = serde_json::from_slice(bytes)?;
+        reads_validates_and_writes_back(name, &schema, "app.bsky.feed.post", &record)?;
+    }
+    let gallery: serde_json::Value = serde_json::from_slice(EMBED_POSTS[5].1)?;
+    let instance = panproto_core::inst::parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post",
+        &gallery,
+    )?;
+    assert!(
+        instance
+            .nodes
+            .values()
+            .any(|node| node.anchor.as_ref() == "app.bsky.feed.post:body.embed:open"),
+        "an embed kind the union does not name is read by its open arm"
+    );
+    Ok(())
+}
+
+/// A lexicon with an open union of an in-document object and a closed
+/// union of the same object.
+fn union_lexicon() -> Result<Schema, Box<dyn Error>> {
+    Ok(atproto::parse_lexicon(&serde_json::json!({
+        "lexicon": 1,
+        "id": "com.example.pick",
+        "defs": {
+            "main": {"type": "record", "key": "tid", "record": {
+                "type": "object",
+                "properties": {
+                    "open": {"type": "union", "refs": ["#local"]},
+                    "shut": {"type": "union", "refs": ["#local"], "closed": true}
+                }
+            }},
+            "local": {
+                "type": "object",
+                "required": ["n"],
+                "properties": {"n": {"type": "integer"}}
+            }
+        }
+    }))?)
+}
+
+/// An in-document arm is read as the object it refers to, at either kind
+/// of union.
+#[test]
+fn an_in_document_arm_reads_as_its_object() -> TestResult {
+    let schema = union_lexicon()?;
+    for field in ["open", "shut"] {
+        let record = serde_json::json!({
+            "$type": "com.example.pick",
+            field: {"$type": "com.example.pick#local", "n": 3}
+        });
+        reads_validates_and_writes_back(field, &schema, "com.example.pick", &record)?;
+        let instance = panproto_core::inst::parse_json(
+            &schema,
+            &atproto::protocol(),
+            "com.example.pick",
+            &record,
+        )?;
+        assert!(
+            instance
+                .nodes
+                .values()
+                .any(|node| node.anchor.as_ref() == "com.example.pick#local"),
+            "{field}"
+        );
+    }
+    Ok(())
+}
+
+/// A closed union refuses a `$type` none of its refs names, and every
+/// union refuses a value with no `$type`, as an object without one or a
+/// value that is not an object. Both readers refuse alike.
+#[test]
+fn a_value_no_arm_reads_is_refused() -> TestResult {
+    let schema = union_lexicon()?;
+    let protocol = atproto::protocol();
+    let registry = panproto_core::io::default_registry();
+    for (field, value, found) in [
+        (
+            "shut",
+            serde_json::json!({"$type": "com.example.other", "n": 3}),
+            Some("com.example.other"),
+        ),
+        ("shut", serde_json::json!({"n": 3}), None),
+        ("open", serde_json::json!({"n": 3}), None),
+        ("open", serde_json::json!(3), None),
+    ] {
+        let record = serde_json::json!({"$type": "com.example.pick", field: value});
+        let union = format!("com.example.pick:body.{field}");
+        match registry.parse_wtype("atproto", &schema, &serde_json::to_vec(&record)?) {
+            Err(panproto_core::io::ParseInstanceError::NoUnionVariant {
+                union: refused,
+                found: seen,
+                ..
+            }) => {
+                assert_eq!(refused, union, "{record}");
+                assert_eq!(seen.as_deref(), found, "{record}");
+            }
+            other => panic!("{record}: the codec read {other:?}"),
+        }
+        match panproto_core::inst::parse_json(&schema, &protocol, "com.example.pick", &record) {
+            Err(panproto_core::inst::ParseError::NoUnionVariant {
+                union: refused,
+                found: seen,
+                ..
+            }) => {
+                assert_eq!(refused, union, "{record}");
+                assert_eq!(seen.as_deref(), found, "{record}");
+            }
+            other => panic!("{record}: the schema parse read {other:?}"),
+        }
+    }
+    // The open union reads an unnamed `$type` whole through its open arm.
+    let record = serde_json::json!({
+        "$type": "com.example.pick",
+        "open": {"$type": "com.example.other", "n": 3}
+    });
+    reads_validates_and_writes_back("open", &schema, "com.example.pick", &record)
+}
+
+/// The codec writes a union value only where its reader reads it back: a
+/// value at the open arm whose `$type` names a tagged arm, or that carries
+/// no `$type`, has no faithful form and is refused.
+#[test]
+fn a_value_its_union_would_read_elsewhere_is_not_written() -> TestResult {
+    use panproto_core::inst::{FieldPresence, Value};
+    let schema = feed_post()?;
+    let registry = panproto_core::io::default_registry();
+    let instance = registry.parse_wtype("atproto", &schema, EMBED_POSTS[5].1)?;
+    let (open, fields) = instance
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.value {
+            Some(FieldPresence::Present(Value::Unknown(fields)))
+                if node.anchor.as_ref() == "app.bsky.feed.post:body.embed:open" =>
+            {
+                Some((*id, fields.clone()))
+            }
+            _ => None,
+        })
+        .ok_or("the gallery embed is read at the open arm")?;
+    for tag in [Some("app.bsky.embed.images"), None] {
+        let mut moved = instance.clone();
+        let mut value = fields.clone();
+        match tag {
+            Some(tag) => value.insert("$type".to_owned(), Value::Str(tag.to_owned())),
+            None => value.remove("$type"),
+        };
+        if let Some(node) = moved.nodes.get_mut(&open) {
+            node.value = Some(FieldPresence::Present(Value::Unknown(value)));
+        }
+        assert!(
+            registry.emit_wtype("atproto", &schema, &moved).is_err(),
+            "{tag:?}"
+        );
+    }
+    Ok(())
+}

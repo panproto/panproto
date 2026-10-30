@@ -103,6 +103,40 @@ fn holds_any_value(schema: &Schema, protocol: &Protocol, vertex: &str) -> bool {
     })
 }
 
+/// The vertex a value read at `route` is read from: `route` through its
+/// transparent indirections and, while that is a union, the arm the
+/// value's `$type` selects through its own, as the JSON codec reads it;
+/// `route` itself when it reaches no union. A value at a union must be an
+/// object whose `$type` an arm reads, as [`Schema::variant_for_tag`]
+/// selects; any other value is refused, and so is a cycle of unions.
+fn resolve_union_route<'a>(
+    schema: &'a Schema,
+    route: &'a str,
+    json_val: &serde_json::Value,
+    path: &str,
+) -> Result<&'a str, ParseError> {
+    let mut anchor = resolve_transparent_indirection(schema, route);
+    let mut unions = std::collections::HashSet::new();
+    while !schema.variants_of(anchor).is_empty() {
+        let tag = json_val
+            .as_object()
+            .and_then(|map| map.get("$type"))
+            .and_then(serde_json::Value::as_str);
+        let arm = tag
+            .filter(|_| unions.insert(anchor))
+            .and_then(|tag| schema.variant_for_tag(anchor, tag))
+            .ok_or_else(|| ParseError::NoUnionVariant {
+                path: path.to_owned(),
+                union: anchor.to_owned(),
+                found: tag.map(str::to_owned),
+            })?;
+        anchor = resolve_transparent_indirection(schema, &arm.id);
+    }
+    // With no union crossed, the route is read as it always was; its
+    // readers resolve the indirections they follow themselves.
+    Ok(if unions.is_empty() { route } else { anchor })
+}
+
 /// Recursive JSON walker.
 fn walk_json(
     schema: &Schema,
@@ -116,6 +150,7 @@ fn walk_json(
     let _vertex = schema
         .vertex(vertex_id)
         .ok_or_else(|| ParseError::RootVertexNotFound(vertex_id.to_string()))?;
+    let vertex_id = resolve_union_route(schema, vertex_id, json_val, path)?;
 
     match json_val {
         serde_json::Value::Object(_) | serde_json::Value::Array(_)
@@ -320,15 +355,32 @@ fn json_to_field_presence(val: &serde_json::Value) -> FieldPresence {
     }
 }
 
+/// The blob an object of a blob's exact wire shape denotes: the four
+/// members `$type` (`"blob"`), `mimeType`, `ref` (an object whose only
+/// member is the `$link` string) and `size` (a non-negative integer),
+/// as the JSON codec reads it.
+fn json_blob(map: &serde_json::Map<String, serde_json::Value>) -> Option<Value> {
+    if map.len() != 4 || map.get("$type")?.as_str()? != "blob" {
+        return None;
+    }
+    let reference = map.get("ref")?.as_object()?;
+    if reference.len() != 1 {
+        return None;
+    }
+    Some(Value::Blob {
+        ref_: reference.get("$link")?.as_str()?.to_owned(),
+        mime: map.get("mimeType")?.as_str()?.to_owned(),
+        size: map.get("size")?.as_u64()?,
+    })
+}
+
 /// Convert a `serde_json::Value` to our `Value` type.
 ///
 /// JSON arrays map to [`Value::List`] and JSON objects map to
-/// [`Value::Unknown`]. The two branches are the categorical
-/// constructors for the free JSON-like term algebra, so
-/// `json_value_to_value` is a faithful embedding: every
-/// `serde_json::Value` has a unique preimage (up to the numeric
-/// `Int`/`Float` split dictated by the source) and survives a
-/// `value_to_json` round trip.
+/// [`Value::Unknown`], except an object of a blob's exact wire shape,
+/// which maps to [`Value::Blob`] as the JSON codec reads it. Every
+/// `serde_json::Value` survives a `value_to_json` round trip (up to the
+/// numeric `Int`/`Float` split dictated by the source).
 fn json_value_to_value(val: &serde_json::Value) -> Value {
     match val {
         serde_json::Value::Null => Value::Null,
@@ -342,13 +394,13 @@ fn json_value_to_value(val: &serde_json::Value) -> Value {
         ),
         serde_json::Value::String(s) => Value::Str(s.clone()),
         serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_value_to_value).collect()),
-        serde_json::Value::Object(map) => {
+        serde_json::Value::Object(map) => json_blob(map).unwrap_or_else(|| {
             let fields: HashMap<String, Value> = map
                 .iter()
                 .map(|(k, v)| (k.clone(), json_value_to_value(v)))
                 .collect();
             Value::Unknown(fields)
-        }
+        }),
     }
 }
 
@@ -460,7 +512,7 @@ fn value_to_json(val: &Value) -> serde_json::Value {
         Value::Bytes(b) => serde_json::Value::String(base64_encode(b)),
         Value::CidLink(s) => json!({"$link": s}),
         Value::Blob { ref_, mime, size } => {
-            json!({"$type": "blob", "ref": ref_, "mimeType": mime, "size": size})
+            json!({"$type": "blob", "ref": {"$link": ref_}, "mimeType": mime, "size": size})
         }
         Value::Token(t) => json!(t),
         Value::Null => serde_json::Value::Null,

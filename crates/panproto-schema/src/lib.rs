@@ -69,5 +69,5 @@ pub use schema::{
     Variant, Vertex, primary_entry,
 };
 pub use shape_kind::InstanceShapeKind;
-pub use validate::validate;
+pub use validate::{validate, validate_declarations};
 pub use value_kinds::{BytesText, ScalarKind, ValueSpec};

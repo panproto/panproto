@@ -898,8 +898,52 @@ fn restrict_reason(error: &RestrictError) -> String {
             };
             format!("NonConforming {} {column:?} {reason}", row.0)
         }
+        RestrictError::SourceDeclarations(errors) => {
+            format!("SourceDeclarations {}", declaration_reasons(errors))
+        }
+        RestrictError::TargetDeclarations(errors) => {
+            format!("TargetDeclarations {}", declaration_reasons(errors))
+        }
         other => format!("production restrict refusal {other:?}"),
     }
+}
+
+fn declaration_reasons(errors: &[panproto_schema::KeyRefError]) -> String {
+    use panproto_schema::KeyRefError as E;
+    errors
+        .iter()
+        .map(|error| match error {
+            E::EqualityArity {
+                vertex,
+                key,
+                expected,
+                found,
+            } => format!("EqualityArity {vertex} {key} {expected} {found}"),
+            E::SortKeyNotOrdered { key, vertex } => format!("SortKeyNotOrdered {vertex} {key}"),
+            E::DuplicateKeyId { vertex, key } => format!("DuplicateKeyId {vertex} {key}"),
+            other => format!("production declaration error {other:?}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn ref_declaration_reasons(errors: &[panproto_reference::schema::DeclarationError]) -> String {
+    use panproto_reference::schema::DeclarationError as E;
+    errors
+        .iter()
+        .map(|error| match error {
+            E::EqualityArity {
+                vertex,
+                key,
+                expected,
+                found,
+            } => format!("EqualityArity {vertex} {key} {expected} {found}"),
+            E::SortKeyNotOrdered { key, vertex } => format!("SortKeyNotOrdered {vertex} {key}"),
+            E::DuplicateKeyId { vertex, key } => format!("DuplicateKeyId {vertex} {key}"),
+            other => format!("reference declaration error {other:?}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn ref_nonconforming_reason(
@@ -980,6 +1024,12 @@ fn ref_restrict_reason(error: &RefRestrictError) -> String {
         RefRestrictError::RootPruned { .. } => "RootPruned".to_owned(),
         RefRestrictError::MalformedFan { node, reason } => {
             format!("MalformedFan {node} {}", ref_fan_reason(reason))
+        }
+        RefRestrictError::Plan(PlanError::SourceDeclarations(errors)) => {
+            format!("SourceDeclarations {}", ref_declaration_reasons(errors))
+        }
+        RefRestrictError::Plan(PlanError::TargetDeclarations(errors)) => {
+            format!("TargetDeclarations {}", ref_declaration_reasons(errors))
         }
         other @ RefRestrictError::Plan(_) => format!("reference restrict refusal {other:?}"),
     }
@@ -2152,9 +2202,9 @@ fn graph_put_refuses_key_values_without_canonical_bytes_like_the_reference() {
 }
 
 /// The graph key clause agrees with the reference beyond representation
-/// keys: declared equality, a non-unique role, a `Null` value read as SQL
-/// NULL, the primary-key presence rule and elements outside a scoped key's
-/// domain.
+/// keys: declared equality, non-unique roles (an ill-formed sort key is
+/// refused when the plan compiles), a `Null` value read as SQL NULL, the
+/// primary-key presence rule and elements outside a scoped key's domain.
 #[test]
 fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
     use panproto_reference::keys::KeyEquality as Eq;
@@ -2182,6 +2232,12 @@ fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
         (
             "index role",
             value_key("k", KeyRole::Index, KeyScope::Global, Vec::new()),
+            same.clone(),
+            Vec::new(),
+        ),
+        (
+            "sort-key role without an ordering",
+            value_key("k", KeyRole::SortKey, KeyScope::Global, Vec::new()),
             same.clone(),
             Vec::new(),
         ),
@@ -2220,6 +2276,77 @@ fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
         }
     }
     assert!(disagreements.is_empty(), "{disagreements:#?}");
+}
+
+/// A lens whose source schema's declarations are ill formed has no plan on
+/// either side: get refuses with the source declaration errors, in the
+/// reference's order and before any edge-image refusal, and the target's
+/// are reported only when the source's are well formed.
+#[test]
+fn ill_formed_key_declarations_refuse_the_plan_like_the_reference() {
+    use panproto_reference::keys::KeyEquality as Eq;
+    use panproto_reference::schema::{KeyRole, KeyScope};
+    let sort_key = value_key("sorted", KeyRole::SortKey, KeyScope::Global, Vec::new());
+    let mut arity = value_key("arity", KeyRole::Unique, KeyScope::Global, Vec::new());
+    arity.equality = vec![Eq::Representation, Eq::NumericValue];
+    let source = valued_a_nodes(&[Some(RefValue::Int(1))]);
+    let cases = [
+        (
+            vec![sort_key.clone()],
+            "SourceDeclarations SortKeyNotOrdered a sorted",
+        ),
+        (
+            vec![arity.clone()],
+            "SourceDeclarations EqualityArity a arity 1 2",
+        ),
+        (
+            vec![arity, sort_key],
+            "SourceDeclarations EqualityArity a arity 1 2, SortKeyNotOrdered a sorted",
+        ),
+    ];
+    for (keys, expected) in cases {
+        let pair = keyed_graph_pair(&["a"], &[], keys);
+        let production = production_get(&pair, &source);
+        let reference = reference_get(&pair, &source);
+        assert_eq!(production, reference, "{expected}");
+        assert_eq!(production, Err(Reason::Restrict(expected.to_owned())));
+    }
+
+    // Source declarations well formed, target's not: the target's errors.
+    let mut target = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
+    target.keys.insert(
+        "a".to_owned(),
+        vec![value_key(
+            "sorted",
+            KeyRole::SortKey,
+            KeyScope::Global,
+            Vec::new(),
+        )],
+    );
+    let reference_source = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
+    let mut production_target = prod_schema(&panproto_reference::enumerate::lenses::c11_schema(
+        &["a"],
+        &[],
+    ));
+    production_target
+        .declarations
+        .keys
+        .insert("a".into(), target.keys["a"].iter().map(prod_key).collect());
+    let migration = reference_carrier_migration(&reference_source);
+    let lens = Lens {
+        compiled: prod_migration(&migration),
+        src_schema: prod_schema(&reference_source),
+        tgt_schema: production_target,
+    };
+    let pair = Pair::with_production(reference_source, target, migration, &NoValueLayer, lens);
+    let production = production_get(&pair, &source);
+    assert_eq!(production, reference_get(&pair, &source));
+    assert_eq!(
+        production,
+        Err(Reason::Restrict(
+            "TargetDeclarations SortKeyNotOrdered a sorted".to_owned()
+        ))
+    );
 }
 
 fn assert_graph_malformed_fan_domain_family() -> u16 {
@@ -13984,4 +14111,65 @@ proptest! {
             prop_assert!(false, "additional family {family}: {message}");
         }
     }
+}
+
+/// The stage-C slice of the exhaustive law comparison on trees: on every C11
+/// tree case of the contraction stage, both sides report the same five-gate
+/// outcome over the common basis. The chain `a -> b -> a` contracts to one
+/// view arc with a synthesized identity; removing the arc's child from the
+/// view leaves that identity naming nothing, and strict `PutGet` must compare
+/// only the synthesized identities of elements the views hold.
+#[test]
+fn stage_c_tree_common_basis_laws_agree_with_the_reference() {
+    let stages = c11_stages();
+    let stage_c = c11_stage_index(&stages, "C");
+    let pair = Pair::from_stage(&stages[stage_c]);
+    let mut cases = Vec::new();
+    for_each_lens_law_case(|case| {
+        if let LensLawCertificateCase::Concrete(LensEquivalenceCase::Tree { stage, source }) = case
+            && stage == stage_c
+        {
+            cases.push(source);
+        }
+    });
+    let chain = |values: [Option<i64>; 3]| {
+        let node = |id: u32, anchor: &str, value: Option<i64>| {
+            let mut node = RefNode::new(id, anchor);
+            node.value = value.map(|value| {
+                panproto_reference::value::Presence::Present(panproto_reference::value::Value::Int(
+                    value,
+                ))
+            });
+            (id, node)
+        };
+        RefTree {
+            nodes: BTreeMap::from([
+                node(0, "a", values[0]),
+                node(1, "b", values[1]),
+                node(2, "a", values[2]),
+            ]),
+            arcs: vec![
+                (0, 1, RefSEdge::new("a", "b", "prop", Some("e"))),
+                (1, 2, RefSEdge::new("b", "a", "prop", Some("e"))),
+            ],
+            fans: Vec::new(),
+            root: 0,
+        }
+    };
+    for pinned in [chain([None, None, None]), chain([Some(0), None, None])] {
+        assert!(cases.contains(&pinned), "{pinned:?} is a stage-C case");
+    }
+    let mut compared = 0;
+    for tree in &cases {
+        if reference_tree_case(&pair, tree).is_none() {
+            continue;
+        }
+        let candidates = tree_candidates(&pair, tree);
+        let production = tree_common_laws(&pair, tree, &candidates, true);
+        let reference = tree_common_laws(&pair, tree, &candidates, false);
+        assert_eq!(production, reference, "{tree:?}");
+        compared += 1;
+    }
+    println!("stage C trees {}, compared {compared}", cases.len());
+    assert!(compared > 0);
 }
