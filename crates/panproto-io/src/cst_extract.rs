@@ -5641,139 +5641,33 @@ pub fn extract_tabular_cst_with_protocol(
     let row_vertices = cst_children_by_edge_kind(cst, &doc_vertex, "child_of");
 
     if row_vertices.is_empty() {
-        let complement = CstComplement {
-            format: "tabular".into(),
-            cst_schema: cst.clone(),
-            node_to_cst_value: HashMap::new(),
-            node_to_cst_struct: HashMap::new(),
-            cell_to_cst_value: HashMap::new(),
-            source_vertex: Some(Name::from(table_vertex)),
-        };
-        return Ok((FInstance::new(), complement));
+        return Ok((
+            FInstance::new(),
+            tabular_complement(cst, HashMap::new(), table_vertex),
+        ));
     }
-
-    let header_fields = cst_children_by_edge_kind(cst, row_vertices[0], "child_of");
-    let headers: Vec<String> = header_fields
-        .iter()
-        .map(|f| decode_tabular_field(&literal_text_deep(cst, f), cst.protocol.as_ref()))
-        .collect();
-    let mut distinct_headers = HashSet::with_capacity(headers.len());
-    if let Some(duplicate) = headers
-        .iter()
-        .find(|header| !distinct_headers.insert(header.as_str()))
-    {
-        return Err(CstCodecError::Structure(format!(
-            "duplicate tabular header name '{duplicate}'"
-        )));
-    }
-
-    // Track the CST vertex behind each cell, keyed by its (row, column)
-    // position, since a tabular instance has no node ids to key on.
-    let mut cell_to_cst: HashMap<u64, Vec<Name>> = HashMap::new();
-    let mut rows = Vec::new();
-    let mut fidelity = Vec::new();
 
     let format = cst.protocol.as_ref();
-    let delimiter = match format {
-        "csv" => Some(b','),
-        "tsv" => Some(b'\t'),
-        _ => None,
+    let mut reader = TabularReader {
+        cst,
+        domain_schema,
+        protocol,
+        table_vertex,
+        headers: tabular_headers(cst, row_vertices[0])?,
+        format,
+        delimiter: match format {
+            "csv" => Some(b','),
+            "tsv" => Some(b'\t'),
+            _ => None,
+        },
+        source: cst_source_text(cst, &doc_vertex),
+        document_start: cst_recorded_span(cst, &doc_vertex).map(|(start, _)| start),
+        cell_to_cst: HashMap::new(),
+        fidelity: Vec::new(),
     };
-    let source = cst_source_text(cst, &doc_vertex);
-    let document_start = cst_recorded_span(cst, &doc_vertex).map(|(start, _)| start);
-
+    let mut rows = Vec::new();
     for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
-        let fields = cst_children_by_edge_kind(cst, row_name, "child_of");
-        // The grammar's field text may be empty and then has no node, so a
-        // row's fields are counted from its source bytes, and each field
-        // node is placed at the column its start byte falls in.
-        let layout = delimiter
-            .zip(document_start)
-            .and_then(|(delimiter, document_start)| {
-                let (start, end) = cst_recorded_span(cst, row_name)?;
-                let text = source
-                    .get(start.checked_sub(document_start)?..end.checked_sub(document_start)?)?;
-                Some((
-                    start,
-                    delimited_field_starts(text, delimiter, format == "csv"),
-                ))
-            });
-        let field_count = layout
-            .as_ref()
-            .map_or(fields.len(), |(_, starts)| starts.len());
-        if field_count != headers.len() && !(field_count < headers.len() && layout.is_none()) {
-            return Err(CstCodecError::Structure(format!(
-                "data row {} at byte {:?} has {} fields but {} header fields are declared",
-                row_idx + 1,
-                cst_byte_offset(cst, row_name),
-                field_count,
-                headers.len()
-            )));
-        }
-        let columns: Vec<usize> = match &layout {
-            Some((row_start, starts)) => fields
-                .iter()
-                .map(|field| {
-                    cst_recorded_span(cst, field).map_or(0, |(start, _)| {
-                        let relative = start.saturating_sub(*row_start);
-                        starts
-                            .partition_point(|field_start| *field_start <= relative)
-                            .saturating_sub(1)
-                    })
-                })
-                .collect(),
-            None => (0..fields.len()).collect(),
-        };
-        let mut row = HashMap::new();
-        if layout.is_some() {
-            // A field with empty text has no node and so no carrier: it reads
-            // as the lexeme "" under its column's spec.
-            for (col_idx, col) in headers.iter().enumerate() {
-                if columns.contains(&col_idx) {
-                    continue;
-                }
-                let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, col);
-                match crate::json_pathway::coerce_exact_lexeme(
-                    &Lexeme::new("", LexClass::String),
-                    &spec,
-                ) {
-                    Ok(value) => {
-                        row.insert(col.clone(), value);
-                    }
-                    Err(error) => fidelity.push(error.at(ValueSite::new(vertex, None))),
-                }
-            }
-        }
-        for (field_name, col_idx) in fields.iter().zip(columns) {
-            let Some(col) = headers.get(col_idx) else {
-                continue;
-            };
-            let col = col.clone();
-            let raw = literal_text_deep(cst, field_name);
-            let text = decode_tabular_field(&raw, cst.protocol.as_ref());
-            let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, &col);
-            match crate::json_pathway::coerce_exact_lexeme(
-                &Lexeme::new(&text, LexClass::String),
-                &spec,
-            ) {
-                Ok(value) => {
-                    row.insert(col, value);
-                }
-                Err(error) => fidelity
-                    .push(error.at(ValueSite::new(vertex, cst_byte_offset(cst, field_name)))),
-            }
-            let (Ok(row_u32), Ok(col_u32)) = (u32::try_from(row_idx), u32::try_from(col_idx))
-            else {
-                continue;
-            };
-            // Map to the leaf that owns the text, not the wrapper field, so
-            // injection can actually rewrite the value.
-            cell_to_cst.insert(
-                tabular_cell_key(row_u32, col_u32),
-                vec![deepest_literal_vertex(cst, field_name)],
-            );
-        }
-        rows.push(row);
+        rows.push(reader.row(row_idx, row_name)?);
     }
 
     // The CSV/TSV grammar's `text` token may be empty. At the end of a
@@ -5788,20 +5682,20 @@ pub fn extract_tabular_cst_with_protocol(
             "tabular source holds bytes after its last row that no row represents".into(),
         ));
     }
-    if headers.len() == 1 {
+    if reader.headers.len() == 1 {
         for _ in 0..trailing_empty_tabular_rows(cst, &doc_vertex, &row_vertices) {
-            let col = headers[0].clone();
-            let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, &col);
-            match crate::json_pathway::coerce_exact_lexeme(
-                &Lexeme::new("", LexClass::String),
-                &spec,
-            ) {
-                Ok(value) => rows.push(HashMap::from([(col, value)])),
-                Err(error) => fidelity.push(error.at(ValueSite::new(vertex, None))),
+            let col = reader.headers[0].clone();
+            if let Some(value) = reader.coerce_cell(&col, "", None) {
+                rows.push(HashMap::from([(col, value)]));
             }
         }
     }
 
+    let TabularReader {
+        cell_to_cst,
+        fidelity,
+        ..
+    } = reader;
     if !fidelity.is_empty() {
         return Err(CstCodecError::Fidelity(fidelity));
     }
@@ -5809,16 +5703,182 @@ pub fn extract_tabular_cst_with_protocol(
     let instance = FInstance::new()
         .with_table(table_vertex, rows)
         .map_err(|e| CstCodecError::Structure(e.to_string()))?;
-    let complement = CstComplement {
+    Ok((instance, tabular_complement(cst, cell_to_cst, table_vertex)))
+}
+
+/// The complement of a tabular extraction: the CST and the CST leaf behind
+/// each cell, keyed by its (row, column) position.
+fn tabular_complement(
+    cst: &Schema,
+    cell_to_cst: HashMap<u64, Vec<Name>>,
+    table_vertex: &str,
+) -> CstComplement {
+    CstComplement {
         format: "tabular".into(),
         cst_schema: cst.clone(),
         node_to_cst_value: HashMap::new(),
         node_to_cst_struct: HashMap::new(),
         cell_to_cst_value: cell_to_cst,
         source_vertex: Some(Name::from(table_vertex)),
-    };
+    }
+}
 
-    Ok((instance, complement))
+/// The decoded column names of a tabular CST's header row, refusing a name
+/// that repeats.
+fn tabular_headers(cst: &Schema, header_row: &Name) -> Result<Vec<String>, CstCodecError> {
+    let headers: Vec<String> = cst_children_by_edge_kind(cst, header_row, "child_of")
+        .iter()
+        .map(|f| decode_tabular_field(&literal_text_deep(cst, f), cst.protocol.as_ref()))
+        .collect();
+    let mut distinct_headers = HashSet::with_capacity(headers.len());
+    if let Some(duplicate) = headers
+        .iter()
+        .find(|header| !distinct_headers.insert(header.as_str()))
+    {
+        return Err(CstCodecError::Structure(format!(
+            "duplicate tabular header name '{duplicate}'"
+        )));
+    }
+    Ok(headers)
+}
+
+/// The state of one tabular extraction: the document's shared coordinates,
+/// and the cell carriers and fidelity refusals gathered row by row.
+struct TabularReader<'a> {
+    cst: &'a Schema,
+    domain_schema: &'a Schema,
+    protocol: &'a Protocol,
+    table_vertex: &'a str,
+    headers: Vec<String>,
+    format: &'a str,
+    delimiter: Option<u8>,
+    source: String,
+    document_start: Option<usize>,
+    /// The CST vertex behind each cell, keyed by its (row, column)
+    /// position, since a tabular instance has no node ids to key on.
+    cell_to_cst: HashMap<u64, Vec<Name>>,
+    fidelity: Vec<ValueFidelityError>,
+}
+
+impl TabularReader<'_> {
+    /// Coerce the text of one cell of column `col` under the column's
+    /// spec, recording a fidelity refusal at `offset` instead of a value.
+    fn coerce_cell(&mut self, col: &str, text: &str, offset: Option<u64>) -> Option<Value> {
+        let (vertex, spec) =
+            tabular_cell_spec(self.domain_schema, self.protocol, self.table_vertex, col);
+        match crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(text, LexClass::String), &spec)
+        {
+            Ok(value) => Some(value),
+            Err(error) => {
+                self.fidelity.push(error.at(ValueSite::new(vertex, offset)));
+                None
+            }
+        }
+    }
+
+    /// The column of each field node of a data row, refusing a row whose
+    /// field count disagrees with the header. With the row's recorded
+    /// source bytes the fields are counted from those bytes (the grammar's
+    /// field text may be empty and then has no node), each field node is
+    /// placed at the column its start byte falls in, and the second
+    /// component is `true`.
+    fn columns(
+        &self,
+        row_idx: usize,
+        row_name: &Name,
+        fields: &[&Name],
+    ) -> Result<(Vec<usize>, bool), CstCodecError> {
+        let cst = self.cst;
+        let layout = self
+            .delimiter
+            .zip(self.document_start)
+            .and_then(|(delimiter, document_start)| {
+                let (start, end) = cst_recorded_span(cst, row_name)?;
+                let text = self
+                    .source
+                    .get(start.checked_sub(document_start)?..end.checked_sub(document_start)?)?;
+                Some((
+                    start,
+                    delimited_field_starts(text, delimiter, self.format == "csv"),
+                ))
+            });
+        let field_count = layout
+            .as_ref()
+            .map_or(fields.len(), |(_, starts)| starts.len());
+        let headers = self.headers.len();
+        if field_count != headers && !(field_count < headers && layout.is_none()) {
+            return Err(CstCodecError::Structure(format!(
+                "data row {} at byte {:?} has {} fields but {} header fields are declared",
+                row_idx + 1,
+                cst_byte_offset(cst, row_name),
+                field_count,
+                headers
+            )));
+        }
+        Ok(match &layout {
+            Some((row_start, starts)) => (
+                fields
+                    .iter()
+                    .map(|field| {
+                        cst_recorded_span(cst, field).map_or(0, |(start, _)| {
+                            let relative = start.saturating_sub(*row_start);
+                            starts
+                                .partition_point(|field_start| *field_start <= relative)
+                                .saturating_sub(1)
+                        })
+                    })
+                    .collect(),
+                true,
+            ),
+            None => ((0..fields.len()).collect(), false),
+        })
+    }
+
+    /// The cells of one data row, recording each field's CST carrier.
+    fn row(
+        &mut self,
+        row_idx: usize,
+        row_name: &Name,
+    ) -> Result<HashMap<String, Value>, CstCodecError> {
+        let cst = self.cst;
+        let fields = cst_children_by_edge_kind(cst, row_name, "child_of");
+        let (columns, from_source) = self.columns(row_idx, row_name, &fields)?;
+        let mut row = HashMap::new();
+        if from_source {
+            // A field with empty text has no node and so no carrier: it reads
+            // as the lexeme "" under its column's spec.
+            for col_idx in 0..self.headers.len() {
+                if columns.contains(&col_idx) {
+                    continue;
+                }
+                let col = self.headers[col_idx].clone();
+                if let Some(value) = self.coerce_cell(&col, "", None) {
+                    row.insert(col, value);
+                }
+            }
+        }
+        for (field_name, col_idx) in fields.iter().zip(columns) {
+            let Some(col) = self.headers.get(col_idx).cloned() else {
+                continue;
+            };
+            let raw = literal_text_deep(cst, field_name);
+            let text = decode_tabular_field(&raw, cst.protocol.as_ref());
+            if let Some(value) = self.coerce_cell(&col, &text, cst_byte_offset(cst, field_name)) {
+                row.insert(col, value);
+            }
+            let (Ok(row_u32), Ok(col_u32)) = (u32::try_from(row_idx), u32::try_from(col_idx))
+            else {
+                continue;
+            };
+            // Map to the leaf that owns the text, not the wrapper field, so
+            // injection can actually rewrite the value.
+            self.cell_to_cst.insert(
+                tabular_cell_key(row_u32, col_u32),
+                vec![deepest_literal_vertex(cst, field_name)],
+            );
+        }
+        Ok(row)
+    }
 }
 
 /// The byte offsets, relative to `text`, at which the fields of one delimited

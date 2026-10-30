@@ -7104,23 +7104,34 @@ pub mod theory {
             );
         }
 
+        /// Signature checking reads `s()` as an application with no
+        /// arguments, so `B()` of the one-parameter `B` is a `SortArity`
+        /// defect where the bare `B` is not. Canonical bytes encode the
+        /// complete theory, so they keep the empty application apart from
+        /// the bare sort, as production's writer does.
         #[test]
-        fn canonical_bytes_read_an_empty_application_as_the_bare_sort() {
+        fn canonical_bytes_keep_an_empty_application_apart_from_the_bare_sort() {
             let with_output = |output: SortExpr| {
-                canonical_theory_bytes(&theory(
+                theory(
                     "T",
                     vec![simple("A"), dependent("B", &[("p", name("A"))])],
                     vec![operation("k", &[explicit("x", name("A"))], output)],
-                ))
+                )
             };
+            let bytes = |output: SortExpr| canonical_theory_bytes(&with_output(output));
+            assert_eq!(typecheck_signature(&with_output(name("B"))), Ok(()));
             assert_eq!(
-                with_output(sort_app("A", Vec::new())),
-                with_output(name("A"))
+                typecheck_signature(&with_output(sort_app("B", Vec::new()))),
+                Err(vec![Defect::SortArity(
+                    Site::OpOutput("k".to_owned()),
+                    "B".to_owned(),
+                    1,
+                    0,
+                )])
             );
-            assert_ne!(
-                with_output(sort_app("B", vec![var("x")])),
-                with_output(name("B"))
-            );
+            assert_ne!(bytes(sort_app("B", Vec::new())), bytes(name("B")));
+            assert_ne!(bytes(sort_app("A", Vec::new())), bytes(name("A")));
+            assert_ne!(bytes(sort_app("B", vec![var("x")])), bytes(name("B")));
         }
 
         fn constant_op(name: &str) -> Op {

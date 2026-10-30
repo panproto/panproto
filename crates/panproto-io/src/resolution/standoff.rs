@@ -261,8 +261,9 @@ pub fn bytes_to_declared(
     }
 }
 
-/// The half-open byte span that one written standoff form names over
-/// `text`: the composition of [`form_to_offsets`], [`unit_boundaries`] and
+/// The half-open byte span that one written standoff form names over `text`.
+///
+/// This is the composition of [`form_to_offsets`], [`unit_boundaries`] and
 /// [`declared_to_bytes`] (exclusive end) that get applies to every
 /// occurrence. `None` when get would refuse the form.
 #[must_use]
@@ -278,10 +279,11 @@ pub fn written_form_to_bytes(
     declared_to_bytes(&boundaries, start, end, false).ok()
 }
 
-/// The written standoff form of a half-open byte span over `text`: the
-/// composition of [`bytes_to_declared`] and [`offsets_to_form`] (exclusive
-/// end) that put applies to every written occurrence. `None` when put would
-/// refuse the span.
+/// The written standoff form of a half-open byte span over `text`.
+///
+/// This is the composition of [`bytes_to_declared`] and [`offsets_to_form`]
+/// (exclusive end) that put applies to every written occurrence. `None` when
+/// put would refuse the span.
 #[must_use]
 pub fn bytes_to_written_form(
     text: &[u8],

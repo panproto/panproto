@@ -1316,20 +1316,22 @@ fn tabular_value_bytes(
     delimiter: u8,
     spec: Option<&ValueSpec>,
 ) -> Result<Vec<u8>, EmitInstanceError> {
-    let site = || ValueSite::new(site_vertex, None);
+    let refuse = |reason| -> EmitInstanceError {
+        EmitValueError::new(
+            ValueSite::new(site_vertex, None),
+            value.type_name(),
+            format,
+            reason,
+        )
+        .into()
+    };
     // A CSV or TSV cell reads numerals in the JSON grammar, which spells no
     // infinity, NaN or special decimal.
     if matches!(format, "csv" | "tsv" | "tabular")
         && (matches!(value, Value::Float(number) if !number.is_finite())
             || matches!(value, Value::Decimal(number) if !number.is_finite()))
     {
-        return Err(EmitValueError::new(
-            site(),
-            value.type_name(),
-            format,
-            EmitValueReason::NonFinite,
-        )
-        .into());
+        return Err(refuse(EmitValueReason::NonFinite));
     }
     let bigint_bytes = if let Value::BigInt(number) = value {
         Some(tabular_bigint_bytes(number, site_vertex, format)?)
@@ -1338,98 +1340,68 @@ fn tabular_value_bytes(
     };
     if let Some(spec) = spec
         && !matches!(value, Value::Null)
-        && !bigint_bytes.as_ref().map_or_else(
-            || crate::json_pathway::plain_text_value_roundtrips(value, spec),
-            |bytes| {
-                std::str::from_utf8(bytes).is_ok_and(|text| {
-                    crate::json_pathway::plain_text_reparses_as(value, text, spec)
-                })
-            },
-        )
+        && !tabular_value_roundtrips(value, bigint_bytes.as_deref(), spec)
     {
-        return Err(EmitValueError::new(
-            site(),
-            value.type_name(),
-            format,
-            EmitValueReason::NotRepresentable,
-        )
-        .into());
+        return Err(refuse(EmitValueReason::NotRepresentable));
     }
-    let bytes = match value {
-        Value::Str(text) | Value::Token(text) => Ok(text.as_bytes().to_vec()),
-        Value::Int(number) => Ok(number.to_string().into_bytes()),
-        Value::Float(number) => crate::json_pathway::plain_text_float_lexeme(*number)
-            .map(String::into_bytes)
-            .ok_or_else(|| {
-                EmitValueError::new(
-                    site(),
-                    value.type_name(),
-                    format,
-                    EmitValueReason::NonFinite,
-                )
-                .into()
-            }),
-        Value::Bool(value) => Ok(value.to_string().into_bytes()),
-        Value::Bytes(bytes) => {
-            let Some(ScalarKind::Bytes(encoding)) = spec.map(|spec| &spec.kind) else {
-                return Err(EmitValueError::new(
-                    site(),
-                    value.type_name(),
-                    format,
-                    EmitValueReason::NotRepresentable,
-                )
-                .into());
-            };
-            crate::json_pathway::encode_bytes(bytes, encoding)
-                .map(String::into_bytes)
-                .ok_or_else(|| {
-                    EmitValueError::new(
-                        site(),
-                        value.type_name(),
-                        format,
-                        EmitValueReason::NotRepresentable,
-                    )
-                    .into()
-                })
-        }
-        Value::Decimal(number) => Ok(number.to_string().into_bytes()),
-        Value::BigInt(_) => bigint_bytes.ok_or_else(|| {
-            EmitValueError::new(site(), "bigint", format, EmitValueReason::NotRepresentable).into()
-        }),
-        Value::Temporal(value) => Ok(value.to_string().into_bytes()),
-        Value::Null => Err(EmitValueError::new(
-            site(),
-            value.type_name(),
-            format,
-            EmitValueReason::NullNotRepresentable,
-        )
-        .into()),
-        Value::LabeledNull(_) => Err(EmitInstanceError::LabeledNull {
-            row,
-            column: column.to_owned(),
-        }),
-        other => Err(EmitValueError::new(
-            site(),
-            other.type_name(),
-            format,
-            EmitValueReason::NotRepresentable,
-        )
-        .into()),
-    }?;
+    let bytes = tabular_cell_bytes(value, row, column, bigint_bytes, spec, &refuse)?;
     if bytes.contains(&delimiter)
         || bytes.contains(&b'\n')
         || bytes.contains(&b'\r')
         || (delimiter == b',' && bytes.contains(&b'"'))
     {
-        return Err(EmitValueError::new(
-            site(),
-            value.type_name(),
-            format,
-            EmitValueReason::NotRepresentable,
-        )
-        .into());
+        return Err(refuse(EmitValueReason::NotRepresentable));
     }
     Ok(bytes)
+}
+
+/// Whether the plain-text spelling of `value` (its precomputed big-integer
+/// lexeme when it has one) reads back as `value` under `spec`.
+fn tabular_value_roundtrips(value: &Value, bigint_bytes: Option<&[u8]>, spec: &ValueSpec) -> bool {
+    bigint_bytes.map_or_else(
+        || crate::json_pathway::plain_text_value_roundtrips(value, spec),
+        |bytes| {
+            std::str::from_utf8(bytes)
+                .is_ok_and(|text| crate::json_pathway::plain_text_reparses_as(value, text, spec))
+        },
+    )
+}
+
+/// The unquoted cell bytes of `value`, before the delimiter check;
+/// `refuse` builds the value refusal at the cell's site.
+fn tabular_cell_bytes(
+    value: &Value,
+    row: RowId,
+    column: &str,
+    bigint_bytes: Option<Vec<u8>>,
+    spec: Option<&ValueSpec>,
+    refuse: &dyn Fn(EmitValueReason) -> EmitInstanceError,
+) -> Result<Vec<u8>, EmitInstanceError> {
+    match value {
+        Value::Str(text) | Value::Token(text) => Ok(text.as_bytes().to_vec()),
+        Value::Int(number) => Ok(number.to_string().into_bytes()),
+        Value::Float(number) => crate::json_pathway::plain_text_float_lexeme(*number)
+            .map(String::into_bytes)
+            .ok_or_else(|| refuse(EmitValueReason::NonFinite)),
+        Value::Bool(value) => Ok(value.to_string().into_bytes()),
+        Value::Bytes(bytes) => {
+            let Some(ScalarKind::Bytes(encoding)) = spec.map(|spec| &spec.kind) else {
+                return Err(refuse(EmitValueReason::NotRepresentable));
+            };
+            crate::json_pathway::encode_bytes(bytes, encoding)
+                .map(String::into_bytes)
+                .ok_or_else(|| refuse(EmitValueReason::NotRepresentable))
+        }
+        Value::Decimal(number) => Ok(number.to_string().into_bytes()),
+        Value::BigInt(_) => bigint_bytes.ok_or_else(|| refuse(EmitValueReason::NotRepresentable)),
+        Value::Temporal(value) => Ok(value.to_string().into_bytes()),
+        Value::Null => Err(refuse(EmitValueReason::NullNotRepresentable)),
+        Value::LabeledNull(_) => Err(EmitInstanceError::LabeledNull {
+            row,
+            column: column.to_owned(),
+        }),
+        _ => Err(refuse(EmitValueReason::NotRepresentable)),
+    }
 }
 
 fn tabular_bigint_bytes(

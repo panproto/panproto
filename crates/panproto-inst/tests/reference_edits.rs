@@ -1146,14 +1146,19 @@ fn tree_release_sequence() -> reference::TreeEdit {
     ])
 }
 
-fn tree_release_cases() -> Vec<(&'static str, reference_model::Tree, reference::TreeEdit)> {
-    let TreeReleaseFixtures {
-        base,
-        with_field,
-        fan,
-        with_fan,
-        join,
-    } = tree_release_fixtures();
+type TreeReleaseCase = (&'static str, reference_model::Tree, reference::TreeEdit);
+
+fn tree_release_cases() -> Vec<TreeReleaseCase> {
+    let fixtures = tree_release_fixtures();
+    let mut cases = tree_release_primitive_cases(&fixtures);
+    cases.extend(tree_release_composite_cases(fixtures));
+    cases
+}
+
+/// The release cases of the primitives that change nodes, fields and arcs.
+fn tree_release_primitive_cases(fixtures: &TreeReleaseFixtures) -> Vec<TreeReleaseCase> {
+    let base = &fixtures.base;
+    let with_field = fixtures.with_field.clone();
     vec![
         ("identity", base.clone(), reference::TreeEdit::Identity),
         (
@@ -1210,6 +1215,19 @@ fn tree_release_cases() -> Vec<(&'static str, reference_model::Tree, reference::
                 edge: reference_model::SEdge::new("r", "b", "child", Some("moved")),
             },
         ),
+    ]
+}
+
+/// The release cases of fans, joins and sequences.
+fn tree_release_composite_cases(fixtures: TreeReleaseFixtures) -> Vec<TreeReleaseCase> {
+    let TreeReleaseFixtures {
+        base,
+        fan,
+        with_fan,
+        join,
+        ..
+    } = fixtures;
+    vec![
         (
             "insert-fan",
             base.clone(),
@@ -1234,7 +1252,7 @@ fn tree_release_cases() -> Vec<(&'static str, reference_model::Tree, reference::
         ("sequence", base.clone(), tree_release_sequence()),
         (
             "delete-then-reinsert",
-            base.clone(),
+            base,
             reference::TreeEdit::Sequence(vec![
                 reference::TreeEdit::DeleteNode { id: 2 },
                 reference::TreeEdit::InsertNode {
@@ -2322,6 +2340,55 @@ fn surface_table_steps(table: &reference_model::Table) -> Vec<reference::TableEd
     out
 }
 
+/// Compare the lowering of every two-step batch of `steps` and, when it
+/// applies to `table`, its inversion in both implementations. Returns the
+/// number of batches inverted.
+fn check_surface_batches(
+    table: &reference_model::Table,
+    production_table: &FInstance,
+    steps: &[reference::TableEdit],
+) -> usize {
+    let mut batches_inverted = 0usize;
+    for first in steps {
+        for second in steps {
+            let batch = reference::TableEdit::Batch(vec![first.clone(), second.clone()]);
+            let expected = reference::table_edit_delta(&batch);
+            let production_batch = table_edit_to_production(&batch);
+            match (expected, production_batch.to_delta()) {
+                (Ok(expected), Ok(actual)) => {
+                    assert_eq!(table_delta_to_reference(&actual), expected, "{batch:?}");
+                    let Ok(after) = reference::apply_table(&expected, table) else {
+                        continue;
+                    };
+                    assert_eq!(
+                        reference::apply_table(&expected.invert(), &after).as_ref(),
+                        Ok(table)
+                    );
+                    let mut production_after = production_table.clone();
+                    actual
+                        .apply(&mut production_after)
+                        .expect("production applies the lowered batch");
+                    production_batch
+                        .invert()
+                        .expect("a defined batch inverts")
+                        .apply(&mut production_after)
+                        .expect("production applies the inverted batch");
+                    assert_eq!(table_to_reference(&production_after), *table);
+                    batches_inverted += 1;
+                }
+                (Err(expected), Err(actual)) => assert_eq!(
+                    production_table_compose_error(&actual),
+                    reference_table_compose_error(&expected)
+                ),
+                (expected, actual) => panic!(
+                    "batch lowering domain differs for {batch:?}: reference={expected:?}, production={actual:?}"
+                ),
+            }
+        }
+    }
+    batches_inverted
+}
+
 #[test]
 fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
     let mut steps_checked = 0usize;
@@ -2399,43 +2466,7 @@ fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
             assert_eq!(table_to_reference(&actual_table), table, "{edit:?}");
             applied += 1;
         }
-        for first in &steps {
-            for second in &steps {
-                let batch = reference::TableEdit::Batch(vec![first.clone(), second.clone()]);
-                let expected = reference::table_edit_delta(&batch);
-                let production_batch = table_edit_to_production(&batch);
-                match (expected, production_batch.to_delta()) {
-                    (Ok(expected), Ok(actual)) => {
-                        assert_eq!(table_delta_to_reference(&actual), expected, "{batch:?}");
-                        let Ok(after) = reference::apply_table(&expected, &table) else {
-                            continue;
-                        };
-                        assert_eq!(
-                            reference::apply_table(&expected.invert(), &after).as_ref(),
-                            Ok(&table)
-                        );
-                        let mut production_after = production_table.clone();
-                        actual
-                            .apply(&mut production_after)
-                            .expect("production applies the lowered batch");
-                        production_batch
-                            .invert()
-                            .expect("a defined batch inverts")
-                            .apply(&mut production_after)
-                            .expect("production applies the inverted batch");
-                        assert_eq!(table_to_reference(&production_after), table);
-                        batches_inverted += 1;
-                    }
-                    (Err(expected), Err(actual)) => assert_eq!(
-                        production_table_compose_error(&actual),
-                        reference_table_compose_error(&expected)
-                    ),
-                    (expected, actual) => panic!(
-                        "batch lowering domain differs for {batch:?}: reference={expected:?}, production={actual:?}"
-                    ),
-                }
-            }
-        }
+        batches_inverted += check_surface_batches(&table, &production_table, &steps);
     }
     println!(
         "single steps {steps_checked}, applied {applied}, inverted batches {batches_inverted}, outcomes {outcomes:?}"
@@ -2548,6 +2579,65 @@ struct GraphPrefix {
     production_composite: GraphDelta,
 }
 
+/// Compare the composite of a graph word after its last letter applied:
+/// composition, inversion and canonical bytes against the reference, and
+/// the composite and its inverse applied from the initial state. Returns
+/// both composites.
+fn check_graph_composite(
+    prefixes: &[GraphPrefix],
+    letter: &reference::GraphDelta,
+    production_letter: &GraphDelta,
+    letters: &[reference::GraphDelta],
+    production_state: &GInstance,
+    tally: &mut C8Tally,
+) -> (reference::GraphDelta, GraphDelta) {
+    let before = &prefixes[letters.len() - 1];
+    let composite = reference::Delta::compose(&before.composite, letter)
+        .expect("sequentially applicable letters compose");
+    let production_composite = before
+        .production_composite
+        .compose(production_letter)
+        .expect("production composes sequentially applicable letters");
+    assert_eq!(
+        delta_to_reference(&production_composite),
+        composite,
+        "compose {letters:?}"
+    );
+    assert_eq!(
+        delta_to_reference(&production_composite.invert()),
+        composite.invert(),
+        "invert {letters:?}"
+    );
+    let expected_bytes = reference::canonical_graph_delta_bytes(&composite)
+        .expect("a scope composite has canonical bytes");
+    let mut writer = CanonicalWriter::new();
+    canonical_graph_delta_bytes(&production_composite, &mut writer);
+    assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
+
+    let start = &prefixes[0];
+    let mut net = start.production.clone();
+    production_composite
+        .apply(&mut net)
+        .unwrap_or_else(|error| panic!("composite of {letters:?}: {error:?}"));
+    assert!(
+        GInstance::identical(&net, production_state),
+        "composite {letters:?}"
+    );
+    production_composite
+        .invert()
+        .apply(&mut net)
+        .unwrap_or_else(|error| panic!("inverse of {letters:?}: {error:?}"));
+    assert!(
+        GInstance::identical(&net, &start.production),
+        "inverse {letters:?}"
+    );
+    if composite.del.keys().any(|x| composite.add.contains_key(x)) {
+        assert!(!production_composite.is_identity());
+        tally.replacements += 1;
+    }
+    (composite, production_composite)
+}
+
 #[test]
 fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
     let jobs = c8_jobs(carrier::c8_graphs);
@@ -2578,7 +2668,11 @@ fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope()
                 .outcome
                 .clone()
                 .map_err(|error| reference_apply_error(&error));
-            assert_eq!(actual, expected, "apply {letter:?} to {:?}", before.reference);
+            assert_eq!(
+                actual, expected,
+                "apply {letter:?} to {:?}",
+                before.reference
+            );
             let Ok(after) = word.outcome else {
                 assert_eq!(
                     graph_to_reference(&production_state),
@@ -2591,53 +2685,14 @@ fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope()
                 return;
             };
 
-            let composite = reference::Delta::compose(&before.composite, letter)
-                .expect("sequentially applicable letters compose");
-            let production_composite = before
-                .production_composite
-                .compose(&production_letter)
-                .expect("production composes sequentially applicable letters");
-            assert_eq!(
-                delta_to_reference(&production_composite),
-                composite,
-                "compose {:?}",
-                word.letters
+            let (composite, production_composite) = check_graph_composite(
+                &prefixes,
+                letter,
+                &production_letter,
+                word.letters,
+                &production_state,
+                tally,
             );
-            assert_eq!(
-                delta_to_reference(&production_composite.invert()),
-                composite.invert(),
-                "invert {:?}",
-                word.letters
-            );
-            let expected_bytes = reference::canonical_graph_delta_bytes(&composite)
-                .expect("a scope composite has canonical bytes");
-            let mut writer = CanonicalWriter::new();
-            canonical_graph_delta_bytes(&production_composite, &mut writer);
-            assert_eq!(writer.into_bytes(), expected_bytes, "bytes {:?}", word.letters);
-
-            let start = &prefixes[0];
-            let mut net = start.production.clone();
-            production_composite
-                .apply(&mut net)
-                .unwrap_or_else(|error| panic!("composite of {:?}: {error:?}", word.letters));
-            assert!(
-                GInstance::identical(&net, &production_state),
-                "composite {:?}",
-                word.letters
-            );
-            production_composite
-                .invert()
-                .apply(&mut net)
-                .unwrap_or_else(|error| panic!("inverse of {:?}: {error:?}", word.letters));
-            assert!(
-                GInstance::identical(&net, &start.production),
-                "inverse {:?}",
-                word.letters
-            );
-            if composite.del.keys().any(|x| composite.add.contains_key(x)) {
-                assert!(!production_composite.is_identity());
-                tally.replacements += 1;
-            }
             prefixes.push(GraphPrefix {
                 reference: after.clone(),
                 production: production_state,
@@ -2656,8 +2711,7 @@ fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope()
 fn c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope() {
     let jobs = c8_jobs(carrier::c8_graphs);
     let tally = c8_parallel(&jobs, |schema, graph, tally| {
-        let letters =
-            carrier::c8_graph_letters(schema, graph, carrier::C8Floors::of_graph(graph));
+        let letters = carrier::c8_graph_letters(schema, graph, carrier::C8Floors::of_graph(graph));
         let production_graph = graph_to_production(graph);
         let production: Vec<GraphDelta> = letters.iter().map(delta_to_production).collect();
         let applied: Vec<Option<GInstance>> = production
@@ -2715,8 +2769,9 @@ fn c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_c
                     .expect("an independent first delta applies after the second");
                 let mut both = production_graph.clone();
                 merged.apply(&mut both).expect("the merge applies");
-                let expected = reference::apply(&reference::merge(first, second).expect("merged"), graph)
-                    .expect("the reference merge applies");
+                let expected =
+                    reference::apply(&reference::merge(first, second).expect("merged"), graph)
+                        .expect("the reference merge applies");
                 assert_eq!(graph_to_reference(&one_then_two), expected);
                 assert_eq!(graph_to_reference(&two_then_one), expected);
                 assert_eq!(graph_to_reference(&both), expected);
@@ -2735,6 +2790,61 @@ struct TablePrefix {
     production: FInstance,
     composite: reference::TableDelta,
     production_composite: TableDelta,
+}
+
+/// Compare the composite of a table word after its last letter applied:
+/// composition and canonical bytes against the reference, and the
+/// composite and its inverse applied from the initial state in both
+/// implementations. Returns both composites.
+fn check_table_composite(
+    prefixes: &[TablePrefix],
+    lowered: &reference::TableDelta,
+    production_lowered: &TableDelta,
+    letters: &[reference::TableEdit],
+    after: &reference_model::Table,
+    tally: &mut C8Tally,
+) -> (reference::TableDelta, TableDelta) {
+    let before = &prefixes[letters.len() - 1];
+    let composite =
+        reference::compose_table(&before.composite, lowered).expect("applicable letters compose");
+    let production_composite = before
+        .production_composite
+        .compose(production_lowered)
+        .expect("production composes applicable letters");
+    assert_eq!(
+        table_delta_to_reference(&production_composite),
+        composite,
+        "compose {letters:?}"
+    );
+    let expected_bytes = reference::canonical_table_delta_bytes(&composite)
+        .expect("a scope composite has canonical bytes");
+    let mut writer = CanonicalWriter::new();
+    canonical_table_delta_bytes(&production_composite, &mut writer);
+    assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
+    assert_eq!(
+        reference::apply_table(&composite.invert(), after).as_ref(),
+        Ok(&prefixes[0].reference),
+        "reference inverse {letters:?}"
+    );
+
+    let mut net = prefixes[0].production.clone();
+    production_composite
+        .apply(&mut net)
+        .unwrap_or_else(|error| panic!("composite of {letters:?}: {error:?}"));
+    assert_eq!(table_to_reference(&net), *after, "composite {letters:?}");
+    production_composite
+        .invert()
+        .apply(&mut net)
+        .unwrap_or_else(|error| panic!("inverse of {letters:?}: {error:?}"));
+    assert_eq!(
+        table_to_reference(&net),
+        prefixes[0].reference,
+        "inverse {letters:?}"
+    );
+    if composite.del.keys().any(|x| composite.add.contains_key(x)) {
+        tally.replacements += 1;
+    }
+    (composite, production_composite)
 }
 
 #[test]
@@ -2774,7 +2884,11 @@ fn c8_table_edits_match_reference_on_every_word_of_the_coverage_scope() {
                 .outcome
                 .clone()
                 .map_err(|error| reference_table_apply_error(&error));
-            assert_eq!(actual, expected, "apply {letter:?} to {:?}", before.reference);
+            assert_eq!(
+                actual, expected,
+                "apply {letter:?} to {:?}",
+                before.reference
+            );
             let Ok(after) = word.outcome else {
                 assert_eq!(
                     table_to_reference(&production_state),
@@ -2787,48 +2901,14 @@ fn c8_table_edits_match_reference_on_every_word_of_the_coverage_scope() {
                 return;
             };
 
-            let composite = reference::compose_table(&before.composite, &lowered)
-                .expect("applicable letters compose");
-            let production_composite = before
-                .production_composite
-                .compose(&production_lowered)
-                .expect("production composes applicable letters");
-            assert_eq!(
-                table_delta_to_reference(&production_composite),
-                composite,
-                "compose {:?}",
-                word.letters
+            let (composite, production_composite) = check_table_composite(
+                &prefixes,
+                &lowered,
+                &production_lowered,
+                word.letters,
+                after,
+                tally,
             );
-            let expected_bytes = reference::canonical_table_delta_bytes(&composite)
-                .expect("a scope composite has canonical bytes");
-            let mut writer = CanonicalWriter::new();
-            canonical_table_delta_bytes(&production_composite, &mut writer);
-            assert_eq!(writer.into_bytes(), expected_bytes, "bytes {:?}", word.letters);
-            assert_eq!(
-                reference::apply_table(&composite.invert(), after).as_ref(),
-                Ok(&prefixes[0].reference),
-                "reference inverse {:?}",
-                word.letters
-            );
-
-            let mut net = prefixes[0].production.clone();
-            production_composite
-                .apply(&mut net)
-                .unwrap_or_else(|error| panic!("composite of {:?}: {error:?}", word.letters));
-            assert_eq!(table_to_reference(&net), *after, "composite {:?}", word.letters);
-            production_composite
-                .invert()
-                .apply(&mut net)
-                .unwrap_or_else(|error| panic!("inverse of {:?}: {error:?}", word.letters));
-            assert_eq!(
-                table_to_reference(&net),
-                prefixes[0].reference,
-                "inverse {:?}",
-                word.letters
-            );
-            if composite.del.keys().any(|x| composite.add.contains_key(x)) {
-                tally.replacements += 1;
-            }
             prefixes.push(TablePrefix {
                 reference: after.clone(),
                 production: production_state,
@@ -2889,13 +2969,114 @@ struct TreeStart {
     production_graph: GInstance,
 }
 
+/// The lowering of a whole tree word as one sequence, from its initial
+/// tree, in both implementations, with the embeddings each reaches.
+struct TreeWordLowering {
+    sequence: reference::TreeEdit,
+    production_sequence: TreeEdit,
+    lowered: Result<reference::GraphDelta, reference::TreeApplyError>,
+    lowered_embedding: panproto_reference::encode::TreeEmbedding,
+    production_lowered: Result<GraphDelta, EditError>,
+    production_lowered_embedding: TreeEmbedding,
+}
+
+fn lower_tree_word(
+    start: &TreeStart,
+    tree: &reference_model::Tree,
+    letters: &[reference::TreeEdit],
+) -> TreeWordLowering {
+    let sequence = reference::TreeEdit::Sequence(letters.to_vec());
+    let production_sequence = tree_edit_to_production(&sequence);
+    let mut lowered_embedding = start.reference_embedding.clone();
+    let lowered =
+        reference::graph_delta_from_tree_edit(tree, &mut lowered_embedding, &sequence, None);
+    let mut production_lowered_embedding = start.production_embedding.clone();
+    let production_lowered = GraphDelta::from_tree_edit(
+        &start.production_graph,
+        &mut production_lowered_embedding,
+        &production_sequence,
+    );
+    TreeWordLowering {
+        sequence,
+        production_sequence,
+        lowered,
+        lowered_embedding,
+        production_lowered,
+        production_lowered_embedding,
+    }
+}
+
+impl TreeWordLowering {
+    /// A refused word: both lowerings refuse with `expected` and leave
+    /// their embeddings as they were.
+    fn assert_refused(
+        self,
+        start: &TreeStart,
+        expected: &TreeRefusalObs,
+        letters: &[reference::TreeEdit],
+    ) {
+        assert_eq!(
+            reference_tree_refusal(&self.lowered.expect_err("lowering refuses")),
+            *expected
+        );
+        assert_eq!(self.lowered_embedding, start.reference_embedding);
+        let actual = self
+            .production_lowered
+            .expect_err("production lowering refuses");
+        assert_eq!(production_tree_refusal(&actual), *expected, "{letters:?}");
+        assert_eq!(
+            self.production_lowered_embedding,
+            start.production_embedding
+        );
+    }
+
+    /// An applied word: equal lowerings, embeddings, applied graphs and
+    /// canonical bytes. Returns whether the lowering holds a replacement.
+    fn check_applied(self, start: &TreeStart, letters: &[reference::TreeEdit]) -> bool {
+        let Self {
+            sequence,
+            production_sequence,
+            lowered,
+            lowered_embedding,
+            production_lowered,
+            production_lowered_embedding,
+        } = self;
+        let lowered =
+            lowered.unwrap_or_else(|error| panic!("reference lowering {letters:?}: {error:?}"));
+        let production_lowered = production_lowered
+            .unwrap_or_else(|error| panic!("production lowering {letters:?}: {error:?}"));
+        assert_eq!(
+            delta_to_reference(&production_lowered),
+            lowered,
+            "lower {letters:?}"
+        );
+        assert_eq!(
+            production_embedding(&production_lowered_embedding),
+            reference_embedding(&lowered_embedding),
+            "embedding after {letters:?}"
+        );
+        let reference_graph = reference::apply(&lowered, &start.reference_graph)
+            .unwrap_or_else(|error| panic!("reference graph apply {letters:?}: {error:?}"));
+        let mut production_graph = start.production_graph.clone();
+        production_lowered
+            .apply(&mut production_graph)
+            .unwrap_or_else(|error| panic!("production graph apply {letters:?}: {error:?}"));
+        assert_eq!(graph_to_reference(&production_graph), reference_graph);
+        let expected_bytes =
+            reference::canonical_tree_edit_bytes(&sequence).expect("a scope word is well filed");
+        let mut writer = CanonicalWriter::new();
+        canonical_tree_edit_bytes(&production_sequence, &mut writer);
+        assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
+        lowered.del.keys().any(|x| lowered.add.contains_key(x))
+    }
+}
+
 #[test]
 fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope() {
     let jobs = c8_jobs(carrier::c8_trees);
     let tally = c8_parallel(&jobs, |schema, tree, tally| {
-        let (start_graph, start_embedding) =
-            panproto_reference::encode::tree_to_graph(tree, None)
-                .expect("a scope tree has a graph form");
+        let (start_graph, start_embedding) = panproto_reference::encode::tree_to_graph(tree, None)
+            .expect("a scope tree has a graph form");
         let production_tree = tree_to_production(tree);
         let (production_start_graph, production_start_embedding) =
             GInstance::from_wtype_embedded(&production_tree, None)
@@ -2924,21 +3105,7 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
             let mut production_state = prefixes[length - 1].clone();
             let applied = tree_edit_to_production(letter).apply(&mut production_state);
 
-            let sequence = reference::TreeEdit::Sequence(word.letters.to_vec());
-            let production_sequence = tree_edit_to_production(&sequence);
-            let mut lowered_embedding = start.reference_embedding.clone();
-            let lowered = reference::graph_delta_from_tree_edit(
-                tree,
-                &mut lowered_embedding,
-                &sequence,
-                None,
-            );
-            let mut production_lowered_embedding = start.production_embedding.clone();
-            let production_lowered = GraphDelta::from_tree_edit(
-                &start.production_graph,
-                &mut production_lowered_embedding,
-                &production_sequence,
-            );
+            let lowering = lower_tree_word(&start, tree, word.letters);
             let after = match word.outcome {
                 Err(error) => {
                     let expected = reference_tree_refusal(error);
@@ -2948,56 +3115,19 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
                         tree_to_reference(&production_state),
                         tree_to_reference(&prefixes[length - 1])
                     );
-                    assert_eq!(
-                        reference_tree_refusal(&lowered.expect_err("lowering refuses")),
-                        expected
-                    );
-                    assert_eq!(lowered_embedding, start.reference_embedding);
-                    let actual = production_lowered.expect_err("production lowering refuses");
-                    assert_eq!(
-                        production_tree_refusal(&actual),
-                        expected,
-                        "{:?}",
-                        word.letters
-                    );
-                    assert_eq!(production_lowered_embedding, start.production_embedding);
+                    lowering.assert_refused(&start, &expected, word.letters);
                     tally.refuse(&expected);
                     return;
                 }
                 Ok(after) => after,
             };
             applied.unwrap_or_else(|error| panic!("production apply {letter:?}: {error:?}"));
-            assert_eq!(tree_to_reference(&production_state), *after, "apply {letter:?}");
-            let lowered = lowered
-                .unwrap_or_else(|error| panic!("reference lowering {:?}: {error:?}", word.letters));
-            let production_lowered = production_lowered.unwrap_or_else(|error| {
-                panic!("production lowering {:?}: {error:?}", word.letters)
-            });
             assert_eq!(
-                delta_to_reference(&production_lowered),
-                lowered,
-                "lower {:?}",
-                word.letters
+                tree_to_reference(&production_state),
+                *after,
+                "apply {letter:?}"
             );
-            assert_eq!(
-                production_embedding(&production_lowered_embedding),
-                reference_embedding(&lowered_embedding),
-                "embedding after {:?}",
-                word.letters
-            );
-            let reference_graph = reference::apply(&lowered, &start.reference_graph)
-                .unwrap_or_else(|error| panic!("reference graph apply {:?}: {error:?}", word.letters));
-            let mut production_graph = start.production_graph.clone();
-            production_lowered.apply(&mut production_graph).unwrap_or_else(|error| {
-                panic!("production graph apply {:?}: {error:?}", word.letters)
-            });
-            assert_eq!(graph_to_reference(&production_graph), reference_graph);
-            let expected_bytes = reference::canonical_tree_edit_bytes(&sequence)
-                .expect("a scope word is well filed");
-            let mut writer = CanonicalWriter::new();
-            canonical_tree_edit_bytes(&production_sequence, &mut writer);
-            assert_eq!(writer.into_bytes(), expected_bytes, "bytes {:?}", word.letters);
-            if lowered.del.keys().any(|x| lowered.add.contains_key(x)) {
+            if lowering.check_applied(&start, word.letters) {
                 tally.replacements += 1;
             }
             prefixes.push(production_state);
@@ -3028,10 +3158,11 @@ fn moving_the_root_is_a_root_operation_in_production_and_the_reference() {
         fans: Vec::new(),
         root: 0,
     };
-    tree.nodes.get_mut(&2).expect("leaf").fields.insert(
-        "f".to_owned(),
-        ReferenceValue::Int(1),
-    );
+    tree.nodes
+        .get_mut(&2)
+        .expect("leaf")
+        .fields
+        .insert("f".to_owned(), ReferenceValue::Int(1));
     let mut checked = 0usize;
     for new_parent in 0..3 {
         let letter = reference::TreeEdit::MoveSubtree {

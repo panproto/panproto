@@ -229,11 +229,40 @@ fn project(graph: &reference_model::Graph) -> (reference_model::Graph, Complemen
     )
 }
 
-fn restore(view: &reference_model::Graph, complement: &ComplementObs) -> reference_model::Graph {
-    let mut source = view.clone();
-    source.nodes.extend(complement.nodes.clone());
-    source.edges.extend(complement.edges.clone());
-    source
+/// The whole-state put: the edited view's nodes and edges with the
+/// complement's residue. A view edge keeps its id when `source` holds it
+/// and the complement does not; any other view edge is new, and takes a
+/// fresh id above the source's edge floor, in ascending view-id order, so
+/// it never collides with residue.
+fn restore(
+    source: &reference_model::Graph,
+    view: &reference_model::Graph,
+    complement: &ComplementObs,
+) -> reference_model::Graph {
+    let mut next = source
+        .edges
+        .keys()
+        .chain(complement.edges.keys())
+        .max()
+        .map_or(0, |id| id + 1);
+    let mut restored = reference_model::Graph {
+        nodes: view.nodes.clone(),
+        edges: BTreeMap::new(),
+    };
+    for (id, edge) in &view.edges {
+        let kept = source.edges.contains_key(id) && !complement.edges.contains_key(id);
+        let id = if kept {
+            *id
+        } else {
+            let fresh = next;
+            next += 1;
+            fresh
+        };
+        restored.edges.insert(id, edge.clone());
+    }
+    restored.nodes.extend(complement.nodes.clone());
+    restored.edges.extend(complement.edges.clone());
+    restored
 }
 
 fn complement_to_reference(
@@ -414,8 +443,8 @@ fn assert_put_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
     let view_delta = lower(&fixture.view, &fixture.view_embedding, &edit);
     let reference_view_delta = delta_to_reference(&view_delta);
     let expected = panproto_reference::edit::put_edit(
-        &|_, edited_view, complement| {
-            Ok::<_, &'static str>((restore(edited_view, complement), complement.clone()))
+        &|source, edited_view, complement| {
+            Ok::<_, &'static str>((restore(source, edited_view, complement), complement.clone()))
         },
         &fixture.reference_source,
         &fixture.reference_view,
@@ -429,7 +458,11 @@ fn assert_put_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
         expected.delta,
         panproto_reference::edit::diff_keeping_replacements(
             &fixture.reference_source,
-            &restore(&edited_reference_view, &fixture.reference_complement),
+            &restore(
+                &fixture.reference_source,
+                &edited_reference_view,
+                &fixture.reference_complement,
+            ),
             &reference_view_delta,
         ),
         "explicit differ: {name}"

@@ -1724,13 +1724,24 @@ impl Oracle<'_> {
     }
 
     /// The nearest element anchored at `doc` that reaches `element` along
-    /// edges (the least of the nearest), walking back one edge at a time.
+    /// ordinary edges (the least of the nearest), walking back one edge at a
+    /// time. A graph edge of a reserved fan kind, or one with an endpoint of
+    /// the hyper-edge shape, is fan incidence and supplies no ancestor.
     fn document(self, element: &ViewRef) -> Option<ViewRef> {
+        let plain = |g: &GInstance, n: u32| {
+            g.node(n)
+                .is_some_and(|x| x.shape != panproto_inst::NodeShape::HyperEdge)
+        };
         let parents = |n: u32| -> Vec<u32> {
             match self {
                 Self::Graph(g) => g
                     .edges_sorted()
                     .filter(|(_, e)| e.tgt == n)
+                    .filter(|(_, e)| {
+                        !panproto_inst::wtype_check::is_reserved_edge_kind(&e.edge.kind)
+                            && plain(g, e.src)
+                            && plain(g, e.tgt)
+                    })
                     .map(|(_, e)| e.src)
                     .collect(),
                 Self::Tree(t) => t

@@ -89,6 +89,8 @@ fn ref_value(value: &Value) -> RefValue {
         Value::Float(f) => RefValue::Float(f.to_bits()),
         Value::Str(s) => RefValue::Str(s.clone()),
         Value::Null => RefValue::Null,
+        Value::Temporal(temporal) => ref_offset_only_temporal(ref_offset_minutes(temporal)),
+        Value::List(items) => RefValue::List(items.iter().map(ref_value).collect()),
         other => panic!("value outside the lens differential alphabet: {other:?}"),
     }
 }
@@ -100,7 +102,62 @@ fn prod_value(value: &RefValue) -> Value {
         RefValue::Float(bits) => Value::Float(f64::from_bits(*bits)),
         RefValue::Str(s) => Value::Str(s.clone()),
         RefValue::Null => Value::Null,
+        RefValue::Temporal(temporal) => Value::Temporal(prod_ill_formed_temporal(temporal)),
+        RefValue::List(items) => Value::List(items.iter().map(prod_value).collect()),
         other => panic!("value outside the lens differential alphabet: {other:?}"),
+    }
+}
+
+/// A temporal with neither a date nor a time and a fixed offset of
+/// `minutes`, which is well formed only below a whole day: at a day or more
+/// it has no canonical bytes on either side.
+const fn ref_offset_only_temporal(minutes: i16) -> RefValue {
+    use panproto_reference::temporal::{Offset, OffsetForm, Temporal};
+    RefValue::Temporal(Temporal {
+        date: None,
+        time: None,
+        separator: None,
+        offset: Offset::Fixed(minutes, OffsetForm::Extended),
+        infinity: None,
+    })
+}
+
+/// The production carrier of a reference offset-only temporal, the one
+/// temporal shape of the lens differential alphabet.
+fn prod_ill_formed_temporal(
+    temporal: &panproto_reference::temporal::Temporal,
+) -> panproto_expr::exact::Temporal {
+    use panproto_expr::exact::{ExtendedTemporal, Offset, Temporal};
+    use panproto_reference::temporal::{Offset as RefOffset, OffsetForm, Temporal as RefTemporal};
+    match temporal {
+        RefTemporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: RefOffset::Fixed(minutes, OffsetForm::Extended),
+            infinity: None,
+        } => Temporal::Extended(ExtendedTemporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: Offset::Fixed(*minutes),
+            infinity: None,
+        }),
+        other => panic!("temporal outside the lens differential alphabet: {other:?}"),
+    }
+}
+
+fn ref_offset_minutes(temporal: &panproto_expr::exact::Temporal) -> i16 {
+    use panproto_expr::exact::{ExtendedTemporal, Offset, Temporal};
+    match temporal {
+        Temporal::Extended(ExtendedTemporal {
+            date: None,
+            time: None,
+            separator: None,
+            offset: Offset::Fixed(minutes),
+            infinity: None,
+        }) => *minutes,
+        other => panic!("temporal outside the lens differential alphabet: {other:?}"),
     }
 }
 
@@ -1821,6 +1878,243 @@ fn assert_graph_duplicate_key_domain_family() -> u16 {
         &keyed_source,
         GraphPutDomainFamily::DuplicateKey,
     )
+}
+
+fn prod_key_equality(equality: &panproto_reference::keys::KeyEquality) -> panproto_schema::KeyEquality {
+    use panproto_reference::keys::{
+        KeyEquality as R, NumericPrimitive as RefPrimitive, SqlCollation as RefCollation,
+        SqlPad as RefPad,
+    };
+    use panproto_schema::{KeyEquality, NumericPrimitive, SqlCollation, SqlPad};
+    match equality {
+        R::Representation => KeyEquality::Representation,
+        R::NumericValue => KeyEquality::NumericValue,
+        R::NumericValueWithinKind(primitive) => KeyEquality::NumericValueWithinKind(match primitive {
+            RefPrimitive::Decimal => NumericPrimitive::Decimal,
+            RefPrimitive::Float(width) => NumericPrimitive::Float(*width),
+            RefPrimitive::Any => NumericPrimitive::Any,
+        }),
+        R::Sql { collation, pad } => KeyEquality::Sql {
+            collation: match collation {
+                RefCollation::Binary => SqlCollation::Binary,
+                RefCollation::AsciiCaseInsensitive => SqlCollation::AsciiCaseInsensitive,
+                RefCollation::Named(name) => SqlCollation::Named(name.as_str().into()),
+            },
+            pad: match pad {
+                RefPad::NoPad => SqlPad::NoPad,
+                RefPad::PadSpace => SqlPad::PadSpace,
+            },
+        },
+        R::XmlNonCdata => KeyEquality::XmlNonCdata,
+    }
+}
+
+fn prod_key(key: &panproto_reference::schema::Key) -> Key {
+    use panproto_reference::schema::{KeyPart as RefPart, KeyRole as RefRole, KeyScope as RefScope};
+    Key {
+        id: key.id.as_str().into(),
+        parts: key
+            .parts
+            .iter()
+            .map(|part| match part {
+                RefPart::Path(path) => KeyPart::Path(path.iter().map(prod_edge).collect()),
+                RefPart::Position { within } => KeyPart::Position {
+                    within: prod_edge(within),
+                },
+            })
+            .collect(),
+        role: match key.role {
+            RefRole::Primary => KeyRole::Primary,
+            RefRole::Unique => KeyRole::Unique,
+            RefRole::Identifier => KeyRole::Identifier,
+            RefRole::SortKey => KeyRole::SortKey,
+            RefRole::Index => KeyRole::Index,
+        },
+        scope: match &key.scope {
+            RefScope::Document => KeyScope::Document,
+            RefScope::Global => KeyScope::Global,
+            RefScope::Within(vertex) => KeyScope::Within(vertex.as_str().into()),
+        },
+        equality: key.equality.iter().map(prod_key_equality).collect(),
+    }
+}
+
+/// An identity lens over the C11 schema on `vertices` and `edges` whose
+/// vertex `a` declares `keys`, built on both sides.
+fn keyed_graph_pair(
+    vertices: &[&str],
+    edges: &[(&str, &str)],
+    keys: Vec<panproto_reference::schema::Key>,
+) -> Pair {
+    let mut reference = panproto_reference::enumerate::lenses::c11_schema(vertices, edges);
+    let mut production = prod_schema(&reference);
+    production
+        .declarations
+        .keys
+        .insert("a".into(), keys.iter().map(prod_key).collect());
+    reference.keys.insert("a".to_owned(), keys);
+    let migration = reference_carrier_migration(&reference);
+    let lens = Lens {
+        compiled: prod_migration(&migration),
+        src_schema: production.clone(),
+        tgt_schema: production,
+    };
+    Pair::with_production(reference.clone(), reference, migration, &NoValueLayer, lens)
+}
+
+fn value_key(
+    id: &str,
+    role: panproto_reference::schema::KeyRole,
+    scope: panproto_reference::schema::KeyScope,
+    equality: Vec<panproto_reference::keys::KeyEquality>,
+) -> panproto_reference::schema::Key {
+    panproto_reference::schema::Key {
+        id: id.to_owned(),
+        parts: vec![panproto_reference::schema::KeyPart::Path(Vec::new())],
+        role,
+        scope,
+        equality,
+    }
+}
+
+/// Nodes `0..` anchored at `a`, carrying `values` in order (`None` for a
+/// node without a value).
+fn valued_a_nodes(values: &[Option<RefValue>]) -> RefGraph {
+    let nodes = (0_u32..)
+        .zip(values)
+        .map(|(id, value)| {
+            let mut node = RefNode::new(id, "a");
+            node.value = value.clone().map(RefPresence::Present);
+            (id, node)
+        })
+        .collect();
+    RefGraph {
+        nodes,
+        edges: BTreeMap::new(),
+    }
+}
+
+/// The graph put-domain outcome on both sides, asserted equal; returns the
+/// shared domain report.
+fn agreed_graph_put_domain(pair: &Pair, source: &RefGraph, what: &str) -> Result<(), Vec<String>> {
+    let production = production_put(pair, source, source)
+        .unwrap_or_else(|| panic!("production get refused the {what} witness"));
+    let reference = reference_strict_put(pair, source, source)
+        .unwrap_or_else(|| panic!("reference get refused the {what} witness"));
+    assert_eq!(production, reference, "{what}");
+    reference.domain
+}
+
+/// Amendment-level contract: a declared key whose restored value has no
+/// canonical bytes is a typed put-domain refusal in production and in the
+/// reference alike, under every equality declaration, and the refusal takes
+/// the key's place in the report instead of its duplicate-key verdicts.
+#[test]
+fn graph_put_refuses_key_values_without_canonical_bytes_like_the_reference() {
+    use panproto_reference::keys::{KeyEquality as Eq, NumericPrimitive, SqlCollation, SqlPad};
+    use panproto_reference::schema::{KeyRole, KeyScope};
+    let equalities = [
+        Vec::new(),
+        vec![Eq::Representation],
+        vec![Eq::NumericValue],
+        vec![Eq::NumericValueWithinKind(NumericPrimitive::Any)],
+        vec![Eq::Sql {
+            collation: SqlCollation::Binary,
+            pad: SqlPad::PadSpace,
+        }],
+        vec![Eq::XmlNonCdata],
+    ];
+    let same = Some(RefValue::Str("same".to_owned()));
+    let witnesses = [
+        // Two distinct values without canonical bytes.
+        vec![
+            Some(ref_offset_only_temporal(1440)),
+            Some(ref_offset_only_temporal(1441)),
+        ],
+        // One value without canonical bytes among a duplicated pair: the
+        // key is undecided, so the pair is not reported.
+        vec![same.clone(), Some(ref_offset_only_temporal(-1440)), same],
+        // A value without canonical bytes nested in a list.
+        vec![
+            Some(RefValue::List(vec![
+                RefValue::Int(1),
+                ref_offset_only_temporal(2000),
+            ])),
+            Some(RefValue::Int(1)),
+        ],
+    ];
+    for equality in &equalities {
+        for values in &witnesses {
+            let pair = keyed_graph_pair(
+                &["a"],
+                &[],
+                vec![value_key(
+                    "by-value",
+                    KeyRole::Unique,
+                    KeyScope::Global,
+                    equality.clone(),
+                )],
+            );
+            let what = format!("{equality:?} over {values:?}");
+            let report = agreed_graph_put_domain(&pair, &valued_a_nodes(values), &what)
+                .expect_err("a key value without canonical bytes must refuse");
+            assert_eq!(
+                report,
+                ["KeyRefused a by-value NoCanonicalBytes".to_owned()],
+                "{what}"
+            );
+        }
+    }
+}
+
+/// The graph key clause agrees with the reference beyond representation
+/// keys: declared equality, non-unique roles, the primary-key presence rule
+/// and elements outside a scoped key's domain.
+#[test]
+fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
+    use panproto_reference::keys::KeyEquality as Eq;
+    use panproto_reference::schema::{KeyRole, KeyScope};
+    let one = vec![Some(RefValue::Int(1)), Some(RefValue::Float(1.0_f64.to_bits()))];
+    let same = vec![
+        Some(RefValue::Str("same".to_owned())),
+        Some(RefValue::Str("same".to_owned())),
+    ];
+    let cases = [
+        (
+            "numeric equality",
+            value_key("k", KeyRole::Unique, KeyScope::Global, vec![Eq::NumericValue]),
+            one,
+            Vec::new(),
+        ),
+        (
+            "index role",
+            value_key("k", KeyRole::Index, KeyScope::Global, Vec::new()),
+            same.clone(),
+            Vec::new(),
+        ),
+        (
+            "sort-key role",
+            value_key("k", KeyRole::SortKey, KeyScope::Global, Vec::new()),
+            same.clone(),
+            Vec::new(),
+        ),
+        (
+            "primary key without a value",
+            value_key("k", KeyRole::Primary, KeyScope::Global, Vec::new()),
+            vec![Some(RefValue::Int(1)), None],
+            Vec::new(),
+        ),
+        (
+            "scoped key outside its domain",
+            value_key("k", KeyRole::Unique, KeyScope::Within("b".to_owned()), Vec::new()),
+            same,
+            vec![("b", "a")],
+        ),
+    ];
+    for (what, key, values, edges) in cases {
+        let pair = keyed_graph_pair(&["a", "b"], &edges, vec![key]);
+        let _ = agreed_graph_put_domain(&pair, &valued_a_nodes(&values), what);
+    }
 }
 
 fn assert_graph_malformed_fan_domain_family() -> u16 {

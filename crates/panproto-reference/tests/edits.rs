@@ -649,8 +649,10 @@ fn c8_initial_states_match_their_independent_counts() {
         for graph in carrier::c8_graphs(schema) {
             assert!(graph.well_formed());
             assert!(graph.edges.values().all(|edge| {
-                schema.edge(&graph.nodes[&edge.src].anchor, &graph.nodes[&edge.tgt].anchor)
-                    == Some(&edge.label)
+                schema.edge(
+                    &graph.nodes[&edge.src].anchor,
+                    &graph.nodes[&edge.tgt].anchor,
+                ) == Some(&edge.label)
             }));
         }
         for table in carrier::c8_tables(schema) {
