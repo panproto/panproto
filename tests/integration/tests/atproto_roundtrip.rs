@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use panproto_inst::{CompiledMigration, parse_json, to_json};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, parse_json, to_json};
 use panproto_mig::lift_wtype;
 use panproto_protocols::atproto;
 use panproto_schema::Edge;
@@ -98,7 +98,17 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
     };
 
     // Lift with identity migration.
-    let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
+    let protocol = atproto::protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &schema,
+        &schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
     assert_eq!(
         lifted.node_count(),
         instance.node_count(),

@@ -153,11 +153,15 @@ class SchemaBackend back => ParseBackend back where
     -- @pp_parse_check_parse_emit@ (@check_parse_emit@).
     checkParseEmit :: ParseEmitLensRep back -> ByteString -> IO (Maybe Text)
 
-    -- | Release any resources held by the registry. As with the other
-    -- backend reps, this is idempotent at the slab level (a freed slot
-    -- stays freed; a second free is a no-op).
+    -- | Release any resources held by the registry. A raw-backed
+    -- representation must be discarded after this one-shot release. A
+    -- repeated release is harmless only before slot reuse; afterward the
+    -- stale numeric handle aliases and frees the new resource. Use
+    -- 'Control.Exception.bracket' around registry acquisition and release.
     releaseRegistry :: ParserRegistryRep back -> IO ()
 
-    -- | Release any resources held by a parse\/emit lens. Idempotent at
-    -- the slab level, like 'releaseRegistry'.
+    -- | Release any resources held by a parse\/emit lens. An
+    -- implementation that carries no foreign resource may make this a
+    -- no-op; a raw-backed implementation follows the one-shot contract of
+    -- 'releaseRegistry'.
     releaseLens :: ParseEmitLensRep back -> IO ()

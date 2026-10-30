@@ -1,0 +1,328 @@
+{
+  "name": "incomplete/table_pattern_lookahead",
+  "protocol": "validation-fixtures-table",
+  "protocol_definition": {
+    "name": "validation-fixtures-table",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "table",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "item": {
+        "id": "item",
+        "kind": "table",
+        "nsid": null
+      },
+      "name": {
+        "id": "name",
+        "kind": "string",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "item",
+          "tgt": "name",
+          "kind": "prop",
+          "name": "name"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {
+      "name": [
+        {
+          "sort": "pattern",
+          "value": "(?=a)a"
+        }
+      ]
+    },
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "item": [
+        {
+          "src": "item",
+          "tgt": "name",
+          "kind": "prop",
+          "name": "name"
+        }
+      ]
+    },
+    "incoming": {
+      "name": [
+        {
+          "src": "item",
+          "tgt": "name",
+          "kind": "prop",
+          "name": "name"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "item",
+          "name"
+        ],
+        [
+          {
+            "src": "item",
+            "tgt": "name",
+            "kind": "prop",
+            "name": "name"
+          }
+        ]
+      ]
+    ]
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "table": {
+      "tables": {
+        "item": {
+          "0": {
+            "name": {
+              "Str": "a"
+            }
+          }
+        }
+      },
+      "foreign_keys": []
+    }
+  },
+  "edit_trace": {
+    "table": []
+  },
+  "report": {
+    "shape": "table",
+    "scope": "instance",
+    "plan": "87c5f5b349666a83c938ddf57e06ce5fbd91b95ace212ee092c371305736613b",
+    "status": "incomplete",
+    "diagnostics": [],
+    "incomplete": [
+      {
+        "check": {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        "class": "static",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "ill_formed_declaration": {
+            "detail": "pattern \"(?=a)a\" does not compile: regex parse error:\n    (?=a)a\n    ^^^\nerror: look-around, including look-ahead and look-behind, is not supported"
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "name",
+              "constraint": {
+                "sort": "pattern",
+                "value": "(?=a)a"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "ill_formed_declaration": {
+            "detail": "pattern \"(?=a)a\" does not compile: regex parse error:\n    (?=a)a\n    ^^^\nerror: look-around, including look-ahead and look-behind, is not supported"
+          }
+        }
+      }
+    ],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 1
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "name",
+              "constraint": {
+                "sort": "pattern",
+                "value": "(?=a)a"
+              }
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 1
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "item"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

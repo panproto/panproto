@@ -319,6 +319,133 @@ public struct CoercionSpec: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Key and reference declarations
+
+/// One declared key, retained in the engine's named-field wire form.
+public struct Key: Codable, Hashable, Sendable {
+    /// The exact named-field key representation.
+    public var representation: CBORValue
+
+    /// Admit a named-field key payload.
+    public init(representation: CBORValue) throws {
+        guard case .map = representation.untagged else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "a key is a named-field map"))
+        }
+        self.representation = representation
+    }
+
+    /// Read a key payload.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained key payload.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+}
+
+/// One declared reference, retained in the engine's named-field wire form.
+public struct Reference: Codable, Hashable, Sendable {
+    /// The exact named-field reference representation.
+    public var representation: CBORValue
+
+    /// Admit a named-field reference payload.
+    public init(representation: CBORValue) throws {
+        guard case .map = representation.untagged else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "a reference is a named-field map"))
+        }
+        self.representation = representation
+    }
+
+    /// Read a reference payload.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained reference payload.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+}
+
+/// One polymorphic target-set declaration.
+public struct TargetSet: Codable, Hashable, Sendable {
+    /// The exact named-field target-set representation.
+    public var representation: CBORValue
+
+    /// Admit a named-field target-set payload.
+    public init(representation: CBORValue) throws {
+        guard case .map = representation.untagged else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "a target set is a named-field map"))
+        }
+        self.representation = representation
+    }
+
+    /// Read a target-set payload.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained target-set payload.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+}
+
+/// The key, reference, and target-set declarations attached to a schema.
+public struct SchemaDeclarations: Codable, Hashable, Sendable {
+    /// Keys grouped by their keyed vertex.
+    public var keys: [Name: [Key]]
+    /// References keyed by declaration id.
+    public var references: [Name: Reference]
+    /// Polymorphic target sets keyed by declaration id.
+    public var targetSets: [Name: TargetSet]
+
+    /// Assemble a declaration bundle.
+    public init(
+        keys: [Name: [Key]] = [:],
+        references: [Name: Reference] = [:],
+        targetSets: [Name: TargetSet] = [:]
+    ) {
+        self.keys = keys
+        self.references = references
+        self.targetSets = targetSets
+    }
+
+    /// Whether the bundle declares nothing.
+    public var isEmpty: Bool { keys.isEmpty && references.isEmpty && targetSets.isEmpty }
+
+    private enum CodingKeys: String, CodingKey {
+        case keys
+        case references
+        case targetSets = "target_sets"
+    }
+
+    /// Read a declaration bundle, defaulting the append-only target sets.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        keys = try container.decode([Name: [Key]].self, forKey: .keys)
+        references = try container.decode([Name: Reference].self, forKey: .references)
+        targetSets =
+            try container.decodeIfPresent([Name: TargetSet].self, forKey: .targetSets) ?? [:]
+    }
+
+    /// Write a declaration bundle in Rust field order.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(keys, forKey: .keys)
+        try container.encode(references, forKey: .references)
+        if !targetSets.isEmpty { try container.encode(targetSets, forKey: .targetSets) }
+    }
+}
+
 // MARK: - Schemas
 
 /// A schema: a graph of vertices and edges, together with everything a
@@ -384,6 +511,8 @@ public struct Schema: Codable, Hashable, Sendable {
     /// The conflict resolution policy of each constraint sort that has
     /// one.
     public var policies: [Name: Expr]
+    /// Keys, references, and target sets declared by the schema.
+    public var declarations: SchemaDeclarations
 
     /// An empty schema in `protocolName`.
     public init(protocol protocolName: String) {
@@ -405,6 +534,7 @@ public struct Schema: Codable, Hashable, Sendable {
         self.mergers = [:]
         self.defaults = [:]
         self.policies = [:]
+        self.declarations = SchemaDeclarations()
     }
 
     // MARK: Building
@@ -580,6 +710,7 @@ public struct Schema: Codable, Hashable, Sendable {
         case outgoing
         case incoming
         case between
+        case declarations
     }
 
     /// Read a schema.
@@ -626,9 +757,12 @@ public struct Schema: Codable, Hashable, Sendable {
         self.mergers = try container.decodeIfPresent([Name: Expr].self, forKey: .mergers) ?? [:]
         self.defaults = try container.decodeIfPresent([Name: Expr].self, forKey: .defaults) ?? [:]
         self.policies = try container.decodeIfPresent([Name: Expr].self, forKey: .policies) ?? [:]
+        self.declarations =
+            try container.decodeIfPresent(SchemaDeclarations.self, forKey: .declarations)
+            ?? SchemaDeclarations()
     }
 
-    /// Write all twenty-one fields in declaration order.
+    /// Write the twenty-one historical fields and optional declarations in order.
     ///
     /// The four maps the engine keys by something other than a string
     /// go out as arrays of pairs, ordered by key, and the three
@@ -668,6 +802,9 @@ public struct Schema: Codable, Hashable, Sendable {
         try container.encode(outgoing, forKey: .outgoing)
         try container.encode(incoming, forKey: .incoming)
         try container.encode(WireMap.pairs(of: between), forKey: .between)
+        if !declarations.isEmpty {
+            try container.encode(declarations, forKey: .declarations)
+        }
     }
 }
 

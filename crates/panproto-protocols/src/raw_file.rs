@@ -38,7 +38,7 @@ use crate::theories;
 /// Returns the raw file protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "raw_file".into(),
         schema_theory: "ThRawFileSchema".into(),
         instance_theory: "ThRawFileInstance".into(),
@@ -74,7 +74,10 @@ pub fn protocol() -> Protocol {
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the raw file theory pair.

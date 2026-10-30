@@ -1,7 +1,7 @@
 //! Cutting a well-formed sub-schema out of a schema.
 //!
 //! [`induce`] is the one supported way to restrict a [`Schema`] to a subset
-//! of its vertices and edges. A [`Schema`] carries twenty-one fields spread
+//! of its vertices and edges. A [`Schema`] carries twenty-two fields spread
 //! over four distinct key spaces (vertex id, [`Edge`], `(kind, kind)` pair,
 //! and constraint sort name), and only three of them are derived. Copying
 //! `vertices` and `edges` and cloning the rest therefore leaves dangling
@@ -33,8 +33,9 @@
 //! | `(kind, kind)` | `coercions` |
 //! | constraint sort name | `policies` |
 //! | derived from `edges` | `outgoing`, `incoming`, `between` |
+//! | vertex ids and edges held inside a declaration | `declarations` |
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use panproto_gat::Name;
@@ -42,9 +43,10 @@ use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 
 use crate::error::SchemaError;
+use crate::keys::{DeclarationReport, KeyScope};
 use crate::protocol::Protocol;
 use crate::schema::{CoercionSpec, Edge, HyperEdge, RecursionPoint, Schema, Span, Variant, Vertex};
-use crate::validate::validate;
+use crate::validate::{Ancestry, validate};
 
 /// Induce the sub-schema of `schema` on the vertices `keep_v` and the edges
 /// `keep_e`.
@@ -166,6 +168,71 @@ pub fn induce<VS: BuildHasher, ES: BuildHasher>(
     keep_v: &HashSet<Name, VS>,
     keep_e: &HashSet<Edge, ES>,
 ) -> Result<Schema, SchemaError> {
+    induce_with_report(schema, protocol, keep_v, keep_e).map(|(apex, _)| apex)
+}
+
+/// [`induce`], also reporting the key and reference declarations the cut
+/// dropped.
+///
+/// A declaration survives exactly when every vertex and every edge it names
+/// survives, and is carried unchanged; one that names a vertex or an edge
+/// outside the apex is dropped and listed in the [`DeclarationReport`], and
+/// so is a reference whose resolving key was dropped
+/// ([`SchemaDeclarations::resolving_key`](crate::SchemaDeclarations::resolving_key)).
+///
+/// # Errors
+///
+/// Returns [`SchemaError::InducedSchemaInvalid`] under exactly the conditions
+/// [`induce`] does.
+///
+/// # Panics
+///
+/// Under the same debug-only condition as [`induce`].
+///
+/// # Examples
+///
+/// ```
+/// use panproto_gat::Name;
+/// use panproto_schema::{
+///     Key, KeyPart, KeyRole, KeyScope, Protocol, SchemaBuilder, induce_with_report,
+/// };
+/// use rustc_hash::FxHashSet;
+///
+/// let protocol = Protocol::default();
+/// let schema = SchemaBuilder::new(&protocol)
+///     .vertex("film", "table", None)?
+///     .vertex("film.id", "integer", None)?
+///     .edge("film", "film.id", "column", Some("id"))?
+///     .key(
+///         "film",
+///         Key {
+///             id: "pk".into(),
+///             parts: vec![KeyPart::Path(vec![panproto_schema::Edge {
+///                 src: "film".into(),
+///                 tgt: "film.id".into(),
+///                 kind: "column".into(),
+///                 name: Some("id".into()),
+///             }])],
+///             role: KeyRole::Primary,
+///             scope: KeyScope::Document,
+///         },
+///     )
+///     .build()?;
+///
+/// // Cutting the key column drops the key and says so.
+/// let keep_v: FxHashSet<Name> = [Name::from("film")].into_iter().collect();
+/// let keep_e: FxHashSet<_> = schema.edges.keys().cloned().collect();
+/// let (apex, report) = induce_with_report(&schema, &protocol, &keep_v, &keep_e)?;
+/// assert!(apex.declarations.is_empty());
+/// assert_eq!(report.dropped_keys, vec![(Name::from("film"), Name::from("pk"))]);
+/// # Ok::<(), panproto_schema::SchemaError>(())
+/// ```
+pub fn induce_with_report<VS: BuildHasher, ES: BuildHasher>(
+    schema: &Schema,
+    protocol: &Protocol,
+    keep_v: &HashSet<Name, VS>,
+    keep_e: &HashSet<Edge, ES>,
+) -> Result<(Schema, DeclarationReport), SchemaError> {
     // 2. `vertices`: key space is vertex id.
     let vertices = retain_by_vertex(&schema.vertices, keep_v);
 
@@ -212,6 +279,12 @@ pub fn induce<VS: BuildHasher, ES: BuildHasher>(
     //     the filtered `edges` and their bucket order from the parent's own
     //     indices; neither is copied wholesale.
     let adjacency = build_adjacency(&edges, schema);
+    // 22. `declarations`: every vertex and edge a declaration names must
+    //     survive; the identity carries the survivors.
+    let (declarations, report) = schema.declarations.map_through(
+        |vertex| keep_v.contains(vertex).then(|| vertex.clone()),
+        |edge| edges.contains_key(edge).then(|| edge.clone()),
+    )?;
 
     let apex = Schema {
         // 1. `protocol`: the protocol name, copied.
@@ -251,11 +324,31 @@ pub fn induce<VS: BuildHasher, ES: BuildHasher>(
         outgoing: adjacency.outgoing,
         incoming: adjacency.incoming,
         between: adjacency.between,
+        declarations,
     };
+
+    // A key scoped within an ancestor stays only while the apex still has a
+    // path from that ancestor to the keyed vertex.
+    let mut apex = apex;
+    let mut report = report;
+    let out_of_scope: BTreeSet<(Name, Name)> = {
+        let ancestry = Ancestry::new(&apex);
+        apex.declarations
+            .keys
+            .iter()
+            .flat_map(|(vertex, keys)| keys.iter().map(move |key| (vertex, key)))
+            .filter(|(vertex, key)| match &key.scope {
+                KeyScope::Within(ancestor) => !ancestry.is_proper_ancestor(ancestor, vertex),
+                KeyScope::Document | KeyScope::Global => false,
+            })
+            .map(|(vertex, key)| (vertex.clone(), key.id.clone()))
+            .collect()
+    };
+    report.absorb(apex.declarations.drop_keys(&out_of_scope));
 
     let findings = validate(&apex, protocol);
     if findings.is_empty() {
-        Ok(apex)
+        Ok((apex, report))
     } else {
         Err(SchemaError::InducedSchemaInvalid { findings })
     }
@@ -619,7 +712,7 @@ mod tests {
     fn protocol() -> Protocol {
         Protocol {
             name: "fixture".to_owned(),
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -648,7 +741,8 @@ mod tests {
         ids.iter().copied().map(Name::from).collect()
     }
 
-    /// A schema in which every one of the twenty-one fields is non-empty.
+    /// A schema in which every field but `declarations` is non-empty; the
+    /// declaration rules are exercised by the tests of the `keys` module.
     ///
     /// The vertex kinds are chosen so that `integer` is carried by exactly one
     /// vertex (`cut`), which is what lets the coercion assertions distinguish
@@ -782,7 +876,7 @@ mod tests {
     }
 
     /// Every field of the fixture is non-empty, so the induction test below
-    /// really does exercise all twenty-one.
+    /// really does exercise all twenty-one of them.
     #[test]
     fn fixture_populates_every_field() {
         let schema = fixture();
@@ -1194,7 +1288,7 @@ mod tests {
         let protocol = Protocol {
             name: "strict".to_owned(),
             constraint_sorts: vec!["format".to_owned()],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&protocol)
             .vertex("root", "object", None)

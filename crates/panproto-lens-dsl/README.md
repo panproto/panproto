@@ -21,8 +21,16 @@ use panproto_lens_dsl::load_and_compile;
 use std::path::Path;
 
 let compiled = load_and_compile(Path::new("migrations/v1_to_v2.ncl"), "record:body")?;
-let lens = compiled.instantiate(&source_schema, &protocol)?;
+let path = compiled.instantiate(&source_schema, &protocol)?;
 ```
+
+`CompiledLens::instantiate` returns a `LensPath`, preserving ordered stages
+that cannot be fused without changing their behavior. Call the path's
+shape-specific `get` and `put` operations and retain the returned
+`PathComplement`. Code that requires one tree-normal-form `Lens` may call
+`path.into_single()?`; the conversion refuses a path with more than one
+normal-form group. The path endpoints are available through `src_schema()` and
+`tgt_schema()`.
 
 ## Compilation
 

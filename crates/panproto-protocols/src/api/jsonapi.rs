@@ -21,7 +21,7 @@ use crate::theories;
 /// Returns the JSON:API protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "jsonapi".into(),
         schema_theory: "ThJsonAPISchema".into(),
         instance_theory: "ThJsonAPIInstance".into(),
@@ -41,8 +41,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for JSON:API with a theory registry.
@@ -63,6 +65,8 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 ///
 /// Returns [`ProtocolError`] if parsing or schema construction fails.
 pub fn parse_jsonapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

@@ -64,6 +64,7 @@ fn open_protocol() -> Protocol {
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
+        ..Default::default()
     }
 }
 

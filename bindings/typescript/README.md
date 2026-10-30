@@ -69,6 +69,12 @@ Lens `get` projects source data to a target-shaped view and records discarded
 source data in a complement. Lens `put` uses the view and complement to
 reconstruct source data.
 
+Symmetric-lens synchronization currently returns a `LiftResult` containing
+only the synchronized instance. The WASM boundary consumes the supplied
+complement but does not return the updated complement it computes internally.
+Thus callers must manage the complement passed to each synchronization call;
+`syncLeftToRight` and `syncRightToLeft` do not produce a replacement.
+
 ## Conversion and query details
 
 `Panproto.convert(object, { from, to, rootVertex, defaults })` converts an
@@ -113,7 +119,8 @@ graph within each Worker.
 | `Panproto.diff`, `diffFull`, `FullDiffReport`, `CompatReport` | Compute structural changes and compatibility reports. |
 | `MigrationBuilder`, `CompiledMigration` | Define, compile, apply, compose, and invert source-to-target mappings. |
 | `Panproto.lens`, `LensHandle` | Generate and run complement-carrying asymmetric lenses. |
-| `Panproto.protolensChain`, `compileLensDocument`, `ProtolensChainHandle` | Generate, load, compose, and instantiate protolens chains. Compiled lens documents retain their value-level field transforms. |
+| `Panproto.symmetricLens`, `SymmetricLensHandle` | Synchronize peer schemas in either direction. Each sync returns the destination instance; the caller manages the input complement because the current WASM boundary does not return an updated one. |
+| `Panproto.protolensChain`, `compileLensDocument`, `ProtolensChainHandle` | Generate, load, compose, and instantiate directional protolens chains. Accepted compiled documents retain their ordered value-level transforms; a `symmetric` body uses the separate symmetric-lens API. |
 | `Panproto.span` | Return a shared-schema span as plain data with `quality_bounds` and `proven_optimal`. No overlap produces an empty apex. |
 | `IoRegistry`, `Instance` | Parse and emit instance data. The default WASM registry contains 50 codecs. |
 | `TheoryHandle`, `TheoryBuilder`, `createTheory`, `colimit`, `checkMorphism` | Construct and check generalized algebraic theories and their morphisms. |

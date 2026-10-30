@@ -107,6 +107,7 @@ import GHC.Generics (Generic)
 
 import Panproto.Class (SchemaBackend (..))
 import Panproto.Schema (Edge (..))
+import Panproto.Wire (WireTerm, decodeWireTerm, encodeWireTerm)
 
 -- ---------------------------------------------------------------------------
 -- Value
@@ -135,6 +136,10 @@ data Value
     -- ^ @type_@ and opaque fields.
     | VUnknown !(HashMap Text Value)
     | VList ![Value]
+    | VLabeledNull !Word64
+    | VDecimal !WireTerm
+    | VBigInt !WireTerm
+    | VTemporal !WireTerm
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
 
@@ -164,6 +169,7 @@ data NodeShape
     | XmlElement !Text
     -- ^ The original XML tag name the node was aliased from.
     | XmlTextSegment
+    | HyperEdge
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, Hashable, ToJSON, FromJSON)
 
@@ -318,10 +324,10 @@ parentOf i nid =
 -- | The lens complement: data discarded by a lens @get@ that @put@
 -- needs to reconstruct the source. Mirrors @panproto_lens::Complement@.
 --
--- The optional fields ('originalExtraFields', 'arcEdges',
--- 'originalValues', 'synthesizedNodes', and 'sourceFingerprint') carry
--- @serde(default)@ on the Rust side and decode to their empty\/zero
--- values when absent.
+-- Every field after 'originalParent' carries @serde(default)@ on the Rust
+-- side.  Older complements therefore decode with empty\/zero values while
+-- current complements survive an engine → host → engine trip without
+-- losing reconstruction data or their identity envelope.
 data Complement = Complement
     { droppedNodes :: !(HashMap Word32 Node)
     -- ^ Nodes from the source absent from the target view.
@@ -343,12 +349,24 @@ data Complement = Complement
     , arcEdges :: ![((Word32, Word32), Edge)]
     -- ^ Exact edge used for every view arc, keyed by
     -- @(parent_id, child_id)@.
+    , arcOrder :: ![(Word32, Word32)]
+    -- ^ Source arcs in their original order.
     , originalValues :: !(HashMap Word32 (Maybe FieldPresence))
     -- ^ Pre-coercion @node.value@ for nodes that had @__value__@
     -- transforms applied.
     , synthesizedNodes :: ![Word32]
     -- ^ View node ids synthesized during forward eval that @put@ must
     -- drop when reconstructing the source.
+    , contractedInto :: !(HashMap Word32 Word32)
+    -- ^ Dropped node to its surviving contraction ancestor.
+    , originalAnchors :: !(HashMap Word32 Text)
+    -- ^ Source anchors erased by a non-injective vertex map.
+    , idFloor :: !Word32
+    -- ^ First node id outside the source graph at @get@ time.
+    , synthesizedKeys :: !(HashMap Word32 WireTerm)
+    -- ^ Stable synthesis keys, retained in their exact Rust serde form.
+    , identity :: !(Maybe WireTerm)
+    -- ^ Complement identity envelope, retained without interpretation.
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
@@ -366,8 +384,14 @@ emptyComplement =
         , sourceFingerprint = 0
         , originalExtraFields = HM.empty
         , arcEdges = []
+        , arcOrder = []
         , originalValues = HM.empty
         , synthesizedNodes = []
+        , contractedInto = HM.empty
+        , originalAnchors = HM.empty
+        , idFloor = 0
+        , synthesizedKeys = HM.empty
+        , identity = Nothing
         }
 
 -- | Number of dropped nodes. Mirrors the Python
@@ -409,8 +433,9 @@ class SchemaBackend back => InstanceBackend back where
     -- 'Instance'.
     reifyInstance :: InstanceRep back -> IO Instance
 
-    -- | Release any resources held by the representation. Idempotent
-    -- at the slab level, as with the other backend reps.
+    -- | Release any resources held by the representation. The current
+    -- 'Rust' representation carries a pure exchange value rather than a
+    -- slab handle, so its implementation is a no-op.
     releaseInstance :: InstanceRep back -> IO ()
 
     -- | Validate an instance against a schema, returning the list of
@@ -468,7 +493,7 @@ encodeComplements = CBOR.toLazyByteString . encodeList complementEncoding
 
 complementEncoding :: Complement -> Encoding
 complementEncoding c =
-    Enc.encodeMapLen 10
+    Enc.encodeMapLen (if maybe False (const True) c.identity then 16 else 15)
         <> kv "dropped_nodes" (encodeNodeMap c.droppedNodes)
         <> kv "dropped_arcs" (encodeArcs c.droppedArcs)
         <> kv "dropped_fans" (encodeList encodeFan c.droppedFans)
@@ -477,8 +502,14 @@ complementEncoding c =
         <> kv "source_fingerprint" (Enc.encodeWord64 c.sourceFingerprint)
         <> kv "original_extra_fields" (encodeWordMap encodeValueMap c.originalExtraFields)
         <> kv "arc_edges" (encodePairMap c.arcEdges)
+        <> kv "arc_order" (encodePairs c.arcOrder)
         <> kv "original_values" (encodeWordMap encodeMaybePresence c.originalValues)
         <> kv "synthesized_nodes" (encodeList Enc.encodeWord32 c.synthesizedNodes)
+        <> kv "contracted_into" (encodeWordMap Enc.encodeWord32 c.contractedInto)
+        <> kv "original_anchors" (encodeWordMap Enc.encodeString c.originalAnchors)
+        <> kv "id_floor" (Enc.encodeWord32 c.idFloor)
+        <> kv "synthesized_keys" (encodeWordMap encodeWireTerm c.synthesizedKeys)
+        <> maybe mempty (kv "identity" . encodeWireTerm) c.identity
   where
     kv k v = Enc.encodeString k <> v
 
@@ -501,6 +532,7 @@ encodeNodeShape = \case
     Plain -> tag "plain"
     ListShape -> tag "list"
     XmlTextSegment -> tag "xml_text_segment"
+    HyperEdge -> tag "hyper_edge"
     XmlElement t ->
         Enc.encodeMapLen 2
             <> Enc.encodeString "kind"
@@ -573,6 +605,10 @@ encodeValue = \case
                 <> Enc.encodeString "fields" <> encodeValueMap fields
     VUnknown m -> variant "Unknown" (encodeValueMap m)
     VList xs -> variant "List" (encodeList encodeValue xs)
+    VLabeledNull n -> variant "LabeledNull" (Enc.encodeWord64 n)
+    VDecimal d -> variant "Decimal" (encodeWireTerm d)
+    VBigInt n -> variant "BigInt" (encodeWireTerm n)
+    VTemporal t -> variant "Temporal" (encodeWireTerm t)
   where
     variant k v = Enc.encodeMapLen 1 <> Enc.encodeString k <> v
 
@@ -610,6 +646,12 @@ encodePairMap xs =
                     <> encodeEdge e
             )
             xs
+
+-- | Encode a vector of two-tuples, used by @Complement::arc_order@.
+encodePairs :: [(Word32, Word32)] -> Encoding
+encodePairs =
+    encodeList $ \(a, b) ->
+        Enc.encodeListLen 2 <> Enc.encodeWord32 a <> Enc.encodeWord32 b
 
 encodeMaybeText :: Maybe Text -> Encoding
 encodeMaybeText = maybe Enc.encodeNull Enc.encodeString
@@ -669,10 +711,19 @@ complementDecoder = decodeMapWith emptyComplement onKey
         "original_extra_fields" ->
             (\v -> acc {originalExtraFields = v}) <$> decodeWordMap decodeValueMap
         "arc_edges" -> (\v -> acc {arcEdges = v}) <$> decodePairMap
+        "arc_order" -> (\v -> acc {arcOrder = v}) <$> decodePairs
         "original_values" ->
             (\v -> acc {originalValues = v}) <$> decodeWordMap decodeMaybePresence
         "synthesized_nodes" ->
             (\v -> acc {synthesizedNodes = v}) <$> decodeListOf decodeWord32
+        "contracted_into" ->
+            (\v -> acc {contractedInto = v}) <$> decodeWordMap decodeWord32
+        "original_anchors" ->
+            (\v -> acc {originalAnchors = v}) <$> decodeWordMap Dec.decodeString
+        "id_floor" -> (\v -> acc {idFloor = v}) <$> decodeWord32
+        "synthesized_keys" ->
+            (\v -> acc {synthesizedKeys = v}) <$> decodeWordMap decodeWireTerm
+        "identity" -> (\v -> acc {identity = Just v}) <$> decodeWireTerm
         _ -> skipTerm >> pure acc
 
 -- The struct decoders below build positionally rather than via record
@@ -708,15 +759,19 @@ decodeNode = decodeFields initial build handler
         _ -> skipTerm >> pure acc
 
 decodeNodeShape :: Decoder s NodeShape
-decodeNodeShape = decodeFields (T.empty, Nothing) build handler
+decodeNodeShape = do
+    (kind, mtag) <- decodeMapWith (Nothing, Nothing) handler
+    case kind of
+        Just "plain" -> pure Plain
+        Just "list" -> pure ListShape
+        Just "xml_text_segment" -> pure XmlTextSegment
+        Just "xml_element" -> pure (XmlElement (fromMaybe T.empty mtag))
+        Just "hyper_edge" -> pure HyperEdge
+        Just other -> fail ("decodeNodeShape: unknown kind " <> T.unpack other)
+        Nothing -> fail "decodeNodeShape: missing kind"
   where
-    build (kind, mtag) = case kind of
-        "list" -> ListShape
-        "xml_text_segment" -> XmlTextSegment
-        "xml_element" -> XmlElement (fromMaybe T.empty mtag)
-        _ -> Plain
     handler acc@(kind, mtag) key = case key of
-        "kind" -> (\v -> (v, mtag)) <$> Dec.decodeString
+        "kind" -> (\v -> (Just v, mtag)) <$> Dec.decodeString
         "tag" -> (\v -> (kind, Just v)) <$> Dec.decodeString
         _ -> skipTerm >> pure acc
 
@@ -796,6 +851,10 @@ decodeValue = do
                 "Opaque" -> decodeOpaque
                 "Unknown" -> VUnknown <$> decodeValueMap
                 "List" -> VList <$> decodeListOf decodeValue
+                "LabeledNull" -> VLabeledNull <$> decodeWord64
+                "Decimal" -> VDecimal <$> decodeWireTerm
+                "BigInt" -> VBigInt <$> decodeWireTerm
+                "Temporal" -> VTemporal <$> decodeWireTerm
                 other -> fail ("decodeValue: unknown variant " <> T.unpack other)
 
 decodeBlob :: Decoder s Value
@@ -862,6 +921,11 @@ decodePairMap = decodeListOf pair
         a <- decodeWord32
         b <- decodeWord32
         pure (a, b)
+
+decodePairs :: Decoder s [(Word32, Word32)]
+decodePairs = decodeListOf $ do
+    _ <- Dec.decodeListLenOrIndef
+    (,) <$> decodeWord32 <*> decodeWord32
 
 -- | Decode a CBOR map, threading a tuple accumulator through an entry
 -- handler and applying a constructor at the end. The handler consumes

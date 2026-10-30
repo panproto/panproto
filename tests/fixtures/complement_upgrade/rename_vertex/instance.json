@@ -1,0 +1,55 @@
+{
+  "arcs": [
+    [
+      0,
+      1,
+      {
+        "kind": "prop",
+        "name": "text",
+        "src": "post",
+        "tgt": "post.text"
+      }
+    ]
+  ],
+  "children_map": {
+    "0": [
+      1
+    ]
+  },
+  "fans": [],
+  "nodes": {
+    "0": {
+      "anchor": "post",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    "1": {
+      "anchor": "post.text",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "renamed"
+        }
+      }
+    }
+  },
+  "parent_map": {
+    "1": 0
+  },
+  "root": 0,
+  "schema_root": "post"
+}

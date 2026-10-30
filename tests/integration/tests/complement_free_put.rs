@@ -15,9 +15,10 @@
 //!
 //! The `residue_is_trivial` / `is_empty` distinction matters throughout. A
 //! complement's fields split into the residue (information in `S` and not
-//! in `V`, which *is* `C`) and the reassembly bookkeeping (`original_parent`,
-//! `arc_order`, `arc_edges`, a function of the view's shape). Only the
-//! residue bears on whether `C ≅ 1`.
+//! in `V`, which *is* `C`) and the reassembly bookkeeping (`original_parent`
+//! and `arc_order`, which are functions of the view's shape). An `arc_edges`
+//! entry is residue exactly when the view does not determine the source edge.
+//! Only the residue bears on whether `C ≅ 1`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -79,6 +80,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 

@@ -84,8 +84,10 @@ extension CompiledMigrationHandle {
     /// original view, unedited: it records what the projection dropped
     /// and how the source was shaped, so a complement from some other
     /// projection reconstructs some other source. The engine checks the
-    /// source-schema fingerprint the complement carries and refuses a
-    /// mismatch.
+    /// identity envelope the complement carries, which names the source
+    /// schema, the target schema, and the lens by digest, and refuses a
+    /// mismatch. The legacy source-schema fingerprint is consulted only for
+    /// a complement that carries no envelope.
     ///
     /// - Parameters:
     ///   - view: An instance of this lens's target schema, edited or
@@ -133,7 +135,9 @@ extension CompiledMigrationHandle {
     /// - Returns: The composite lens, carrying this lens's source schema
     ///   and `other`'s target schema.
     /// - Throws: ``PanprotoError/lens(_:)`` when the two lenses do not
-    ///   meet at a shared schema.
+    ///   meet at a shared schema, or when the engine's tree fusion rule
+    ///   keeps the pair as two stages, since this call answers with one
+    ///   concrete lens.
     @PanprotoEngine
     public func composedLens(
         with other: CompiledMigrationHandle
@@ -143,7 +147,7 @@ extension CompiledMigrationHandle {
         return CompiledMigrationHandle(adopting: composed.handle)
     }
 
-    /// Check both lens laws on `instance`.
+    /// Run the five strict lens gates on `instance`.
     ///
     /// A violated law is a verdict rather than a failure: the call
     /// succeeds and the answer says which law broke and how, so a
@@ -153,8 +157,11 @@ extension CompiledMigrationHandle {
     ///
     /// - Parameter instance: An instance of this lens's source schema to
     ///   test the laws at.
-    /// - Returns: Whether `GetPut` and `PutGet` both hold at this
-    ///   instance, with the violation when one does not.
+    /// The gates run in order: `GetPut`, `PutGet`, totality over the finite
+    /// single-step basis, `PutTwice`, and congruence.
+    ///
+    /// - Returns: Whether all five gates hold at this instance, with the
+    ///   first violation when one does not.
     /// - Throws: ``PanprotoError/lens(_:)`` when the instance declines to
     ///   code or the handle names no lens.
     @PanprotoEngine

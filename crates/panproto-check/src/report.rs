@@ -260,6 +260,24 @@ fn format_breaking(change: &BreakingChange) -> String {
         BreakingChange::RenamedVertex { old_id, new_id } => {
             format!("Renamed vertex: {old_id} -> {new_id}")
         }
+        BreakingChange::KeyAdded { vertex_id, key_id } => {
+            format!("Key added: {vertex_id} {key_id}")
+        }
+        BreakingChange::KeyTightened { vertex_id, key_id } => {
+            format!("Key tightened: {vertex_id} {key_id}")
+        }
+        BreakingChange::ReferenceAdded { reference_id } => {
+            format!("Reference added: {reference_id}")
+        }
+        BreakingChange::ReferenceTightened { reference_id } => {
+            format!("Reference tightened: {reference_id}")
+        }
+        BreakingChange::TargetSetAdded { set_id } => {
+            format!("Target set added: {set_id}")
+        }
+        BreakingChange::TargetSetTightened { set_id } => {
+            format!("Target set tightened: {set_id}")
+        }
         BreakingChange::UnclassifiedChange { category, count } => {
             format!("Unclassified change: {category} ({count})")
         }
@@ -326,6 +344,30 @@ fn format_non_breaking(change: &NonBreakingChange) -> String {
                 "Linearity relaxed: {} -> {} ({}) {old_mode:?} -> {new_mode:?}",
                 edge.src, edge.tgt, edge.kind
             )
+        }
+        NonBreakingChange::KeyAdded { vertex_id, key_id } => {
+            format!("Key added: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
+            format!("Key removed: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::KeyRelaxed { vertex_id, key_id } => {
+            format!("Key relaxed: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::ReferenceAdded { reference_id } => {
+            format!("Reference added: {reference_id}")
+        }
+        NonBreakingChange::ReferenceRemoved { reference_id } => {
+            format!("Reference removed: {reference_id}")
+        }
+        NonBreakingChange::ReferenceRelaxed { reference_id } => {
+            format!("Reference relaxed: {reference_id}")
+        }
+        NonBreakingChange::TargetSetRemoved { set_id } => {
+            format!("Target set removed: {set_id}")
+        }
+        NonBreakingChange::TargetSetRelaxed { set_id } => {
+            format!("Target set relaxed: {set_id}")
         }
     }
 }
@@ -554,6 +596,20 @@ fn breaking_to_json(change: &BreakingChange) -> serde_json::Value {
             "old_id": old_id,
             "new_id": new_id,
         }),
+        BreakingChange::KeyAdded { vertex_id, key_id } => key_json("key_added", vertex_id, key_id),
+        BreakingChange::KeyTightened { vertex_id, key_id } => {
+            key_json("key_tightened", vertex_id, key_id)
+        }
+        BreakingChange::ReferenceAdded { reference_id } => {
+            reference_json("reference_added", reference_id)
+        }
+        BreakingChange::ReferenceTightened { reference_id } => {
+            reference_json("reference_tightened", reference_id)
+        }
+        BreakingChange::TargetSetAdded { set_id } => target_set_json("target_set_added", set_id),
+        BreakingChange::TargetSetTightened { set_id } => {
+            target_set_json("target_set_tightened", set_id)
+        }
         BreakingChange::UnclassifiedChange { category, count } => json!({
             "type": "unclassified_change",
             "category": category,
@@ -615,14 +671,8 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             "vertex_id": vertex_id,
             "nsid": nsid,
         }),
-        NonBreakingChange::AddedHyperEdge { id } => json!({
-            "type": "added_hyper_edge",
-            "id": id,
-        }),
-        NonBreakingChange::AddedSpan { id } => json!({
-            "type": "added_span",
-            "id": id,
-        }),
+        NonBreakingChange::AddedHyperEdge { id } => id_json("added_hyper_edge", id),
+        NonBreakingChange::AddedSpan { id } => id_json("added_span", id),
         NonBreakingChange::EnrichmentAdded { category, key } => json!({
             "type": "enrichment_added",
             "category": category,
@@ -640,7 +690,64 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             "old_mode": format!("{old_mode:?}"),
             "new_mode": format!("{new_mode:?}"),
         }),
+        NonBreakingChange::KeyAdded { vertex_id, key_id } => {
+            key_json("key_added", vertex_id, key_id)
+        }
+        NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
+            key_json("key_removed", vertex_id, key_id)
+        }
+        NonBreakingChange::KeyRelaxed { vertex_id, key_id } => {
+            key_json("key_relaxed", vertex_id, key_id)
+        }
+        NonBreakingChange::ReferenceAdded { reference_id } => {
+            reference_json("reference_added", reference_id)
+        }
+        NonBreakingChange::ReferenceRemoved { reference_id } => {
+            reference_json("reference_removed", reference_id)
+        }
+        NonBreakingChange::ReferenceRelaxed { reference_id } => {
+            reference_json("reference_relaxed", reference_id)
+        }
+        NonBreakingChange::TargetSetRemoved { set_id } => {
+            target_set_json("target_set_removed", set_id)
+        }
+        NonBreakingChange::TargetSetRelaxed { set_id } => {
+            target_set_json("target_set_relaxed", set_id)
+        }
     }
+}
+
+/// The JSON of a change identified by one declaration id.
+fn id_json(kind: &str, id: &str) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "id": id,
+    })
+}
+
+/// The JSON of a key change.
+fn key_json(kind: &str, vertex_id: &str, key_id: &str) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "vertex_id": vertex_id,
+        "key_id": key_id,
+    })
+}
+
+/// The JSON of a reference change.
+fn reference_json(kind: &str, reference_id: &str) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "reference_id": reference_id,
+    })
+}
+
+/// The JSON of a target-set change.
+fn target_set_json(kind: &str, set_id: &str) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "set_id": set_id,
+    })
 }
 
 #[cfg(test)]
@@ -716,5 +823,49 @@ mod tests {
         assert!(json["breaking"].is_array());
         assert!(json["non_breaking"].is_array());
         assert_eq!(json["classification"], "fully-compatible");
+    }
+
+    #[test]
+    fn target_set_changes_keep_their_direction_and_identity() {
+        let report = CompatReport {
+            breaking: vec![
+                BreakingChange::TargetSetAdded {
+                    set_id: "added".into(),
+                },
+                BreakingChange::TargetSetTightened {
+                    set_id: "tightened".into(),
+                },
+            ],
+            non_breaking: vec![
+                NonBreakingChange::TargetSetRemoved {
+                    set_id: "removed".into(),
+                },
+                NonBreakingChange::TargetSetRelaxed {
+                    set_id: "relaxed".into(),
+                },
+            ],
+            compatible: false,
+            classification: Classification::Breaking,
+        };
+
+        let text = report_text(&report);
+        for expected in [
+            "Target set added: added",
+            "Target set tightened: tightened",
+            "Target set removed: removed",
+            "Target set relaxed: relaxed",
+        ] {
+            assert!(text.contains(expected));
+        }
+
+        let json = report_json(&report);
+        assert_eq!(json["breaking"][0]["type"], "target_set_added");
+        assert_eq!(json["breaking"][0]["set_id"], "added");
+        assert_eq!(json["breaking"][1]["type"], "target_set_tightened");
+        assert_eq!(json["breaking"][1]["set_id"], "tightened");
+        assert_eq!(json["non_breaking"][0]["type"], "target_set_removed");
+        assert_eq!(json["non_breaking"][0]["set_id"], "removed");
+        assert_eq!(json["non_breaking"][1]["type"], "target_set_relaxed");
+        assert_eq!(json["non_breaking"][1]["set_id"], "relaxed");
     }
 }

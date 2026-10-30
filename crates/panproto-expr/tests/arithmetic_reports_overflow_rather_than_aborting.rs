@@ -25,13 +25,15 @@ fn eval_binop(op: BuiltinOp, left: i64, right: i64) -> Result<Literal, ExprError
 }
 
 #[test]
-fn the_one_overflowing_remainder_is_an_error() {
+fn the_remainder_of_the_least_integer_by_minus_one_is_zero() {
+    // The truncated remainder is 0, an i64, although the quotient
+    // overflows.
     assert!(
         matches!(
             eval_binop(BuiltinOp::Mod, i64::MIN, -1),
-            Err(ExprError::Overflow)
+            Ok(Literal::Int(0))
         ),
-        "mod(i64::MIN, -1) must report overflow"
+        "mod(i64::MIN, -1) is 0"
     );
 }
 

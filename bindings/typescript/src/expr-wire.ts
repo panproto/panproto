@@ -10,7 +10,16 @@
  * @module
  */
 
-import type { BuiltinOp, Expr, Literal, Pattern } from './types.js';
+import type {
+  BuiltinOp,
+  ExactBigIntValue,
+  ExactDecimalValue,
+  ExactOffset,
+  ExactTemporal,
+  Expr,
+  Literal,
+  Pattern,
+} from './types.js';
 
 /** Rust serde representation of an expression. */
 export type ExprWire =
@@ -56,6 +65,9 @@ export type LiteralWire =
   | { readonly Bytes: readonly number[] }
   | { readonly Record: readonly (readonly [string, LiteralWire])[] }
   | { readonly List: readonly LiteralWire[] }
+  | { readonly Decimal: ExactDecimalValue }
+  | { readonly BigInt: ExactBigIntValue }
+  | { readonly Temporal: ExactTemporal }
   | {
       readonly Closure: {
         readonly param: string;
@@ -125,6 +137,10 @@ const BUILTIN_OPS = new Set<string>([
   'HasEdge',
   'EdgeCount',
   'Anchor',
+  'Edges',
+  'ToString',
+  'ParseDecimal',
+  'DecimalToFloat',
 ] satisfies readonly BuiltinOp[]);
 
 /** Convert a public expression to Rust's externally tagged serde shape. */
@@ -342,6 +358,12 @@ export function literalToWire(literal: Literal): LiteralWire {
       };
     case 'list':
       return { List: literal.items.map(literalToWire) };
+    case 'decimal':
+      return { Decimal: literal.value };
+    case 'bigint':
+      return { BigInt: literal.value };
+    case 'temporal':
+      return { Temporal: literal.value };
     case 'closure':
       return {
         Closure: {
@@ -384,6 +406,12 @@ export function literalFromWire(wire: unknown): Literal {
         type: 'list',
         items: expectArray(payload, 'Literal::List').map(literalFromWire),
       };
+    case 'Decimal':
+      return { type: 'decimal', value: expectDecimalValue(payload) };
+    case 'BigInt':
+      return { type: 'bigint', value: expectBigIntValue(payload) };
+    case 'Temporal':
+      return { type: 'temporal', value: expectTemporal(payload) };
     case 'Closure': {
       const closure = expectObject(payload, 'Literal::Closure');
       return {
@@ -399,6 +427,190 @@ export function literalFromWire(wire: unknown): Literal {
     default:
       throw new TypeError(`Unknown Rust literal variant: ${variant}`);
   }
+}
+
+function expectDecimalValue(value: unknown): ExactDecimalValue {
+  const decimal = expectObject(value, 'Literal::Decimal');
+  const result: {
+    negative: boolean;
+    digits: string;
+    exponent: string;
+    class?: NonNullable<ExactDecimalValue['class']>;
+  } = {
+    negative: expectBoolean(decimal.negative, 'Literal::Decimal negative'),
+    digits: expectString(decimal.digits, 'Literal::Decimal digits'),
+    exponent: expectString(decimal.exponent, 'Literal::Decimal exponent'),
+  };
+  if (decimal.class !== undefined) {
+    result.class = expectDecimalClass(decimal.class);
+  }
+  return result;
+}
+
+function expectDecimalClass(value: unknown): NonNullable<ExactDecimalValue['class']> {
+  if (value === 'finite' || value === 'infinite') {
+    return value;
+  }
+  const [variant, payload] = externalVariant(value, 'decimal class');
+  if (variant !== 'na_n') {
+    throw new TypeError(`Unknown Rust decimal class: ${variant}`);
+  }
+  const nan = expectObject(payload, 'DecimalClass::NaN');
+  return {
+    na_n: {
+      signalling: expectBoolean(nan.signalling, 'DecimalClass::NaN signalling'),
+      payload: expectString(nan.payload, 'DecimalClass::NaN payload'),
+    },
+  };
+}
+
+function expectBigIntValue(value: unknown): ExactBigIntValue {
+  const integer = expectObject(value, 'Literal::BigInt');
+  return {
+    negative: expectBoolean(integer.negative, 'Literal::BigInt negative'),
+    significand: expectString(integer.significand, 'Literal::BigInt significand'),
+    zeros: expectString(integer.zeros, 'Literal::BigInt zeros'),
+  };
+}
+
+function expectTemporal(value: unknown): ExactTemporal {
+  const [variant, payload] = externalVariant(value, 'temporal');
+  switch (variant) {
+    case 'date':
+      return { date: expectCivilDate(payload) };
+    case 'time': {
+      const [time, offset] = expectTuple(payload, 2, 'Temporal::Time');
+      return { time: [expectCivilTime(time), expectOffset(offset)] };
+    }
+    case 'date_time': {
+      const [date, time, offset, separator] = expectTuple(payload, 4, 'Temporal::DateTime');
+      return {
+        date_time: [
+          expectCivilDate(date),
+          expectCivilTime(time),
+          expectOffset(offset),
+          expectOneOf(separator, ['upper', 'lower', 'space'], 'date-time separator'),
+        ],
+      };
+    }
+    case 'extended': {
+      const temporal = expectObject(payload, 'Temporal::Extended');
+      const infinity = temporal.infinity === null
+        ? null
+        : expectTuple(temporal.infinity, 2, 'Temporal::Extended infinity');
+      return {
+        extended: {
+          date: temporal.date === null ? null : expectDateFields(temporal.date),
+          time: temporal.time === null ? null : expectTimeFields(temporal.time),
+          separator: temporal.separator === null
+            ? null
+            : expectOneOf(
+              temporal.separator,
+              ['upper', 'lower', 'space'],
+              'date-time separator',
+            ),
+          offset: expectOffset(temporal.offset),
+          infinity: infinity === null
+            ? null
+            : [
+              expectOneOf(infinity[0], ['negative', 'positive'], 'temporal infinity'),
+              expectOneOf(infinity[1], ['date', 'time', 'date_time'], 'temporal form'),
+            ],
+        },
+      };
+    }
+    default:
+      throw new TypeError(`Unknown Rust temporal variant: ${variant}`);
+  }
+}
+
+function expectCivilDate(value: unknown): { year: number | bigint; month: number; day: number } {
+  const date = expectObject(value, 'CivilDate');
+  return {
+    year: expectI64(date.year),
+    month: expectSmallInteger(date.month, 'CivilDate month'),
+    day: expectSmallInteger(date.day, 'CivilDate day'),
+  };
+}
+
+function expectCivilTime(
+  value: unknown,
+): { hour: number; minute: number; second: number; fraction: string } {
+  const time = expectObject(value, 'CivilTime');
+  return {
+    hour: expectSmallInteger(time.hour, 'CivilTime hour'),
+    minute: expectSmallInteger(time.minute, 'CivilTime minute'),
+    second: expectSmallInteger(time.second, 'CivilTime second'),
+    fraction: expectString(time.fraction, 'CivilTime fraction'),
+  };
+}
+
+function expectDateFields(value: unknown): {
+  year: { value: number | bigint; negative_zero: boolean; width: number | bigint } | null;
+  month: number | null;
+  day: number | null;
+} {
+  const date = expectObject(value, 'DateFields');
+  const year = date.year === null ? null : expectObject(date.year, 'TemporalYear');
+  return {
+    year: year === null
+      ? null
+      : {
+        value: expectI64(year.value),
+        negative_zero: expectBoolean(year.negative_zero, 'TemporalYear negative_zero'),
+        width: expectUnsignedInteger(year.width, 'TemporalYear width'),
+      },
+    month: expectNullableSmallInteger(date.month, 'DateFields month'),
+    day: expectNullableSmallInteger(date.day, 'DateFields day'),
+  };
+}
+
+function expectTimeFields(value: unknown): {
+  hour: number | null;
+  minute: number | null;
+  second: number | null;
+  fraction: string;
+} {
+  const time = expectObject(value, 'TimeFields');
+  return {
+    hour: expectNullableSmallInteger(time.hour, 'TimeFields hour'),
+    minute: expectNullableSmallInteger(time.minute, 'TimeFields minute'),
+    second: expectNullableSmallInteger(time.second, 'TimeFields second'),
+    fraction: expectString(time.fraction, 'TimeFields fraction'),
+  };
+}
+
+function expectOffset(value: unknown): ExactOffset {
+  if (value === 'local' || value === 'neg_zero') {
+    return value;
+  }
+  const [variant, payload] = externalVariant(value, 'offset');
+  switch (variant) {
+    case 'zulu':
+      return { zulu: expectOneOf(payload, ['upper', 'lower', 'unwritten'], 'Zulu case') };
+    case 'fixed':
+      return { fixed: expectSmallInteger(payload, 'fixed offset') };
+    case 'fixed_form': {
+      const [minutes, form] = expectTuple(payload, 2, 'Offset::FixedForm');
+      return {
+        fixed_form: [expectSmallInteger(minutes, 'fixed offset'), expectOffsetForm(form)],
+      };
+    }
+    case 'fixed_seconds':
+      return { fixed_seconds: expectSmallInteger(payload, 'fixed-second offset') };
+    case 'neg_zero_form':
+      return { neg_zero_form: expectOffsetForm(payload) };
+    default:
+      throw new TypeError(`Unknown Rust offset variant: ${variant}`);
+  }
+}
+
+function expectOffsetForm(value: unknown) {
+  return expectOneOf(
+    value,
+    ['extended', 'basic', 'hour_only', 'extended_seconds', 'unwritten'],
+    'offset form',
+  );
 }
 
 function externalVariant(value: unknown, label: string): readonly [string, unknown] {
@@ -455,6 +667,49 @@ function expectNumber(value: unknown, label: string): number {
     throw new TypeError(`Expected ${label} to be a number`);
   }
   return value;
+}
+
+function expectOneOf<const T extends readonly string[]>(
+  value: unknown,
+  choices: T,
+  label: string,
+): T[number] {
+  const text = expectString(value, label);
+  if (!choices.includes(text)) {
+    throw new TypeError(`Unknown Rust ${label}: ${text}`);
+  }
+  return text as T[number];
+}
+
+function expectSmallInteger(value: unknown, label: string): number {
+  if (typeof value === 'bigint') {
+    const number = Number(value);
+    if (!Number.isSafeInteger(number)) {
+      throw new TypeError(`Expected ${label} to be a safe integer`);
+    }
+    return number;
+  }
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw new TypeError(`Expected ${label} to be a safe integer`);
+  }
+  return value;
+}
+
+function expectNullableSmallInteger(value: unknown, label: string): number | null {
+  return value === null ? null : expectSmallInteger(value, label);
+}
+
+function expectUnsignedInteger(value: unknown, label: string): number | bigint {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError(`Expected ${label} to be a non-negative integer`);
+    }
+    return value;
+  }
+  if (typeof value !== 'bigint' || value < 0n) {
+    throw new TypeError(`Expected ${label} to be a non-negative integer`);
+  }
+  return value <= MAX_SAFE_BIGINT ? Number(value) : value;
 }
 
 const I64_MIN = -(1n << 63n);

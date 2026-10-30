@@ -32,7 +32,7 @@ fn generic_protocol() -> Protocol {
             "array".into(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -62,7 +62,7 @@ fn put_preserves_view_edit_on_renamed_record_field() {
         "email": "alice@example.com",
         "joinedAt": "2023-06-15",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     // Build a compiled migration with a RenameField transform on the
     // `user` vertex. This is how `auto_lens::derive_field_transforms`

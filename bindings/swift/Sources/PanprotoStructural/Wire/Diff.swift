@@ -140,9 +140,9 @@ public struct StructuralKindChange: Codable, Hashable, Sendable {
 /// smaller diff `pp_check_diff_simple` answers with, and the classifier
 /// does not accept it.
 ///
-/// Twenty-six of the thirty-nine fields are written on every diff, as
-/// empty collections where nothing changed. The thirteen enrichment and
-/// rename fields are omitted from the map entirely while they are empty,
+/// Twenty-six of the forty-nine fields are written on every diff, as
+/// empty collections where nothing changed. The twenty-three entry,
+/// enrichment, declaration, and rename fields are omitted while empty,
 /// and this type both tolerates their absence on the way in and leaves
 /// them out on the way out, so a decode followed by an encode reproduces
 /// the payload it read.
@@ -177,6 +177,8 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
     public var removedNsids: [String]
     /// Namespace ids that changed, as vertex id, old id, and new id.
     public var changedNsids: [WireTriple<String, String, String>]
+    /// Ordered entry vertices before and after the change.
+    public var entryChange: WirePair<[String], [String]>?
     /// Variants added in the new schema.
     public var addedVariants: [Variant]
     /// Variants removed from the old schema.
@@ -229,6 +231,24 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
     public var removedPolicies: [String]
     /// Policy keys whose expression changed.
     public var modifiedPolicies: [String]
+    /// Keys added, paired with the vertex that declares them.
+    public var addedKeys: [WirePair<String, Key>]
+    /// Keys removed, paired with the vertex that declared them.
+    public var removedKeys: [WirePair<String, Key>]
+    /// Key declarations that changed in place.
+    public var modifiedKeys: [KeyChange]
+    /// References added to the schema.
+    public var addedReferences: [Reference]
+    /// References removed from the schema.
+    public var removedReferences: [Reference]
+    /// Reference declarations that changed in place.
+    public var modifiedReferences: [ReferenceChange]
+    /// Target sets added, paired with their declaration id.
+    public var addedTargetSets: [WirePair<String, TargetSet>]
+    /// Target sets removed, paired with their declaration id.
+    public var removedTargetSets: [WirePair<String, TargetSet>]
+    /// Target-set declarations that changed in place.
+    public var modifiedTargetSets: [TargetSetChange]
     /// Vertex renames, each an old id paired with a new id. A rename
     /// replaces the removal and the addition it was detected from.
     public var renamedVertices: [WirePair<String, String>]
@@ -249,6 +269,7 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         case addedNsids = "added_nsids"
         case removedNsids = "removed_nsids"
         case changedNsids = "changed_nsids"
+        case entryChange = "entry_change"
         case addedVariants = "added_variants"
         case removedVariants = "removed_variants"
         case modifiedVariants = "modified_variants"
@@ -273,6 +294,15 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         case addedPolicies = "added_policies"
         case removedPolicies = "removed_policies"
         case modifiedPolicies = "modified_policies"
+        case addedKeys = "added_keys"
+        case removedKeys = "removed_keys"
+        case modifiedKeys = "modified_keys"
+        case addedReferences = "added_references"
+        case removedReferences = "removed_references"
+        case modifiedReferences = "modified_references"
+        case addedTargetSets = "added_target_sets"
+        case removedTargetSets = "removed_target_sets"
+        case modifiedTargetSets = "modified_target_sets"
         case renamedVertices = "renamed_vertices"
     }
 
@@ -292,6 +322,7 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         self.addedNsids = [:]
         self.removedNsids = []
         self.changedNsids = []
+        self.entryChange = nil
         self.addedVariants = []
         self.removedVariants = []
         self.modifiedVariants = []
@@ -316,10 +347,19 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         self.addedPolicies = []
         self.removedPolicies = []
         self.modifiedPolicies = []
+        self.addedKeys = []
+        self.removedKeys = []
+        self.modifiedKeys = []
+        self.addedReferences = []
+        self.removedReferences = []
+        self.modifiedReferences = []
+        self.addedTargetSets = []
+        self.removedTargetSets = []
+        self.modifiedTargetSets = []
         self.renamedVertices = []
     }
 
-    /// Read a diff, defaulting the thirteen fields the engine omits
+    /// Read a diff, defaulting the twenty-three fields the engine omits
     /// while they are empty.
     ///
     /// - Throws: `DecodingError` when one of the twenty-six fields the
@@ -348,6 +388,10 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         self.changedNsids = try container.decode(
             [WireTriple<String, String, String>].self,
             forKey: .changedNsids
+        )
+        self.entryChange = try container.decodeIfPresent(
+            WirePair<[String], [String]>.self,
+            forKey: .entryChange
         )
         self.addedVariants = try container.decode([Variant].self, forKey: .addedVariants)
         self.removedVariants = try container.decode([Variant].self, forKey: .removedVariants)
@@ -413,6 +457,28 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
             try container.decodeIfPresent([String].self, forKey: .removedPolicies) ?? []
         self.modifiedPolicies =
             try container.decodeIfPresent([String].self, forKey: .modifiedPolicies) ?? []
+        self.addedKeys =
+            try container.decodeIfPresent([WirePair<String, Key>].self, forKey: .addedKeys) ?? []
+        self.removedKeys =
+            try container.decodeIfPresent([WirePair<String, Key>].self, forKey: .removedKeys) ?? []
+        self.modifiedKeys =
+            try container.decodeIfPresent([KeyChange].self, forKey: .modifiedKeys) ?? []
+        self.addedReferences =
+            try container.decodeIfPresent([Reference].self, forKey: .addedReferences) ?? []
+        self.removedReferences =
+            try container.decodeIfPresent([Reference].self, forKey: .removedReferences) ?? []
+        self.modifiedReferences =
+            try container.decodeIfPresent(
+                [ReferenceChange].self, forKey: .modifiedReferences) ?? []
+        self.addedTargetSets =
+            try container.decodeIfPresent(
+                [WirePair<String, TargetSet>].self, forKey: .addedTargetSets) ?? []
+        self.removedTargetSets =
+            try container.decodeIfPresent(
+                [WirePair<String, TargetSet>].self, forKey: .removedTargetSets) ?? []
+        self.modifiedTargetSets =
+            try container.decodeIfPresent(
+                [TargetSetChange].self, forKey: .modifiedTargetSets) ?? []
         self.renamedVertices =
             try container.decodeIfPresent(
                 [WirePair<String, String>].self,
@@ -420,7 +486,7 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
             ) ?? []
     }
 
-    /// Write a diff, leaving out the thirteen fields the engine omits
+    /// Write a diff, leaving out the twenty-three fields the engine omits
     /// while they are empty.
     ///
     /// - Throws: `EncodingError` when a nested value declines to encode.
@@ -440,6 +506,7 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         try container.encode(addedNsids, forKey: .addedNsids)
         try container.encode(removedNsids, forKey: .removedNsids)
         try container.encode(changedNsids, forKey: .changedNsids)
+        if let entryChange { try container.encode(entryChange, forKey: .entryChange) }
         try container.encode(addedVariants, forKey: .addedVariants)
         try container.encode(removedVariants, forKey: .removedVariants)
         try container.encode(modifiedVariants, forKey: .modifiedVariants)
@@ -477,6 +544,27 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
         }
         if !modifiedPolicies.isEmpty {
             try container.encode(modifiedPolicies, forKey: .modifiedPolicies)
+        }
+        if !addedKeys.isEmpty { try container.encode(addedKeys, forKey: .addedKeys) }
+        if !removedKeys.isEmpty { try container.encode(removedKeys, forKey: .removedKeys) }
+        if !modifiedKeys.isEmpty { try container.encode(modifiedKeys, forKey: .modifiedKeys) }
+        if !addedReferences.isEmpty {
+            try container.encode(addedReferences, forKey: .addedReferences)
+        }
+        if !removedReferences.isEmpty {
+            try container.encode(removedReferences, forKey: .removedReferences)
+        }
+        if !modifiedReferences.isEmpty {
+            try container.encode(modifiedReferences, forKey: .modifiedReferences)
+        }
+        if !addedTargetSets.isEmpty {
+            try container.encode(addedTargetSets, forKey: .addedTargetSets)
+        }
+        if !removedTargetSets.isEmpty {
+            try container.encode(removedTargetSets, forKey: .removedTargetSets)
+        }
+        if !modifiedTargetSets.isEmpty {
+            try container.encode(modifiedTargetSets, forKey: .modifiedTargetSets)
         }
         if !renamedVertices.isEmpty {
             try container.encode(renamedVertices, forKey: .renamedVertices)
@@ -682,6 +770,63 @@ public struct RecursionPointChange: Codable, Hashable, Sendable {
         self.muId = muId
         self.oldTarget = oldTarget
         self.newTarget = newTarget
+    }
+}
+
+/// A key declaration that changed on one vertex.
+public struct KeyChange: Codable, Hashable, Sendable {
+    /// The vertex that declares the key.
+    public var vertexId: String
+    /// The old declaration.
+    public var old: Key
+    /// The new declaration.
+    public var new: Key
+
+    /// Record a key declaration change.
+    public init(vertexId: String, old: Key, new: Key) {
+        self.vertexId = vertexId
+        self.old = old
+        self.new = new
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertexId = "vertex_id"
+        case old
+        case new
+    }
+}
+
+/// A reference declaration that changed under one id.
+public struct ReferenceChange: Codable, Hashable, Sendable {
+    /// The stable reference id.
+    public var id: String
+    /// The old declaration.
+    public var old: Reference
+    /// The new declaration.
+    public var new: Reference
+
+    /// Record a reference declaration change.
+    public init(id: String, old: Reference, new: Reference) {
+        self.id = id
+        self.old = old
+        self.new = new
+    }
+}
+
+/// A target-set declaration that changed under one id.
+public struct TargetSetChange: Codable, Hashable, Sendable {
+    /// The stable target-set id.
+    public var id: String
+    /// The old declaration.
+    public var old: TargetSet
+    /// The new declaration.
+    public var new: TargetSet
+
+    /// Record a target-set declaration change.
+    public init(id: String, old: TargetSet, new: TargetSet) {
+        self.id = id
+        self.old = old
+        self.new = new
     }
 }
 

@@ -263,12 +263,13 @@ extension Raw {
         }
     }
 
-    /// Check both the `GetPut` and `PutGet` lens laws on a test
-    /// instance.
+    /// Run the five strict lens gates on a test instance.
     ///
     /// `instance` is a CBOR-encoded `Instance` and the buffer receives
     /// a CBOR-encoded `LawCheckResult`. A law violation is reported
-    /// inside that result, not as a failing status.
+    /// inside that result, not as a failing status. The gates are
+    /// `GetPut`, `PutGet`, totality over the finite single-step basis,
+    /// `PutTwice`, and congruence.
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
@@ -304,12 +305,20 @@ extension Raw {
         }
     }
 
-    /// Compile a lens DSL document into a protolens chain.
+    /// Compile a lens DSL document into a chain-compatible compiled document.
     ///
     /// `source` is the UTF-8 DSL document, `format` is `json` or `yaml`
     /// (`yml` is accepted for the latter), and `bodyVertex` is the
-    /// parent vertex id field-level steps attach to. The out-handle is a
-    /// fresh `ProtolensChain`.
+    /// parent vertex id field-level steps attach to. This directional compile
+    /// function rejects a `symmetric` body; callers use
+    /// ``lensSymmetricFromSchemas(schema1:schema2:)`` and
+    /// ``lensSymmetricSync(symLens:view:complement:direction:)`` for the
+    /// symmetric boundary. An accepted out-handle is a fresh
+    /// `CompiledLensDoc` that retains ordered stages and value transforms.
+    /// ``protolensInstantiate(chain:schema:)`` observes all stages of that
+    /// accepted directional document and refuses it when normalization yields
+    /// more than one concrete lens group. Other `protolens*` functions that
+    /// accept this handle inspect only its compatibility-chain projection.
     ///
     /// Nickel (`ncl`) is not a supported format here, matching the WASM
     /// boundary: Nickel evaluation needs a filesystem for its contract
@@ -336,7 +345,9 @@ extension Raw {
     /// that lens's document source, written in the same `format` as
     /// `source`; every `ref` entry inside a `compose` body is resolved
     /// against this map and parsed with the same evaluator. The
-    /// out-handle is a fresh `ProtolensChain`.
+    /// out-handle is a fresh `CompiledLensDoc` with the same directional-body
+    /// restriction and ordered-stage behavior as
+    /// ``lensCompileDocument(source:format:bodyVertex:)``.
     ///
     /// Nickel (`ncl`) is not a supported format here either.
     @inlinable
@@ -465,7 +476,10 @@ extension Raw {
     /// ``protolensFromJson(json:)`` reads back are the full
     /// `ProtolensChain` encoding, which this summary does not carry.
     ///
-    /// `chain` must be a `ProtolensChain` handle.
+    /// `chain` may be a `ProtolensChain` or chain-compatible
+    /// `CompiledLensDoc` handle. A compiled document is summarized through
+    /// its compatibility-chain projection, which omits ordered stage
+    /// boundaries and value transforms.
     @inlinable
     public static func protolensChainToJson(
         chain: UInt32
@@ -479,8 +493,10 @@ extension Raw {
     ///
     /// The buffer receives a CBOR-encoded `lens::ComplementSpec`.
     ///
-    /// `chain` must be a `ProtolensChain` handle and `schema` must be a
-    /// `Schema` handle.
+    /// `chain` may be a `ProtolensChain` or chain-compatible
+    /// `CompiledLensDoc` handle and `schema` must be a `Schema` handle. A
+    /// compiled document contributes only its compatibility-chain projection,
+    /// which omits ordered stage boundaries and value transforms.
     @inlinable
     public static func protolensComplementSpec(
         chain: UInt32,
@@ -496,7 +512,10 @@ extension Raw {
     /// No payload crosses the boundary; the out-handle is a fresh
     /// `ProtolensChain` holding the concatenated steps.
     ///
-    /// `chain1` and `chain2` must be `ProtolensChain` handles.
+    /// `chain1` and `chain2` may be `ProtolensChain` or chain-compatible
+    /// `CompiledLensDoc` handles. Each compiled document contributes only its
+    /// compatibility-chain projection, so the returned plain chain does not
+    /// retain ordered stage boundaries or value transforms.
     @inlinable
     public static func protolensCompose(
         chain1: UInt32,
@@ -549,7 +568,10 @@ extension Raw {
     /// No payload crosses the boundary; the out-handle is a fresh
     /// `ProtolensChain` holding the fused step.
     ///
-    /// `chain` must be a `ProtolensChain` handle.
+    /// `chain` may be a `ProtolensChain` or chain-compatible
+    /// `CompiledLensDoc` handle. A compiled document contributes only its
+    /// compatibility-chain projection, so the returned plain chain does not
+    /// retain ordered stage boundaries or value transforms.
     @inlinable
     public static func protolensFuse(
         chain: UInt32
@@ -564,8 +586,11 @@ extension Raw {
     /// No payload crosses the boundary; the out-handle is a fresh
     /// `MigrationWithSchemas` carrying the runnable lens.
     ///
-    /// `chain` must be a `ProtolensChain` handle and `schema` must be a
-    /// `Schema` handle.
+    /// `chain` may be a `ProtolensChain` or chain-compatible
+    /// `CompiledLensDoc` handle and `schema` must be a `Schema` handle. A
+    /// compiled document instantiates its ordered stages and value transforms;
+    /// this single-lens boundary refuses a path with more than one normalized
+    /// group.
     @inlinable
     public static func protolensInstantiate(
         chain: UInt32,

@@ -5,7 +5,7 @@
 use panproto_core::{
     check,
     inst::{self, WInstance},
-    lens::{self, Complement},
+    lens::{self},
     mig::{self, Migration},
     protocols,
     schema::{self, SchemaBuilder},
@@ -313,8 +313,8 @@ struct EdgeMeta {
 /// Extract schema metadata from a schema handle.
 ///
 /// Returns `MessagePack`-encoded schema data including protocol name,
-/// vertex IDs and kinds, edge sources/targets/kinds/names, and
-/// constraint information. Used by the TypeScript SDK to populate
+/// vertex IDs and kinds (in id order), edge sources/targets/kinds/names
+/// (in edge order), and constraint information. Used by the TypeScript SDK to populate
 /// `SchemaData` for schemas built on the Rust side (e.g., via
 /// [`parse_atproto_lexicon`]).
 ///
@@ -326,9 +326,16 @@ pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
     slab::with_resource(schema_handle, |r| {
         let schema = slab::as_schema(r)?;
 
-        let vertices: Vec<VertexMeta> = schema
-            .vertices
-            .values()
+        // Vertices by id and edges in edge order: the schema's tables are
+        // hash maps, and their own enumeration order is the hash keys', not
+        // the schema's.
+        let mut ordered_vertices: Vec<_> = schema.vertices.values().collect();
+        ordered_vertices.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+        let mut ordered_edges: Vec<_> = schema.edges.keys().collect();
+        ordered_edges.sort_unstable();
+
+        let vertices: Vec<VertexMeta> = ordered_vertices
+            .into_iter()
             .map(|v| VertexMeta {
                 id: v.id.to_string(),
                 kind: v.kind.to_string(),
@@ -336,9 +343,8 @@ pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
             })
             .collect();
 
-        let edges: Vec<EdgeMeta> = schema
-            .edges
-            .keys()
+        let edges: Vec<EdgeMeta> = ordered_edges
+            .into_iter()
             .map(|e| EdgeMeta {
                 src: e.src.to_string(),
                 tgt: e.tgt.to_string(),
@@ -467,7 +473,15 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
-        mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(&src_schema),
+            super::helpers::protocol_of(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols).map_err(|e| {
             WasmError::LiftFailed {
                 reason: e.to_string(),
             }
@@ -486,7 +500,7 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 ///
 /// The `record` bytes are a `MessagePack`-encoded [`WInstance`].
 /// Returns `MessagePack`-encoded `{ view: WInstance, complement: Vec<u8> }`
-/// where `complement` is the serialized [`Complement`] needed by `put_record`.
+/// where `complement` is the serialized [`Complement`](lens::Complement) needed by `put_record`.
 ///
 /// # Errors
 ///
@@ -542,7 +556,7 @@ pub fn get_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 /// Restore a record from a view and complement (lens put direction).
 ///
 /// The `view` and `complement` bytes are `MessagePack`-encoded
-/// [`WInstance`] and [`Complement`] respectively.
+/// [`WInstance`] and [`Complement`](lens::Complement) respectively.
 ///
 /// # Errors
 ///
@@ -555,10 +569,7 @@ pub fn put_record(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<
             reason: format!("view: {e}"),
         })?;
 
-    let comp: Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
@@ -601,17 +612,23 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
 
         let src_root = find_root(root_vertex, &src_schema)?;
-        let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+        let instance = inst::parse_json(&src_schema, &super::helpers::protocol_of(&src_schema), &src_root, &json_value).map_err(|e| {
             WasmError::ParseFailed {
                 reason: e.to_string(),
             }
         })?;
 
-        let lifted =
-            mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
-                WasmError::LiftFailed {
-                    reason: e.to_string(),
-                }
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(&src_schema),
+            super::helpers::protocol_of(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        let lifted = mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols)
+            .map_err(|e| WasmError::LiftFailed {
+                reason: e.to_string(),
             })?;
 
         let out_json = inst::to_json(&tgt_schema, &lifted);
@@ -648,7 +665,7 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
         slab::with_resource(migration, extract_migration_owned)?;
 
     let src_root = find_root(root_vertex, &src_schema)?;
-    let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+    let instance = inst::parse_json(&src_schema, &super::helpers::protocol_of(&src_schema), &src_root, &json_value).map_err(|e| {
         WasmError::ParseFailed {
             reason: e.to_string(),
         }
@@ -701,16 +718,13 @@ pub fn put_json(
             reason: e.to_string(),
         })?;
 
-    let comp: Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+        let view_instance = inst::parse_json(&tgt_schema, &super::helpers::protocol_of(&tgt_schema), &tgt_root, &view_json).map_err(|e| {
             WasmError::ParseFailed {
                 reason: e.to_string(),
             }
@@ -771,7 +785,7 @@ pub fn put_json_without_complement(
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+        let view_instance = inst::parse_json(&tgt_schema, &super::helpers::protocol_of(&tgt_schema), &tgt_root, &view_json).map_err(|e| {
             WasmError::ParseFailed {
                 reason: e.to_string(),
             }
@@ -1147,5 +1161,92 @@ mod tests {
         let proto_h = test_support::protocol_handle();
         let report = validate_schema(s1, proto_h).unwrap();
         assert!(!report.is_empty());
+    }
+
+    /// The payloads built from two freshly parsed lexicons, so from schemas
+    /// whose tables have hash keys of their own: the post schema's metadata,
+    /// the lightweight and the full diff of post against profile, and the
+    /// full diff's classification under `ATProto`.
+    fn freshly_hashed_payloads() -> Vec<Vec<u8>> {
+        let read = |name: &str| {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/atproto/lexicons")
+                .join(name);
+            std::fs::read(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+        };
+        let post = parse_atproto_lexicon(&read("app.bsky.feed.post.json")).unwrap();
+        let profile = parse_atproto_lexicon(&read("app.bsky.actor.profile.json")).unwrap();
+        let spec = rmp_serde::to_vec_named(&panproto_core::protocols::atproto::protocol()).unwrap();
+        let proto = define_protocol(&spec).unwrap();
+        let full = diff_schemas_full(post, profile);
+        let payloads = vec![
+            schema_metadata(post).unwrap(),
+            diff_schemas(post, profile),
+            classify_diff(proto, &full),
+            full,
+        ];
+        for handle in [post, profile, proto] {
+            slab::free(handle);
+        }
+        payloads
+    }
+
+    /// The child half of the cross-process test below: one process's
+    /// payloads, printed.
+    #[test]
+    fn one_process_payloads() {
+        if std::env::var_os("PP_WASM_PAYLOAD_DUMP").is_none() {
+            return;
+        }
+        print!("<<<{:?}>>>", freshly_hashed_payloads());
+    }
+
+    /// Every payload is byte-identical however the schemas' hash keys fall:
+    /// on every rebuild in this process, on other threads and in other
+    /// processes.
+    #[test]
+    fn payloads_do_not_depend_on_the_hash_keys() {
+        if std::env::var_os("PP_WASM_PAYLOAD_DUMP").is_some() {
+            return;
+        }
+        let expected = freshly_hashed_payloads();
+        for _ in 0..16 {
+            assert_eq!(
+                freshly_hashed_payloads(),
+                expected,
+                "a rebuild in this process"
+            );
+        }
+        std::thread::scope(|scope| {
+            let mut workers = Vec::new();
+            for _ in 0..4 {
+                workers.push(scope.spawn(freshly_hashed_payloads));
+            }
+            for worker in workers {
+                assert_eq!(
+                    worker.join().unwrap(),
+                    expected,
+                    "a rebuild on another thread"
+                );
+            }
+        });
+        let exe = std::env::current_exe().unwrap();
+        let printed = format!("<<<{expected:?}>>>");
+        for _ in 0..8 {
+            let output = std::process::Command::new(&exe)
+                .args([
+                    "api::schema::tests::one_process_payloads",
+                    "--exact",
+                    "--nocapture",
+                ])
+                .env("PP_WASM_PAYLOAD_DUMP", "1")
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                text.contains(&printed),
+                "another process wrote different payloads: {text}"
+            );
+        }
     }
 }

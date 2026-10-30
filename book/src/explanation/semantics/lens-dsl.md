@@ -1,6 +1,6 @@
 # Lens DSL: denotational semantics
 
-A lens DSL document describes a bidirectional transformation between schemas. A document may contain field or sort edits, value-level expressions, a composition, a symmetric pair of pipelines, or a schema-dependent generated body. Compilation produces a `CompiledLens` containing a protolens chain and any value-level field transforms. Deserialization and compilation do not establish the lens laws for every instance.
+A lens DSL document describes a bidirectional transformation between schemas. A document may contain field or sort edits, value-level expressions, a composition, a symmetric pair of pipelines, or a schema-dependent generated body. Compilation produces a `CompiledLens` whose ordered stages place structural chains and value-level field transforms in execution order. Its flat `chain` and `field_transforms` fields are compatibility summaries. Deserialization and compilation do not establish the lens laws for every instance.
 
 [Lenses and round-trip laws](../lenses-roundtrip.md) supplies complements and the three laws used here. [Expression language](./expression-language.md) supplies the value-level computations embedded in a lens specification.
 
@@ -88,7 +88,7 @@ pub enum Step {
 
 The top-level type is `LensDocument`. Its `source` and `target` fields are schema identifiers, and exactly one of `steps`, `rules`, `compose`, `symmetric`, `auto`, or `from_diff` must be present. A `directed_equations` modifier may accompany that body and appends oriented rewrites to the compiled chain.
 
-Compilation has two entry points. `compile` handles the schema-parametric bodies and rejects `auto` and `from_diff` with `LensDslError::AutoRequiresSchemas`. `compile_with_schemas` also handles those generated bodies. For every nonsymmetric body, it instantiates the chain at the supplied source schema and compares the declared target with the NSID of the output schema's primary entry. A mismatch yields `LensDslError::TargetMismatch`. The check is skipped when the declared target is empty or the output schema has no primary-entry NSID, so successful compilation does not always verify the target identifier.
+Compilation has two entry points. `compile` handles the schema-parametric bodies and rejects `auto` and `from_diff` with `LensDslError::AutoRequiresSchemas`. `compile_with_schemas` also handles those generated bodies. For every nonsymmetric body, it instantiates the ordered stages as a path from the supplied source schema and compares the declared target with the NSID of the path's output schema primary entry. A mismatch yields `LensDslError::TargetMismatch`. The check is skipped when the declared target is empty or the output schema has no primary-entry NSID, so successful compilation does not always verify the target identifier.
 
 ## Semantic domain
 
@@ -102,14 +102,21 @@ $$
 
 The complement is returned by `get`; callers do not pass the original source separately to `put`. The concrete `panproto_lens::Lens` stores source and target schemas and a compiled migration containing the field transforms. This is an asymmetric-lens interface with explicit saved state, related to the models of @foster2007combinators and @littvanhardenberghenry2020cambria.
 
-For a steps body, compilation returns a schema-parameterized chain and a map of field transforms:
+For a steps body, compilation returns an ordered sequence whose stages pair a schema-parameterized chain with the field transforms that execute at that point:
 
 $$
 \mathsf{compile}_{\mathsf{steps}} : \mathsf{LensDocument}
-\to \mathsf{ProtolensChain}\times\mathsf{FieldTransforms}.
+\to (\mathsf{ProtolensChain}\times\mathsf{FieldTransforms})^*.
 $$
 
-Instantiating the chain at a source schema produces a concrete lens. `auto` and `from_diff` require the source schema, target schema, and protocol during compilation as well.
+The flat chain and transform map are projections of this sequence and do not determine the order when a value transform lies between structural stages. Instantiating the compiled document at a source schema and protocol instantiates each stage at the schema produced by its predecessor, then composes the resulting concrete lenses into an ordered `LensPath`:
+
+$$
+\mathsf{instantiate} : \mathsf{CompiledLens}\times\mathsf{Schema}\times\mathsf{Protocol}
+\to \mathsf{LensPath}.
+$$
+
+Converting that path to one concrete lens is a partial operation: `into_single` refuses when normalization retains more than one group. `auto` and `from_diff` require the source schema, target schema, and protocol during compilation as well.
 
 ## The three laws
 
@@ -140,7 +147,7 @@ Schema-level steps compile to protolenses, which are schema-parameterized lenses
 
 $$
 \llbracket \mathsf{LensDocument}(\mathsf{id} = d,\, \mathsf{steps} = [s_1, \ldots, s_k]) \rrbracket\, S
-  \;=\; \llbracket s_k \rrbracket\,S_{k-1}\ \mathbin{;}\ \cdots\ \mathbin{;}\ \llbracket s_1 \rrbracket\,S_0
+  \;=\; \llbracket s_1 \rrbracket\,S_0\ \mathbin{;}\ \cdots\ \mathbin{;}\ \llbracket s_k \rrbracket\,S_{k-1}
 $$
 
 Here $S_0=S$, and $S_i$ is the target schema after step $s_i$ is applied to $S_{i-1}$. The semicolon denotes sequential lens composition:
@@ -157,11 +164,13 @@ $$
 
 The [step compiler](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl/src/steps) is the authoritative mapping from every `Step` variant to these two outputs. Adjacent schema-level steps must satisfy `protolens_composable`; [Protolens composition](./protolens-composition.md) gives the exact predicate.
 
-## Complement composition
+## Path complements and independent merging
 
-Sequential composition combines complements through the partial operation supplied by `ComplementCompose`. The empty complement $\varepsilon$ is a two-sided identity. Property tests check commutativity and associativity on generated compatible complements. Composition rejects two nonzero, unequal source fingerprints with `ComplementFingerprintMismatch`; it rejects incompatible values stored under the same keyed complement field with `ComplementConflict`. Vector and set-like fields are merged with deduplication. `ComplementCompose::is_compatible` tests whether composition would succeed without allocating the result.
+Path execution does not merge the complements produced by sequential stages. `LensPath::get` first normalizes adjacent compatible stages into shape-specific groups, then retains one `PathComplementEntry` per group in execution order. Each entry records the group's complement, identity envelope, and stage digests. `LensPath::put` consumes those entries in reverse order and rejects a path complement with the wrong entry count, stage identity, or complement identity.
 
-The fingerprint is a 64-bit hash computed by `panproto_lens::asymmetric::schema_fingerprint`. Compatibility means equality of the resulting nonzero fingerprints, not a proof that distinct schema values are isomorphic.
+`ComplementCompose` supplies a separate partial-commutative merge for independently obtained complements of the same shape. The empty complement $\varepsilon$ is a two-sided identity. Property tests check commutativity and associativity on generated compatible complements. Composition rejects incompatible values stored under the same keyed complement field with `LensError::ComplementConflict`. `LensError::Identity` covers incompatible identity envelopes, mixed stamped and legacy identities, unequal legacy fingerprints, and unbound nonempty complements. Its causes include `IdentityError::Mismatch`, `IdentityError::LegacyComplementRejected`, and `IdentityError::UnboundComplement`. Vector and set-like fields are merged with deduplication. `ComplementCompose::is_compatible` tests whether composition would succeed without allocating the result.
+
+A legacy fingerprint is a 64-bit hash of the source schema retained for compatibility with complements written before identity envelopes. Fingerprint equality is not a proof that distinct schema values are isomorphic.
 
 ## Checks and limits
 

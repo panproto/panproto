@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use panproto_gat::Theory;
+use panproto_gat::{CompositionMode, Theory};
 use panproto_schema::Protocol;
 use serde::{Deserialize, Serialize};
 
@@ -374,6 +374,30 @@ pub struct CompositionSpec_ {
 }
 
 /// A single colimit step: identify shared sorts/ops in the pushout.
+///
+/// `shared_sorts` and `shared_ops` identify same-name symbols of the two
+/// sides. `identify` identifies differently named ones, each pair naming
+/// the left symbol and the right symbol that are one symbol of the result.
+/// A left symbol may be named more than once (shared and identified, or
+/// identified with several right symbols), and then every right symbol it
+/// is named with is one symbol with it. A shared sort may be dependent: the
+/// result declares it with its left parameters. In a step with `identify`
+/// entries, or one that shares a dependent sort, every sort that a shared
+/// or identified symbol mentions in its declaration (a sort's parameter
+/// sorts, an operation's input and output sorts) must be one symbol with
+/// the sort in the same place of its right counterpart's declaration: in
+/// `explicit_identity` mode the step shares or identifies the two, and in
+/// `amalgamate` mode two such sorts of one name need not be named, since
+/// amalgamation glues them by name, but must take the same number of
+/// parameters. Every name a step shares or identifies must be declared on
+/// its side, and a shared or identified pair must take the same number of
+/// inputs (operations) or parameters (sorts); a step that breaks either
+/// rule is refused with a message naming the symbols, the sort or the two
+/// arities, and the theories.
+/// `mode` says what happens to the other names both sides declare:
+/// [`CompositionMode::Amalgamate`] (the default, and what a step that does
+/// not state a mode has always meant) identifies them too, and
+/// [`CompositionMode::ExplicitIdentity`] refuses them as a name clash.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColimitStepSpec {
     /// Left theory name.
@@ -385,6 +409,42 @@ pub struct ColimitStepSpec {
     /// Operations to identify in the pushout.
     #[serde(default)]
     pub shared_ops: Vec<String>,
+    /// How the step identifies symbols the lists above do not name.
+    #[serde(default = "amalgamate")]
+    pub mode: CompositionMode,
+    /// Differently named symbols of the two sides to identify.
+    #[serde(default)]
+    pub identify: Vec<IdentifySpec>,
+}
+
+/// The mode of a step that does not state one.
+const fn amalgamate() -> CompositionMode {
+    CompositionMode::Amalgamate
+}
+
+/// One explicit identification of a composition step: the symbol `left` of
+/// the left theory and the symbol `right` of the right theory are one
+/// symbol of the result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentifySpec {
+    /// Whether the two symbols are sorts or operations.
+    pub kind: IdentifyKind,
+    /// The symbol's name in the left theory.
+    pub left: String,
+    /// The symbol's name in the right theory.
+    pub right: String,
+}
+
+/// The kind of symbol an [`IdentifySpec`] identifies.
+///
+/// Serialized in `snake_case`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentifyKind {
+    /// A sort.
+    Sort,
+    /// An operation.
+    Op,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -468,6 +528,11 @@ pub struct CompiledTheorySet {
     pub protocols: HashMap<String, Protocol>,
     /// Composition recipes (for storage alongside results).
     pub composition_specs: HashMap<String, panproto_gat::CompositionSpec>,
+    /// The report of each composition the document compiles, keyed by the
+    /// composition's result theory name: one report per step, in step
+    /// order. A single composition, each composition of a bundle and each
+    /// inline composed theory of a protocol has an entry.
+    pub composition_reports: HashMap<String, Vec<panproto_gat::CompositionReport>>,
 }
 
 /// Convenience: display all names in the compiled set.
@@ -490,6 +555,7 @@ impl std::fmt::Debug for CompiledTheorySet {
             .field("morphisms", &sorted(&self.morphisms))
             .field("protocols", &sorted(&self.protocols))
             .field("composition_specs", &sorted(&self.composition_specs))
+            .field("composition_reports", &sorted(&self.composition_reports))
             .finish()
     }
 }

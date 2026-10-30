@@ -310,7 +310,7 @@ mod tests {
     fn inverse_cancellation_sorts() {
         let steps = vec![rename_sort("A", "B"), rename_sort("B", "A")];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, [] as [crate::symbolic::SymbolicStep; 0]);
     }
 
     #[test]
@@ -324,7 +324,7 @@ mod tests {
     fn inverse_cancellation_ops() {
         let steps = vec![rename_op("f", "g"), rename_op("g", "f")];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, [] as [crate::symbolic::SymbolicStep; 0]);
     }
 
     #[test]
@@ -341,7 +341,7 @@ mod tests {
             SymbolicStep::DropSort(Arc::from("X")),
         ];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, [] as [crate::symbolic::SymbolicStep; 0]);
     }
 
     #[test]
@@ -351,7 +351,7 @@ mod tests {
             SymbolicStep::DropOp(Arc::from("f")),
         ];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, [] as [crate::symbolic::SymbolicStep; 0]);
     }
 
     #[test]

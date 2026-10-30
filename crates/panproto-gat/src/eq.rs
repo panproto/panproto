@@ -428,11 +428,7 @@ pub struct DirectedEquation {
 /// so α-equivalence is the correct notion of equality for equation terms.
 #[must_use]
 pub fn alpha_equivalent(t1: &Term, t2: &Term) -> bool {
-    let mut checker = AlphaChecker {
-        forward: rustc_hash::FxHashMap::default(),
-        backward: rustc_hash::FxHashMap::default(),
-    };
-    checker.check(t1, t2)
+    AlphaChecker::default().check(t1, t2)
 }
 
 /// Check if two equations are α-equivalent.
@@ -443,16 +439,23 @@ pub fn alpha_equivalent(t1: &Term, t2: &Term) -> bool {
 /// but NOT to `∀a,b. f(a,b) = g(a)`.
 #[must_use]
 pub fn alpha_equivalent_equation(lhs1: &Term, rhs1: &Term, lhs2: &Term, rhs2: &Term) -> bool {
-    let mut checker = AlphaChecker {
-        forward: rustc_hash::FxHashMap::default(),
-        backward: rustc_hash::FxHashMap::default(),
-    };
+    let mut checker = AlphaChecker::default();
     checker.check(lhs1, lhs2) && checker.check(rhs1, rhs2)
 }
 
+/// The state of an alpha-equivalence check: one bijection between the free
+/// variables of the two sides, kept for the whole comparison, and the two
+/// stacks of local binders in scope, innermost last. A variable is bound
+/// when its name occurs in its side's stack (its last occurrence binds it)
+/// and free otherwise; two bound variables agree when they are bound at the
+/// same stack position, and two free variables when the bijection pairs
+/// them.
+#[derive(Default)]
 struct AlphaChecker {
     forward: rustc_hash::FxHashMap<Arc<str>, Arc<str>>,
     backward: rustc_hash::FxHashMap<Arc<str>, Arc<str>>,
+    left: Vec<Arc<str>>,
+    right: Vec<Arc<str>>,
 }
 
 impl AlphaChecker {
@@ -497,20 +500,13 @@ impl AlphaChecker {
                     {
                         return false;
                     }
-                    // Extend bijection with branch binders, check body,
-                    // then roll back.
-                    let saved_forward = self.forward.clone();
-                    let saved_backward = self.backward.clone();
-                    let mut ok = true;
-                    for (a, b) in br1.binders.iter().zip(br2.binders.iter()) {
-                        self.forward.insert(Arc::clone(a), Arc::clone(b));
-                        self.backward.insert(Arc::clone(b), Arc::clone(a));
-                    }
-                    if !self.check(&br1.body, &br2.body) {
-                        ok = false;
-                    }
-                    self.forward = saved_forward;
-                    self.backward = saved_backward;
+                    // Bring the branch binders into scope for the body only.
+                    let depth = self.left.len();
+                    self.left.extend(br1.binders.iter().cloned());
+                    self.right.extend(br2.binders.iter().cloned());
+                    let ok = self.check(&br1.body, &br2.body);
+                    self.left.truncate(depth);
+                    self.right.truncate(depth);
                     if !ok {
                         return false;
                     }
@@ -542,6 +538,14 @@ impl AlphaChecker {
     }
 
     fn check_vars(&mut self, a: &Arc<str>, b: &Arc<str>) -> bool {
+        match (
+            self.left.iter().rposition(|n| n == a),
+            self.right.iter().rposition(|n| n == b),
+        ) {
+            (Some(i), Some(j)) => return i == j,
+            (None, None) => {}
+            _ => return false,
+        }
         if let Some(mapped) = self.forward.get(a) {
             if mapped != b {
                 return false;
@@ -569,13 +573,11 @@ impl AlphaChecker {
         if !self.check(b1, b2) {
             return false;
         }
-        let saved_forward = self.forward.clone();
-        let saved_backward = self.backward.clone();
-        self.forward.insert(Arc::clone(n1), Arc::clone(n2));
-        self.backward.insert(Arc::clone(n2), Arc::clone(n1));
+        self.left.push(Arc::clone(n1));
+        self.right.push(Arc::clone(n2));
         let ok = self.check(body1, body2);
-        self.forward = saved_forward;
-        self.backward = saved_backward;
+        self.left.pop();
+        self.right.pop();
         ok
     }
 }
@@ -1167,6 +1169,43 @@ mod tests {
         let lhs2 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
         let rhs2 = Term::app("g", vec![Term::var("b"), Term::var("a")]);
         assert!(alpha_equivalent_equation(&lhs1, &rhs1, &lhs2, &rhs2));
+    }
+
+    #[test]
+    fn alpha_eq_equation_keeps_free_correspondences_found_under_binders() {
+        // `x` is first met inside the `Let` body; its correspondence with
+        // the other side's `x` must survive the binder, so `y` cannot be
+        // matched to `x` afterwards.
+        let under = |v: &str| Term::Let {
+            name: Arc::from("n"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::app("f", vec![Term::var(v)])),
+        };
+        let f = |v: &str| Term::app("f", vec![Term::var(v)]);
+        assert!(!alpha_equivalent_equation(
+            &under("x"),
+            &f("y"),
+            &under("x"),
+            &f("x")
+        ));
+        assert!(alpha_equivalent_equation(
+            &under("x"),
+            &f("y"),
+            &under("u"),
+            &f("v")
+        ));
+        // A local binder never stands for a free variable of the other side.
+        let bound = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::var("x")),
+        };
+        let free = Term::Let {
+            name: Arc::from("n"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::var("x")),
+        };
+        assert!(!alpha_equivalent(&bound, &free));
     }
 
     #[test]

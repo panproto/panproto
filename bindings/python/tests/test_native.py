@@ -8,12 +8,14 @@ and the error hierarchy.
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from typing import TYPE_CHECKING
 
 import pytest
 
 import panproto
+import panproto._native
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -64,7 +66,22 @@ class TestProtocolRegistry:
 
     def test_list_builtin_protocols_includes_semantic(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) >= 50
+        assert len(names) >= 57
+        assert {"csv", "toml", "yaml"}.issubset(names)
+        for canonical in (
+            "edi-x12",
+            "iso-space",
+            "json-schema",
+            "k8s-crd",
+            "laf-graf",
+            "msgpack-schema",
+            "rss-atom",
+            "swift-mt",
+            "vcard-ical",
+            "web-annotation",
+        ):
+            assert canonical in names
+            assert canonical.replace("-", "_") not in names
 
     def test_list_contains_atproto(self) -> None:
         assert "atproto" in panproto.list_builtin_protocols()
@@ -72,6 +89,29 @@ class TestProtocolRegistry:
     def test_get_builtin_protocol_atproto(self) -> None:
         proto = panproto.get_builtin_protocol("atproto")
         assert proto.name == "atproto"
+
+    @pytest.mark.parametrize(
+        "underscored",
+        [
+            "edi_x12",
+            "iso_space",
+            "json_schema",
+            "k8s_crd",
+            "laf_graf",
+            "msgpack_schema",
+            "rss_atom",
+            "swift_mt",
+            "uima_cas",
+            "vcard_ical",
+            "web_annotation",
+        ],
+    )
+    def test_both_separators_reach_one_protocol(self, underscored: str) -> None:
+        hyphenated = underscored.replace("_", "-")
+        by_underscore = panproto.get_builtin_protocol(underscored)
+        by_hyphen = panproto.get_builtin_protocol(hyphenated)
+        assert by_underscore.to_dict() == by_hyphen.to_dict()
+        assert by_hyphen.schema_theory != "ThGraph"
 
     def test_get_builtin_protocol_unknown_raises(self) -> None:
         with pytest.raises(KeyError, match="nonexistent"):
@@ -482,18 +522,33 @@ class TestInstance:
 
     `root`, `node_count`, and `arc_count` are read-only int properties:
     `root` is the root node id, the counts are node/arc tallies.
-    `validate()` returns the list of validation error strings (empty
-    when valid). These tests fix that contract so the type stub and the
-    runtime cannot drift apart unnoticed.
+    `validate(protocol)` returns a `ValidationReport`. These tests fix that
+    contract so the type stub and the runtime cannot drift apart unnoticed.
     """
 
     @pytest.fixture
-    def instance(self) -> panproto.Instance:
-        proto = panproto.get_builtin_protocol("atproto")
-        b = proto.schema()
+    def protocol(self) -> panproto.Protocol:
+        return panproto.get_builtin_protocol("atproto")
+
+    @pytest.fixture
+    def instance(self, protocol: panproto.Protocol) -> panproto.Instance:
+        b = protocol.schema()
         b.vertex("post", "record", "app.bsky.feed.post")
         schema = b.build()
         return panproto.Instance.from_json(schema, "post", "{}")
+
+    @staticmethod
+    def _bounded(protocol: panproto.Protocol, text: str) -> panproto.Instance:
+        """A record whose `text` carries a `maxLength` of 3."""
+        b = protocol.schema()
+        b.vertex("r", "record", "local.validate.bounded")
+        b.vertex("r:body", "object")
+        b.vertex("r:body.text", "string")
+        b.edge("r", "r:body", "record-schema")
+        b.edge("r:body", "r:body.text", "prop", "text")
+        b.constraint("r:body.text", "maxLength", "3")
+        schema = b.build()
+        return panproto.Instance.from_json(schema, "r:body", json.dumps({"text": text}))
 
     def test_root_is_int_property(self, instance: panproto.Instance) -> None:
         # A property, not a method: accessed without a call it yields an
@@ -505,10 +560,69 @@ class TestInstance:
         assert isinstance(instance.arc_count, int)
         assert instance.node_count == len(instance)
 
-    def test_validate_returns_error_list(self, instance: panproto.Instance) -> None:
-        errors = instance.validate()
-        assert isinstance(errors, list)
-        assert all(isinstance(e, str) for e in errors)
+    def test_validate_returns_a_passing_report(
+        self, instance: panproto.Instance, protocol: panproto.Protocol
+    ) -> None:
+        report = instance.validate(protocol)
+        assert isinstance(report, panproto.ValidationReport)
+        assert report.status == "passed"
+        assert report.passed is True
+        assert report.shape == "tree"
+        assert report.scope == "instance"
+        assert re.fullmatch(r"[0-9a-f]{64}", report.plan)
+        assert re.fullmatch(r"[0-9a-f]{64}", report.digest())
+        assert report.diagnostics == []
+        assert report.incomplete == []
+        assert report.messages == []
+        # Every compiled check is covered, and on a passing report none
+        # failed.
+        assert report.coverage
+        for check, cov in report.coverage:
+            assert isinstance(check["kind"], str)
+            instances, passed, failed, incomplete = (
+                cov["instances"],
+                cov["passed"],
+                cov["failed"],
+                cov["incomplete"],
+            )
+            assert isinstance(instances, int)
+            assert isinstance(passed, int)
+            assert isinstance(failed, int)
+            assert isinstance(incomplete, int)
+            assert failed == 0
+            assert instances == passed + failed + incomplete
+
+    def test_validate_reports_a_broken_constraint(self, protocol: panproto.Protocol) -> None:
+        report = self._bounded(protocol, "hello").validate(protocol)
+        assert report.status == "failed"
+        assert report.passed is False
+        [diagnostic] = report.diagnostics
+        check = obj(diagnostic["check"])
+        assert check["kind"] == "value_constraint"
+        assert diagnostic["requirement"] == "required"
+        assert diagnostic["violation"] == {
+            "value_constraint": {"sort": "maxLength", "bound": "3", "value": {"Str": "hello"}}
+        }
+        assert report.messages == [
+            'value_constraint at node 1: value "hello" breaks maxLength = "3"'
+        ]
+
+    def test_validate_passes_within_the_constraint(self, protocol: panproto.Protocol) -> None:
+        assert self._bounded(protocol, "hey").validate(protocol).passed
+
+    def test_report_to_dict_is_the_whole_report(
+        self, instance: panproto.Instance, protocol: panproto.Protocol
+    ) -> None:
+        report = instance.validate(protocol)
+        d = report.to_dict()
+        assert d["status"] == report.status
+        assert d["plan"] == report.plan
+        assert d["shape"] == report.shape
+        assert repr(report) == "ValidationReport(status='passed', diagnostics=0, incomplete=0)"
+
+    def test_validate_requires_a_protocol(self, instance: panproto.Instance) -> None:
+        with pytest.raises(TypeError):
+            instance.validate()  # pyright: ignore[reportCallIssue]
 
     def test_to_json_is_str(self, instance: panproto.Instance) -> None:
         assert isinstance(instance.to_json(), str)
@@ -557,18 +671,12 @@ class TestProtolensChain:
         target_builder.vertex("r.text", "string")
         target = target_builder.build()
 
-        chain = panproto.ProtolensChain.auto_generate(
-            source, target, proto, "exploratory"
-        )
+        chain = panproto.ProtolensChain.auto_generate(source, target, proto, "exploratory")
         encoded = json.loads(chain.to_json())
-        assert encoded["field_transforms"] == {
-            "r": [{"DropField": {"key": "text"}}]
-        }
+        assert encoded["field_transforms"] == {"r": [{"DropField": {"key": "text"}}]}
 
     @staticmethod
-    def _value_transform_context() -> tuple[
-        panproto.Protocol, panproto.Schema, panproto.Instance
-    ]:
+    def _value_transform_context() -> tuple[panproto.Protocol, panproto.Schema, panproto.Instance]:
         proto = panproto.get_builtin_protocol("atproto")
         builder = proto.schema()
         builder.vertex("r:body", "object")
@@ -672,11 +780,25 @@ class TestProtolensChain:
 
     @classmethod
     def _assert_rename_then_compute(cls, chain: panproto.ProtolensChain) -> None:
-        proto, schema, instance = cls._value_transform_context()
-        lens = chain.instantiate(schema, proto)
-        view, _complement = lens.get(instance)
-        data = json.loads(view.to_json())
-        assert data == {"amount": 5, "derived": 6}
+        """The rename is one stage and the compute, which reads the renamed
+        field, is the next, so the compute is never moved ahead of the
+        rename. The two stages are two normal-form groups, which one
+        ``Lens`` cannot hold: ``instantiate`` refuses the path rather than
+        fusing it."""
+        stages = [obj(stage) for stage in arr(obj(json.loads(chain.to_json()))["stages"])]
+        layout = [
+            (
+                [text(obj(step)["name"]) for step in arr(obj(stage["chain"])["steps"])],
+                sorted(obj(stage.get("field_transforms", {}))),
+            )
+            for stage in stages
+        ]
+        assert layout == [(["rename_edge_count_amount"], []), ([], ["r:body"])]
+        proto, schema, _instance = cls._value_transform_context()
+        with pytest.raises(
+            panproto.LensError, match="lens path has 2 normal-form groups; one is required"
+        ):
+            chain.instantiate(schema, proto)
 
     def test_mixed_dsl_preserves_transform_order(self) -> None:
         _rename, _compute, mixed = self._rename_then_compute_sources()
@@ -685,9 +807,7 @@ class TestProtolensChain:
 
         encoded = chain.to_json()
         assert "stages" in json.loads(encoded)
-        self._assert_rename_then_compute(
-            panproto.ProtolensChain.from_json(encoded)
-        )
+        self._assert_rename_then_compute(panproto.ProtolensChain.from_json(encoded))
 
     def test_compose_preserves_transform_order(self) -> None:
         rename, compute, _mixed = self._rename_then_compute_sources()
@@ -857,6 +977,110 @@ class TestCompiledMigrationLens:
         instance = self._instance(src)
         assert compiled.check_laws(instance) is None
         assert compiled.to_lens().check_laws(instance) is None
+
+
+# ---------------------------------------------------------------------------
+# Lift and coverage validate both boundaries
+# ---------------------------------------------------------------------------
+
+
+class TestLiftBoundary:
+    """`lift` and `check_coverage` validate the record against the source
+    schema under the source protocol, and the result against the target
+    schema under the target protocol. A boundary that does not validate is
+    a failure that carries its report."""
+
+    @staticmethod
+    def _pair(
+        tgt_max_length: str | None,
+    ) -> tuple[panproto.Protocol, panproto.Schema, panproto.Schema, panproto.CompiledMigration]:
+        proto = panproto.get_builtin_protocol("atproto")
+
+        def build(nsid: str, max_length: str | None) -> panproto.Schema:
+            b = proto.schema()
+            b.vertex("r", "record", nsid)
+            b.vertex("r:body", "object")
+            b.vertex("r:body.text", "string")
+            b.edge("r", "r:body", "record-schema")
+            b.edge("r:body", "r:body.text", "prop", "text")
+            if max_length is not None:
+                b.constraint("r:body.text", "maxLength", max_length)
+            return b.build()
+
+        src = build("local.lift.src", None)
+        tgt = build("local.lift.tgt", tgt_max_length)
+        mb = panproto.MigrationBuilder()
+        for v in ("r", "r:body", "r:body.text"):
+            mb.map_vertex(v, v)
+        return proto, src, tgt, panproto.compile_migration(mb.build(), src, tgt)
+
+    @staticmethod
+    def _record(src: panproto.Schema, text: str) -> panproto.Instance:
+        return panproto.Instance.from_json(src, "r:body", json.dumps({"text": text}))
+
+    def test_lift_under_one_protocol(self) -> None:
+        proto, src, _tgt, compiled = self._pair(None)
+        lifted = compiled.lift(self._record(src, "hello"), proto)
+        assert json.loads(lifted.to_json())["text"] == "hello"
+        assert lifted.validate(proto).passed
+        # The target protocol defaults to the source protocol.
+        explicit = compiled.lift(self._record(src, "hello"), proto, proto)
+        assert explicit.to_json() == lifted.to_json()
+
+    def test_lift_raises_with_the_output_report(self) -> None:
+        proto, src, _tgt, compiled = self._pair("3")
+        with pytest.raises(panproto.MigrationError) as raised:
+            compiled.lift(self._record(src, "hello"), src_protocol=proto, tgt_protocol=proto)
+        err = raised.value
+        assert err.side == "output"
+        assert isinstance(err.report, panproto.ValidationReport)
+        assert err.report.status == "failed"
+        assert err.report.messages == [
+            'value_constraint at node 1: value "hello" breaks maxLength = "3"'
+        ]
+        assert "breaks maxLength" in str(err)
+
+    def test_other_migration_errors_carry_no_report(self) -> None:
+        mb = panproto.MigrationBuilder()
+        mb.map_vertex("a", "b")
+        mb.map_vertex("c", "b")
+        proto = panproto.get_builtin_protocol("atproto")
+        b = proto.schema()
+        b.vertex("a", "object")
+        b.vertex("c", "object")
+        s = b.build()
+        with pytest.raises(panproto.MigrationError) as raised:
+            panproto.invert_migration(mb.build(), s, s)
+        assert raised.value.side is None
+        assert raised.value.report is None
+
+    def test_check_coverage_counts_boundary_failures(self) -> None:
+        proto, src, tgt, compiled = self._pair("3")
+        report = obj(
+            panproto.check_coverage(
+                compiled,
+                [self._record(src, "hey"), self._record(src, "hello")],
+                src,
+                tgt,
+                proto,
+            )
+        )
+        assert report["total_records"] == 2
+        assert report["successful"] == 1
+        [failure] = arr(report["failed"])
+        reason = obj(obj(obj(failure)["reason"])["BoundaryValidation"])
+        assert reason["side"] == "output"
+        assert obj(reason["report"])["status"] == "failed"
+
+    def test_check_coverage_takes_the_target_protocol(self) -> None:
+        proto, src, tgt, compiled = self._pair(None)
+        records = [self._record(src, "hello")]
+        default = panproto.check_coverage(compiled, records, src, tgt, proto)
+        explicit = panproto.check_coverage(
+            compiled, records, src, tgt, src_protocol=proto, tgt_protocol=proto
+        )
+        assert default == explicit
+        assert obj(default)["successful"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1138,13 +1362,13 @@ class TestExpressions:
 
 # ``Nat`` closed against its two constructors: the smallest theory whose
 # closure can be made incoherent one field at a time.
-_NAT_OPS: list[dict[str, object]] = [
+_NAT_OPS: list[JsonValue] = [
     {"name": "zero", "inputs": [], "output": "Nat"},
     {"name": "succ", "inputs": [["n", "Nat", "No"]], "output": "Nat"},
 ]
 
 
-def _nat_spec(*, ops: list[dict[str, object]]) -> dict[str, object]:
+def _nat_spec(*, ops: list[JsonValue]) -> dict[str, JsonValue]:
     """Build a theory spec closing ``Nat`` over ``[zero, succ]``."""
     return {
         "name": "NatTheory",
@@ -1162,7 +1386,6 @@ def _nat_spec(*, ops: list[dict[str, object]]) -> dict[str, object]:
         "directed_eqs": [],
         "policies": [],
     }
-
 
 
 class TestGat:
@@ -1200,7 +1423,7 @@ class TestGat:
         self,
     ) -> None:
         """An op producing a closed sort must be listed in its closure."""
-        sneaky = [*_NAT_OPS, {"name": "sneaky", "inputs": [], "output": "Nat"}]
+        sneaky: list[JsonValue] = [*_NAT_OPS, {"name": "sneaky", "inputs": [], "output": "Nat"}]
         t = panproto.create_theory(_nat_spec(ops=sneaky))
         with pytest.raises(panproto.GatError, match="sneaky"):
             panproto.typecheck_theory(t)
@@ -1208,7 +1431,7 @@ class TestGat:
     def test_typecheck_theory_rejects_a_constructor_of_another_sort(self) -> None:
         """A listed constructor whose output head is a different sort."""
         spec = _nat_spec(ops=_NAT_OPS)
-        spec["sorts"].append({"name": "Other", "params": [], "kind": "Structural"})
+        arr(spec["sorts"]).append({"name": "Other", "params": [], "kind": "Structural"})
         spec["ops"] = [
             {"name": "zero", "inputs": [], "output": "Other"},
             {"name": "succ", "inputs": [["n", "Nat", "No"]], "output": "Nat"},
@@ -2146,9 +2369,7 @@ class TestRepositoryDataAccess:
         head_before = repo.head()
         config2 = tmp_path / "p2-config.json"
         config2.write_text('[{"configuration": "two"}]')
-        idx = repo.add_data(
-            str(config2), key="p2:configuration", schema_id=str(config_schema_id)
-        )
+        idx = repo.add_data(str(config2), key="p2:configuration", schema_id=str(config_schema_id))
         assert repo.head() == head_before
         assert idx["staged"] is None
         staged_data = idx["staged_data"]
@@ -2167,9 +2388,7 @@ class TestRepositoryDataAccess:
 
         config3 = tmp_path / "p3-config.json"
         config3.write_text('[{"configuration": "three"}]')
-        repo.add_data(
-            str(config3), key="p3:configuration", schema_id=str(config_schema_id)
-        )
+        repo.add_data(str(config3), key="p3:configuration", schema_id=str(config_schema_id))
         record3 = tmp_path / "p3-record.json"
         record3.write_text('[{"value": 3}]')
         repo.add_data(str(record3), key="p3")
@@ -2378,8 +2597,6 @@ class TestGrammarRegistrationBoundary:
         # check leaves the registry as it was rather than half-populated.
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            reg = panproto._native.AstParserRegistry(
-                extra_grammars=[self._entry(language_ptr=0)]
-            )
+            reg = panproto._native.AstParserRegistry(extra_grammars=[self._entry(language_ptr=0)])
         assert reg is not None
         assert panproto.available_grammars(), "the built-in grammars survive"

@@ -55,6 +55,20 @@ fn parse_stringency(raw: &[u8]) -> Result<Option<Stringency>, FfiError> {
     }
 }
 
+/// Allocate a directional compiled-document resource after ruling out the
+/// symmetric body shape, whose two legs cannot be represented by this handle.
+fn alloc_directional_compiled_lens(
+    compiled: panproto_core::lens_dsl::CompiledLens,
+) -> Result<u32, FfiError> {
+    if compiled.symmetric.is_some() {
+        return Err(FfiError::Operation(
+            "lens DSL compile: symmetric lens documents are not accepted by the directional lens-document compile boundary (pp_lens_compile_document or pp_lens_compile_document_with_refs); use pp_lens_symmetric_from_schemas and pp_lens_symmetric_sync"
+                .to_owned(),
+        ));
+    }
+    Ok(handle::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+}
+
 /// Build the CBOR payload returned by [`pp_lens_get_record`]: a two-key
 /// map `{ "view": bytes, "complement": bytes }` whose values are CBOR
 /// byte strings each holding a self-contained CBOR item (the projected
@@ -118,11 +132,16 @@ fn encode_complement_for_host(complement: &lens::Complement) -> Result<Vec<u8>, 
 ///
 /// Returns [`FfiError::Serialization`] if (de)serialization fails. Bytes
 /// that fail to decode in either shape report the failure against the
-/// bytes as they were given.
+/// bytes as they were given. A complement whose envelope names another
+/// format or layout is [`FfiError::Operation`], as
+/// [`canonical::decode_complement`] reports it.
 fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiError> {
-    match canonical::decode(bytes) {
+    match canonical::decode_complement(bytes) {
         Ok(complement) => Ok(complement),
-        Err(err) => {
+        // Only bytes that are not a complement as given can be an older
+        // encoding; a complement refused for its format or envelope is
+        // refused whatever its maps look like.
+        Err(err @ FfiError::Serialization(_)) => {
             let Ok(mut value) = canonical::decode::<CborValue>(bytes) else {
                 return Err(err);
             };
@@ -130,8 +149,13 @@ fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiErro
                 return Err(err);
             }
             let normalized = canonical::encode(&value)?;
-            canonical::decode(&normalized).map_err(|_| err)
+            match canonical::decode_complement(&normalized) {
+                Ok(complement) => Ok(complement),
+                Err(FfiError::Serialization(_)) => Err(err),
+                Err(refused) => Err(refused),
+            }
         }
+        Err(err) => Err(err),
     }
 }
 
@@ -328,11 +352,13 @@ fn law_result(outcome: Result<(), lens::LawViolation>) -> LawCheckResult {
     }
 }
 
-/// Check both `GetPut` and `PutGet` lens laws on a test instance.
+/// Run the five strict lens gates on a test instance.
 ///
 /// `migration` is a migration/lens handle; `instance` is a CBOR-encoded
 /// `WInstance`. On success, `out` receives a CBOR-encoded
-/// [`LawCheckResult`]. Calls `lens::check_laws`.
+/// [`LawCheckResult`]. The gates run in order: `GetPut`, `PutGet`, totality
+/// over the finite single-step basis, `PutTwice`, and congruence. Calls
+/// `lens::check_laws`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_lens_check_laws(
@@ -463,7 +489,8 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
         })?;
 
         let composed = lens::compose(&lens1, &lens2)
-            .map_err(|e| FfiError::Operation(format!("compose: {e}")))?;
+            .and_then(lens::LensPath::into_single)
+            .map_err(|e| FfiError::from_single_lens_error("compose", &e))?;
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(composed.compiled),
@@ -482,7 +509,9 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 /// `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
 /// Plain chains call `ProtolensChain::instantiate`; compiled documents use
-/// their ordered-stage instantiation.
+/// their ordered-stage instantiation and retain value transforms at their
+/// stage positions. A compiled document is refused when its normalized path
+/// has more than one group because this ABI returns one concrete lens.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -> i32 {
@@ -500,7 +529,8 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
         let lens_obj = if let Some(compiled) = compiled_doc {
             compiled
                 .instantiate(&schema_val, &protocol)
-                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+                .and_then(lens::LensPath::into_single)
+                .map_err(|e| FfiError::from_single_lens_error("instantiate", &e))?
         } else {
             chain_val
                 .ok_or_else(|| FfiError::Operation("missing protolens chain".to_owned()))?
@@ -519,8 +549,10 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
 
 /// Get the complement spec for a protolens chain at a schema.
 ///
-/// `chain` is a protolens chain handle; `schema` is a schema handle. On
-/// success, `out` receives a CBOR-encoded
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle;
+/// `schema` is a schema handle. A compiled document is inspected through its
+/// compatibility-chain projection, which omits ordered stage boundaries and
+/// value transforms. On success, `out` receives a CBOR-encoded
 /// `panproto_core::lens::ComplementSpec`. Calls
 /// `lens::chain_complement_spec`.
 #[must_use = "FFI status codes should not be discarded"]
@@ -568,7 +600,10 @@ pub fn pp_protolens_from_diff(
 
 /// Compose two protolens chains.
 ///
-/// `chain1` and `chain2` are protolens chain handles. On success,
+/// `chain1` and `chain2` are `ProtolensChain` or chain-compatible
+/// `CompiledLensDoc` handles. Compiled documents contribute only their
+/// compatibility-chain projections, so the result does not retain ordered
+/// stage boundaries or value transforms. On success,
 /// `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
 /// the concatenated steps.
@@ -595,9 +630,13 @@ pub fn pp_protolens_compose(chain1: u32, chain2: u32, out_handle: &mut u32) -> i
 
 /// Serialize a protolens chain to JSON.
 ///
-/// `chain` is a protolens chain handle. On success, `out` receives JSON
-/// bytes describing each step (name, endofunctors, lossless flag) per
-/// [`ProtolensStepInfo`].
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+/// A compiled document is summarized through its compatibility-chain
+/// projection, so ordered stage boundaries and value transforms are absent.
+/// On success, `out` receives JSON bytes describing each projected step
+/// (name, endofunctors, lossless flag) per [`ProtolensStepInfo`]. This is a
+/// lossy inspection summary, not the serialized `ProtolensChain` shape
+/// accepted by [`pp_protolens_from_json`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_chain_to_json(chain: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -643,8 +682,10 @@ pub fn pp_protolens_from_json(json: c_slice::Ref<'_, u8>, out_handle: &mut u32) 
 
 /// Fuse a protolens chain into a single composite step.
 ///
-/// `chain` is a protolens chain handle. On success, `out_handle`
-/// receives a fresh
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+/// A compiled document contributes only its compatibility-chain projection,
+/// so the result does not retain ordered stage boundaries or value transforms.
+/// On success, `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
 /// the fused step. Calls `ProtolensChain::fuse`.
 #[must_use = "FFI status codes should not be discarded"]
@@ -727,13 +768,18 @@ pub fn pp_lens_symmetric_sync(
     })
 }
 
-/// Compile a lens DSL document into a protolens chain.
+/// Compile a lens DSL document into a chain-compatible document handle.
 ///
 /// `source` is UTF-8 DSL source; `format` is the UTF-8 format name
 /// (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
 /// field-level steps. On success, `out_handle` receives a fresh
-/// chain-compatible compiled-document handle. Calls
+/// [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
 /// `panproto_core::lens_dsl::{eval, compile}`.
+/// This directional entry point rejects a `symmetric` body; use
+/// [`pp_lens_symmetric_from_schemas`] and [`pp_lens_symmetric_sync`] for the
+/// symmetric boundary. An accepted handle retains the directional document's
+/// ordered structural and value-transform stages. [`pp_protolens_instantiate`]
+/// accepts it only when normalization yields one concrete lens group.
 ///
 /// Nickel (`ncl`) is intentionally unsupported here, matching the WASM
 /// boundary: Nickel evaluation requires a filesystem for its contract
@@ -768,7 +814,7 @@ pub fn pp_lens_compile_document(
         let compiled = panproto_core::lens_dsl::compile(&doc, body, &|_| None)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
+        *out_handle = alloc_directional_compiled_lens(compiled)?;
         Ok(PpStatus::Ok)
     })
 }
@@ -781,8 +827,12 @@ pub fn pp_lens_compile_document(
 /// `map<string, string>` from each referenced lens `id` to its document
 /// source (in the same `format`); a `compose` body's `ref` entries are
 /// resolved against this map. On success, `out_handle` receives a fresh
-/// chain-compatible compiled-document handle. Calls
+/// [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
 /// `panproto_core::lens_dsl::compile_with_refs`.
+/// This is the same directional boundary as [`pp_lens_compile_document`]: a
+/// root document with a `symmetric` body is rejected before allocation. A
+/// directed `compose` body is also rejected if any referenced document is
+/// symmetric, because selecting one leg would discard the referenced span.
 ///
 /// Nickel (`ncl`) is intentionally unsupported, matching
 /// [`pp_lens_compile_document`].
@@ -828,7 +878,7 @@ pub fn pp_lens_compile_document_with_refs(
         let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body, &docs_by_id)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
+        *out_handle = alloc_directional_compiled_lens(compiled)?;
         Ok(PpStatus::Ok)
     })
 }
@@ -1063,7 +1113,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_document_instantiates_ordered_value_stages() {
+    fn a_compiled_document_with_multiple_groups_is_not_a_single_lens() {
         let schema = ordered_value_schema();
         let schema_h = schema_handle(&schema);
         let doc = br#"{
@@ -1093,36 +1143,17 @@ mod tests {
         let mut lens_h = u32::MAX;
         assert_eq!(
             pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
-            PpStatus::Ok as i32,
+            PpStatus::NotSingleStage as i32,
         );
-
-        let source =
-            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
-                .unwrap();
-        let source_cbor = canonical::encode(&source).unwrap();
-        let mut get_out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(
-            pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), &mut get_out),
-            PpStatus::Ok as i32,
+        let error = crate::error::take_last_error().expect("instantiation error");
+        assert_eq!(error.tag, "not_single_stage");
+        assert!(
+            error.message.contains("lens path has 2 normal-form groups"),
+            "{}",
+            error.message
         );
-        let (view_cbor, _) = split_get_record(&get_out);
-        pp_buf_free(get_out);
-        let view: WInstance = canonical::decode(&view_cbor).unwrap();
-        let target = handle::with_resource(lens_h, |resource| match resource {
-            Resource::MigrationWithSchemas { tgt_schema, .. } => Ok((**tgt_schema).clone()),
-            other => Err(FfiError::TypeMismatch {
-                expected: "MigrationWithSchemas",
-                actual: other.type_name(),
-            }),
-        })
-        .unwrap();
-        let json = panproto_core::inst::to_json(&target, &view);
+        assert_eq!(lens_h, u32::MAX);
 
-        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
-        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
-        assert!(json.get("text").is_none());
-
-        assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
     }
@@ -1350,6 +1381,36 @@ mod tests {
 
         // Bytes that decode in neither shape are still an error.
         assert!(decode_complement_from_host(b"\xa1\x00\x00").is_err());
+    }
+
+    #[test]
+    fn a_host_complement_naming_another_format_is_refused() {
+        use panproto_core::inst::ComplementShape;
+        let schema = SchemaBuilder::new(&crate::api::helpers::default_protocol("test"))
+            .vertex("post", "record", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let the_lens = lens::auto_generate(
+            &schema,
+            &schema,
+            &protocol_for_schema(&schema),
+            &lens::AutoLensConfig::default(),
+        )
+        .unwrap()
+        .lens;
+        let mut envelope = the_lens.identity(ComplementShape::WType);
+        envelope.complement_format = ComplementShape::Graph.current_format();
+        let mut comp = lens::Complement::empty();
+        comp.identity = Some(envelope);
+
+        let bytes = encode_complement_for_host(&comp).unwrap();
+        match decode_complement_from_host(&bytes) {
+            Err(FfiError::Operation(detail)) => {
+                assert!(detail.contains("graph/1"), "{detail}");
+            }
+            other => panic!("a graph-format complement decoded as a tree one: {other:?}"),
+        }
     }
 
     #[test]

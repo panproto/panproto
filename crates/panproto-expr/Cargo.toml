@@ -13,6 +13,7 @@ thiserror = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
+panproto-reference = { workspace = true }
 serde_json = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }

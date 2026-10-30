@@ -1,10 +1,10 @@
 # Translate across protocols
 
-panproto has two different cross-protocol cases. The TypeScript SDK can apply an explicit vertex-and-edge mapping between two protocol-tagged schema handles. It does not construct a shared theory or emit a complete target-language document. The CLI does not expose that limited two-protocol path: each `--protocol` argument selects one protocol for both schemas, and the current CLI resolver accepts only `atproto`.
+panproto distinguishes an explicit SDK map from a general bridge. The TypeScript SDK can apply an explicit vertex-and-edge mapping between two protocol-tagged schema handles. It does not construct a shared theory or emit a complete target-language document. The CLI does not expose that limited two-protocol path: each `--protocol` argument selects one registered protocol for both schemas.
 
 ## Decide whether the task is supported
 
-Use [Convert data between schemas](./convert-data.md) when both schemas use `atproto` and are already stored as panproto schema JSON. For a small explicit map in TypeScript, build both schema handles, map every relevant vertex and edge, and compile the migration as shown in [Cross-protocol translation](../tutorials/cross-protocol-translation.md). `checkExistence` selects the source schema's registered protocol, so that report does not establish validity under both protocols. The result of `liftJson` is target-shaped JSON, not a complete OpenAPI, Protobuf, or other target document.
+Use [Convert data between schemas](./convert-data.md) when both schemas use the same registered protocol and are already stored as panproto schema JSON. For a small explicit map in TypeScript, build both schema handles, map every relevant vertex and edge, and compile the migration as shown in [Cross-protocol translation](../tutorials/cross-protocol-translation.md). `checkExistence` selects the source schema's registered protocol, so that report does not establish validity under both protocols. The result of `liftJson` is target-shaped JSON, not a complete OpenAPI, Protobuf, or other target document.
 
 A general bridge requires repository-level implementation: a shared protocol theory, explicit source and target translations into that theory, and format-specific parsing and emission at the boundaries.
 
@@ -30,8 +30,8 @@ Test the three boundaries separately: source parsing into the shared schema, mig
 
 The following patterns do not provide cross-protocol translation:
 
-- `schema data convert --protocol <name>` accepts one protocol name and loads both schemas under it. The current resolver accepts only `atproto`.
-- `schema lens generate --protocol <name>` likewise resolves one protocol for the entire lens, again only `atproto` in the current CLI.
+- `schema data convert --protocol <name>` accepts one registered protocol name and loads both schemas under it.
+- `schema lens generate --protocol <name>` likewise resolves one registered protocol for the entire lens.
 - `schema theory compile` validates and compiles a theory document but does not add it to the running CLI's built-in protocol lookup.
 
 ## See also

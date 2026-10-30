@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use panproto_schema::{Edge, Schema};
+use panproto_schema::{Edge, Protocol, ScalarKind, Schema, ValueSpec};
 use serde_json::json;
 
 use crate::error::ParseError;
@@ -44,12 +44,20 @@ impl ParseState {
 /// encountered. Property edges guide which JSON fields become child
 /// nodes.
 ///
+/// `protocol` classifies the schema's vertex kinds. A JSON object or
+/// array at a vertex whose kind `protocol` classifies as holding any
+/// value ([`ScalarKind::Any`]) is that node's one value, read whole, as
+/// the protocol's codec reads it; it is not a subtree whose members the
+/// vertex would have to declare. Under [`Protocol::default`], which
+/// classifies no kind, every object and array is structure.
+///
 /// # Errors
 ///
 /// Returns `ParseError` if the JSON structure doesn't match the
 /// schema or contains invalid values.
 pub fn parse_json(
     schema: &Schema,
+    protocol: &Protocol,
     root_vertex: &str,
     json_val: &serde_json::Value,
 ) -> Result<WInstance, ParseError> {
@@ -60,20 +68,39 @@ pub fn parse_json(
     let mut state = ParseState::new();
     let root_id = state.alloc_id();
 
-    walk_json(schema, root_vertex, json_val, root_id, &mut state, "$")?;
+    walk_json(schema, protocol, root_vertex, json_val, root_id, &mut state, "$")?;
 
+    // The root may resolve through a transparent indirection to another
+    // vertex; the schema root is the vertex the root node is anchored to.
+    let schema_root = state.nodes.get(&root_id).map_or_else(
+        || panproto_gat::Name::from(root_vertex),
+        |node| node.anchor.clone(),
+    );
     Ok(WInstance::new(
         state.nodes,
         state.arcs,
         Vec::new(),
         root_id,
-        panproto_gat::Name::from(root_vertex),
+        schema_root,
     ))
+}
+
+/// Whether `vertex` holds one value of any shape under `protocol`: its
+/// kind is a value kind of the protocol, and that kind is
+/// [`ScalarKind::Any`].
+fn holds_any_value(schema: &Schema, protocol: &Protocol, vertex: &str) -> bool {
+    schema.vertex(vertex).is_some_and(|declaration| {
+        protocol
+            .value_kinds
+            .contains_key(declaration.kind.as_str())
+            && ValueSpec::for_vertex(schema, protocol, &declaration.id).kind == ScalarKind::Any
+    })
 }
 
 /// Recursive JSON walker.
 fn walk_json(
     schema: &Schema,
+    protocol: &Protocol,
     vertex_id: &str,
     json_val: &serde_json::Value,
     node_id: u32,
@@ -85,11 +112,22 @@ fn walk_json(
         .ok_or_else(|| ParseError::RootVertexNotFound(vertex_id.to_string()))?;
 
     match json_val {
+        serde_json::Value::Object(_) | serde_json::Value::Array(_)
+            if holds_any_value(
+                schema,
+                protocol,
+                resolve_transparent_indirection(schema, vertex_id),
+            ) =>
+        {
+            let anchor = resolve_transparent_indirection(schema, vertex_id);
+            let node = Node::new(node_id, anchor).with_value(json_to_field_presence(json_val));
+            state.nodes.insert(node_id, node);
+        }
         serde_json::Value::Object(map) => {
-            parse_object(schema, vertex_id, map, node_id, state, path)?;
+            parse_object(schema, protocol, vertex_id, map, node_id, state, path)?;
         }
         serde_json::Value::Array(arr) => {
-            parse_array(schema, vertex_id, arr, node_id, state, path)?;
+            parse_array(schema, protocol, vertex_id, arr, node_id, state, path)?;
         }
         _ => {
             // Leaf value
@@ -147,6 +185,7 @@ fn resolve_transparent_indirection<'a>(schema: &'a Schema, vertex_id: &'a str) -
 /// Parse a JSON object into a node with children.
 fn parse_object(
     schema: &Schema,
+    protocol: &Protocol,
     vertex_id: &str,
     map: &serde_json::Map<String, serde_json::Value>,
     node_id: u32,
@@ -178,7 +217,15 @@ fn parse_object(
         if let Some(field_val) = map.get(field_name) {
             let child_id = state.alloc_id();
             let child_path = format!("{path}.{field_name}");
-            walk_json(schema, &edge.tgt, field_val, child_id, state, &child_path)?;
+            walk_json(
+                schema,
+                protocol,
+                &edge.tgt,
+                field_val,
+                child_id,
+                state,
+                &child_path,
+            )?;
             state.arcs.push((node_id, child_id, edge.clone()));
         }
     }
@@ -207,13 +254,16 @@ fn parse_object(
 /// "element", etc.).
 fn parse_array(
     schema: &Schema,
+    protocol: &Protocol,
     vertex_id: &str,
     arr: &[serde_json::Value],
     node_id: u32,
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    let node = Node::new(node_id, vertex_id);
+    // A JSON array is a list node, as the JSON codec reads it, so the
+    // shape survives an empty or one-item array.
+    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
     state.nodes.insert(node_id, node);
 
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
@@ -227,7 +277,15 @@ fn parse_array(
         for (i, item) in arr.iter().enumerate() {
             let child_id = state.alloc_id();
             let child_path = format!("{path}[{i}]");
-            walk_json(schema, &edge.tgt, item, child_id, state, &child_path)?;
+            walk_json(
+                schema,
+                protocol,
+                &edge.tgt,
+                item,
+                child_id,
+                state,
+                &child_path,
+            )?;
             state.arcs.push((node_id, child_id, edge.clone()));
         }
     }
@@ -419,6 +477,13 @@ fn value_to_json(val: &Value) -> serde_json::Value {
         // chase; render it with its identity so it stays distinguishable
         // from a concrete null.
         Value::LabeledNull(id) => json!({ "$labeledNull": id }),
+        // A JSON number in `serde_json::Value` is an `i64`, `u64` or
+        // `f64`, which cannot hold every exact value, so the exact values
+        // are written as their lexical form: the decimal with its scale,
+        // the integer's digits, the date or time in RFC 3339.
+        Value::Decimal(d) => json!(d.to_string()),
+        Value::BigInt(b) => json!(b.to_string()),
+        Value::Temporal(t) => json!(t.to_string()),
     }
 }
 
@@ -584,6 +649,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -595,7 +661,7 @@ mod tests {
             "createdAt": "2024-01-01T00:00:00Z"
         });
 
-        let result = parse_json(&schema, "post:body", &json_val);
+        let result = parse_json(&schema, &Protocol::default(), "post:body", &json_val);
         assert!(result.is_ok(), "parse failed: {result:?}");
 
         let inst = result.unwrap_or_else(|_| {
@@ -619,7 +685,7 @@ mod tests {
             "createdAt": "2024-01-01T00:00:00Z"
         });
 
-        let inst = parse_json(&schema, "post:body", &json_val);
+        let inst = parse_json(&schema, &Protocol::default(), "post:body", &json_val);
         assert!(inst.is_ok());
         let inst = inst.unwrap_or_else(|_| {
             WInstance::new(
@@ -641,7 +707,7 @@ mod tests {
     fn parse_json_missing_root_vertex() {
         let schema = test_schema();
         let json_val = json!({"text": "hello"});
-        let result = parse_json(&schema, "nonexistent", &json_val);
+        let result = parse_json(&schema, &Protocol::default(), "nonexistent", &json_val);
         assert!(result.is_err());
     }
 
@@ -657,7 +723,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("root", "object", None::<&str>)
@@ -674,7 +740,7 @@ mod tests {
             .unwrap();
 
         let json_val = json!({"tags": ["alpha", "beta", "gamma"]});
-        let inst = parse_json(&schema, "root", &json_val).unwrap();
+        let inst = parse_json(&schema, &Protocol::default(), "root", &json_val).unwrap();
 
         let output = to_json(&schema, &inst);
         assert!(output["tags"].is_array());
@@ -700,7 +766,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), list_vertex_kind.into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("root", "object", None::<&str>)
@@ -727,7 +793,7 @@ mod tests {
         for kind in ["sequence", "list", "bag", "ordered-multi"] {
             let schema = list_schema_with_kind(kind);
             let input = json!({"items": ["alpha", "beta"]});
-            let inst = parse_json(&schema, "root", &input).unwrap();
+            let inst = parse_json(&schema, &Protocol::default(), "root", &input).unwrap();
             let output = to_json(&schema, &inst);
             assert!(
                 output["items"].is_array(),
@@ -769,7 +835,7 @@ mod tests {
         // renders as `{}`.
         let schema = list_schema_with_kind("collection");
         let input = json!({"items": []});
-        let inst = parse_json(&schema, "root", &input).unwrap();
+        let inst = parse_json(&schema, &Protocol::default(), "root", &input).unwrap();
         let output = to_json(&schema, &inst);
         assert_eq!(output["items"], json!([]));
     }
@@ -803,6 +869,22 @@ mod tests {
         ]);
         let j = value_to_json(&v);
         assert_eq!(j, json!([1, "two", true, null]));
+    }
+
+    #[test]
+    fn value_to_json_writes_exact_values_as_their_lexical_form() {
+        use crate::value::{BigIntValue, DecimalValue, Temporal};
+        let decimal = Value::Decimal(DecimalValue::parse("1.50").unwrap());
+        let big = Value::integer(BigIntValue::parse("18446744073709551615").unwrap());
+        let when = Value::Temporal(Temporal::parse("2026-09-28T12:34:56.789+05:30").unwrap());
+        assert_eq!(
+            value_to_json(&Value::List(vec![decimal, big, when])),
+            json!([
+                "1.50",
+                "18446744073709551615",
+                "2026-09-28T12:34:56.789+05:30"
+            ])
+        );
     }
 
     #[test]
@@ -843,7 +925,7 @@ mod tests {
             "tags": ["panproto", "atproto", "schemas"]
         });
 
-        let inst = parse_json(&schema, "post:body", &input).unwrap();
+        let inst = parse_json(&schema, &Protocol::default(), "post:body", &input).unwrap();
         let output = to_json(&schema, &inst);
 
         // Schema-anchored fields survive as usual.
@@ -884,7 +966,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "field".into(), "long".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("event", "record", Some("Event"))
@@ -903,7 +985,7 @@ mod tests {
             .unwrap();
 
         let input = json!({"tick": 480});
-        let inst = parse_json(&schema, "event", &input).unwrap();
+        let inst = parse_json(&schema, &Protocol::default(), "event", &input).unwrap();
 
         // The data is preserved on the parse side as an extra_field on
         // the root: there is no schema edge named "tick", so the parser

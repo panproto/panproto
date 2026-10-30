@@ -21,7 +21,7 @@ use crate::theories;
 /// Returns the `AsyncAPI` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "asyncapi".into(),
         schema_theory: "ThAsyncAPISchema".into(),
         instance_theory: "ThAsyncAPIInstance".into(),
@@ -50,8 +50,10 @@ pub fn protocol() -> Protocol {
         has_recursion: true,
         has_causal: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `AsyncAPI` with a theory registry.
@@ -71,6 +73,8 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 ///
 /// Returns [`ProtocolError`] if parsing or schema construction fails.
 pub fn parse_asyncapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut counter: usize = 0;

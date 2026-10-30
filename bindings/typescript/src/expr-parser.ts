@@ -8,7 +8,19 @@
  * @module
  */
 
-import type { WasmModule, Expr, Literal, Pattern } from './types.js';
+import type {
+  WasmModule,
+  ExactCivilDate,
+  ExactCivilTime,
+  ExactDateFields,
+  ExactDecimalValue,
+  ExactOffset,
+  ExactTemporal,
+  ExactTimeFields,
+  Expr,
+  Literal,
+  Pattern,
+} from './types.js';
 import { WasmError } from './types.js';
 import { packToWasmWithBigInt, unpackFromWasmWithBigInt } from './msgpack.js';
 import { exprFromWire, exprToWire, literalFromWire, literalToWire } from './expr-wire.js';
@@ -187,9 +199,168 @@ function literalToString(lit: Literal): string {
       const items = lit.items.map(literalToString).join(', ');
       return `[${items}]`;
     }
+    case 'decimal':
+      return `(parse_decimal ${JSON.stringify(decimalToString(lit.value))})`;
+    case 'bigint':
+      return `${lit.value.negative ? '-' : ''}${lit.value.significand}${'0'.repeat(Number(BigInt(lit.value.zeros)))}`;
+    case 'temporal':
+      return JSON.stringify(temporalToString(lit.value));
     case 'closure':
       return `<closure \\${lit.param} -> ${exprToString(lit.body)}>`;
   }
+}
+
+function decimalToString(value: ExactDecimalValue): string {
+  const sign = value.negative ? '-' : '';
+  if (value.class === 'infinite') {
+    return `${sign}Infinity`;
+  }
+  if (typeof value.class === 'object') {
+    const nan = value.class.na_n;
+    return `${sign}${nan.signalling ? 's' : ''}NaN${nan.payload === '0' ? '' : nan.payload}`;
+  }
+
+  const exponent = BigInt(value.exponent);
+  const floor = -(BigInt(value.digits.length) + 6n);
+  if (exponent > 0n || exponent < floor) {
+    return `${sign}${value.digits}e${value.exponent}`;
+  }
+  const scale = Number(-exponent);
+  if (scale === 0) {
+    return `${sign}${value.digits}`;
+  }
+  if (scale >= value.digits.length) {
+    return `${sign}0.${'0'.repeat(scale - value.digits.length)}${value.digits}`;
+  }
+  const split = value.digits.length - scale;
+  return `${sign}${value.digits.slice(0, split)}.${value.digits.slice(split)}`;
+}
+
+function temporalToString(value: ExactTemporal): string {
+  if ('date' in value) {
+    return civilDateToString(value.date);
+  }
+  if ('time' in value) {
+    return `${civilTimeToString(value.time[0])}${offsetToString(value.time[1])}`;
+  }
+  if ('date_time' in value) {
+    const [date, time, offset, separator] = value.date_time;
+    return `${civilDateToString(date)}${separatorText(separator)}${civilTimeToString(time)}${offsetToString(offset)}`;
+  }
+  const extended = value.extended;
+  if (extended.infinity !== null) {
+    return extended.infinity[0] === 'negative' ? '-infinity' : 'infinity';
+  }
+  return `${extended.date === null ? '' : dateFieldsToString(extended.date)}${extended.separator === null ? '' : separatorText(extended.separator)}${extended.time === null ? '' : timeFieldsToString(extended.time)}${offsetToString(extended.offset)}`;
+}
+
+function civilDateToString(date: ExactCivilDate): string {
+  const year = BigInt(date.year);
+  const sign = year < 0n ? '-' : '';
+  return `${sign}${absBigInt(year).toString().padStart(4, '0')}-${twoDigits(date.month)}-${twoDigits(date.day)}`;
+}
+
+function civilTimeToString(time: ExactCivilTime): string {
+  return `${twoDigits(time.hour)}:${twoDigits(time.minute)}:${twoDigits(time.second)}${time.fraction === '' ? '' : `.${time.fraction}`}`;
+}
+
+function dateFieldsToString(date: ExactDateFields): string {
+  if (date.year !== null) {
+    const year = BigInt(date.year.value);
+    const sign = year < 0n || date.year.negative_zero ? '-' : '';
+    const width = Number(date.year.width);
+    const head = `${sign}${absBigInt(year).toString().padStart(width, '0')}`;
+    const month = date.month === null ? '' : `-${twoDigits(date.month)}`;
+    const day = date.day === null ? '' : `-${twoDigits(date.day)}`;
+    return `${head}${month}${day}`;
+  }
+  if (date.month !== null && date.day !== null) {
+    return `--${twoDigits(date.month)}-${twoDigits(date.day)}`;
+  }
+  if (date.month !== null) {
+    return `--${twoDigits(date.month)}`;
+  }
+  return date.day === null ? '' : `---${twoDigits(date.day)}`;
+}
+
+function timeFieldsToString(time: ExactTimeFields): string {
+  const fraction = time.fraction === '' ? '' : `.${time.fraction}`;
+  if (time.hour !== null && time.minute === null) {
+    return twoDigits(time.hour);
+  }
+  if (time.hour !== null && time.minute !== null && time.second === null) {
+    return `${twoDigits(time.hour)}:${twoDigits(time.minute)}`;
+  }
+  if (time.hour !== null && time.minute !== null && time.second !== null) {
+    return `${twoDigits(time.hour)}:${twoDigits(time.minute)}:${twoDigits(time.second)}${fraction}`;
+  }
+  if (time.hour === null && time.minute !== null && time.second !== null) {
+    return `-${twoDigits(time.minute)}:${twoDigits(time.second)}${fraction}`;
+  }
+  if (time.hour === null && time.minute !== null) {
+    return `-${twoDigits(time.minute)}`;
+  }
+  return time.second === null ? '' : `--${twoDigits(time.second)}${fraction}`;
+}
+
+function offsetToString(offset: ExactOffset): string {
+  if (offset === 'local') {
+    return '';
+  }
+  if (offset === 'neg_zero') {
+    return '-00:00';
+  }
+  if ('zulu' in offset) {
+    return offset.zulu === 'upper' ? 'Z' : offset.zulu === 'lower' ? 'z' : '';
+  }
+  if ('fixed' in offset) {
+    return numericOffset(offset.fixed, 'extended');
+  }
+  if ('fixed_form' in offset) {
+    return numericOffset(offset.fixed_form[0], offset.fixed_form[1]);
+  }
+  if ('neg_zero_form' in offset) {
+    return numericOffset(-0, offset.neg_zero_form, '-');
+  }
+  const sign = offset.fixed_seconds < 0 ? '-' : '+';
+  const seconds = Math.abs(offset.fixed_seconds);
+  return `${sign}${twoDigits(Math.floor(seconds / 3600))}:${twoDigits(Math.floor(seconds % 3600 / 60))}:${twoDigits(seconds % 60)}`;
+}
+
+function numericOffset(
+  minutes: number,
+  form: 'extended' | 'basic' | 'hour_only' | 'extended_seconds' | 'unwritten',
+  forcedSign?: '-' | '+',
+): string {
+  if (form === 'unwritten') {
+    return '';
+  }
+  const sign = forcedSign ?? (minutes < 0 ? '-' : '+');
+  const magnitude = Math.abs(minutes);
+  const hour = twoDigits(Math.floor(magnitude / 60));
+  const minute = twoDigits(magnitude % 60);
+  switch (form) {
+    case 'extended':
+      return `${sign}${hour}:${minute}`;
+    case 'basic':
+      return `${sign}${hour}${minute}`;
+    case 'hour_only':
+      return `${sign}${hour}`;
+    case 'extended_seconds':
+      return `${sign}${hour}:${minute}:00`;
+  }
+}
+
+function separatorText(separator: 'upper' | 'lower' | 'space'): string {
+  return separator === 'upper' ? 'T' : separator === 'lower' ? 't' : ' ';
+}
+
+function twoDigits(value: number): string {
+  return value.toString().padStart(2, '0');
+}
+
+function absBigInt(value: bigint): bigint {
+  return value < 0n ? -value : value;
 }
 
 /**

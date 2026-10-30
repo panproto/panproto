@@ -378,7 +378,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let s = SchemaBuilder::new(&proto)
             .vertex("alpha_beta_gamma", "string", None::<&str>)
@@ -404,7 +404,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let build = |order: &[&str]| {
             let mut b = SchemaBuilder::new(&proto);
@@ -437,7 +437,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         // Smallest legal schema is one vertex; token_anchors returns empty
         // when there is no opposite-side match.
@@ -464,7 +464,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let build = |names: &[&str]| {
             let mut b = SchemaBuilder::new(&proto);
@@ -634,7 +634,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         // Identical names across sides would yield score 1.0; the
         // strict `< 1.0` filter drops them. Near-identical names score

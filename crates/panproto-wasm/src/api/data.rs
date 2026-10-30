@@ -12,7 +12,9 @@ use wasm_bindgen::prelude::*;
 use crate::error::WasmError;
 use crate::slab::{self, Resource};
 
-use super::helpers::{default_protocol, infer_root_vertex, lookup_builtin_protocol};
+use super::helpers::{
+    decode_complements, default_protocol, infer_root_vertex, lookup_builtin_protocol,
+};
 
 // ---------------------------------------------------------------------------
 // Phase 7: Data versioning operations
@@ -49,7 +51,7 @@ pub fn store_dataset(schema_handle: u32, data_json: &[u8]) -> Result<u32, JsErro
     let mut instances = Vec::new();
     for record in &records {
         let instance =
-            inst::parse_json(&schema, &root, record).map_err(|e| WasmError::ParseFailed {
+            inst::parse_json(&schema, &super::helpers::protocol_of(&schema), &root, record).map_err(|e| WasmError::ParseFailed {
                 reason: format!("parse instance: {e}"),
             })?;
         instances.push(instance);
@@ -287,10 +289,7 @@ fn migrate_dataset_backward_inner(
             reason: format!("deserialize data: {e}"),
         })?;
 
-    let complements: Vec<lens::Complement> =
-        rmp_serde::from_slice(complement_bytes).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("deserialize complement: {e}"),
-        })?;
+    let complements = decode_complements(complement_bytes, "deserialize complement")?;
 
     let config = lens::AutoLensConfig::default();
     let result = lens::auto_generate(&src, &tgt, &protocol, &config).map_err(|e| {
@@ -415,10 +414,7 @@ pub fn get_protocol_definition(handle: u32) -> Result<Vec<u8>, JsError> {
 #[wasm_bindgen]
 pub fn get_migration_complement(complement_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
     // Validate the bytes are valid msgpack by round-tripping
-    let complements: Vec<lens::Complement> =
-        rmp_serde::from_slice(complement_bytes).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let complements = decode_complements(complement_bytes, "complement")?;
 
     rmp_serde::to_vec_named(&complements).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
@@ -487,6 +483,41 @@ mod tests {
         free_handle(comp_h);
         free_handle(src_h);
         free_handle(tgt_h);
+    }
+
+    /// A complement list with a byte left over after it is not the list
+    /// the forward migration stored, and must be refused rather than
+    /// decoded up to the padding.
+    #[test]
+    fn migrate_backward_refuses_a_padded_complement_list() {
+        let src_h = test_support::schema_handle(&test_support::source_schema());
+        let tgt_h = test_support::schema_handle(&test_support::target_schema());
+        let records = serde_json::json!([{"text": "a", "subtitle": "one"}]);
+        let data_h = store_dataset(src_h, &serde_json::to_vec(&records).unwrap()).unwrap();
+
+        let forward = migrate_dataset_forward_inner(data_h, src_h, tgt_h).unwrap();
+        let handles: serde_json::Value = rmp_serde::from_slice(&forward).unwrap();
+        let migrated_h = u32::try_from(handles["data_handle"].as_u64().unwrap()).unwrap();
+        let comp_h = u32::try_from(handles["complement_handle"].as_u64().unwrap()).unwrap();
+        let comp_bytes = slab::try_get(comp_h, |r| Ok(slab::as_dataset(r)?.data.clone())).unwrap();
+
+        let restored =
+            migrate_dataset_backward_inner(migrated_h, &comp_bytes, src_h, tgt_h).unwrap();
+        free_handle(restored);
+
+        let mut padded = comp_bytes;
+        padded.push(0);
+        match migrate_dataset_backward_inner(migrated_h, &padded, src_h, tgt_h) {
+            Err(err) => {
+                let message = err.to_string();
+                assert!(message.contains("trailing byte"), "{message}");
+            }
+            Ok(handle) => panic!("a padded complement list restored into handle {handle}"),
+        }
+
+        for h in [data_h, migrated_h, comp_h, src_h, tgt_h] {
+            free_handle(h);
+        }
     }
 
     #[test]

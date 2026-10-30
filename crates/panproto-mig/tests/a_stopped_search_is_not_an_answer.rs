@@ -102,7 +102,7 @@ fn protocol() -> Protocol {
         }],
         obj_kinds: vec!["object".to_owned()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

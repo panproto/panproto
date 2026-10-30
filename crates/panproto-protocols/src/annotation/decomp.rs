@@ -115,7 +115,7 @@ const WORDSENSE_PROPERTIES: &[&str] = &[
 /// Returns the Decomp/UDS protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "decomp".into(),
         schema_theory: "ThDecompSchema".into(),
         instance_theory: "ThDecompInstance".into(),
@@ -156,8 +156,10 @@ pub fn protocol() -> Protocol {
             "property".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Decomp/UDS with a theory registry.
@@ -220,6 +222,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the JSON structure cannot be parsed.
 pub fn parse_decomp(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     // Track vertex IDs so helper functions can check token existence before linking.

@@ -18,7 +18,7 @@ fn open_schema() -> Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -63,7 +63,7 @@ fn nested_array_cst(levels: usize) -> Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
 
     let mut builder = SchemaBuilder::new(&proto)

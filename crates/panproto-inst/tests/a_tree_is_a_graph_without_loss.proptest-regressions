@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 831d2d4b77f6b68f5f42c3d26a62d8ca8ca0a467a3ed69b6add05ad246d5acb0 # shrinks to tree = WInstance { nodes: {0: Node { id: 0, anchor: Name("para"), value: None, discriminator: None, extra_fields: {}, position: None, shape: Plain, annotations: {} }}, arcs: [], fans: [], root: 0, schema_root: Name("doc"), parent_map: {}, children_map: {} }
+cc 7ca33dc4982f69bc7de21b3db9584f6061d00aaa65a1ec32bad5cd0a924f4f2c # shrinks to tree = WInstance { nodes: {0: Node { id: 0, anchor: Name("doc"), value: None, discriminator: None, extra_fields: {}, position: None, shape: Plain, annotations: {} }}, arcs: [], fans: [], root: 0, schema_root: Name("doc"), parent_map: {}, children_map: {} }, hyper = true, out_arcs = [(0, true, None)]

@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use crate::exact::{BigIntValue, DecimalValue, ExactInteger, Temporal};
+
 /// A literal value in the expression language.
 ///
 /// This is the result type of expression evaluation and the leaf node
@@ -45,6 +47,13 @@ pub enum Literal {
         /// however wide the scope it closes over is.
         env: crate::Env,
     },
+    /// An exact decimal number, keeping its written scale.
+    Decimal(DecimalValue),
+    /// An integer outside the range of `i64`; an integer inside it is
+    /// always [`Literal::Int`].
+    BigInt(BigIntValue),
+    /// A date, time of day, or date-time.
+    Temporal(Temporal),
 }
 
 impl Literal {
@@ -61,6 +70,19 @@ impl Literal {
             Self::Record(_) => "record",
             Self::List(_) => "list",
             Self::Closure { .. } => "function",
+            Self::Decimal(_) => "decimal",
+            Self::BigInt(_) => "bigint",
+            Self::Temporal(_) => "temporal",
+        }
+    }
+
+    /// The literal of an exact integer: [`Literal::Int`] when it fits
+    /// `i64`, else [`Literal::BigInt`].
+    #[must_use]
+    pub fn integer(value: ExactInteger) -> Self {
+        match value {
+            ExactInteger::Int(n) => Self::Int(n),
+            ExactInteger::Big(b) => Self::BigInt(b),
         }
     }
 
@@ -159,6 +181,9 @@ impl PartialEq for Literal {
                     env: e2,
                 },
             ) => p1 == p2 && b1 == b2 && e1 == e2,
+            (Self::Decimal(a), Self::Decimal(b)) => a == b,
+            (Self::BigInt(a), Self::BigInt(b)) => a == b,
+            (Self::Temporal(a), Self::Temporal(b)) => a == b,
             _ => false,
         }
     }
@@ -183,6 +208,9 @@ impl std::hash::Hash for Literal {
                 body.hash(state);
                 env.hash(state);
             }
+            Self::Decimal(d) => d.hash(state),
+            Self::BigInt(b) => b.hash(state),
+            Self::Temporal(t) => t.hash(state),
         }
     }
 }
@@ -217,6 +245,9 @@ impl std::fmt::Display for Literal {
                 write!(f, "]")
             }
             Self::Closure { param, .. } => write!(f, "<closure λ{param}>"),
+            Self::Decimal(d) => write!(f, "{d}"),
+            Self::BigInt(b) => write!(f, "{b}"),
+            Self::Temporal(t) => write!(f, "{t}"),
         }
     }
 }

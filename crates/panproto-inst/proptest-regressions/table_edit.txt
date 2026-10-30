@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 08ede38296fc3a1fd26a5b1809133110621dea845ba57cb033269079257443a2 # shrinks to from_empty = false, intents = [Update(0, Some(List([Float(NaN)])))]

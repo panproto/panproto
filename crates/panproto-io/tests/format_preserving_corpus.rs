@@ -24,7 +24,7 @@ fn open_schema(protocol_name: &str) -> panproto_schema::Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -238,7 +238,7 @@ fn tabular_schema() -> panproto_schema::Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("rows", "object", None)
@@ -289,11 +289,10 @@ fn tabular_edit_rewrites_one_cell() {
     let schema = tabular_schema();
     let input = b"name,age\nAlice,30\nBob,25\n";
     let (mut instance, complement) = codec.parse_functor_preserving(&schema, input).unwrap();
-    for rows in instance.tables.values_mut() {
-        for row in rows.iter_mut() {
-            if row.get("name") == Some(&Value::Str("Alice".into())) {
-                row.insert("age".into(), Value::Str("99".into()));
-            }
+    for id in instance.row_ids() {
+        let row = instance.row_mut(id).expect("the row exists");
+        if row.get("name") == Some(&Value::Str("Alice".into())) {
+            row.insert("age".into(), Value::Str("99".into()));
         }
     }
     let emitted = codec

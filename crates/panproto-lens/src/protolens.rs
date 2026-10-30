@@ -50,8 +50,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use panproto_gat::{Name, Operation, Sort, Theory, TheoryEndofunctor, TheoryTransform};
-use panproto_inst::CompiledMigration;
 use panproto_inst::value::Value;
+use panproto_inst::{CompiledMigration, RestrictPlan};
 use panproto_schema::{Edge, Protocol, Schema, Vertex};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -192,22 +192,54 @@ pub struct Protolens {
 impl Protolens {
     /// Check if this protolens can be instantiated at the given schema.
     ///
-    /// A protolens applies when the source endofunctor's precondition
-    /// is satisfied by the schema's implicit theory (vertex kinds as
-    /// sorts, edge kinds as operations).
+    /// A protolens applies when its [`Self::schema_precondition`] holds
+    /// at the schema.
     #[must_use]
     pub fn applicable_to(&self, schema: &Schema) -> bool {
         self.check_applicability(schema).is_ok()
+    }
+
+    /// The source precondition read at the schema level, on exactly the
+    /// schema objects the target transform matches.
+    ///
+    /// A theory constraint names sorts, operations and equations; the
+    /// schema's implicit theory takes vertex kinds as sorts and edge kinds as
+    /// operations, and carries no equations. Three schema transforms read a
+    /// name differently, and each precondition atom on that name is read the
+    /// way its transform reads it:
+    ///
+    /// - [`TheoryTransform::DropSort`] removes every vertex whose id or kind
+    ///   is the name, so `HasSort` on that name holds when some vertex has
+    ///   that id or that kind;
+    /// - [`TheoryTransform::ScopedTransform`] scopes to the vertex whose id
+    ///   is its focus, so `HasSort` on the focus holds when that vertex
+    ///   exists;
+    /// - [`TheoryTransform::DropEquation`] and
+    ///   [`TheoryTransform::DropDirectedEquation`] are the identity on every
+    ///   schema, so `HasEquation` and `HasDirectedEq` on their names hold at
+    ///   every schema.
+    ///
+    /// Every other atom keeps the reading of
+    /// [`SchemaConstraint::from_theory_constraint`]. Thus the precondition
+    /// admits a schema exactly when the transform has an object to act on,
+    /// or is total there.
+    #[must_use]
+    pub fn schema_precondition(&self) -> SchemaConstraint {
+        let mut reads = TransformReads::default();
+        reads.collect(&self.target.transform);
+        reads.refine(SchemaConstraint::from_theory_constraint(
+            &self.source.precondition,
+        ))
     }
 
     /// Check applicability with failure reasons.
     ///
     /// # Errors
     ///
-    /// Returns a list of human-readable reasons why the precondition
-    /// is not satisfied.
+    /// Returns a list of human-readable reasons why
+    /// [`Self::schema_precondition`] is not satisfied.
     pub fn check_applicability(&self, schema: &Schema) -> Result<(), Vec<String>> {
-        let constraint = SchemaConstraint::from_theory_constraint(&self.source.precondition);
+        let constraint = self.schema_precondition();
         let reasons = constraint.check(schema);
         if reasons.is_empty() {
             Ok(())
@@ -264,6 +296,32 @@ impl Protolens {
             crate::default_synthesis::constructor_defaults(&self.complement_constructor)?;
         let target_schema = lens.tgt_schema.clone();
         crate::default_synthesis::attach_defaults(&mut lens, &target_schema, &defaults, false)?;
+        Ok(lens)
+    }
+
+    /// Check the source precondition, then instantiate this protolens at
+    /// `schema`.
+    ///
+    /// This is the checked schema-level entry point. It refuses before either
+    /// schema transform is evaluated when the source precondition fails.
+    /// [`Self::instantiate`] remains the transform-elimination primitive for
+    /// callers that have already discharged that precondition.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LensError::ProtolensInapplicable`] when the precondition
+    /// fails, [`LensError::ProtolensError`] when a schema transform cannot be
+    /// evaluated, and [`LensError::Restrict`] when the instantiated migration
+    /// has no executable restrict plan.
+    pub fn instantiate_checked(
+        &self,
+        schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<Lens, LensError> {
+        self.check_applicability(schema)
+            .map_err(|reasons| LensError::ProtolensInapplicable { reasons })?;
+        let lens = self.instantiate(schema, protocol)?;
+        RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
         Ok(lens)
     }
 
@@ -554,6 +612,67 @@ impl SchemaConstraint {
     }
 }
 
+/// The names a schema transform reads other than as theory sorts,
+/// operations or equations, collected through composition.
+#[derive(Default)]
+struct TransformReads {
+    /// Names a [`TheoryTransform::DropSort`] matches by vertex id or kind.
+    id_or_kind: HashSet<Arc<str>>,
+    /// Names a [`TheoryTransform::ScopedTransform`] matches by vertex id.
+    vertex_id: HashSet<Arc<str>>,
+    /// Equation names whose drop is the identity on every schema.
+    schema_free_equations: HashSet<Arc<str>>,
+}
+
+impl TransformReads {
+    fn collect(&mut self, transform: &TheoryTransform) {
+        match transform {
+            TheoryTransform::DropSort(name) => {
+                self.id_or_kind.insert(Arc::clone(name));
+            }
+            TheoryTransform::ScopedTransform { focus, .. } => {
+                self.vertex_id.insert(Arc::clone(focus));
+            }
+            TheoryTransform::DropEquation(name) | TheoryTransform::DropDirectedEquation(name) => {
+                self.schema_free_equations.insert(Arc::clone(name));
+            }
+            TheoryTransform::Compose(first, second) => {
+                self.collect(first);
+                self.collect(second);
+            }
+            _ => {}
+        }
+    }
+
+    fn refine(&self, constraint: SchemaConstraint) -> SchemaConstraint {
+        match constraint {
+            SchemaConstraint::HasVertexKind(name) if self.id_or_kind.contains(name.as_str()) => {
+                SchemaConstraint::Any(vec![
+                    SchemaConstraint::HasVertexKind(name.clone()),
+                    SchemaConstraint::HasVertex(name),
+                ])
+            }
+            SchemaConstraint::HasVertexKind(name) if self.vertex_id.contains(name.as_str()) => {
+                SchemaConstraint::HasVertex(name)
+            }
+            SchemaConstraint::Theory(
+                panproto_gat::TheoryConstraint::HasEquation(name)
+                | panproto_gat::TheoryConstraint::HasDirectedEq(name),
+            ) if self.schema_free_equations.contains(&name) => SchemaConstraint::Unconstrained,
+            SchemaConstraint::All(constraints) => {
+                SchemaConstraint::All(constraints.into_iter().map(|c| self.refine(c)).collect())
+            }
+            SchemaConstraint::Any(constraints) => {
+                SchemaConstraint::Any(constraints.into_iter().map(|c| self.refine(c)).collect())
+            }
+            SchemaConstraint::Not(constraint) => {
+                SchemaConstraint::Not(Box::new(self.refine(*constraint)))
+            }
+            other => other,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Composition
 // ---------------------------------------------------------------------------
@@ -789,14 +908,21 @@ impl ProtolensChain {
     ///
     /// # Errors
     ///
-    /// Returns [`LensError::ProtolensError`] if any step fails or the
-    /// chain is empty (in the multi-step case), or
-    /// [`LensError::CompositionMismatch`] if adjacent steps'
-    /// endofunctors are not composable.
+    /// Returns [`LensError::ProtolensError`] if a step's precondition fails
+    /// at its running schema or a schema transform fails, or
+    /// [`LensError::CompositionMismatch`] if adjacent steps' endofunctors
+    /// are not composable. An empty chain remains the identity lens.
     pub fn instantiate(&self, schema: &Schema, protocol: &Protocol) -> Result<Lens, LensError> {
         if self.steps.is_empty() {
             return Ok(identity_lens(schema));
         }
+        self.check_applicability_with(schema, protocol)
+            .map_err(|reasons| {
+                LensError::ProtolensError(format!(
+                    "chain not applicable at its running schema: {}",
+                    reasons.join("; ")
+                ))
+            })?;
         if self.steps.len() == 1 {
             return self.steps[0].instantiate(schema, protocol);
         }
@@ -821,12 +947,14 @@ impl ProtolensChain {
         &self,
         schema: &Schema,
         protocol: &Protocol,
-    ) -> Result<Lens, LensError> {
+    ) -> Result<crate::LensPath, LensError> {
         if self.steps.is_empty() {
-            return Ok(identity_lens(schema));
+            return Ok(crate::LensPath::identity(schema));
         }
         if self.steps.len() == 1 {
-            return self.steps[0].instantiate(schema, protocol);
+            return self.steps[0]
+                .instantiate(schema, protocol)
+                .map(crate::LensPath::single);
         }
 
         for window in self.steps.windows(2) {
@@ -848,8 +976,9 @@ impl ProtolensChain {
                 first.name,
             )));
         }
-        let mut composed: Lens = first.instantiate(&running_schema, protocol)?;
-        running_schema = composed.tgt_schema.clone();
+        let first_lens = first.instantiate(&running_schema, protocol)?;
+        running_schema = first_lens.tgt_schema.clone();
+        let mut composed = crate::LensPath::single(first_lens);
         for step in steps_iter {
             if !step.applicable_to(&running_schema) {
                 return Err(LensError::ProtolensError(format!(
@@ -859,7 +988,7 @@ impl ProtolensChain {
             }
             let step_lens = step.instantiate(&running_schema, protocol)?;
             running_schema = step_lens.tgt_schema.clone();
-            composed = crate::compose::compose(&composed, &step_lens)?;
+            composed = composed.then(&crate::LensPath::single(step_lens))?;
         }
         Ok(composed)
     }
@@ -1041,9 +1170,10 @@ pub struct FleetResult {
 
 /// Apply a protolens chain to every schema in a fleet.
 ///
-/// For each `(name, schema)` pair, checks applicability. If the chain's
-/// precondition is satisfied, instantiates to produce a lens. Otherwise
-/// collects the schema name and failure reasons in `skipped`.
+/// For each `(name, schema)` pair, checks every step's applicability at
+/// the schema produced by its predecessor. If every precondition is
+/// satisfied, instantiates to produce a lens. Otherwise collects the
+/// schema name and first failing step's reasons in `skipped`.
 #[must_use]
 pub fn apply_to_fleet(
     chain: &ProtolensChain,
@@ -1054,11 +1184,7 @@ pub fn apply_to_fleet(
     let mut skipped = Vec::new();
 
     for (name, schema) in schemas {
-        let check = if chain.steps.is_empty() {
-            Ok(())
-        } else {
-            chain.steps[0].check_applicability(schema)
-        };
+        let check = chain.check_applicability_with(schema, protocol);
 
         match check {
             Err(reasons) => {
@@ -1848,8 +1974,10 @@ pub mod elementary {
     /// This is a fiber-level natural isomorphism in the Grothendieck
     /// fibration: the theory and schema graph structure are unchanged,
     /// only the `name` attribute on the edge between `src_sort` and
-    /// `tgt_sort` is relabeled. Always classified as `Iso` (empty
-    /// complement, bijective relabeling).
+    /// `tgt_sort` is relabeled. The transform is a guarded no-op when the
+    /// named edge is absent or the new label already names a parallel edge
+    /// of the same kind. Thus every effective rewrite is injective and the
+    /// empty-complement `Iso` classification remains honest.
     #[must_use]
     pub fn rename_edge_name(
         src_sort: impl Into<Name>,
@@ -1869,18 +1997,17 @@ pub mod elementary {
             name: Name::from(format!("rename_edge_{old_name}_{new_name}")),
             source: TheoryEndofunctor {
                 name: Arc::from("id"),
-                precondition: TheoryConstraint::All(vec![
-                    TheoryConstraint::HasSort(Arc::clone(&src_arc)),
-                    TheoryConstraint::HasSort(Arc::clone(&tgt_arc)),
-                ]),
+                // `src_sort` and `tgt_sort` are concrete schema vertex ids,
+                // whereas a theory-level `HasSort` ranges over vertex kinds.
+                // The transform is deliberately a no-op when the named edge
+                // is absent, like `drop_edge`, so no theory precondition is
+                // required here.
+                precondition: TheoryConstraint::Unconstrained,
                 transform: TheoryTransform::Identity,
             },
             target: TheoryEndofunctor {
                 name: Arc::from(&*format!("rename_edge_{old_name}_{new_name}")),
-                precondition: TheoryConstraint::All(vec![
-                    TheoryConstraint::HasSort(Arc::clone(&src_arc)),
-                    TheoryConstraint::HasSort(Arc::clone(&tgt_arc)),
-                ]),
+                precondition: TheoryConstraint::Unconstrained,
                 transform: TheoryTransform::RenameEdgeName {
                     src_sort: src_arc,
                     tgt_sort: tgt_arc,
@@ -2314,17 +2441,26 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
         final_surviving.insert(src_id.clone());
     }
 
-    // Build resolver for edges between surviving vertices in target
-    let mut resolver = HashMap::new();
+    // A generated endpoint resolver may repeat a unique target edge, but it
+    // must not choose one of several parallel edges. Such a choice is
+    // semantic and cannot be recovered from the endpoint pair alone.
+    let mut resolver_candidates: HashMap<(Name, Name), Option<Edge>> = HashMap::new();
     for edge in tgt.edges.keys() {
         let src_in =
             final_surviving.contains(&edge.src) || vertex_remap.values().any(|v| *v == edge.src);
         let tgt_in =
             final_surviving.contains(&edge.tgt) || vertex_remap.values().any(|v| *v == edge.tgt);
         if src_in && tgt_in {
-            resolver.insert((edge.src.clone(), edge.tgt.clone()), edge.clone());
+            resolver_candidates
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .and_modify(|candidate| *candidate = None)
+                .or_insert_with(|| Some(edge.clone()));
         }
     }
+    let resolver = resolver_candidates
+        .into_iter()
+        .filter_map(|(pair, candidate)| candidate.map(|edge| (pair, edge)))
+        .collect();
 
     // Build edge remap: edges that survive under a different name.
     //
@@ -2639,9 +2775,7 @@ fn apply_theory_transform_to_schema(
             tgt_sort,
             old_name,
             new_name,
-        } => Ok(apply_rename_edge_name(
-            schema, src_sort, tgt_sort, old_name, new_name,
-        )),
+        } => apply_rename_edge_name(schema, src_sort, tgt_sort, old_name, new_name),
         TheoryTransform::AddSchemaVertex {
             vertex_id,
             vertex_kind,
@@ -2920,19 +3054,98 @@ fn apply_rename_edge_name(
     tgt_sort: &Arc<str>,
     old_name: &Arc<str>,
     new_name: &Arc<str>,
-) -> Schema {
-    let mut new_edges = HashMap::new();
-    for (edge, kind) in &schema.edges {
-        let mut e = edge.clone();
-        if *e.src == **src_sort && *e.tgt == **tgt_sort && e.name.as_deref() == Some(&**old_name) {
-            e.name = Some(Name::from(&**new_name));
+) -> Result<Schema, LensError> {
+    let mut edge_renames = HashMap::new();
+    for edge in schema.edges.keys() {
+        if *edge.src != **src_sort
+            || *edge.tgt != **tgt_sort
+            || edge.name.as_deref() != Some(&**old_name)
+        {
+            continue;
         }
-        new_edges.insert(e, kind.clone());
+        let mut renamed = edge.clone();
+        renamed.name = Some(Name::from(&**new_name));
+        if renamed != *edge && !schema.edges.contains_key(&renamed) {
+            edge_renames.insert(edge.clone(), renamed);
+        }
     }
+    if edge_renames.is_empty() {
+        return Ok(schema.clone());
+    }
+
     let mut new_schema = schema.clone();
-    new_schema.edges = new_edges;
+    new_schema.edges = schema
+        .edges
+        .iter()
+        .map(|(edge, kind)| {
+            (
+                edge_renames
+                    .get(edge)
+                    .cloned()
+                    .unwrap_or_else(|| edge.clone()),
+                kind.clone(),
+            )
+        })
+        .collect();
+    for required in new_schema.required.values_mut() {
+        for edge in required {
+            if let Some(renamed) = edge_renames.get(edge) {
+                edge.clone_from(renamed);
+            }
+        }
+    }
+    new_schema.orderings = schema
+        .orderings
+        .iter()
+        .map(|(edge, position)| {
+            (
+                edge_renames
+                    .get(edge)
+                    .cloned()
+                    .unwrap_or_else(|| edge.clone()),
+                *position,
+            )
+        })
+        .collect();
+    new_schema.usage_modes = schema
+        .usage_modes
+        .iter()
+        .map(|(edge, mode)| {
+            (
+                edge_renames
+                    .get(edge)
+                    .cloned()
+                    .unwrap_or_else(|| edge.clone()),
+                mode.clone(),
+            )
+        })
+        .collect();
+    let (declarations, report) = schema
+        .declarations
+        .map_through(
+            |vertex| Some(vertex.clone()),
+            |edge| {
+                Some(
+                    edge_renames
+                        .get(edge)
+                        .cloned()
+                        .unwrap_or_else(|| edge.clone()),
+                )
+            },
+        )
+        .map_err(|error| {
+            LensError::ProtolensError(format!(
+                "cannot carry key/reference declarations through an edge rename: {error}"
+            ))
+        })?;
+    if !report.is_empty() {
+        return Err(LensError::ProtolensError(format!(
+            "an injective edge rename unexpectedly dropped declarations: {report:?}"
+        )));
+    }
+    new_schema.declarations = declarations;
     rebuild_adjacency(&mut new_schema);
-    new_schema
+    Ok(new_schema)
 }
 
 /// Interpret an Op addition as an edge addition: the op's first input
@@ -2990,28 +3203,9 @@ fn apply_merge_sorts_to_schema(
 }
 
 /// Rebuild `outgoing`, `incoming`, and `between` adjacency indices from
-/// `schema.edges`.
+/// `schema.edges`, in the content order [`rebuild_indices`] fixes.
 fn rebuild_adjacency(schema: &mut Schema) {
-    let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> = HashMap::new();
-    for edge in schema.edges.keys() {
-        outgoing
-            .entry(edge.src.clone())
-            .or_default()
-            .push(edge.clone());
-        incoming
-            .entry(edge.tgt.clone())
-            .or_default()
-            .push(edge.clone());
-        between
-            .entry((edge.src.clone(), edge.tgt.clone()))
-            .or_default()
-            .push(edge.clone());
-    }
-    schema.outgoing = outgoing;
-    schema.incoming = incoming;
-    schema.between = between;
+    rebuild_indices(schema);
 }
 
 /// Rename a sort (vertex kind) within a schema.
@@ -3136,6 +3330,12 @@ fn apply_drop_sort_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
         .map(|(e, k)| (e.clone(), k.clone()))
         .collect();
     new_schema.edges = new_edges;
+    new_schema.hyper_edges.retain(|_, hyper_edge| {
+        !hyper_edge
+            .signature
+            .values()
+            .any(|vertex| to_remove.contains(vertex))
+    });
 
     // Remove coercions where either key references the dropped sort
     new_schema
@@ -3222,6 +3422,9 @@ fn apply_drop_op_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
         .map(|(e, k)| (e.clone(), k.clone()))
         .collect();
     new_schema.edges = new_edges;
+    new_schema
+        .hyper_edges
+        .retain(|_, hyper_edge| *hyper_edge.kind != **name);
     rebuild_indices(&mut new_schema);
     new_schema
 }
@@ -3427,8 +3630,11 @@ fn identity_lens(schema: &Schema) -> Lens {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::collections::HashMap;
+
     use panproto_inst::value::Value;
-    use panproto_schema::Protocol;
+    use panproto_inst::{EdgeId, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, Node, NodeShape};
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
 
     use super::{
         ComplementConstructor, ProtolensChain, combinators, elementary, horizontal_compose,
@@ -3444,7 +3650,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -3463,7 +3669,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         // Build a schema with enough vertices/edges that HashMap
         // iteration order is very likely to diverge from insertion.
@@ -3562,6 +3768,32 @@ mod tests {
     }
 
     #[test]
+    fn chain_instantiate_rejects_a_later_step_at_its_running_schema() {
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![
+            elementary::drop_sort("string"),
+            elementary::rename_sort("string", "text"),
+        ]);
+
+        assert!(
+            chain.check_applicability(&schema).is_ok(),
+            "the cheap first-step check demonstrates the former false positive"
+        );
+        let error = chain
+            .instantiate(&schema, &protocol)
+            .expect_err("the second step requires a sort removed by the first");
+        assert!(
+            matches!(
+                &error,
+                crate::LensError::ProtolensError(detail)
+                    if detail.contains("chain not applicable") && detail.contains("string")
+            ),
+            "the refusal must retain the later step's reason: {error:?}"
+        );
+    }
+
+    #[test]
     fn chain_instantiate_executes_retained_add_field_default() {
         let schema = three_node_schema();
         let instance = three_node_instance();
@@ -3621,6 +3853,25 @@ mod tests {
         assert!(
             reasons.iter().any(|r| r.contains("missing")),
             "failure reasons must name the missing sort: {reasons:?}"
+        );
+    }
+
+    #[test]
+    fn checked_instantiation_refuses_before_a_noop_transform() {
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let protolens = elementary::drop_sort("missing");
+
+        assert!(
+            protolens.instantiate(&schema, &protocol).is_ok(),
+            "the raw transform-elimination primitive remains available to callers that have discharged applicability"
+        );
+        let refusal = protolens
+            .instantiate_checked(&schema, &protocol)
+            .expect_err("the checked entry point must enforce the source precondition");
+        assert!(
+            matches!(&refusal, crate::LensError::ProtolensInapplicable { reasons } if reasons.iter().any(|reason| reason.contains("missing"))),
+            "the refusal must identify the unmet precondition: {refusal:?}"
         );
     }
 
@@ -3929,6 +4180,101 @@ mod tests {
     }
 
     #[test]
+    fn drop_sort_and_drop_op_cascade_dependent_hyperedges() {
+        let protocol = test_protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "object", None::<&str>)
+            .unwrap()
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "leaf", "rel", Some("leaf"))
+            .unwrap()
+            .hyper_edge(
+                "fan",
+                "rel",
+                HashMap::from([
+                    ("parent".to_owned(), "root".to_owned()),
+                    ("child".to_owned(), "leaf".to_owned()),
+                ]),
+                "parent",
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let without_leaf = elementary::drop_sort("string")
+            .target_schema(&schema, &protocol)
+            .unwrap();
+        assert!(!without_leaf.hyper_edges.contains_key("fan"));
+
+        let without_rel = elementary::drop_op("rel")
+            .target_schema(&schema, &protocol)
+            .unwrap();
+        assert!(without_rel.edges.is_empty());
+        assert!(!without_rel.hyper_edges.contains_key("fan"));
+    }
+
+    #[test]
+    fn dropping_a_hyperedge_operation_records_its_reified_graph_residue() {
+        let protocol = test_protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "object", None::<&str>)
+            .unwrap()
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "leaf", "rel", Some("leaf"))
+            .unwrap()
+            .hyper_edge(
+                "fan",
+                "rel",
+                HashMap::from([
+                    ("parent".to_owned(), "root".to_owned()),
+                    ("child".to_owned(), "leaf".to_owned()),
+                ]),
+                "parent",
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        let lens = elementary::drop_op("rel")
+            .instantiate(&schema, &protocol)
+            .unwrap();
+        let parent = Edge {
+            src: "fan".into(),
+            tgt: "root".into(),
+            kind: HYPER_PARENT_KIND.into(),
+            name: Some("parent".into()),
+        };
+        let child = Edge {
+            src: "fan".into(),
+            tgt: "leaf".into(),
+            kind: HYPER_LABEL_KIND.into(),
+            name: Some("child".into()),
+        };
+        let ordinary = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "rel".into(),
+            name: Some("leaf".into()),
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(0, "root"))
+            .with_node(Node::new(1, "leaf"))
+            .with_node(Node::new(2, "fan").with_shape(NodeShape::HyperEdge))
+            .with_edge_id(EdgeId(0), 2, 0, parent)
+            .with_edge_id(EdgeId(1), 2, 1, child)
+            .with_edge_id(EdgeId(2), 0, 1, ordinary);
+
+        let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
+        assert!(view.node(2).is_none());
+        assert!(view.edges().is_empty());
+        assert!(complement.dropped_nodes.contains_key(&2));
+        assert_eq!(complement.dropped_edges.len(), 3);
+        let restored = crate::graph_lens::put(&lens, &view, &complement).unwrap();
+        assert!(GInstance::identical(&source, &restored));
+    }
+
+    #[test]
     fn add_sort_instantiate() {
         let schema = three_node_schema();
         let protocol = test_protocol();
@@ -4088,7 +4434,7 @@ mod tests {
         let result = p.check_applicability(&schema);
         assert!(result.is_err());
         let reasons = result.unwrap_err();
-        assert!(!reasons.is_empty());
+        assert_ne!(reasons, [] as [String; 0]);
         assert!(reasons[0].contains("missing"));
     }
 
@@ -4141,6 +4487,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         (panproto_gat::Name::from(name), schema)
     }
@@ -4179,6 +4526,30 @@ mod tests {
         let result = super::apply_to_fleet(&chain, &schemas, &protocol);
         assert_eq!(result.applied.len(), 2);
         assert_eq!(result.skipped.len(), 1);
+    }
+
+    #[test]
+    fn fleet_skips_a_chain_with_a_later_inapplicable_step() {
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![
+            elementary::drop_sort("string"),
+            elementary::rename_sort("string", "text"),
+        ]);
+        let schemas = vec![make_string_schema("a")];
+
+        let result = super::apply_to_fleet(&chain, &schemas, &protocol);
+
+        assert!(result.applied.is_empty());
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].0, panproto_gat::Name::from("a"));
+        assert!(
+            result.skipped[0]
+                .1
+                .iter()
+                .any(|reason| reason.contains("string")),
+            "the skip reason must identify the later unmet precondition: {:?}",
+            result.skipped[0].1
+        );
     }
 
     #[test]
@@ -4781,6 +5152,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -4807,7 +5179,7 @@ mod tests {
             .expect("hoist chain instantiate");
 
         let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
-        let instance = parse_json(&source, "user", &input).expect("parse input");
+        let instance = parse_json(&source, &protocol, "user", &input).expect("parse input");
 
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
         let restored = asymmetric::put(&lens, &view, &complement).expect("put");
@@ -4839,7 +5211,7 @@ mod tests {
             .expect("hoist chain instantiate");
 
         let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
-        let instance = parse_json(&source, "user", &input).expect("parse input");
+        let instance = parse_json(&source, &protocol, "user", &input).expect("parse input");
 
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
         let restored = asymmetric::put(&lens, &view, &complement).expect("put");
@@ -4910,6 +5282,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         };
 
         let protocol = test_protocol();
@@ -4979,7 +5352,7 @@ mod step_laws {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -5032,6 +5405,7 @@ mod step_laws {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -5330,6 +5704,132 @@ mod step_laws {
                 }
             ),
             "opaque coercion must retain coerced-sort complement data",
+        );
+    }
+}
+
+/// A schema a protolens rewrites is the same schema whatever the hash seed
+/// of the process that rewrote it: its adjacency buckets are part of its
+/// canonical bytes, and so of its identity.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod rewritten_schemas_are_seed_independent {
+    use panproto_schema::{
+        Key, KeyPart, KeyRole, KeyScope, Protocol, Schema, SchemaBuilder, UsageMode,
+        canonical_bytes,
+    };
+
+    fn wide() -> Schema {
+        let protocol = Protocol::default();
+        let mut builder = SchemaBuilder::new(&protocol)
+            .vertex("root", "object", None)
+            .unwrap()
+            .vertex("leaf", "string", None)
+            .unwrap();
+        for i in 0..24 {
+            builder = builder
+                .edge("root", "leaf", "prop", Some(&format!("f{i}")))
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn renaming_an_edge_label_gives_the_same_bytes_in_every_rebuild() {
+        let rewrite = || {
+            canonical_bytes(
+                &super::apply_rename_edge_name(
+                    &wide(),
+                    &"root".into(),
+                    &"leaf".into(),
+                    &"f0".into(),
+                    &"g0".into(),
+                )
+                .expect("an injective rename carries every declaration"),
+            )
+        };
+        let first = rewrite();
+        for round in 0..16 {
+            assert_eq!(rewrite(), first, "round {round} encoded differently");
+        }
+    }
+
+    #[test]
+    fn renaming_to_an_existing_parallel_edge_is_a_guarded_noop() {
+        let schema = wide();
+        let rewritten = super::apply_rename_edge_name(
+            &schema,
+            &"root".into(),
+            &"leaf".into(),
+            &"f0".into(),
+            &"f1".into(),
+        )
+        .expect("a guarded rename is total");
+
+        assert_eq!(canonical_bytes(&rewritten), canonical_bytes(&schema));
+    }
+
+    #[test]
+    fn renaming_an_edge_updates_every_edge_keyed_schema_coordinate() {
+        let mut schema = wide();
+        let old = schema
+            .edges
+            .keys()
+            .find(|edge| edge.name.as_deref() == Some("f0"))
+            .cloned()
+            .expect("wide schema has f0");
+        schema
+            .required
+            .entry("root".into())
+            .or_default()
+            .push(old.clone());
+        schema.orderings.insert(old.clone(), 7);
+        schema.usage_modes.insert(old.clone(), UsageMode::Linear);
+        schema.declarations.insert_key(
+            "root".into(),
+            Key {
+                id: "by-f0".into(),
+                parts: vec![
+                    KeyPart::Path(vec![old.clone()]),
+                    KeyPart::Position {
+                        within: old.clone(),
+                    },
+                ],
+                role: KeyRole::Unique,
+                scope: KeyScope::Document,
+                equality: vec![],
+            },
+        );
+
+        let rewritten = super::apply_rename_edge_name(
+            &schema,
+            &"root".into(),
+            &"leaf".into(),
+            &"f0".into(),
+            &"g0".into(),
+        )
+        .expect("an injective rename carries every declaration");
+        let mut renamed = old.clone();
+        renamed.name = Some("g0".into());
+
+        assert!(!rewritten.edges.contains_key(&old));
+        assert!(rewritten.edges.contains_key(&renamed));
+        assert_eq!(rewritten.required["root"], vec![renamed.clone()]);
+        assert_eq!(rewritten.orderings.get(&renamed), Some(&7));
+        assert_eq!(
+            rewritten.usage_modes.get(&renamed),
+            Some(&UsageMode::Linear)
+        );
+        assert!(!rewritten.orderings.contains_key(&old));
+        assert!(!rewritten.usage_modes.contains_key(&old));
+        assert!(rewritten.outgoing["root"].contains(&renamed));
+        assert!(rewritten.incoming["leaf"].contains(&renamed));
+        assert_eq!(
+            rewritten.declarations.keys["root"][0].parts,
+            vec![
+                KeyPart::Path(vec![renamed.clone()]),
+                KeyPart::Position { within: renamed },
+            ]
         );
     }
 }

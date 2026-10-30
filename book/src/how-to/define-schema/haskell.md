@@ -61,12 +61,12 @@ validate =
         validateSchema schema proto   -- [] means valid
 ```
 
-The `bracket` calls release the slab handles the `Rust` backend hands back, so the engine's thread-local allocations are freed once validation returns. To recover the structured `Schema` from an ingested handle (the round-trip the test suite checks node-for-node), call `toSchema` on the `SchemaRep Rust`.
+The `bracket` calls release the slab handles the `Rust` backend hands back, so its process-global allocations are freed once validation returns. To recover the structured `Schema` from an ingested handle (the round-trip the test suite checks node-for-node), call `toSchema` on the `SchemaRep Rust`.
 
 ## Common mistakes
 
 - Chaining the builder operations as if they returned the schema. `vertex`, `edge`, and `constraint` are `SchemaBuilderM ()` actions sequenced in a `do`-block; `buildSchema` returns the `Schema`, not the individual calls.
-- Holding a `SchemaRep Rust` past its `bracket`. The `Rust` representations are `u32` slab handles into a thread-local arena; use them inside the `bracket` and let `releaseSchema` reclaim them, and do not share a handle across threads.
+- Holding a `SchemaRep Rust` past its `bracket`. The `Rust` representations are single-owner `u32` handles into a process-global slab. The ABI permits access from different OS threads, but the wrapper must remain inside its `bracket`, and only that owner may release it.
 - Using optional lens-adaptor packages to build structure. Schema construction goes through `SchemaBuilderM`.
 
 ## See also

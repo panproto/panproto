@@ -20,27 +20,14 @@ export const PROTOCOL_CATEGORIES: Readonly<Record<string, readonly string[]>> = 
     'iso_space', 'paula', 'laf_graf', 'decomp', 'ucca', 'fovea', 'bead',
     'web_annotation', 'amr', 'concrete', 'nif',
   ],
-  api: ['graphql', 'openapi', 'asyncapi', 'jsonapi', 'raml'],
-  config: ['cloudformation', 'ansible', 'k8s_crd', 'hcl'],
-  data_schema: [
-    'json_schema', 'yaml_schema', 'toml_schema', 'cddl', 'bson',
-    'csv_table', 'ini_schema',
-  ],
+  api: ['openapi', 'asyncapi', 'jsonapi', 'raml'],
+  config: ['cloudformation', 'ansible', 'k8s_crd'],
+  data_schema: ['cddl', 'bson'],
   data_science: ['dataframe', 'parquet', 'arrow'],
-  database: ['mongodb', 'dynamodb', 'cassandra', 'neo4j', 'sql', 'redis'],
+  database: ['mongodb', 'dynamodb', 'cassandra', 'neo4j', 'redis'],
   domain: ['geojson', 'fhir', 'rss_atom', 'vcard_ical', 'swift_mt', 'edi_x12'],
-  serialization: [
-    'protobuf', 'avro', 'thrift', 'capnproto', 'flatbuffers', 'asn1',
-    'bond', 'msgpack_schema',
-  ],
-  type_system: [
-    'typescript', 'python', 'rust_serde', 'java', 'go_struct', 'kotlin',
-    'csharp', 'swift',
-  ],
-  web_document: [
-    'atproto', 'jsx', 'vue', 'svelte', 'css', 'html', 'markdown',
-    'xml_xsd', 'docx', 'odf',
-  ],
+  serialization: ['avro', 'flatbuffers', 'asn1', 'bond', 'msgpack_schema'],
+  web_document: ['atproto', 'docx', 'odf'],
 };
 
 /** Shared TextEncoder for protocol name encoding. */
@@ -62,8 +49,8 @@ const encoder = new TextEncoder();
  * using registry = panproto.io();
  *
  * console.log(registry.protocols);
- * const instance = registry.parse('graphql', schema, inputBytes);
- * const output = registry.emit('graphql', schema, instance);
+ * const instance = registry.parse('openapi', schema, inputBytes);
+ * const output = registry.emit('openapi', schema, instance);
  * ```
  */
 export class IoRegistry implements Disposable {
@@ -102,7 +89,7 @@ export class IoRegistry implements Disposable {
   /**
    * Parse raw format bytes into an Instance.
    *
-   * @param protocolName - The protocol codec name (e.g., 'graphql', 'protobuf')
+   * @param protocolName - The protocol codec name (e.g., 'openapi', 'avro')
    * @param schema - The schema the data conforms to
    * @param input - Raw format bytes to parse
    * @returns A new Instance wrapping the parsed data
@@ -122,7 +109,7 @@ export class IoRegistry implements Disposable {
   /**
    * Emit an Instance to raw format bytes.
    *
-   * @param protocolName - The protocol codec name (e.g., 'graphql', 'protobuf')
+   * @param protocolName - The protocol codec name (e.g., 'openapi', 'avro')
    * @param schema - The schema the instance conforms to
    * @param instance - The instance to emit
    * @returns Raw format bytes

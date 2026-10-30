@@ -37,7 +37,7 @@ fn object_graph_protocol() -> Protocol {
             "array".into(),
         ],
         constraint_sorts: vec!["entries".into()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -132,7 +132,7 @@ fn put_preserves_view_edit_with_per_field_child_vertices() {
         "email": "d@e.com",
         "joinedAt": "2025-01-01",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     let lens = build_final_lens(&src_schema, &protocol);
 
@@ -279,7 +279,7 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         "email": "d@e.com",
         "joinedAt": "2025-01-01",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     let lens = build_final_lens(&src_schema, &protocol);
     // Sanity check: the target schema must retain the `user` entry so
@@ -301,8 +301,43 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         .unwrap()
         .insert("displayName".into(), serde_json::json!("EDITED"));
 
-    let reparsed = parse_json(&lens.tgt_schema, "user", &view_json).expect("reparse view");
+    let reparsed = parse_json(&lens.tgt_schema, &protocol, "user", &view_json).expect("reparse view");
     let remapped = remap_view_ids_by_anchor(&reparsed, &view);
+
+    // The reparse turns the `bio` field the lens adds into a `user.bio`
+    // child node, which no source vertex can hold: `put` is strict and
+    // refuses that arc rather than dropping it, since `get` of any source
+    // it wrote back would not give it again.
+    let (bio_id, bio_arc) = remapped
+        .arcs
+        .iter()
+        .find(|(_, child, _)| remapped.nodes[child].anchor == "user.bio")
+        .map(|(parent, child, _)| (*child, (*parent, *child)))
+        .expect("the reparse adds a user.bio node");
+    match asymmetric::put(&lens, &remapped, &complement) {
+        Err(panproto_lens::LensError::PutDomain(error)) => match *error {
+            panproto_lens::PutDomainError::UnrepresentableViewEdge {
+                elem: panproto_inst::ViewRef::Arc { parent, child },
+            } => assert_eq!((parent, child), bio_arc),
+            other => panic!("expected the user.bio arc to be refused, got {other:?}"),
+        },
+        other => panic!("expected the user.bio arc to be refused, got {other:?}"),
+    }
+    let mut nodes = remapped.nodes.clone();
+    nodes.remove(&bio_id);
+    let arcs = remapped
+        .arcs
+        .iter()
+        .filter(|(_, child, _)| *child != bio_id)
+        .cloned()
+        .collect();
+    let remapped = panproto_inst::WInstance::new(
+        nodes,
+        arcs,
+        remapped.fans.clone(),
+        remapped.root,
+        remapped.schema_root,
+    );
 
     let restored = asymmetric::put(&lens, &remapped, &complement).expect("put");
     let restored_json = to_json(&src_schema, &restored);
@@ -384,7 +419,7 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
         "email": "d@e.com",
         "joinedAt": "2025-01-01",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     let mut surviving_verts = HashSet::new();
     surviving_verts.insert(Name::from("user"));

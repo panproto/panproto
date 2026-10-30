@@ -103,7 +103,7 @@ fn store_edit_log(
 
     for entry in entries {
         let json_val: serde_json::Value = load_json(&entry.path())?;
-        let instance = inst::parse_json(old_schema, root_vertex.as_str(), &json_val).ok();
+        let instance = inst::parse_json(old_schema, protocol, root_vertex.as_str(), &json_val).ok();
         if let Some(source_inst) = instance {
             edit_lens
                 .initialize(&source_inst)

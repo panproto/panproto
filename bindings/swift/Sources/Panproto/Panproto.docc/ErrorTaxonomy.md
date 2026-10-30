@@ -5,7 +5,7 @@ matching on a ``PanprotoError/Fault`` is worth the trouble.
 
 ## Overview
 
-The C ABI collapses every failure into six status codes and a message.
+The C ABI collapses every failure into eight status codes and a message.
 That is too coarse to branch on: a lens that refuses a complement and a
 repository that will not open both arrive as "operation failed" with
 different prose.
@@ -75,13 +75,18 @@ catching.
 Two of them are engine or programming bugs. ``PanprotoError/Fault/panic(_:)``
 is always an engine bug: a Rust unwind was caught at the boundary and the
 payload is the panic message. ``PanprotoError/Fault/invalidHandle(handle:)``
-means a handle was out of bounds or already freed, which this package's
-ownership model is designed to prevent. Neither is something to recover
-from; both are worth reporting loudly.
+means a handle was out of bounds or its slab slot is currently free, which
+this package's ownership model is designed to prevent. A discarded numeric
+handle must not be reused because the same number may later name a reissued
+resource. Neither fault is something to recover from; both are worth
+reporting loudly.
 
 ``PanprotoError/Fault/typeMismatch(expected:actual:)`` names the slab
-variants involved, and the names are the ones ``PanprotoHandle/slabVariant``
-declares, so it can be compared against a Swift type.
+variants involved. The names ordinarily match those declared by
+``PanprotoHandle/slabVariant``, so an expected variant can be compared against
+a Swift type. ``ProtolensChainHandle`` is the exception: it accepts both
+`ProtolensChain` and the chain-compatible `CompiledLensDoc`, and the engine
+reports the latter under its own name.
 
 ```swift
 @PanprotoEngine

@@ -18,17 +18,29 @@
 #     and are what would catch a regression; the corpus run is the wider net.
 #     Its name is unique on purpose, since the filter below matches test names
 #     across every binary and the fixture siblings must stay lit.
+#   * the exact O14 Kan acceptance tests, which enumerate the complete labelled
+#     member and representative-pair spaces. They are acceptance gates with
+#     separately persisted evidence; the representative-pair certificate alone
+#     takes several hours in release mode and cannot fit an ordinary CI job.
+#   * the edit algebra's coverage-scope differentials, which walk every word
+#     of at most three edits from every graph, table and tree of the scope
+#     (about 1.3 billion words) and compare production with the reference
+#     after each letter. They run in release mode as acceptance gates; the
+#     fixed-alphabet edit differentials beside them stay in the profile.
 #
-# Running these on every PR is wasteful: the code they exercise is stable, and
-# they still run
+# Running these on every PR is wasteful. Every excluded test still runs by
+# default for local runs (`cargo nextest run`). The corpus gates also run
 #
 #   * by default for local runs (`cargo nextest run`), except for the oracle
 #     agreement sweep, which requires `-p panproto-mig --features oracle`, and
 #   * on a schedule (and on demand) in the `corpus-gate` workflow,
 #
-# so both guarantees stay enforced without blocking PR CI.
+# The O14 certificates instead run as separately recorded graph-parity
+# acceptance gates. Thus both guarantees stay enforced without blocking PR CI.
 [profile.ci]
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process/)'
+# Report every failing test in one run rather than stopping at the first.
+fail-fast = false
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|o14_executes_every_representative_profile_pair|o14_every_labelled_member_has_checked_operation_transports|o14_hom_profile_pairs_agree_with_the_reference|c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|c8_table_edits_match_reference_on_every_word_of_the_coverage_scope|c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #
@@ -41,3 +53,53 @@ default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|str
 # around four minutes; the whole-corpus gates are excluded from this profile
 # by `default-filter` above and so are unaffected.
 slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }
+
+# The scaling tests of panproto-inst (every test named `*_not_charged_per_*`)
+# compare a workload's time at two sizes. Their measure is built to resist
+# machine load: each round times one large run against a window of repeated
+# small runs of the same length taken right after it, and the verdict is the
+# median of that quotient over the rounds
+# (`crates/panproto-inst/tests/common/mod.rs`). Running each of them while no
+# other test of the run holds a thread removes the load the suite itself
+# adds, and `max-threads = 1` keeps two of them from overlapping.
+[test-groups]
+scaling = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'package(panproto-inst) & test(/_not_charged_per_/)'
+test-group = 'scaling'
+threads-required = 'num-cpus'
+
+# The throughput tests of the integration suite (`performance`) time a
+# fixed number of lifts against a records-per-second floor. A lift validates
+# its input and its output under their protocols, which is most of its cost
+# in a debug build, so the measured rate sits within a factor of two of the
+# floor and the suite's own parallel load is enough to push it under. They
+# run the way the scaling tests do: one at a time, with no other test of the
+# run holding a thread.
+[[profile.default.overrides]]
+filter = 'package(panproto-integration-tests) & binary(performance)'
+test-group = 'scaling'
+threads-required = 'num-cpus'
+
+# The table-lens agreement sweep of `panproto-lens/tests/law_reference.rs`
+# checks the production law gate against the reference gate on every one of
+# its 9,921 source and lens cases. It is CPU-bound on one thread: measured
+# alone in a debug build, 762 s of user time over 783 s of wall time, so it
+# cannot finish inside the ten-minute bound above whatever the load, and
+# inside full parallel runs it was observed at 813 s and 1,359 s. It gets a
+# thirty-minute bound of its own.
+[[profile.ci.overrides]]
+filter = 'package(panproto-lens) & binary(law_reference) & test(=check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses)'
+slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
+threads-required = 'num-cpus'
+
+# The theory class-comparison acceptance gate streams 2,815^2 operation
+# pairs and 260^2 sort pairs through both public composition engines. The
+# carrier is small, but the 7,991,825 comparisons cannot fit the ordinary
+# ten-minute CI timeout. Run it alone, allow two hours, and keep it in the
+# ordinary CI filter; its own worker pool is capped at four.
+[[profile.ci.overrides]]
+filter = 'package(panproto-gat) & binary(reference_theories) & test(=composition_agrees_on_every_class_signature_pair)'
+slow-timeout = { period = "60s", terminate-after = 120, grace-period = "5s" }
+threads-required = 'num-cpus'

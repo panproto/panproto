@@ -2,3 +2,4 @@
 # Programming-language identifier leakage, pinned to current tree.
 # Each line is `<relative-path>\t<term>`. The test fails if the set grows.
 # Regenerate by running with UPDATE_GENERICITY_BASELINE=1.
+crates/panproto-gat/src/morphism.rs	preservation_witness_chains_directed_normal_forms_and_trusts_the_rest	rust

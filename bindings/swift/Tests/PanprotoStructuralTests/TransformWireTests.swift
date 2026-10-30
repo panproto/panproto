@@ -62,8 +62,7 @@ struct StructuralDiffTests {
 
 @Suite("the full diff")
 struct SchemaDiffTests {
-    /// A diff touching every field, including the thirteen the engine
-    /// omits while they are empty.
+    /// A diff touching the historical and entry fields.
     private static let populated: SchemaDiff = {
         var diff = SchemaDiff()
         diff.addedVertices = ["a"]
@@ -95,6 +94,7 @@ struct SchemaDiffTests {
         diff.addedNsids = ["a": "app.bsky.feed.post"]
         diff.removedNsids = ["b"]
         diff.changedNsids = [WireTriple("a", "old", "new")]
+        diff.entryChange = WirePair(["old"], ["new"])
         diff.addedVariants = [Variant(id: "v", parentVertex: "p", tag: "t")]
         diff.removedVariants = [Variant(id: "w", parentVertex: "p")]
         diff.modifiedVariants = [
@@ -130,6 +130,49 @@ struct SchemaDiffTests {
     @Test("a diff touching every field round-trips")
     func populatedDiffRoundTrips() throws {
         try expectRoundTrip(Self.populated)
+    }
+
+    @Test("declaration changes survive a diff round trip")
+    func declarationChangesRoundTrip() throws {
+        let oldKey = try Key(
+            representation: .textMap([
+                ("id", .textString("k")), ("parts", .array([])),
+                ("role", .textString("primary")), ("scope", .textString("document")),
+            ]))
+        let newKey = try Key(
+            representation: .textMap([
+                ("id", .textString("k")), ("parts", .array([])),
+                ("role", .textString("unique")), ("scope", .textString("document")),
+            ]))
+        let oldReference = try Reference(
+            representation: .textMap([
+                ("id", .textString("r")), ("holder", .textString("a")),
+            ]))
+        let newReference = try Reference(
+            representation: .textMap([
+                ("id", .textString("r")), ("holder", .textString("b")),
+            ]))
+        let oldSet = try TargetSet(
+            representation: .textMap([
+                ("members", .array([])), ("scope", .textString("document")),
+            ]))
+        let newSet = try TargetSet(
+            representation: .textMap([
+                ("members", .array([])), ("scope", .textMap([("within", .textString("a"))])),
+            ]))
+        var diff = SchemaDiff()
+        diff.addedKeys = [WirePair("a", newKey)]
+        diff.removedKeys = [WirePair("a", oldKey)]
+        diff.modifiedKeys = [KeyChange(vertexId: "a", old: oldKey, new: newKey)]
+        diff.addedReferences = [newReference]
+        diff.removedReferences = [oldReference]
+        diff.modifiedReferences = [
+            ReferenceChange(id: "r", old: oldReference, new: newReference)
+        ]
+        diff.addedTargetSets = [WirePair("s", newSet)]
+        diff.removedTargetSets = [WirePair("s", oldSet)]
+        diff.modifiedTargetSets = [TargetSetChange(id: "s", old: oldSet, new: newSet)]
+        try expectRoundTrip(diff)
     }
 
     @Test("an empty diff round-trips")

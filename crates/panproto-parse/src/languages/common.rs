@@ -459,6 +459,7 @@ fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
+        ..Default::default()
     }
 }
 

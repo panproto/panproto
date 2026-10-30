@@ -19,6 +19,7 @@ rustc-hash = { workspace = true }
 memchr = { workspace = true }
 
 [dev-dependencies]
+panproto-reference = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }
 insta = { workspace = true }

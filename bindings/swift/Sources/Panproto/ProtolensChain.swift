@@ -277,7 +277,7 @@ extension ProtolensChainHandle {
         return try fromJSON(json)
     }
 
-    /// Compile a lens DSL document into a chain.
+    /// Compile a lens DSL document into a chain-compatible document.
     ///
     /// The document names its steps declaratively rather than as engine
     /// combinators: `remove_field`, `rename_field`, `add_field`, and the
@@ -286,13 +286,23 @@ extension ProtolensChainHandle {
     /// `compose` body that reaches other documents by `ref` needs
     /// ``compileDocument(source:format:bodyVertex:references:)``
     /// instead, since this call resolves no references.
+    /// A `symmetric` body is also refused because this handle represents one
+    /// directed chain; use ``SymmetricLensHandle/fromSchemas(_:_:)`` and its
+    /// sync operation for the symmetric boundary.
     ///
     /// - Parameters:
     ///   - source: The document text.
     ///   - format: The syntax `source` is written in.
     ///   - bodyVertex: The vertex id that field-level steps attach
     ///     under, which is the record the document's fields belong to.
-    /// - Returns: The chain the document compiles to.
+    /// The returned handle retains the accepted directional document's
+    /// ordered structural and value-transform stages. ``instantiate(at:)``
+    /// observes all of that order. The chain-shaped inspection and algebra
+    /// methods use only the compatibility-chain projection, and composition or
+    /// fusion returns an ordinary chain without the document-only stage
+    /// information.
+    ///
+    /// - Returns: The compiled document behind a chain-compatible handle.
     /// - Throws: ``PanprotoError/lens(_:)`` when the document does not
     ///   evaluate, does not compile, or carries an unresolved reference.
     @PanprotoEngine
@@ -332,8 +342,13 @@ extension ProtolensChainHandle {
     ///     under, used for the referenced documents as well.
     ///   - references: Each referenced document's `id` mapped to its
     ///     source.
-    /// - Returns: The chain the document compiles to, with every
-    ///   reference inlined.
+    /// A root document with a `symmetric` body is refused. The returned handle
+    /// retains the accepted directional document's ordered stages and value
+    /// transforms; the chain-shaped methods have the projection behavior
+    /// documented by ``compileDocument(source:format:bodyVertex:)``.
+    ///
+    /// - Returns: The compiled document behind a chain-compatible handle,
+    ///   with every reference inlined.
     /// - Throws: ``PanprotoError/lens(_:)`` when a document does not
     ///   evaluate or compile, or when a `ref` names an `id` the map does
     ///   not carry.
@@ -369,7 +384,11 @@ extension ProtolensChainHandle {
     ///   - url: The file to read.
     ///   - bodyVertex: The vertex id that field-level steps attach
     ///     under.
-    /// - Returns: The chain the document compiles to.
+    ///
+    /// The result has the projection behavior documented by
+    /// ``compileDocument(source:format:bodyVertex:)``.
+    ///
+    /// - Returns: The compiled document behind a chain-compatible handle.
     /// - Throws: ``PanprotoError/lens(_:)`` when the extension names no
     ///   format, when the file cannot be read or is not UTF-8, or when
     ///   the document does not evaluate or compile.
@@ -407,7 +426,10 @@ extension ProtolensChainHandle {
     ///
     /// Composition concatenates the two step lists, so the result has
     /// exactly as many steps as the two chains together. Nothing is
-    /// simplified on the way; ``fuse()`` is what collapses a chain.
+    /// simplified on the way; ``fuse()`` is what collapses a chain. If either
+    /// handle came from a document compiler, composition uses its
+    /// compatibility-chain projection and does not retain ordered stage
+    /// boundaries or value transforms in the result.
     ///
     /// - Parameter other: The chain to run after this one.
     /// - Returns: The concatenated chain.
@@ -426,8 +448,9 @@ extension ProtolensChainHandle {
     ///
     /// Fusing composes the steps symbolically, so the single step it
     /// leaves does what the whole chain did, in one pass, with one
-    /// complement. It is what to reach for before instantiating a chain
-    /// that will be run over many records.
+    /// complement. If this handle came from a document compiler, fusion uses
+    /// its compatibility-chain projection and does not retain ordered stage
+    /// boundaries or value transforms in the result.
     ///
     /// - Returns: A chain holding the one fused step.
     /// - Throws: ``PanprotoError/lens(_:)`` when two adjacent steps do
@@ -447,7 +470,9 @@ extension ProtolensChainHandle {
     /// transforms and the complement constructor that make the step
     /// runnable. It is what to show a person, and it is where the value
     /// algebra on `ProtolensChain` operates. It is not what to feed
-    /// ``fromJSON(_:)``, which reads whole steps.
+    /// ``fromJSON(_:)``, which reads whole steps. For a compiled document,
+    /// the summary describes its compatibility-chain projection and omits
+    /// ordered stage boundaries and value transforms.
     ///
     /// - Returns: The chain in summary form, steps in order.
     /// - Throws: ``PanprotoError/lens(_:)`` when the handle names no
@@ -473,7 +498,10 @@ extension ProtolensChainHandle {
     /// of time: what the forward direction cannot derive and must be
     /// given, and what it will capture so the backward direction can put
     /// it back. A caller reads it to decide whether a migration is worth
-    /// running before running it.
+    /// running before running it. For a compiled document, this method
+    /// computes the complement plan from the compatibility-chain projection
+    /// and does not account for the document's ordered stage boundaries or
+    /// value transforms.
     ///
     /// - Parameter schema: The schema to instantiate the chain at.
     /// - Returns: The complement specification at that schema.
@@ -499,13 +527,17 @@ extension ProtolensChainHandle {
     /// comes from the builtin registry, looked up by the schema's
     /// protocol name, with the same fallback
     /// ``autoGenerate(from:to:stringency:)`` describes: this entry point
-    /// takes no protocol handle either.
+    /// takes no protocol handle either. A handle produced by a document
+    /// compiler instantiates all ordered stages and value transforms of the
+    /// accepted directional document, then requires the resulting path to
+    /// contain exactly one normalized group because this API returns one
+    /// concrete lens.
     ///
     /// - Parameter schema: The schema the chain reads from.
     /// - Returns: The lens the chain becomes at that schema.
     /// - Throws: ``PanprotoError/lens(_:)`` when a step does not apply at
-    ///   the schema, such as a drop naming a sort the schema does not
-    ///   carry.
+    ///   the schema, such as a drop naming a sort the schema does not carry,
+    ///   or when a compiled document normalizes to more than one group.
     @PanprotoEngine
     public func instantiate(
         at schema: SchemaHandle

@@ -20,7 +20,7 @@ use crate::theories;
 /// Returns the `MessagePack` Schema protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "msgpack-schema".into(),
         schema_theory: "ThMsgPackSchemaSchema".into(),
         instance_theory: "ThMsgPackSchemaInstance".into(),
@@ -42,8 +42,10 @@ pub fn protocol() -> Protocol {
         constraint_sorts: vec!["required".into(), "default".into()],
         has_order: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `MessagePack` Schema with a theory registry.
@@ -63,6 +65,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the JSON cannot be parsed as valid `MessagePack` Schema.
 pub fn parse_msgpack_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto_def = protocol();
     let mut builder = SchemaBuilder::new(&proto_def);
     let mut counter: usize = 0;

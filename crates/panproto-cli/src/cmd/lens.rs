@@ -687,6 +687,7 @@ pub fn cmd_lens_apply(
         }
         compiled
             .instantiate(&schema, &protocol)
+            .and_then(lens::LensPath::into_single)
             .into_diagnostic()
             .wrap_err("failed to instantiate compiled lens artifact at schema")?
     } else if let Ok(chain) = serde_json::from_value::<lens::ProtolensChain>(lens_value.clone()) {
@@ -719,7 +720,7 @@ pub fn cmd_lens_apply(
 
     let data_json: serde_json::Value = load_json(data_path)?;
     let root_vertex = infer_root_vertex(&schema)?;
-    let instance = inst::parse_json(&schema, root_vertex.as_str(), &data_json)
+    let instance = inst::parse_json(&schema, &protocol, root_vertex.as_str(), &data_json)
         .into_diagnostic()
         .wrap_err("failed to parse data as W-type instance")?;
 
@@ -807,12 +808,14 @@ pub fn cmd_lens_verify(
     if let Some(dp) = data_path {
         let data_json: serde_json::Value = load_json(dp)?;
         let root_vertex = infer_root_vertex(&src_schema)?;
-        let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
+        let instance = inst::parse_json(&src_schema, &protocol, root_vertex.as_str(), &data_json)
             .into_diagnostic()
             .wrap_err("failed to parse test data")?;
 
         match lens::check_laws(&result.lens, &instance) {
-            Ok(()) => println!("GetPut: OK\nPutGet: OK"),
+            Ok(()) => {
+                println!("GetPut: OK\nPutGet: OK\nTotality: OK\nPutTwice: OK\nCongruence: OK")
+            }
             Err(violation) => {
                 println!("Lens law violation: {violation:?}");
                 miette::bail!("lens law verification failed");
@@ -820,7 +823,7 @@ pub fn cmd_lens_verify(
         }
     } else {
         println!("No test data provided; skipping concrete law checks.");
-        println!("Hint: pass --data <file> to verify GetPut and PutGet with real data.");
+        println!("Hint: pass --data <file> to run all five strict lens gates with real data.");
     }
 
     // Naturality check: verify that each protolens step is applicable at
@@ -917,6 +920,7 @@ pub fn cmd_lens_compose(
             .wrap_err("failed to generate second lens")?;
 
         let composed = lens::compose(&result_a.lens, &result_b.lens)
+            .and_then(lens::LensPath::into_single)
             .into_diagnostic()
             .wrap_err("failed to compose lenses")?;
 

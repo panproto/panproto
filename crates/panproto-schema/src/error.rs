@@ -2,6 +2,10 @@
 
 use std::fmt;
 
+use panproto_gat::Name;
+
+use crate::keys::KeyRefError;
+
 /// Errors that can occur during schema construction and validation.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -112,6 +116,31 @@ pub enum SchemaError {
         /// Every violation reported for the induced sub-schema.
         findings: Vec<ValidationError>,
     },
+
+    /// Two declarations of the key `key` on `vertex` disagree in their
+    /// parts, role or scope, so they cannot be merged into one.
+    #[error("conflicting declarations of key {key} on vertex {vertex}")]
+    KeyConflict {
+        /// The keyed vertex.
+        vertex: Name,
+        /// The key id declared twice.
+        key: Name,
+    },
+
+    /// Two declarations of the reference `reference` disagree, so they
+    /// cannot be merged into one.
+    #[error("conflicting declarations of reference {reference}")]
+    ReferenceConflict {
+        /// The reference id declared twice.
+        reference: Name,
+    },
+
+    /// Two target-set declarations with the same id disagree.
+    #[error("conflicting declarations of target set {set}")]
+    TargetSetConflict {
+        /// The target-set id declared twice.
+        set: Name,
+    },
 }
 
 /// An error found during schema validation against a protocol.
@@ -167,6 +196,9 @@ pub enum ValidationError {
         /// Which end is missing, for the message.
         missing: String,
     },
+
+    /// A key or reference declaration is not well formed.
+    KeyRef(KeyRefError),
 }
 
 impl fmt::Display for ValidationError {
@@ -193,6 +225,7 @@ impl fmt::Display for ValidationError {
                     "recursion point {mu} names a vertex the schema does not have: {missing}"
                 )
             }
+            Self::KeyRef(error) => write!(f, "{error}"),
         }
     }
 }

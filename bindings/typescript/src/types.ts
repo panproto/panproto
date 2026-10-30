@@ -342,7 +342,7 @@ export interface MigrationSpec {
   readonly resolvers: readonly [[string, string], Edge][];
 }
 
-/** Result of applying a compiled migration to a record. */
+/** Result of an operation that produces an instance value. */
 export interface LiftResult {
   readonly data: unknown;
   /** Raw msgpack-encoded instance bytes (for passing to instance_to_json). */
@@ -402,16 +402,16 @@ export interface ExistenceReport {
 
 /** A kind change on a vertex. */
 export interface KindChange {
-  readonly vertexId: string;
-  readonly oldKind: string;
-  readonly newKind: string;
+  readonly vertex_id: string;
+  readonly old_kind: string;
+  readonly new_kind: string;
 }
 
 /** A constraint change on a vertex. */
 export interface ConstraintChange {
   readonly sort: string;
-  readonly oldValue: string;
-  readonly newValue: string;
+  readonly old_value: string;
+  readonly new_value: string;
 }
 
 /** Constraint diff for a single vertex. */
@@ -419,6 +419,250 @@ export interface ConstraintDiff {
   readonly added: readonly Constraint[];
   readonly removed: readonly Constraint[];
   readonly changed: readonly ConstraintChange[];
+}
+
+/** A change to a hyper-edge's kind, signature, or parent label. */
+export interface HyperEdgeChange {
+  readonly id: string;
+  readonly kind_change: readonly [string, string] | null;
+  readonly signature_added: Readonly<Record<string, string>>;
+  readonly signature_removed: Readonly<Record<string, string>>;
+  readonly signature_changed: Readonly<Record<string, readonly [string, string]>>;
+  readonly parent_label_change: readonly [string, string] | null;
+}
+
+/** A change to a variant's tag. */
+export interface VariantChange {
+  readonly id: string;
+  readonly parent_vertex: string;
+  readonly old_tag: string | null;
+  readonly new_tag: string | null;
+}
+
+/** A change to a recursion point's target. */
+export interface RecursionPointChange {
+  readonly mu_id: string;
+  readonly old_target: string;
+  readonly new_target: string;
+}
+
+/** A change to one or both ends of a span. */
+export interface SpanChange {
+  readonly id: string;
+  readonly left_change: readonly [string, string] | null;
+  readonly right_change: readonly [string, string] | null;
+}
+
+/** Equality declared for one key part. */
+export type KeyEquality =
+  | 'representation'
+  | 'numeric_value'
+  | { readonly numeric_value_within_kind: NumericPrimitive }
+  | { readonly sql: { readonly collation: SqlCollation; readonly pad: SqlPad } }
+  | 'xml_non_cdata';
+
+/** Numeric primitive selected by a key-equality declaration. */
+export type NumericPrimitive = 'decimal' | { readonly float: number } | 'any';
+
+/** Text collation selected by SQL key equality. */
+export type SqlCollation =
+  | 'binary'
+  | 'ascii_case_insensitive'
+  | { readonly named: string };
+
+/** Treatment of trailing spaces under SQL key equality. */
+export type SqlPad = 'no_pad' | 'pad_space';
+
+/** One part of a declared key. */
+export type KeyPart =
+  | { readonly path: readonly Edge[] }
+  | { readonly position: { readonly within: Edge } };
+
+/** Role played by a declared key. */
+export type KeyRole = 'primary' | 'unique' | 'identifier' | 'sort_key' | 'index';
+
+/** Scope within which a declared key is unique. */
+export type KeyScope = 'document' | 'global' | { readonly within: string };
+
+/** A key declaration in the Rust schema wire format. */
+export interface KeyDeclaration {
+  readonly id: string;
+  readonly parts: readonly KeyPart[];
+  readonly role: KeyRole;
+  readonly scope: KeyScope;
+  /** Omitted on the wire when every part uses representation equality. */
+  readonly equality?: readonly KeyEquality[];
+}
+
+/** Source of a URI base environment. */
+export type UriBase =
+  | null
+  | readonly Edge[]
+  | { readonly positional: { readonly base: string | null; readonly prefix: string | null } }
+  | {
+      readonly ancestor: {
+        readonly ancestor: string;
+        readonly field: readonly Edge[];
+        readonly join: UriJoin;
+      };
+    }
+  | { readonly inherited: { readonly field: readonly Edge[] } };
+
+/** Rule for joining an ancestor-provided URI base. */
+export type UriJoin = 'rfc3986' | 'fhir_service_base';
+
+/** Syntax of a path-valued reference. */
+export type PathSyntax =
+  | 'json_pointer'
+  | 'x_path'
+  | { readonly uri: { readonly base: UriBase } }
+  | 'id_ref';
+
+/** Where a standoff reference's text lives. */
+export type RefTextSource =
+  | { readonly local: readonly Edge[] }
+  | { readonly external: readonly Edge[] }
+  | {
+      readonly referenced: {
+        readonly reference: string;
+        readonly text: readonly Edge[];
+        readonly external?: readonly Edge[];
+      };
+    }
+  | { readonly span: { readonly reference: string } }
+  | {
+      readonly external_uri: {
+        readonly field: readonly Edge[];
+        readonly base: UriBase;
+      };
+    };
+
+/** Unit counted by standoff offsets. */
+export type OffsetUnit = 'byte' | 'utf8_char' | 'utf16' | 'token';
+
+/** Interpretation of a standoff reference's end coordinate. */
+export type SpanEnd = 'offset' | 'length';
+
+/** Rule selecting the definition of a variable occurrence. */
+export type VariableBinding = 'first_defines' | 'nearest_preceding';
+
+/** How a reference reads its source value. */
+export type RefSource =
+  | { readonly key_value: { readonly parts: readonly (readonly Edge[])[] } }
+  | { readonly path: { readonly field: readonly Edge[]; readonly syntax: PathSyntax } }
+  | {
+      readonly standoff: {
+        readonly text: RefTextSource;
+        readonly start: readonly Edge[];
+        readonly end: readonly Edge[];
+        readonly unit: OffsetUnit;
+        readonly end_inclusive: boolean;
+        readonly end_form?: SpanEnd;
+        readonly origin?: number | bigint;
+        readonly fragments?: Edge;
+      };
+    }
+  | {
+      readonly variable: {
+        readonly field: readonly Edge[];
+        readonly binder_key: string;
+        readonly binding?: VariableBinding;
+      };
+    }
+  | { readonly inline: { readonly field: readonly Edge[] } };
+
+/** Number of targets named by one reference holder. */
+export type ReferenceCardinality = 'one' | 'many';
+
+/** Behavior when a reference names no target. */
+export type OnUnresolved = 'error' | 'complement';
+
+/** How reference resolution rewrites an instance. */
+export type ResolveMode = 'add_edge' | 'redirect';
+
+/** Composite-null matching rule. */
+export type NullMatch = 'simple' | 'full';
+
+/** Optional traversal from a holder to a key-scope owner. */
+export interface ScopeVia {
+  readonly ancestor: string;
+  readonly hops: readonly string[];
+}
+
+/** An exact data value as serialized inside a schema declaration. */
+export type SchemaValue =
+  | { readonly Bool: boolean }
+  | { readonly Int: number | bigint }
+  | { readonly Float: number }
+  | { readonly Str: string }
+  | { readonly Bytes: Uint8Array | readonly number[] }
+  | { readonly CidLink: string }
+  | {
+      readonly Blob: {
+        readonly ref_: string;
+        readonly mime: string;
+        readonly size: number | bigint;
+      };
+    }
+  | { readonly Token: string }
+  | 'Null'
+  | { readonly Opaque: { readonly type_: string; readonly fields: Readonly<Record<string, SchemaValue>> } }
+  | { readonly Unknown: Readonly<Record<string, SchemaValue>> }
+  | { readonly List: readonly SchemaValue[] }
+  | { readonly LabeledNull: number | bigint }
+  | { readonly Decimal: ExactDecimalValue }
+  | { readonly BigInt: ExactBigIntValue }
+  | { readonly Temporal: ExactTemporal };
+
+/** Optional selector that enables a reference on matching holders. */
+export interface RefGuard {
+  readonly field: readonly Edge[];
+  readonly equals: SchemaValue;
+}
+
+/** A reference declaration in the Rust schema wire format. */
+export interface ReferenceDeclaration {
+  readonly id: string;
+  readonly holder: string;
+  readonly source: RefSource;
+  readonly target_vertex: string;
+  readonly target_key: string | null;
+  readonly edge: Edge | null;
+  readonly cardinality: ReferenceCardinality;
+  readonly nullable: boolean;
+  readonly on_unresolved: OnUnresolved;
+  readonly mode: ResolveMode;
+  readonly guard?: RefGuard;
+  readonly null_match?: NullMatch;
+  readonly null_vertex?: string;
+  readonly scope_via?: ScopeVia;
+}
+
+/** A key whose members range over several vertex types. */
+export interface TargetSetDeclaration {
+  readonly members: readonly (readonly [string, string])[];
+  readonly scope: KeyScope;
+}
+
+/** A changed key declaration. */
+export interface KeyChange {
+  readonly vertex_id: string;
+  readonly old: KeyDeclaration;
+  readonly new: KeyDeclaration;
+}
+
+/** A changed reference declaration. */
+export interface ReferenceChange {
+  readonly id: string;
+  readonly old: ReferenceDeclaration;
+  readonly new: ReferenceDeclaration;
+}
+
+/** A changed target-set declaration. */
+export interface TargetSetChange {
+  readonly id: string;
+  readonly old: TargetSetDeclaration;
+  readonly new: TargetSetDeclaration;
 }
 
 /** Full schema diff with 20+ change categories. */
@@ -431,24 +675,48 @@ export interface FullSchemaDiff {
   readonly modified_constraints: Readonly<Record<string, ConstraintDiff>>;
   readonly added_hyper_edges: readonly string[];
   readonly removed_hyper_edges: readonly string[];
-  readonly modified_hyper_edges: readonly Record<string, unknown>[];
+  readonly modified_hyper_edges: readonly HyperEdgeChange[];
   readonly added_required: Readonly<Record<string, readonly Edge[]>>;
   readonly removed_required: Readonly<Record<string, readonly Edge[]>>;
   readonly added_nsids: Readonly<Record<string, string>>;
   readonly removed_nsids: readonly string[];
   readonly changed_nsids: readonly [string, string, string][];
+  /** Omitted when the ordered entry vertices did not change. */
+  readonly entry_change?: readonly [readonly string[], readonly string[]];
   readonly added_variants: readonly Variant[];
   readonly removed_variants: readonly Variant[];
-  readonly modified_variants: readonly Record<string, unknown>[];
+  readonly modified_variants: readonly VariantChange[];
   readonly order_changes: readonly [Edge, number | null, number | null][];
   readonly added_recursion_points: readonly [string, RecursionPoint][];
   readonly removed_recursion_points: readonly [string, RecursionPoint][];
-  readonly modified_recursion_points: readonly Record<string, unknown>[];
+  readonly modified_recursion_points: readonly RecursionPointChange[];
   readonly usage_mode_changes: readonly [Edge, UsageMode, UsageMode][];
   readonly added_spans: readonly string[];
   readonly removed_spans: readonly string[];
-  readonly modified_spans: readonly Record<string, unknown>[];
+  readonly modified_spans: readonly SpanChange[];
   readonly nominal_changes: readonly [string, boolean, boolean][];
+  readonly added_coercions?: readonly (readonly [string, string])[];
+  readonly removed_coercions?: readonly (readonly [string, string])[];
+  readonly modified_coercions?: readonly (readonly [string, string])[];
+  readonly added_mergers?: readonly string[];
+  readonly removed_mergers?: readonly string[];
+  readonly modified_mergers?: readonly string[];
+  readonly added_defaults?: readonly string[];
+  readonly removed_defaults?: readonly string[];
+  readonly modified_defaults?: readonly string[];
+  readonly added_policies?: readonly string[];
+  readonly removed_policies?: readonly string[];
+  readonly modified_policies?: readonly string[];
+  readonly added_keys?: readonly (readonly [string, KeyDeclaration])[];
+  readonly removed_keys?: readonly (readonly [string, KeyDeclaration])[];
+  readonly modified_keys?: readonly KeyChange[];
+  readonly added_references?: readonly ReferenceDeclaration[];
+  readonly removed_references?: readonly ReferenceDeclaration[];
+  readonly modified_references?: readonly ReferenceChange[];
+  readonly added_target_sets?: readonly (readonly [string, TargetSetDeclaration])[];
+  readonly removed_target_sets?: readonly (readonly [string, TargetSetDeclaration])[];
+  readonly modified_target_sets?: readonly TargetSetChange[];
+  readonly renamed_vertices?: readonly (readonly [string, string])[];
 }
 
 /** A breaking change detected by the compatibility checker. */
@@ -599,6 +867,7 @@ export interface WasmExports {
   check_existence(proto: number, src: number, tgt: number, mapping: Uint8Array): Uint8Array;
   compile_migration(src: number, tgt: number, mapping: Uint8Array): number;
   lift_record(migration: number, record: Uint8Array): Uint8Array;
+  check_migration_coverage(migration: number, records: Uint8Array): Uint8Array;
   get_record(migration: number, record: Uint8Array): Uint8Array;
   put_record(migration: number, view: Uint8Array, complement: Uint8Array): Uint8Array;
   compose_migrations(m1: number, m2: number): number;
@@ -810,6 +1079,119 @@ export type Expr =
   | { readonly type: 'let'; readonly name: string; readonly value: Expr; readonly body: Expr }
   | { readonly type: 'builtin'; readonly op: BuiltinOp; readonly args: readonly Expr[] };
 
+/** General Decimal Arithmetic class serialized by Rust. */
+export type ExactDecimalClass =
+  | 'finite'
+  | 'infinite'
+  | { readonly na_n: { readonly signalling: boolean; readonly payload: string } };
+
+/** Exact decimal payload. Wide exponents are serialized as decimal strings. */
+export interface ExactDecimalValue {
+  readonly negative: boolean;
+  readonly digits: string;
+  readonly exponent: string;
+  /** Rust omits this field for the default `finite` class. */
+  readonly class?: ExactDecimalClass;
+}
+
+/** Exact integer payload for values outside Rust's `i64` carrier. */
+export interface ExactBigIntValue {
+  readonly negative: boolean;
+  readonly significand: string;
+  /** Number of trailing zeros, serialized as an arbitrary-width decimal string. */
+  readonly zeros: string;
+}
+
+/** Separator written between the date and time parts of a date-time. */
+export type DateTimeSeparator = 'upper' | 'lower' | 'space';
+
+/** Case of a written Zulu offset, or a zone supplied without written text. */
+export type ZuluCase = 'upper' | 'lower' | 'unwritten';
+
+/** Written form of a numeric UTC offset. */
+export type OffsetForm =
+  | 'extended'
+  | 'basic'
+  | 'hour_only'
+  | 'extended_seconds'
+  | 'unwritten';
+
+/** UTC offset with its exact serialized spelling distinctions. */
+export type ExactOffset =
+  | 'local'
+  | { readonly zulu: ZuluCase }
+  | { readonly fixed: number }
+  | 'neg_zero'
+  | { readonly fixed_form: readonly [number, OffsetForm] }
+  | { readonly fixed_seconds: number }
+  | { readonly neg_zero_form: OffsetForm };
+
+/** A proleptic Gregorian calendar date. */
+export interface ExactCivilDate {
+  readonly year: number | bigint;
+  readonly month: number;
+  readonly day: number;
+}
+
+/** A time of day, retaining the written fractional-second digits. */
+export interface ExactCivilTime {
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+  readonly fraction: string;
+}
+
+/** A year and the representation distinctions absent from `ExactCivilDate`. */
+export interface ExactTemporalYear {
+  readonly value: number | bigint;
+  readonly negative_zero: boolean;
+  readonly width: number | bigint;
+}
+
+/** Date fields present in a reduced or front-truncated temporal value. */
+export interface ExactDateFields {
+  readonly year: ExactTemporalYear | null;
+  readonly month: number | null;
+  readonly day: number | null;
+}
+
+/** Time fields present in a reduced or front-truncated temporal value. */
+export interface ExactTimeFields {
+  readonly hour: number | null;
+  readonly minute: number | null;
+  readonly second: number | null;
+  readonly fraction: string;
+}
+
+/** Carrier form of an exact temporal value. */
+export type TemporalForm = 'date' | 'time' | 'date_time';
+
+/** Sign of an infinite temporal value. */
+export type TemporalInfinity = 'negative' | 'positive';
+
+/** Payload of Rust's extended temporal variant. */
+export interface ExactExtendedTemporal {
+  readonly date: ExactDateFields | null;
+  readonly time: ExactTimeFields | null;
+  readonly separator: DateTimeSeparator | null;
+  readonly offset: ExactOffset;
+  readonly infinity: readonly [TemporalInfinity, TemporalForm] | null;
+}
+
+/** Exact Rust-serde representation of a date, time, or date-time. */
+export type ExactTemporal =
+  | { readonly date: ExactCivilDate }
+  | { readonly time: readonly [ExactCivilTime, ExactOffset] }
+  | {
+      readonly date_time: readonly [
+        ExactCivilDate,
+        ExactCivilTime,
+        ExactOffset,
+        DateTimeSeparator,
+      ];
+    }
+  | { readonly extended: ExactExtendedTemporal };
+
 /** Literal value. */
 export type Literal =
   | { readonly type: 'bool'; readonly value: boolean }
@@ -821,6 +1203,9 @@ export type Literal =
   | { readonly type: 'null' }
   | { readonly type: 'record'; readonly fields: readonly [string, Literal][] }
   | { readonly type: 'list'; readonly items: readonly Literal[] }
+  | { readonly type: 'decimal'; readonly value: ExactDecimalValue }
+  | { readonly type: 'bigint'; readonly value: ExactBigIntValue }
+  | { readonly type: 'temporal'; readonly value: ExactTemporal }
   | {
       readonly type: 'closure';
       readonly param: string;
@@ -840,7 +1225,8 @@ export type BuiltinOp =
   | 'DefaultVal' | 'Clamp' | 'TruncateStr'
   | 'IntToFloat' | 'FloatToInt' | 'IntToStr' | 'FloatToStr' | 'StrToInt' | 'StrToFloat'
   | 'TypeOf' | 'IsNull' | 'IsList'
-  | 'Edge' | 'Children' | 'HasEdge' | 'EdgeCount' | 'Anchor';
+  | 'Edge' | 'Children' | 'HasEdge' | 'EdgeCount' | 'Anchor' | 'Edges'
+  | 'ToString' | 'ParseDecimal' | 'DecimalToFloat';
 
 /** Coverage report from dry-run migration. */
 export interface CoverageReport {
@@ -856,12 +1242,67 @@ export interface PartialFailure {
   readonly reason: PartialReason;
 }
 
+/** Side of a schema-taking restrict boundary that failed validation. */
+export type BoundarySide = 'input' | 'output';
+
+/** Aggregate status of a validation report. */
+export type ValidationCheckStatus = 'passed' | 'failed' | 'incomplete';
+
+/** Scope carried by a serialized Rust validation report. */
+export type ValidationReportScope =
+  | 'instance'
+  | {
+      readonly edit: {
+        readonly baseline_seq: number | bigint;
+        readonly baseline_status: ValidationCheckStatus;
+      };
+    }
+  | 'delta_local'
+  | { readonly segment: { readonly segment: number } };
+
+/** Per-check counts carried by a serialized Rust validation report. */
+export interface ValidationCheckCoverage {
+  readonly class: string;
+  readonly requirement: string;
+  readonly instances: number | bigint;
+  readonly passed: number | bigint;
+  readonly failed: number | bigint;
+  readonly incomplete: number | bigint;
+}
+
+/**
+ * Validation report preserved from Rust's `ValidationReport` wire value.
+ * Diagnostic vocabulary remains structurally open so adding a Rust
+ * diagnostic variant does not make older TypeScript clients discard it.
+ */
+export interface ValidationReport {
+  readonly shape: 'tree' | 'table' | 'graph';
+  readonly scope: ValidationReportScope;
+  readonly plan: Uint8Array | readonly number[] | string;
+  readonly status: ValidationCheckStatus;
+  readonly diagnostics: readonly Readonly<Record<string, unknown>>[];
+  readonly incomplete: readonly Readonly<Record<string, unknown>>[];
+  readonly coverage: readonly (
+    readonly [Readonly<Record<string, unknown>>, ValidationCheckCoverage]
+  )[];
+}
+
 /** Reason for a partial migration failure. */
 export type PartialReason =
   | { readonly type: 'constraint_violation'; readonly constraint: string; readonly value: string }
   | { readonly type: 'missing_required_field'; readonly field: string }
   | { readonly type: 'type_mismatch'; readonly expected: string; readonly got: string }
-  | { readonly type: 'expr_eval_failed'; readonly exprName: string; readonly error: string };
+  | { readonly type: 'expr_eval_failed'; readonly exprName: string; readonly error: string }
+  | {
+      readonly type: 'boundary_validation';
+      readonly side: BoundarySide;
+      /** Null only for the legacy WASM error string, which discards the report. */
+      readonly report: ValidationReport | null;
+      /** Preserved when only the legacy string's aggregate status is available. */
+      readonly status?: ValidationCheckStatus;
+      /** Preserved legacy error text when no structured report crosses WASM. */
+      readonly error?: string;
+    };
 
 /** Optic kind classification. */
 export type OpticKind = 'iso' | 'lens' | 'prism' | 'affine' | 'traversal';
@@ -874,7 +1315,7 @@ export interface EnrichmentSummary {
   readonly policies: readonly { readonly vertex: string; readonly strategy: ConflictStrategy }[];
 }
 
-/** Result of checking a lens law (GetPut or PutGet). */
+/** Result of checking one lens-law operation or the ordered five-gate report. */
 export interface LawCheckResult {
   readonly holds: boolean;
   readonly violation: string | null;

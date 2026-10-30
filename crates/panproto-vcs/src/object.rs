@@ -664,6 +664,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         let obj = Object::FlatSchema(Box::new(schema.clone()));
         let bytes = rmp_serde::to_vec(&obj)?;

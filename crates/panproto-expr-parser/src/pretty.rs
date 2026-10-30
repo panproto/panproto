@@ -503,6 +503,10 @@ const fn builtin_name(op: BuiltinOp) -> &'static str {
         BuiltinOp::HasEdge => "has_edge",
         BuiltinOp::EdgeCount => "edge_count",
         BuiltinOp::Anchor => "anchor",
+        BuiltinOp::Edges => "edges",
+        BuiltinOp::ToString => "to_string",
+        BuiltinOp::ParseDecimal => "parse_decimal",
+        BuiltinOp::DecimalToFloat => "decimal_to_float",
     }
 }
 
@@ -580,6 +584,20 @@ fn write_literal(buf: &mut String, lit: &Literal) {
             buf.push_str(param);
             buf.push_str(" -> ");
             write_expr(buf, body, Prec::Top);
+        }
+        // The surface syntax has no literal for the exact values. A
+        // decimal is written as the call that reads it back exactly; an
+        // integer outside `i64` as its numeral, which the lexer rejects
+        // rather than reading as another type; a date or time as its
+        // RFC 3339 text in a string.
+        Literal::Decimal(d) => {
+            let _ = write!(buf, "(parse_decimal \"{d}\")");
+        }
+        Literal::BigInt(b) => {
+            let _ = write!(buf, "{b}");
+        }
+        Literal::Temporal(t) => {
+            let _ = write!(buf, "\"{t}\"");
         }
     }
 }

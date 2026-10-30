@@ -61,6 +61,8 @@ public enum NodeShape: Codable, Hashable, Sendable {
     /// An inline text run inside a mixed-content XML element, which
     /// emitters write as bare text with no surrounding tags.
     case xmlTextSegment
+    /// A graph-form fan node that realizes a schema hyper-edge.
+    case hyperEdge
 }
 
 extension NodeShape {
@@ -76,6 +78,7 @@ extension NodeShape {
         case list
         case xmlElement = "xml_element"
         case xmlTextSegment = "xml_text_segment"
+        case hyperEdge = "hyper_edge"
     }
 
     /// The variant name this shape writes.
@@ -85,6 +88,7 @@ extension NodeShape {
         case .list: .list
         case .xmlElement: .xmlElement
         case .xmlTextSegment: .xmlTextSegment
+        case .hyperEdge: .hyperEdge
         }
     }
 
@@ -108,6 +112,7 @@ extension NodeShape {
         case .list: self = .list
         case .xmlElement: self = .xmlElement(tag: try container.decode(Name.self, forKey: .tag))
         case .xmlTextSegment: self = .xmlTextSegment
+        case .hyperEdge: self = .hyperEdge
         }
     }
 

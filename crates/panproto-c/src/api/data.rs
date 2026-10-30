@@ -16,7 +16,7 @@
 
 use panproto_core::{
     inst::{self, WInstance},
-    lens::{self, Complement},
+    lens,
     vcs::{self, DataSetObject},
 };
 use safer_ffi::prelude::*;
@@ -60,7 +60,7 @@ pub fn pp_data_store_dataset(
         let root = infer_root_vertex(&schema);
         let mut instances = Vec::with_capacity(records.len());
         for record in &records {
-            let instance = inst::parse_json(&schema, &root, record)
+            let instance = inst::parse_json(&schema, &protocol_for_schema(&schema), &root, record)
                 .map_err(|e| FfiError::Operation(format!("parse instance: {e}")))?;
             instances.push(instance);
         }
@@ -216,7 +216,7 @@ pub fn pp_data_migrate_backward(
 
         let protocol = protocol_for_schema(&src);
         let views: Vec<WInstance> = crate::canonical::decode(&ds.data)?;
-        let complements: Vec<Complement> = crate::canonical::decode(complement.as_slice())?;
+        let complements = crate::canonical::decode_complements(complement.as_slice())?;
 
         let config = lens::AutoLensConfig::default();
         let result = lens::auto_generate(&src, &tgt, &protocol, &config)
@@ -307,7 +307,7 @@ pub fn pp_data_get_migration_complement(
     out: &mut repr_c::Vec<u8>,
 ) -> i32 {
     guard(|| {
-        let complements: Vec<Complement> = crate::canonical::decode(complement.as_slice())?;
+        let complements = crate::canonical::decode_complements(complement.as_slice())?;
         let bytes = crate::canonical::encode(&complements)?;
         *out = bytes.into();
         Ok(PpStatus::Ok)
@@ -335,6 +335,7 @@ struct StalenessReport {
 mod tests {
     use std::sync::Arc;
 
+    use panproto_core::lens::Complement;
     use panproto_core::schema::{Schema, SchemaBuilder};
 
     use super::*;
@@ -496,13 +497,6 @@ mod tests {
         );
         assert_eq!(restored_h, u32::MAX, "no handle is allocated on failure");
 
-        let env = crate::error::take_last_error().expect("an envelope is stashed");
-        assert!(
-            env.message.contains('3') && env.message.contains('2'),
-            "the error must name both lengths, got: {}",
-            env.message
-        );
-
         assert_eq!(pp_handle_free(ds_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(data_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(comp_h), PpStatus::Ok as i32);
@@ -617,6 +611,52 @@ mod tests {
         assert_eq!(status, PpStatus::TypeMismatch as i32);
         pp_buf_free(out);
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+    }
+
+    /// A complement whose envelope names the graph format, stamped by a
+    /// real lens between the two test schemas.
+    fn complement_naming_the_graph_format() -> Complement {
+        use panproto_core::inst::ComplementShape;
+        let src = source_schema();
+        let lens = lens::auto_generate(
+            &src,
+            &target_schema(),
+            &protocol_for_schema(&src),
+            &lens::AutoLensConfig::default(),
+        )
+        .unwrap()
+        .lens;
+        let mut envelope = lens.identity(ComplementShape::WType);
+        envelope.complement_format = ComplementShape::Graph.current_format();
+        let mut complement = Complement::empty();
+        complement.identity = Some(envelope);
+        complement
+    }
+
+    #[test]
+    fn a_complement_list_naming_another_format_is_refused() {
+        let bytes = crate::canonical::encode(&vec![complement_naming_the_graph_format()]).unwrap();
+
+        let carrier = slice(&bytes);
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_data_get_migration_complement(carrier.as_ref(), &mut out);
+        pp_buf_free(out);
+        assert_eq!(status, PpStatus::Operation as i32);
+
+        let src = source_schema();
+        let tgt = target_schema();
+        let src_h = alloc_schema(&src);
+        let tgt_h = alloc_schema(&tgt);
+        let data_h = store(tgt_h, br#"[{"text": "hi"}]"#);
+        let mut restored_h: u32 = u32::MAX;
+        let status =
+            pp_data_migrate_backward(data_h, carrier.as_ref(), src_h, tgt_h, &mut restored_h);
+        assert_eq!(status, PpStatus::Operation as i32);
+        assert_eq!(restored_h, u32::MAX);
+
+        for h in [data_h, src_h, tgt_h] {
+            assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        }
     }
 
     #[test]

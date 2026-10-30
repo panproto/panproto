@@ -3,10 +3,21 @@
 //! The evaluator is pure, deterministic, and WASM-safe. It tracks a step
 //! counter (decremented on each reduction) and a depth counter (incremented
 //! on each recursive call) to bound computation.
+//!
+//! A NaN that evaluation computes is the canonical quiet NaN,
+//! [`CANONICAL_NAN`](crate::exact::CANONICAL_NAN) (bits
+//! `0x7ff8000000000000`), whatever sign and payload the platform's
+//! arithmetic gave it: each builtin that computes a float returns it in
+//! place of any NaN result. A NaN that evaluation binds or passes along
+//! keeps its bits: one bound to a variable, written as a literal, or
+//! returned by `Head`, a field access or a branch is returned as it was
+//! given, so a cell's NaN that a transform passes through is written back
+//! unchanged. So two evaluations that compute NaNs return equal values, bit
+//! for bit, and a NaN that is passed through is the NaN of its source.
 
 use std::sync::Arc;
 
-use crate::builtin::apply_builtin;
+use crate::builtin::{apply_builtin, same_value};
 use crate::env::Env;
 use crate::error::ExprError;
 use crate::expr::{BuiltinOp, Expr, Pattern};
@@ -169,10 +180,16 @@ fn eval_inner(
         Expr::App(func, arg) => eval_app(func, arg, env, depth, state),
 
         Expr::Record(fields) => {
-            let mut result = Vec::with_capacity(fields.len());
+            // A record is the map its fields define: a later field of a name
+            // replaces the value of the earlier one, in the earlier one's
+            // place.
+            let mut result: Vec<(Arc<str>, Literal)> = Vec::with_capacity(fields.len());
             for (name, expr) in fields {
-                let val = eval_inner(expr, env, depth + 1, state)?;
-                result.push((Arc::clone(name), val));
+                let val = datum(eval_inner(expr, env, depth + 1, state)?)?;
+                match result.iter_mut().find(|(k, _)| k == name) {
+                    Some(existing) => existing.1 = val,
+                    None => result.push((Arc::clone(name), val)),
+                }
             }
             Ok(Literal::Record(result))
         }
@@ -180,7 +197,7 @@ fn eval_inner(
         Expr::List(items) => {
             let mut result = Vec::with_capacity(items.len());
             for item in items {
-                let val = eval_inner(item, env, depth + 1, state)?;
+                let val = datum(eval_inner(item, env, depth + 1, state)?)?;
                 result.push(val);
             }
             if result.len() > state.max_list_len {
@@ -190,12 +207,10 @@ fn eval_inner(
         }
 
         Expr::Field(expr, field) => {
-            let val = eval_inner(expr, env, depth + 1, state)?;
+            let val = datum(eval_inner(expr, env, depth + 1, state)?)?;
             match &val {
-                Literal::Record(fields) => fields
-                    .iter()
-                    .find(|(k, _)| k == field)
-                    .map(|(_, v)| v.clone())
+                Literal::Record(fields) => record_field(fields, field)
+                    .cloned()
                     .ok_or_else(|| ExprError::FieldNotFound(field.to_string())),
                 _ => Err(ExprError::TypeError {
                     expected: "record".into(),
@@ -231,20 +246,39 @@ fn eval_inner(
                 BuiltinOp::Fold => eval_fold(args, env, depth, state),
                 BuiltinOp::FlatMap => eval_flat_map(args, env, depth, state),
                 BuiltinOp::Range => eval_range(args, env, depth, state),
-                _ => {
+                _ if state.resolver.handles(*op) => {
                     let evaluated: Result<Vec<_>, _> = args
                         .iter()
                         .map(|a| eval_inner(a, env, depth + 1, state))
                         .collect();
-                    let evaluated = evaluated?;
-                    if state.resolver.handles(*op) {
-                        state.resolver.apply(*op, &evaluated)
-                    } else {
-                        apply_builtin(*op, &evaluated)
-                    }
+                    state.resolver.apply(*op, &evaluated?)
+                }
+                _ => {
+                    // Each operand of a first-order builtin is a data value,
+                    // checked as soon as it is evaluated: the first function
+                    // among them is refused before any later operand runs.
+                    let evaluated: Result<Vec<_>, _> = args
+                        .iter()
+                        .map(|a| eval_inner(a, env, depth + 1, state).and_then(datum))
+                        .collect();
+                    apply_builtin(*op, &evaluated?)
                 }
             }
         }
+    }
+}
+
+/// The data value `lit` is, refusing a function where a value is required.
+///
+/// Functions are first-class while they are bound, passed or applied, but a
+/// record field, a list item, an indexed or matched value, an operand of a
+/// first-order builtin and the list, initial value and results of a
+/// higher-order builtin are data: a function in any of those places is
+/// [`ExprError::NotAFunction`].
+fn datum(lit: Literal) -> Result<Literal, ExprError> {
+    match lit {
+        Literal::Closure { .. } => Err(ExprError::NotAFunction),
+        other => Ok(other),
     }
 }
 
@@ -327,31 +361,28 @@ fn eval_range(
     depth: u32,
     state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
-    if args.len() != 2 {
+    // Every argument is evaluated, each a data value, before the arity and
+    // the bounds are checked, as for any first-order builtin.
+    let mut bounds = Vec::with_capacity(args.len());
+    for arg in args {
+        bounds.push(datum(eval_inner(arg, env, depth + 1, state)?)?);
+    }
+    if bounds.len() != 2 {
         return Err(ExprError::ArityMismatch {
             op: "Range".into(),
             expected: 2,
-            got: args.len(),
+            got: bounds.len(),
         });
     }
-    let start = match eval_inner(&args[0], env, depth + 1, state)? {
-        Literal::Int(n) => n,
-        other => {
-            return Err(ExprError::TypeError {
-                expected: "int".into(),
-                got: other.type_name().into(),
-            });
-        }
+    let bound = |lit: &Literal| match lit {
+        Literal::Int(n) => Ok(*n),
+        other => Err(ExprError::TypeError {
+            expected: "int".into(),
+            got: other.type_name().into(),
+        }),
     };
-    let stop = match eval_inner(&args[1], env, depth + 1, state)? {
-        Literal::Int(n) => n,
-        other => {
-            return Err(ExprError::TypeError {
-                expected: "int".into(),
-                got: other.type_name().into(),
-            });
-        }
-    };
+    let start = bound(&bounds[0])?;
+    let stop = bound(&bounds[1])?;
 
     if stop < start {
         return Ok(Literal::List(Vec::new()));
@@ -417,11 +448,9 @@ fn apply_closure(
 }
 
 /// Evaluate an index expression: `expr[idx]`.
-#[allow(
-    clippy::cast_possible_wrap,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
+///
+/// The list, then the index, each a data value; a negative index, like one
+/// at or past the length, is out of bounds.
 fn eval_index(
     expr: &Expr,
     idx_expr: &Expr,
@@ -429,26 +458,20 @@ fn eval_index(
     depth: u32,
     state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
-    let val = eval_inner(expr, env, depth + 1, state)?;
-    let idx = eval_inner(idx_expr, env, depth + 1, state)?;
+    let val = datum(eval_inner(expr, env, depth + 1, state)?)?;
+    let idx = datum(eval_inner(idx_expr, env, depth + 1, state)?)?;
     match (&val, &idx) {
-        (Literal::List(items), Literal::Int(i)) => {
-            let index = if *i < 0 {
-                (items.len() as i64 + i) as usize
-            } else {
-                *i as usize
-            };
-            items
-                .get(index)
-                .cloned()
-                .ok_or(ExprError::IndexOutOfBounds {
-                    index: *i,
-                    len: items.len(),
-                })
-        }
-        _ => Err(ExprError::TypeError {
-            expected: "(list, int)".into(),
-            got: format!("({}, {})", val.type_name(), idx.type_name()),
+        (Literal::List(items), Literal::Int(i)) => usize::try_from(*i)
+            .ok()
+            .and_then(|index| items.get(index))
+            .cloned()
+            .ok_or(ExprError::IndexOutOfBounds {
+                index: *i,
+                len: items.len(),
+            }),
+        (Literal::List(_), other) | (other, _) => Err(ExprError::TypeError {
+            expected: "list and int".into(),
+            got: other.type_name().into(),
         }),
     }
 }
@@ -461,7 +484,7 @@ fn eval_match(
     depth: u32,
     state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
-    let val = eval_inner(scrutinee, env, depth + 1, state)?;
+    let val = datum(eval_inner(scrutinee, env, depth + 1, state)?)?;
     for (pattern, body) in arms {
         if let Some(bindings) = match_pattern(pattern, &val) {
             let mut new_env = env.clone();
@@ -488,7 +511,7 @@ fn eval_map(
             got: args.len(),
         });
     }
-    let list_val = eval_inner(&args[0], env, depth + 1, state)?;
+    let list_val = datum(eval_inner(&args[0], env, depth + 1, state)?)?;
     let items = match list_val {
         Literal::List(items) => items,
         other => {
@@ -502,7 +525,7 @@ fn eval_map(
     let func = &args[1];
     let mut result = Vec::with_capacity(items.len());
     for item in &items {
-        let val = apply_lambda(func, item, env, depth + 1, state)?;
+        let val = datum(apply_lambda(func, item, env, depth + 1, state)?)?;
         result.push(val);
     }
     if result.len() > state.max_list_len {
@@ -525,7 +548,7 @@ fn eval_filter(
             got: args.len(),
         });
     }
-    let list_val = eval_inner(&args[0], env, depth + 1, state)?;
+    let list_val = datum(eval_inner(&args[0], env, depth + 1, state)?)?;
     let items = match list_val {
         Literal::List(items) => items,
         other => {
@@ -539,7 +562,7 @@ fn eval_filter(
     let pred = &args[1];
     let mut result = Vec::new();
     for item in &items {
-        let keep = apply_lambda(pred, item, env, depth + 1, state)?;
+        let keep = datum(apply_lambda(pred, item, env, depth + 1, state)?)?;
         match keep {
             Literal::Bool(true) => result.push(item.clone()),
             Literal::Bool(false) => {}
@@ -568,7 +591,7 @@ fn eval_fold(
             got: args.len(),
         });
     }
-    let list_val = eval_inner(&args[0], env, depth + 1, state)?;
+    let list_val = datum(eval_inner(&args[0], env, depth + 1, state)?)?;
     let items = match list_val {
         Literal::List(items) => items,
         other => {
@@ -579,13 +602,13 @@ fn eval_fold(
         }
     };
 
-    let mut acc = eval_inner(&args[1], env, depth + 1, state)?;
+    let mut acc = datum(eval_inner(&args[1], env, depth + 1, state)?)?;
     let func = &args[2];
 
     for item in &items {
         // func is a curried binary function: λacc. λitem. body
         // Apply it to acc, then to item.
-        acc = apply_lambda_2(func, &acc, item, env, depth + 1, state)?;
+        acc = datum(apply_lambda_2(func, &acc, item, env, depth + 1, state)?)?;
     }
     Ok(acc)
 }
@@ -604,7 +627,7 @@ fn eval_flat_map(
             got: args.len(),
         });
     }
-    let list_val = eval_inner(&args[0], env, depth + 1, state)?;
+    let list_val = datum(eval_inner(&args[0], env, depth + 1, state)?)?;
     let items = match list_val {
         Literal::List(items) => items,
         other => {
@@ -618,7 +641,7 @@ fn eval_flat_map(
     let func = &args[1];
     let mut result = Vec::new();
     for item in &items {
-        let sub_list = apply_lambda(func, item, env, depth + 1, state)?;
+        let sub_list = datum(apply_lambda(func, item, env, depth + 1, state)?)?;
         match sub_list {
             Literal::List(sub_items) => result.extend(sub_items),
             other => {
@@ -667,6 +690,16 @@ fn apply_lambda_2(
     apply_closure(&partial, arg2, depth, state)
 }
 
+/// The value of a record's field: its last field of that name, which replaces
+/// any earlier one.
+fn record_field<'a>(fields: &'a [(Arc<str>, Literal)], name: &str) -> Option<&'a Literal> {
+    fields
+        .iter()
+        .rev()
+        .find(|(k, _)| &**k == name)
+        .map(|(_, v)| v)
+}
+
 /// Try to match a value against a pattern, returning bindings on success.
 fn match_pattern(pattern: &Pattern, value: &Literal) -> Option<Vec<(Arc<str>, Literal)>> {
     let mut bindings = Vec::new();
@@ -684,17 +717,22 @@ fn match_inner(
 ) -> bool {
     match pattern {
         Pattern::Wildcard => true,
+        // A name repeated in a pattern matches only values equal to the one
+        // its first occurrence bound.
         Pattern::Var(name) => {
-            bindings.push((Arc::clone(name), value.clone()));
-            true
+            if let Some((_, bound)) = bindings.iter().find(|(bound, _)| bound == name) {
+                same_value(bound, value)
+            } else {
+                bindings.push((Arc::clone(name), value.clone()));
+                true
+            }
         }
-        Pattern::Lit(lit) => lit == value,
+        Pattern::Lit(lit) => same_value(lit, value),
         Pattern::Record(field_pats) => {
             if let Literal::Record(fields) = value {
                 for (pat_name, pat) in field_pats {
-                    let field_val = fields.iter().find(|(k, _)| k == pat_name);
-                    match field_val {
-                        Some((_, v)) => {
+                    match record_field(fields, pat_name) {
+                        Some(v) => {
                             if !match_inner(pat, v, bindings) {
                                 return false;
                             }
@@ -725,17 +763,15 @@ fn match_inner(
         Pattern::Constructor(tag, arg_pats) => {
             // Constructors match against records with a "$tag" field
             if let Literal::Record(fields) = value {
-                let tag_field = fields.iter().find(|(k, _)| &**k == "$tag");
-                if let Some((_, Literal::Str(t))) = tag_field {
+                if let Some(Literal::Str(t)) = record_field(fields, "$tag") {
                     if t.as_str() != &**tag {
                         return false;
                     }
                     // Match remaining args against "$0", "$1", etc. fields
                     for (i, pat) in arg_pats.iter().enumerate() {
                         let key = format!("${i}");
-                        let field_val = fields.iter().find(|(k, _)| k.as_ref() == key.as_str());
-                        match field_val {
-                            Some((_, v)) => {
+                        match record_field(fields, &key) {
+                            Some(v) => {
                                 if !match_inner(pat, v, bindings) {
                                     return false;
                                 }

@@ -53,7 +53,7 @@ const getput = lens.checkGetPut(instanceBytes);
 const putget = lens.checkPutGet(instanceBytes);
 ```
 
-`LensHandle.checkLaws(instance)` returns a `LawCheckResult { holds, violation }` covering GetPut and PutGet together. `checkGetPut` and `checkPutGet` test each law individually; the Rust property tests in `panproto-lens` cover PutPut as well, exercised continuously in CI.
+`LensHandle.checkLaws(instance)` returns a `LawCheckResult { holds, violation }` for five ordered gates: GetPut, PutGet, totality over the finite single-step mutation basis, PutTwice complement stability, and congruence. `checkGetPut` and `checkPutGet` retain the two narrow checks. The separate Rust `check_put_put` operation checks the stronger PutPut equation, and the property tests in `panproto-lens` exercise it continuously in CI.
 
 ## Common mistakes
 

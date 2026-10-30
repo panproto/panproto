@@ -112,7 +112,9 @@ extension ProtocolHandle {
     ///
     /// - Returns: the protocol behind this handle.
     /// - Throws: ``PanprotoError`` in the ``PanprotoError/io(_:)``
-    ///   domain when the handle is stale or names another slab variant.
+    ///   domain when the index is unallocated or names another slab variant.
+    ///   Calling this method after `release()` is forbidden because a
+    ///   same-variant allocation may have reused the numeric index.
     @PanprotoEngine
     public func specification() throws(PanprotoError) -> ProtocolSpec {
         let operation = "ProtocolHandle.specification"

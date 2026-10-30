@@ -354,25 +354,29 @@ fn check_signature_coherence(
         let tgt_he = tgt.hyper_edges.get(tgt_he_id);
 
         if let (Some(she), Some(the)) = (src_he, tgt_he) {
-            // Each label in the target signature must map to a surviving vertex.
-            for (label, tgt_vertex_id) in &the.signature {
-                // Determine the source label (via label_map or identity).
-                let src_label = migration
+            // Each source label lands on the target label `label_map` names
+            // for it (the map is keyed by the source label), or on itself;
+            // where that is a label of the target signature, the source
+            // vertex at the label must map to the target vertex there.
+            let mut labels: Vec<&Name> = she.signature.keys().collect();
+            labels.sort();
+            for src_label in labels {
+                let tgt_label = migration
                     .label_map
-                    .get(&(src_he_id.clone(), label.clone()))
-                    .cloned()
-                    .unwrap_or_else(|| label.clone());
-
-                if let Some(src_vertex_id) = she.signature.get(&src_label) {
-                    // Verify the vertex mapping is consistent.
-                    if let Some(mapped) = migration.vertex_map.get(src_vertex_id) {
-                        if mapped != tgt_vertex_id {
-                            errors.push(ExistenceError::SignatureCoherence {
-                                hyper_edge: tgt_he_id.to_string(),
-                                label: label.to_string(),
-                            });
-                        }
-                    }
+                    .get(&(src_he_id.clone(), src_label.clone()))
+                    .unwrap_or(src_label);
+                let (Some(src_vertex_id), Some(tgt_vertex_id)) =
+                    (she.signature.get(src_label), the.signature.get(tgt_label))
+                else {
+                    continue;
+                };
+                if let Some(mapped) = migration.vertex_map.get(src_vertex_id)
+                    && mapped != tgt_vertex_id
+                {
+                    errors.push(ExistenceError::SignatureCoherence {
+                        hyper_edge: tgt_he_id.to_string(),
+                        label: tgt_label.to_string(),
+                    });
                 }
             }
         }
@@ -643,7 +647,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -704,6 +708,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 

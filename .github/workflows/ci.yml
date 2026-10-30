@@ -112,9 +112,45 @@ jobs:
         with:
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
-      # The `ci` nextest profile skips the two multi-minute full-corpus emit
-      # gates; they run in the scheduled `corpus-gate` workflow (and locally by
-      # default). See `.config/nextest.toml`.
+      # The `ci` nextest profile skips the whole-corpus gates and the exact O14
+      # certificates. The former run in the scheduled `corpus-gate` workflow;
+      # the latter run as persisted graph-parity acceptance gates. Every test
+      # still runs locally by default. See `.config/nextest.toml`.
+      - name: Keep O14 acceptance gates outside ordinary CI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The workflow sets CARGO_TERM_COLOR=always, which nextest reads, so
+          # each listing turns colour off to compare plain test names.
+          check_gate() {
+            local package="$1"
+            local binary="$2"
+            local test_name="$3"
+            local selected
+            local available
+            local expected="${package}::${binary} ${test_name}"
+
+            selected="$(cargo nextest list --locked -p "${package}" --test "${binary}" \
+              --profile ci -E "test(=${test_name})" -T oneline --color never \
+              --cargo-quiet --cargo-quiet)"
+            if [[ -n "${selected}" ]]; then
+              echo "${expected} entered the ordinary CI profile" >&2
+              exit 1
+            fi
+
+            available="$(cargo nextest list --locked -p "${package}" --test "${binary}" \
+              --profile ci --ignore-default-filter -E "test(=${test_name})" \
+              -T oneline --color never --cargo-quiet --cargo-quiet)"
+            if [[ "${available}" != "${expected}" ]]; then
+              echo "${expected} is missing or no longer explicitly selectable" >&2
+              exit 1
+            fi
+          }
+
+          check_gate panproto-reference kan o14_executes_every_representative_profile_pair
+          check_gate panproto-reference kan o14_every_labelled_member_has_checked_operation_transports
+          check_gate panproto-inst reference_kan o14_hom_profile_pairs_agree_with_the_reference
       #
       # Full DWARF is the bulk of what a debug build writes, and 250
       # vendored grammars make that enormous. `line-tables-only` keeps
@@ -126,6 +162,16 @@ jobs:
         env:
           CARGO_PROFILE_DEV_DEBUG: line-tables-only
       - run: cargo test --doc --workspace
+        env:
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      # A build that turns on serde_json's `preserve_order` hands document
+      # parsers each object's members in written order rather than sorted.
+      # The default build above cannot tell the two apart, so the member
+      # order tests run again with the feature on.
+      - name: Schema identity under preserve_order
+        run: >-
+          cargo nextest run -p panproto-protocols --features serde_json/preserve_order
+          --no-tests=fail -E 'binary(a_schema_does_not_depend_on_member_order) or test(/key_order::/)'
         env:
           CARGO_PROFILE_DEV_DEBUG: line-tables-only
       - name: Report disk headroom

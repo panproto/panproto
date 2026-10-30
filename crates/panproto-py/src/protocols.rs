@@ -21,148 +21,31 @@ fn grammar_protocol(name: &str) -> Option<Protocol> {
         name: name.to_owned(),
         schema_theory: name.to_owned(),
         instance_theory: name.to_owned(),
-        ..Protocol::default()
+        ..Default::default()
     })
 }
 
 /// Look up a built-in protocol by name.
 ///
+/// Resolves through `panproto_core::protocols::registry`, so every spelling
+/// the registry accepts reaches the protocol: the canonical name
+/// (`rss-atom`), its underscore form (`rss_atom`), and each alias.
 /// Returns ``None`` if the name is not recognized.
 fn lookup(name: &str) -> Option<Protocol> {
-    Some(match name {
-        // annotation (19)
-        "brat" => protocols::annotation::brat::protocol(),
-        "conllu" => protocols::annotation::conllu::protocol(),
-        "naf" => protocols::annotation::naf::protocol(),
-        "uima" => protocols::annotation::uima::protocol(),
-        "folia" => protocols::annotation::folia::protocol(),
-        "tei" => protocols::annotation::tei::protocol(),
-        "timeml" => protocols::annotation::timeml::protocol(),
-        "elan" => protocols::annotation::elan::protocol(),
-        "iso_space" => protocols::annotation::iso_space::protocol(),
-        "paula" => protocols::annotation::paula::protocol(),
-        "laf_graf" => protocols::annotation::laf_graf::protocol(),
-        "decomp" => protocols::annotation::decomp::protocol(),
-        "ucca" => protocols::annotation::ucca::protocol(),
-        "fovea" => protocols::annotation::fovea::protocol(),
-        "bead" => protocols::annotation::bead::protocol(),
-        "web_annotation" => protocols::annotation::web_annotation::protocol(),
-        "amr" => protocols::annotation::amr::protocol(),
-        "concrete" => protocols::annotation::concrete::protocol(),
-        "nif" => protocols::annotation::nif::protocol(),
-        // api (4)
-        "openapi" => protocols::api::openapi::protocol(),
-        "asyncapi" => protocols::api::asyncapi::protocol(),
-        "jsonapi" => protocols::api::jsonapi::protocol(),
-        "raml" => protocols::api::raml::protocol(),
-        "graphql" => protocols::api::graphql::protocol(),
-        // config (3)
-        "cloudformation" => protocols::config::cloudformation::protocol(),
-        "ansible" => protocols::config::ansible::protocol(),
-        "k8s_crd" => protocols::config::k8s_crd::protocol(),
-        // data_schema (2)
-        "cddl" => protocols::data_schema::cddl::protocol(),
-        "bson" => protocols::data_schema::bson::protocol(),
-        "json-schema" => protocols::data_schema::json_schema::protocol(),
-        // data_science (3)
-        "dataframe" => protocols::data_science::dataframe::protocol(),
-        "parquet" => protocols::data_science::parquet::protocol(),
-        "arrow" => protocols::data_science::arrow::protocol(),
-        // database (5)
-        "mongodb" => protocols::database::mongodb::protocol(),
-        "dynamodb" => protocols::database::dynamodb::protocol(),
-        "cassandra" => protocols::database::cassandra::protocol(),
-        "neo4j" => protocols::database::neo4j::protocol(),
-        "redis" => protocols::database::redis::protocol(),
-        "sql" => protocols::database::sql::protocol(),
-        // domain (6)
-        "geojson" => protocols::domain::geojson::protocol(),
-        "fhir" => protocols::domain::fhir::protocol(),
-        "rss_atom" => protocols::domain::rss_atom::protocol(),
-        "vcard_ical" => protocols::domain::vcard_ical::protocol(),
-        "swift_mt" => protocols::domain::swift_mt::protocol(),
-        "edi_x12" => protocols::domain::edi_x12::protocol(),
-        // serialization (5)
-        "avro" => protocols::serialization::avro::protocol(),
-        "flatbuffers" => protocols::serialization::flatbuffers::protocol(),
-        "asn1" => protocols::serialization::asn1::protocol(),
-        "bond" => protocols::serialization::bond::protocol(),
-        "msgpack_schema" => protocols::serialization::msgpack_schema::protocol(),
-        "protobuf" => protocols::serialization::protobuf::protocol(),
-        // web_document (3)
-        "atproto" => protocols::web_document::atproto::protocol(),
-        "docx" => protocols::web_document::docx::protocol(),
-        "odf" => protocols::web_document::odf::protocol(),
-        _ => return None,
-    })
+    protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
-/// All built-in protocol names.
-const BUILTIN_NAMES: &[&str] = &[
-    // annotation
-    "brat",
-    "conllu",
-    "naf",
-    "uima",
-    "folia",
-    "tei",
-    "timeml",
-    "elan",
-    "iso_space",
-    "paula",
-    "laf_graf",
-    "decomp",
-    "ucca",
-    "fovea",
-    "bead",
-    "web_annotation",
-    "amr",
-    "concrete",
-    "nif",
-    // api
-    "openapi",
-    "asyncapi",
-    "jsonapi",
-    "raml",
-    "graphql",
-    // config
-    "cloudformation",
-    "ansible",
-    "k8s_crd",
-    // data_schema
-    "cddl",
-    "bson",
-    "json-schema",
-    // data_science
-    "dataframe",
-    "parquet",
-    "arrow",
-    // database
-    "mongodb",
-    "dynamodb",
-    "cassandra",
-    "neo4j",
-    "redis",
-    "sql",
-    // domain
-    "geojson",
-    "fhir",
-    "rss_atom",
-    "vcard_ical",
-    "swift_mt",
-    "edi_x12",
-    // serialization
-    "avro",
-    "flatbuffers",
-    "asn1",
-    "bond",
-    "msgpack_schema",
-    "protobuf",
-    // web_document
-    "atproto",
-    "docx",
-    "odf",
-];
+/// The protocol a schema names: the built-in or grammar protocol of that
+/// name, or, for a name neither recognizes, a protocol that classifies no
+/// vertex kind.
+pub(crate) fn protocol_for_schema(schema: &panproto_core::schema::Schema) -> Protocol {
+    lookup(&schema.protocol)
+        .or_else(|| grammar_protocol(&schema.protocol))
+        .unwrap_or_else(|| Protocol {
+            name: schema.protocol.clone(),
+            ..Protocol::default()
+        })
+}
 
 // ---------------------------------------------------------------------------
 // Module-level functions
@@ -171,7 +54,10 @@ const BUILTIN_NAMES: &[&str] = &[
 /// List all built-in protocol names.
 #[pyfunction]
 pub fn list_builtin_protocols() -> Vec<String> {
-    let mut names: Vec<String> = BUILTIN_NAMES.iter().map(|s| (*s).to_owned()).collect();
+    let mut names: Vec<String> = protocols::registry::protocol_names()
+        .into_iter()
+        .map(String::from)
+        .collect();
     for g in panproto_grammars::grammars() {
         if !names.iter().any(|n| n == g.name) {
             names.push(g.name.to_owned());
@@ -229,4 +115,27 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(get_builtin_protocol, parent)?)?;
     parent.add_function(wrap_pyfunction!(define_protocol, parent)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn semantic_protocol_prefix_is_the_registry_listing() {
+        let listed = list_builtin_protocols();
+        let expected: Vec<String> = protocols::registry::protocol_names()
+            .into_iter()
+            .map(String::from)
+            .collect();
+
+        assert_eq!(&listed[..expected.len()], expected.as_slice());
+        assert_eq!(
+            listed.len(),
+            listed.iter().collect::<HashSet<_>>().len(),
+            "semantic protocols and appended grammars must not duplicate names"
+        );
+    }
 }

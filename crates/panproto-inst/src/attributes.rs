@@ -4,21 +4,35 @@
 //! schema shape) from *attribute* data (scalar values hanging off objects). An
 //! [`AttributeSchema`] records, per vertex, the attributes an instance node
 //! over that vertex may carry: an ordered list of `(name, value kind)` pairs
-//! derived from the schema's scalar-valued outgoing edges.
+//! derived from the schema's scalar-valued outgoing edges and, where the
+//! protocol classifies the schema into tables, from each table's columns,
+//! structured ones included.
 //!
-//! [`AttributeSchema::validate_wtype`] and
-//! [`AttributeSchema::validate_finstance`] check an instance's attribute
-//! payload against the declaration, reporting undeclared keys and kind
-//! mismatches. The check is opt-in: it is not part of the structural
-//! [`validate_wtype`] pass, since instances
-//! routinely carry round-trip fields that no schema edge declares.
+//! [`AttributeSchema::validate_wtype`], [`AttributeSchema::validate_finstance`]
+//! and [`AttributeSchema::validate_ginstance`] check the attribute payload of
+//! a tree, a table or a graph against the declaration, reporting undeclared
+//! keys and kind mismatches.
+//!
+//! None of the three is a validation boundary: each returns the attribute
+//! violations alone, with no status, and a caller that must know whether an
+//! instance is valid calls [`validate_wtype`](crate::validate::validate_wtype),
+//! [`validate_table`](crate::validate_table) or
+//! [`validate_graph`](crate::validate_graph). Their `Attribute` check, one per
+//! schema vertex, calls these projections and reports their findings as
+//! diagnostics of a [`ValidationReport`](crate::ValidationReport). A node
+//! whose vertex declares no attributes is checked like any other: each field
+//! it carries is undeclared. Only nodes whose anchor is not a schema vertex
+//! are skipped, since the `NodeAnchor` check already refuses them.
 
 use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
-use panproto_schema::Schema;
+use panproto_schema::{Protocol, Schema};
 
 use crate::functor::FInstance;
+use crate::ginstance::GInstance;
+use crate::metadata::NodeShape;
+use crate::rel_schema::RelSchema;
 use crate::value::Value;
 use crate::wtype::WInstance;
 
@@ -38,6 +52,7 @@ pub struct AttributeDecl {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AttributeSchema {
     /// Per-vertex attribute declarations, each ordered by attribute name.
+    /// Every schema vertex has an entry, empty when it declares none.
     pub attrs: HashMap<Name, Vec<AttributeDecl>>,
 }
 
@@ -48,7 +63,7 @@ pub enum AttributeViolation {
     /// An attribute key is present on an instance node but not declared for
     /// that node's vertex.
     Undeclared {
-        /// The offending node id (W-type) or row index (F-instance).
+        /// The offending node id (W-type) or row id (F-instance).
         node_id: u32,
         /// The vertex the node sits over.
         anchor: Name,
@@ -57,7 +72,7 @@ pub enum AttributeViolation {
     },
     /// An attribute value's kind does not match the declared kind.
     Mistyped {
-        /// The offending node id (W-type) or row index (F-instance).
+        /// The offending node id (W-type) or row id (F-instance).
         node_id: u32,
         /// The vertex the node sits over.
         anchor: Name,
@@ -71,15 +86,22 @@ pub enum AttributeViolation {
 }
 
 impl AttributeSchema {
-    /// Derive the attribute discipline of a schema.
+    /// Derive the attribute discipline of a schema under a protocol.
     ///
     /// For each vertex, its attributes are its outgoing edges whose target is a
-    /// *leaf* vertex (one with no outgoing edges of its own). The attribute
-    /// name is the edge label, or the target vertex id when the edge is
-    /// unlabeled; the value kind is the target vertex's kind. Attributes are
-    /// ordered by name; duplicate names keep the first declaration.
+    /// *leaf* vertex (one with no outgoing edges of its own), and, when
+    /// [`RelSchema::new`] classifies the schema under `protocol`, each column
+    /// of each table: an attribute arrow into a value vertex, whose value may
+    /// be structured (the vertex has inner value edges, all part of the one
+    /// value a cell holds). The attribute name is the edge label, or the
+    /// target vertex id when the edge is unlabeled; the value kind is the
+    /// target vertex's kind. Attributes are ordered by name; duplicate names
+    /// keep the first declaration. A protocol with no value kinds (such as
+    /// [`Protocol::default`]) classifies no vertex as a value vertex, so
+    /// every table it classifies has no column, and only the leaf edges are
+    /// declared.
     #[must_use]
-    pub fn from_schema(schema: &Schema) -> Self {
+    pub fn from_schema(schema: &Schema, protocol: &Protocol) -> Self {
         let mut attrs: HashMap<Name, Vec<AttributeDecl>> = HashMap::new();
         for vertex_id in schema.vertices.keys() {
             let mut decls: Vec<AttributeDecl> = Vec::new();
@@ -104,10 +126,26 @@ impl AttributeSchema {
                     kind: tgt_vertex.kind.clone(),
                 });
             }
-            if !decls.is_empty() {
-                decls.sort_by(|a, b| a.name.cmp(&b.name));
-                attrs.insert(vertex_id.clone(), decls);
+            attrs.insert(vertex_id.clone(), decls);
+        }
+        if let Ok(rel) = RelSchema::new(schema, protocol) {
+            for table in rel.tables() {
+                for (name, edge) in rel.columns(table) {
+                    let Some(tgt_vertex) = schema.vertex(edge.tgt.as_ref()) else {
+                        continue;
+                    };
+                    let decls = attrs.entry(table.clone()).or_default();
+                    if decls.iter().all(|d| d.name != *name) {
+                        decls.push(AttributeDecl {
+                            name: name.clone(),
+                            kind: tgt_vertex.kind.clone(),
+                        });
+                    }
+                }
             }
+        }
+        for decls in attrs.values_mut() {
+            decls.sort_by(|a, b| a.name.cmp(&b.name));
         }
         Self { attrs }
     }
@@ -121,9 +159,15 @@ impl AttributeSchema {
     /// Validate the attribute payload (`extra_fields`) of every node in a
     /// W-type instance against this schema.
     ///
-    /// Reports undeclared keys and kind mismatches. Nodes whose anchor has no
-    /// declared attributes are unconstrained (any extra fields are round-trip
-    /// data, not schema attributes) and skipped.
+    /// Reports undeclared keys and kind mismatches. A node whose anchor
+    /// declares no attributes has every field undeclared; nodes whose anchor
+    /// is not a schema vertex are skipped.
+    ///
+    /// Not a validation boundary: it returns the attribute violations alone,
+    /// with no status. The `Attribute` check of
+    /// [`validate_wtype`](crate::validate::validate_wtype) calls it and
+    /// reports its findings as diagnostics of a
+    /// [`ValidationReport`](crate::ValidationReport).
     #[must_use]
     pub fn validate_wtype(&self, instance: &WInstance) -> Vec<AttributeViolation> {
         let mut violations = Vec::new();
@@ -139,19 +183,27 @@ impl AttributeSchema {
     }
 
     /// Validate the columns of every row of a functor (relational) instance
-    /// against this schema. The reported `node_id` is the row index.
+    /// against this schema. The reported `node_id` is the row's
+    /// [`RowId`](crate::RowId); tables are visited in name order, rows in
+    /// ascending id and cells in ascending column.
+    ///
+    /// Not a validation boundary: it returns the attribute violations alone,
+    /// with no status. The `Attribute` check of
+    /// [`validate_table`](crate::validate_table) calls it and reports its
+    /// findings as diagnostics of a
+    /// [`ValidationReport`](crate::ValidationReport).
     #[must_use]
     pub fn validate_finstance(&self, instance: &FInstance) -> Vec<AttributeViolation> {
         let mut violations = Vec::new();
-        for (table, rows) in &instance.tables {
-            let anchor = Name::from(table.as_str());
-            let Some(decls) = self.attrs.get(&anchor) else {
+        for (anchor, table) in instance.tables() {
+            let Some(decls) = self.attrs.get(anchor) else {
                 continue;
             };
-            for (row_idx, row) in rows.iter().enumerate() {
-                let row_id = u32::try_from(row_idx).unwrap_or(u32::MAX);
-                for (key, value) in row {
-                    Self::check_one(row_id, &anchor, key, value, decls, &mut violations);
+            for (row_id, row) in table.rows() {
+                let mut cells: Vec<(&String, &Value)> = row.iter().collect();
+                cells.sort_unstable_by(|a, b| a.0.cmp(b.0));
+                for (key, value) in cells {
+                    Self::check_one(row_id.0, anchor, key, value, decls, &mut violations);
                 }
             }
         }
@@ -184,6 +236,77 @@ impl AttributeSchema {
             Some(_) => {}
         }
     }
+}
+
+impl AttributeSchema {
+    /// Validate the attribute payload (`extra_fields`) of every node of a
+    /// graph instance against this schema, as
+    /// [`validate_wtype`](Self::validate_wtype) does for a tree: undeclared
+    /// keys and kind mismatches, with nodes whose anchor is not a schema
+    /// vertex skipped. Fan nodes carry no attributes and are skipped.
+    /// Nodes are visited in ascending id and fields in ascending key.
+    ///
+    /// Not a validation boundary: it returns the attribute violations alone,
+    /// with no status. The `Attribute` check of
+    /// [`validate_graph`](crate::validate_graph) calls it and reports its
+    /// findings as diagnostics of a [`ValidationReport`](crate::ValidationReport).
+    #[must_use]
+    pub fn validate_ginstance(&self, instance: &GInstance) -> Vec<AttributeViolation> {
+        let mut nodes: Vec<_> = instance
+            .nodes()
+            .values()
+            .filter(|n| n.shape != NodeShape::HyperEdge)
+            .collect();
+        nodes.sort_unstable_by_key(|n| n.id);
+        let mut violations = Vec::new();
+        for node in nodes {
+            let Some(decls) = self.attrs.get(&node.anchor) else {
+                continue;
+            };
+            let mut fields: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
+            fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            for (key, value) in fields {
+                match decls.iter().find(|d| d.name == *key) {
+                    None => violations.push(AttributeViolation::Undeclared {
+                        node_id: node.id,
+                        anchor: node.anchor.clone(),
+                        key: key.clone(),
+                    }),
+                    Some(decl) if !kind_accepts(&decl.kind, value) => {
+                        violations.push(AttributeViolation::Mistyped {
+                            node_id: node.id,
+                            anchor: node.anchor.clone(),
+                            key: key.clone(),
+                            expected: decl.kind.clone(),
+                            found: value.type_name().to_owned(),
+                        });
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        violations
+    }
+}
+
+/// The attribute violations of a tree instance against a schema.
+///
+/// It reports each node whose `extra_fields` carry an attribute key its
+/// vertex does not declare, or a value whose kind does not match the
+/// declaration. A node over a vertex that declares no attributes has every
+/// field undeclared.
+///
+/// Not a validation boundary: it returns the attribute violations alone,
+/// with no status. It derives the schema's [`AttributeSchema`] under
+/// [`Protocol::default`], which has no value kinds, so no table it
+/// classifies has a column and the declared attributes are the leaf edges
+/// alone, and calls [`AttributeSchema::validate_wtype`]: the projection the
+/// `Attribute` check of [`validate_wtype`](crate::validate_wtype) reports as
+/// diagnostics under a protocol that classifies no table with a structured
+/// column.
+#[must_use]
+pub fn validate_attributes(schema: &Schema, instance: &WInstance) -> Vec<AttributeViolation> {
+    AttributeSchema::from_schema(schema, &Protocol::default()).validate_wtype(instance)
 }
 
 /// Returns `true` if a value is admissible for a declared scalar kind.
@@ -338,12 +461,13 @@ mod tests {
             outgoing,
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
     #[test]
     fn derives_ordered_attributes() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let post = attrs.for_vertex("post");
         assert_eq!(post.len(), 2);
         // Ordered by name: count before title.
@@ -355,7 +479,7 @@ mod tests {
 
     #[test]
     fn accepts_declared_and_well_typed() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let mut nodes = HashMap::new();
         nodes.insert(
             0,
@@ -369,7 +493,7 @@ mod tests {
 
     #[test]
     fn flags_undeclared_key() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let mut nodes = HashMap::new();
         nodes.insert(
             0,
@@ -385,7 +509,7 @@ mod tests {
 
     #[test]
     fn flags_mistyped_value() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let mut nodes = HashMap::new();
         nodes.insert(
             0,
@@ -402,18 +526,20 @@ mod tests {
 
     #[test]
     fn validates_finstance_rows() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let good = HashMap::from([
             ("title".to_owned(), Value::Str("x".into())),
             ("count".to_owned(), Value::Int(1)),
         ]);
         let bad = HashMap::from([("count".to_owned(), Value::Str("nope".into()))]);
-        let inst = FInstance::new().with_table("post", vec![good, bad]);
+        let inst = FInstance::new()
+            .with_rows("post", [(crate::RowId(7), good), (crate::RowId(40), bad)])
+            .expect("distinct row ids");
         let v = attrs.validate_finstance(&inst);
         assert_eq!(v.len(), 1);
         assert!(matches!(
             &v[0],
-            AttributeViolation::Mistyped { node_id: 1, key, .. } if key == "count"
+            AttributeViolation::Mistyped { node_id: 40, key, .. } if key == "count"
         ));
     }
 }

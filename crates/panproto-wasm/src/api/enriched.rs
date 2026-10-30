@@ -443,8 +443,16 @@ pub fn migration_coverage(
     let mut failed = 0u64;
     let mut errors: Vec<String> = Vec::new();
 
+    let (src_protocol, tgt_protocol) = (
+        super::helpers::protocol_of(&src_schema),
+        super::helpers::protocol_of(&tgt_schema),
+    );
+    let protocols = panproto_core::inst::BoundaryProtocols {
+        src: &src_protocol,
+        tgt: &tgt_protocol,
+    };
     for (i, instance) in instances.iter().enumerate() {
-        match mig::lift_wtype(&compiled, &src_schema, &tgt_schema, instance) {
+        match mig::lift_wtype(&compiled, &src_schema, &tgt_schema, instance, protocols) {
             Ok(_) => succeeded += 1,
             Err(e) => {
                 failed += 1;
@@ -471,6 +479,67 @@ pub fn migration_coverage(
         "src_vertices": src_schema.vertex_count(),
         "tgt_vertices": tgt_schema.vertex_count(),
     });
+
+    rmp_serde::to_vec_named(&report).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
+/// Run the core coverage analysis and preserve its structured failure reasons.
+///
+/// The `instances_bytes` are a `MessagePack`-encoded `Vec<WInstance>`. The
+/// returned bytes encode [`panproto_core::mig::CoverageReport`], including the
+/// exact [`panproto_core::mig::PartialReason`] for every failed record. Unlike
+/// [`migration_coverage`], this endpoint does not flatten failures into display
+/// strings. The schemas stored with `compiled_handle` are the schemas used by
+/// the analysis, so callers cannot accidentally check the migration against a
+/// different pair.
+///
+/// # Errors
+///
+/// Returns `JsError` if the handle is not a compiled migration with schemas,
+/// the instances cannot be decoded, or the report cannot be encoded.
+#[wasm_bindgen]
+pub fn check_migration_coverage(
+    compiled_handle: u32,
+    instances_bytes: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let instances: Vec<WInstance> =
+        rmp_serde::from_slice(instances_bytes).map_err(|e| WasmError::DeserializationFailed {
+            reason: format!("instances: {e}"),
+        })?;
+
+    let report = slab::with_resource(compiled_handle, |resource| {
+        // Reject composed bare migrations: their synthesized minimal schemas
+        // are sufficient for a structural lift, but not for boundary
+        // validation or a sound coverage certificate.
+        let _ = slab::as_migration(resource)?;
+        let Resource::MigrationWithSchemas {
+            compiled,
+            src_schema,
+            tgt_schema,
+        } = resource
+        else {
+            return Err(WasmError::TypeMismatch {
+                expected: "MigrationWithSchemas",
+                actual: "Migration",
+            });
+        };
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(src_schema),
+            super::helpers::protocol_of(tgt_schema),
+        );
+        let protocols = panproto_core::inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        Ok(mig::check_coverage(
+            compiled, &instances, src_schema, tgt_schema, protocols,
+        ))
+    })?;
 
     rmp_serde::to_vec_named(&report).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
@@ -568,6 +637,7 @@ pub fn refinement_subsort(
 mod tests {
     use super::*;
     use crate::api::test_support;
+    use crate::slab::{self, Resource};
 
     #[test]
     fn schema_add_default_on_existing_vertex() {
@@ -576,5 +646,48 @@ mod tests {
         let value_bytes = rmp_serde::to_vec_named(&value).unwrap();
         let new_h = schema_add_default(schema_h, "post", &value_bytes).unwrap();
         assert_ne!(new_h, u32::MAX, "should allocate an updated schema handle");
+    }
+
+    #[test]
+    fn structured_migration_coverage_round_trips_the_core_report() {
+        let schema = test_support::target_schema();
+        let vertices = schema.vertices.keys().cloned().collect::<Vec<_>>();
+        let edges = schema.edges.keys().cloned().collect::<Vec<_>>();
+        let migration = panproto_core::mig::Migration::identity(&vertices, &edges);
+        let compiled = panproto_core::mig::compile(&schema, &schema, &migration).unwrap();
+        let handle = slab::alloc(Resource::MigrationWithSchemas {
+            compiled,
+            src_schema: std::sync::Arc::new(schema.clone()),
+            tgt_schema: std::sync::Arc::new(schema.clone()),
+        });
+        let schema_handle = test_support::schema_handle(&schema);
+        let instance_bytes =
+            crate::api::json_to_instance(schema_handle, br#"{"text":"hello"}"#).unwrap();
+        let instance: WInstance = rmp_serde::from_slice(&instance_bytes).unwrap();
+        let invalid = WInstance::new(
+            std::collections::HashMap::new(),
+            Vec::new(),
+            Vec::new(),
+            77,
+            "post".into(),
+        );
+        let instances = rmp_serde::to_vec_named(&vec![instance, invalid]).unwrap();
+
+        let report_bytes = check_migration_coverage(handle, &instances).unwrap();
+        let report: panproto_core::mig::CoverageReport =
+            rmp_serde::from_slice(&report_bytes).unwrap();
+
+        assert_eq!(report.total_records, 2);
+        assert_eq!(report.successful, 1);
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(report.failed[0].record_id, 77);
+        match &report.failed[0].reason {
+            panproto_core::mig::PartialReason::BoundaryValidation { side, report } => {
+                assert_eq!(*side, panproto_core::inst::BoundarySide::Input);
+                assert_ne!(report.status, panproto_core::gat::CheckStatus::Passed);
+            }
+            other => panic!("expected the exact boundary report, got {other:?}"),
+        }
+        assert_eq!(report.coverage_ratio, 0.5);
     }
 }

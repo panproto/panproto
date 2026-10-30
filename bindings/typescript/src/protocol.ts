@@ -192,7 +192,7 @@ function builtinProtocolBytes(name: string, wasm: WasmModule): Uint8Array | unde
   }
 }
 
-/** Lazily cached list of all 54 built-in protocol names from WASM. */
+/** Lazily cached list of all 57 built-in protocol names from WASM. */
 let _protocolNamesCache: readonly string[] | null = null;
 
 /**
@@ -201,7 +201,7 @@ let _protocolNamesCache: readonly string[] | null = null;
  * Lazily fetches the full list from WASM on first call and caches it.
  *
  * @param wasm - The WASM module
- * @returns Array of all 54 built-in protocol names
+ * @returns Array of all 57 built-in protocol names
  */
 export function getProtocolNames(wasm: WasmModule): readonly string[] {
   if (_protocolNamesCache !== null) return _protocolNamesCache;

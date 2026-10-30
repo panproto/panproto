@@ -18,6 +18,9 @@
 //! arrow that loses data cannot sit in a commuting square. Agreement here is
 //! not a proof that the square commutes.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
 use panproto_inst::WInstance;
 use panproto_schema::{Protocol, Schema};
 
@@ -40,20 +43,32 @@ use crate::store::Store;
 /// # Errors
 ///
 /// Returns [`VcsError::SquareNonCommuting`] for the first data set whose
-/// round-trip diverges; propagates migration or store errors.
-pub fn verify_lifted_squares(
+/// round-trip diverges, [`VcsError::UnknownProtocol`] when the source
+/// schema's protocol name resolves neither through the commit's protocol
+/// object, nor `registered`, nor the protocol registry; propagates
+/// migration or store errors.
+pub fn verify_lifted_squares<S: BuildHasher>(
     store: &mut dyn Store,
     commit: &CommitObject,
     lifted_data_ids: &[ObjectId],
     lifted_complement_ids: &[ObjectId],
     src_schema: &Schema,
     tgt_schema: &Schema,
+    registered: &HashMap<String, Protocol, S>,
 ) -> Result<(), VcsError> {
     let existing = commit.complement_ids.len();
-    if lifted_complement_ids.len() != existing + lifted_data_ids.len() {
+    if lifted_data_ids.is_empty() || lifted_complement_ids.len() != existing + lifted_data_ids.len()
+    {
         return Ok(());
     }
-    let protocol = crate::data_mig::protocol_for_schema(src_schema);
+    let stored = crate::data_mig::commit_protocol(store, commit)?;
+    let protocol = crate::data_mig::protocol_for_schema(
+        src_schema,
+        crate::data_mig::ProtocolSources {
+            stored: stored.as_ref(),
+            registered,
+        },
+    )?;
     for (i, (&base_id, &replayed_id)) in commit.data_ids.iter().zip(lifted_data_ids).enumerate() {
         verify_square(
             store,

@@ -1398,8 +1398,8 @@ Usage: schema lens [OPTIONS] <COMMAND>
 
 Commands:
   generate  Generate a lens between two schemas
-  compile   Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain
-  apply     Apply a saved lens chain to data
+  compile   Compile a lens DSL document to a versioned executable artifact
+  apply     Apply a compiled lens artifact, raw chain, or target schema to data
   compose   Compose two protolens chains or schemas
   verify    Verify lens laws on test data
   inspect   Inspect a saved protolens chain
@@ -1485,7 +1485,7 @@ Options:
 #### `schema lens compile`
 
 ```text
-Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain
+Compile a lens DSL document to a versioned executable artifact
 
 Usage: schema lens compile [OPTIONS] <DOC>
 
@@ -1495,19 +1495,19 @@ Arguments:
 Options:
       --body-vertex <BODY_VERTEX>  Parent vertex under which field-level steps attach [default: record:body]
   -v, --verbose                    Enable verbose output
-      --out <OUT>                  Write the chain JSON to this file instead of stdout
+      --out <OUT>                  Write the compiled artifact JSON to this file instead of stdout
   -h, --help                       Print help
 ```
 
 #### `schema lens apply`
 
 ```text
-Apply a saved lens chain to data
+Apply a compiled lens artifact, raw chain, or target schema to data
 
 Usage: schema lens apply [OPTIONS] --protocol <PROTOCOL> <CHAIN> <DATA>
 
 Arguments:
-  <CHAIN>  Path to the protolens chain JSON
+  <CHAIN>  Path to the compiled artifact, raw chain, or target-schema JSON
   <DATA>   Path to the data file
 
 Options:

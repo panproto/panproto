@@ -20,7 +20,9 @@ use crate::steps;
 /// # Errors
 ///
 /// Returns [`LensDslError::UnresolvedRef`] if a reference cannot
-/// be resolved, or propagates compilation errors from inline lenses.
+/// be resolved, [`LensDslError::SymmetricRefInDirectionalCompose`] if a
+/// referenced lens is symmetric, or propagates compilation errors from
+/// inline lenses.
 pub fn compile_compose(
     spec: &ComposeSpec,
     body_vertex: &str,
@@ -34,6 +36,11 @@ pub fn compile_compose(
                 let compiled_ref = resolver(r#ref).ok_or_else(|| LensDslError::UnresolvedRef {
                     lens_ref: r#ref.clone(),
                 })?;
+                if compiled_ref.symmetric.is_some() {
+                    return Err(LensDslError::SymmetricRefInDirectionalCompose {
+                        lens_ref: r#ref.clone(),
+                    });
+                }
                 compiled_parts.push(steps::CompiledSteps {
                     chain: compiled_ref.chain,
                     field_transforms: compiled_ref.field_transforms,
@@ -219,6 +226,45 @@ mod tests {
             compiled.chain.steps.len(),
             referenced_len + 1,
             "named-ref + inline should concatenate their chains"
+        );
+    }
+
+    #[test]
+    fn named_symmetric_ref_is_rejected_by_directional_compose() {
+        let referenced_src = r#"{
+            "id": "dev.example.symmetric",
+            "source": "left",
+            "target": "right",
+            "symmetric": {
+                "left": [{ "remove_field": "left-only" }],
+                "right": [{ "remove_field": "right-only" }]
+            }
+        }"#;
+        let referenced_doc = crate::eval::eval_json(referenced_src).unwrap();
+        let referenced = crate::compile::compile(&referenced_doc, BODY, &|_| None).unwrap();
+        assert!(
+            referenced.symmetric.is_some(),
+            "the referenced fixture must retain both symmetric legs"
+        );
+
+        let spec = ComposeSpec {
+            mode: ComposeMode::Vertical,
+            lenses: vec![LensRef::Ref {
+                r#ref: "dev.example.symmetric".to_owned(),
+            }],
+        };
+        let error = compile_compose(&spec, BODY, &|id| {
+            (id == "dev.example.symmetric").then(|| referenced.clone())
+        })
+        .expect_err("a directed compose cannot consume a symmetric reference");
+
+        assert!(
+            matches!(
+                error,
+                LensDslError::SymmetricRefInDirectionalCompose { lens_ref }
+                    if lens_ref == "dev.example.symmetric"
+            ),
+            "the rejection must identify the referenced symmetric document"
         );
     }
 

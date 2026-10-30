@@ -624,7 +624,9 @@ pp_graph_preferred_path (
 /** \brief
  *  Free a handle, marking its slab slot reusable.
  *
- *  Double-free is safe: a freed slot stays freed.
+ *  Freeing an out-of-range or already-free handle is a no-op. A freed
+ *  handle may be handed out again by a later allocation, so a handle must
+ *  not be freed after its owner has freed it once.
  */
 int32_t
 pp_handle_free (
@@ -855,7 +857,9 @@ pp_inst_to_json (
  *  handle. `instance` is a CBOR-encoded
  *  `panproto_core::inst::WInstance`. On success, `out` receives a
  *  CBOR-encoded `Vec<String>` of validation messages (empty means
- *  valid). Calls `inst::validate_wtype`.
+ *  valid). Calls `inst::validate_wtype` under the schema's protocol (a
+ *  built-in one when the name is recognized), and reports the messages of
+ *  the entries that decide the report's status.
  *
  *  The validation pass always returns [`PpStatus::Ok`] when it can run
  *  to completion: individual violations are reported as message
@@ -1006,11 +1010,13 @@ pp_lens_check_get_put (
     Vec_uint8_t * out);
 
 /** \brief
- *  Check both `GetPut` and `PutGet` lens laws on a test instance.
+ *  Run the five strict lens gates on a test instance.
  *
  *  `migration` is a migration/lens handle; `instance` is a CBOR-encoded
  *  `WInstance`. On success, `out` receives a CBOR-encoded
- *  [`LawCheckResult`]. Calls `lens::check_laws`.
+ *  [`LawCheckResult`]. The gates run in order: `GetPut`, `PutGet`, totality
+ *  over the finite single-step basis, `PutTwice`, and congruence. Calls
+ *  `lens::check_laws`.
  */
 int32_t
 pp_lens_check_laws (
@@ -1031,13 +1037,18 @@ pp_lens_check_put_get (
     Vec_uint8_t * out);
 
 /** \brief
- *  Compile a lens DSL document into a protolens chain.
+ *  Compile a lens DSL document into a chain-compatible document handle.
  *
  *  `source` is UTF-8 DSL source; `format` is the UTF-8 format name
  *  (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
  *  field-level steps. On success, `out_handle` receives a fresh
- *  chain-compatible compiled-document handle. Calls
+ *  [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
  *  `panproto_core::lens_dsl::{eval, compile}`.
+ *  This directional entry point rejects a `symmetric` body; use
+ *  [`pp_lens_symmetric_from_schemas`] and [`pp_lens_symmetric_sync`] for the
+ *  symmetric boundary. An accepted handle retains the directional document's
+ *  ordered structural and value-transform stages. [`pp_protolens_instantiate`]
+ *  accepts it only when normalization yields one concrete lens group.
  *
  *  Nickel (`ncl`) is intentionally unsupported here, matching the WASM
  *  boundary: Nickel evaluation requires a filesystem for its contract
@@ -1059,8 +1070,12 @@ pp_lens_compile_document (
  *  `map<string, string>` from each referenced lens `id` to its document
  *  source (in the same `format`); a `compose` body's `ref` entries are
  *  resolved against this map. On success, `out_handle` receives a fresh
- *  chain-compatible compiled-document handle. Calls
+ *  [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
  *  `panproto_core::lens_dsl::compile_with_refs`.
+ *  This is the same directional boundary as [`pp_lens_compile_document`]: a
+ *  root document with a `symmetric` body is rejected before allocation. A
+ *  directed `compose` body is also rejected if any referenced document is
+ *  symmetric, because selecting one leg would discard the referenced span.
  *
  *  Nickel (`ncl`) is intentionally unsupported, matching
  *  [`pp_lens_compile_document`].
@@ -1196,7 +1211,10 @@ pp_mig_compile (
  *  `m1` and `m2` are migration handles (either
  *  [`Resource::Migration`](crate::handle::Resource) or
  *  `MigrationWithSchemas`). On success, `out_handle` receives a fresh
- *  [`Resource::Migration`](crate::handle::Resource) handle. Calls
+ *  migration handle. When both operands carry their schemas, the result
+ *  retains the first source and second target schemas so later lifts can
+ *  validate both exact boundaries; otherwise the result is a bare
+ *  [`Resource::Migration`](crate::handle::Resource). Calls
  *  [`crate::api::helpers::compose_compiled`].
  */
 int32_t
@@ -1322,9 +1340,13 @@ pp_protocol_serialize (
 /** \brief
  *  Serialize a protolens chain to JSON.
  *
- *  `chain` is a protolens chain handle. On success, `out` receives JSON
- *  bytes describing each step (name, endofunctors, lossless flag) per
- *  [`ProtolensStepInfo`].
+ *  `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+ *  A compiled document is summarized through its compatibility-chain
+ *  projection, so ordered stage boundaries and value transforms are absent.
+ *  On success, `out` receives JSON bytes describing each projected step
+ *  (name, endofunctors, lossless flag) per [`ProtolensStepInfo`]. This is a
+ *  lossy inspection summary, not the serialized `ProtolensChain` shape
+ *  accepted by [`pp_protolens_from_json`].
  */
 int32_t
 pp_protolens_chain_to_json (
@@ -1334,8 +1356,10 @@ pp_protolens_chain_to_json (
 /** \brief
  *  Get the complement spec for a protolens chain at a schema.
  *
- *  `chain` is a protolens chain handle; `schema` is a schema handle. On
- *  success, `out` receives a CBOR-encoded
+ *  `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle;
+ *  `schema` is a schema handle. A compiled document is inspected through its
+ *  compatibility-chain projection, which omits ordered stage boundaries and
+ *  value transforms. On success, `out` receives a CBOR-encoded
  *  `panproto_core::lens::ComplementSpec`. Calls
  *  `lens::chain_complement_spec`.
  */
@@ -1348,7 +1372,10 @@ pp_protolens_complement_spec (
 /** \brief
  *  Compose two protolens chains.
  *
- *  `chain1` and `chain2` are protolens chain handles. On success,
+ *  `chain1` and `chain2` are `ProtolensChain` or chain-compatible
+ *  `CompiledLensDoc` handles. Compiled documents contribute only their
+ *  compatibility-chain projections, so the result does not retain ordered
+ *  stage boundaries or value transforms. On success,
  *  `out_handle` receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
  *  the concatenated steps.
@@ -1389,8 +1416,10 @@ pp_protolens_from_json (
 /** \brief
  *  Fuse a protolens chain into a single composite step.
  *
- *  `chain` is a protolens chain handle. On success, `out_handle`
- *  receives a fresh
+ *  `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+ *  A compiled document contributes only its compatibility-chain projection,
+ *  so the result does not retain ordered stage boundaries or value transforms.
+ *  On success, `out_handle` receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
  *  the fused step. Calls `ProtolensChain::fuse`.
  */
@@ -1408,7 +1437,9 @@ pp_protolens_fuse (
  *  `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
  *  Plain chains call `ProtolensChain::instantiate`; compiled documents use
- *  their ordered-stage instantiation.
+ *  their ordered-stage instantiation and retain value transforms at their
+ *  stage positions. A compiled document is refused when its normalized path
+ *  has more than one group because this ABI returns one concrete lens.
  */
 int32_t
 pp_protolens_instantiate (
@@ -1424,7 +1455,9 @@ pp_protolens_instantiate (
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
  *  `out` receives a CBOR-encoded list of match records, each a map with
  *  `node_id`, `anchor`, `value`, and `fields`. Calls
- *  [`inst::execute_query`].
+ *  [`inst::execute_query`]; a predicate it refuses before evaluation (a
+ *  repeated child name, a structural child that is no tree, a value with no
+ *  expression literal) yields [`PpStatus::Operation`].
  *
  *  The schema handle must resolve to a
  *  [`Resource::Schema`](crate::handle::Resource); a bad handle yields
@@ -1563,7 +1596,8 @@ pp_schema_from_cbor (
  *
  *  `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
  *  receives a CBOR-encoded metadata record mirroring the WASM
- *  `schema_metadata` payload (`{ protocol, vertices, edges }`).
+ *  `schema_metadata` payload (`{ protocol, vertices, edges }`), with the
+ *  vertices in id order and the edges in edge order.
  */
 int32_t
 pp_schema_metadata (

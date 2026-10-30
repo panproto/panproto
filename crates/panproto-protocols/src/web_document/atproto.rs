@@ -12,7 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use panproto_gat::{Name, Sort, Theory, pushout_by_name};
+use panproto_gat::{Name, Theory};
 use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder};
 use smallvec::SmallVec;
 
@@ -25,7 +25,7 @@ use crate::theories;
 /// Instance theory: `ThWType + ThMeta`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "atproto".into(),
         schema_theory: "ThATProtoSchema".into(),
         instance_theory: "ThATProtoInstance".into(),
@@ -68,82 +68,101 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `ATProto` with a theory registry.
 ///
 /// Registers `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`,
-/// and the composed `ThATProtoSchema` and `ThATProtoInstance`.
+/// and the composed `ThATProtoSchema` and `ThATProtoInstance`, replacing
+/// any theory `registry` already holds under one of these names. Each
+/// composed theory is one diagram composed with explicit identity: the
+/// schema is [`theories::constrained_multigraph_diagram`], and the instance
+/// is `ThWType` and `ThMeta` sharing `Node` and `Value` through `ThNode`.
+/// Their compositions, and the one-node composition of each building
+/// block, are then available from [`theories::registered_composition`].
 ///
-/// Registration is atomic. The two composed theories are built by
-/// pushout before anything is written, so a failure leaves `registry`
-/// untouched rather than populated with the components and missing a
-/// composite. A caller that ignored the error would otherwise hold a
-/// registry that looks initialized and silently validates nothing.
+/// Registration is atomic. Both composed theories are built before
+/// anything is written, so a failure leaves `registry` untouched rather
+/// than populated with the components and missing a composite. A caller
+/// that ignored the error would otherwise hold a registry that looks
+/// initialized and silently validates nothing.
 ///
 /// # Errors
 ///
 /// Returns [`ProtocolError::TheoryRegistration`] naming the composition
 /// stage that failed and the error it failed with.
+///
+/// # Panics
+///
+/// Panics if a building block does not compose on its own, or if a name
+/// was recorded before with another composition. Both are defects in the
+/// building blocks, not runtime input errors.
 pub fn register_theories<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
 ) -> Result<(), ProtocolError> {
-    let th_graph = theories::th_graph();
-    let th_constraint = theories::th_constraint();
-    let th_multi = theories::th_multi();
-    let th_wtype = theories::th_wtype();
-    let th_meta = theories::th_meta();
+    register_diagrams(
+        registry,
+        &theories::constrained_multigraph_diagram(),
+        &theories::wtype_meta_diagram("ThNode"),
+    )
+}
 
-    // Compose both derived theories before writing anything. A pushout
-    // that fails then leaves `registry` exactly as it was, rather than
-    // holding the five component theories with one or both composites
-    // silently absent.
+/// The name `ATProto` registers its schema theory under.
+const SCHEMA_THEORY: &str = "ThATProtoSchema";
 
-    // Schema theory, step 1: colimit(ThGraph, ThConstraint) over shared Vertex.
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = pushout_by_name(&th_graph, &th_constraint, &shared_vertex)
-        .map(|r| r.theory)
-        .map_err(|source| ProtocolError::TheoryRegistration {
-            stage: "ThGraph and ThConstraint over ThVertex".into(),
-            source: Box::new(source),
-        })?;
+/// The name `ATProto` registers its instance theory under.
+const INSTANCE_THEORY: &str = "ThATProtoInstance";
 
-    // Schema theory, step 2: colimit(gc, ThMulti) over shared {Vertex, Edge}.
-    let shared_ve = Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-        vec![],
-        vec![],
+/// [`register_theories`] over the given schema and instance diagrams.
+fn register_diagrams<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema: &theories::RegistrationDiagram,
+    instance: &theories::RegistrationDiagram,
+) -> Result<(), ProtocolError> {
+    let stage = |what: &str, diagram: &theories::RegistrationDiagram| {
+        let blocks: Vec<&str> = diagram.blocks.iter().map(|t| &*t.name).collect();
+        let shared: Vec<&str> = diagram.shared.iter().map(|(t, _)| &*t.name).collect();
+        format!(
+            "the {what} theory from {} over {}",
+            blocks.join(", "),
+            shared.join(", ")
+        )
+    };
+    let fail = |what: &str, diagram: &theories::RegistrationDiagram| {
+        let stage = stage(what, diagram);
+        move |error: panproto_gat::CompositionError| ProtocolError::TheoryRegistration {
+            stage,
+            source: Box::new(error.into()),
+        }
+    };
+    let schema_composition = schema
+        .compose(SCHEMA_THEORY)
+        .map_err(fail("schema", schema))?;
+    let instance_composition = instance
+        .compose(INSTANCE_THEORY)
+        .map_err(fail("instance", instance))?;
+
+    // Everything constructed; commit the whole set, replacing what the
+    // registry holds under these names and recording each building
+    // block's own composition as the other helpers do.
+    schema.register_blocks(registry, theories::ExistingBlock::Replace);
+    instance.register_blocks(registry, theories::ExistingBlock::Replace);
+    theories::record(
+        SCHEMA_THEORY,
+        &schema_composition,
+        schema.recipe(SCHEMA_THEORY),
     );
-    let mut schema_theory = pushout_by_name(&gc, &th_multi, &shared_ve)
-        .map(|r| r.theory)
-        .map_err(|source| ProtocolError::TheoryRegistration {
-            stage: "ThGraph+ThConstraint and ThMulti over ThVertexEdge".into(),
-            source: Box::new(source),
-        })?;
-    schema_theory.name = "ThATProtoSchema".into();
-
-    // Instance theory: colimit(ThWType, ThMeta) over shared Node.
-    let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    let mut inst_theory = pushout_by_name(&th_wtype, &th_meta, &shared_node)
-        .map(|r| r.theory)
-        .map_err(|source| ProtocolError::TheoryRegistration {
-            stage: "ThWType and ThMeta over ThNode".into(),
-            source: Box::new(source),
-        })?;
-    inst_theory.name = "ThATProtoInstance".into();
-
-    // Everything constructed; commit the whole set.
-    registry.insert("ThGraph".into(), th_graph);
-    registry.insert("ThConstraint".into(), th_constraint);
-    registry.insert("ThMulti".into(), th_multi);
-    registry.insert("ThWType".into(), th_wtype);
-    registry.insert("ThMeta".into(), th_meta);
-    registry.insert("ThATProtoSchema".into(), schema_theory);
-    registry.insert("ThATProtoInstance".into(), inst_theory);
-
+    theories::record(
+        INSTANCE_THEORY,
+        &instance_composition,
+        instance.recipe(INSTANCE_THEORY),
+    );
+    registry.insert(SCHEMA_THEORY.into(), schema_composition.theory);
+    registry.insert(INSTANCE_THEORY.into(), instance_composition.theory);
     Ok(())
 }
 
@@ -153,10 +172,11 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(
 /// and edges for structural relationships (properties, array items,
 /// union variants, references).
 ///
-/// A `$ref` to a def in another lexicon document resolves to an opaque
-/// `"ref"`-kind placeholder vertex, because this entry point sees only
-/// the one document. To resolve refs across a set of documents, use
-/// [`parse_lexicon_bundle`].
+/// A `$ref` to a def in another lexicon document resolves to an
+/// `"unknown"`-kind placeholder vertex, because this entry point sees
+/// only the one document: the placeholder holds the referenced data as
+/// one opaque value of any shape, as a Lexicon `unknown` field does. To
+/// resolve refs across a set of documents, use [`parse_lexicon_bundle`].
 ///
 /// # Errors
 ///
@@ -172,7 +192,7 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 /// Every document's defs are registered as vertices before any
 /// document's structure is parsed, so a `nsid#frag` ref into a *sibling*
 /// document lands on that def's real, typed vertex instead of on an
-/// opaque `"ref"` placeholder. A ref whose target is in no document of
+/// opaque `"unknown"` placeholder. A ref whose target is in no document of
 /// the bundle still becomes a placeholder, which is what marks it as
 /// genuinely external.
 ///
@@ -184,6 +204,8 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 /// or `defs`, [`ProtocolError::Parse`] if two documents declare the
 /// same `id`, or a construction error from the schema builder.
 pub fn parse_lexicon_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::all_in_key_order(docs);
+    let docs = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -394,6 +416,7 @@ fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -624,8 +647,8 @@ fn resolve_ref_target(lexicon_id: &str, ref_target: &str) -> String {
 }
 
 /// Emit the structural morphism for a `ref` property: resolve the
-/// target, ensure a placeholder vertex exists for cross-lexicon
-/// targets, and add a `ref` edge `src_vertex_id --ref--> resolved`.
+/// target, ensure a placeholder vertex exists for a target no parsed
+/// document defines, and add a `ref` edge `src_vertex_id --ref--> resolved`.
 ///
 /// Keeps the signature of the schema graph complete: every semantic
 /// reference in the lexicon becomes an edge in `C_S`, so the referenced
@@ -639,13 +662,14 @@ fn add_ref_edge(
 ) -> Result<SchemaBuilder, ProtocolError> {
     let resolved = resolve_ref_target(lexicon_id, ref_target);
 
-    // Ensure the target vertex exists. Cross-lexicon refs and forward
-    // refs to yet-unparsed defs need a placeholder; mirrors how
-    // `parse_union_def` handles unresolved variants. Using `"ref"` kind
-    // for placeholders marks them as opaque pointers rather than
-    // typed structures.
+    // Every def of every parsed document is registered before any ref
+    // is added, so a missing target is defined in no parsed document.
+    // Its shape is unknown here, so the placeholder is an `"unknown"`
+    // vertex: a record's data at it is one opaque value of any shape,
+    // exactly as at a Lexicon `unknown` field. A non-scalar kind would
+    // leave that data no declared place to go.
     if !builder.has_vertex(&resolved) {
-        builder = builder.vertex(&resolved, "ref", None)?;
+        builder = builder.vertex(&resolved, "unknown", None)?;
     }
 
     builder = builder.edge(src_vertex_id, &resolved, "ref", None)?;
@@ -1192,6 +1216,58 @@ fn edge_rules() -> Vec<EdgeRule> {
 mod tests {
     use super::*;
 
+    /// The instance span shares `Value` as well as `Node`: `ThWType` and
+    /// `ThMeta` both declare it, and registration identifies only what a
+    /// shared theory lists, so without it the two `Value`s clash and
+    /// registration fails, as a typed error, leaving the registry as it
+    /// was.
+    #[test]
+    fn atproto_registration_failure_is_a_theory_registration_error() {
+        let mut node_only = theories::wtype_meta_diagram("ThNode");
+        node_only.shared[0].0 = Theory::new(
+            "ThNode",
+            vec![panproto_gat::Sort::simple("Node")],
+            vec![],
+            vec![],
+        );
+        let mut registry: HashMap<String, Theory> = HashMap::new();
+        let Err(error) = register_diagrams(
+            &mut registry,
+            &theories::constrained_multigraph_diagram(),
+            &node_only,
+        ) else {
+            panic!("a clash of Value is refused");
+        };
+        let ProtocolError::TheoryRegistration { stage, source } = error else {
+            panic!("expected TheoryRegistration, got {error:?}");
+        };
+        assert_eq!(
+            stage,
+            "the instance theory from ThWType, ThMeta over ThNode"
+        );
+        let panproto_gat::GatError::Composition(composition) = *source else {
+            panic!("expected a composition error, got {source:?}");
+        };
+        assert!(
+            matches!(
+                *composition,
+                panproto_gat::CompositionError::NameClash {
+                    kind: panproto_gat::SymKind::Sort,
+                    ref name,
+                    ..
+                } if &**name == "Value"
+            ),
+            "{composition:?}"
+        );
+        assert!(registry.is_empty(), "{:?}", registry.keys());
+
+        register_theories(&mut registry)
+            .unwrap_or_else(|e| panic!("the declared span registers: {e}"));
+        let instance = theories::registered_composition(INSTANCE_THEORY)
+            .unwrap_or_else(|| panic!("the instance composition is recorded"));
+        assert!(instance.report.name_clash_free);
+    }
+
     /// A bundle's hyper-edges, spans, coercions, and policies describe
     /// the bundle. Each per-file schema must carry only its own share of
     /// them, not a copy of the whole set.
@@ -1233,6 +1309,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         monolith.hyper_edges.insert(
             Name::from("fan"),
@@ -1773,7 +1850,7 @@ mod tests {
     }
 
     /// Parsing one document alone leaves its cross-document ref target
-    /// an opaque `"ref"` placeholder: this is the behavior
+    /// an opaque `"unknown"` placeholder: this is the behavior
     /// `parse_lexicon_bundle` exists to improve on.
     #[test]
     #[allow(clippy::expect_used)]
@@ -1783,7 +1860,7 @@ mod tests {
 
         let anchor_def = &schema.vertices["pub.layers.defs#spatioTemporalAnchor"];
         assert_eq!(
-            &*anchor_def.kind, "ref",
+            &*anchor_def.kind, "unknown",
             "a lone document cannot type its cross-file ref target"
         );
     }
@@ -1836,7 +1913,7 @@ mod tests {
 
         assert_eq!(
             &*schema.vertices["pub.layers.defs#spatioTemporalAnchor"].kind,
-            "ref"
+            "unknown"
         );
     }
 

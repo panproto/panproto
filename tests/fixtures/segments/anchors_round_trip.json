@@ -1,0 +1,142 @@
+{
+  "description": "four anchors and four edge labels, with ghosts and in-stubs carrying the remote anchors, under interleaved ranges",
+  "schema": "7fd55141c5ffd88e170644619c143a052f595e024d65878cb6713783f711d076",
+  "partition": {
+    "shape": "graph",
+    "specs": [
+      {
+        "id": 0,
+        "nodes": [
+          {
+            "lo": 0,
+            "hi": 0
+          },
+          {
+            "lo": 20,
+            "hi": 20
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      },
+      {
+        "id": 1,
+        "nodes": [
+          {
+            "lo": 1,
+            "hi": 19
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      }
+    ]
+  },
+  "instance": {
+    "nodes": {
+      "0": {
+        "id": 0,
+        "anchor": "person",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "1": {
+        "id": 1,
+        "anchor": "place",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "10": {
+        "id": 10,
+        "anchor": "event",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "20": {
+        "id": 20,
+        "anchor": "person",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      }
+    },
+    "edges": {
+      "0": {
+        "src": 0,
+        "tgt": 10,
+        "edge": {
+          "src": "person",
+          "tgt": "event",
+          "kind": "prop",
+          "name": "attends"
+        },
+        "position": null
+      },
+      "1": {
+        "src": 10,
+        "tgt": 1,
+        "edge": {
+          "src": "event",
+          "tgt": "place",
+          "kind": "prop",
+          "name": "at"
+        },
+        "position": null
+      },
+      "2": {
+        "src": 10,
+        "tgt": 20,
+        "edge": {
+          "src": "event",
+          "tgt": "person",
+          "kind": "prop",
+          "name": "host"
+        },
+        "position": null
+      },
+      "3": {
+        "src": 20,
+        "tgt": 0,
+        "edge": {
+          "src": "person",
+          "tgt": "person",
+          "kind": "prop",
+          "name": "knows"
+        },
+        "position": null
+      }
+    }
+  },
+  "expected": {
+    "instance_digest": "6dadaab58dc05f405c3ab23a59da25d21529526df5684974341fc5a03c7fff20",
+    "segments": [
+      "971c527ce55fa539802a93121b34c28fc25943fc00e9ba5be24a069619c5983a",
+      "f11b382e677bf81569d92521afe95ae15ef25588047b7cf762e7b08243e0faa7"
+    ],
+    "manifest_root": "100ca676004b598110fb2238cec20769045fd693f0cd525be9935139b3351dd6",
+    "manifest_digest": "42bbd0e82face228727c1b2d77f9832fde3100f07fd4525b11b896768a109427"
+  }
+}

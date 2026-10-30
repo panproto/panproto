@@ -26,7 +26,7 @@ fn protocol_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         }],
         obj_kinds: vec!["object".into(), "string".into()],
         constraint_sorts: vec!["maxLength".into()],
-        ..Protocol::default()
+        ..Default::default()
     };
 
     let bytes = rmp_serde::to_vec(&protocol)?;
@@ -127,6 +127,10 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         arc_order: vec![(0, 99)],
         original_values: HashMap::new(),
         synthesized_nodes: std::collections::HashSet::new(),
+        original_anchors: HashMap::new(),
+        id_floor: 0,
+        synthesized_keys: std::collections::BTreeMap::new(),
+        identity: None,
     };
 
     // Named encoding, matching every `Complement` site on the WASM

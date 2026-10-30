@@ -225,6 +225,11 @@ pp_data_get_migration_complement (
  *  view with its complement. On success, `out_handle` receives a fresh
  *  [`Resource::DataSet`](crate::handle::Resource) handle re-anchored to
  *  the source schema.
+ *
+ *  The complement list must hold exactly one entry per record in the
+ *  data set. A mismatch returns `PP_STATUS_OPERATION` with both lengths
+ *  named in the error envelope, rather than restoring the shorter of
+ *  the two and reporting the truncated count as if it were complete.
  */
 int32_t
 pp_data_migrate_backward (
@@ -587,7 +592,7 @@ pp_graph_fiber_decomposition (
  *  Construct the internal hom schema `[S, T]`.
  *
  *  `source_schema` and `target_schema` are CBOR-encoded
- *  [`Schema`](panproto_core::schema::Schema) values. For each source
+ *  [`Schema`] values. For each source
  *  vertex in `S`, the hom schema contains choice and backward vertices
  *  encoding all structure-preserving maps from `S` to `T`. On success,
  *  `out` receives the CBOR-encoded hom `Schema`. Calls `inst::hom_schema`.
@@ -619,7 +624,9 @@ pp_graph_preferred_path (
 /** \brief
  *  Free a handle, marking its slab slot reusable.
  *
- *  Double-free is safe: a freed slot stays freed.
+ *  Freeing an out-of-range or already-free handle is a no-op. A freed
+ *  handle may be handed out again by a later allocation, so a handle must
+ *  not be freed after its owner has freed it once.
  */
 int32_t
 pp_handle_free (
@@ -631,6 +638,10 @@ pp_handle_free (
  *  Arguments match [`pp_hom_find_morphisms`]. On success, `out`
  *  receives a CBOR-encoded `Option<FoundMorphismWire>`. Calls
  *  `hom_search::find_best_morphism`.
+ *
+ *  A CBOR `null` means no total morphism exists. A search that could not be
+ *  posed returns `PpStatus::Operation` instead, so a host is never told "no
+ *  morphism exists" about a pair the engine could not search.
  */
 int32_t
 pp_hom_find_best_morphism (
@@ -657,7 +668,9 @@ pp_hom_find_best_morphism (
  *  non-increasing quality order trivially and a host reading element zero gets
  *  what it always got. A host that walked the list for a suboptimal
  *  alternative will not find one: there is no k-best over distinct quality
- *  levels. Empty means no total morphism exists.
+ *  levels. Empty means no total morphism exists, and only that: a search that
+ *  could not be posed returns `PpStatus::Operation` with the reason, rather
+ *  than an empty list under a success status.
  */
 int32_t
 pp_hom_find_morphisms (
@@ -704,7 +717,8 @@ pp_hom_find_span (
  *  success, `out` receives the CBOR-encoded induced `SchemaMorphism`
  *  and `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle
- *  (the compiled source-to-target mapping bundled with its anchoring schemas).
+ *  (the compiled source-to-target mapping bundled with its anchoring
+ *  schemas).
  *  Calls `mig::cascade::induce_migration_from_theory`.
  */
 int32_t
@@ -765,20 +779,25 @@ pp_hom_span_to_overlap (
 /** \brief
  *  Initialize the panproto-c runtime.
  *
- *  Installs a process-global Rust panic hook that suppresses the
- *  default stderr output. Panics are still observable: every entry
- *  point in this module catches them via [`crate::panic::guard`] and
- *  stashes the message in the thread-local last-error slot, which
- *  the host retrieves via [`pp_last_error_take`]. Without this hook
- *  the default Rust handler would print every caught panic to
- *  stderr before `guard` could report it, which is noisy and
- *  surprising for hosts that already report errors through the
- *  status-code channel.
+ *  Installs a Rust panic hook that suppresses the default stderr report
+ *  for panics raised inside a panproto entry point, and *only* for
+ *  those. Such a panic is still observable: every entry point in this
+ *  module catches it via [`crate::panic::guard`] and stashes the message
+ *  in the process-global last-error slot, which the host retrieves via
+ *  [`pp_last_error_take`]. Without the hook the default Rust handler
+ *  would print every caught panic to stderr before `guard` could report
+ *  it, which is noisy and surprising for hosts that already report
+ *  errors through the status-code channel.
  *
- *  Idempotent: calling more than once just re-installs the same
- *  hook. Always returns [`PpStatus::Ok`]. The slab and last-error
- *  slots are thread-local `RefCell`s that initialize lazily, so they
- *  do not need explicit setup.
+ *  A panic anywhere else in the host process is not panproto's to
+ *  silence, so the hook forwards it to whatever hook was installed
+ *  before this call: the host's crash reporter, its logger, or the Rust
+ *  default. Installing happens exactly once no matter how many times
+ *  this is called, so the chain cannot grow and the hook can never
+ *  forward to itself.
+ *
+ *  Always returns [`PpStatus::Ok`]. The slab and the last-error slot are
+ *  process-global statics, so they need no explicit setup.
  */
 int32_t
 pp_init (void);
@@ -838,7 +857,9 @@ pp_inst_to_json (
  *  handle. `instance` is a CBOR-encoded
  *  `panproto_core::inst::WInstance`. On success, `out` receives a
  *  CBOR-encoded `Vec<String>` of validation messages (empty means
- *  valid). Calls `inst::validate_wtype`.
+ *  valid). Calls `inst::validate_wtype` under the schema's protocol (a
+ *  built-in one when the name is recognized), and reports the messages of
+ *  the entries that decide the report's status.
  *
  *  The validation pass always returns [`PpStatus::Ok`] when it can run
  *  to completion: individual violations are reported as message
@@ -989,11 +1010,13 @@ pp_lens_check_get_put (
     Vec_uint8_t * out);
 
 /** \brief
- *  Check both `GetPut` and `PutGet` lens laws on a test instance.
+ *  Run the five strict lens gates on a test instance.
  *
  *  `migration` is a migration/lens handle; `instance` is a CBOR-encoded
  *  `WInstance`. On success, `out` receives a CBOR-encoded
- *  [`LawCheckResult`]. Calls `lens::check_laws`.
+ *  [`LawCheckResult`]. The gates run in order: `GetPut`, `PutGet`, totality
+ *  over the finite single-step basis, `PutTwice`, and congruence. Calls
+ *  `lens::check_laws`.
  */
 int32_t
 pp_lens_check_laws (
@@ -1014,13 +1037,18 @@ pp_lens_check_put_get (
     Vec_uint8_t * out);
 
 /** \brief
- *  Compile a lens DSL document into a protolens chain.
+ *  Compile a lens DSL document into a chain-compatible document handle.
  *
  *  `source` is UTF-8 DSL source; `format` is the UTF-8 format name
  *  (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
  *  field-level steps. On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
  *  `panproto_core::lens_dsl::{eval, compile}`.
+ *  This directional entry point rejects a `symmetric` body; use
+ *  [`pp_lens_symmetric_from_schemas`] and [`pp_lens_symmetric_sync`] for the
+ *  symmetric boundary. An accepted handle retains the directional document's
+ *  ordered structural and value-transform stages. [`pp_protolens_instantiate`]
+ *  accepts it only when normalization yields one concrete lens group.
  *
  *  Nickel (`ncl`) is intentionally unsupported here, matching the WASM
  *  boundary: Nickel evaluation requires a filesystem for its contract
@@ -1042,8 +1070,12 @@ pp_lens_compile_document (
  *  `map<string, string>` from each referenced lens `id` to its document
  *  source (in the same `format`); a `compose` body's `ref` entries are
  *  resolved against this map. On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
  *  `panproto_core::lens_dsl::compile_with_refs`.
+ *  This is the same directional boundary as [`pp_lens_compile_document`]: a
+ *  root document with a `symmetric` body is rejected before allocation. A
+ *  directed `compose` body is also rejected if any referenced document is
+ *  symmetric, because selecting one leg would discard the referenced span.
  *
  *  Nickel (`ncl`) is intentionally unsupported, matching
  *  [`pp_lens_compile_document`].
@@ -1179,7 +1211,10 @@ pp_mig_compile (
  *  `m1` and `m2` are migration handles (either
  *  [`Resource::Migration`](crate::handle::Resource) or
  *  `MigrationWithSchemas`). On success, `out_handle` receives a fresh
- *  [`Resource::Migration`](crate::handle::Resource) handle. Calls
+ *  migration handle. When both operands carry their schemas, the result
+ *  retains the first source and second target schemas so later lifts can
+ *  validate both exact boundaries; otherwise the result is a bare
+ *  [`Resource::Migration`](crate::handle::Resource). Calls
  *  [`crate::api::helpers::compose_compiled`].
  */
 int32_t
@@ -1305,9 +1340,13 @@ pp_protocol_serialize (
 /** \brief
  *  Serialize a protolens chain to JSON.
  *
- *  `chain` is a protolens chain handle. On success, `out` receives JSON
- *  bytes describing each step (name, endofunctors, lossless flag) per
- *  [`ProtolensStepInfo`].
+ *  `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+ *  A compiled document is summarized through its compatibility-chain
+ *  projection, so ordered stage boundaries and value transforms are absent.
+ *  On success, `out` receives JSON bytes describing each projected step
+ *  (name, endofunctors, lossless flag) per [`ProtolensStepInfo`]. This is a
+ *  lossy inspection summary, not the serialized `ProtolensChain` shape
+ *  accepted by [`pp_protolens_from_json`].
  */
 int32_t
 pp_protolens_chain_to_json (
@@ -1317,8 +1356,10 @@ pp_protolens_chain_to_json (
 /** \brief
  *  Get the complement spec for a protolens chain at a schema.
  *
- *  `chain` is a protolens chain handle; `schema` is a schema handle. On
- *  success, `out` receives a CBOR-encoded
+ *  `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle;
+ *  `schema` is a schema handle. A compiled document is inspected through its
+ *  compatibility-chain projection, which omits ordered stage boundaries and
+ *  value transforms. On success, `out` receives a CBOR-encoded
  *  `panproto_core::lens::ComplementSpec`. Calls
  *  `lens::chain_complement_spec`.
  */
@@ -1331,7 +1372,10 @@ pp_protolens_complement_spec (
 /** \brief
  *  Compose two protolens chains.
  *
- *  `chain1` and `chain2` are protolens chain handles. On success,
+ *  `chain1` and `chain2` are `ProtolensChain` or chain-compatible
+ *  `CompiledLensDoc` handles. Compiled documents contribute only their
+ *  compatibility-chain projections, so the result does not retain ordered
+ *  stage boundaries or value transforms. On success,
  *  `out_handle` receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
  *  the concatenated steps.
@@ -1372,8 +1416,10 @@ pp_protolens_from_json (
 /** \brief
  *  Fuse a protolens chain into a single composite step.
  *
- *  `chain` is a protolens chain handle. On success, `out_handle`
- *  receives a fresh
+ *  `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+ *  A compiled document contributes only its compatibility-chain projection,
+ *  so the result does not retain ordered stage boundaries or value transforms.
+ *  On success, `out_handle` receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
  *  the fused step. Calls `ProtolensChain::fuse`.
  */
@@ -1385,11 +1431,15 @@ pp_protolens_fuse (
 /** \brief
  *  Instantiate a protolens chain at a specific schema.
  *
- *  `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource)
- *  handle; `schema` is a [`Resource::Schema`](crate::handle::Resource)
- *  handle. On success, `out_handle` receives a fresh
+ *  `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource) or
+ *  compiled lens-document handle; `schema` is a
+ *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
+ *  `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
- *  Calls `ProtolensChain::instantiate`.
+ *  Plain chains call `ProtolensChain::instantiate`; compiled documents use
+ *  their ordered-stage instantiation and retain value transforms at their
+ *  stage positions. A compiled document is refused when its normalized path
+ *  has more than one group because this ABI returns one concrete lens.
  */
 int32_t
 pp_protolens_instantiate (
@@ -1405,7 +1455,9 @@ pp_protolens_instantiate (
  *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
  *  `out` receives a CBOR-encoded list of match records, each a map with
  *  `node_id`, `anchor`, `value`, and `fields`. Calls
- *  [`inst::execute_query`].
+ *  [`inst::execute_query`]; a predicate it refuses before evaluation (a
+ *  repeated child name, a structural child that is no tree, a value with no
+ *  expression literal) yields [`PpStatus::Operation`].
  *
  *  The schema handle must resolve to a
  *  [`Resource::Schema`](crate::handle::Resource); a bad handle yields
@@ -1544,7 +1596,8 @@ pp_schema_from_cbor (
  *
  *  `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
  *  receives a CBOR-encoded metadata record mirroring the WASM
- *  `schema_metadata` payload (`{ protocol, vertices, edges }`).
+ *  `schema_metadata` payload (`{ protocol, vertices, edges }`), with the
+ *  vertices in id order and the edges in edge order.
  */
 int32_t
 pp_schema_metadata (

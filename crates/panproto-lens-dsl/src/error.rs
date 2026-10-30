@@ -94,6 +94,18 @@ pub enum LensDslError {
         lens_ref: String,
     },
 
+    /// A directed `compose` body referenced a symmetric lens. A symmetric
+    /// lens is a span with two legs and therefore has no single directed
+    /// chain that composition can consume without discarding information.
+    #[error(
+        "referenced lens '{lens_ref}' has a symmetric body and cannot be used in directed compose"
+    )]
+    #[diagnostic(code(panproto_lens_dsl::symmetric_ref_in_directional_compose))]
+    SymmetricRefInDirectionalCompose {
+        /// The referenced symmetric lens document ID.
+        lens_ref: String,
+    },
+
     /// IO error reading a lens file.
     #[error("IO error: {0}")]
     #[diagnostic(code(panproto_lens_dsl::io))]

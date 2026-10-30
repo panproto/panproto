@@ -15,6 +15,7 @@
 module Panproto.Canonical
     ( -- * Protocol
       CanonicalProtocol (..)
+    , InstanceShapeKind (..)
     , defaultProtocol
     , encodeProtocol
     , decodeProtocol
@@ -35,9 +36,12 @@ import Codec.CBOR.Read qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Control.DeepSeq (NFData)
 import Data.ByteString.Lazy qualified as LBS
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+import Panproto.Wire (WireTerm, decodeWireTerm, encodeWireTerm)
 
 -- ---------------------------------------------------------------------------
 -- CanonicalSchema
@@ -98,6 +102,12 @@ emptyEdgeRule =
 -- ---------------------------------------------------------------------------
 -- CanonicalProtocol
 
+-- | The structural shape a protocol reads or denotes.  Rust serializes
+-- @InstanceShapeKind@ as these lowercase strings.
+data InstanceShapeKind = Tree | Table | Graph
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData)
+
 -- | Haskell mirror of @panproto_core::schema::Protocol@.
 --
 -- The fields exposed here cover the structural surface every
@@ -127,6 +137,11 @@ data CanonicalProtocol = CanonicalProtocol
     , hasCoercions :: !Bool
     , hasMergers :: !Bool
     , hasPolicies :: !Bool
+    , syntacticShape :: !InstanceShapeKind
+    , semanticShape :: !InstanceShapeKind
+    , constraintSemantics :: !(HashMap Text WireTerm)
+    , valueKinds :: !(HashMap Text WireTerm)
+    , nonValueKinds :: ![Text]
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData)
@@ -152,6 +167,11 @@ defaultProtocol =
         , hasCoercions = False
         , hasMergers = False
         , hasPolicies = False
+        , syntacticShape = Tree
+        , semanticShape = Tree
+        , constraintSemantics = HM.empty
+        , valueKinds = HM.empty
+        , nonValueKinds = []
         }
 
 -- ---------------------------------------------------------------------------
@@ -178,6 +198,11 @@ fieldName = \case
     FHasCoercions -> "has_coercions"
     FHasMergers -> "has_mergers"
     FHasPolicies -> "has_policies"
+    FSyntacticShape -> "syntactic_shape"
+    FSemanticShape -> "semantic_shape"
+    FConstraintSemantics -> "constraint_semantics"
+    FValueKinds -> "value_kinds"
+    FNonValueKinds -> "non_value_kinds"
 
 -- | Internal: enumerable field tags so encode and decode share spelling.
 data ProtocolField
@@ -198,6 +223,11 @@ data ProtocolField
     | FHasCoercions
     | FHasMergers
     | FHasPolicies
+    | FSyntacticShape
+    | FSemanticShape
+    | FConstraintSemantics
+    | FValueKinds
+    | FNonValueKinds
     deriving stock (Eq, Show, Bounded, Enum)
 
 -- ---------------------------------------------------------------------------
@@ -230,6 +260,11 @@ encodeProtocol p =
             <> entry FHasCoercions (Enc.encodeBool p.hasCoercions)
             <> entry FHasMergers (Enc.encodeBool p.hasMergers)
             <> entry FHasPolicies (Enc.encodeBool p.hasPolicies)
+            <> entry FSyntacticShape (encodeShape p.syntacticShape)
+            <> entry FSemanticShape (encodeShape p.semanticShape)
+            <> entry FConstraintSemantics (encodeWireMap p.constraintSemantics)
+            <> entry FValueKinds (encodeWireMap p.valueKinds)
+            <> entry FNonValueKinds (encodeStringList p.nonValueKinds)
   where
     entry f v = Enc.encodeString (fieldName f) <> v
 
@@ -237,6 +272,17 @@ encodeStringList :: [Text] -> Enc.Encoding
 encodeStringList xs =
     Enc.encodeListLen (fromIntegral (length xs))
         <> mconcat (map Enc.encodeString xs)
+
+encodeShape :: InstanceShapeKind -> Enc.Encoding
+encodeShape = Enc.encodeString . \case
+    Tree -> "tree"
+    Table -> "table"
+    Graph -> "graph"
+
+encodeWireMap :: HashMap Text WireTerm -> Enc.Encoding
+encodeWireMap m =
+    Enc.encodeMapLen (fromIntegral (HM.size m))
+        <> HM.foldMapWithKey (\k v -> Enc.encodeString k <> encodeWireTerm v) m
 
 encodeEdgeRules :: [EdgeRule] -> Enc.Encoding
 encodeEdgeRules xs =
@@ -330,12 +376,47 @@ readOneEntry acc = do
             (\v -> acc {hasMergers = v}) <$> Dec.decodeBool
         k | k == fieldName FHasPolicies ->
             (\v -> acc {hasPolicies = v}) <$> Dec.decodeBool
+        k | k == fieldName FSyntacticShape ->
+            (\v -> acc {syntacticShape = v}) <$> decodeShape
+        k | k == fieldName FSemanticShape ->
+            (\v -> acc {semanticShape = v}) <$> decodeShape
+        k | k == fieldName FConstraintSemantics ->
+            (\v -> acc {constraintSemantics = v}) <$> decodeWireMap
+        k | k == fieldName FValueKinds ->
+            (\v -> acc {valueKinds = v}) <$> decodeWireMap
+        k | k == fieldName FNonValueKinds ->
+            (\v -> acc {nonValueKinds = v}) <$> decodeStringList
         _ -> do
             -- Unknown field: skip its value and keep going. This is
             -- what permits the Rust side to grow new fields without
             -- breaking the Haskell decoder.
             skipTerm
             pure acc
+
+decodeShape :: Decoder s InstanceShapeKind
+decodeShape = Dec.decodeString >>= \case
+    "tree" -> pure Tree
+    "table" -> pure Table
+    "graph" -> pure Graph
+    other -> fail ("unknown instance shape kind: " <> T.unpack other)
+
+decodeWireMap :: Decoder s (HashMap Text WireTerm)
+decodeWireMap = HM.fromList <$> decodeMapPairs Dec.decodeString decodeWireTerm
+
+decodeMapPairs :: Decoder s k -> Decoder s v -> Decoder s [(k, v)]
+decodeMapPairs decodeKey decodeValue = do
+    len <- Dec.decodeMapLenOrIndef
+    case len of
+        Just n -> goN n
+        Nothing -> goIndef
+  where
+    goN 0 = pure []
+    goN n = (:) <$> ((,) <$> decodeKey <*> decodeValue) <*> goN (n - 1 :: Int)
+    goIndef = do
+        stop <- Dec.decodeBreakOr
+        if stop
+            then pure []
+            else (:) <$> ((,) <$> decodeKey <*> decodeValue) <*> goIndef
 
 decodeStringList :: Decoder s [Text]
 decodeStringList = do

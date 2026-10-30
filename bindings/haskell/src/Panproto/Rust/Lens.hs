@@ -359,7 +359,9 @@ stringencyBytes = utf8 . tierText
         Exploratory -> "exploratory"
 
 -- | Free a slab handle, turning a non-@Ok@ status into a 'PanprotoError'.
--- Idempotent at the slab level (double free is a no-op on the Rust side).
+-- This is a one-shot ownership action. A repeated call is harmless only
+-- while the slot remains free; after slot reuse, the stale numeric handle
+-- aliases and frees the new resource.
 freeHandle :: Word32 -> IO ()
 freeHandle h = do
     status <- pp_handle_free h

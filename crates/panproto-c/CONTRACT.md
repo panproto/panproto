@@ -27,15 +27,21 @@ conventions for each function.
   JSON or raw text.
 - Every function returns `int32_t` (a `PpStatus`): `0` Ok, `1` Err,
   `2` Panic, `3` InvalidHandle, `4` TypeMismatch, `5` Serialization,
-  `6` Internal, `7` Operation. On a non-zero status the host calls
-  `pp_last_error_take` to retrieve a CBOR `ErrorEnvelope`.
+  `6` Internal, `7` Operation, `8` NotSingleStage. On a non-zero status
+  the host calls `pp_last_error_take` to retrieve a CBOR `ErrorEnvelope`.
+- `8` NotSingleStage (envelope tag `not_single_stage`) is returned by
+  `pp_lens_compose` and by `pp_protolens_instantiate` on a compiled
+  document when the resulting lens path normalizes to more than one group.
+  These entry points return one concrete lens, and the groups of such a
+  path cannot be collapsed into one without changing what get and put
+  observe. The message names the operation and the group count.
 
 ## Resource handle taxonomy
 
 Handles index a process-global slab whose variants mirror
 `panproto_wasm::slab`: `Protocol`, `Schema`, `Migration`,
 `MigrationWithSchemas`, `IoRegistry`, `Theory`, `VcsRepo`,
-`ProtolensChain`, `SymmetricLens`, `DataSet`, plus feature-gated
+`ProtolensChain`, `CompiledLensDoc`, `SymmetricLens`, `DataSet`, plus feature-gated
 `AstRegistry` (`full-parse`), `ProjectBuilder` and `ProjectSchema`
 (`project`). One variant has no WASM counterpart: `Model` holds the
 `gat::Model` that `pp_gat_free_model` constructs. A model's operation
@@ -43,12 +49,19 @@ interpretations are closures (`Arc<dyn Fn(...)>`), so the model itself
 never crosses the boundary as data; `pp_gat_eval_in_model` and
 `pp_gat_model_sort_interp` reach it in place.
 
+`CompiledLensDoc` retains the ordered structural and value-transform stages
+of an accepted directional lens DSL document. The directional document
+compilers reject a `symmetric` body, whose two legs use the separate symmetric
+lens API. A compiled document is chain-compatible for inspection and chain
+algebra, but `pp_protolens_instantiate` returns one migration handle only when
+the ordered path normalizes to one concrete lens group.
+
 ## Lifecycle (4)
 
 | Signature | Notes |
 | --- | --- |
 | `int32_t pp_init(void)` | Install the panic hook, which silences only panics raised inside a panproto entry point and forwards the rest to the host's own hook; installs once, however often it is called. |
-| `int32_t pp_handle_free(uint32_t handle)` | Free a slab handle; double-free safe. |
+| `int32_t pp_handle_free(uint32_t handle)` | Free a slab handle exactly once and discard its numeric value; a later allocation may reuse that value for another resource. |
 | `int32_t pp_last_error_take(Vec_uint8_t *out)` | Drain last error as CBOR `ErrorEnvelope`; empty buffer when none. |
 | `void pp_buf_free(Vec_uint8_t buf)` | Free an owned output buffer. |
 
@@ -138,17 +151,17 @@ never crosses the boundary as data; `pp_gat_eval_in_model` and
 | `int32_t pp_lens_get_record(uint32_t migration, slice_ref_uint8_t record, Vec_uint8_t *out)` | CBOR `WInstance` in; CBOR `{ view, complement }` out; calls `lens::get`. |
 | `int32_t pp_lens_put_record(uint32_t migration, slice_ref_uint8_t view, slice_ref_uint8_t complement, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; CBOR `WInstance` out; calls `lens::put`. |
 | `int32_t pp_lens_compose(uint32_t l1, uint32_t l2, uint32_t *out_handle)` | New `MigrationWithSchemas` handle; calls `lens::compose`. |
-| `int32_t pp_protolens_instantiate(uint32_t chain, uint32_t schema, uint32_t *out_handle)` | New `MigrationWithSchemas` handle; calls `ProtolensChain::instantiate`. |
-| `int32_t pp_protolens_complement_spec(uint32_t chain, uint32_t schema, Vec_uint8_t *out)` | CBOR `ComplementSpec` out; calls `lens::chain_complement_spec`. |
+| `int32_t pp_protolens_instantiate(uint32_t chain, uint32_t schema, uint32_t *out_handle)` | Accepts `ProtolensChain` and chain-compatible directional `CompiledLensDoc` handles. A plain chain calls `ProtolensChain::instantiate`; a compiled document instantiates its ordered stages and value transforms, then refuses unless normalization yields one concrete lens group. On success, the function returns a new `MigrationWithSchemas` handle. |
+| `int32_t pp_protolens_complement_spec(uint32_t chain, uint32_t schema, Vec_uint8_t *out)` | CBOR `ComplementSpec` out; calls `lens::chain_complement_spec` on the protolens chain or a compiled document's compatibility-chain projection. The projection omits ordered stage boundaries and value transforms. |
 | `int32_t pp_protolens_from_diff(slice_ref_uint8_t diff, uint32_t schema1, uint32_t schema2, uint32_t *out_handle)` | CBOR `DiffSpec` in; new `ProtolensChain` handle; calls `lens::diff_to_protolens`. |
-| `int32_t pp_protolens_compose(uint32_t chain1, uint32_t chain2, uint32_t *out_handle)` | New `ProtolensChain` handle (concatenated steps). |
-| `int32_t pp_protolens_chain_to_json(uint32_t chain, Vec_uint8_t *out)` | JSON out (`Vec<ProtolensStepInfo>`). |
+| `int32_t pp_protolens_compose(uint32_t chain1, uint32_t chain2, uint32_t *out_handle)` | New `ProtolensChain` handle containing the concatenated compatibility-chain steps. Passing a compiled document projects away its ordered stage boundaries and value transforms. |
+| `int32_t pp_protolens_chain_to_json(uint32_t chain, Vec_uint8_t *out)` | JSON out (`Vec<ProtolensStepInfo>`) is a lossy inspection summary of the compatibility-chain projection; ordered stage boundaries and value transforms are not represented, and `pp_protolens_from_json` does not accept this summary shape. |
 | `int32_t pp_protolens_from_json(slice_ref_uint8_t json, uint32_t *out_handle)` | Raw JSON in; new `ProtolensChain` handle; calls `ProtolensChain::from_json`. |
-| `int32_t pp_protolens_fuse(uint32_t chain, uint32_t *out_handle)` | New `ProtolensChain` handle; calls `ProtolensChain::fuse`. |
+| `int32_t pp_protolens_fuse(uint32_t chain, uint32_t *out_handle)` | New `ProtolensChain` handle; calls `ProtolensChain::fuse` on the compatibility-chain projection, which discards a compiled document's ordered stage boundaries and value transforms. |
 | `int32_t pp_lens_symmetric_from_schemas(uint32_t schema1, uint32_t schema2, uint32_t *out_handle)` | New `SymmetricLens` handle; calls `SymmetricLens::auto_symmetric`. |
 | `int32_t pp_lens_symmetric_sync(uint32_t sym_lens, slice_ref_uint8_t view, slice_ref_uint8_t complement, uint8_t direction, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; `direction` 0=L→R, 1=R→L; CBOR `WInstance` out. |
-| `int32_t pp_lens_compile_document(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, uint32_t *out_handle)` | UTF-8 DSL source; `format` is `json`/`yaml`; new `ProtolensChain` handle; calls `panproto_lens_dsl`. |
-| `int32_t pp_lens_compile_document_with_refs(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, slice_ref_uint8_t refs, uint32_t *out_handle)` | `source`, `format`, and `body_vertex` match `pp_lens_compile_document`; `refs` is a CBOR `HashMap<String, String>` from each referenced lens `id` to its document source in the same `format`, against which a `compose` body's `ref` entries resolve; new `ProtolensChain` handle; calls `lens_dsl::compile_with_refs`. |
+| `int32_t pp_lens_compile_document(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, uint32_t *out_handle)` | UTF-8 DSL source; `format` is `json`/`yaml`; new chain-compatible `CompiledLensDoc` handle retaining authoritative ordered stages and value transforms. This directional entry point rejects a `symmetric` body; use `pp_lens_symmetric_from_schemas` and `pp_lens_symmetric_sync` instead. Calls `panproto_lens_dsl`. |
+| `int32_t pp_lens_compile_document_with_refs(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, slice_ref_uint8_t refs, uint32_t *out_handle)` | `source`, `format`, and `body_vertex` match `pp_lens_compile_document`; `refs` is a CBOR `HashMap<String, String>` from each referenced lens `id` to its document source in the same `format`, against which a `compose` body's `ref` entries resolve; new chain-compatible `CompiledLensDoc` handle. The root document is subject to the same directional-only restriction, and a directed `compose` also rejects a symmetric referenced document rather than discarding one of its legs. Calls `lens_dsl::compile_with_refs`. |
 
 ## gat (9)
 

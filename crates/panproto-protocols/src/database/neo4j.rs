@@ -16,7 +16,7 @@ use crate::theories;
 /// Returns the Neo4j protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "neo4j".into(),
         schema_theory: "ThNeo4jSchema".into(),
         instance_theory: "ThNeo4jInstance".into(),
@@ -44,8 +44,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Neo4j.

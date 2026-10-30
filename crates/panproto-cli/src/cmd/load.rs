@@ -639,8 +639,8 @@ fn empty_globset() -> Result<globset::GlobSet> {
     globset::GlobSetBuilder::new().build().into_diagnostic()
 }
 
-/// Normalize an underscore-keyed protocol name to its canonical
-/// hyphenated form, matching the protocol registry's own dispatch.
+/// Normalize an underscore compatibility spelling to the registry's
+/// canonical hyphenated form.
 fn normalize_protocol(name: &str) -> String {
     name.replace('_', "-")
 }

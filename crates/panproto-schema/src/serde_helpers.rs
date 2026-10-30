@@ -106,52 +106,9 @@ pub mod map_as_vec_default {
 
 /// Serialize a `HashMap` as a map, written in key order.
 ///
-/// Use with `#[serde(with = "sorted_map")]` on fields whose key type *can* be
-/// a JSON object key. The entries are written in key order rather than in the
-/// map's own enumeration order, so one value always produces one encoding.
-pub mod sorted_map {
-    use std::collections::HashMap;
-    use std::hash::{BuildHasher, Hash};
-
-    use serde::de::Deserializer;
-    use serde::ser::{SerializeMap as _, Serializer};
-    use serde::{Deserialize, Serialize};
-
-    /// Serialize a `HashMap` as a map, in key order.
-    ///
-    /// # Errors
-    ///
-    /// Returns a serialization error if any key or value fails to serialize.
-    pub fn serialize<S, K, V, H>(map: &HashMap<K, V, H>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        K: Serialize + Eq + Hash + Ord,
-        V: Serialize,
-        S: Serializer,
-    {
-        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
-        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        let mut entries = serializer.serialize_map(Some(pairs.len()))?;
-        for (key, value) in pairs {
-            entries.serialize_entry(key, value)?;
-        }
-        entries.end()
-    }
-
-    /// Deserialize a map into a `HashMap`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a deserialization error if the input is not a valid map.
-    pub fn deserialize<'de, D, K, V, H>(deserializer: D) -> Result<HashMap<K, V, H>, D::Error>
-    where
-        K: Deserialize<'de> + Eq + Hash,
-        V: Deserialize<'de>,
-        D: Deserializer<'de>,
-        H: BuildHasher + Default,
-    {
-        HashMap::deserialize(deserializer)
-    }
-}
+/// Defined in `panproto-gat`, which this crate depends on, so that theory
+/// morphisms and schemas share one definition.
+pub use panproto_gat::serde_helpers::sorted_map;
 
 /// Serialize a `HashMap` whose values are themselves maps, in key order at
 /// both levels.
@@ -274,6 +231,43 @@ pub mod sorted_set {
     }
 }
 
+/// Serialize a `BTreeMap<K, V>` as `Vec<(K, V)>`, in key order.
+///
+/// Use with `#[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]`
+/// on every serialized `BTreeMap` whose key is neither a string nor an
+/// integer: a struct, a data-carrying enum or a tuple. `serde_json` and
+/// `pythonize` reject such a key as a map key, while a sequence of pairs is
+/// accepted by every self-describing format.
+///
+/// A `BTreeMap` already enumerates in key order, so the pairs are written as
+/// they come. Decoding rejects a key that occurs twice, since a sequence of
+/// pairs, unlike a map, can carry one, and keeping either occurrence silently
+/// would make two different encodings decode to one value.
+///
+/// ```
+/// use std::collections::BTreeMap;
+///
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, PartialEq, Serialize, Deserialize)]
+/// struct Wrapper {
+///     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+///     map: BTreeMap<(u32, u32), String>,
+/// }
+///
+/// let w = Wrapper { map: BTreeMap::from([((2, 0), "b".to_owned()), ((1, 5), "a".to_owned())]) };
+/// let json = serde_json::to_string(&w).unwrap();
+/// assert_eq!(json, r#"{"map":[[[1,5],"a"],[[2,0],"b"]]}"#);
+/// assert_eq!(serde_json::from_str::<Wrapper>(&json).unwrap(), w);
+///
+/// let dup = r#"{"map":[[[1,5],"a"],[[1,5],"b"]]}"#;
+/// assert!(serde_json::from_str::<Wrapper>(dup).is_err());
+/// ```
+///
+/// Defined in `panproto-gat`, which this crate depends on, so that the
+/// composition provenance and schemas share one definition.
+pub use panproto_gat::serde_helpers::btree_map_as_vec;
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -322,6 +316,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let edge = Edge {
@@ -363,6 +358,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let edge = Edge {
@@ -377,5 +373,90 @@ mod tests {
         let recovered: crate::Schema = rmp_serde::from_slice(&bytes).unwrap();
 
         assert_eq!(schema.edges.len(), recovered.edges.len());
+    }
+
+    /// A key type that no map-keyed format accepts: a data-carrying enum.
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    )]
+    #[serde(rename_all = "snake_case")]
+    enum Key {
+        Node(u32),
+        Pair { edge: Edge, src: u32 },
+    }
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Keyed {
+        #[serde(with = "super::btree_map_as_vec")]
+        map: std::collections::BTreeMap<Key, String>,
+    }
+
+    /// The pairs of a [`Keyed`] written without the duplicate check.
+    #[derive(serde::Serialize)]
+    struct Raw {
+        map: Vec<(Key, String)>,
+    }
+
+    fn keyed() -> Keyed {
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: Some("x".into()),
+        };
+        Keyed {
+            map: std::collections::BTreeMap::from([
+                (Key::Pair { edge, src: 1 }, "pair".to_owned()),
+                (Key::Node(7), "seven".to_owned()),
+                (Key::Node(3), "three".to_owned()),
+            ]),
+        }
+    }
+
+    #[test]
+    fn btree_map_as_vec_round_trips_json_and_msgpack() {
+        let value = keyed();
+        let json = serde_json::to_string(&value).unwrap();
+        assert!(json.starts_with(r#"{"map":[[{"node":3},"three"],[{"node":7},"seven"],"#));
+        assert_eq!(serde_json::from_str::<Keyed>(&json).unwrap(), value);
+
+        let bytes = rmp_serde::to_vec_named(&value).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Keyed>(&bytes).unwrap(), value);
+
+        let empty = Keyed {
+            map: std::collections::BTreeMap::new(),
+        };
+        let json = serde_json::to_string(&empty).unwrap();
+        assert_eq!(json, r#"{"map":[]}"#);
+        assert_eq!(serde_json::from_str::<Keyed>(&json).unwrap(), empty);
+    }
+
+    #[test]
+    fn btree_map_as_vec_writes_pairs_in_key_order() {
+        let value = keyed();
+        let json: serde_json::Value = serde_json::to_value(&value).unwrap();
+        let pairs = json["map"].as_array().unwrap();
+        let keys: Vec<Key> = pairs
+            .iter()
+            .map(|p| serde_json::from_value(p[0].clone()).unwrap())
+            .collect();
+        let expected: Vec<Key> = value.map.keys().cloned().collect();
+        assert_eq!(keys, expected);
+        assert!(keys.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn btree_map_as_vec_rejects_duplicate_keys() {
+        let json = r#"{"map":[[{"node":3},"a"],[{"node":3},"b"]]}"#;
+        let err = serde_json::from_str::<Keyed>(json).unwrap_err();
+        assert!(err.to_string().contains("duplicate map key"), "{err}");
+
+        let pairs: Vec<(Key, String)> = vec![
+            (Key::Node(3), "a".to_owned()),
+            (Key::Node(3), "b".to_owned()),
+        ];
+        let bytes = rmp_serde::to_vec_named(&Raw { map: pairs }).unwrap();
+        let err = rmp_serde::from_slice::<Keyed>(&bytes).unwrap_err();
+        assert!(err.to_string().contains("duplicate map key"), "{err}");
     }
 }

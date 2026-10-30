@@ -7,11 +7,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::value::Value;
-use panproto_inst::{FInstance, Node, WInstance};
+use panproto_inst::{BoundaryProtocols, FInstance, Node, WInstance};
 use panproto_mig::hom_search::morphism_to_migration;
 use panproto_mig::{
     Migration, SearchOptions, compile, dependencies_from_schema, discover_overlap,
@@ -32,8 +32,13 @@ fn test_protocol() -> Protocol {
         instance_theory: "ThWType".into(),
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
+        non_value_kinds: BTreeSet::from([
+            "object".to_owned(),
+            "string".to_owned(),
+            "integer".to_owned(),
+        ]),
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -119,6 +124,7 @@ fn bare_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -285,8 +291,9 @@ fn sigma_then_chase_workflow() {
     );
 
     // Create a functor instance with one user row
-    let instance =
-        FInstance::new().with_table("user", vec![row("name", Value::Str("Alice".into()))]);
+    let instance = FInstance::new()
+        .with_table("user", vec![HashMap::new()])
+        .unwrap();
 
     // Build migration: user -> user (identity), no edge mapping yet
     let mig = Migration {
@@ -304,7 +311,18 @@ fn sigma_then_chase_workflow() {
 
     // Compile and apply Sigma_F (extend)
     let compiled = compile(&src_schema, &tgt_schema, &mig).unwrap();
-    let extended = panproto_inst::functor_extend(&instance, &compiled).unwrap();
+    let protocol = test_protocol();
+    let extended = panproto_inst::functor_extend_engine(
+        &instance,
+        &src_schema,
+        &tgt_schema,
+        &compiled,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
 
     // After extend, "user" table should have 1 row, "profile" should be empty
     assert_eq!(extended.row_count("user"), 1);
@@ -329,54 +347,133 @@ fn sigma_then_chase_workflow() {
 // Test 4: pi_functor_product_workflow
 // ===========================================================================
 
+/// The attribute arrow `src -prop(column)-> src.column`.
+fn prop(src: &str, column: &str) -> Edge {
+    Edge {
+        src: src.into(),
+        tgt: format!("{src}.{column}").into(),
+        kind: "prop".into(),
+        name: Some(column.into()),
+    }
+}
+
+/// Tables of kind `table`, each with `integer` columns reached by `prop`
+/// edges.
+fn column_schema(tables: &[(&str, &[&str])]) -> Schema {
+    let mut vertices = HashMap::new();
+    let mut edges = HashMap::new();
+    for (table, columns) in tables {
+        vertices.insert(
+            Name::from(*table),
+            Vertex {
+                id: (*table).into(),
+                kind: "table".into(),
+                nsid: None,
+            },
+        );
+        for column in *columns {
+            let edge = prop(table, column);
+            vertices.insert(
+                edge.tgt.clone(),
+                Vertex {
+                    id: edge.tgt.clone(),
+                    kind: "integer".into(),
+                    nsid: None,
+                },
+            );
+            edges.insert(edge, Name::from("prop"));
+        }
+    }
+    Schema {
+        vertices,
+        edges,
+        ..Schema::default()
+    }
+}
+
 #[test]
 fn pi_functor_product_workflow() {
-    // Two source tables map to the same target vertex via migration
-    let rows_a = vec![row("x", Value::Int(1)), row("x", Value::Int(2))];
-    let rows_b = vec![
-        row("y", Value::Int(10)),
-        row("y", Value::Int(20)),
-        row("y", Value::Int(30)),
-    ];
-
-    let instance = FInstance::new()
-        .with_table("table_a", rows_a)
-        .with_table("table_b", rows_b);
-
-    // Migration: table_a -> merged, table_b -> merged
-    let mut vertex_remap = HashMap::new();
-    vertex_remap.insert(Name::from("table_a"), Name::from("merged"));
-    vertex_remap.insert(Name::from("table_b"), Name::from("merged"));
-
-    let compiled = panproto_inst::CompiledMigration {
-        surviving_verts: HashSet::from([Name::from("merged")]),
-        surviving_edges: HashSet::new(),
-        vertex_remap,
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
+    // Two source tables map to the same target table, each carrying its own
+    // column there. Pi takes the limit over the fibre: the two tables share
+    // no target column, so every pair of one row of each is a cone, and each
+    // limit row holds the cells of both.
+    let src_schema = column_schema(&[("table_a", &["x"]), ("table_b", &["y"])]);
+    let tgt_schema = column_schema(&[("merged", &["x", "y"])]);
+    let protocol = Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "integer".to_owned(),
+            panproto_schema::ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["table".to_owned()]),
+        ..test_protocol()
     };
 
-    // Apply Pi_F (Cartesian product)
-    let result = panproto_inst::functor_pi(&instance, &compiled, 1000).unwrap();
+    let compiled = panproto_inst::CompiledMigration {
+        vertex_remap: HashMap::from([
+            (Name::from("table_a"), Name::from("merged")),
+            (Name::from("table_b"), Name::from("merged")),
+            (Name::from("table_a.x"), Name::from("merged.x")),
+            (Name::from("table_b.y"), Name::from("merged.y")),
+        ]),
+        edge_remap: HashMap::from([
+            (prop("table_a", "x"), prop("merged", "x")),
+            (prop("table_b", "y"), prop("merged", "y")),
+        ]),
+        ..panproto_inst::CompiledMigration::default()
+    };
 
-    // 2 * 3 = 6 product rows
-    assert_eq!(
-        result.row_count("merged"),
-        6,
-        "Cartesian product of 2x3 should yield 6 rows"
-    );
+    let instance = FInstance::new()
+        .with_table(
+            "table_a",
+            vec![row("x", Value::Int(1)), row("x", Value::Int(2))],
+        )
+        .and_then(|f| {
+            f.with_table(
+                "table_b",
+                vec![
+                    row("y", Value::Int(10)),
+                    row("y", Value::Int(20)),
+                    row("y", Value::Int(30)),
+                ],
+            )
+        })
+        .unwrap();
 
-    // Each row should have both x and y columns
-    let rows = result.tables.get("merged").unwrap();
-    for r in rows {
-        assert!(r.contains_key("x"), "product row should have x column");
-        assert!(r.contains_key("y"), "product row should have y column");
+    let result = panproto_inst::functor_pi(
+        &instance,
+        &src_schema,
+        &protocol,
+        &tgt_schema,
+        &protocol,
+        &compiled,
+        1000,
+    )
+    .unwrap();
+
+    assert_eq!(result.row_count("merged"), 6);
+    let mut pairs = Vec::new();
+    for (_, cells) in result.rows("merged") {
+        let mut columns: Vec<&String> = cells.keys().collect();
+        columns.sort();
+        assert_eq!(
+            columns,
+            ["x", "y"],
+            "each row has exactly the cells x and y"
+        );
+        match (&cells["x"], &cells["y"]) {
+            (Value::Int(x), Value::Int(y)) => pairs.push((*x, *y)),
+            other => panic!("integer cells, not {other:?}"),
+        }
     }
+    pairs.sort_unstable();
+    assert_eq!(
+        pairs,
+        [(1, 10), (1, 20), (1, 30), (2, 10), (2, 20), (2, 30)],
+        "the six pairs of one row of each table"
+    );
 }
 
 // ===========================================================================
@@ -515,7 +612,18 @@ fn full_pipeline_auto_morphism_to_lift() {
     let compiled = compile(&old_schema, &new_schema, &mig).unwrap();
 
     // Lift via Sigma_F (left Kan extension) since we have renames
-    let lifted = lift_wtype_sigma(&compiled, &new_schema, &instance).unwrap();
+    let protocol = test_protocol();
+    let lifted = lift_wtype_sigma(
+        &compiled,
+        &old_schema,
+        &new_schema,
+        &instance,
+        panproto_inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
 
     // Verify lifted instance structure
     assert_eq!(lifted.node_count(), 2, "should preserve both nodes");
@@ -632,7 +740,18 @@ fn schema_pushout_with_overlap_and_lift() {
     let instance = WInstance::new(nodes, arcs, vec![], 0, Name::from("root"));
 
     // Lift the instance into the pushout schema
-    let lifted = lift_wtype(&compiled, &schema_a, &pushout, &instance).unwrap();
+    let protocol = test_protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &schema_a,
+        &pushout,
+        &instance,
+        panproto_inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
 
     // Verify the lifted instance has the same node count (all vertices survive)
     assert_eq!(
@@ -903,7 +1022,7 @@ fn record_protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

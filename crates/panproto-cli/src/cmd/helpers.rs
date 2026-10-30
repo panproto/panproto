@@ -42,6 +42,20 @@ pub fn resolve_protocol(name: &str) -> Result<Protocol> {
     Ok((descriptor.protocol)())
 }
 
+/// The protocol a schema names, for reading data against the schema: the
+/// registered protocol of that name, or, for a name the registry does not
+/// know, a protocol that classifies no vertex kind.
+#[must_use]
+pub fn schema_protocol(schema: &Schema) -> Protocol {
+    protocols::registry::descriptor(&schema.protocol).map_or_else(
+        || Protocol {
+            name: schema.protocol.clone(),
+            ..Protocol::default()
+        },
+        |descriptor| (descriptor.protocol)(),
+    )
+}
+
 /// Build a theory registry for a protocol by name.
 ///
 /// # Errors
@@ -283,7 +297,12 @@ pub fn convert_single_file(
     let backward_schema = if is_forward { tgt_schema } else { src_schema };
 
     let root_vertex = infer_root_vertex(forward_schema)?;
-    let instance = inst::parse_json(forward_schema, root_vertex.as_str(), &data_json)
+    let instance = inst::parse_json(
+        forward_schema,
+        &schema_protocol(forward_schema),
+        root_vertex.as_str(),
+        &data_json,
+    )
         .into_diagnostic()
         .wrap_err("failed to parse data as W-type instance")?;
 

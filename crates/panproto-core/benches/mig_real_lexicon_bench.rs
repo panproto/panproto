@@ -197,7 +197,12 @@ fn lift_wtype_identity_real_post(bencher: Bencher) {
     let migration = identity_migration(&schema);
     let compiled = compile(&schema, &schema, &migration).expect("compile");
     let instance = load_post_instance(POST_RECORD_0, &schema);
-    bencher.bench(|| lift_wtype(&compiled, &schema, &schema, &instance));
+    let protocol = panproto_core::protocols::web_document::atproto::protocol();
+    let protocols = panproto_core::inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    bencher.bench(|| lift_wtype(&compiled, &schema, &schema, &instance, protocols));
 }
 
 #[divan::bench]
@@ -207,5 +212,10 @@ fn lift_wtype_identity_real_post_with_reply(bencher: Bencher) {
     let compiled = compile(&schema, &schema, &migration).expect("compile");
     // post-3 includes a reply edge — exercises more of the graph than post-0.
     let instance = load_post_instance(POST_RECORD_3, &schema);
-    bencher.bench(|| lift_wtype(&compiled, &schema, &schema, &instance));
+    let protocol = panproto_core::protocols::web_document::atproto::protocol();
+    let protocols = panproto_core::inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    bencher.bench(|| lift_wtype(&compiled, &schema, &schema, &instance, protocols));
 }

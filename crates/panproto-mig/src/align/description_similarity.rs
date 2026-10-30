@@ -148,7 +148,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into(), "object".into()],
             constraint_sorts: vec!["description".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

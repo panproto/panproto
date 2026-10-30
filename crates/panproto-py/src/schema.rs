@@ -377,6 +377,7 @@ impl PyProtocol {
             has_coercions,
             has_mergers,
             has_policies,
+            ..Default::default()
         };
         Ok(Self { inner })
     }

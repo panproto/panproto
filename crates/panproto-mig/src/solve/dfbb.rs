@@ -1297,7 +1297,7 @@ impl BranchAndBound<'_> {
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 /// let schema = SchemaBuilder::new(&protocol)
 ///     .vertex("root", "object", None::<&str>)?

@@ -49,13 +49,14 @@ pub enum Resource {
     VcsRepo(Box<MemStore>),
     /// A protolens chain (reusable, schema-independent).
     ProtolensChain(Box<ProtolensChain>),
-    /// A compiled lens document with ordered structural and value stages.
+    /// An accepted directional lens document with ordered structural and value
+    /// stages.
     ///
     /// A lens DSL document's `apply_expr` and `compute_field` steps compile
-    /// to field transforms. Keeping the complete document on one handle lets
-    /// [`crate::api::lens::instantiate_protolens`] run each transform in its
-    /// original position. Wherever a plain `ProtolensChain` is expected, this
-    /// variant supplies its compatibility `chain` summary.
+    /// to field transforms. Keeping all accepted directional stages on one
+    /// handle lets [`crate::api::lens::instantiate_protolens`] run each
+    /// transform in its original position. Wherever a plain `ProtolensChain`
+    /// is expected, this variant supplies its compatibility `chain` summary.
     CompiledLensDoc(Box<CompiledLens>),
     /// A symmetric lens.
     SymmetricLensHandle(Box<SymmetricLens>),
@@ -83,6 +84,12 @@ pub fn alloc(resource: Resource) -> u32 {
         slab.push(Some(resource));
         handle
     })
+}
+
+/// Return the number of occupied slots in this thread's slab.
+#[cfg(test)]
+pub(crate) fn live_resource_count() -> usize {
+    SLAB.with_borrow(|slab| slab.iter().flatten().count())
 }
 
 /// Access a resource by handle, returning an error if the handle is
@@ -420,7 +427,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

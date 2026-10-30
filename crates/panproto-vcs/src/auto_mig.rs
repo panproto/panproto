@@ -181,7 +181,7 @@ fn induction_protocol(old: &Schema) -> Protocol {
     Protocol {
         name: old.protocol.clone(),
         obj_kinds,
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -398,6 +398,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

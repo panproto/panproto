@@ -4,11 +4,15 @@
 //! `ComplementType(η, S)`. This is a dependent type: the complement
 //! varies with the schema the protolens is instantiated at.
 
+use std::collections::BTreeSet;
+
 use panproto_gat::Name;
 use panproto_inst::value::Value;
+use panproto_inst::{RelSchema, RelSchemaError};
 use panproto_schema::{Protocol, Schema};
 use serde::{Deserialize, Serialize};
 
+use crate::LensError;
 use crate::protolens::{ComplementConstructor, Protolens, ProtolensChain};
 
 /// Static specification of what data a complement will contain.
@@ -65,6 +69,173 @@ pub struct CapturedField {
     pub description: String,
 }
 
+/// Graph-shaped residue retained by a complement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphResidueKind {
+    /// Data attached directly to a graph node.
+    Node,
+    /// A node or field value.
+    Value,
+    /// An ordinary binary graph edge.
+    Edge,
+    /// A hyper-edge represented by its reified fan node and incident edges.
+    ReifiedHyperedge,
+}
+
+/// Table-shaped residue retained by a complement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TableResidueKind {
+    /// A complete table row.
+    Row,
+    /// One cell value.
+    Cell,
+    /// A pair of row ids instantiating a foreign key.
+    ForeignKeyPair,
+}
+
+/// Shape-neutral complement information plus its graph carrier classes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphComplementSpec {
+    /// Existing shape-neutral complement specification.
+    pub complement: ComplementSpec,
+    /// Distinct graph carrier classes that the complement may retain.
+    pub residue: Vec<GraphResidueKind>,
+}
+
+/// Shape-neutral complement information plus its table carrier classes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableComplementSpec {
+    /// Existing shape-neutral complement specification.
+    pub complement: ComplementSpec,
+    /// Distinct table carrier classes that the complement may retain.
+    pub residue: Vec<TableResidueKind>,
+}
+
+/// Compute a complement specification classified by graph carrier.
+#[must_use]
+pub fn graph_complement_spec_at(protolens: &Protolens, schema: &Schema) -> GraphComplementSpec {
+    let mut residue = BTreeSet::new();
+    graph_residue(&protolens.complement_constructor, schema, &mut residue);
+    GraphComplementSpec {
+        complement: complement_spec_at(protolens, schema),
+        residue: residue.into_iter().collect(),
+    }
+}
+
+/// Compute a complement specification classified by table carrier.
+///
+/// # Errors
+///
+/// Returns [`RelSchemaError`] when `schema` is not relation-representable
+/// under `protocol`.
+pub fn table_complement_spec_at(
+    protolens: &Protolens,
+    schema: &Schema,
+    protocol: &Protocol,
+) -> Result<TableComplementSpec, RelSchemaError> {
+    let rel = RelSchema::new(schema, protocol)?;
+    let mut residue = BTreeSet::new();
+    table_residue(
+        &protolens.complement_constructor,
+        schema,
+        &rel,
+        &mut residue,
+    );
+    Ok(TableComplementSpec {
+        complement: complement_spec_at(protolens, schema),
+        residue: residue.into_iter().collect(),
+    })
+}
+
+/// Compute a chain complement specification classified by graph carrier.
+///
+/// # Errors
+///
+/// Returns the first schema-transform or applicability error in chain order.
+pub fn graph_chain_complement_spec(
+    chain: &ProtolensChain,
+    schema: &Schema,
+    protocol: &Protocol,
+) -> Result<GraphComplementSpec, LensError> {
+    let mut residue = BTreeSet::new();
+    let mut defaults = Vec::new();
+    let mut captured = Vec::new();
+    let mut current = schema.clone();
+    for step in &chain.steps {
+        step.check_applicability(&current).map_err(|reasons| {
+            LensError::ProtolensError(format!(
+                "protolens `{}` is not applicable while classifying complement: {}",
+                step.name,
+                reasons.join("; ")
+            ))
+        })?;
+        graph_residue(&step.complement_constructor, &current, &mut residue);
+        let spec = complement_spec_at(step, &current);
+        defaults.extend(spec.forward_defaults);
+        captured.extend(spec.captured_data);
+        current = step.target_schema(&current, protocol)?;
+    }
+    Ok(GraphComplementSpec {
+        complement: accumulated_spec(defaults, captured),
+        residue: residue.into_iter().collect(),
+    })
+}
+
+/// Compute a chain complement specification classified by table carrier.
+///
+/// # Errors
+///
+/// Returns the first relation-representation, schema-transform, or
+/// applicability error in chain order.
+pub fn table_chain_complement_spec(
+    chain: &ProtolensChain,
+    schema: &Schema,
+    protocol: &Protocol,
+) -> Result<TableComplementSpec, LensError> {
+    let mut residue = BTreeSet::new();
+    let mut defaults = Vec::new();
+    let mut captured = Vec::new();
+    let mut current = schema.clone();
+    for step in &chain.steps {
+        step.check_applicability(&current).map_err(|reasons| {
+            LensError::ProtolensError(format!(
+                "protolens `{}` is not applicable while classifying complement: {}",
+                step.name,
+                reasons.join("; ")
+            ))
+        })?;
+        let rel = RelSchema::new(&current, protocol)
+            .map_err(|error| LensError::Restrict(error.into()))?;
+        table_residue(&step.complement_constructor, &current, &rel, &mut residue);
+        let spec = complement_spec_at(step, &current);
+        defaults.extend(spec.forward_defaults);
+        captured.extend(spec.captured_data);
+        current = step.target_schema(&current, protocol)?;
+    }
+    Ok(TableComplementSpec {
+        complement: accumulated_spec(defaults, captured),
+        residue: residue.into_iter().collect(),
+    })
+}
+
+fn accumulated_spec(
+    forward_defaults: Vec<DefaultRequirement>,
+    captured_data: Vec<CapturedField>,
+) -> ComplementSpec {
+    let kind = classify(&forward_defaults, &captured_data);
+    let summary = build_summary(&kind, &forward_defaults, &captured_data);
+    ComplementSpec {
+        kind,
+        forward_defaults,
+        captured_data,
+        summary,
+    }
+}
+
 /// Compute the complement spec for a single protolens at a specific schema.
 #[must_use]
 pub fn complement_spec_at(protolens: &Protolens, schema: &Schema) -> ComplementSpec {
@@ -111,6 +282,137 @@ pub fn chain_complement_spec(
     }
 }
 
+fn graph_residue(
+    constructor: &ComplementConstructor,
+    schema: &Schema,
+    residue: &mut BTreeSet<GraphResidueKind>,
+) {
+    match constructor {
+        ComplementConstructor::DroppedSortData { sort } => {
+            residue.insert(GraphResidueKind::Node);
+            let dropped_vertices = schema
+                .vertices
+                .iter()
+                .filter_map(|(name, vertex)| (name == sort || vertex.kind == *sort).then_some(name))
+                .collect::<BTreeSet<_>>();
+            if schema.edges.keys().any(|edge| {
+                dropped_vertices.contains(&edge.src) || dropped_vertices.contains(&edge.tgt)
+            }) {
+                residue.insert(GraphResidueKind::Edge);
+            }
+            if schema.hyper_edges.values().any(|edge| {
+                edge.signature.values().any(|vertex| {
+                    vertex == sort
+                        || schema
+                            .vertices
+                            .get(vertex)
+                            .is_some_and(|candidate| candidate.kind == *sort)
+                })
+            }) {
+                residue.insert(GraphResidueKind::ReifiedHyperedge);
+            }
+        }
+        ComplementConstructor::DroppedOpData { op } => {
+            residue.insert(GraphResidueKind::Edge);
+            if schema.hyper_edges.values().any(|edge| edge.kind == *op) {
+                residue.insert(GraphResidueKind::ReifiedHyperedge);
+            }
+        }
+        ComplementConstructor::DroppedEdge { .. } => {
+            residue.insert(GraphResidueKind::Edge);
+        }
+        ComplementConstructor::NatTransKernel { .. } | ComplementConstructor::Enrichment { .. } => {
+            residue.insert(GraphResidueKind::Value);
+        }
+        ComplementConstructor::CoercedSortData { class, .. } => {
+            if class.needs_complement_storage() {
+                residue.insert(GraphResidueKind::Value);
+            }
+        }
+        ComplementConstructor::Composite(parts) => {
+            for part in parts {
+                graph_residue(part, schema, residue);
+            }
+        }
+        ComplementConstructor::Scoped { inner, .. } => graph_residue(inner, schema, residue),
+        ComplementConstructor::Empty | ComplementConstructor::AddedElement { .. } => {}
+    }
+}
+
+fn table_residue(
+    constructor: &ComplementConstructor,
+    schema: &Schema,
+    rel: &RelSchema,
+    residue: &mut BTreeSet<TableResidueKind>,
+) {
+    match constructor {
+        ComplementConstructor::DroppedSortData { sort } => {
+            let mut dropped_tables = BTreeSet::new();
+            for (name, vertex) in &schema.vertices {
+                if name == sort || vertex.kind == *sort {
+                    if rel.is_table(name) {
+                        residue.insert(TableResidueKind::Row);
+                        dropped_tables.insert(name);
+                    } else {
+                        residue.insert(TableResidueKind::Cell);
+                    }
+                }
+            }
+            if schema.edges.keys().any(|edge| {
+                rel.is_relation(edge)
+                    && (dropped_tables.contains(&edge.src) || dropped_tables.contains(&edge.tgt))
+            }) {
+                residue.insert(TableResidueKind::ForeignKeyPair);
+            }
+        }
+        ComplementConstructor::DroppedOpData { op } => {
+            for edge in schema.edges.keys().filter(|edge| edge.kind == *op) {
+                residue.insert(if rel.is_relation(edge) {
+                    TableResidueKind::ForeignKeyPair
+                } else {
+                    TableResidueKind::Cell
+                });
+            }
+        }
+        ComplementConstructor::DroppedEdge {
+            src,
+            tgt,
+            edge_name,
+            edge_kind,
+        } => {
+            for edge in schema.edges.keys().filter(|edge| {
+                edge.src == *src
+                    && edge.tgt == *tgt
+                    && edge.name == *edge_name
+                    && (edge_kind.is_empty() || edge.kind == *edge_kind)
+            }) {
+                residue.insert(if rel.is_relation(edge) {
+                    TableResidueKind::ForeignKeyPair
+                } else {
+                    TableResidueKind::Cell
+                });
+            }
+        }
+        ComplementConstructor::NatTransKernel { .. } | ComplementConstructor::Enrichment { .. } => {
+            residue.insert(TableResidueKind::Cell);
+        }
+        ComplementConstructor::CoercedSortData { class, .. } => {
+            if class.needs_complement_storage() {
+                residue.insert(TableResidueKind::Cell);
+            }
+        }
+        ComplementConstructor::Composite(parts) => {
+            for part in parts {
+                table_residue(part, schema, rel, residue);
+            }
+        }
+        ComplementConstructor::Scoped { inner, .. } => {
+            table_residue(inner, schema, rel, residue);
+        }
+        ComplementConstructor::Empty | ComplementConstructor::AddedElement { .. } => {}
+    }
+}
+
 fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -> ComplementSpec {
     match constructor {
         ComplementConstructor::Empty => ComplementSpec {
@@ -121,7 +423,11 @@ fn spec_from_constructor(constructor: &ComplementConstructor, schema: &Schema) -
         },
         ComplementConstructor::DroppedSortData { sort } => {
             // Count how many vertices of this sort exist in the schema.
-            let count = schema.vertices.values().filter(|v| v.kind == *sort).count();
+            let count = schema
+                .vertices
+                .iter()
+                .filter(|(name, vertex)| *name == sort || vertex.kind == *sort)
+                .count();
             ComplementSpec {
                 kind: ComplementKind::DataCaptured,
                 forward_defaults: vec![],
@@ -378,6 +684,8 @@ mod tests {
     use crate::protolens::elementary;
     use crate::tests::three_node_schema;
     use panproto_inst::value::Value;
+    use panproto_schema::{ScalarKind, SchemaBuilder};
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn test_protocol() -> Protocol {
         Protocol {
@@ -387,7 +695,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -534,5 +842,102 @@ mod tests {
         let p = elementary::drop_sort("string");
         let spec = complement_spec_at(&p, &schema);
         assert!(spec.summary.contains("string"));
+    }
+
+    #[test]
+    fn graph_residue_names_edges_and_reified_hyperedges() {
+        let protocol = test_protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .vertex("b", "object", None::<&str>)
+            .unwrap()
+            .edge("a", "b", "rel", Some("child"))
+            .unwrap()
+            .hyper_edge(
+                "fan",
+                "rel",
+                std::collections::HashMap::from([
+                    ("parent".to_owned(), "a".to_owned()),
+                    ("child".to_owned(), "b".to_owned()),
+                ]),
+                "parent",
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        let spec = graph_complement_spec_at(&elementary::drop_op("rel"), &schema);
+        assert_eq!(
+            spec.residue,
+            vec![GraphResidueKind::Edge, GraphResidueKind::ReifiedHyperedge]
+        );
+
+        let signature_vertex =
+            graph_complement_spec_at(&elementary::drop_schema_vertex("b"), &schema);
+        assert_eq!(
+            signature_vertex.residue,
+            vec![
+                GraphResidueKind::Node,
+                GraphResidueKind::Edge,
+                GraphResidueKind::ReifiedHyperedge
+            ]
+        );
+    }
+
+    #[test]
+    fn table_residue_names_rows_cells_and_foreign_key_pairs() {
+        let mut protocol = test_protocol();
+        protocol.value_kinds = BTreeMap::from([("string".into(), ScalarKind::Str)]);
+        protocol.non_value_kinds = BTreeSet::from(["object".into()]);
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("post", "object", None::<&str>)
+            .unwrap()
+            .vertex("user", "object", None::<&str>)
+            .unwrap()
+            .vertex("post.title", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.title", "prop", Some("title"))
+            .unwrap()
+            .edge("post", "user", "fk", Some("author"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let row =
+            table_complement_spec_at(&elementary::drop_sort("object"), &schema, &protocol).unwrap();
+        assert_eq!(
+            row.residue,
+            vec![TableResidueKind::Row, TableResidueKind::ForeignKeyPair]
+        );
+        let cell =
+            table_complement_spec_at(&elementary::drop_op("prop"), &schema, &protocol).unwrap();
+        assert_eq!(cell.residue, vec![TableResidueKind::Cell]);
+        let pair =
+            table_complement_spec_at(&elementary::drop_op("fk"), &schema, &protocol).unwrap();
+        assert_eq!(pair.residue, vec![TableResidueKind::ForeignKeyPair]);
+
+        let concrete_row =
+            table_complement_spec_at(&elementary::drop_schema_vertex("post"), &schema, &protocol)
+                .unwrap();
+        assert_eq!(
+            concrete_row.residue,
+            vec![TableResidueKind::Row, TableResidueKind::ForeignKeyPair]
+        );
+        let concrete_cell = table_complement_spec_at(
+            &elementary::drop_schema_vertex("post.title"),
+            &schema,
+            &protocol,
+        )
+        .unwrap();
+        assert_eq!(concrete_cell.residue, vec![TableResidueKind::Cell]);
+    }
+
+    #[test]
+    fn shape_chain_classifiers_stop_at_the_first_invalid_step() {
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![elementary::drop_sort("missing")]);
+        assert!(graph_chain_complement_spec(&chain, &schema, &protocol).is_err());
+        assert!(table_chain_complement_spec(&chain, &schema, &protocol).is_err());
     }
 }

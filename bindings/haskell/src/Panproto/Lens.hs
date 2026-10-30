@@ -14,9 +14,9 @@
 -- where @c@ is the /complement/ (see 'Panproto.Instance.Complement'):
 -- the data @get@ discards that @put@ needs to reconstruct the source.
 -- This is the structure of a (very well-behaved) asymmetric lens with
--- complement, /not/ a van Laarhoven optic: the round-trip laws
--- (@GetPut@: @put (get s) = s@; @PutGet@: @fst (get (put (a, c))) = a@)
--- are checked at runtime by the engine against a concrete test
+-- complement, /not/ a van Laarhoven optic. The engine checks @GetPut@,
+-- @PutGet@, finite-basis totality, @PutTwice@ complement stability, and
+-- congruence at runtime against a concrete test
 -- instance, because the lens is computed from a schema migration rather
 -- than written by hand. The optic-ecosystem view of the
 -- /complement-free/ lawful subset lives in "Panproto.Lens.Optics".
@@ -694,14 +694,19 @@ class (SchemaBackend back, InstanceBackend back) => LensBackend back where
     -- Wraps @pp_protolens_chain_to_json@ (@chain_to_json@).
     reifyChain :: ChainRep back -> IO ProtolensChain
 
-    -- | Release any resources held by a representation. Idempotent at
-    -- the slab level, as with the other backend reps.
+    -- | Release any resources held by a representation. A raw-backed
+    -- representation must be discarded after this one-shot release. A
+    -- repeated release is harmless only before slot reuse; afterward the
+    -- stale numeric handle aliases and frees the new resource. Bracket
+    -- acquisition and release so the stale handle cannot escape.
     releaseChain :: ChainRep back -> IO ()
 
-    -- | Release a 'LensRep'.
+    -- | Release a 'LensRep' under the same one-shot ownership contract as
+    -- 'releaseChain'.
     releaseLens :: LensRep back -> IO ()
 
-    -- | Release a 'SymLensRep'.
+    -- | Release a 'SymLensRep' under the same one-shot ownership contract
+    -- as 'releaseChain'.
     releaseSymLens :: SymLensRep back -> IO ()
 
     -- | Project an instance through a lens: produce a view and the
@@ -713,8 +718,10 @@ class (SchemaBackend back, InstanceBackend back) => LensBackend back where
     -- and a complement. Wraps @pp_lens_put_record@ (@lens::put@).
     lensPut :: LensRep back -> InstanceRep back -> Complement -> IO (InstanceRep back)
 
-    -- | Check both lens laws on a test instance, throwing on violation.
-    -- Wraps @pp_lens_check_laws@ (@lens::check_laws@).
+    -- | Run the five strict gates on a test instance, throwing on the
+    -- first violation: @GetPut@, @PutGet@, finite-basis totality,
+    -- @PutTwice@ complement stability, and congruence. Wraps
+    -- @pp_lens_check_laws@ (@lens::check_laws@).
     checkLaws :: LensRep back -> InstanceRep back -> IO ()
 
     -- | Check the @GetPut@ law (@put (get s) = s@), throwing on

@@ -3,13 +3,10 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use crate::eq::{
-    Term, alpha_equivalent, alpha_equivalent_equation, normalize_with_status,
-    normalize_with_witness,
-};
+use crate::eq::{Term, alpha_equivalent_equation, normalize_with_status, normalize_with_witness};
 use crate::error::GatError;
 use crate::ident::{NameSite, SiteRename};
-use crate::sort::positional_param_rename;
+use crate::sort::{SortExpr, sort_exprs_agree};
 use crate::theory::Theory;
 use crate::typecheck::{VarContext, typecheck_term};
 use crate::witness::{EqWitness, WitnessJustification};
@@ -149,10 +146,14 @@ pub struct TheoryMorphism {
     pub domain: Arc<str>,
     /// The name of the codomain theory.
     pub codomain: Arc<str>,
-    /// Mapping from domain sort names to codomain sort names.
+    /// Mapping from domain sort names to codomain sort names, serialized
+    /// in key order.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub sort_map: HashMap<Arc<str>, Arc<str>>,
     /// Mapping from domain operation names to their codomain image, each
-    /// either a renamed operation or a derived term (see [`OpAssignment`]).
+    /// either a renamed operation or a derived term (see [`OpAssignment`]),
+    /// serialized in key order.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub op_map: HashMap<Arc<str>, OpAssignment>,
 }
 
@@ -186,9 +187,15 @@ impl TheoryMorphism {
     /// The operation-rename view of this morphism: the `Op` assignments as
     /// a name-to-name map, with derived-term assignments omitted.
     ///
-    /// Callers that only rename operations (schema-level renames, sort
-    /// argument-term renaming) use this view; derived-term assignments do
-    /// not induce a simple rename and are therefore left out.
+    /// The view is a schema-level rename only (an operation renamed to an
+    /// operation is an edge-kind rename; see
+    /// [`Self::induce_schema_renames`]). It never translates sort
+    /// expressions or constructors: an operation sent to a derived term
+    /// keeps its own name in this view, so a sort argument or a `Case`
+    /// branch read through it would not follow the morphism.
+    /// [`check_morphism`] reads sort expressions through the whole action
+    /// [`Self::apply_to_term_substituting`], and constructors through
+    /// their constructor images.
     #[must_use]
     pub fn op_rename_map(&self) -> HashMap<Arc<str>, Arc<str>> {
         self.op_map
@@ -219,12 +226,19 @@ impl TheoryMorphism {
 
     /// Apply this morphism to a term, expanding derived-term assignments.
     ///
-    /// Like [`Self::apply_to_term`] for [`OpAssignment::Op`] entries, but
-    /// an [`OpAssignment::Term`] entry for an operation `f` is expanded:
-    /// at each `f(a1, …, an)`, the arguments are mapped recursively and
-    /// then substituted for `f`'s declared parameter names in the assigned
-    /// term. `domain` supplies those parameter names via
-    /// [`Theory::find_op`].
+    /// This is the morphism's whole action `m^` on terms. An
+    /// [`OpAssignment::Op`] entry renames the operation; an
+    /// [`OpAssignment::Term`] entry for an operation `f` is expanded: at
+    /// each `f(a1, …, an)`, the arguments are mapped recursively and then
+    /// substituted (capture-avoiding) for `f`'s declared parameter names in
+    /// the assigned term. `domain` supplies those parameter names via
+    /// [`Theory::find_op`]. A `Case` branch's constructor `c` is translated
+    /// to its constructor image: the operation `k` such that `m^` sends
+    /// `c(x1, …, xn)`, over `c`'s own inputs, to `k(x1, …, xn)`. A
+    /// constructor with no constructor image keeps its name; that happens
+    /// only for a morphism that [`check_morphism`] refuses, since case
+    /// analysis is on closed sorts and [`check_morphism`] requires every
+    /// constructor of a closed sort to have one.
     #[must_use]
     pub fn apply_to_term_substituting(&self, term: &Term, domain: &Theory) -> Term {
         self.map_term(term, domain)
@@ -265,23 +279,18 @@ impl TheoryMorphism {
             Term::Case {
                 scrutinee,
                 branches,
-            } => {
-                let rename = self.op_rename_map();
-                Term::Case {
-                    scrutinee: Box::new(self.map_term(scrutinee, domain)),
-                    branches: branches
-                        .iter()
-                        .map(|b| crate::eq::CaseBranch {
-                            constructor: rename
-                                .get(&b.constructor)
-                                .cloned()
-                                .unwrap_or_else(|| Arc::clone(&b.constructor)),
-                            binders: b.binders.clone(),
-                            body: self.map_term(&b.body, domain),
-                        })
-                        .collect(),
-                }
-            }
+            } => Term::Case {
+                scrutinee: Box::new(self.map_term(scrutinee, domain)),
+                branches: branches
+                    .iter()
+                    .map(|b| crate::eq::CaseBranch {
+                        constructor: constructor_image(self, &b.constructor, domain)
+                            .unwrap_or_else(|_| Arc::clone(&b.constructor)),
+                        binders: b.binders.clone(),
+                        body: self.map_term(&b.body, domain),
+                    })
+                    .collect(),
+            },
             Term::Let { name, bound, body } => Term::Let {
                 name: Arc::clone(name),
                 bound: Box::new(self.map_term(bound, domain)),
@@ -420,8 +429,8 @@ impl TheoryMorphism {
 /// # Soundness note on equation preservation
 ///
 /// For every domain equation `lhs = rhs`, the mapped pair `F(lhs) = F(rhs)` is
-/// preserved when it is alpha-equivalent to an equation already listed in the
-/// codomain (syntactic membership) or, failing that, when its two sides are
+/// preserved when it is alpha-equivalent, in either orientation, to an
+/// equation already listed in the codomain (syntactic membership) or, failing that, when its two sides are
 /// provably equal in the codomain's equational theory: both sides are
 /// normalized with the codomain's directed equations, and then, if that does
 /// not decide it, with the congruence closure over all codomain equations
@@ -436,13 +445,39 @@ impl TheoryMorphism {
 ///
 /// Check that a theory morphism is valid.
 ///
+/// Write `m^` for the morphism's whole action on terms
+/// ([`TheoryMorphism::apply_to_term_substituting`]) and
+/// `F(S(t_1, …, t_n)) = sort_map(S)(m^(t_1), …, m^(t_n))` for its action
+/// on sort expressions: an operation sent to a derived term is replaced by
+/// that term, with the mapped arguments substituted for its inputs, inside
+/// every sort argument as well. This is the interpretation of
+/// lynch2024gatlab Sec 4.1, after Cartmell (stated): a theory map pushes
+/// types forward along the whole assignment, derived terms included.
+///
 /// Verifies that:
-/// 1. All domain sorts are mapped.
-/// 2. All domain operations are mapped.
-/// 3. Sort arities are preserved under the mapping.
-/// 4. Operation type signatures are preserved under the sort mapping.
-/// 5. Equations are preserved (both sides map to equal terms in the codomain).
-/// 6. Directed equations are preserved (mapped rewrite rules exist in codomain).
+/// 1. All domain sorts are mapped to codomain sorts.
+/// 2. All domain operations are mapped, to a codomain operation or a
+///    derived term.
+/// 3. Sort arities and kinds are preserved, and for each parameter `i` of
+///    a domain sort, `F` of its sort has the same name-free form as the
+///    target sort's parameter `i` (each read under its own earlier
+///    parameters).
+/// 4. For an operation renamed to a codomain operation, the input counts
+///    agree and `F` of each input sort and of the output sort has the same
+///    name-free form as the target's (each read under its own earlier
+///    inputs). For an operation sent to a derived term `t`, `t`
+///    typechecks in the codomain under the context binding each input to
+///    `F` of its sort, with the sort `F` of the output.
+/// 5. A closed domain sort goes to a closed sort whose constructors are
+///    exactly the constructor images of the domain's constructors: `c`'s
+///    image is `k` iff `m^` sends `c(x_1, …, x_n)`, over `c`'s inputs, to
+///    `k(x_1, …, x_n)`; a constructor with no image is refused.
+/// 6. Equations are preserved (both sides map to equal terms in the codomain).
+/// 7. Directed equations are preserved (mapped rewrite rules exist in codomain).
+///
+/// The name-free comparison resolves each variable to the nearest
+/// enclosing binder of its name and compares binder positions, so it is
+/// exact whether or not either side repeats a binder name.
 ///
 /// # Errors
 ///
@@ -452,10 +487,6 @@ pub fn check_morphism(
     domain: &Theory,
     codomain: &Theory,
 ) -> Result<(), GatError> {
-    // The operation-rename view drives sort argument-term renaming; a
-    // derived-term assignment does not rename argument terms of a sort.
-    let op_rename = m.op_rename_map();
-
     // 1. All domain sorts must be mapped.
     for sort in &domain.sorts {
         let target_name = m
@@ -485,31 +516,35 @@ pub fn check_morphism(
             });
         }
 
-        // 3b. Dependent sort parameter sorts must be preserved under the
-        // mapping, modulo positional alpha-renaming of the parameter
-        // names. The parameter names are local binders at the sort's
-        // declaration site; they are in scope in later parameter sorts.
-        let sort_param_rename = positional_param_rename(
-            sort.params.iter().map(|p| Arc::clone(&p.name)),
-            target_sort.params.iter().map(|p| Arc::clone(&p.name)),
-        );
+        // 3b. Each parameter sort's image under F must have the target
+        // parameter sort's name-free form. The parameter names are local
+        // binders, in scope in later parameter sorts.
+        let sort_binders: Vec<Arc<str>> = sort.params.iter().map(|p| Arc::clone(&p.name)).collect();
+        let target_binders: Vec<Arc<str>> = target_sort
+            .params
+            .iter()
+            .map(|p| Arc::clone(&p.name))
+            .collect();
         for (i, param) in sort.params.iter().enumerate() {
-            let mapped_param_sort = param
-                .sort
-                .apply_maps(&m.sort_map, &op_rename)
-                .subst(&sort_param_rename);
-            if !mapped_param_sort.alpha_eq(&target_sort.params[i].sort) {
+            let mapped_param_sort = map_sort_expr(m, &param.sort, domain);
+            let target_param_sort = &target_sort.params[i].sort;
+            if !sort_exprs_agree(
+                &mapped_param_sort,
+                &sort_binders[..i],
+                target_param_sort,
+                &target_binders[..i],
+            ) {
                 return Err(GatError::SortParamMismatch {
                     sort: sort.name.to_string(),
                     param_index: i,
                     expected: mapped_param_sort.to_string(),
-                    got: target_sort.params[i].sort.to_string(),
+                    got: target_param_sort.to_string(),
                 });
             }
         }
 
         // 3c. Closure preservation.
-        check_closure_preservation(sort, target_sort, m)?;
+        check_closure_preservation(sort, target_sort, m, domain)?;
     }
 
     // 2. All domain ops must be mapped.
@@ -521,10 +556,10 @@ pub fn check_morphism(
 
         match assignment {
             OpAssignment::Op(target_name) => {
-                check_op_rename(op, target_name, m, &op_rename, codomain)?;
+                check_op_rename(op, target_name, m, domain, codomain)?;
             }
             OpAssignment::Term(term) => {
-                check_op_term_assignment(op, term, m, &op_rename, codomain)?;
+                check_op_term_assignment(op, term, m, domain, codomain)?;
             }
         }
     }
@@ -533,6 +568,73 @@ pub fn check_morphism(
     check_directed_equations_preserved(m, domain, codomain)?;
 
     Ok(())
+}
+
+/// `F`: a domain sort expression under the morphism's whole action. The
+/// head goes through `sort_map` (kept when unmapped) and each argument
+/// through [`TheoryMorphism::apply_to_term_substituting`].
+fn map_sort_expr(m: &TheoryMorphism, expr: &SortExpr, domain: &Theory) -> SortExpr {
+    let head = m
+        .sort_map
+        .get(expr.head())
+        .cloned()
+        .unwrap_or_else(|| Arc::clone(expr.head()));
+    SortExpr::app(
+        head,
+        expr.args().iter().map(|t| m.map_term(t, domain)).collect(),
+    )
+}
+
+/// The constructor image of the domain operation `c`: the codomain
+/// operation `k` such that the whole action sends `c`'s generic term
+/// `c(x_1, …, x_n)`, over `c`'s own inputs, to `k(x_1, …, x_n)`.
+///
+/// The generic term is read by position, not by name: its `i`th argument
+/// is `c`'s `i`th input, and a variable denotes the last of `c`'s inputs
+/// of its name (the reading of `typecheck_signature` and of the
+/// substitution `m^` performs). So a derived term gives `k` iff it is
+/// `k` applied to `n` variables of which the `i`th resolves to input `i`.
+/// When `c` repeats an input name no derived term does, since no variable
+/// resolves to the earlier binder; a domain with such a constructor has a
+/// [`SignatureDefect::DuplicateBinder`](crate::SignatureDefect::DuplicateBinder).
+///
+/// An [`OpAssignment::Op`] image always gives one, as does an unmapped
+/// constructor (its own name). A derived term gives one exactly when it is
+/// that eta-expanded application. Otherwise there is none, and the error
+/// carries the term the generic term is sent to. A constructor that
+/// `domain` does not declare has no inputs to form the generic term from,
+/// so only a rename gives it an image.
+fn constructor_image(m: &TheoryMorphism, c: &Arc<str>, domain: &Theory) -> Result<Arc<str>, Term> {
+    let assigned = match m.op_map.get(c) {
+        None => return Ok(Arc::clone(c)),
+        Some(OpAssignment::Op(k)) => return Ok(Arc::clone(k)),
+        Some(OpAssignment::Term(term)) => term,
+    };
+    let Some(op) = domain.find_op(c) else {
+        return Err(assigned.clone());
+    };
+    let generic = Term::App {
+        op: Arc::clone(c),
+        args: op
+            .inputs
+            .iter()
+            .map(|(name, _, _)| Term::Var(Arc::clone(name)))
+            .collect(),
+    };
+    let image = m.map_term(&generic, domain);
+    let resolves_to = |arg: &Term, position: usize| {
+        matches!(arg, Term::Var(x)
+            if op.inputs.iter().rposition(|(name, _, _)| name == x) == Some(position))
+    };
+    match &image {
+        Term::App { op: k, args }
+            if args.len() == op.inputs.len()
+                && args.iter().enumerate().all(|(i, arg)| resolves_to(arg, i)) =>
+        {
+            Ok(Arc::clone(k))
+        }
+        _ => Err(image),
+    }
 }
 
 /// Validate a morphism and return, for each domain equation, an
@@ -571,10 +673,19 @@ pub fn check_morphism_with_witnesses(
 fn preservation_witness(lhs: &Term, rhs: &Term, codomain: &Theory) -> EqWitness {
     const BUDGET: usize = 512;
 
-    // Syntactic membership: an axiom naming the matched codomain equation.
+    // Syntactic membership: an axiom naming the matched codomain equation,
+    // read in whichever orientation matches (an undirected equation states
+    // the same axiom both ways).
     for c in &codomain.eqs {
         if alpha_equivalent_equation(&c.lhs, &c.rhs, lhs, rhs) {
             return EqWitness::axiom(Arc::clone(&c.name), lhs.clone(), rhs.clone());
+        }
+        if alpha_equivalent_equation(&c.lhs, &c.rhs, rhs, lhs) {
+            return EqWitness::symmetry(EqWitness::axiom(
+                Arc::clone(&c.name),
+                rhs.clone(),
+                lhs.clone(),
+            ));
         }
     }
 
@@ -598,19 +709,27 @@ fn preservation_witness(lhs: &Term, rhs: &Term, codomain: &Theory) -> EqWitness 
 }
 
 /// Check that an operation-rename assignment preserves the operation's
-/// type signature under the sort mapping.
+/// type signature under the morphism's action `F` on sort expressions.
+///
+/// Input names are local binders at the operation's declaration site, in
+/// scope in every later input sort and in the output sort. `F` of each
+/// domain sort, read under the domain operation's binders, must have the
+/// same name-free form as the target sort read under the target's, so a
+/// morphism from `f : (a : A) -> Hom(a, a)` to `f : (x : A) -> Hom(x, x)` is
+/// accepted and one from `h : (x : A, y : A) -> Hom(x, y)` to
+/// `f : (z : A, z : A) -> Hom(z, z)` is refused.
 fn check_op_rename(
     op: &crate::op::Operation,
     target_name: &Arc<str>,
     m: &TheoryMorphism,
-    op_rename: &HashMap<Arc<str>, Arc<str>>,
+    domain: &Theory,
     codomain: &Theory,
 ) -> Result<(), GatError> {
     let target_op = codomain
         .find_op(target_name)
         .ok_or_else(|| GatError::OpNotFound(target_name.to_string()))?;
 
-    // 4. Operation type signatures must be preserved under sort mapping.
+    // 4. Operation type signatures must be preserved under F.
     if op.inputs.len() != target_op.inputs.len() {
         return Err(GatError::OpTypeMismatch {
             op: op.name.to_string(),
@@ -622,29 +741,27 @@ fn check_op_rename(
         });
     }
 
-    // Parameter names are local binders at the operation's declaration
-    // site, in scope in every later input sort and in the output sort.
-    // When comparing the mapped signature against the codomain operation
-    // we rename the domain's parameter names to the codomain's
-    // positionally, so that a morphism from `f : (a : A) -> Hom(a, a)` to
-    // `f : (x : A) -> Hom(x, x)` is accepted.
-    let op_param_rename = positional_param_rename(
-        op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-        target_op.inputs.iter().map(|(n, _, _)| Arc::clone(n)),
-    );
+    let op_binders: Vec<Arc<str>> = op.inputs.iter().map(|(n, _, _)| Arc::clone(n)).collect();
+    let target_binders: Vec<Arc<str>> = target_op
+        .inputs
+        .iter()
+        .map(|(n, _, _)| Arc::clone(n))
+        .collect();
 
     for (i, (_, sort_expr, _)) in op.inputs.iter().enumerate() {
         // The head of every input sort must have a mapping (this is a
-        // structural prerequisite); argument-term renames flow through the
-        // operation-rename view.
+        // structural prerequisite).
         if !m.sort_map.contains_key(sort_expr.head()) {
             return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
         }
-        let mapped_sort = sort_expr
-            .apply_maps(&m.sort_map, op_rename)
-            .subst(&op_param_rename);
+        let mapped_sort = map_sort_expr(m, sort_expr, domain);
         let (_, target_sort, _) = &target_op.inputs[i];
-        if !mapped_sort.alpha_eq(target_sort) {
+        if !sort_exprs_agree(
+            &mapped_sort,
+            &op_binders[..i],
+            target_sort,
+            &target_binders[..i],
+        ) {
             return Err(GatError::OpTypeMismatch {
                 op: op.name.to_string(),
                 detail: format!("input {i}: expected sort {mapped_sort}, got {target_sort}"),
@@ -655,11 +772,13 @@ fn check_op_rename(
     if !m.sort_map.contains_key(op.output.head()) {
         return Err(GatError::MissingSortMapping(op.output.head().to_string()));
     }
-    let mapped_output = op
-        .output
-        .apply_maps(&m.sort_map, op_rename)
-        .subst(&op_param_rename);
-    if !mapped_output.alpha_eq(&target_op.output) {
+    let mapped_output = map_sort_expr(m, &op.output, domain);
+    if !sort_exprs_agree(
+        &mapped_output,
+        &op_binders,
+        &target_op.output,
+        &target_binders,
+    ) {
         return Err(GatError::OpTypeMismatch {
             op: op.name.to_string(),
             detail: format!(
@@ -675,14 +794,18 @@ fn check_op_rename(
 ///
 /// For a domain operation `f : (x1 : S1, …, xn : Sn) → S`, the assigned
 /// term must typecheck against the judgement `[x1 : F(S1), …, xn : F(Sn)]
-/// ⊢ t : F(S)` in the codomain, where `F` is the morphism's sort image.
-/// Every free variable of `t` must be one of `f`'s parameter names, and
-/// the inferred sort of `t` must match the mapped output sort.
+/// ⊢ t : F(S)` in the codomain, where `F` is the morphism's action on sort
+/// expressions (its sort map on heads and its whole action on argument
+/// terms, derived terms substituted). Every free variable of `t` must be
+/// one of `f`'s parameter names, and the inferred sort of `t` must have the
+/// name-free form of `F(S)`. Both sorts are read under one binder list,
+/// `f`'s inputs, so the comparison is equality up to the names of the
+/// `let` and `case` binders inside their argument terms.
 fn check_op_term_assignment(
     op: &crate::op::Operation,
     term: &Term,
     m: &TheoryMorphism,
-    op_rename: &HashMap<Arc<str>, Arc<str>>,
+    domain: &Theory,
     codomain: &Theory,
 ) -> Result<(), GatError> {
     // Context binding each parameter to its mapped input sort F(Si).
@@ -691,7 +814,7 @@ fn check_op_term_assignment(
         if !m.sort_map.contains_key(sort_expr.head()) {
             return Err(GatError::MissingSortMapping(sort_expr.head().to_string()));
         }
-        let mapped = sort_expr.apply_maps(&m.sort_map, op_rename);
+        let mapped = map_sort_expr(m, sort_expr, domain);
         ctx.insert(Arc::clone(pname), mapped);
     }
 
@@ -711,8 +834,9 @@ fn check_op_term_assignment(
     if !m.sort_map.contains_key(op.output.head()) {
         return Err(GatError::MissingSortMapping(op.output.head().to_string()));
     }
-    let expected = op.output.apply_maps(&m.sort_map, op_rename);
-    if !inferred.alpha_eq(&expected) {
+    let expected = map_sort_expr(m, &op.output, domain);
+    let op_binders: Vec<Arc<str>> = op.inputs.iter().map(|(n, _, _)| Arc::clone(n)).collect();
+    if !sort_exprs_agree(&inferred, &op_binders, &expected, &op_binders) {
         return Err(GatError::TermAssignmentSortMismatch {
             op: op.name.to_string(),
             expected: expected.to_string(),
@@ -722,39 +846,108 @@ fn check_op_term_assignment(
     Ok(())
 }
 
-/// A closed sort in the domain must map to a closed sort in the
-/// codomain whose constructor list equals the image of the domain
-/// constructors under the morphism's `op_map` (as a set).
+/// A closed sort in the domain must map to a closed sort in the codomain
+/// whose constructor list equals, as a set, the constructor images of the
+/// domain constructors (see [`constructor_image`]). A domain constructor
+/// with no constructor image, such as one sent to a derived term that is
+/// not its eta-expanded application, fails with
+/// [`GatError::MorphismClosureMismatch`], whose `expected` renders the
+/// term it is sent to.
 fn check_closure_preservation(
     sort: &crate::sort::Sort,
     target_sort: &crate::sort::Sort,
     m: &TheoryMorphism,
+    domain: &Theory,
 ) -> Result<(), GatError> {
     let crate::sort::SortClosure::Closed(dom_ctors) = &sort.closure else {
         return Ok(());
     };
-    let expected_image: std::collections::BTreeSet<Arc<str>> = dom_ctors
+    let images: Vec<Result<Arc<str>, Term>> = dom_ctors
         .iter()
-        .map(|c| {
-            m.op_map
-                .get(c)
-                .and_then(OpAssignment::as_op)
-                .cloned()
-                .unwrap_or_else(|| Arc::clone(c))
-        })
+        .map(|c| constructor_image(m, c, domain))
+        .collect();
+    let expected_image: std::collections::BTreeSet<Arc<str>> = images
+        .iter()
+        .filter_map(|i| i.as_ref().ok().cloned())
         .collect();
     let actual: std::collections::BTreeSet<Arc<str>> = match &target_sort.closure {
         crate::sort::SortClosure::Closed(cs) => cs.iter().cloned().collect(),
         crate::sort::SortClosure::Open => std::collections::BTreeSet::new(),
     };
-    if expected_image != actual {
+    if images.iter().any(Result::is_err) || expected_image != actual {
+        let rendered: std::collections::BTreeSet<String> = images
+            .iter()
+            .map(|i| match i {
+                Ok(k) => k.to_string(),
+                Err(term) => term.to_string(),
+            })
+            .collect();
         return Err(GatError::MorphismClosureMismatch {
             sort: sort.name.to_string(),
-            expected: expected_image.iter().map(ToString::to_string).collect(),
+            expected: rendered.into_iter().collect(),
             got: actual.iter().map(ToString::to_string).collect(),
         });
     }
     Ok(())
+}
+
+/// How many levels a rewrite sequence may deepen a term beyond the deeper
+/// of the term itself and every rule side before [`normalize_bounded`]
+/// gives up.
+const REWRITE_DEPTH_HEADROOM: usize = 64;
+
+/// The nesting depth of `term`: 1 for a variable or hole, one more than
+/// the deepest subterm otherwise.
+fn term_depth(term: &Term) -> usize {
+    match term {
+        Term::Var(_) | Term::Hole { .. } => 1,
+        Term::App { args, .. } => 1 + args.iter().map(term_depth).max().unwrap_or(0),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            1 + branches
+                .iter()
+                .map(|b| term_depth(&b.body))
+                .fold(term_depth(scrutinee), usize::max)
+        }
+        Term::Let { bound, body, .. } => 1 + term_depth(bound).max(term_depth(body)),
+    }
+}
+
+/// Normalize `term` by `rules` within `max_steps` rewrite steps, returning
+/// the result and whether the budget ran out, as
+/// [`normalize_with_status`] does, except that rewriting also gives up (as
+/// an exhausted budget) once the term grows deeper than
+/// [`REWRITE_DEPTH_HEADROOM`] levels past its starting depth and every
+/// rule side's depth.
+///
+/// An equation used right to left can grow a term at every step (`x`
+/// rewrites to `h(h(x))`), and normalizing a term thousands of levels deep
+/// recurses as deep, beyond a thread's stack. Since exhaustion is only
+/// ever read as "undecided", giving up early keeps every decision sound.
+pub fn normalize_bounded(
+    term: &Term,
+    rules: &[crate::eq::DirectedEquation],
+    max_steps: usize,
+) -> (Term, bool) {
+    let limit = rules
+        .iter()
+        .map(|r| term_depth(&r.lhs).max(term_depth(&r.rhs)))
+        .fold(term_depth(term), usize::max)
+        + REWRITE_DEPTH_HEADROOM;
+    let mut current = term.clone();
+    for _ in 0..max_steps {
+        let (next, reducible) = normalize_with_status(&current, rules, 1);
+        if !reducible {
+            return (next, false);
+        }
+        current = next;
+        if term_depth(&current) > limit {
+            return (current, true);
+        }
+    }
+    (current, true)
 }
 
 /// Whether a mapped equation's two sides can be shown equal in the codomain.
@@ -767,33 +960,53 @@ enum Derivability {
     Unknown,
 }
 
-/// Decide whether `lhs = rhs` holds in the codomain by rewriting, first with
-/// the codomain's directed equations alone (which terminate when the system is
-/// sound), then, if that does not decide it, with the congruence closure over
-/// all codomain equations (undirected equations applied in both directions).
+/// Whether two terms in one ambient context are alpha-equivalent.
 ///
-/// Returns [`Derivability::Derivable`] only when a common normal form is found
-/// without exhausting the budget, so the check never accepts on inconclusive
-/// evidence.
+/// [`alpha_equivalent_equation`] fixes the free-variable correspondence while
+/// it compares both sides. Comparing `lhs = rhs` with the reflexive equation
+/// `lhs = lhs` therefore permits renaming local `Let` and `Case` binders but
+/// does not identify two distinct free variables such as `x` and `y`.
+pub fn equal_in_context(lhs: &Term, rhs: &Term) -> bool {
+    alpha_equivalent_equation(lhs, rhs, lhs, lhs)
+}
+
+/// Decide whether `lhs = rhs` holds in the codomain: at once when the two
+/// sides agree in one context, otherwise by rewriting, first with the
+/// codomain's directed equations alone (which terminate when the system is
+/// sound), then, if their normal forms differ, with the congruence closure
+/// over all codomain equations (undirected equations applied in both
+/// directions).
+///
+/// Returns [`Derivability::Derivable`] only when the sides agree or a common
+/// normal form is found without exhausting the budget, and
+/// [`Derivability::Unknown`] as soon as a normalization exhausts it, so the
+/// check never accepts on inconclusive evidence.
 fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Derivability {
     const BUDGET: usize = 512;
 
+    if equal_in_context(lhs, rhs) {
+        return Derivability::Derivable;
+    }
+
     // Tier 1: the codomain's directed equations only.
-    let (lnf, lex) = normalize_with_status(lhs, &codomain.directed_eqs, BUDGET);
-    let (rnf, rex) = normalize_with_status(rhs, &codomain.directed_eqs, BUDGET);
-    if !lex && !rex && alpha_equivalent(&lnf, &rnf) {
+    let (lnf, lex) = normalize_bounded(lhs, &codomain.directed_eqs, BUDGET);
+    let (rnf, rex) = normalize_bounded(rhs, &codomain.directed_eqs, BUDGET);
+    if lex || rex {
+        return Derivability::Unknown;
+    }
+    if equal_in_context(&lnf, &rnf) {
         return Derivability::Derivable;
     }
 
     // Tier 2: congruence closure over every codomain equation, undirected ones
     // oriented in both directions.
     let rules = crate::nat_transform::full_rewrite_rules(codomain);
-    let (lnf2, lex2) = normalize_with_status(lhs, &rules, BUDGET);
-    let (rnf2, rex2) = normalize_with_status(rhs, &rules, BUDGET);
+    let (lnf2, lex2) = normalize_bounded(lhs, &rules, BUDGET);
+    let (rnf2, rex2) = normalize_bounded(rhs, &rules, BUDGET);
     if lex2 || rex2 {
         return Derivability::Unknown;
     }
-    if alpha_equivalent(&lnf2, &rnf2) {
+    if equal_in_context(&lnf2, &rnf2) {
         Derivability::Derivable
     } else {
         Derivability::NotDerivable
@@ -816,10 +1029,10 @@ fn check_equations_preserved(
         let mapped_lhs = m.apply_to_term_substituting(&eq.lhs, domain);
         let mapped_rhs = m.apply_to_term_substituting(&eq.rhs, domain);
 
-        let syntactic = codomain
-            .eqs
-            .iter()
-            .any(|ceq| alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs));
+        let syntactic = codomain.eqs.iter().any(|ceq| {
+            alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs)
+                || alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_rhs, &mapped_lhs)
+        });
         if syntactic {
             continue;
         }
@@ -2646,6 +2859,362 @@ mod tests {
         assert!(
             matches!(err, crate::error::GatError::ComposeDomainMismatch { .. }),
             "got {err:?}",
+        );
+    }
+
+    /// An undirected equation states the same axiom in either orientation,
+    /// so a domain equation whose image is a codomain equation read right
+    /// to left is preserved.
+    #[test]
+    fn morphism_accepts_an_equation_stated_in_the_other_orientation() {
+        let sorts = vec![Sort::simple("A")];
+        let ops = vec![Operation::unary("f", "x", "A", "A")];
+        let domain = Theory::new(
+            "D",
+            sorts.clone(),
+            ops.clone(),
+            vec![Equation::new(
+                "ax",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        );
+        let codomain = Theory::new(
+            "C",
+            sorts,
+            ops,
+            vec![Equation::new(
+                "xa",
+                Term::var("y"),
+                Term::app("f", vec![Term::var("y")]),
+            )],
+        );
+        let m = TheoryMorphism::new(
+            "m",
+            "D",
+            "C",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("f"))]),
+        );
+        check_morphism(&m, &domain, &codomain).unwrap();
+        let witnesses = check_morphism_with_witnesses(&m, &domain, &codomain).unwrap();
+        assert_eq!(witnesses.len(), 1);
+        witnesses[0].verify(&codomain).unwrap();
+    }
+
+    /// Serializing one morphism in many processes gives one byte string:
+    /// the sort and operation maps are written in key order, not in the
+    /// order a process's hash seed enumerates them.
+    #[test]
+    fn theory_morphism_bytes_are_identical_across_processes() {
+        const CHILD: &str = "PP_GAT_MORPHISM_BYTES_CHILD";
+        const PROCESSES: usize = 32;
+        let sort_map: HashMap<Arc<str>, Arc<str>> = (0..24)
+            .map(|i| (Arc::from(format!("S{i}")), Arc::from(format!("T{i}"))))
+            .collect();
+        let op_map: HashMap<Arc<str>, OpAssignment> = (0..24)
+            .map(|i| {
+                let image = if i % 3 == 0 {
+                    OpAssignment::Term(Term::app(format!("g{i}"), vec![Term::var("x")]))
+                } else {
+                    OpAssignment::op(format!("g{i}"))
+                };
+                (Arc::from(format!("f{i}")), image)
+            })
+            .collect();
+        let m = TheoryMorphism::new("wide", "D", "C", sort_map, op_map);
+        let bytes = serde_json::to_vec(&m).unwrap();
+        if std::env::var_os(CHILD).is_some() {
+            println!("BYTES:{}", String::from_utf8(bytes).unwrap());
+            return;
+        }
+        let exe = std::env::current_exe().unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..PROCESSES {
+            let out = std::process::Command::new(&exe)
+                .args([
+                    "--exact",
+                    "morphism::tests::theory_morphism_bytes_are_identical_across_processes",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "child failed: {out:?}");
+            let stdout = String::from_utf8(out.stdout).unwrap();
+            let line = stdout
+                .lines()
+                .find_map(|l| l.split_once("BYTES:").map(|(_, rest)| rest))
+                .map(str::to_owned);
+            assert!(line.is_some(), "child printed no bytes: {stdout}");
+            seen.extend(line);
+        }
+        assert_eq!(seen.len(), 1, "{} distinct encodings", seen.len());
+        assert_eq!(
+            seen.into_iter().next(),
+            Some(String::from_utf8(bytes).unwrap())
+        );
+    }
+
+    /// An equation used right to left can grow a term without bound
+    /// (`x` rewrites to `h(h(x))`). Checking that `h(h(x)) = h(x)` holds
+    /// in a theory with only `h(h(x)) = x` then gives up as unknown on a
+    /// default thread stack instead of overflowing it.
+    #[test]
+    fn preservation_by_growing_rewrites_is_unknown_on_a_default_stack() {
+        let h = |t: Term| Term::app("h", vec![t]);
+        let theory = |name: &str, eq: Equation| {
+            Theory::new(
+                name,
+                vec![Sort::simple("A")],
+                vec![Operation::unary("h", "a", "A", "A")],
+                vec![eq],
+            )
+        };
+        let domain = theory(
+            "T",
+            Equation::new("e", h(h(Term::var("x"))), h(Term::var("x"))),
+        );
+        let codomain = theory(
+            "Q",
+            Equation::new("k", h(h(Term::var("x"))), Term::var("x")),
+        );
+        let m = TheoryMorphism::identity(&domain);
+        let m = TheoryMorphism::new("m", "T", "Q", m.sort_map, m.op_map);
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(result, Err(GatError::EquationPreservationUnknown { .. })),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn an_equation_relating_two_distinct_variables_is_not_preserved_without_an_axiom() {
+        // `e : x = y` says every two elements of `A` are equal. Its image
+        // under the identity is `x = y` again, which the codomain, with no
+        // equation at all, does not entail: the two sides are distinct
+        // variables, although each, taken alone, is a single variable.
+        let domain = Theory::new(
+            "D",
+            vec![Sort::simple("A")],
+            vec![],
+            vec![Equation::new("e", Term::var("x"), Term::var("y"))],
+        );
+        let codomain = Theory::new("C", vec![Sort::simple("A")], vec![], vec![]);
+        let m = TheoryMorphism::new(
+            "m",
+            "D",
+            "C",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::<Arc<str>, OpAssignment>::new(),
+        );
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(&result, Err(GatError::EquationNotPreserved { equation, .. }) if equation == "e"),
+            "{result:?}"
+        );
+    }
+
+    fn rule(name: &str, lhs: Term, rhs: Term) -> crate::eq::DirectedEquation {
+        crate::eq::DirectedEquation::new(name, lhs, rhs, panproto_expr::Expr::Var("_".into()))
+    }
+
+    /// Sort `A` with constants `a`, `b`, `c` and unary `s`, `g`, `h`,
+    /// carrying the given equations and directed equations.
+    fn chain_codomain(eqs: Vec<Equation>, directed: Vec<crate::eq::DirectedEquation>) -> Theory {
+        Theory::full(
+            "Chain",
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![
+                Operation::nullary("a", "A"),
+                Operation::nullary("b", "A"),
+                Operation::nullary("c", "A"),
+                Operation::unary("s", "x", "A", "A"),
+                Operation::unary("g", "x", "A", "A"),
+                Operation::unary("h", "x", "A", "A"),
+            ],
+            eqs,
+            directed,
+            Vec::new(),
+        )
+    }
+
+    fn nested(op: &str, depth: usize, base: Term) -> Term {
+        (0..depth).fold(base, |t, _| Term::app(op, vec![t]))
+    }
+
+    #[test]
+    fn op_assignment_accessors_and_display() {
+        let rename = OpAssignment::op("g");
+        let derived = OpAssignment::Term(Term::app("g", vec![Term::var("x"), Term::constant("c")]));
+        assert!(rename.is_op());
+        assert!(!derived.is_op());
+        assert_eq!(rename.as_op().map(AsRef::as_ref), Some("g"));
+        assert_eq!(derived.as_op(), None);
+        assert_eq!(rename.as_term(), None);
+        assert_eq!(
+            derived.as_term(),
+            Some(&Term::app("g", vec![Term::var("x"), Term::constant("c")]))
+        );
+        assert_eq!(rename.to_string(), "g");
+        assert_eq!(derived.to_string(), "g(x, c())");
+    }
+
+    #[test]
+    fn term_depth_counts_nesting_levels() {
+        assert_eq!(term_depth(&Term::var("x")), 1);
+        assert_eq!(term_depth(&Term::Hole { name: None }), 1);
+        assert_eq!(term_depth(&Term::constant("c")), 1);
+        assert_eq!(term_depth(&Term::app("f", vec![Term::var("x")])), 2);
+        assert_eq!(
+            term_depth(&Term::app(
+                "f",
+                vec![Term::var("y"), Term::app("g", vec![Term::constant("c")])]
+            )),
+            3
+        );
+        let case = Term::Case {
+            scrutinee: Box::new(nested("s", 3, Term::var("n"))),
+            branches: vec![
+                crate::eq::CaseBranch {
+                    constructor: Arc::from("z"),
+                    binders: Vec::new(),
+                    body: nested("s", 1, Term::var("m")),
+                },
+                crate::eq::CaseBranch {
+                    constructor: Arc::from("s"),
+                    binders: vec![Arc::from("p")],
+                    body: Term::var("p"),
+                },
+            ],
+        };
+        assert_eq!(term_depth(&case), 5);
+        let deep_branch = Term::Case {
+            scrutinee: Box::new(Term::var("n")),
+            branches: vec![crate::eq::CaseBranch {
+                constructor: Arc::from("s"),
+                binders: vec![Arc::from("p")],
+                body: nested("s", 5, Term::var("p")),
+            }],
+        };
+        assert_eq!(term_depth(&deep_branch), 7);
+        let let_term = Term::Let {
+            name: Arc::from("v"),
+            bound: Box::new(nested("s", 2, Term::var("x"))),
+            body: Box::new(Term::var("v")),
+        };
+        assert_eq!(term_depth(&let_term), 4);
+        let let_body = Term::Let {
+            name: Arc::from("v"),
+            bound: Box::new(Term::var("x")),
+            body: Box::new(nested("s", 4, Term::var("v"))),
+        };
+        assert_eq!(term_depth(&let_body), 6);
+    }
+
+    #[test]
+    fn normalize_bounded_gives_up_one_level_past_the_headroom() {
+        // `g(x) -> g(h(x))` deepens `g(c())` by one level per step; the
+        // deeper of the term and the rule sides is 3, so rewriting stops
+        // at the first term deeper than 3 + 64.
+        let grow = rule(
+            "grow",
+            Term::app("g", vec![Term::var("x")]),
+            Term::app("g", vec![Term::app("h", vec![Term::var("x")])]),
+        );
+        let start = Term::app("g", vec![Term::constant("c")]);
+        let (result, exhausted) = normalize_bounded(&start, &[grow], 1000);
+        assert!(exhausted);
+        assert_eq!(term_depth(&result), 3 + REWRITE_DEPTH_HEADROOM + 1);
+        assert_eq!(
+            result,
+            Term::app("g", vec![nested("h", 66, Term::constant("c"))])
+        );
+    }
+
+    /// `g(s(x)) -> g(x)`: one root rewrite per step, since its redex is
+    /// always the whole term.
+    fn peel() -> crate::eq::DirectedEquation {
+        rule(
+            "peel",
+            Term::app("g", vec![Term::app("s", vec![Term::var("x")])]),
+            Term::app("g", vec![Term::var("x")]),
+        )
+    }
+
+    fn peeled(depth: usize) -> Term {
+        Term::app("g", vec![nested("s", depth, Term::constant("c"))])
+    }
+
+    #[test]
+    fn normalize_bounded_reports_a_spent_budget_even_on_a_normal_form() {
+        let normal = Term::app("g", vec![Term::constant("c")]);
+        let (result, exhausted) = normalize_bounded(&peeled(3), &[peel()], 3);
+        assert_eq!(result, normal);
+        assert!(exhausted, "the third step spends the budget");
+        let (result, exhausted) = normalize_bounded(&peeled(3), &[peel()], 4);
+        assert_eq!(result, normal);
+        assert!(!exhausted);
+        let (result, exhausted) = normalize_bounded(&peeled(3), &[peel()], 2);
+        assert_eq!(result, peeled(1));
+        assert!(exhausted);
+    }
+
+    #[test]
+    fn a_side_whose_normalization_spends_the_budget_is_undecided() {
+        // `g(s^512(c()))` reaches `g(c())` on the last step the budget
+        // allows, so its normalization reports exhaustion even though the
+        // other side is that same normal form.
+        let codomain = chain_codomain(Vec::new(), vec![peel()]);
+        let normal = peeled(0);
+        assert!(matches!(
+            equation_image_derivable(&peeled(512), &normal, &codomain),
+            Derivability::Unknown
+        ));
+        assert!(matches!(
+            equation_image_derivable(&normal, &peeled(512), &codomain),
+            Derivability::Unknown
+        ));
+        assert!(matches!(
+            equation_image_derivable(&peeled(511), &normal, &codomain),
+            Derivability::Derivable
+        ));
+    }
+
+    #[test]
+    fn preservation_witness_chains_directed_normal_forms_and_trusts_the_rest() {
+        // `b -> c` is directed; `a = b` is an undirected axiom, so `a = c`
+        // holds only through the equation and `b = c` through the rule.
+        let codomain = chain_codomain(
+            vec![Equation::new(
+                "ab",
+                Term::constant("a"),
+                Term::constant("b"),
+            )],
+            vec![rule("bc", Term::constant("b"), Term::constant("c"))],
+        );
+        let directed = preservation_witness(&Term::constant("b"), &Term::constant("c"), &codomain);
+        assert!(
+            matches!(
+                directed.justification,
+                WitnessJustification::Transitivity(..)
+            ),
+            "{directed:?}"
+        );
+        let trusted = preservation_witness(&Term::constant("a"), &Term::constant("c"), &codomain);
+        assert!(
+            matches!(
+                trusted.justification,
+                WitnessJustification::RuntimeChecked { .. }
+            ),
+            "{trusted:?}"
+        );
+        let axiom = preservation_witness(&Term::constant("a"), &Term::constant("b"), &codomain);
+        assert!(
+            matches!(&axiom.justification, WitnessJustification::Axiom(name) if &**name == "ab"),
+            "{axiom:?}"
         );
     }
 }

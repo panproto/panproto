@@ -51,7 +51,7 @@ panproto treats schemas as models of generalized algebraic theories (GATs). A pr
 
 Migrations between schemas are compiled into restrict functors $M^*: \mathbf{Set}^T \to \mathbf{Set}^S$ that transform instance data. The get/put interface forms an asymmetric lens with a complement $C$ capturing the data lost in the forward direction.
 
-50 protocols are built in, covering annotation, API, config, data schema, data science, database, domain, serialization, type system, and web document formats.
+The extension exposes 57 semantic protocols plus the source-language grammars compiled into the installed build. The semantic catalog covers annotation, API, config, data schema, data science, database, domain, serialization, text, and web document formats.
 
 ## Modules
 

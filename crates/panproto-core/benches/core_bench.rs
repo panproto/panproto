@@ -32,12 +32,17 @@ fn parse_lift_emit_real_post(bencher: divan::Bencher) {
     let migration = Migration::identity(&vertex_ids, &edges);
     let compiled = compile(&schema, &schema, &migration).expect("compile");
     let registry = panproto_core::io::default_registry();
+    let protocol = panproto_core::protocols::web_document::atproto::protocol();
+    let protocols = panproto_core::inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
 
     bencher.bench(|| {
         let instance = registry
             .parse_wtype("atproto", &schema, REAL_POST)
             .expect("parse");
-        let lifted = lift_wtype(&compiled, &schema, &schema, &instance).expect("lift");
+        let lifted = lift_wtype(&compiled, &schema, &schema, &instance, protocols).expect("lift");
         registry
             .emit_wtype("atproto", &schema, &lifted)
             .expect("emit")

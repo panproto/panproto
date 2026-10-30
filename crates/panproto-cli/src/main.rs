@@ -1028,20 +1028,20 @@ enum LensAction {
         #[arg(long)]
         explain: bool,
     },
-    /// Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain.
+    /// Compile a lens DSL document to a versioned executable artifact.
     Compile {
         /// Path to the lens DSL document (`.ncl`, `.json`, `.yaml`, or `.yml`).
         doc: PathBuf,
         /// Parent vertex under which field-level steps attach.
         #[arg(long, default_value = "record:body")]
         body_vertex: String,
-        /// Write the chain JSON to this file instead of stdout.
+        /// Write the compiled artifact JSON to this file instead of stdout.
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Apply a saved lens chain to data.
+    /// Apply a compiled lens artifact, raw chain, or target schema to data.
     Apply {
-        /// Path to the protolens chain JSON.
+        /// Path to the compiled artifact, raw chain, or target-schema JSON.
         chain: PathBuf,
         /// Path to the data file.
         data: PathBuf,

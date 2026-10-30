@@ -95,6 +95,20 @@
   - [Protolens composition](./explanation/semantics/protolens-composition.md)
   - [REPL command language](./explanation/semantics/repl-commands.md)
 
+# Correctness
+
+- [Correctness](./correctness/index.md)
+  - [Values](./correctness/values.md)
+  - [Value I/O](./correctness/value-io.md)
+  - [Theories](./correctness/theories.md)
+  - [Keys and registration](./correctness/keys-and-registration.md)
+  - [Instance representation](./correctness/representation.md)
+  - [Kan extensions](./correctness/kan-extensions.md)
+  - [Restriction and contraction](./correctness/restrict-and-contraction.md)
+  - [Edits](./correctness/edits.md)
+  - [Lenses](./correctness/lenses.md)
+  - [Reference resolution](./correctness/resolution.md)
+
 ---
 
 [Glossary](./glossary.md)

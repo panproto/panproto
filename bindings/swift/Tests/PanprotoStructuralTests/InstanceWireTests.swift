@@ -12,7 +12,7 @@ private let sampleEdge = Edge(src: "a", tgt: "b", kind: "prop", name: "n")
 
 @Suite("Value")
 struct ValueWireTests {
-    /// One value of each of the thirteen variants.
+    /// One value of each variant.
     static let everyVariant: [Value] = [
         .bool(true),
         .int(-1),
@@ -27,6 +27,8 @@ struct ValueWireTests {
         .unknown(["a": .bool(true)]),
         .list([.null, .string("x")]),
         .labeledNull(7),
+        .decimal(DecimalValue(digits: "150", exponent: "-2")),
+        .bigInt(BigIntValue(significand: "9223372036854775808")),
     ]
 
     @Test("Every variant round trips", arguments: everyVariant)
@@ -129,6 +131,56 @@ struct ValueWireTests {
             try encodedHex(Value.unknown(["a": .bool(true)]))
                 == "a167556e6b6e6f776ea16161a164426f6f6cf5"
         )
+    }
+
+    @Test("Exact scalar spellings match Rust serde")
+    func exactScalarSpellings() throws {
+        #expect(
+            try encodedHex(Value.decimal(DecimalValue(digits: "150", exponent: "-2")))
+                == "a167446563696d616ca3686e65676174697665f46664696769747363313530"
+                + "686578706f6e656e74622d32"
+        )
+        #expect(
+            try encodedHex(Value.bigInt(BigIntValue(significand: "9223372036854775808")))
+                == "a166426967496e74a3686e65676174697665f46b7369676e69666963616e64"
+                + "7339323233333732303336383534373735383038657a65726f736130"
+        )
+        let temporal = Value.temporal(
+            try TemporalValue(
+                representation: .textMap([
+                    (
+                        "date",
+                        .textMap([
+                            ("year", .unsigned(2024)),
+                            ("month", .unsigned(2)),
+                            ("day", .unsigned(29)),
+                        ])
+                    )
+                ]))
+        )
+        #expect(try roundTripped(temporal) == temporal)
+        #expect(throws: (any Error).self) {
+            try TemporalValue(representation: .textMap([("duration", .null)]))
+        }
+        #expect(throws: (any Error).self) {
+            try CBORDecoder().decode(
+                Value.self,
+                from: try CBOREncoder().encode(CBORValue.textMap([("DecimalLike", .null)]))
+            )
+        }
+    }
+
+    @Test("Big integers refuse alternate encodings of i64 values")
+    func bigIntegerCanonicalRange() {
+        #expect(throws: (any Error).self) {
+            try CBOREncoder().encode(
+                Value.bigInt(BigIntValue(significand: "1", zeros: "1")))
+        }
+        #expect(throws: (any Error).self) {
+            try CBOREncoder().encode(
+                Value.bigInt(
+                    BigIntValue(negative: true, significand: "9223372036854775808")))
+        }
     }
 
     @Test("Accessors read a leaf without pattern matching")
@@ -238,8 +290,10 @@ struct FieldPresenceWireTests {
 
 @Suite("NodeShape")
 struct NodeShapeWireTests {
-    /// The four shapes.
-    static let everyShape: [NodeShape] = [.plain, .list, .xmlElement(tag: "NAF"), .xmlTextSegment]
+    /// Every structural shape.
+    static let everyShape: [NodeShape] = [
+        .plain, .list, .xmlElement(tag: "NAF"), .xmlTextSegment, .hyperEdge,
+    ]
 
     @Test("Every shape round trips", arguments: everyShape)
     func everyShapeRoundTrips(shape: NodeShape) throws {
@@ -258,6 +312,7 @@ struct NodeShapeWireTests {
             try encodedHex(NodeShape.xmlTextSegment)
                 == "a1646b696e6470786d6c5f746578745f7365676d656e74"
         )
+        #expect(try encodedHex(NodeShape.hyperEdge) == "a1646b696e646a68797065725f65646765")
     }
 
     @Test("An unknown kind is refused")
@@ -477,15 +532,18 @@ struct InstanceWireTests {
 
 @Suite("Complement")
 struct ComplementWireTests {
-    @Test("An empty complement writes six keys")
-    func emptyComplementWritesSixKeys() throws {
-        #expect(
-            try encodedHex(Complement())
-                == "a66d64726f707065645f6e6f646573a06c64726f707065645f6172637380"
-                + "6c64726f707065645f66616e738073636f6e7472616374696f6e5f63686f"
-                + "69636573806f6f726967696e616c5f706172656e74a072736f757263655f"
-                + "66696e6765727072696e7400"
-        )
+    @Test("An empty complement writes every nonoptional field")
+    func emptyComplementWritesCurrentFields() throws {
+        let encoded = try CBOREncoder().encode(Complement())
+        let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
+        guard case .map(let entries) = reflected else {
+            Issue.record("a complement encodes as a map")
+            return
+        }
+        // Fifteen fields are always written; the sixteenth, the identity
+        // envelope, is left out when absent, as the engine leaves it out.
+        #expect(entries.count == 15)
+        #expect(!entries.contains { $0.key == .textString("identity") })
     }
 
     @Test("A populated complement writes the pair maps as arrays of pairs")
@@ -497,17 +555,6 @@ struct ComplementWireTests {
             arcEdges: [NodePair(parent: 0, child: 1): sampleEdge],
             arcOrder: [NodePair(parent: 0, child: 1)],
             synthesizedNodes: [5]
-        )
-        #expect(
-            try encodedHex(complement)
-                == "a96d64726f707065645f6e6f646573a06c64726f707065645f6172637380"
-                + "6c64726f707065645f66616e738073636f6e7472616374696f6e5f63686f"
-                + "696365738182820001a4637372636161637467746162646b696e64647072"
-                + "6f70646e616d65616e6f6f726967696e616c5f706172656e74a101007273"
-                + "6f757263655f66696e6765727072696e741bf921c7f3093db46869617263"
-                + "5f65646765738182820001a4637372636161637467746162646b696e6464"
-                + "70726f70646e616d65616e696172635f6f72646572818200017173796e74"
-                + "686573697a65645f6e6f6465738105"
         )
         #expect(try roundTripped(complement) == complement)
     }
@@ -539,7 +586,24 @@ struct ComplementWireTests {
             arcOrder: [NodePair(parent: 1, child: 2), NodePair(parent: 0, child: 1)],
             originalValues: [1: nil, 2: .null, 3: .present(.string("x"))],
             synthesizedNodes: [7, 8],
-            contractedInto: [5: 1]
+            contractedInto: [5: 1],
+            originalAnchors: [2: "source"],
+            idFloor: 9,
+            synthesizedKeys: [
+                7: try SynthKey(
+                    representation: .textMap([
+                        (
+                            "expand",
+                            .textMap([("source_edge", .unsigned(3)), ("hop", .unsigned(1))])
+                        )
+                    ]))
+            ],
+            identity: IdentityEnvelope(
+                sourceSchema: Data(repeating: 1, count: 32),
+                targetSchema: Data(repeating: 2, count: 32),
+                lens: Data(repeating: 3, count: 32),
+                complementFormat: ComplementFormat(shape: .wtype, version: 1)
+            )
         )
         #expect(try roundTripped(complement) == complement)
         #expect(complement.isEmpty == false)
@@ -604,7 +668,26 @@ struct GetRecordEnvelopeWireTests {
     @Test("The second pass decodes the view and the complement")
     func secondPassDecodes() throws {
         let instance = InstanceWireTests.sample()
-        let complement = Complement(arcOrder: [NodePair(parent: 0, child: 1)])
+        let complement = Complement(
+            arcOrder: [NodePair(parent: 0, child: 1)],
+            originalAnchors: [1: "source"],
+            idFloor: 2,
+            synthesizedKeys: [
+                1: try SynthKey(
+                    representation: .textMap([
+                        (
+                            "expand",
+                            .textMap([("source_edge", .unsigned(0)), ("hop", .unsigned(0))])
+                        )
+                    ]))
+            ],
+            identity: IdentityEnvelope(
+                sourceSchema: Data(repeating: 1, count: 32),
+                targetSchema: Data(repeating: 2, count: 32),
+                lens: Data(repeating: 3, count: 32),
+                complementFormat: ComplementFormat(shape: .wtype, version: 1)
+            )
+        )
         let encoder = CBOREncoder()
         let envelope = GetRecordEnvelope(
             viewBytes: try encoder.encode(instance),

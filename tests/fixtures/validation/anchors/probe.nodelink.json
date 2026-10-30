@@ -1,0 +1,138 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "worksAt",
+        "src": "person",
+        "tgt": "org"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 2
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "worksAt",
+        "src": "person",
+        "tgt": "org"
+      },
+      "id": 1,
+      "position": null,
+      "src": 0,
+      "tgt": 2
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "worksAt",
+        "src": "person",
+        "tgt": "org"
+      },
+      "id": 2,
+      "position": null,
+      "src": 1,
+      "tgt": 2
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "worksAt",
+        "src": "person",
+        "tgt": "org"
+      },
+      "id": 3,
+      "position": null,
+      "src": 1,
+      "tgt": 0
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "undeclared",
+        "src": "person",
+        "tgt": "org"
+      },
+      "id": 4,
+      "position": null,
+      "src": 0,
+      "tgt": 2
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "person",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "ann"
+        }
+      }
+    },
+    {
+      "anchor": "person",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "abcdefgh"
+        }
+      }
+    },
+    {
+      "anchor": "org",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "person",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 3,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "bob"
+        }
+      }
+    },
+    {
+      "anchor": "ghost",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 4,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    }
+  ]
+}

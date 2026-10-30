@@ -51,7 +51,7 @@ The full parameter types are the public Rust signatures in those module indexes.
 
 ## Complement composition
 
-`ComplementCompose::compose(&left, &right)` returns `Result<Complement, LensError>`. It rejects distinct nonzero source fingerprints with `ComplementFingerprintMismatch` and conflicting values under a shared key with `ComplementConflict`. `ComplementCompose::is_compatible` runs the same predicate without returning the merged value. The trait must be in scope because `Complement` is defined in `panproto-inst`.
+`ComplementCompose::compose(&left, &right)` is an independent partial-commutative merge; sequential `LensPath` execution instead retains one complement entry per normal-form group. The merge rejects conflicting values under a shared key with `LensError::ComplementConflict`. Incompatible identity envelopes, mixed stamped and legacy identities, unequal legacy fingerprints, and unbound nonempty complements produce `LensError::Identity`. `ComplementCompose::is_compatible` runs the same predicate without returning the merged value. The trait must be in scope because `Complement` is defined in `panproto-inst`.
 
 ## Protolens composition and instantiation
 

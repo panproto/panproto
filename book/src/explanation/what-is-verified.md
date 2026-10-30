@@ -32,7 +32,7 @@ Total-morphism entry points preserve a different distinction. `Ok(None)` and an 
 
 ### Lenses, coercions, and expressions
 
-[`check_laws`](https://docs.rs/panproto-lens/latest/panproto_lens/fn.check_laws.html) is an on-demand runtime check of GetPut and PutGet on a supplied instance. GetPut compares the complete instance structure. PutGet is compared modulo derived fields and is exercised on the current view plus one deterministic mutation; this does not establish PutGet for every possible view. PutPut has a separate checker and broader property-test coverage. None of these checks runs automatically on every `get` or `put`.
+[`check_laws`](https://docs.rs/panproto-lens/latest/panproto_lens/fn.check_laws.html) is an on-demand runtime check of five gates on a supplied instance: GetPut, PutGet, finite-basis totality, PutTwice complement stability, and congruence. The checker compares exact indexed presentations and traverses its finite single-step mutation basis; a pass does not establish the gates for arbitrary sources or views. PutPut has a separate checker and broader property-test coverage. None of these checks runs automatically on every `get` or `put`.
 
 The edit-lens checkers compare translate-then-apply with apply-then-get, and compare the updated complement with the complement obtained by a whole-state `get`. Both operate on one supplied edit and instance. Complement composition separately rejects source-fingerprint mismatches and conflicting stored values, while vertical protolens composition rejects unequal intermediate endofunctors. These are local composition preconditions rather than proofs of the lens laws.
 

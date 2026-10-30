@@ -7,18 +7,22 @@
 module Spec.CanonicalRoundtrip (tests) where
 
 import Codec.CBOR.Encoding qualified as Enc
+import Codec.CBOR.Read qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
 import Data.ByteString.Lazy qualified as LBS
+import Data.HashMap.Strict qualified as HM
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit ((@?=), assertBool, assertFailure, testCase)
 
 import Panproto.Canonical
     ( CanonicalProtocol (..)
     , EdgeRule (..)
+    , InstanceShapeKind (..)
     , decodeProtocol
     , defaultProtocol
     , encodeProtocol
     )
+import Panproto.Wire (WireTerm, decodeWireTerm)
 
 tests :: TestTree
 tests =
@@ -28,6 +32,7 @@ tests =
         , testCase "encode . decode = id (populated)" roundTripPopulated
         , testCase "encode . decode = id (with edge rules)" roundTripEdgeRules
         , testCase "encode . decode = id (all flags)" roundTripAllFlags
+        , testCase "shape and semantic declarations survive" roundTripSemanticSurface
         , testCase "decode tolerates unknown fields" tolerateUnknown
         , testCase "decode tolerates indef-length map" tolerateIndefMap
         , testCase "decode rejects malformed input" rejectMalformed
@@ -97,6 +102,25 @@ roundTripAllFlags = do
     case decodeProtocol (encodeProtocol p) of
         Right p' -> p' @?= p
         Left err -> assertFailure ("decode failed: " <> err)
+
+roundTripSemanticSurface :: IO ()
+roundTripSemanticSurface = do
+    let p =
+            defaultProtocol
+                { syntacticShape = Tree
+                , semanticShape = Graph
+                , constraintSemantics = HM.fromList [("format", wire (Enc.encodeString "annotation"))]
+                , valueKinds = HM.fromList [("string", wire (Enc.encodeString "str"))]
+                , nonValueKinds = ["object", "record"]
+                }
+    decodeProtocol (encodeProtocol p) @?= Right p
+
+wire :: Enc.Encoding -> WireTerm
+wire encoding =
+    case CBOR.deserialiseFromBytes decodeWireTerm (CBOR.toLazyByteString encoding) of
+        Right (rest, term) | LBS.null rest -> term
+        Right _ -> error "wire fixture left trailing bytes"
+        Left err -> error (show err)
 
 -- | Construct a CBOR map containing one known field plus one
 -- unknown field with a structured value, and verify the decoder

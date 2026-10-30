@@ -1,5 +1,107 @@
 //! Error types for instance parse and emit operations.
 
+use panproto_inst::{RowId, ValueFidelityError, ValueSite};
+use serde::{Deserialize, Serialize};
+
+/// Why a value cannot be represented by an output format.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+pub enum EmitValueReason {
+    /// The format has no representation for this value type.
+    #[error("the value is not representable")]
+    NotRepresentable,
+    /// The format cannot represent a non-finite floating-point value.
+    #[error("the format cannot represent a non-finite number")]
+    NonFinite,
+    /// The format has no null representation at this site.
+    #[error("the format cannot represent null")]
+    NullNotRepresentable,
+    /// The format has no representation for an absent value at this site.
+    #[error("the format cannot represent absence")]
+    AbsentNotRepresentable,
+    /// Writing the value would exceed a configured resource allowance.
+    #[error("{0}")]
+    LimitExceeded(LimitExceeded),
+}
+
+/// A bounded output resource.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Resource {
+    /// Bytes emitted by one operation.
+    OutputBytes,
+}
+
+impl std::fmt::Display for Resource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutputBytes => f.write_str("output bytes"),
+        }
+    }
+}
+
+/// A bounded emit resource ran out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[error("{resource} limit exceeded: the configured bound is {limit}")]
+pub struct LimitExceeded {
+    /// Which allowance ran out.
+    pub resource: Resource,
+    /// The configured upper bound.
+    pub limit: u64,
+}
+
+#[cfg(test)]
+mod emit_value_error_tests {
+    use super::{LimitExceeded, Resource};
+
+    /// Resource names are part of the typed limit error's public diagnostic:
+    /// keep both the resource label and its placement in the complete error.
+    #[test]
+    fn output_byte_limit_has_a_stable_diagnostic() {
+        assert_eq!(Resource::OutputBytes.to_string(), "output bytes");
+        assert_eq!(
+            LimitExceeded {
+                resource: Resource::OutputBytes,
+                limit: 67_108_864,
+            }
+            .to_string(),
+            "output bytes limit exceeded: the configured bound is 67108864"
+        );
+    }
+}
+
+/// A value that cannot be emitted without losing its meaning.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[error("{value_type} at {site} cannot be emitted as {format}: {reason}")]
+pub struct EmitValueError {
+    /// The schema vertex and source offset, when known.
+    pub site: ValueSite,
+    /// The stable [`panproto_inst::Value::type_name`] of the value.
+    pub value_type: String,
+    /// The destination format.
+    pub format: String,
+    /// Why that format cannot carry the value.
+    pub reason: EmitValueReason,
+}
+
+impl EmitValueError {
+    /// Describe why `value_type` cannot be written at `site` in `format`.
+    #[must_use]
+    pub fn new(
+        site: ValueSite,
+        value_type: impl Into<String>,
+        format: impl Into<String>,
+        reason: EmitValueReason,
+    ) -> Self {
+        Self {
+            site,
+            value_type: value_type.into(),
+            format: format.into(),
+            reason,
+        }
+    }
+}
+
 /// Errors that can occur when parsing raw format bytes into an instance.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -11,6 +113,49 @@ pub enum ParseInstanceError {
         protocol: String,
         /// A human-readable description of the parse failure.
         message: String,
+    },
+
+    /// Parsing exceeded a fixed resource allowance.
+    #[error(
+        "resource limit exceeded for protocol '{protocol}' at byte {byte_offset:?}: {resource} is bounded at {bound}"
+    )]
+    LimitExceeded {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// Stable name of the bounded resource.
+        resource: String,
+        /// The inclusive resource bound.
+        bound: u64,
+        /// Zero-based offset of the construct that exceeded the bound.
+        byte_offset: Option<u64>,
+    },
+
+    /// The input requests a feature that this parser deliberately does not
+    /// evaluate.
+    #[error("unsupported feature for protocol '{protocol}' at byte {byte_offset:?}: {feature}")]
+    UnsupportedFeature {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// Stable description of the unsupported construct.
+        feature: String,
+        /// Zero-based offset of the unsupported construct.
+        byte_offset: Option<u64>,
+    },
+
+    /// One JSON object or one XML start tag names the same member twice.
+    ///
+    /// Names are compared after unescaping, and XML attribute names by their
+    /// expanded name, so `name` is the decoded name (an XML attribute in a
+    /// namespace is written `{uri}local`). The offset is that of the second
+    /// occurrence's name token, counted from byte 0 of the input.
+    #[error("duplicate member {name:?} for protocol '{protocol}' at byte {byte_offset:?}")]
+    DuplicateMember {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// The decoded member name.
+        name: String,
+        /// Zero-based offset of the second occurrence's name token.
+        byte_offset: Option<u64>,
     },
 
     /// The parsed data does not conform to the provided schema.
@@ -47,6 +192,31 @@ pub enum ParseInstanceError {
     /// JSON parsing failed.
     #[error("JSON parse error: {0}")]
     Json(String),
+
+    /// One or more scalar lexemes cannot be held exactly by their declared kinds.
+    #[error("value fidelity errors: {0:?}")]
+    Fidelity(Vec<ValueFidelityError>),
+
+    /// A YAML tag was attached to a mapping or sequence whose tag semantics
+    /// the instance model cannot represent.
+    #[error(
+        "protocol '{protocol}' cannot represent YAML tag {tag:?} on {container_kind} at byte {byte_offset:?}"
+    )]
+    UnsupportedTaggedContainer {
+        /// The protocol that was being parsed.
+        protocol: String,
+        /// The source tag spelling.
+        tag: String,
+        /// The tagged YAML container kind.
+        container_kind: String,
+        /// Zero-based byte offset of the tag, when recorded by the CST.
+        byte_offset: Option<u64>,
+    },
+
+    /// The syntactic source parsed, and resolving it into its semantic
+    /// shape failed with this typed error.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when emitting an instance to raw format bytes.
@@ -87,6 +257,34 @@ pub enum EmitInstanceError {
     /// JSON serialization failed.
     #[error("JSON emit error: {0}")]
     Json(String),
+
+    /// A value has no faithful representation in the output format.
+    #[error(transparent)]
+    Value(#[from] EmitValueError),
+
+    /// A format-preserving writer cannot express a structural edit using the
+    /// source document's fixed CST or byte layout.
+    #[error("{format} format-preserving emission cannot represent structural edit: {detail}")]
+    UnsupportedStructuralEdit {
+        /// The output format whose preserved layout cannot carry the edit.
+        format: String,
+        /// The first unsupported structural difference found.
+        detail: String,
+    },
+
+    /// A table emitter encountered a chase placeholder, which has no literal form.
+    #[error("labeled null at row {row:?}, column {column:?} cannot be emitted")]
+    LabeledNull {
+        /// The row containing the placeholder.
+        row: RowId,
+        /// The column containing the placeholder.
+        column: String,
+    },
+
+    /// Putting the semantic instance back to its syntactic source failed
+    /// with this typed error.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] Box<crate::resolution::ResolveError>),
 }
 
 /// Errors that can occur when constructing a [`UnifiedCodec`](super::unified_codec::UnifiedCodec).

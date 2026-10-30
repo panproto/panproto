@@ -102,13 +102,22 @@ fn compile_schema_morphism(
         }
     }
 
-    // Build resolver for edges between surviving vertices in the target
-    let mut resolver = HashMap::new();
+    // An inferred endpoint resolver may repeat a unique target edge, but it
+    // cannot choose one of several parallel edges: that requires an explicit
+    // migration decision.
+    let mut resolver_candidates: HashMap<(Name, Name), Option<Edge>> = HashMap::new();
     for edge in tgt_schema.edges.keys() {
         if surviving_verts.contains(&edge.src) && surviving_verts.contains(&edge.tgt) {
-            resolver.insert((edge.src.clone(), edge.tgt.clone()), edge.clone());
+            resolver_candidates
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .and_modify(|candidate| *candidate = None)
+                .or_insert_with(|| Some(edge.clone()));
         }
     }
+    let resolver = resolver_candidates
+        .into_iter()
+        .filter_map(|(pair, candidate)| candidate.map(|edge| (pair, edge)))
+        .collect();
 
     CompiledMigration {
         surviving_verts,
@@ -160,6 +169,8 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use panproto_schema::{Protocol, SchemaBuilder};
+
     fn test_morphism() -> TheoryMorphism {
         TheoryMorphism::new(
             "test",
@@ -176,25 +187,41 @@ mod tests {
         )
     }
 
-    fn simple_schema() -> Schema {
-        use panproto_schema::{Protocol, SchemaBuilder};
-
-        let protocol = Protocol {
+    fn test_protocol() -> Protocol {
+        Protocol {
             name: "test".into(),
             schema_theory: "ThGraph".into(),
             instance_theory: "ThWType".into(),
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
-        };
+            ..Default::default()
+        }
+    }
 
+    fn simple_schema() -> Schema {
+        let protocol = test_protocol();
         SchemaBuilder::new(&protocol)
             .vertex("root", "record", None::<&str>)
             .unwrap()
             .vertex("root.name", "string", None::<&str>)
             .unwrap()
             .edge("root", "root.name", "src", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    fn parallel_schema() -> Schema {
+        let protocol = test_protocol();
+        SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "src", Some("name"))
+            .unwrap()
+            .edge("root", "root.name", "src", Some("alias"))
             .unwrap()
             .build()
             .unwrap()
@@ -279,5 +306,26 @@ mod tests {
 
         // All vertices should survive (no structural changes)
         assert_eq!(compiled.surviving_verts.len(), schema.vertices.len());
+        assert!(
+            compiled
+                .resolver
+                .contains_key(&("root".into(), "root.name".into())),
+            "a unique target edge may be repeated as an inferred resolver",
+        );
+    }
+
+    #[test]
+    fn induced_migration_does_not_choose_between_parallel_target_edges() {
+        let morph = test_morphism();
+        let source = simple_schema();
+        let schema_morph = induce_schema_morphism(&morph, &source);
+        let compiled = induce_data_migration(&schema_morph, &parallel_schema());
+
+        assert!(
+            !compiled
+                .resolver
+                .contains_key(&("root".into(), "root.name".into())),
+            "parallel target edges require an explicit resolver choice",
+        );
     }
 }

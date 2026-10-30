@@ -31,6 +31,7 @@
 //! - **Data Science**: Parquet, Arrow, `DataFrame`
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
 //! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
+//! - **Text**: YAML, TOML, CSV
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -50,11 +51,19 @@ pub mod domain;
 pub mod emit;
 /// Error types for protocol operations.
 pub mod error;
+pub mod graph_instance_model;
+mod key_order;
 /// Raw file protocol for non-code files (README, LICENSE, images, etc.).
 pub mod raw_file;
 
 /// The canonical record of what each protocol supports.
 pub mod registry;
+
+/// Per-protocol semantic declarations attached by every `protocol()`.
+pub mod semantics;
+
+/// Generic text format protocols (YAML, TOML, CSV).
+pub mod text;
 
 /// A parsed document's size, for charging against an input allowance.
 ///
@@ -90,6 +99,7 @@ use panproto_expr::limits::{Budget, Resource};
 use panproto_schema::Schema;
 
 pub use error::ProtocolError;
+pub use graph_instance_model::graph_instance_model;
 
 // Re-export existing protocols at crate root for backward compatibility.
 pub use web_document::atproto;
@@ -222,12 +232,12 @@ pub fn bundle_project_protocols() -> Vec<&'static str> {
 /// SDL, `.proto`, CDDL, CQL, Cypher, `ASN.1`, Bond, `FlatBuffers`, `CoNLL-U`)
 /// are served by [`parse_schema_source`] instead.
 ///
-/// The `protocol` argument is matched against each protocol's canonical
-/// [`Protocol::name`](panproto_schema::Protocol) (hyphenated). An
-/// underscore is normalized to a hyphen first, so the underscore
-/// registry keys that [`crate`] callers list (`iso_space`,
-/// `msgpack_schema`, …) resolve too; `uima` is accepted as an alias of
-/// its canonical `uima-cas`.
+/// The `protocol` argument is matched against each descriptor's canonical
+/// registry name (hyphenated). An underscore is normalized to a hyphen first,
+/// so compatibility spellings such as `iso_space` and `msgpack_schema`
+/// resolve too. The `uima-cas` alias resolves to the canonical `uima`
+/// descriptor; the constructed [`Protocol`](panproto_schema::Protocol) keeps
+/// its internal `uima-cas` name.
 ///
 /// # Errors
 ///
@@ -261,6 +271,7 @@ pub fn parse_schema_document_within(
                 "protocol {protocol:?} is read from source text, not a JSON document; \
                  use parse_schema_source"
             ))),
+            registry::Parser::Programmatic => Err(no_schema_documents(protocol)),
         },
         None => Err(ProtocolError::Parse(format!(
             "no document parser registered for protocol {protocol:?}; supported: {:?}",
@@ -307,12 +318,21 @@ pub fn parse_schema_source_within(
                 "protocol {protocol:?} is read from a JSON document, not source text; \
                  use parse_schema_document"
             ))),
+            registry::Parser::Programmatic => Err(no_schema_documents(protocol)),
         },
         None => Err(ProtocolError::Parse(format!(
             "no source parser registered for protocol {protocol:?}; supported: {:?}",
             source_parser_protocols()
         ))),
     }
+}
+
+/// The refusal of a protocol that reads no schema documents.
+fn no_schema_documents(protocol: &str) -> ProtocolError {
+    ProtocolError::Parse(format!(
+        "protocol {protocol:?} reads no schema documents; build its schema in code \
+         with SchemaBuilder"
+    ))
 }
 
 /// The protocol names [`parse_schema_document`] accepts (canonical,
@@ -348,7 +368,7 @@ mod dispatch_tests {
 
     #[test]
     fn document_dispatch_normalizes_underscore_to_hyphen() {
-        // The underscore registry-key spelling resolves to the same
+        // The underscore compatibility spelling resolves to the same
         // canonical hyphenated parser.
         let doc = serde_json::json!({ "type": "object" });
         let via_hyphen = parse_schema_document("json-schema", &doc).expect("hyphen form");
@@ -373,8 +393,8 @@ mod dispatch_tests {
 
     #[test]
     fn uima_is_accepted_under_both_names() {
-        // The `uima` registry key aliases the canonical `uima-cas`; both
-        // route to the parser rather than the unknown-protocol arm.
+        // The `uima-cas` alias and canonical `uima` name both route to the
+        // parser rather than the unknown-protocol arm.
         let doc = serde_json::json!({});
         // A malformed doc may error, but never with the "no parser" message.
         for name in ["uima", "uima-cas"] {

@@ -294,6 +294,16 @@ pub enum VcsError {
     /// A generic error described by a human-readable string.
     #[error("{0}")]
     Other(String),
+
+    /// A schema names a protocol that resolves neither to the staged or
+    /// committed protocol object, nor to a protocol registered with
+    /// [`Repository::set_protocol`](crate::Repository::set_protocol), nor
+    /// to a protocol of the `panproto-protocols` registry.
+    #[error("unknown protocol \"{name}\"")]
+    UnknownProtocol {
+        /// The protocol name.
+        name: String,
+    },
 }
 
 /// Wrapper for serialization errors from rmp-serde.

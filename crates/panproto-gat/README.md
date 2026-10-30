@@ -50,11 +50,12 @@ Theory colimits have a structured-specification precedent in
 
 ## Colimits and pullbacks
 
-`colimit(t1, t2, i1, i2)` computes an amalgamated union from a span whose shared
-domain is carried by `i1` and `i2`. It returns the result and two inclusions. The
-constructor checks cocone commutativity. Call `ColimitResult::verify_universal` for
-a particular alternative cocone; that additional check is not run unconditionally.
-Same-name compatible declarations outside the shared image are also identified.
+`colimit(shared, t1, t2, i1, i2)` computes an amalgamated union from a span whose
+shared domain is carried by `i1` and `i2`. It returns the result and two inclusions.
+The constructor checks cocone commutativity and quotients identifications made by
+non-injective legs. Call `ColimitResult::verify_universal` for a particular
+alternative cocone; that additional check is not run unconditionally. Same-name
+compatible declarations outside the shared image are also identified.
 
 `pullback` pairs sorts, operations, and equations whose images agree under two
 morphisms and returns projection morphisms. `PullbackResult` does not include a
