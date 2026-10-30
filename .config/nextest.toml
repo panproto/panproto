@@ -38,6 +38,8 @@
 # The O14 certificates instead run as separately recorded graph-parity
 # acceptance gates. Thus both guarantees stay enforced without blocking PR CI.
 [profile.ci]
+# Report every failing test in one run rather than stopping at the first.
+fail-fast = false
 default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|o14_executes_every_representative_profile_pair|o14_every_labelled_member_has_checked_operation_transports|o14_hom_profile_pairs_agree_with_the_reference|c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|c8_table_edits_match_reference_on_every_word_of_the_coverage_scope|c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
