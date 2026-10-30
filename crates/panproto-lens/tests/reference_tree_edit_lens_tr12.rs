@@ -667,6 +667,9 @@ fn tr12_put_functoriality_minimality_and_source_undo_match_the_reference() {
             // graph-edit entry point in every case.
             let exact_tree_inverse =
                 TreeEdit::from_graph_delta(&whole.tree, &whole.embedding, &inverse_source).ok();
+            if let Err(error) = TreeEdit::from_graph_delta(&whole.tree, &whole.embedding, &inverse_source) {
+                println!("ZZDBG {} {error:?}\nTREE {:?}\nEMB {:?}\nDELTA {:?}", plan.name, whole.tree, whole.embedding, inverse_source);
+            }
             if exact_tree_inverse.is_some() {
                 tree_image_undo += 1;
             } else {

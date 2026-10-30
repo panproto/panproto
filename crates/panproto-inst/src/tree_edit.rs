@@ -290,10 +290,10 @@ fn apply_insert_node(
         return Err(EditError::DuplicateNodeId(child_id));
     }
     if node.id != child_id {
-        return Err(EditError::ApplyFailed(format!(
-            "the inserted node {} is filed under {child_id}",
-            node.id
-        )));
+        return Err(EditError::MisfiledNode {
+            expected: child_id,
+            actual: node.id,
+        });
     }
     instance.nodes.insert(child_id, node.clone());
     let arc = (parent, child_id, edge.clone());
@@ -520,28 +520,21 @@ fn apply_join_features(
         return Err(EditError::NodeNotFound(primary));
     }
     if produce.id != primary {
-        return Err(EditError::ApplyFailed(format!(
-            "the product of joining into node {primary} carries the id {}",
-            produce.id
-        )));
+        return Err(EditError::MisfiledNode {
+            expected: primary,
+            actual: produce.id,
+        });
     }
     let mut seen = std::collections::HashSet::with_capacity(joined.len());
     for &jid in joined {
         if !instance.nodes.contains_key(&jid) {
             return Err(EditError::NodeNotFound(jid));
         }
-        if jid == primary {
-            return Err(EditError::ApplyFailed(format!(
-                "node {primary} cannot be joined into itself"
-            )));
+        if jid == primary || !seen.insert(jid) {
+            return Err(EditError::InvalidJoin(jid));
         }
         if jid == instance.root {
             return Err(EditError::RootOperation(jid));
-        }
-        if !seen.insert(jid) {
-            return Err(EditError::ApplyFailed(format!(
-                "node {jid} is joined into node {primary} twice"
-            )));
         }
         // A joined ancestor of the primary would hand the primary to itself.
         if is_descendant(instance, primary, jid) {
@@ -2422,7 +2415,16 @@ mod tests {
         }
         .apply(&mut inst)
         .unwrap_err();
-        assert!(matches!(err, EditError::ApplyFailed(_)), "{err:?}");
+        assert!(
+            matches!(
+                err,
+                EditError::MisfiledNode {
+                    expected: 1,
+                    actual: 7
+                }
+            ),
+            "{err:?}"
+        );
         assert_eq!(inst.nodes.len(), before.nodes.len());
         assert_eq!(inst.arcs, before.arcs);
         assert!(!inst.nodes.contains_key(&7));
@@ -3912,7 +3914,10 @@ mod graph_tests {
         assert!(
             matches!(
                 &tree_result,
-                Err(EditError::ApplyFailed(reason)) if reason.contains("node 8")
+                Err(EditError::MisfiledNode {
+                    expected: 9,
+                    actual: 8
+                })
             ),
             "{tree_result:?}"
         );

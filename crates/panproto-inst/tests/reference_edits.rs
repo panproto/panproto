@@ -1795,7 +1795,10 @@ fn e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain() {
     let mut production_tree = tree_to_production(&tree(&[(0, "r")], &[]));
     assert!(matches!(
         production_edit.apply(&mut production_tree),
-        Err(EditError::ApplyFailed(_))
+        Err(EditError::MisfiledNode {
+            expected: 1,
+            actual: 2
+        })
     ));
 
     let mut writer = CanonicalWriter::new();
@@ -2075,7 +2078,8 @@ fn e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
 enum JoinRefusalObs {
     NodeNotFound(u32),
     RootOperation(u32),
-    Rejected,
+    InvalidJoin(u32),
+    Misfiled { expected: u32, actual: u32 },
     Cycle { node: u32, parent: u32 },
 }
 
@@ -2083,8 +2087,11 @@ fn reference_join_refusal(error: &reference::TreeApplyError) -> JoinRefusalObs {
     match error {
         reference::TreeApplyError::NodeNotFound(id) => JoinRefusalObs::NodeNotFound(*id),
         reference::TreeApplyError::RootOperation(id) => JoinRefusalObs::RootOperation(*id),
-        reference::TreeApplyError::MisfiledNode { .. }
-        | reference::TreeApplyError::InvalidJoin(_) => JoinRefusalObs::Rejected,
+        reference::TreeApplyError::InvalidJoin(id) => JoinRefusalObs::InvalidJoin(*id),
+        reference::TreeApplyError::MisfiledNode { expected, actual } => JoinRefusalObs::Misfiled {
+            expected: *expected,
+            actual: *actual,
+        },
         reference::TreeApplyError::Cycle { node, parent } => JoinRefusalObs::Cycle {
             node: *node,
             parent: *parent,
@@ -2097,7 +2104,11 @@ fn production_join_refusal(error: &EditError) -> JoinRefusalObs {
     match error {
         EditError::NodeNotFound(id) => JoinRefusalObs::NodeNotFound(*id),
         EditError::RootOperation(id) => JoinRefusalObs::RootOperation(*id),
-        EditError::ApplyFailed(_) => JoinRefusalObs::Rejected,
+        EditError::InvalidJoin(id) => JoinRefusalObs::InvalidJoin(*id),
+        EditError::MisfiledNode { expected, actual } => JoinRefusalObs::Misfiled {
+            expected: *expected,
+            actual: *actual,
+        },
         EditError::CycleDetected {
             node_id,
             new_parent,
@@ -2120,7 +2131,12 @@ fn tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged() {
         "joined-ancestor" => JoinRefusalObs::Cycle { node: 1, parent: 3 },
         "missing-primary" | "missing-joined" => JoinRefusalObs::NodeNotFound(9),
         "joined-root" => JoinRefusalObs::RootOperation(0),
-        "repeated-joined" | "joined-primary" | "misfiled-product" => JoinRefusalObs::Rejected,
+        "repeated-joined" => JoinRefusalObs::InvalidJoin(2),
+        "joined-primary" => JoinRefusalObs::InvalidJoin(1),
+        "misfiled-product" => JoinRefusalObs::Misfiled {
+            expected: 1,
+            actual: 2,
+        },
         other => panic!("unexpected refusal case {other}"),
     };
     let mut refusals = 0usize;

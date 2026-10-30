@@ -259,6 +259,21 @@ pub enum EditError {
     /// A leaf-only deletion names a node that has children.
     #[error("node {0} is not a leaf; use ContractNode to remove it and reattach its children")]
     NotLeaf(u32),
+
+    /// A join names the primary among its joined nodes, or a joined node
+    /// twice.
+    #[error("node {0} cannot be joined: it is the primary or joined twice")]
+    InvalidJoin(u32),
+
+    /// An inserted node, or the product of a join, carries another id than
+    /// the one it is filed under.
+    #[error("the node filed under {expected} carries the id {actual}")]
+    MisfiledNode {
+        /// The id the edit files the node under.
+        expected: u32,
+        /// The id the node carries.
+        actual: u32,
+    },
 }
 
 impl From<ComposeError> for EditError {
@@ -354,6 +369,8 @@ impl EditError {
             Self::NotTableEdit { .. } => "not_table_edit",
             Self::RootOperation(_) => "root_operation",
             Self::NotLeaf(_) => "not_leaf",
+            Self::InvalidJoin(_) => "invalid_join",
+            Self::MisfiledNode { .. } => "misfiled_node",
         };
         name.to_owned()
     }
@@ -366,6 +383,8 @@ impl EditError {
             | Self::DuplicateNodeId(node)
             | Self::RootOperation(node)
             | Self::NotLeaf(node)
+            | Self::InvalidJoin(node)
+            | Self::MisfiledNode { expected: node, .. }
             | Self::AnchorMismatch { node_id: node, .. }
             | Self::CycleDetected { node_id: node, .. }
             | Self::DanglingEdges { node, .. }
