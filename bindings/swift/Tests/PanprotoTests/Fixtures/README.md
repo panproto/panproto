@@ -80,9 +80,9 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-vcard-ical.cbor` | `Raw.registryGetBuiltin(name:)` | 1455 | name `vcard-ical` |
 | `protocol-web-annotation.cbor` | `Raw.registryGetBuiltin(name:)` | 3631 | name `web-annotation` |
 | `protocol-yaml.cbor` | `Raw.registryGetBuiltin(name:)` | 1218 | name `yaml` |
-| `schema-bsky-post.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 25066 | `fixtures/atproto/lexicons/app.bsky.feed.post.json` |
-| `schema-bsky-profile.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 10513 | `fixtures/atproto/lexicons/app.bsky.actor.profile.json` |
-| `schema-metadata-post.cbor` | `Raw.schemaMetadata(schemaHandle:)` | 5811 | the `app.bsky.feed.post` schema |
+| `schema-bsky-post.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 25098 | `fixtures/atproto/lexicons/app.bsky.feed.post.json` |
+| `schema-bsky-profile.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 10521 | `fixtures/atproto/lexicons/app.bsky.actor.profile.json` |
+| `schema-metadata-post.cbor` | `Raw.schemaMetadata(schemaHandle:)` | 5843 | the `app.bsky.feed.post` schema |
 | `instance-post-0.cbor` | `Raw.instJsonToInstance(schemaHandle:json:rootVertex:)` | 1323 | `fixtures/atproto/records/post-0.json` at root vertex `app.bsky.feed.post` |
 | `diff-simple-post-profile.cbor` | `Raw.checkDiffSimple(s1:s2:)` | 7006 | post schema against profile schema |
 | `diff-full-post-profile.cbor` | `Raw.checkDiffFull(s1:s2:)` | 8453 | post schema against profile schema |

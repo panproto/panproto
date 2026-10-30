@@ -2965,7 +2965,12 @@ fn ingest_xml_element(
             Some(xml_clark_name(&namespace, &local_name))
         }
         ResolveResult::Unbound => None,
-        ResolveResult::Unknown(_) => unreachable!("unknown prefixes were refused above"),
+        ResolveResult::Unknown(_) => {
+            return Err(ParseInstanceError::Parse {
+                protocol: protocol.to_owned(),
+                message: format!("XML element {tag:?} uses an invalid or unbound namespace prefix"),
+            });
+        }
     };
     if element_stack.last().is_some_and(|(parent, _)| {
         state

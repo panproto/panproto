@@ -914,6 +914,50 @@ fn is_exact_open_property(schema: &Schema, parent: &Node, child: &Node, edge: &E
         })
 }
 
+/// Read a JSON object or array at a scalar vertex, reporting whether it
+/// did. A vertex whose kind holds any value takes a structured one whole:
+/// the object or array is the node's one value, not a subtree whose
+/// members its vertex would have to declare. Any other scalar vertex
+/// refuses it.
+fn read_structured_value(
+    schema: &Schema,
+    protocol: &Protocol,
+    anchor: &str,
+    raw: &RawJson<'_>,
+    node_id: u32,
+    state: &mut BuildState,
+) -> Result<bool, ParseInstanceError> {
+    let (shape, offset) = match raw {
+        RawJson::Array { offset, .. } => ("array", *offset),
+        RawJson::Object { offset, .. } => ("object", *offset),
+        RawJson::Null | RawJson::Bool { .. } | RawJson::Number { .. } | RawJson::String { .. } => {
+            return Ok(false);
+        }
+    };
+    let Some(declaration) = schema
+        .vertices
+        .get(anchor)
+        .filter(|declaration| protocol.value_kinds.contains_key(declaration.kind.as_str()))
+    else {
+        return Ok(false);
+    };
+    let spec = ValueSpec::for_vertex(schema, protocol, &declaration.id);
+    if spec.kind != ScalarKind::Any {
+        return Err(ParseInstanceError::SchemaMismatch {
+            protocol: protocol.name.clone(),
+            message: format!(
+                "JSON {shape} at byte {offset} cannot populate scalar vertex '{anchor}' of kind '{}'",
+                declaration.kind
+            ),
+        });
+    }
+    let presence = raw_scalar(raw, anchor, &spec, state);
+    state
+        .nodes
+        .insert(node_id, Node::new(node_id, anchor).with_value(presence));
+    Ok(true)
+}
+
 fn walk_raw_json(
     schema: &Schema,
     protocol: &Protocol,
@@ -923,35 +967,7 @@ fn walk_raw_json(
     state: &mut BuildState,
 ) -> Result<(), ParseInstanceError> {
     let anchor = resolve_transparent_indirection(schema, vertex);
-    let scalar_kind = schema
-        .vertices
-        .get(anchor)
-        .filter(|declaration| protocol.value_kinds.contains_key(declaration.kind.as_str()));
-    let structural_value = match raw {
-        RawJson::Array { offset, .. } => Some(("array", *offset)),
-        RawJson::Object { offset, .. } => Some(("object", *offset)),
-        RawJson::Null | RawJson::Bool { .. } | RawJson::Number { .. } | RawJson::String { .. } => {
-            None
-        }
-    };
-    if let (Some(declaration), Some((shape, offset))) = (scalar_kind, structural_value) {
-        let spec = ValueSpec::for_vertex(schema, protocol, &declaration.id);
-        if spec.kind != ScalarKind::Any {
-            return Err(ParseInstanceError::SchemaMismatch {
-                protocol: protocol.name.clone(),
-                message: format!(
-                    "JSON {shape} at byte {offset} cannot populate scalar vertex '{anchor}' of kind '{}'",
-                    declaration.kind
-                ),
-            });
-        }
-        // A vertex whose kind holds any value takes a structured one
-        // whole: the object or array is the node's one value, not a
-        // subtree whose members its vertex would have to declare.
-        let presence = raw_scalar(raw, anchor, &spec, state);
-        state
-            .nodes
-            .insert(node_id, Node::new(node_id, anchor).with_value(presence));
+    if read_structured_value(schema, protocol, anchor, raw, node_id, state)? {
         return Ok(());
     }
 
@@ -2959,7 +2975,7 @@ mod tests {
                 ..
             })
         ));
-        assert!(output.is_empty());
+        assert_eq!(output, Vec::<u8>::new());
     }
 
     #[test]

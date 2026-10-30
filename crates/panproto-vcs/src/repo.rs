@@ -1565,6 +1565,23 @@ mod tests {
         }
     }
 
+    /// A schema of `vertices` whose entry object `a` also declares a
+    /// property `a`, so the record `{"a": N}` conforms to it.
+    fn make_record_schema(
+        vertices: &[(&str, &str)],
+    ) -> Result<Schema, panproto_schema::SchemaError> {
+        let protocol = test_protocol();
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+        for (id, kind) in vertices {
+            builder = builder.vertex(id, kind, None)?;
+        }
+        builder
+            .vertex("a.a", "string", None)?
+            .edge("a", "a.a", "prop", Some("a"))?
+            .entry("a")
+            .build()
+    }
+
     fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         let mut vert_map = HashMap::new();
         for (id, kind) in vertices {
@@ -1928,7 +1945,7 @@ mod tests {
         repo.set_protocol(test_protocol());
 
         // First commit: a schema.
-        let s = make_schema(&[("a", "object"), ("b", "string")]);
+        let s = make_record_schema(&[("a", "object"), ("b", "string")])?;
         repo.add(&s)?;
         repo.commit("initial schema", "alice")?;
 
@@ -1942,7 +1959,7 @@ mod tests {
         assert_eq!(index.staged_data[0].source_path, data_path);
 
         // Need a schema change to commit (or stage a schema).
-        let s2 = make_schema(&[("a", "object"), ("b", "string"), ("c", "number")]);
+        let s2 = make_record_schema(&[("a", "object"), ("b", "string"), ("c", "string")])?;
         repo.add(&s2)?;
         let commit_id = repo.commit("add data", "alice")?;
 
@@ -1972,7 +1989,7 @@ mod tests {
         repo.set_protocol(test_protocol());
 
         // First commit: a schema, no data.
-        let s = make_schema(&[("a", "object"), ("b", "string")]);
+        let s = make_record_schema(&[("a", "object"), ("b", "string")])?;
         repo.add(&s)?;
         let schema_only = repo.commit("initial schema", "alice")?;
 
@@ -1984,7 +2001,7 @@ mod tests {
         let data_path = dir.path().join("data.json");
         std::fs::write(&data_path, payload)?;
         repo.add_data(&data_path, Some("records-key"))?;
-        let s2 = make_schema(&[("a", "object"), ("b", "string"), ("c", "number")]);
+        let s2 = make_record_schema(&[("a", "object"), ("b", "string"), ("c", "string")])?;
         repo.add(&s2)?;
         let commit_id = repo.commit("add data", "alice")?;
         let commit_hex = commit_id.to_string();
@@ -2028,7 +2045,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
         repo.set_protocol(test_protocol());
-        let schema = make_schema(&[("a", "object"), ("b", "string")]);
+        let schema = make_record_schema(&[("a", "object"), ("b", "string")])?;
         repo.add(&schema)?;
         repo.commit("schema", "alice")?;
 
@@ -2059,7 +2076,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
         repo.set_protocol(test_protocol());
-        let schema = make_schema(&[("a", "object"), ("b", "string")]);
+        let schema = make_record_schema(&[("a", "object"), ("b", "string")])?;
         let schema_id = crate::tree::store_schema_as_tree(repo.store_mut(), schema)?;
         let dataset = DataSetObject {
             schema_id,
@@ -2088,7 +2105,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
         repo.set_protocol(test_protocol());
-        let schema = make_schema(&[("a", "object")]);
+        let schema = make_record_schema(&[("a", "object")])?;
         repo.add(&schema)?;
         repo.commit("schema", "alice")?;
         let data_path = dir.path().join("data.json");
@@ -2113,7 +2130,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
         repo.set_protocol(test_protocol());
-        let schema = make_schema(&[("a", "object")]);
+        let schema = make_record_schema(&[("a", "object")])?;
         let schema_id = crate::tree::store_schema_as_tree(repo.store_mut(), schema)?;
         let dataset = DataSetObject {
             schema_id,
@@ -2137,7 +2154,7 @@ mod tests {
         repo.set_protocol(test_protocol());
 
         // First commit: a schema, no data.
-        let s = make_schema(&[("a", "object"), ("b", "string")]);
+        let s = make_record_schema(&[("a", "object"), ("b", "string")])?;
         repo.add(&s)?;
         repo.commit("schema", "alice")?;
 
@@ -2186,7 +2203,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
         repo.set_protocol(test_protocol());
-        let s = make_schema(&[("a", "object")]);
+        let s = make_record_schema(&[("a", "object")])?;
         repo.add(&s)?;
         repo.commit("schema", "alice")?;
 

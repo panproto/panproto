@@ -1892,93 +1892,161 @@ impl TreeEdit {
         let edit = rebuild.into_edit();
         // The reading has the delta's effect; it is sound only when the
         // delta is also the reading's lowering, up to the ids the delta
-        // allocates. Without this, a delta that relocates fans but gives a
-        // relocated fan other carriers would read as the edit that
+        // allocates, alone or after relocating fans, which changes only
+        // allocated ids. Without this, a delta that relocates fans but
+        // gives a relocated fan other carriers would read as the edit that
         // relocates them.
-        let mut relowered = embedding.clone();
-        let lowered = GraphDelta::from_tree_edit(&adopted, &mut relowered, &edit)?;
-        if !equal_up_to_allocated_ids(&lowered, delta, embedding) {
-            return Err(not_tree_edit(
-                "the delta is not the lowering of the edit that has its effect".to_owned(),
-            ));
+        let root_anchor = tree
+            .nodes
+            .get(&tree.root)
+            .map(|root| root.anchor.clone())
+            .ok_or_else(|| not_tree_edit("the tree has no root node".to_owned()))?;
+        // A leaf inserted over a fan's node id and deleted again moves that
+        // fan, and only it, to a fresh node id. The delta may have moved
+        // any of the fans whose node it deletes, so the reading is checked
+        // alone and after moving all of them.
+        let relocation = |fan: &FanEmbedding| {
+            [
+                Self::InsertNode {
+                    parent: tree.root,
+                    child_id: fan.node,
+                    node: Node::new(fan.node, root_anchor.clone()),
+                    edge: Edge {
+                        src: root_anchor.clone(),
+                        tgt: root_anchor.clone(),
+                        kind: "child".into(),
+                        name: None,
+                    },
+                },
+                Self::DeleteNode { id: fan.node },
+            ]
+        };
+        let moved: Vec<Self> = embedding
+            .fans
+            .iter()
+            .filter(|fan| delta.del_nodes().contains_key(&fan.node))
+            .flat_map(relocation)
+            .collect();
+        let relocations = [Vec::new(), moved];
+        let sound = relocations.into_iter().any(|mut steps| {
+            steps.push(edit.clone());
+            let mut relowered = embedding.clone();
+            GraphDelta::from_tree_edit(&adopted, &mut relowered, &Self::Sequence(steps))
+                .is_ok_and(|lowered| equal_up_to_allocated_ids(&lowered, delta, embedding))
+        });
+        if !sound {
+            return Err(not_tree_edit(format!(
+                "the delta is not the lowering of {edit:?}, which has its effect"
+            )));
         }
         Ok(edit)
     }
 }
 
-/// A node of an added part, named up to the renaming of fresh fan nodes:
-/// a node id the delta does not allocate, or the rank of a fresh fan node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// A fresh fan node, named by what a renaming of fresh ids keeps: its
+/// canonical record with the id cleared, and each edge it is the source
+/// of, by the edge id when the delta does not allocate it, with its label,
+/// target and position (a fan edge's target is a tree node, never a fresh
+/// fan node).
+type FreshFan = (Vec<u8>, Vec<(Option<EdgeId>, Edge, u32, Option<u32>)>);
+
+/// A node of an added part, named up to the renaming of fresh ids: a node
+/// id the delta does not allocate, or a fresh fan node by its
+/// [`FreshFan`] name.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum AddedNode {
     Fixed(u32),
-    Fresh(usize),
+    Fresh(FreshFan),
 }
 
-/// An added edge, named up to the renaming of fresh ids: an edge id the
-/// delta does not allocate, or a fresh edge by its named endpoints and
-/// label.
+/// An added edge, named up to the renaming of fresh ids: its id when the
+/// delta does not allocate it, else its named endpoints and label.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum AddedEdge {
-    Fixed(EdgeId),
-    Fresh(AddedNode, AddedNode, Edge),
+    Fixed(EdgeId, AddedNode, AddedNode, Edge, Option<u32>),
+    Fresh(AddedNode, AddedNode, Edge, Option<u32>),
 }
 
-/// An added edge's named endpoints, label and position.
-type NamedEdge = (AddedNode, AddedNode, Edge, Option<u32>);
+/// The added nodes (fixed ones by id with their canonical records) and
+/// edges of a delta, named up to fresh ids, each with its multiplicity.
+type NamedAdditions = (
+    BTreeMap<(AddedNode, Vec<u8>), usize>,
+    BTreeMap<AddedEdge, usize>,
+);
 
-/// The added nodes, by their canonical records, and edges of a delta,
-/// named up to fresh ids.
-type NamedAdditions = (BTreeMap<AddedNode, Vec<u8>>, BTreeMap<AddedEdge, NamedEdge>);
+/// The canonical record of `node`, with its id cleared when `clear`.
+fn node_record(node: &Node, clear: bool) -> Vec<u8> {
+    let mut node = node.clone();
+    if clear {
+        node.id = 0;
+    }
+    let mut record = panproto_schema::CanonicalWriter::new();
+    write_node_record(&mut record, &node);
+    record.into_bytes()
+}
 
 /// The added nodes and edges of `parts` with the ids they allocate named:
 /// a fan node at or above `floors.next_node` and an edge at or above
 /// `floors.next_edge`. Two deltas with equal deleted and attribute parts
-/// and equal named additions differ by a bijective renaming of those ids.
-/// `None` when two added edges get one name, or a fresh fan node is filed
-/// under another id.
+/// and equal named additions differ by a bijective renaming of those ids,
+/// in any order. `None` when a fresh fan node is filed under another id.
 fn named_additions(
     parts: &crate::graph_edit::GraphDeltaParts,
     floors: &TreeEmbedding,
 ) -> Option<NamedAdditions> {
-    let fresh: Vec<u32> = parts
-        .add_nodes
-        .iter()
-        .filter(|(id, node)| node.shape == NodeShape::HyperEdge && **id >= floors.next_node)
-        .map(|(id, _)| *id)
-        .collect();
-    let name = |id: u32| {
-        fresh
+    let is_fresh = |id: u32| {
+        id >= floors.next_node
+            && parts
+                .add_nodes
+                .get(&id)
+                .is_some_and(|node| node.shape == NodeShape::HyperEdge)
+    };
+    let edge_id = |id: EdgeId| (id.0 < floors.next_edge).then_some(id);
+    let mut fresh_names: BTreeMap<u32, FreshFan> = BTreeMap::new();
+    for (id, node) in &parts.add_nodes {
+        if !is_fresh(*id) {
+            continue;
+        }
+        if node.id != *id {
+            return None;
+        }
+        let mut edges: Vec<_> = parts
+            .add_edges
             .iter()
-            .position(|fan| *fan == id)
+            .filter(|(_, edge)| edge.src == *id)
+            .map(|(edge_id_value, edge)| {
+                (
+                    edge_id(*edge_id_value),
+                    edge.edge.clone(),
+                    edge.tgt,
+                    edge.position,
+                )
+            })
+            .collect();
+        edges.sort();
+        fresh_names.insert(*id, (node_record(node, true), edges));
+    }
+    let name = |id: u32| {
+        fresh_names
+            .get(&id)
+            .cloned()
             .map_or(AddedNode::Fixed(id), AddedNode::Fresh)
     };
     let mut nodes = BTreeMap::new();
     for (id, node) in &parts.add_nodes {
-        let mut node = node.clone();
-        if matches!(name(*id), AddedNode::Fresh(_)) {
-            if node.id != *id {
-                return None;
-            }
-            node.id = 0;
-        }
-        let mut record = panproto_schema::CanonicalWriter::new();
-        write_node_record(&mut record, &node);
-        nodes.insert(name(*id), record.into_bytes());
+        let fresh = fresh_names.contains_key(id);
+        *nodes
+            .entry((name(*id), node_record(node, fresh)))
+            .or_insert(0) += 1;
     }
     let mut edges = BTreeMap::new();
     for (id, edge) in &parts.add_edges {
         let (src, tgt) = (name(edge.src), name(edge.tgt));
-        let key = if id.0 >= floors.next_edge {
-            AddedEdge::Fresh(src, tgt, edge.edge.clone())
-        } else {
-            AddedEdge::Fixed(*id)
+        let key = match edge_id(*id) {
+            Some(id) => AddedEdge::Fixed(id, src, tgt, edge.edge.clone(), edge.position),
+            None => AddedEdge::Fresh(src, tgt, edge.edge.clone(), edge.position),
         };
-        if edges
-            .insert(key, (src, tgt, edge.edge.clone(), edge.position))
-            .is_some()
-        {
-            return None;
-        }
+        *edges.entry(key).or_insert(0) += 1;
     }
     Some((nodes, edges))
 }
