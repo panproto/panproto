@@ -49,7 +49,10 @@ fn signature(
     root: &str,
     record: &serde_json::Value,
 ) -> Result<String, Box<dyn Error>> {
-    let inst = parse_json(schema, root, record)?;
+    let protocol = panproto_protocols::registry::descriptor(&schema.protocol)
+        .map(|descriptor| (descriptor.protocol)())
+        .ok_or_else(|| format!("no registered protocol {}", schema.protocol))?;
+    let inst = parse_json(schema, &protocol, root, record)?;
     let mut arcs: Vec<String> = inst
         .arcs
         .iter()
@@ -105,7 +108,7 @@ fn ref_and_inlined_schemas_produce_the_same_instance_graph() -> Result<(), Box<d
 fn transparent_indirection_preserves_round_trip() -> Result<(), Box<dyn Error>> {
     let at = atproto::parse_lexicon(&atproto_lexicon())?;
     let record = serde_json::json!({ "kf": { "t": 5 } });
-    let inst = parse_json(&at, "d.a", &record)?;
+    let inst = parse_json(&at, &atproto::protocol(), "d.a", &record)?;
     assert_eq!(
         to_json(&at, &inst),
         record,

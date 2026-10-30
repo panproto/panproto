@@ -253,10 +253,11 @@ mod tests {
                 r#ref: "dev.example.symmetric".to_owned(),
             }],
         };
+        // A directed compose cannot consume a symmetric reference.
         let error = compile_compose(&spec, BODY, &|id| {
             (id == "dev.example.symmetric").then(|| referenced.clone())
         })
-        .expect_err("a directed compose cannot consume a symmetric reference");
+        .unwrap_err();
 
         assert!(
             matches!(

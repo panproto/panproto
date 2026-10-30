@@ -3224,3 +3224,80 @@ fn moving_the_root_is_a_root_operation_in_production_and_the_reference() {
     );
     assert_eq!(tree_to_reference(&applied), tree);
 }
+
+/// The reader soundness case the reference pins: inserting a leaf over the
+/// first fan's node id relocates both fans, and the same delta with the
+/// first relocated fan's parent edge renamed is no lowering of that
+/// insertion. Production's reader must read the lowering as an edit that
+/// lowers to it and refuse the renamed delta, as the reference's does.
+#[test]
+fn production_reader_refuses_a_relocated_fan_with_a_renamed_parent_edge() {
+    let fan = |parent: u32, member: u32| reference_model::Fan {
+        parent,
+        hyper_edge: "fan".to_owned(),
+        children: BTreeMap::from([("arm".to_owned(), member)]),
+    };
+    let mut tree = tree(
+        &[
+            (0, "root"),
+            (1, "feature"),
+            (2, "feature"),
+            (3, "leaf"),
+            (4, "leaf"),
+        ],
+        &[(0, 1, "a"), (0, 2, "b"), (2, 3, "c"), (2, 4, "d")],
+    );
+    tree.fans = vec![fan(2, 3), fan(2, 3)];
+    let (_, embedding) =
+        panproto_reference::encode::tree_to_graph(&tree, None).expect("tree embeds");
+    let first_fan = embedding.fans[0].0;
+    let insert = reference::TreeEdit::InsertNode {
+        parent: 0,
+        child_id: first_fan,
+        node: reference_model::Node::new(first_fan, "leaf"),
+        edge: reference_model::SEdge::new("root", "leaf", "child", Some("inserted")),
+    };
+    let mut lowered_embedding = embedding.clone();
+    let delta = reference::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &insert, None)
+        .expect("the insertion lowers");
+    let mut perturbed = delta.clone();
+    let (parent_edge, mut renamed) = perturbed
+        .add
+        .iter()
+        .find_map(|(element, payload)| match payload {
+            reference::GPayload::Edge(edge) if edge.label.kind == "hyper_parent" => {
+                Some((element.clone(), edge.clone()))
+            }
+            _ => None,
+        })
+        .expect("a relocated fan parent edge");
+    renamed.label.name = Some("perturbed".to_owned());
+    perturbed
+        .add
+        .insert(parent_edge, reference::GPayload::Edge(renamed));
+    assert!(reference::tree_edit_from_graph_delta(&tree, &embedding, &perturbed, None).is_err());
+
+    let production_tree = tree_to_production(&tree);
+    let (_, production_embedding) =
+        GInstance::from_wtype_embedded(&production_tree, None).expect("tree embeds");
+    let read = TreeEdit::from_graph_delta(
+        &production_tree,
+        &production_embedding,
+        &delta_to_production(&delta),
+    )
+    .expect("production reads the lowering");
+    let (graph, mut relowered_embedding) =
+        GInstance::from_wtype_embedded(&production_tree, None).expect("tree embeds");
+    let relowered = GraphDelta::from_tree_edit(&graph, &mut relowered_embedding, &read)
+        .expect("the reading lowers");
+    assert_eq!(delta_to_reference(&relowered), delta, "{read:?}");
+    let refused = TreeEdit::from_graph_delta(
+        &production_tree,
+        &production_embedding,
+        &delta_to_production(&perturbed),
+    );
+    assert!(
+        matches!(refused, Err(EditError::NotTreeEdit { .. })),
+        "{refused:?}"
+    );
+}

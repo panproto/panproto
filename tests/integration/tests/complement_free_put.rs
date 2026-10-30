@@ -152,7 +152,13 @@ fn shift_lens(schema: &Schema) -> Lens {
 }
 
 fn instance(schema: &Schema, v: i64, w: i64) -> WInstance {
-    parse_json(schema, "root", &serde_json::json!({"v": v, "w": w})).expect("parse")
+    parse_json(
+        schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({"v": v, "w": w}),
+    )
+    .expect("parse")
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +385,13 @@ fn put_refuses_a_complement_outside_the_image_of_get() {
 fn put_accepts_an_empty_complement_for_a_structureless_view() {
     let schema = make_schema(&[("root", "object")], &[]);
     let lens = lens_with(&schema, vec![]);
-    let source = parse_json(&schema, "root", &serde_json::json!({})).expect("parse");
+    let source = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({}),
+    )
+    .expect("parse");
     let (view, _) = get(&lens, &source).expect("get");
 
     assert!(

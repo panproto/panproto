@@ -83,7 +83,7 @@ const fn edge_keys() -> [SynthKey; 2] {
 
 /// The float payload of the first leaf, when a fixture carries one: the leaf's
 /// own value and its `measure` field (a table cell) both hold it.
-fn float_payload(bits: u64) -> Value {
+const fn float_payload(bits: u64) -> Value {
     Value::Float(f64::from_bits(bits))
 }
 

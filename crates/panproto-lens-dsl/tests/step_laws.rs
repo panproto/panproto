@@ -219,9 +219,13 @@ fn ordered_stages_compute_in_the_post_rename_field_frame() {
         .unwrap()
         .build()
         .unwrap();
-    let instance =
-        panproto_inst::parse::parse_json(&schema, &step_protocol(), "doc", &serde_json::json!({"count": 2}))
-            .expect("source parses");
+    let instance = panproto_inst::parse::parse_json(
+        &schema,
+        &step_protocol(),
+        "doc",
+        &serde_json::json!({"count": 2}),
+    )
+    .expect("source parses");
     let compiled = compile_doc(
         r#"{ "id": "l", "source": "s", "target": "t", "steps": [
             { "rename_field": { "old": "count", "new": "amount" } },

@@ -117,7 +117,8 @@ fn record_instance(schema: &Schema) -> WInstance {
         "objs": [{ "a": 1, "b": 10 }, { "a": 2, "b": 20 }],
         "nested": { "a": 7, "b": 70 },
     });
-    parse_json(schema, "rec", &json).expect("parse should succeed")
+    parse_json(schema, &panproto_schema::Protocol::default(), "rec", &json)
+        .expect("parse should succeed")
 }
 
 /// Parse an expression from source text, as a lens document carries it.
@@ -333,7 +334,8 @@ fn membership_predicate_reads_a_list_field() {
     // use the old joined-string conversion existed to serve.
     let schema = record_schema();
     let json = serde_json::json!({ "tags": ["alpha", "beta"] });
-    let instance = parse_json(&schema, "rec", &json).expect("parse should succeed");
+    let instance = parse_json(&schema, &panproto_schema::Protocol::default(), "rec", &json)
+        .expect("parse should succeed");
 
     let mut field_transforms = HashMap::new();
     field_transforms.insert(

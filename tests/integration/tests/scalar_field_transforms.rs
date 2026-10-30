@@ -173,7 +173,8 @@ fn at_uri_instance(schema: &Schema) -> WInstance {
         "repo": "at://did:plc:abc123/app.bsky.feed.post/rkey456",
         "text": "hello world"
     });
-    parse_json(schema, "body", &json).expect("parse should succeed")
+    parse_json(schema, &panproto_schema::Protocol::default(), "body", &json)
+        .expect("parse should succeed")
 }
 
 // ---------------------------------------------------------------------------

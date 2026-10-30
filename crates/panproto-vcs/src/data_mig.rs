@@ -282,11 +282,12 @@ pub fn migrate_data_directory(
 
         // Parse, migrate, write back
         let root = infer_root(src_schema);
-        let instance = panproto_inst::parse_json(src_schema, protocol, &root, &data).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("parse instance: {e}"),
-            }
-        })?;
+        let instance =
+            panproto_inst::parse_json(src_schema, protocol, &root, &data).map_err(|e| {
+                VcsError::DataMigrationFailed {
+                    reason: format!("parse instance: {e}"),
+                }
+            })?;
 
         let (view, _complement) = panproto_lens::get(&result.lens, &instance).map_err(|e| {
             VcsError::DataMigrationFailed {

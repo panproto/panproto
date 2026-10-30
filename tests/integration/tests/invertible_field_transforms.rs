@@ -134,7 +134,13 @@ fn root_fields(instance: &WInstance) -> &HashMap<String, Value> {
 }
 
 fn instance_of(schema: &Schema) -> WInstance {
-    parse_json(schema, "user", &serde_json::json!({"a": "hello"})).expect("parse")
+    parse_json(
+        schema,
+        &panproto_schema::Protocol::default(),
+        "user",
+        &serde_json::json!({"a": "hello"}),
+    )
+    .expect("parse")
 }
 
 /// The computed key belongs to the view, not the source. `put` must not

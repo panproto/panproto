@@ -170,6 +170,7 @@ fn keyframe_schema() -> Schema {
 fn keyframe_instance(schema: &Schema) -> WInstance {
     parse_json(
         schema,
+        &transform_protocol(),
         "clip",
         &serde_json::json!({
             "keyframes": [ {"timeMs": 400}, {"timeMs": 100}, {"timeMs": 900} ]

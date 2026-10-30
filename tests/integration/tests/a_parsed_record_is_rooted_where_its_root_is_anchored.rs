@@ -28,8 +28,13 @@ fn the_schema_root_of_a_parsed_record_is_its_root_anchor() {
     .expect("the lexicon parses");
     let record = read("fixtures/atproto/records/post-0.json");
 
-    let instance = panproto_inst::parse_json(&schema, "app.bsky.feed.post", &record)
-        .expect("the record parses");
+    let instance = panproto_inst::parse_json(
+        &schema,
+        &panproto_protocols::atproto::protocol(),
+        "app.bsky.feed.post",
+        &record,
+    )
+    .expect("the record parses");
     let anchor = &instance.nodes[&instance.root].anchor;
     assert_eq!(anchor.as_ref(), "app.bsky.feed.post:body");
     assert_eq!(&instance.schema_root, anchor);
@@ -43,8 +48,13 @@ fn the_laws_hold_for_the_post_lexicons_lens_to_itself_on_a_record() {
     .expect("the lexicon parses");
     let protocol = panproto_protocols::atproto::protocol();
     let record = read("fixtures/atproto/records/post-0.json");
-    let instance = panproto_inst::parse_json(&schema, "app.bsky.feed.post", &record)
-        .expect("the record parses");
+    let instance = panproto_inst::parse_json(
+        &schema,
+        &panproto_protocols::atproto::protocol(),
+        "app.bsky.feed.post",
+        &record,
+    )
+    .expect("the record parses");
 
     let config = panproto_lens::AutoLensConfig {
         stringency: panproto_lens::Stringency::Lenient,

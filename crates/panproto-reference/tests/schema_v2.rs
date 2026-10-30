@@ -343,7 +343,7 @@ fn declared_numeric_equality_is_exact_at_unbounded_exponents_and_in_buckets() {
         edges: BTreeMap::new(),
     };
     let (buckets, outside) = panproto_reference::keys::buckets(&graph, "record", &key).unwrap();
-    assert!(outside.is_empty());
+    assert_eq!(outside, Vec::<u32>::new());
     assert_eq!(buckets.len(), 1);
     assert_eq!(buckets.into_values().next().unwrap().1, vec![0, 1]);
 }

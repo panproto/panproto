@@ -15,11 +15,11 @@
 //!
 //! None of the three is a validation boundary: each returns the attribute
 //! violations alone, with no status, and a caller that must know whether an
-//! instance is valid calls [`validate_wtype`](crate::validate::validate_wtype),
-//! [`validate_table`](crate::validate_table) or
-//! [`validate_graph`](crate::validate_graph). Their `Attribute` check, one per
+//! instance is valid calls [`validate_wtype`],
+//! [`validate_table`] or
+//! [`validate_graph`]. Their `Attribute` check, one per
 //! schema vertex, calls these projections and reports their findings as
-//! diagnostics of a [`ValidationReport`](crate::ValidationReport). A node
+//! diagnostics of a [`ValidationReport`]. A node
 //! whose vertex declares no attributes is checked like any other: each field
 //! it carries is undeclared. Only nodes whose anchor is not a schema vertex
 //! are skipped, since the `NodeAnchor` check already refuses them.

@@ -2095,6 +2095,9 @@ fn schema_violations(
 
 /// The keying refusal behind an undecided `KeyUnique` check of key `key`
 /// on `vertex`, or `None` when the check is undecided for another reason.
+/// A named SQL collation is not a table put-domain violation: table
+/// restoration treats it as unresolved collation evidence, not as a
+/// refused key.
 ///
 /// The validator reports the shared keying kernel's refusal at the least
 /// row whose key tuple it refuses; an equality vector of the wrong arity
@@ -2106,11 +2109,6 @@ fn key_refusal(
     reason: &IncompleteReason,
 ) -> Option<KeyRefusal> {
     match reason {
-        IncompleteReason::UnsupportedCollation { collation, .. } => {
-            Some(KeyRefusal::UnsupportedCollation {
-                collation: collation.clone(),
-            })
-        }
         IncompleteReason::InvalidKeyRepresentation { kind, .. } => {
             Some(KeyRefusal::InvalidNumericRepresentation { kind: kind.clone() })
         }

@@ -66,7 +66,7 @@ fn canonical_post_without_reply_validates() {
         "createdAt": "2026-04-14T00:00:00.000Z"
     });
 
-    let instance = parse_json(&schema, root.as_ref(), &input).expect("parse instance");
+    let instance = parse_json(&schema, &protocol(), root.as_ref(), &input).expect("parse instance");
     let report = validate_wtype(&instance, &schema, &protocol());
     assert!(
         report.diagnostics.is_empty(),

@@ -68,7 +68,15 @@ pub fn parse_json(
     let mut state = ParseState::new();
     let root_id = state.alloc_id();
 
-    walk_json(schema, protocol, root_vertex, json_val, root_id, &mut state, "$")?;
+    walk_json(
+        schema,
+        protocol,
+        root_vertex,
+        json_val,
+        root_id,
+        &mut state,
+        "$",
+    )?;
 
     // The root may resolve through a transparent indirection to another
     // vertex; the schema root is the vertex the root node is anchored to.
@@ -90,9 +98,7 @@ pub fn parse_json(
 /// [`ScalarKind::Any`].
 fn holds_any_value(schema: &Schema, protocol: &Protocol, vertex: &str) -> bool {
     schema.vertex(vertex).is_some_and(|declaration| {
-        protocol
-            .value_kinds
-            .contains_key(declaration.kind.as_str())
+        protocol.value_kinds.contains_key(declaration.kind.as_str())
             && ValueSpec::for_vertex(schema, protocol, &declaration.id).kind == ScalarKind::Any
     })
 }
@@ -130,9 +136,10 @@ fn walk_json(
             parse_array(schema, protocol, vertex_id, arr, node_id, state, path)?;
         }
         _ => {
-            // Leaf value
-            let value = json_to_field_presence(json_val);
-            let node = Node::new(node_id, vertex_id).with_value(value);
+            // A leaf value reached through a transparent indirection
+            // belongs to the vertex the indirection denotes.
+            let anchor = resolve_transparent_indirection(schema, vertex_id);
+            let node = Node::new(node_id, anchor).with_value(json_to_field_presence(json_val));
             state.nodes.insert(node_id, node);
         }
     }

@@ -130,54 +130,102 @@ fn a_post_with_a_malformed_language_tag_fails_and_is_refused() -> TestResult {
     Ok(())
 }
 
-
+/// Every committed post, read by the schema parse rather than the codec,
+/// validates, and writes back as the record it was read from. `post-3`
+/// and `post-4` are replies, whose `root` and `parent` refs name
+/// `com.atproto.repo.strongRef`, a def in another document.
 #[test]
-fn probe_unknown_and_placeholder() -> TestResult {
-    let lexicon = serde_json::json!({
-        "lexicon": 1, "id": "ex.probe",
-        "defs": {"main": {"type": "record", "key": "tid", "record": {"type": "object",
+fn real_posts_validate_through_the_schema_parse() -> TestResult {
+    let schema = feed_post()?;
+    let protocol = atproto::protocol();
+    for (name, bytes) in POSTS {
+        let record: serde_json::Value = serde_json::from_slice(bytes)?;
+        let instance =
+            panproto_core::inst::parse_json(&schema, &protocol, "app.bsky.feed.post", &record)?;
+        let report = validate_wtype(&instance, &schema, &protocol);
+        assert_eq!(
+            report.status,
+            CheckStatus::Passed,
+            "{name}: {:?} {:?}",
+            report.diagnostics,
+            report.incomplete
+        );
+        assert_eq!(
+            panproto_core::inst::to_json(&schema, &instance),
+            record,
+            "{name}"
+        );
+    }
+    Ok(())
+}
+
+/// A lexicon whose record has an `unknown` field and a ref to a def in
+/// another document.
+fn open_record_lexicon() -> Result<Schema, Box<dyn Error>> {
+    Ok(atproto::parse_lexicon(&serde_json::json!({
+        "lexicon": 1,
+        "id": "com.example.note",
+        "defs": {"main": {"type": "record", "key": "tid", "record": {
+            "type": "object",
             "properties": {
                 "meta": {"type": "unknown"},
-                "subject": {"type": "ref", "ref": "com.atproto.repo.strongRef"},
-                "embed": {"type": "union", "refs": ["app.bsky.embed.images", "#local"]}
-            }}},
-            "local": {"type": "object", "properties": {"n": {"type": "integer"}}}}
-    });
-    let schema = atproto::parse_lexicon(&lexicon)?;
-    let feed = feed_post()?;
+                "subject": {"type": "ref", "ref": "com.atproto.repo.strongRef"}
+            }
+        }}}
+    }))?)
+}
+
+/// The data at an `unknown` field, and at a ref to a def no parsed
+/// document defines, is one value of any shape. The codec and the
+/// schema parse read it to the same instance, which validates, and the
+/// codec writes it back unchanged.
+#[test]
+fn opaque_data_is_one_value_in_both_readers() -> TestResult {
+    let schema = open_record_lexicon()?;
+    assert_eq!(
+        schema
+            .vertex("com.atproto.repo.strongRef")
+            .map(|vertex| vertex.kind.to_string()),
+        Some("unknown".to_owned())
+    );
     let protocol = atproto::protocol();
     let registry = panproto_core::io::default_registry();
-    let recs = [
-        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","meta":{"a":1,"b":"x"}})),
-        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","meta":[1,{"z":null}]})),
-        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","embed":{"$type":"app.bsky.embed.images","images":[{"alt":"x","image":{"$type":"blob","ref":{"$link":"bafkreie"},"mimeType":"image/png","size":3}}]}})),
-        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","embed":{"$type":"ex.probe#local","n":3}})),
-        (feed.clone(), "app.bsky.feed.post", serde_json::from_slice(POSTS[3].1)?),
-    ];
-    for (schema, root, rec) in recs {
-        eprintln!("---- {rec}");
-        let bytes = serde_json::to_vec(&rec)?;
-        let io = registry.parse_wtype("atproto", &schema, &bytes);
-        match &io {
-            Ok(i) => {
-                let mut ns: Vec<_> = i.nodes.values().collect(); ns.sort_by_key(|n| n.id);
-                for n in ns { eprintln!("IO node {} @{} disc={:?} value={:?} extra={:?}", n.id, n.anchor, n.discriminator, n.value, n.extra_fields); }
-                eprintln!("IO report {:?}", validate_wtype(i, &schema, &protocol).diagnostics);
-                match registry.emit_wtype("atproto", &schema, i) {
-                    Ok(b) => eprintln!("IO emit {}", String::from_utf8_lossy(&b)),
-                    Err(e) => eprintln!("IO emit error {e}"),
-                }
+    for record in [
+        serde_json::json!({"$type": "com.example.note", "meta": {"a": 1, "b": ["x", null]}}),
+        serde_json::json!({"$type": "com.example.note", "meta": [1, {"z": true}]}),
+        serde_json::json!({"$type": "com.example.note", "meta": "plain"}),
+        serde_json::json!({
+            "$type": "com.example.note",
+            "subject": {
+                "uri": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mjnlu7smsk2w",
+                "cid": "bafyreierzikywhmelbcjl2iagn24oonrw3vq4kkhxgwwvnuztiklpczk5y"
             }
-            Err(e) => eprintln!("IO parse error {e}"),
-        }
-        match panproto_core::inst::parse_json(&schema, &protocol, root, &rec) {
-            Ok(i) => {
-                eprintln!("INST report {:?}", validate_wtype(&i, &schema, &protocol).diagnostics);
-                eprintln!("INST to_json {}", panproto_core::inst::to_json(&schema, &i));
-                if let Ok(io) = &io { eprintln!("AGREE {}", serde_json::to_value(io)? == serde_json::to_value(&i)?); }
-            }
-            Err(e) => eprintln!("INST parse error {e}"),
-        }
+        }),
+    ] {
+        let bytes = serde_json::to_vec(&record)?;
+        let through_codec = registry.parse_wtype("atproto", &schema, &bytes)?;
+        let through_schema =
+            panproto_core::inst::parse_json(&schema, &protocol, "com.example.note", &record)?;
+        assert_eq!(
+            serde_json::to_value(&through_codec)?,
+            serde_json::to_value(&through_schema)?,
+            "{record}"
+        );
+        let report = validate_wtype(&through_codec, &schema, &protocol);
+        assert_eq!(
+            report.status,
+            CheckStatus::Passed,
+            "{record}: {:?} {:?}",
+            report.diagnostics,
+            report.incomplete
+        );
+        let emitted: serde_json::Value =
+            serde_json::from_slice(&registry.emit_wtype("atproto", &schema, &through_codec)?)?;
+        assert_eq!(emitted, record);
+        assert_eq!(
+            panproto_core::inst::to_json(&schema, &through_schema),
+            record
+        );
     }
-    panic!("probe");
+    Ok(())
 }

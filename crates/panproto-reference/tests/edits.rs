@@ -5034,34 +5034,34 @@ fn every_accepted_perturbation_of_a_short_lowering_is_an_image_of_its_reading() 
     assert_eq!(
         counts,
         [
-            pinned(245, 8_590, 1_539),
-            pinned(277, 9_822, 1_883),
-            pinned(277, 9_814, 1_861),
-            pinned(279, 10_293, 1_881),
-            pinned(279, 10_286, 1_881),
-            pinned(280, 10_178, 1_949),
-            pinned(280, 10_163, 1_927),
-            pinned(308, 10_997, 2_123),
-            pinned(308, 10_997, 2_123),
-            pinned(308, 10_852, 2_132),
-            pinned(308, 10_844, 2_134),
-            pinned(310, 11_342, 2_157),
-            pinned(310, 11_335, 2_145),
-            pinned(310, 11_189, 2_170),
-            pinned(310, 11_174, 2_160),
-            pinned(390, 19_276, 3_882),
-            pinned(390, 19_270, 3_890),
-            pinned(390, 19_248, 3_862),
-            pinned(390, 19_228, 3_838),
-            pinned(390, 19_236, 3_944),
-            pinned(390, 19_222, 3_910),
-            pinned(474, 29_854, 6_090),
-            pinned(1_534, 40_071, 8_105),
-            pinned(1_689, 62_129, 12_508),
-            pinned(1_695, 61_241, 11_705),
+            pinned(245, 8_380, 1_542),
+            pinned(277, 9_606, 1_848),
+            pinned(277, 9_598, 1_832),
+            pinned(279, 10_083, 1_878),
+            pinned(279, 10_074, 1_866),
+            pinned(280, 9_966, 1_910),
+            pinned(280, 9_949, 1_884),
+            pinned(308, 10_769, 2_126),
+            pinned(308, 10_769, 2_126),
+            pinned(308, 10_622, 2_135),
+            pinned(308, 10_614, 2_137),
+            pinned(310, 11_118, 2_160),
+            pinned(310, 11_109, 2_148),
+            pinned(310, 10_963, 2_173),
+            pinned(310, 10_946, 2_163),
+            pinned(390, 19_030, 3_811),
+            pinned(390, 19_022, 3_831),
+            pinned(390, 19_000, 3_791),
+            pinned(390, 18_976, 3_785),
+            pinned(390, 18_984, 3_901),
+            pinned(390, 18_968, 3_873),
+            pinned(474, 29_668, 6_009),
+            pinned(1_534, 39_433, 8_105),
+            pinned(1_689, 61_001, 12_508),
+            pinned(1_695, 60_093, 11_249),
         ]
     );
-    assert_eq!(total, pinned(12_121, 466_651, 91_799));
+    assert_eq!(total, pinned(12_121, 458_741, 90_791));
 }
 
 // The reading depends on the values of fresh ids only through the exact
@@ -6124,38 +6124,38 @@ fn unbounded_readback_laws_hold_with_node_ids_at_the_top_of_u32() {
     assert_eq!(
         counts,
         [
-            unbounded_counts([702, 390, 5, 385, 53, 40, 6_695, 2_363]),
-            unbounded_counts([756, 430, 6, 424, 57, 45, 7_109, 2_582]),
-            unbounded_counts([756, 430, 6, 424, 57, 45, 7_109, 2_566]),
-            unbounded_counts([756, 432, 6, 426, 57, 45, 7_217, 2_556]),
-            unbounded_counts([756, 432, 6, 426, 57, 45, 7_217, 2_564]),
-            unbounded_counts([756, 433, 6, 427, 57, 45, 7_188, 2_591]),
-            unbounded_counts([756, 433, 6, 427, 57, 45, 7_188, 2_583]),
-            unbounded_counts([812, 469, 6, 463, 59, 47, 7_552, 2_829]),
-            unbounded_counts([812, 469, 6, 463, 59, 47, 7_552, 2_829]),
-            unbounded_counts([812, 469, 6, 463, 59, 47, 7_520, 2_837]),
-            unbounded_counts([812, 469, 6, 463, 59, 47, 7_520, 2_837]),
-            unbounded_counts([812, 471, 6, 465, 59, 47, 7_628, 2_827]),
-            unbounded_counts([812, 471, 6, 465, 59, 47, 7_628, 2_827]),
-            unbounded_counts([812, 471, 6, 465, 59, 47, 7_596, 2_835]),
-            unbounded_counts([812, 471, 6, 465, 59, 47, 7_596, 2_835]),
-            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_316]),
-            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_370]),
-            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_316]),
-            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_354]),
-            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_390]),
-            unbounded_counts([930, 567, 11, 556, 68, 53, 10_116, 3_374]),
-            unbounded_counts([1_056, 667, 16, 651, 77, 59, 12_902, 3_868]),
-            unbounded_counts([6_806, 1_870, 4, 1_866, 134, 93, 17_028, 9_685]),
-            unbounded_counts([7_140, 2_041, 11, 2_030, 146, 101, 20_583, 10_129]),
-            unbounded_counts([7_140, 2_047, 11, 2_036, 146, 101, 20_489, 9_943]),
+            unbounded_counts([702, 390, 5, 385, 53, 40, 6_883, 2_577]),
+            unbounded_counts([756, 430, 6, 424, 57, 45, 7_309, 2_792]),
+            unbounded_counts([756, 430, 6, 424, 57, 45, 7_309, 2_784]),
+            unbounded_counts([756, 432, 6, 426, 57, 45, 7_417, 2_782]),
+            unbounded_counts([756, 432, 6, 426, 57, 45, 7_417, 2_782]),
+            unbounded_counts([756, 433, 6, 427, 57, 45, 7_388, 2_801]),
+            unbounded_counts([756, 433, 6, 427, 57, 45, 7_388, 2_793]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_764, 3_067]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_764, 3_067]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_732, 3_075]),
+            unbounded_counts([812, 469, 6, 463, 59, 47, 7_732, 3_075]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_840, 3_065]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_840, 3_065]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_808, 3_073]),
+            unbounded_counts([812, 471, 6, 465, 59, 47, 7_808, 3_073]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_481, 3_679]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_481, 3_741]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_481, 3_679]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_481, 3_733]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_481, 3_761]),
+            unbounded_counts([930, 567, 11, 556, 68, 53, 10_481, 3_753]),
+            unbounded_counts([1_056, 667, 16, 651, 77, 59, 13_452, 4_404]),
+            unbounded_counts([6_806, 1_870, 4, 1_866, 134, 93, 17_485, 10_184]),
+            unbounded_counts([7_140, 2_041, 11, 2_030, 146, 101, 21_631, 11_229]),
+            unbounded_counts([7_140, 2_047, 11, 2_036, 146, 101, 21_537, 10_979]),
         ]
     );
     assert_eq!(
         counts
             .iter()
             .fold(UnboundedCounts::default(), |sum, each| sum.plus(*each)),
-        unbounded_counts([39_456, 16_767, 197, 16_570, 1_778, 1_358, 242_013, 94_206])
+        unbounded_counts([39_456, 16_767, 197, 16_570, 1_778, 1_358, 250_390, 103_013])
     );
 }
 
@@ -9682,36 +9682,4 @@ fn graph_delta_sequences_have_literal_membership_and_positions() {
         sequences.last().map(|word| deltas(word)),
         Some(vec![alphabet[24].clone(); 3])
     );
-}
-
-#[test]
-fn zz_debug_reader_triple() {
-    for tree in readback_trees() {
-        let script = TreeEdit::Sequence(vec![
-            TreeEdit::MoveSubtree {
-                node_id: 3,
-                new_parent: 0,
-                edge: SEdge::new("feature", "leaf", "child", Some("c")),
-            },
-            TreeEdit::DeleteFan { hyper_edge: "fan".into() },
-            TreeEdit::InsertFan {
-                fan: Fan {
-                    parent: 1,
-                    hyper_edge: "fan".into(),
-                    children: BTreeMap::from([("other-arm".into(), 4)]),
-                },
-            },
-        ]);
-        let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
-        let mut lowered = embedding.clone();
-        let Ok(delta) = edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None) else {
-            continue;
-        };
-        let read = edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None);
-        if read.is_ok() {
-            continue;
-        }
-        println!("read {read:?}");
-        panic!("refused");
-    }
 }

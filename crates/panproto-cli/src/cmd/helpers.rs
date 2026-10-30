@@ -303,8 +303,8 @@ pub fn convert_single_file(
         root_vertex.as_str(),
         &data_json,
     )
-        .into_diagnostic()
-        .wrap_err("failed to parse data as W-type instance")?;
+    .into_diagnostic()
+    .wrap_err("failed to parse data as W-type instance")?;
 
     let output_instance = if is_forward {
         let (view, _complement) = lens::get(the_lens, &instance)

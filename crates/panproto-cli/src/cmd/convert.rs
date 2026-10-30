@@ -83,8 +83,8 @@ pub fn cmd_convert(
             root_vertex.as_str(),
             data_json,
         )
-            .into_diagnostic()
-            .wrap_err("failed to parse data as W-type instance")?;
+        .into_diagnostic()
+        .wrap_err("failed to parse data as W-type instance")?;
 
         let output_instance = match direction {
             "forward" => {

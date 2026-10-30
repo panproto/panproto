@@ -106,8 +106,13 @@ fn an_overwriting_computation_is_undone() {
         name: Some("confidence".into()),
     };
     let schema = make_schema(&[("root", "object"), ("root.confidence", "number")], &[e]);
-    let instance: WInstance =
-        parse_json(&schema, "root", &serde_json::json!({"confidence": 0.8})).expect("parse");
+    let instance: WInstance = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({"confidence": 0.8}),
+    )
+    .expect("parse");
 
     let fwd = Expr::Builtin(
         BuiltinOp::Floor,
@@ -193,6 +198,7 @@ fn collection_order_survives_the_round_trip() {
     );
     let instance: WInstance = parse_json(
         &schema,
+        &panproto_schema::Protocol::default(),
         "root",
         &serde_json::json!({"items": [{"n": 1}, {"n": 2}, {"n": 3}]}),
     )
@@ -265,6 +271,7 @@ fn instance_equivalence_sees_a_permuted_collection() {
     );
     let instance: WInstance = parse_json(
         &schema,
+        &panproto_schema::Protocol::default(),
         "root",
         &serde_json::json!({"items": [{"n": 1}, {"n": 2}, {"n": 3}]}),
     )
@@ -289,8 +296,13 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
         name: Some("confidence".into()),
     };
     let schema = make_schema(&[("root", "object"), ("root.confidence", "number")], &[e]);
-    let instance: WInstance =
-        parse_json(&schema, "root", &serde_json::json!({"confidence": 0.8})).expect("parse");
+    let instance: WInstance = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({"confidence": 0.8}),
+    )
+    .expect("parse");
 
     let fwd = Expr::Builtin(
         BuiltinOp::Floor,
@@ -333,7 +345,13 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
     // The WASM `put_json` re-parses the view rather than using the
     // in-memory one, which moves the computed value from the parent's
     // extra_fields onto the child node.
-    let reparsed: WInstance = parse_json(&schema, "root", &view_json).expect("reparse");
+    let reparsed: WInstance = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &view_json,
+    )
+    .expect("reparse");
     assert!(
         reparsed.nodes[&reparsed.root].extra_fields.is_empty(),
         "re-parsing puts the value on the child, not in extra_fields"

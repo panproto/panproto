@@ -1,6 +1,6 @@
 //! Validation of tree instances against schemas.
 //!
-//! [`validate_wtype`] returns a [`ValidationReport`](crate::ValidationReport)
+//! [`validate_wtype`] returns a [`ValidationReport`]
 //! with a three-valued status. A tree's structural invariants (anchors
 //! declared, arcs declared with coherent endpoints, the root present, every
 //! node reachable from it, required edges present, the parent map agreeing

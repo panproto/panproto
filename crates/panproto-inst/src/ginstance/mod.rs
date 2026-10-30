@@ -2,8 +2,8 @@
 //!
 //! A [`GInstance`] is the most general instance form: a directed multigraph
 //! of nodes and identified edges with no distinguished root, cycles, self-loops
-//! and parallel edges allowed. Both [`WInstance`](crate::WInstance) (trees) and
-//! [`FInstance`](crate::FInstance) (tables) embed into it; see
+//! and parallel edges allowed. Both [`WInstance`] (trees) and
+//! [`FInstance`] (tables) embed into it; see
 //! [`GInstance::from_wtype_embedded`] and [`GInstance::from_finstance`], and
 //! [`GInstance::tree_shape`] for the way back to a tree.
 //!

@@ -72,7 +72,12 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
 
     // Parse a record into a WInstance.
     let record = post_record();
-    let instance = parse_json(&schema, "app.bsky.feed.post:body", &record)?;
+    let instance = parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post:body",
+        &record,
+    )?;
 
     assert!(
         instance.node_count() >= 3,
@@ -142,13 +147,23 @@ fn roundtrip_byte_compare() -> Result<(), Box<dyn std::error::Error>> {
     let schema = atproto::parse_lexicon(&lexicon)?;
 
     let record = post_record();
-    let instance = parse_json(&schema, "app.bsky.feed.post:body", &record)?;
+    let instance = parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post:body",
+        &record,
+    )?;
 
     // Serialize the instance.
     let json_out = to_json(&schema, &instance);
 
     // Re-parse the output.
-    let instance2 = parse_json(&schema, "app.bsky.feed.post:body", &json_out)?;
+    let instance2 = parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post:body",
+        &json_out,
+    )?;
 
     // Serialize again.
     let json_out2 = to_json(&schema, &instance2);

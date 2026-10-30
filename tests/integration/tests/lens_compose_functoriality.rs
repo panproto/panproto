@@ -191,8 +191,13 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
     let src = user_schema("name");
     let mid = user_schema("displayName");
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
 
     let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
     let l2 = compute_slug_lens(&mid, "displayName");
@@ -229,8 +234,13 @@ fn composite_rejects_an_expression_written_against_the_wrong_frame() {
     let src = user_schema("name");
     let mid = user_schema("displayName");
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
 
     let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
     // `name` is not a field of m2's input schema, which presents `displayName`.
@@ -260,6 +270,7 @@ fn composite_agrees_with_sequential_across_an_extra_field_rename() {
     let schema = user_schema("name");
     let instance: WInstance = parse_json(
         &schema,
+        &test_protocol(),
         "user",
         &serde_json::json!({"name": "Alice", "handle": "ALICE"}),
     )
@@ -303,8 +314,13 @@ fn rename_chain_resolves_transitively() {
     let s_b = user_schema("b");
     let s_c = user_schema("c");
 
-    let instance: WInstance =
-        parse_json(&s_a, "user", &serde_json::json!({"a": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &s_a,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"a": "Alice"}),
+    )
+    .expect("parse");
 
     let l_ab = rename_edge_lens(&s_a, "user", "user.name", "a", "b");
     let l_bc = rename_edge_lens(&s_b, "user", "user.name", "b", "c");
@@ -356,8 +372,13 @@ fn rename_swap_conjugates_simultaneously() {
     // The same two edges, with their field names exchanged.
     let mid = pair_schema("b", "a");
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"a": "AAA", "b": "BBB"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"a": "AAA", "b": "BBB"}),
+    )
+    .expect("parse");
 
     // Built through the combinators: a swap is three renames via a
     // temporary, and instantiation collapses them into the simultaneous
@@ -443,8 +464,13 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let src = user_schema("name");
     let mid = user_schema("displayName");
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
 
     let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
 
@@ -516,6 +542,7 @@ fn reading_a_dropped_field_refuses_at_the_reading_stage() {
     let composed = compose(&l1, &l2).expect("path composition checks only the boundary");
     let instance: WInstance = parse_json(
         &schema,
+        &test_protocol(),
         "user",
         &serde_json::json!({"name": "Alice", "handle": "ALICE"}),
     )
@@ -547,8 +574,13 @@ fn dropping_an_extra_field_shadowing_a_child_edge_still_composes() {
 
     let composed = compose(&l1, &l2)
         .expect("`name` survives as a child edge, so reading it after DropField is sound");
-    let instance: WInstance =
-        parse_json(&schema, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &schema,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
     let (view, _) = composed.get(&instance).expect("composed path evaluates");
     assert_eq!(slug_of(&view), Some(Value::Str("alice".into())));
 }

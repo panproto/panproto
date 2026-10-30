@@ -301,7 +301,8 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         .unwrap()
         .insert("displayName".into(), serde_json::json!("EDITED"));
 
-    let reparsed = parse_json(&lens.tgt_schema, &protocol, "user", &view_json).expect("reparse view");
+    let reparsed =
+        parse_json(&lens.tgt_schema, &protocol, "user", &view_json).expect("reparse view");
     let remapped = remap_view_ids_by_anchor(&reparsed, &view);
 
     // The reparse turns the `bio` field the lens adds into a `user.bio`

@@ -1458,6 +1458,102 @@ struct Census {
 /// How many specification-gap witnesses a census keeps.
 const GAP_WITNESSES: usize = 3;
 
+/// A parallel comparison unit's state: not yet claimed by a worker.
+const UNCLAIMED: u8 = 0;
+/// A parallel comparison unit's state: every case agreed or lay in the gap.
+const COMPLETED: u8 = 2;
+/// A parallel comparison unit's state: a case disagreed.
+const MISMATCH: u8 = 3;
+
+/// One worker's result: its census, or the unit and disagreement at which it
+/// stopped.
+type ParallelOutcome = Result<Census, (usize, Disagreement)>;
+
+/// The number of comparison workers: `PANPROTO_TEST_WORKERS` when it is a
+/// positive integer, else the available parallelism (4 when unknown).
+fn comparison_threads() -> usize {
+    std::env::var("PANPROTO_TEST_WORKERS")
+        .ok()
+        .and_then(|workers| workers.parse::<usize>().ok())
+        .filter(|workers| *workers > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, std::num::NonZero::get))
+}
+
+/// The summed census of the workers that finished, with its witnesses sorted
+/// and truncated, and the lowest-unit disagreement of those that stopped.
+fn merge_parallel_outcomes(
+    outcomes: Vec<ParallelOutcome>,
+) -> (Census, Option<(usize, Disagreement)>) {
+    let mut total = Census::default();
+    let mut first: Option<(usize, Disagreement)> = None;
+    for outcome in outcomes {
+        match outcome {
+            Ok(census) => {
+                total.compared += census.compared;
+                total.gap += census.gap;
+                total.witnesses.extend(census.witnesses);
+            }
+            Err((unit, disagreement)) => {
+                if first.as_ref().is_none_or(|(at, _)| unit < *at) {
+                    first = Some((unit, disagreement));
+                }
+            }
+        }
+    }
+    total.witnesses.sort();
+    total.witnesses.truncate(GAP_WITNESSES);
+    (total, first)
+}
+
+/// Check the unit states a parallel comparison left behind and return its
+/// verdict: on success every unit completed and no mismatch was recorded; on
+/// a disagreement its unit is the lowest recorded mismatch and every unit
+/// below it completed.
+fn audit_parallel_units(
+    states: &[std::sync::atomic::AtomicU8],
+    recorded_lowest: usize,
+    total: Census,
+    first: Option<(usize, Disagreement)>,
+) -> Result<Census, Disagreement> {
+    use std::sync::atomic::Ordering;
+    match first {
+        None => {
+            assert_eq!(
+                recorded_lowest,
+                usize::MAX,
+                "a mismatch was recorded without a disagreement outcome"
+            );
+            for (unit, state) in states.iter().enumerate() {
+                assert_eq!(
+                    state.load(Ordering::Acquire),
+                    COMPLETED,
+                    "successful parallel comparison did not complete unit {unit}"
+                );
+            }
+            Ok(total)
+        }
+        Some((unit, disagreement)) => {
+            assert_eq!(
+                recorded_lowest, unit,
+                "reported disagreement is not the lowest recorded mismatch"
+            );
+            assert_eq!(
+                states[unit].load(Ordering::Acquire),
+                MISMATCH,
+                "lowest disagreement unit was not marked as a mismatch"
+            );
+            for (prefix, state) in states[..unit].iter().enumerate() {
+                assert_eq!(
+                    state.load(Ordering::Acquire),
+                    COMPLETED,
+                    "unit {prefix} below the lowest disagreement did not complete"
+                );
+            }
+            Err(disagreement)
+        }
+    }
+}
+
 /// [`agree_in_parallel`] with one recorded specification gap: a case for
 /// which `in_gap` holds and whose two sides differ is counted (and the first
 /// [`GAP_WITNESSES`] kept) instead of failing; every other difference is a
@@ -1484,23 +1580,15 @@ where
     use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
     const BLOCK: usize = 32;
-    const UNCLAIMED: u8 = 0;
     const CLAIMED: u8 = 1;
-    const COMPLETED: u8 = 2;
-    const MISMATCH: u8 = 3;
-    type Outcome = Result<Census, (usize, Disagreement)>;
 
     let (production, reference) = (&sides.0, &sides.1);
-    let threads = std::env::var("PANPROTO_TEST_WORKERS")
-        .ok()
-        .and_then(|workers| workers.parse::<usize>().ok())
-        .filter(|workers| *workers > 0)
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, std::num::NonZero::get));
+    let threads = comparison_threads();
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
     let lowest_mismatch = AtomicUsize::new(usize::MAX);
     let states: Vec<_> = (0..units.len()).map(|_| AtomicU8::new(UNCLAIMED)).collect();
-    let outcomes: Vec<Outcome> = std::thread::scope(|scope| {
+    let outcomes: Vec<ParallelOutcome> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..threads)
             .map(|_| {
                 scope.spawn(|| {
@@ -1568,61 +1656,13 @@ where
             .map(|handle| handle.join().expect("a comparison thread panicked"))
             .collect()
     });
-    let mut total = Census::default();
-    let mut first: Option<(usize, Disagreement)> = None;
-    for outcome in outcomes {
-        match outcome {
-            Ok(census) => {
-                total.compared += census.compared;
-                total.gap += census.gap;
-                total.witnesses.extend(census.witnesses);
-            }
-            Err((unit, disagreement)) => {
-                if first.as_ref().is_none_or(|(at, _)| unit < *at) {
-                    first = Some((unit, disagreement));
-                }
-            }
-        }
-    }
-    total.witnesses.sort();
-    total.witnesses.truncate(GAP_WITNESSES);
-    let recorded_lowest = lowest_mismatch.load(Ordering::Acquire);
-    match first {
-        None => {
-            assert_eq!(
-                recorded_lowest,
-                usize::MAX,
-                "a mismatch was recorded without a disagreement outcome"
-            );
-            for (unit, state) in states.iter().enumerate() {
-                assert_eq!(
-                    state.load(Ordering::Acquire),
-                    COMPLETED,
-                    "successful parallel comparison did not complete unit {unit}"
-                );
-            }
-            Ok(total)
-        }
-        Some((unit, disagreement)) => {
-            assert_eq!(
-                recorded_lowest, unit,
-                "reported disagreement is not the lowest recorded mismatch"
-            );
-            assert_eq!(
-                states[unit].load(Ordering::Acquire),
-                MISMATCH,
-                "lowest disagreement unit was not marked as a mismatch"
-            );
-            for (prefix, state) in states[..unit].iter().enumerate() {
-                assert_eq!(
-                    state.load(Ordering::Acquire),
-                    COMPLETED,
-                    "unit {prefix} below the lowest disagreement did not complete"
-                );
-            }
-            Err(disagreement)
-        }
-    }
+    let (total, first) = merge_parallel_outcomes(outcomes);
+    audit_parallel_units(
+        &states,
+        lowest_mismatch.load(Ordering::Acquire),
+        total,
+        first,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -5612,19 +5652,19 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
             labels += 1;
         }
     }
-    let states: usize = fused
+    let source_states: usize = fused
         .iter()
         .map(|&index| sources[composable_words[index / 3][0]].len())
         .sum();
     let bound = format!(
-        "C11 undeclared sources: fused composites={}, source states={states}, undeclared-anchor sources={anchors}, undeclared-label sources={labels}, cases={}",
+        "C11 undeclared sources: fused composites={}, source states={source_states}, undeclared-anchor sources={anchors}, undeclared-label sources={labels}, cases={}",
         fused.len(),
         units.len()
     );
-    assert_eq!(anchors, states);
+    assert_eq!(anchors, source_states);
     assert_eq!(anchors + labels, units.len());
     assert_eq!(fused.len(), 384);
-    assert_eq!(states, 761_742);
+    assert_eq!(source_states, 761_742);
     assert_eq!(labels, 761_358);
     assert_eq!(units.len(), 1_523_100);
     println!("{bound}");
@@ -7826,86 +7866,85 @@ fn reference_required_value_free(
     })
 }
 
-fn reference_table_fusion_premises(
-    first: &Lens,
-    second: &Lens,
-    candidate: &Lens,
-    protocols: [&Protocol; 3],
-) -> panproto_reference::path::TableFusionPremises {
-    let first_source = reference_rel_schema(&first.src_schema, protocols[0]);
-    let first_target = reference_rel_schema(&first.tgt_schema, protocols[1]);
-    let second_source = reference_rel_schema(&second.src_schema, protocols[1]);
-    let second_target = reference_rel_schema(&second.tgt_schema, protocols[2]);
-    let candidate_source = reference_rel_schema(&candidate.src_schema, protocols[0]);
-    let candidate_target = reference_rel_schema(&candidate.tgt_schema, protocols[2]);
+/// One stage of a table fusion as the reference sees it: the relational
+/// boundaries of its schemas, its migration and, when everything compiles,
+/// its table plan.
+struct RefTableStagePlan {
+    source: Option<RelSchema>,
+    target: Option<RelSchema>,
+    migration: RefMigration,
+    plan: Option<TablePlan>,
+}
 
-    let first_migration = ref_migration(&first.compiled);
-    let second_migration = ref_migration(&second.compiled);
-    let candidate_migration = ref_migration(&candidate.compiled);
-    let first_plan =
-        first_source
-            .as_ref()
-            .zip(first_target.as_ref())
-            .and_then(|(source, target)| {
-                panproto_reference::table::compile_for_tables(
-                    &ref_schema(&first.src_schema),
-                    &ref_schema(&first.tgt_schema),
-                    source,
-                    target,
-                    &first_migration,
-                )
-                .ok()
-            });
-    let second_plan =
-        second_source
-            .as_ref()
-            .zip(second_target.as_ref())
-            .and_then(|(source, target)| {
-                panproto_reference::table::compile_for_tables(
-                    &ref_schema(&second.src_schema),
-                    &ref_schema(&second.tgt_schema),
-                    source,
-                    target,
-                    &second_migration,
-                )
-                .ok()
-            });
-    let candidate_plan = candidate_source
+fn reference_table_stage_plan(
+    lens: &Lens,
+    source_protocol: &Protocol,
+    target_protocol: &Protocol,
+) -> RefTableStagePlan {
+    let source = reference_rel_schema(&lens.src_schema, source_protocol);
+    let target = reference_rel_schema(&lens.tgt_schema, target_protocol);
+    let migration = ref_migration(&lens.compiled);
+    let plan = source
         .as_ref()
-        .zip(candidate_target.as_ref())
+        .zip(target.as_ref())
         .and_then(|(source, target)| {
             panproto_reference::table::compile_for_tables(
-                &ref_schema(&candidate.src_schema),
-                &ref_schema(&candidate.tgt_schema),
+                &ref_schema(&lens.src_schema),
+                &ref_schema(&lens.tgt_schema),
                 source,
                 target,
-                &candidate_migration,
+                &migration,
             )
             .ok()
         });
-    let plans_compile = first_plan.is_some() && second_plan.is_some() && candidate_plan.is_some();
+    RefTableStagePlan {
+        source,
+        target,
+        migration,
+        plan,
+    }
+}
 
-    let first_is_unit_bijection = first_plan.as_ref().is_some_and(|plan| {
-        let source_schema = ref_schema(&first.src_schema);
-        let target_schema = ref_schema(&first.tgt_schema);
-        let source_boundary = first_source
+/// Whether a compiled stage is a unit bijection: the reference table lens it
+/// builds has no obstruction to being an isomorphism.
+fn reference_table_stage_is_unit_bijection(lens: &Lens, stage: &RefTableStagePlan) -> bool {
+    stage.plan.as_ref().is_some_and(|plan| {
+        let source_schema = ref_schema(&lens.src_schema);
+        let target_schema = ref_schema(&lens.tgt_schema);
+        let source_boundary = stage
+            .source
             .as_ref()
             .expect("a compiled plan has a source boundary");
-        let target_boundary = first_target
+        let target_boundary = stage
+            .target
             .as_ref()
             .expect("a compiled plan has a target boundary");
         RefTableLens::new(
             &source_schema,
             &target_schema,
             panproto_reference::table::TableBoundaries::new(source_boundary, target_boundary),
-            &first_migration,
+            &stage.migration,
             plan,
             &BTreeMap::new(),
             &NoValueLayer,
         )
-        .ok()
-        .is_some_and(|lens| panproto_reference::table::obstruction_to_isomorphism(&lens).is_none())
-    });
+        .is_ok_and(|lens| panproto_reference::table::obstruction_to_isomorphism(&lens).is_none())
+    })
+}
+
+fn reference_table_fusion_premises(
+    first: &Lens,
+    second: &Lens,
+    candidate: &Lens,
+    protocols: [&Protocol; 3],
+) -> panproto_reference::path::TableFusionPremises {
+    let first_stage = reference_table_stage_plan(first, protocols[0], protocols[1]);
+    let second_stage = reference_table_stage_plan(second, protocols[1], protocols[2]);
+    let candidate_stage = reference_table_stage_plan(candidate, protocols[0], protocols[2]);
+    let (first_plan, second_plan, candidate_plan) =
+        (&first_stage.plan, &second_stage.plan, &candidate_stage.plan);
+    let plans_compile = first_plan.is_some() && second_plan.is_some() && candidate_plan.is_some();
+    let first_is_unit_bijection = reference_table_stage_is_unit_bijection(first, &first_stage);
     let middle_boundaries_equal = first_plan
         .as_ref()
         .zip(second_plan.as_ref())
@@ -7945,12 +7984,12 @@ fn reference_table_fusion_premises(
             .compiled
             .field_transforms
             .values()
-            .all(|transforms| transforms.is_empty())
+            .all(Vec::is_empty)
             && first
                 .compiled
                 .op_term_assignments
                 .values()
-                .all(|assignments| assignments.is_empty()))
+                .all(Vec::is_empty))
         .into(),
         plans_compile: plans_compile.into(),
         first_is_unit_bijection: first_is_unit_bijection.into(),
@@ -8005,25 +8044,25 @@ fn assert_table_fusion_decision(
 }
 
 fn assert_admitted_table_fusion_behavior(
-    first: Lens,
-    second: Lens,
-    protocols: [Protocol; 3],
+    first: &Lens,
+    second: &Lens,
+    protocols: &[Protocol; 3],
     source: &FInstance,
 ) {
     assert_table_fusion_decision(
-        &first,
-        &second,
+        first,
+        second,
         [&protocols[0], &protocols[1], &protocols[2]],
         Ok(()),
     );
-    let path = LensPath::single(duplicate_lens(&first))
-        .then(&LensPath::single(duplicate_lens(&second)))
+    let path = LensPath::single(duplicate_lens(first))
+        .then(&LensPath::single(duplicate_lens(second)))
         .expect("the admitted fixture has a shared middle schema");
     let (fused_view, fused_complement) = path
-        .get_table(source, &protocols)
+        .get_table(source, protocols)
         .expect("the admitted fused get succeeds");
     let (middle, first_complement) = table_lens::get(
-        &first,
+        first,
         source,
         BoundaryProtocols {
             src: &protocols[0],
@@ -8032,7 +8071,7 @@ fn assert_admitted_table_fusion_behavior(
     )
     .expect("the first atomic get succeeds");
     let (atomic_view, second_complement) = table_lens::get(
-        &second,
+        second,
         &middle,
         BoundaryProtocols {
             src: &protocols[1],
@@ -8043,10 +8082,10 @@ fn assert_admitted_table_fusion_behavior(
     assert_eq!(fused_view, atomic_view, "fused and atomic get");
 
     let fused_source = path
-        .put_table(&fused_view, &fused_complement, &protocols)
+        .put_table(&fused_view, &fused_complement, protocols)
         .expect("the admitted fused put succeeds");
     let atomic_middle = table_lens::put(
-        &second,
+        second,
         &atomic_view,
         &second_complement,
         BoundaryProtocols {
@@ -8056,7 +8095,7 @@ fn assert_admitted_table_fusion_behavior(
     )
     .expect("the second atomic put succeeds");
     let atomic_source = table_lens::put(
-        &first,
+        first,
         &atomic_middle,
         &first_complement,
         BoundaryProtocols {
@@ -8152,9 +8191,9 @@ fn table_fusion_column_injectivity_witness() {
         )
         .expect("the admitted collision control row is distinct");
     assert_admitted_table_fusion_behavior(
-        admitted_first,
-        admitted_second,
-        [protocol.clone(), protocol.clone(), protocol],
+        &admitted_first,
+        &admitted_second,
+        &[protocol.clone(), protocol.clone(), protocol],
         &instance,
     );
 }
@@ -8187,9 +8226,9 @@ fn table_fusion_placeholder_witness() {
         )
         .expect("the admitted placeholder control row is distinct");
     assert_admitted_table_fusion_behavior(
-        first,
-        second,
-        [
+        &first,
+        &second,
+        &[
             source_protocol.clone(),
             source_protocol.clone(),
             source_protocol,
@@ -8238,53 +8277,59 @@ fn table_fusion_required_value_witness() {
         )
         .expect("the admitted validation control row is distinct");
     assert_admitted_table_fusion_behavior(
-        admitted_first,
-        admitted_second,
-        [protocol.clone(), protocol.clone(), protocol],
+        &admitted_first,
+        &admitted_second,
+        &[protocol.clone(), protocol.clone(), protocol],
         &instance,
     );
 }
 
+/// A target-only coordinate (a table, foreign key or column only the
+/// target declares) obstructs table isomorphism, the independent classifier
+/// rejects fusing past it, and the schema-level path keeps two groups.
+fn assert_static_table_isomorphism_boundary(
+    protocol: &Protocol,
+    source: &Schema,
+    target: &Schema,
+    coordinate: &str,
+) {
+    let first = certificate_mapped_lens(source, target, std::iter::empty());
+    let boundaries = BoundaryProtocols {
+        src: protocol,
+        tgt: protocol,
+    };
+    assert!(!panproto_lens::table_lens::is_isomorphism(
+        &first, boundaries
+    ));
+    let obstruction = panproto_lens::table_lens::obstruction_to_isomorphism(&first, boundaries)
+        .expect("the target-only coordinate must obstruct table isomorphism");
+    assert!(
+        obstruction.contains(coordinate),
+        "the {coordinate} subcase reported the wrong obstruction: {obstruction}"
+    );
+
+    let second = certificate_mapped_lens(target, target, std::iter::empty());
+    assert_eq!(
+        reference_table_fusion_classification(
+            &first,
+            &second,
+            &first,
+            [protocol, protocol, protocol],
+        ),
+        Err(panproto_reference::path::TableFusionObstruction::FirstStageNotUnitBijection),
+        "the independent table classifier must reject the {coordinate} boundary",
+    );
+    let path = LensPath::single(duplicate_lens(&first))
+        .then(&LensPath::single(second))
+        .expect("the target-only fixture has a shared middle schema");
+    assert_eq!(
+        path.tree_normal_form().len(),
+        2,
+        "the schema-level {coordinate} fixture is structurally precluded before table fusion",
+    );
+}
+
 fn table_fusion_target_only_carrier_witness() {
-    let assert_static_isomorphism_boundary =
-        |protocol: &Protocol, source: &Schema, target: &Schema, coordinate: &str| {
-            let first = certificate_mapped_lens(source, target, std::iter::empty());
-            let boundaries = BoundaryProtocols {
-                src: protocol,
-                tgt: protocol,
-            };
-            assert!(!panproto_lens::table_lens::is_isomorphism(
-                &first, boundaries
-            ));
-            let obstruction =
-                panproto_lens::table_lens::obstruction_to_isomorphism(&first, boundaries)
-                    .expect("the target-only coordinate must obstruct table isomorphism");
-            assert!(
-                obstruction.contains(coordinate),
-                "the {coordinate} subcase reported the wrong obstruction: {obstruction}"
-            );
-
-            let second = certificate_mapped_lens(target, target, std::iter::empty());
-            assert_eq!(
-                reference_table_fusion_classification(
-                    &first,
-                    &second,
-                    &first,
-                    [protocol, protocol, protocol],
-                ),
-                Err(panproto_reference::path::TableFusionObstruction::FirstStageNotUnitBijection),
-                "the independent table classifier must reject the {coordinate} boundary",
-            );
-            let path = LensPath::single(duplicate_lens(&first))
-                .then(&LensPath::single(second))
-                .expect("the target-only fixture has a shared middle schema");
-            assert_eq!(
-                path.tree_normal_form().len(),
-                2,
-                "the schema-level {coordinate} fixture is structurally precluded before table fusion",
-            );
-        };
-
     let relational_protocol = Protocol {
         non_value_kinds: ["record".to_owned()].into(),
         ..Protocol::default()
@@ -8301,7 +8346,7 @@ fn table_fusion_target_only_carrier_witness() {
         .expect("the target-only table is valid")
         .build()
         .expect("the target table schema is valid");
-    assert_static_isomorphism_boundary(
+    assert_static_table_isomorphism_boundary(
         &relational_protocol,
         &table_source,
         &table_target,
@@ -8324,7 +8369,7 @@ fn table_fusion_target_only_carrier_witness() {
         .expect("the target-only relation is valid")
         .build()
         .expect("the relation target schema is valid");
-    assert_static_isomorphism_boundary(
+    assert_static_table_isomorphism_boundary(
         &relational_protocol,
         &relation_source,
         &relation_target,
@@ -8337,13 +8382,20 @@ fn table_fusion_target_only_carrier_witness() {
     });
     let column_source = certificate_column_schema(&column_protocol, "value", &[]);
     let column_target = certificate_column_schema(&column_protocol, "value", &["target_only"]);
-    assert_static_isomorphism_boundary(
+    assert_static_table_isomorphism_boundary(
         &column_protocol,
         &column_source,
         &column_target,
         "target column `target_only`",
     );
 
+    assert_protocol_drift_table_fusion_witness();
+}
+
+/// A carrier that is a value column under the source protocol but a table
+/// under the target protocol makes the first stage no unit bijection, while
+/// the same lens under one protocol fuses.
+fn assert_protocol_drift_table_fusion_witness() {
     let source_protocol = Protocol {
         value_kinds: BTreeMap::from([(
             "aux".to_owned(),
@@ -8376,9 +8428,9 @@ fn table_fusion_target_only_carrier_witness() {
     );
 
     assert_admitted_table_fusion_behavior(
-        certificate_identity_lens(&protocol_drift_schema),
-        certificate_identity_lens(&protocol_drift_schema),
-        [
+        &certificate_identity_lens(&protocol_drift_schema),
+        &certificate_identity_lens(&protocol_drift_schema),
+        &[
             source_protocol.clone(),
             source_protocol.clone(),
             source_protocol,
@@ -8408,7 +8460,7 @@ fn assert_tree_fusion_boundary_witness(witness: TreeFusionBoundaryWitness) {
 
             let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
             let sources = c11_tree_states(&stages[identity].source);
-            assert!(!sources.is_empty());
+            assert_ne!(sources, [] as [panproto_reference::model::Tree; 0]);
             for source in &sources {
                 let fused = production_tree_path_outcome(&path, source, &[]);
                 let atomic = reference_tree_path_outcome(&pairs, &word, source, &[]);
@@ -8700,7 +8752,7 @@ fn empty_schema_path_properties_skip_only_the_empty_tree_carrier() {
     let carrier = path_property_carrier();
     assert_eq!(carrier.stages[0].name, "Id0");
     assert_eq!(carrier.graphs[0].len(), 1);
-    assert!(carrier.trees[0].is_empty());
+    assert_eq!(carrier.trees[0], [] as [panproto_reference::model::Tree; 0]);
     assert_eq!(carrier.tables[0].len(), 1);
 
     assert_randomized_path_form(PathLawForm::LeftIdentity, 0, 0, 0);
@@ -11574,7 +11626,7 @@ struct CommonBasisLawOutcome {
 
 fn production_common_law_outcome<S: LawShape>(
     lens: &Lens,
-    root: S::Instance,
+    root: &S::Instance,
     inner: S::Context,
     families: [Vec<S::Instance>; EDIT_FAMILIES],
 ) -> CommonBasisLawOutcome {
@@ -11585,7 +11637,7 @@ fn production_common_law_outcome<S: LawShape>(
         families,
     };
     let report =
-        panproto_lens::laws::check_laws_report::<CommonProductionShape<S>>(lens, &root, &context);
+        panproto_lens::laws::check_laws_report::<CommonProductionShape<S>>(lens, root, &context);
     let admitted = report.as_ref().ok().map(|report| {
         report
             .ran
@@ -11602,7 +11654,7 @@ fn production_common_law_outcome<S: LawShape>(
 
 fn reference_common_law_report<S, L>(
     lens: &L,
-    root: S::Instance,
+    root: &S::Instance,
     inner: S::Context,
     families: [Vec<S::Instance>; EDIT_FAMILIES],
 ) -> (RefLawReport<S::Refusal>, [usize; EDIT_FAMILIES])
@@ -11635,7 +11687,7 @@ where
         marker: std::marker::PhantomData,
     };
     let report = panproto_reference::lens::check_laws_report::<CommonReferenceShape<S>, L>(
-        lens, &root, &context,
+        lens, root, &context,
     );
     let observed = std::array::from_fn(|family| {
         report
@@ -11653,7 +11705,7 @@ where
 
 fn reference_common_law_outcome<S, L>(
     lens: &L,
-    root: S::Instance,
+    root: &S::Instance,
     inner: S::Context,
     families: [Vec<S::Instance>; EDIT_FAMILIES],
 ) -> CommonBasisLawOutcome
@@ -11691,19 +11743,14 @@ fn graph_common_laws(
             .map(|views| views.into_iter().map(|view| prod_graph(&view)).collect());
         Some(production_common_law_outcome::<panproto_lens::GraphShape>(
             &pair.production,
-            prod_graph(source),
+            &prod_graph(source),
             (),
             production_families,
         ))
     } else {
         Some(pair.with_reference(|lens| {
             let lens = lens.expect("the common-basis graph checker requires a compiled lens");
-            reference_common_law_outcome::<RefGraphShape, _>(
-                lens,
-                source.clone(),
-                (),
-                reference_families,
-            )
+            reference_common_law_outcome::<RefGraphShape, _>(lens, source, (), reference_families)
         }))
     }
 }
@@ -11728,19 +11775,14 @@ fn tree_common_laws(
             .map(|views| views.into_iter().map(|view| prod_tree(&view)).collect());
         Some(production_common_law_outcome::<panproto_lens::TreeShape>(
             &pair.production,
-            prod_tree(source),
+            &prod_tree(source),
             (),
             production_families,
         ))
     } else {
         Some(pair.with_reference(|lens| {
             let lens = lens.expect("the common-basis tree checker requires a compiled lens");
-            reference_common_law_outcome::<RefTreeShape, _>(
-                lens,
-                source.clone(),
-                (),
-                reference_families,
-            )
+            reference_common_law_outcome::<RefTreeShape, _>(lens, source, (), reference_families)
         }))
     }
 }
@@ -12087,7 +12129,7 @@ fn table_common_laws(
             .map(|views| views.into_iter().map(|view| prod_table(&view)).collect());
         production_common_law_outcome::<panproto_lens::TableShape>(
             &pair.production,
-            prod_table(source),
+            &prod_table(source),
             panproto_lens::TableContext {
                 src: pair.protocol.clone(),
                 tgt: pair.protocol.clone(),
@@ -12096,12 +12138,7 @@ fn table_common_laws(
         )
     } else {
         pair.with_reference(|lens, _| {
-            reference_common_law_outcome::<RefTableShape, _>(
-                lens,
-                source.clone(),
-                (),
-                reference_families,
-            )
+            reference_common_law_outcome::<RefTableShape, _>(lens, source, (), reference_families)
         })
     }
 }
@@ -12903,7 +12940,7 @@ fn stage_c_three_node_common_basis_laws_agree() {
                 let lens = lens.expect("stage C compiles in the independent reference");
                 reference_common_law_report::<RefGraphShape, _>(
                     lens,
-                    source.clone(),
+                    &source,
                     (),
                     reference_families.clone(),
                 )
@@ -13105,7 +13142,7 @@ fn stage_c_common_basis_put_get_traces_agree() {
                     .iter()
                     .map(|candidate| (candidate.mutation, candidate.view.clone())),
             );
-            reference_common_law_report::<RefGraphShape, _>(lens, source.clone(), (), families).0
+            reference_common_law_report::<RefGraphShape, _>(lens, &source, (), families).0
         });
         assert_eq!(reference_report.admitted, 6);
         assert_eq!(
@@ -13174,36 +13211,48 @@ fn stage_c_common_basis_put_get_traces_agree() {
             assert!(deleted_index.edges.is_empty());
         });
 
-        for (candidate, verdict) in candidates.iter().zip(&production_admissions.verdicts) {
-            if !verdict.is_admitted() {
-                continue;
-            }
-            let production = production_graph_put_get_trace(&pair, &source, candidate);
-            let reference = reference_graph_put_get_trace(&pair, &source, candidate);
-            assert_eq!(production.mutation, reference.mutation);
-            assert_eq!(production.edited_view, reference.edited_view);
-            assert_eq!(production.original_view, reference.original_view);
-            assert_eq!(
-                production.original_complement,
-                reference.original_complement
-            );
-            assert_eq!(production.restored_source, reference.restored_source);
-            assert_eq!(production.observed_view, reference.observed_view);
-            assert_eq!(
-                production.observed_complement,
-                reference.observed_complement
-            );
-            assert_eq!(
-                production.equivalent, reference.equivalent,
-                "stage-C common-basis PutGet verdict differs\nproduction={production:#?}\nreference={reference:#?}"
-            );
-            assert!(!production.expected_index.is_empty());
-            assert!(!reference.expected_index.is_empty());
-            assert!(!production.observed_index.is_empty());
-            assert!(!reference.observed_index.is_empty());
-            assert_eq!(production.divergence.is_none(), production.equivalent);
-            assert_eq!(reference.divergence.is_none(), reference.equivalent);
+        assert_stage_c_put_get_traces(&pair, &source, &candidates, &production_admissions.verdicts);
+    }
+}
+
+/// Every admitted stage-C candidate's `PutGet` trace agrees field for field,
+/// with nonempty synthesized indexes and a divergence exactly when the
+/// verdict is not equivalence.
+fn assert_stage_c_put_get_traces(
+    pair: &Pair,
+    source: &RefGraph,
+    candidates: &[Candidate<RefGraph>],
+    verdicts: &[Admission],
+) {
+    for (candidate, verdict) in candidates.iter().zip(verdicts) {
+        if !verdict.is_admitted() {
+            continue;
         }
+        let production = production_graph_put_get_trace(pair, source, candidate);
+        let reference = reference_graph_put_get_trace(pair, source, candidate);
+        assert_eq!(production.mutation, reference.mutation);
+        assert_eq!(production.edited_view, reference.edited_view);
+        assert_eq!(production.original_view, reference.original_view);
+        assert_eq!(
+            production.original_complement,
+            reference.original_complement
+        );
+        assert_eq!(production.restored_source, reference.restored_source);
+        assert_eq!(production.observed_view, reference.observed_view);
+        assert_eq!(
+            production.observed_complement,
+            reference.observed_complement
+        );
+        assert_eq!(
+            production.equivalent, reference.equivalent,
+            "stage-C common-basis PutGet verdict differs\nproduction={production:#?}\nreference={reference:#?}"
+        );
+        assert_ne!(production.expected_index, "");
+        assert_ne!(reference.expected_index, "");
+        assert_ne!(production.observed_index, "");
+        assert_ne!(reference.observed_index, "");
+        assert_eq!(production.divergence.is_none(), production.equivalent);
+        assert_eq!(reference.divergence.is_none(), reference.equivalent);
     }
 }
 

@@ -382,7 +382,7 @@ pub fn pp_mig_lift_json(
                 &root,
                 &json_value,
             )
-                .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))?;
+            .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))?;
 
             let (src_protocol, tgt_protocol) = (
                 crate::api::helpers::protocol_for_schema(&src_schema),

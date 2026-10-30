@@ -748,7 +748,7 @@ describe('compileLensDocument', () => {
 // parseSchemaBundle — cross-document reference resolution.
 //
 // A single-document parse leaves a reference into a sibling document an
-// opaque `"ref"` placeholder carrying no fields, so a lens has nothing
+// opaque `"unknown"` placeholder carrying no fields, so a lens has nothing
 // typed to bind to. The bundle entry point resolves it.
 // ---------------------------------------------------------------------------
 
@@ -783,7 +783,7 @@ describe('parseSchemaBundle', () => {
 
   it('leaves a cross-document ref opaque when only one document is parsed', () => {
     const schema = pp.parseLexicon(annotationLayer);
-    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('ref');
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('unknown');
     // The placeholder carries none of the target's own fields.
     expect(schema.vertices['local.bundle.defs#boundingBox.x']).toBeUndefined();
     schema[Symbol.dispose]();
@@ -800,7 +800,7 @@ describe('parseSchemaBundle', () => {
 
   it('keeps a placeholder for a target outside the bundle', () => {
     const schema = pp.parseSchemaBundle('atproto', [annotationLayer]);
-    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('ref');
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('unknown');
     schema[Symbol.dispose]();
   });
 

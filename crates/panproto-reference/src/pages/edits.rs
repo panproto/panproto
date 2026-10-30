@@ -2249,12 +2249,7 @@ pub mod edit {
             &mut current_embedding,
             &mut steps,
         )?;
-        remove_changed_tree_fans(
-            after,
-            &mut current,
-            &mut current_embedding,
-            &mut steps,
-        )?;
+        remove_changed_tree_fans(after, &mut current, &mut current_embedding, &mut steps)?;
         insert_missing_tree_nodes(after, &mut current, &mut current_embedding, &mut steps)?;
         reconcile_tree_arcs(after, &mut current, &mut current_embedding, &mut steps)?;
         reorder_refreshed_tree_arcs(
@@ -2456,7 +2451,10 @@ pub mod edit {
                     } else {
                         AddedKey::Edge(*id)
                     };
-                    (key, (None, Some((src, tgt, edge.label.clone(), edge.position))))
+                    (
+                        key,
+                        (None, Some((src, tgt, edge.label.clone(), edge.position))),
+                    )
                 }
                 _ => return None,
             };

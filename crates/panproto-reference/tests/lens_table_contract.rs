@@ -1207,7 +1207,7 @@ const fn refusal_name(refusal: &PredicateRefusal) -> &'static str {
 }
 
 #[test]
-fn put_domain_vocabulary_is_exactly_thirteen_variants_with_five_predicate_refusals() {
+fn put_domain_vocabulary_is_exactly_thirteen_variants() {
     let row = ViewRef::Row(1);
     let edge = ViewRef::Pair(Box::new(SEdge::new("a", "b", "fk", Some("b"))), 1, 2);
     let variants = vec![
@@ -1279,7 +1279,10 @@ fn put_domain_vocabulary_is_exactly_thirteen_variants_with_five_predicate_refusa
             .collect::<Vec<_>>(),
         (0..13).collect::<Vec<_>>()
     );
+}
 
+#[test]
+fn survival_predicate_refusal_vocabulary_is_exactly_five_variants() {
     let predicate_refusals = [
         PredicateRefusal::AmbiguousChildField {
             field: "child".to_owned(),

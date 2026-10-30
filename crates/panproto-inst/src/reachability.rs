@@ -5,7 +5,7 @@
 //! root without recomputing a full BFS on every edit; the edit lens pipeline
 //! uses it. [`strongly_connected_components`] and [`reachable_from`] answer
 //! the same questions for any directed graph in a deterministic order, and
-//! [`graph_components`] applies the first to a [`GInstance`](crate::GInstance).
+//! [`graph_components`] applies the first to a [`GInstance`].
 
 use std::collections::{HashMap, VecDeque};
 

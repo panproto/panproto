@@ -880,7 +880,7 @@ fn canonical_anchor_for_route<'a>(
     if route_must_exist && !schema.has_vertex(route) {
         return Err(format!("schema route '{route}' is not a declared vertex"));
     }
-    if format == "JSON" && node.value.is_none() && !node.is_list() && schema.has_vertex(route) {
+    if format == "JSON" && !node.is_list() && schema.has_vertex(route) {
         resolve_transparent_indirection_checked(schema, route)
     } else {
         Ok(route)
@@ -1019,11 +1019,14 @@ fn walk_raw_json(
             }
         }
         _ => {
-            let spec = ValueSpec::for_vertex(schema, protocol, &Name::from(vertex));
-            let presence = raw_scalar(raw, vertex, &spec, state);
+            // A value reached through a transparent indirection belongs to
+            // the vertex the indirection denotes, whose kind and
+            // constraints govern it.
+            let spec = ValueSpec::for_vertex(schema, protocol, &Name::from(anchor));
+            let presence = raw_scalar(raw, anchor, &spec, state);
             state
                 .nodes
-                .insert(node_id, Node::new(node_id, vertex).with_value(presence));
+                .insert(node_id, Node::new(node_id, anchor).with_value(presence));
         }
     }
     Ok(())
@@ -1716,6 +1719,7 @@ fn write_json_node(
         return write_json_presence(
             presence,
             &ValueSpec::for_vertex(schema, protocol, &node.anchor),
+            holds_any_value(schema, protocol, &node.anchor),
             &ValueSite::new(node.anchor.clone(), None),
             output,
             enclosing_depth,
@@ -1906,6 +1910,7 @@ fn write_json_mapping(
             &mut rendered,
             enclosing_depth + 1,
         )?;
+        ensure_reads_back_whole(value, &rendered, &site)?;
         fields.insert(key.clone(), rendered);
     }
     output.push(b'{');
@@ -1935,9 +1940,49 @@ fn ensure_unique_json_key(
     Ok(())
 }
 
+/// Whether `vertex` is one whose kind the protocol classifies as holding
+/// any value, the vertices at which the reader takes an object or array
+/// whole as the node's value.
+fn holds_any_value(schema: &Schema, protocol: &Protocol, vertex: &str) -> bool {
+    schema.vertex(vertex).is_some_and(|declaration| {
+        protocol.value_kinds.contains_key(declaration.kind.as_str())
+            && ValueSpec::for_vertex(schema, protocol, &declaration.id).kind == ScalarKind::Any
+    })
+}
+
+/// Refuse a structured value whose rendering the reader reads back as a
+/// different value, such as an object of a blob's exact shape, which the
+/// reader takes as the blob.
+fn ensure_reads_back_whole(
+    value: &Value,
+    rendered: &[u8],
+    site: &ValueSite,
+) -> Result<(), EmitInstanceError> {
+    if !matches!(value, Value::Unknown(_) | Value::List(_)) {
+        return Ok(());
+    }
+    let mut state = BuildState::new();
+    let reads_back = RawJsonParser::parse(rendered).is_ok_and(|raw| {
+        let reread = raw_to_value(&raw, &site.vertex, &mut state);
+        state.fidelity.is_empty() && reread == *value
+    });
+    if reads_back {
+        Ok(())
+    } else {
+        Err(EmitValueError::new(
+            site.clone(),
+            value.type_name(),
+            "json",
+            EmitValueReason::NotRepresentable,
+        )
+        .into())
+    }
+}
+
 fn write_json_presence(
     presence: &FieldPresence,
     spec: &ValueSpec,
+    holds_any: bool,
     site: &ValueSite,
     output: &mut Vec<u8>,
     enclosing_depth: usize,
@@ -1945,10 +1990,14 @@ fn write_json_presence(
     match presence {
         // A structured value is written whole only at a vertex whose kind
         // holds any value, which is where the reader reads one back whole.
-        FieldPresence::Present(value @ (Value::Blob { .. } | Value::Unknown(_) | Value::List(_)))
-            if spec.kind == ScalarKind::Any =>
-        {
-            write_json_value_at_depth(value, spec, site, output, enclosing_depth)
+        FieldPresence::Present(
+            value @ (Value::Blob { .. } | Value::Unknown(_) | Value::List(_)),
+        ) if holds_any => {
+            let mut rendered = Vec::new();
+            write_json_value_at_depth(value, spec, site, &mut rendered, enclosing_depth)?;
+            ensure_reads_back_whole(value, &rendered, site)?;
+            output.extend_from_slice(&rendered);
+            Ok(())
         }
         FieldPresence::Present(
             value @ (Value::Null | Value::Blob { .. } | Value::Unknown(_) | Value::List(_)),
@@ -3052,22 +3101,37 @@ mod tests {
             b"{}"
         );
 
-        let target_scalar = WInstance::new(
-            HashMap::from([(
+        // A scalar read through the transparent root belongs to the vertex
+        // the root denotes, as an object does.
+        let scalar_at = |anchor: &str| {
+            WInstance::new(
+                HashMap::from([(
+                    0,
+                    Node::new(0, anchor)
+                        .with_value(FieldPresence::Present(Value::Str("scalar".into()))),
+                )]),
+                Vec::new(),
+                Vec::new(),
                 0,
-                Node::new(0, "body")
-                    .with_value(FieldPresence::Present(Value::Str("scalar".into()))),
-            )]),
-            Vec::new(),
-            Vec::new(),
-            0,
-            "wrap".into(),
+                "wrap".into(),
+            )
+        };
+        assert_eq!(
+            emit_json_bytes(&schema, &scalar_at("body"), "test").expect("resolved scalar root"),
+            br#""scalar""#
         );
         assert!(matches!(
-            emit_json_bytes(&schema, &target_scalar, "test"),
+            emit_json_bytes(&schema, &scalar_at("wrap"), "test"),
             Err(EmitInstanceError::Emit { message, .. })
-                if message.contains("expected anchor 'wrap'")
+                if message.contains("expected anchor 'body'")
         ));
+        assert_eq!(
+            parse_json_bytes(&schema, "wrap", br#""scalar""#, "test")
+                .expect("scalar parses")
+                .nodes[&0]
+                .anchor,
+            "body"
+        );
 
         let mut ghost_schema = schema.clone();
         ghost_schema.vertices.remove("body");
@@ -3586,6 +3650,87 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    /// An object of a blob's exact shape reads back as the blob, so it has
+    /// no faithful JSON form as an object, wherever it sits.
+    #[test]
+    fn an_object_of_a_blobs_shape_is_refused() {
+        let blob_shaped = Value::Unknown(HashMap::from([
+            ("$type".to_owned(), Value::Str("blob".into())),
+            ("mimeType".to_owned(), Value::Str("image/png".into())),
+            (
+                "ref".to_owned(),
+                Value::Unknown(HashMap::from([(
+                    "$link".to_owned(),
+                    Value::Str("bafyreia".into()),
+                )])),
+            ),
+            ("size".to_owned(), Value::Int(42)),
+        ]));
+        let refused = |instance: &WInstance, schema: &Schema, protocol: &str| {
+            matches!(
+                emit_json_bytes(schema, instance, protocol),
+                Err(EmitInstanceError::Value(EmitValueError {
+                    reason: EmitValueReason::NotRepresentable,
+                    ..
+                }))
+            )
+        };
+
+        let mut root = Node::new(0, "root");
+        root.extra_fields
+            .insert("blob".to_owned(), Value::List(vec![blob_shaped.clone()]));
+        let instance = WInstance::new(
+            HashMap::from([(0, root)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        assert!(refused(&instance, &simple_schema(), "test"));
+
+        let protocol = panproto_protocols::atproto::protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "unknown", None)
+            .expect("root")
+            .build()
+            .expect("schema");
+        let whole = WInstance::new(
+            HashMap::from([(
+                0,
+                Node::new(0, "root").with_value(FieldPresence::Present(blob_shaped)),
+            )]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        assert!(refused(&whole, &schema, "atproto"));
+    }
+
+    /// At a vertex whose kind holds any value, an object or array is the
+    /// node's one value, and it is written back whole.
+    #[test]
+    fn a_structured_value_at_an_any_vertex_round_trips_whole() {
+        let protocol = panproto_protocols::atproto::protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "unknown", None)
+            .expect("root")
+            .build()
+            .expect("schema");
+        for input in [
+            &br#"{"a":[1,{"b":null}],"c":"d"}"#[..],
+            &br#"[true,{"$type":"blob","mimeType":"image/png","ref":{"$link":"bafyreia"},"size":42}]"#[..],
+        ] {
+            let instance = parse_json_bytes(&schema, "root", input, "atproto").expect("parse");
+            assert_eq!(instance.nodes.len(), 1);
+            assert!(instance.nodes[&0].extra_fields.is_empty());
+            assert_eq!(
+                emit_json_bytes(&schema, &instance, "atproto").expect("emit"),
+                input
+            );
+        }
     }
 
     #[test]

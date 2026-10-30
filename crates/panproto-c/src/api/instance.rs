@@ -152,7 +152,7 @@ pub fn pp_inst_json_to_instance(
                 &root,
                 &json_value,
             )
-                .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))
+            .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))
         })?;
 
         let bytes = crate::canonical::encode(&inst_value)?;

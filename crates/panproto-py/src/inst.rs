@@ -212,7 +212,7 @@ impl PyInstance {
             root_vertex,
             &json_val,
         )
-            .map_err(|e| crate::error::IoError::new_err(format!("parse failed: {e}")))?;
+        .map_err(|e| crate::error::IoError::new_err(format!("parse failed: {e}")))?;
         Ok(Self {
             inner: instance,
             schema: Arc::clone(&schema.inner),

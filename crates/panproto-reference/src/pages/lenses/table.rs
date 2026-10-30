@@ -1884,7 +1884,22 @@ fn key_violations(src: &Schema, g: &Graph, view: &Table) -> Vec<PutDomainError> 
     for (vertex, ks) in &src.keys {
         for key in ks {
             if uniqueness_role(key.role) {
-                errs.extend(key_uniqueness_violations(g, vertex, key, ViewRef::Row));
+                // A named SQL collation is not a domain violation of a table
+                // lens: the restoration reports it as unresolved collation
+                // evidence instead.
+                errs.extend(
+                    key_uniqueness_violations(g, vertex, key, ViewRef::Row)
+                        .into_iter()
+                        .filter(|error| {
+                            !matches!(
+                                error,
+                                PutDomainError::KeyRefused {
+                                    reason: crate::keys::KeyingError::UnsupportedCollation(_),
+                                    ..
+                                }
+                            )
+                        }),
+                );
             }
             if key.role == KeyRole::Primary {
                 for id in g

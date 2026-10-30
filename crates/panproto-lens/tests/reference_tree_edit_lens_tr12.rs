@@ -839,7 +839,7 @@ fn tr12_late_sequence_refusal_is_atomic_for_reference_and_production() {
     let embedding = initial_embedding(&source);
     let edit = production_edit(&late_word);
     let graph = GInstance::from_wtype_under(&source, &embedding, None).unwrap();
-    let mut next_embedding = embedding.clone();
+    let mut next_embedding = embedding;
     let mut next_source = source.clone();
     let actual = match GraphDelta::from_tree_edit(&graph, &mut next_embedding, &edit) {
         Err(error) => error,

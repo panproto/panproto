@@ -1821,6 +1821,7 @@ impl TreeEdit {
         check_deleted_leaves(tree, embedding, delta, &nodes.deleted)?;
 
         adopt_parent_names(&mut graph, embedding, delta)?;
+        let adopted = graph.clone();
         delta.apply(&mut graph).map_err(|err| {
             not_tree_edit(format!("it does not apply to the tree's graph form: {err}"))
         })?;
@@ -1888,8 +1889,114 @@ impl TreeEdit {
                     .to_owned(),
             ));
         }
-        Ok(rebuild.into_edit())
+        let edit = rebuild.into_edit();
+        // The reading has the delta's effect; it is sound only when the
+        // delta is also the reading's lowering, up to the ids the delta
+        // allocates. Without this, a delta that relocates fans but gives a
+        // relocated fan other carriers would read as the edit that
+        // relocates them.
+        let mut relowered = embedding.clone();
+        let lowered = GraphDelta::from_tree_edit(&adopted, &mut relowered, &edit)?;
+        if !equal_up_to_allocated_ids(&lowered, delta, embedding) {
+            return Err(not_tree_edit(
+                "the delta is not the lowering of the edit that has its effect".to_owned(),
+            ));
+        }
+        Ok(edit)
     }
+}
+
+/// A node of an added part, named up to the renaming of fresh fan nodes:
+/// a node id the delta does not allocate, or the rank of a fresh fan node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum AddedNode {
+    Fixed(u32),
+    Fresh(usize),
+}
+
+/// An added edge, named up to the renaming of fresh ids: an edge id the
+/// delta does not allocate, or a fresh edge by its named endpoints and
+/// label.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum AddedEdge {
+    Fixed(EdgeId),
+    Fresh(AddedNode, AddedNode, Edge),
+}
+
+/// An added edge's named endpoints, label and position.
+type NamedEdge = (AddedNode, AddedNode, Edge, Option<u32>);
+
+/// The added nodes, by their canonical records, and edges of a delta,
+/// named up to fresh ids.
+type NamedAdditions = (BTreeMap<AddedNode, Vec<u8>>, BTreeMap<AddedEdge, NamedEdge>);
+
+/// The added nodes and edges of `parts` with the ids they allocate named:
+/// a fan node at or above `floors.next_node` and an edge at or above
+/// `floors.next_edge`. Two deltas with equal deleted and attribute parts
+/// and equal named additions differ by a bijective renaming of those ids.
+/// `None` when two added edges get one name, or a fresh fan node is filed
+/// under another id.
+fn named_additions(
+    parts: &crate::graph_edit::GraphDeltaParts,
+    floors: &TreeEmbedding,
+) -> Option<NamedAdditions> {
+    let fresh: Vec<u32> = parts
+        .add_nodes
+        .iter()
+        .filter(|(id, node)| node.shape == NodeShape::HyperEdge && **id >= floors.next_node)
+        .map(|(id, _)| *id)
+        .collect();
+    let name = |id: u32| {
+        fresh
+            .iter()
+            .position(|fan| *fan == id)
+            .map_or(AddedNode::Fixed(id), AddedNode::Fresh)
+    };
+    let mut nodes = BTreeMap::new();
+    for (id, node) in &parts.add_nodes {
+        let mut node = node.clone();
+        if matches!(name(*id), AddedNode::Fresh(_)) {
+            if node.id != *id {
+                return None;
+            }
+            node.id = 0;
+        }
+        let mut record = panproto_schema::CanonicalWriter::new();
+        write_node_record(&mut record, &node);
+        nodes.insert(name(*id), record.into_bytes());
+    }
+    let mut edges = BTreeMap::new();
+    for (id, edge) in &parts.add_edges {
+        let (src, tgt) = (name(edge.src), name(edge.tgt));
+        let key = if id.0 >= floors.next_edge {
+            AddedEdge::Fresh(src, tgt, edge.edge.clone())
+        } else {
+            AddedEdge::Fixed(*id)
+        };
+        if edges
+            .insert(key, (src, tgt, edge.edge.clone(), edge.position))
+            .is_some()
+        {
+            return None;
+        }
+    }
+    Some((nodes, edges))
+}
+
+/// Whether `a` and `b` have equal deleted and attribute parts and equal
+/// additions up to a bijective renaming of the ids they allocate above
+/// `floors`.
+fn equal_up_to_allocated_ids(a: &GraphDelta, b: &GraphDelta, floors: &TreeEmbedding) -> bool {
+    let without_additions = |delta: &GraphDelta| {
+        let mut parts = delta.to_parts();
+        parts.add_nodes.clear();
+        parts.add_edges.clear();
+        GraphDelta::try_from(parts).ok()
+    };
+    let (a_parts, b_parts) = (a.to_parts(), b.to_parts());
+    without_additions(a).is_some_and(|kept| Some(kept) == without_additions(b))
+        && named_additions(&a_parts, floors)
+            .is_some_and(|named| Some(named) == named_additions(&b_parts, floors))
 }
 
 /// Whether two trees have the same nodes, arcs in order, fans in order and

@@ -14,7 +14,7 @@
 //!
 //! The cells of the rows are the other half. Each attribute arrow `a: t -> c`
 //! (an edge from a table to a value vertex) is a function from the rows of
-//! `t` to one value sort, whose constants are the [`Value`](crate::Value)s
+//! `t` to one value sort, whose constants are the [`Value`]s
 //! holding no labelled null and which has no operations and no equations: a
 //! free, discrete value side, on which a labelled null is a free generator.
 //! A row holds one cell per attribute arrow of its table, keyed by the

@@ -65,6 +65,27 @@ fn write_schema_under(dir: &Path, name: &str, protocol: &str, vertices: &[(&str,
     std::fs::write(&path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
 }
 
+/// Write a `json-schema` schema whose entry object `a` declares one
+/// integer property `a`, so the record `{"a": N}` conforms to it.
+fn write_record_schema(dir: &Path, name: &str) {
+    let protocol = panproto_core::protocols::data_schema::json_schema::protocol();
+    let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
+        .vertex("a", "object", None)
+        .unwrap()
+        .vertex("a.a", "integer", None)
+        .unwrap()
+        .edge("a", "a.a", "prop", Some("a"))
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    std::fs::write(
+        dir.join(name),
+        serde_json::to_string_pretty(&schema).unwrap(),
+    )
+    .unwrap();
+}
+
 fn write_atproto_project(dir: &Path, target_required: bool) {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(
@@ -359,7 +380,7 @@ fn cli_add_data_stages_one_index_entry_per_file() {
 
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
-    write_schema_under(tmp.path(), "v1.json", "json-schema", &[("a", "object")]);
+    write_record_schema(tmp.path(), "v1.json");
 
     let data_dir = tmp.path().join("records");
     std::fs::create_dir(&data_dir).unwrap();
@@ -425,7 +446,7 @@ fn cli_add_data_stages_one_index_entry_per_file() {
 fn cli_add_data_failure_stages_nothing_and_reports_it() {
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
-    write_schema_under(tmp.path(), "v1.json", "json-schema", &[("a", "object")]);
+    write_record_schema(tmp.path(), "v1.json");
 
     let data_dir = tmp.path().join("records");
     std::fs::create_dir(&data_dir).unwrap();
