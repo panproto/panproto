@@ -2022,6 +2022,7 @@ enum AdjunctionKind {
     AttributeOutsideImage,
     ProductSizeExceeded,
     MalformedTable,
+    NotANaturalMap,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -2087,6 +2088,7 @@ fn tree_outcome(result: &Result<Tree, encode::TreeKanError>) -> TreeOutcome {
                     AdjunctionKind::ProductSizeExceeded
                 }
                 rel::AdjunctionError::MalformedTable => AdjunctionKind::MalformedTable,
+                rel::AdjunctionError::NotANaturalMap { .. } => AdjunctionKind::NotANaturalMap,
             }),
             GraphKanError::RelSchema(_) => GraphOutcome::RelSchema,
             GraphKanError::Functor(_) => GraphOutcome::Functor,
@@ -2141,6 +2143,7 @@ fn all_tree_outcomes() -> Vec<TreeOutcome> {
             AdjunctionKind::AttributeOutsideImage,
             AdjunctionKind::ProductSizeExceeded,
             AdjunctionKind::MalformedTable,
+            AdjunctionKind::NotANaturalMap,
         ]
         .into_iter()
         .map(|kind| TreeOutcome::Graph(GraphOutcome::Adjunction(kind))),
