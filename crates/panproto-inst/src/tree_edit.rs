@@ -1883,57 +1883,77 @@ impl TreeEdit {
             ));
         }
         let edit = rebuild.into_edit();
-        // The reading has the delta's effect; it is sound only when the
-        // delta is also the reading's lowering, up to the ids the delta
-        // allocates, alone or after relocating fans, which changes only
-        // allocated ids. Without this, a delta that relocates fans but
-        // gives a relocated fan other carriers would read as the edit that
-        // relocates them.
-        let root_anchor = tree
-            .nodes
-            .get(&tree.root)
-            .map(|root| root.anchor.clone())
-            .ok_or_else(|| not_tree_edit("the tree has no root node".to_owned()))?;
-        // A leaf inserted over a fan's node id and deleted again moves that
-        // fan, and only it, to a fresh node id. The delta may have moved
-        // any of the fans whose node it deletes, so the reading is checked
-        // alone and after moving all of them.
-        let relocation = |fan: &FanEmbedding| {
-            [
-                Self::InsertNode {
-                    parent: tree.root,
-                    child_id: fan.node,
-                    node: Node::new(fan.node, root_anchor.clone()),
-                    edge: Edge {
-                        src: root_anchor.clone(),
-                        tgt: root_anchor.clone(),
-                        kind: "child".into(),
-                        name: None,
-                    },
-                },
-                Self::DeleteNode { id: fan.node },
-            ]
-        };
-        let moved: Vec<Self> = embedding
-            .fans
-            .iter()
-            .filter(|fan| delta.del_nodes().contains_key(&fan.node))
-            .flat_map(relocation)
-            .collect();
-        let relocations = [Vec::new(), moved];
-        let sound = relocations.into_iter().any(|mut steps| {
-            steps.push(edit.clone());
-            let mut relowered = embedding.clone();
-            GraphDelta::from_tree_edit(&adopted, &mut relowered, &Self::Sequence(steps))
-                .is_ok_and(|lowered| equal_up_to_allocated_ids(&lowered, delta, embedding))
-        });
-        if !sound {
-            return Err(not_tree_edit(format!(
-                "the delta is not the lowering of {edit:?}, which has its effect"
-            )));
-        }
+        check_reading_lowers_to_delta(tree, embedding, &adopted, delta, &edit)?;
         Ok(edit)
     }
+}
+
+/// Whether `edit`, the reading of `delta` from `tree` under `embedding`,
+/// is sound for it.
+///
+/// # Errors
+///
+/// [`EditError::NotTreeEdit`] when `delta` is not the lowering of `edit`
+/// from `adopted`, the graph form of `tree` with the delta's fan parent
+/// names, up to the ids the delta allocates, alone or after relocating
+/// fans; and when the tree has no root node.
+fn check_reading_lowers_to_delta(
+    tree: &WInstance,
+    embedding: &TreeEmbedding,
+    adopted: &GInstance,
+    delta: &GraphDelta,
+    edit: &TreeEdit,
+) -> Result<(), EditError> {
+    // The reading has the delta's effect; it is sound only when the
+    // delta is also the reading's lowering, up to the ids the delta
+    // allocates, alone or after relocating fans, which changes only
+    // allocated ids. Without this, a delta that relocates fans but
+    // gives a relocated fan other carriers would read as the edit that
+    // relocates them.
+    let root_anchor = tree
+        .nodes
+        .get(&tree.root)
+        .map(|root| root.anchor.clone())
+        .ok_or_else(|| not_tree_edit("the tree has no root node".to_owned()))?;
+    // A leaf inserted over a fan's node id and deleted again moves that
+    // fan, and only it, to a fresh node id. The delta may have moved
+    // any of the fans whose node it deletes, so the reading is checked
+    // alone and after moving all of them.
+    let relocation = |fan: &FanEmbedding| {
+        [
+            TreeEdit::InsertNode {
+                parent: tree.root,
+                child_id: fan.node,
+                node: Node::new(fan.node, root_anchor.clone()),
+                edge: Edge {
+                    src: root_anchor.clone(),
+                    tgt: root_anchor.clone(),
+                    kind: "child".into(),
+                    name: None,
+                },
+            },
+            TreeEdit::DeleteNode { id: fan.node },
+        ]
+    };
+    let moved: Vec<TreeEdit> = embedding
+        .fans
+        .iter()
+        .filter(|fan| delta.del_nodes().contains_key(&fan.node))
+        .flat_map(relocation)
+        .collect();
+    let relocations = [Vec::new(), moved];
+    let sound = relocations.into_iter().any(|mut steps| {
+        steps.push(edit.clone());
+        let mut relowered = embedding.clone();
+        GraphDelta::from_tree_edit(adopted, &mut relowered, &TreeEdit::Sequence(steps))
+            .is_ok_and(|lowered| equal_up_to_allocated_ids(&lowered, delta, embedding))
+    });
+    if !sound {
+        return Err(not_tree_edit(format!(
+            "the delta is not the lowering of {edit:?}, which has its effect"
+        )));
+    }
+    Ok(())
 }
 
 /// A fresh fan node, named by what a renaming of fresh ids keeps: its

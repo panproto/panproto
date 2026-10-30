@@ -667,9 +667,6 @@ fn tr12_put_functoriality_minimality_and_source_undo_match_the_reference() {
             // graph-edit entry point in every case.
             let exact_tree_inverse =
                 TreeEdit::from_graph_delta(&whole.tree, &whole.embedding, &inverse_source).ok();
-            if let Err(error) = TreeEdit::from_graph_delta(&whole.tree, &whole.embedding, &inverse_source) {
-                println!("ZZDBG {} {error:?}\nTREE {:?}\nEMB {:?}\nDELTA {:?}", plan.name, whole.tree, whole.embedding, inverse_source);
-            }
             if exact_tree_inverse.is_some() {
                 tree_image_undo += 1;
             } else {
@@ -741,12 +738,18 @@ fn tr12_put_functoriality_minimality_and_source_undo_match_the_reference() {
         }
     }
     assert_eq!(checked, 27, "nineteen identity plus eight projection puts");
+    // Fourteen inverses are tree edits. The inverse of `delete-2` re-adds
+    // the hidden leaf's arc under its old id, which is below the edge floor;
+    // a tree edit draws every fresh arc id from the floor (L-edits-3), so no
+    // tree edit lowers to it and both readers refuse it
+    // (`inverse_reusing_an_arc_id_below_the_floor_is_no_tree_edit` in
+    // panproto-inst's reference_edits).
     assert_eq!(
-        tree_image_undo, 15,
+        tree_image_undo, 14,
         "the exact TreeEdit inverse subdomain count drifted"
     );
     assert_eq!(
-        canonical_only_undo, 12,
+        canonical_only_undo, 13,
         "the canonical GraphDelta-only inverse subdomain count drifted"
     );
 }

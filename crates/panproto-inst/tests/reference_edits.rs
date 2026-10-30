@@ -1803,7 +1803,7 @@ fn e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain() {
 
     let mut writer = CanonicalWriter::new();
     canonical_tree_edit_bytes(&production_edit, &mut writer);
-    assert!(!writer.into_bytes().is_empty());
+    assert_ne!(writer.into_bytes(), Vec::<u8>::new());
 }
 
 #[test]
@@ -3311,6 +3311,67 @@ fn production_reader_refuses_a_relocated_fan_with_a_renamed_parent_edge() {
         &production_tree,
         &production_embedding,
         &delta_to_production(&perturbed),
+    );
+    assert!(
+        matches!(refused, Err(EditError::NotTreeEdit { .. })),
+        "{refused:?}"
+    );
+}
+
+/// The inverse of deleting a leaf re-adds its arc under its old id, below
+/// the edge floor. A tree edit draws every fresh arc id from the floor
+/// (L-edits-3), so no tree edit lowers to that delta: the reference reader
+/// refuses it as outside the tree-edit image, and production's reader
+/// refuses it too, although inserting the leaf has its effect.
+#[test]
+fn inverse_reusing_an_arc_id_below_the_floor_is_no_tree_edit() {
+    let edge = |tgt: &str| reference_model::SEdge::new("root", tgt, "prop", Some(tgt));
+    let leaf = |id: u32, anchor: &str| {
+        reference_model::Node::new(id, anchor).with_value(ReferenceValue::Int(0))
+    };
+    let tree = reference_model::Tree {
+        nodes: BTreeMap::from([
+            (0, reference_model::Node::new(0, "root")),
+            (1, leaf(1, "visible")),
+        ]),
+        arcs: vec![(0, 1, edge("visible"))],
+        fans: Vec::new(),
+        root: 0,
+    };
+    let (_, mut embedding) =
+        panproto_reference::encode::tree_to_graph(&tree, None).expect("tree embeds");
+    assert_eq!(embedding.arcs, BTreeMap::from([(1, 0)]));
+    // Node 2 and its arc 1 were there and were deleted.
+    embedding.next_node = 3;
+    embedding.next_edge = 2;
+    let mut delta = reference::GraphDelta::identity();
+    delta.add.insert(
+        reference::GElem::Node(2),
+        reference::GPayload::Node(leaf(2, "hidden")),
+    );
+    delta.add.insert(
+        reference::GElem::Edge(1),
+        reference::GPayload::Edge(reference_model::GEdge {
+            src: 0,
+            tgt: 2,
+            label: edge("hidden"),
+            position: None,
+        }),
+    );
+    assert!(matches!(
+        reference::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Err(reference::TreeApplyError::NotTreeEdit { .. })
+    ));
+
+    let production_tree = tree_to_production(&tree);
+    let (_, mut production_embedding) =
+        GInstance::from_wtype_embedded(&production_tree, None).expect("tree embeds");
+    production_embedding.next_node = 3;
+    production_embedding.next_edge = 2;
+    let refused = TreeEdit::from_graph_delta(
+        &production_tree,
+        &production_embedding,
+        &delta_to_production(&delta),
     );
     assert!(
         matches!(refused, Err(EditError::NotTreeEdit { .. })),

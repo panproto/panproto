@@ -467,7 +467,7 @@ fn graph_delta_words_have_exact_length_major_lexicographic_membership_and_order(
         .map(|sequence| sequence_witness_bytes(sequence).unwrap())
         .collect();
     assert_eq!(sequence_witnesses.len(), sequences.len());
-    assert!(sequences[0].is_empty());
+    assert_eq!(sequences[0], Vec::new());
     assert_eq!(
         sequences[1..=25],
         cases
@@ -725,12 +725,12 @@ fn independent_deltas_commute_and_merge() {
             AttrVal::Field(Some(panproto_reference::value::Value::Int(1))),
         ),
     );
-    assert!(edit::independence(&a, &b).is_empty());
+    assert_eq!(edit::independence(&a, &b), Vec::new());
     let ab = edit::apply(&b, &edit::apply(&a, &g).unwrap()).unwrap();
     let ba = edit::apply(&a, &edit::apply(&b, &g).unwrap()).unwrap();
     assert_eq!(ab, ba);
     assert_eq!(edit::apply(&edit::merge(&a, &b).unwrap(), &g).unwrap(), ab);
-    assert!(!edit::independence(&a, &a).is_empty());
+    assert_ne!(edit::independence(&a, &a), Vec::new());
     // Deleting a node another delta re-anchors is a conflict.
     let mut del = GraphDelta::identity();
     del.del.insert(GElem::Node(0), node(0, "a"));
@@ -739,7 +739,7 @@ fn independent_deltas_commute_and_merge() {
         AttrKey::Anchor(0),
         (AttrVal::Anchor("a".into()), AttrVal::Anchor("q".into())),
     );
-    assert!(!edit::independence(&del, &anchor).is_empty());
+    assert_ne!(edit::independence(&del, &anchor), Vec::new());
     assert_eq!(
         edit::apply(&del, &g),
         Err(edit::ApplyError::DanglingEdges {
@@ -2423,7 +2423,7 @@ fn tree_join_preserves_tr14_order_updates_embedding_floors_and_roundtrips_loweri
             .collect::<Vec<_>>(),
         vec![(0, 1), (1, 3), (1, 4)]
     );
-    assert!(applied.fans.is_empty());
+    assert_eq!(applied.fans, Vec::new());
     assert_eq!(applied_embedding.next_edge, embedding.next_edge + 2);
     assert!(applied_embedding.next_node >= embedding.next_node);
 
@@ -6400,7 +6400,7 @@ fn the_room_shift_check_fails_a_reader_whose_readings_depend_on_the_room_left() 
             reading
         })
     });
-    assert!(!findings.is_empty());
+    assert_ne!(findings, Vec::<String>::new());
 }
 
 /// The ceiling sweep's exactness check fails a reading that is exact only
@@ -9656,7 +9656,7 @@ fn graph_delta_sequences_have_literal_membership_and_positions() {
     };
     let sequences = carrier::graph_delta_sequences();
     assert_eq!(sequences.len(), 1 + 25 + 625 + 15_625);
-    assert!(sequences[0].is_empty());
+    assert_eq!(sequences[0], Vec::new());
     for (i, first) in alphabet.iter().enumerate() {
         assert_eq!(
             deltas(&sequences[1 + i]),
