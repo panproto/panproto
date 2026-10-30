@@ -609,9 +609,13 @@ fn graph_to_tree_decision_matches_production_on_the_exact_carrier() {
         })
     ));
 
-    // `tree_to_graph` does not check rootedness, so the left inverse holds
-    // only on rooted trees: these two embed and have no tree form at their
-    // stored root.
+    assert_unrooted_embeddings_have_no_tree_form();
+}
+
+/// `tree_to_graph` does not check rootedness, so the left inverse holds
+/// only on rooted trees: a cyclic and a rootless tree embed and have no
+/// tree form at their stored root, in the reference and in production.
+fn assert_unrooted_embeddings_have_no_tree_form() {
     let cyclic = cyclic_tree();
     let (cyclic_graph, _) = tree_to_graph(&cyclic, None).expect("a cycle embeds");
     assert_eq!(

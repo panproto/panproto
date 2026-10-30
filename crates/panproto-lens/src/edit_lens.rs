@@ -802,6 +802,14 @@ impl EditLens {
         node: panproto_inst::Node,
         edge: Edge,
     ) -> Result<TreeEdit, EditLensError> {
+        // The source appends the new arc, and the complement keeps the
+        // source's arc order whichever ends the view keeps.
+        self.complement.arc_order.push((parent, child_id));
+        // The id floor is the tracked source's, as it is after a deletion.
+        if let Some(pipeline) = &self.pipeline {
+            self.complement.id_floor =
+                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX);
+        }
         // Step 1: anchor survival.
         let target_anchor = self
             .compiled
@@ -850,6 +858,9 @@ impl EditLens {
             });
         }
 
+        // Whole-state get records the source parent of every node the view
+        // keeps, so a surviving insertion records its own.
+        self.complement.original_parent.insert(child_id, parent);
         let remapped_edge = self.remap_edge_forward(&edge);
         Ok(TreeEdit::InsertNode {
             parent,
@@ -958,6 +969,12 @@ impl EditLens {
         new_parent: u32,
         edge: &Edge,
     ) -> Result<TreeEdit, EditLensError> {
+        // The source removes the arc into `node_id` and appends the arc the
+        // move creates, and the complement keeps the source's arc order.
+        self.complement
+            .arc_order
+            .retain(|&(_, child)| child != node_id);
+        self.complement.arc_order.push((new_parent, node_id));
         // The arc into `node_id` is set aside in the complement when either
         // end is dropped; it is replaced by the arc the move creates, which
         // is set aside again when either of its ends is dropped.

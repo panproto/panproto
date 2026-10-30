@@ -770,11 +770,12 @@ pub fn c8_trees(schema: &C8Schema) -> Vec<crate::model::Tree> {
 /// edge from the parent's anchor to the child's, which must exist; each leaf
 /// deletion; each change of a node's field to another value of the alphabet
 /// (`RemoveField` for absent, `SetField` otherwise); each change of a node's
-/// anchor to another schema vertex; and each parent change of a non-root
-/// node to another node than its parent, under the schema edge from the new
-/// parent's anchor to the node's, which must exist. Deleting the root or a
-/// node with children and moving a node under itself or a descendant
-/// refuse; every other letter applies.
+/// anchor to another schema vertex; and each parent change of a node to
+/// another node than its parent (any node, for the root, which has none),
+/// under the schema edge from the new parent's anchor to the node's, which
+/// must exist. Deleting the root or a node with children, moving the root,
+/// and moving a node under itself or a descendant refuse; every other
+/// letter applies.
 #[must_use]
 pub fn c8_tree_letters(
     schema: &C8Schema,
@@ -840,15 +841,12 @@ pub fn c8_tree_letters(
         }
     }
     for (id, node) in &tree.nodes {
-        let Some(current) = tree
+        let current = tree
             .arcs
             .iter()
-            .find_map(|(parent, child, _)| (child == id).then_some(*parent))
-        else {
-            continue;
-        };
+            .find_map(|(parent, child, _)| (child == id).then_some(*parent));
         for parent in tree.nodes.values() {
-            if parent.id == current {
+            if current == Some(parent.id) {
                 continue;
             }
             if let Some(edge) = schema.edge(&parent.anchor, &node.anchor) {
@@ -1452,6 +1450,6 @@ pub const fn c8_table_counts_certificate() -> C8Counts {
 pub const fn c8_tree_counts_certificate() -> C8Counts {
     C8Counts {
         states: 3_156,
-        words: [3_156, 75_216, 1_898_478, 59_260_194],
+        words: [3_156, 81_726, 2_050_824, 63_736_260],
     }
 }

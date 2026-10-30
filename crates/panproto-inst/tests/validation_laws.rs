@@ -61,6 +61,42 @@ fn assert_reference_validation_repeatable() {
     assert_eq!(first, second);
 }
 
+/// A compact single-element report presented as the graph report: the row
+/// subject becomes node 7 and the identity map the graph node's.
+fn normalize(
+    mut report: panproto_reference::validation::Report,
+) -> panproto_reference::validation::Report {
+    use panproto_reference::lens::ViewRef as ReferenceViewRef;
+    use panproto_reference::validation::{
+        InstanceShape as ReferenceShape, NativeRef as ReferenceNativeRef,
+    };
+
+    let normalize_ref = |reference: &mut ReferenceViewRef| match reference {
+        ReferenceViewRef::Node(7) => {}
+        ReferenceViewRef::Row(7) => *reference = ReferenceViewRef::Node(7),
+        other => {
+            panic!("the compact shape carrier introduced an unexpected identity: {other:?}")
+        }
+    };
+    report.shape = ReferenceShape::Graph;
+    for diagnostic in &mut report.diagnostics {
+        if let Some(subject) = &mut diagnostic.subject {
+            normalize_ref(subject);
+        }
+        for element in &mut diagnostic.elements {
+            normalize_ref(element);
+        }
+    }
+    for incomplete in &mut report.incomplete {
+        if let Some(subject) = &mut incomplete.subject {
+            normalize_ref(subject);
+        }
+    }
+    report.identity =
+        BTreeMap::from([(ReferenceViewRef::Node(7), ReferenceNativeRef::GraphNode(7))]);
+    report
+}
+
 #[test]
 fn reference_required_value_shape_square() {
     use panproto_reference::lens::ViewRef as ReferenceViewRef;
@@ -141,50 +177,21 @@ fn reference_required_value_shape_square() {
         status: ReferenceStatus::Failed,
     };
 
-    fn normalize(mut report: ReferenceReport) -> ReferenceReport {
-        let normalize_ref = |reference: &mut ReferenceViewRef| match reference {
-            ReferenceViewRef::Node(7) => {}
-            ReferenceViewRef::Row(7) => *reference = ReferenceViewRef::Node(7),
-            other => {
-                panic!("the compact shape carrier introduced an unexpected identity: {other:?}")
-            }
-        };
-        report.shape = ReferenceShape::Graph;
-        for diagnostic in &mut report.diagnostics {
-            if let Some(subject) = &mut diagnostic.subject {
-                normalize_ref(subject);
-            }
-            for element in &mut diagnostic.elements {
-                normalize_ref(element);
-            }
-        }
-        for incomplete in &mut report.incomplete {
-            if let Some(subject) = &mut incomplete.subject {
-                normalize_ref(subject);
-            }
-        }
-        report.identity =
-            BTreeMap::from([(ReferenceViewRef::Node(7), ReferenceNativeRef::GraphNode(7))]);
-        report
-    }
-
     assert_eq!(normalize(graph_report), expected);
     assert_eq!(normalize(table_report), expected);
     assert_eq!(normalize(tree_report), expected);
 }
 
-fn assert_reference_key_and_reference_carrier() {
-    use panproto_reference::lens::ViewRef as ReferenceViewRef;
+/// The reference person carrier: ids 10, 20, 10, 30 under a document key
+/// and bosses 20, 20, 99, 10 referencing it.
+fn reference_person_carrier() -> (
+    panproto_reference::schema::Schema,
+    panproto_reference::model::Graph,
+) {
     use panproto_reference::model::{GEdge as ReferenceEdge, Graph, Node as ReferenceNode, SEdge};
     use panproto_reference::schema::{
         Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
         Reference, ResolveMode, Schema as ReferenceSchema,
-    };
-    use panproto_reference::validation::{
-        CheckClass as ReferenceClass, CheckKey as ReferenceCheckKey,
-        CheckKind as ReferenceCheckKind, CheckStatus as ReferenceStatus,
-        Diagnostic as ReferenceDiagnostic, Requirement as ReferenceRequirement,
-        SchemaRef as ReferenceSchemaRef, Violation as ReferenceViolation,
     };
     use panproto_reference::value::Value as ReferenceValue;
 
@@ -263,11 +270,21 @@ fn assert_reference_key_and_reference_carrier() {
             },
         );
     }
-    let report = panproto_reference::validation::validate(
-        &schema,
-        &BTreeMap::new(),
-        &Graph { nodes, edges },
-    );
+    (schema, Graph { nodes, edges })
+}
+
+fn assert_reference_key_and_reference_carrier() {
+    use panproto_reference::lens::ViewRef as ReferenceViewRef;
+    use panproto_reference::validation::{
+        CheckClass as ReferenceClass, CheckKey as ReferenceCheckKey,
+        CheckKind as ReferenceCheckKind, CheckStatus as ReferenceStatus,
+        Diagnostic as ReferenceDiagnostic, Requirement as ReferenceRequirement,
+        SchemaRef as ReferenceSchemaRef, Violation as ReferenceViolation,
+    };
+    use panproto_reference::value::Value as ReferenceValue;
+
+    let (schema, graph) = reference_person_carrier();
+    let report = panproto_reference::validation::validate(&schema, &BTreeMap::new(), &graph);
     let duplicate = ReferenceDiagnostic {
         check: ReferenceCheckKey {
             kind: ReferenceCheckKind::KeyUnique,

@@ -1976,10 +1976,9 @@ fn assert_keep_before_synthesis(reference_lens: &RefGraphLens<'_>, production_pl
     assert_tree_view_is_graph_view(&production_witness, &actual_order, production_plan);
 }
 
-/// A source with a fan plus an expansion: the fan node of the tree's graph
-/// form takes the first free node id, so the tree floor counts it and the
-/// expansion's synthesized node is allocated above it, in tree and graph get.
-fn fan_carrier_counts_toward_the_tree_floor() {
+/// The schemas, migration and tree of the fan-floor carrier: a fan on
+/// `a` labelling `d`, and an expansion of `a -> c` through `b`.
+fn fan_floor_fixture() -> (RefSchema, RefSchema, RefMigration, RefTree) {
     let hyper = RefHyperEdge {
         kind: "fan".to_owned(),
         signature: BTreeMap::from([
@@ -2028,6 +2027,14 @@ fn fan_carrier_counts_toward_the_tree_floor() {
         }],
         root: 0,
     };
+    (source, target, migration, tree)
+}
+
+/// A source with a fan plus an expansion: the fan node of the tree's graph
+/// form takes the first free node id, so the tree floor counts it and the
+/// expansion's synthesized node is allocated above it, in tree and graph get.
+fn fan_carrier_counts_toward_the_tree_floor() {
+    let (source, target, migration, tree) = fan_floor_fixture();
     let production_source_schema = prod_schema(&source);
     let production_plan = RestrictPlan::compile(
         &production_source_schema,

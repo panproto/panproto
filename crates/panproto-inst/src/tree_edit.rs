@@ -312,16 +312,12 @@ fn apply_delete_node(instance: &mut WInstance, id: u32) -> Result<(), EditError>
         return Err(EditError::NodeNotFound(id));
     }
     if id == instance.root {
-        return Err(EditError::ApplyFailed(
-            "cannot delete the root node".to_owned(),
-        ));
+        return Err(EditError::RootOperation(id));
     }
     // Only allow deleting leaf nodes (no children).
     let children = instance.children_map.get(&id);
     if children.is_some_and(|c| !c.is_empty()) {
-        return Err(EditError::ApplyFailed(format!(
-            "cannot delete non-leaf node {id}; use ContractNode to remove and reattach children"
-        )));
+        return Err(EditError::NotLeaf(id));
     }
     instance.nodes.remove(&id);
     // Remove arcs pointing to this node.
@@ -346,9 +342,7 @@ fn apply_contract_node(instance: &mut WInstance, id: u32) -> Result<(), EditErro
         return Err(EditError::NodeNotFound(id));
     }
     if id == instance.root {
-        return Err(EditError::ApplyFailed(
-            "cannot contract the root node".to_owned(),
-        ));
+        return Err(EditError::RootOperation(id));
     }
     let parent_id = instance
         .parent_map
@@ -448,6 +442,12 @@ fn apply_move_subtree(
     }
     if !instance.nodes.contains_key(&new_parent) {
         return Err(EditError::ParentNotFound(new_parent));
+    }
+    // The root has no parent arc to replace, so moving it is a root
+    // operation, refused before the cycle check (which every root move
+    // would otherwise fail, every node being its descendant).
+    if node_id == instance.root {
+        return Err(EditError::RootOperation(node_id));
     }
     // Prevent cycles: a node cannot be its own parent, and `new_parent`
     // must not be a descendant of `node_id`.
@@ -3712,7 +3712,7 @@ mod graph_tests {
         let mut applied = tree.clone();
         let tree_result = delete.apply(&mut applied);
         assert!(
-            matches!(&tree_result, Err(EditError::ApplyFailed(reason)) if reason.contains("root")),
+            matches!(&tree_result, Err(EditError::RootOperation(0))),
             "{tree_result:?}"
         );
         assert!(

@@ -1192,8 +1192,8 @@ fn carrier_edits(
         },
         relabelled,
     ));
+    let mut target = graph.clone();
     if let Some(present) = graph.edges.get(&0) {
-        let mut target = graph.clone();
         target.edges.remove(&0);
         edits.push((
             "remove edge".to_owned(),
@@ -1209,7 +1209,6 @@ fn carrier_edits(
             target,
         ));
     } else {
-        let mut target = graph.clone();
         target.edges.insert(
             0,
             reference_model::GEdge {
@@ -1234,6 +1233,158 @@ fn carrier_edits(
         ));
     }
     edits
+}
+
+/// The names of production check instances.
+fn names(set: &BTreeSet<panproto_inst::validation::CheckInstance>) -> BTreeSet<String> {
+    set.iter().map(production_instance).collect()
+}
+
+/// The names of reference check instances.
+fn reference_names(set: &BTreeSet<reference::CheckInstance>) -> BTreeSet<String> {
+    set.iter().map(reference_instance).collect()
+}
+
+/// The reference side of one incremental transition.
+struct Transition<'a> {
+    label: &'a str,
+    before: &'a reference::TrustedSchedule,
+    after: &'a reference::TrustedSchedule,
+    reference_rerun: &'a BTreeSet<reference::CheckInstance>,
+    target: &'a reference_model::Graph,
+}
+
+/// The incremental report of `edit` agrees with the reference's spliced
+/// report for the instances production reruns, which is in turn the
+/// target's whole report.
+fn assert_incremental_report(
+    t: &Transition<'_>,
+    validated: &panproto_inst::validation::ValidatedGraph,
+    edit: &panproto_inst::GraphEdit,
+    reference_schema: &reference_schema::Schema,
+    semantics: &BTreeMap<String, reference::Semantics>,
+) {
+    let (label, before, after, reference_rerun, target) =
+        (t.label, t.before, t.after, t.reference_rerun, t.target);
+    let none = ExternalVerdicts::default();
+    let checked = validated
+        .check_edit(edit, &ValidationBudget::default(), &none)
+        .unwrap_or_else(|error| panic!("{label}: {error}"));
+    let spliced = reference::incremental_report(before, after, reference_rerun);
+    let whole = reference::incremental_report(after, after, &BTreeSet::new());
+    let validated_whole = reference::validate(reference_schema, semantics, target);
+    assert_eq!(whole.diagnostics, validated_whole.diagnostics, "{label}");
+    assert_eq!(whole.incomplete, validated_whole.incomplete, "{label}");
+    assert_eq!(spliced.status, whole.status, "{label}");
+    assert_eq!(spliced.diagnostics, whole.diagnostics, "{label}");
+    assert_eq!(spliced.incomplete, whole.incomplete, "{label}");
+    assert_eq!(
+        production_status_observation(checked.report.status),
+        status_observation(spliced.status),
+        "{label}"
+    );
+    assert_eq!(
+        checked
+            .report
+            .diagnostics
+            .iter()
+            .map(production_diagnostic)
+            .collect::<Vec<_>>(),
+        spliced
+            .diagnostics
+            .iter()
+            .map(reference_diagnostic)
+            .collect::<Vec<_>>(),
+        "{label}"
+    );
+    assert_eq!(
+        checked
+            .report
+            .incomplete
+            .iter()
+            .map(general_production_incomplete)
+            .collect::<Vec<_>>(),
+        spliced
+            .incomplete
+            .iter()
+            .map(general_reference_incomplete)
+            .collect::<Vec<_>>(),
+        "{label}"
+    );
+}
+
+/// The witness of the admitted transition, checked against the independent
+/// model: its runs are exactly the rerun and created instances, each with
+/// the target schedule's reads and outcome multiplicities. Returns whether
+/// the transition was admitted.
+fn assert_transition_witness(
+    label: &str,
+    validated: &panproto_inst::validation::ValidatedGraph,
+    edit: &panproto_inst::GraphEdit,
+    footprint: &panproto_inst::validation::Footprint,
+    after: &reference::TrustedSchedule,
+) -> bool {
+    let none = ExternalVerdicts::default();
+    let mut applied = validated.clone();
+    let Ok(witness) = applied.apply_edit(
+        edit,
+        AdmissionPolicy::NoNewFailures,
+        &ValidationBudget::default(),
+        &none,
+    ) else {
+        return false;
+    };
+    let scheduled: BTreeSet<String> = footprint
+        .rerun
+        .iter()
+        .chain(&footprint.created)
+        .map(production_instance)
+        .collect();
+    assert_eq!(
+        witness
+            .runs
+            .iter()
+            .map(|run| production_instance(&run.instance))
+            .collect::<BTreeSet<_>>(),
+        scheduled,
+        "{label} witness runs"
+    );
+    let target_runs: BTreeMap<String, &reference::CheckRun> = after
+        .runs()
+        .iter()
+        .map(|run| (reference_instance(&run.instance), run))
+        .collect();
+    for run in &witness.runs {
+        let key = production_instance(&run.instance);
+        let expected = target_runs
+            .get(&key)
+            .unwrap_or_else(|| panic!("{label}: {key} is in the target schedule"));
+        assert_eq!(
+            run.reads
+                .iter()
+                .map(production_view)
+                .collect::<BTreeSet<_>>(),
+            expected
+                .reads
+                .iter()
+                .map(reference_view)
+                .collect::<BTreeSet<_>>(),
+            "{label} witness reads of {key}"
+        );
+        let panproto_inst::validation::RunVerdict::Evaluated {
+            findings,
+            incomplete,
+        } = &run.verdict
+        else {
+            panic!("{label}: an unlimited run is evaluated");
+        };
+        assert_eq!(
+            (findings.len(), incomplete.len()),
+            (expected.diagnostics.len(), expected.incomplete.len()),
+            "{label} witness outcome of {key}"
+        );
+    }
+    true
 }
 
 /// Footprint soundness and edit agreement against an independent model of
@@ -1281,12 +1432,6 @@ fn incremental_transitions_agree_with_the_independent_reference() {
             let footprint = validated
                 .footprint(&edit, &none)
                 .unwrap_or_else(|error| panic!("{label}: {error}"));
-            let names = |set: &BTreeSet<panproto_inst::validation::CheckInstance>| {
-                set.iter().map(production_instance).collect::<BTreeSet<_>>()
-            };
-            let reference_names = |set: &BTreeSet<reference::CheckInstance>| {
-                set.iter().map(reference_instance).collect::<BTreeSet<_>>()
-            };
             assert_eq!(
                 names(&footprint.created),
                 reference_names(&model.created),
@@ -1326,112 +1471,21 @@ fn incremental_transitions_agree_with_the_independent_reference() {
                 "{label} reads"
             );
 
-            let checked = validated
-                .check_edit(&edit, &ValidationBudget::default(), &none)
-                .unwrap_or_else(|error| panic!("{label}: {error}"));
-            let spliced = reference::incremental_report(&before, &after, &reference_rerun);
-            let whole = reference::incremental_report(&after, &after, &BTreeSet::new());
-            let validated_whole = reference::validate(&reference_schema, &semantics, &target);
-            assert_eq!(whole.diagnostics, validated_whole.diagnostics, "{label}");
-            assert_eq!(whole.incomplete, validated_whole.incomplete, "{label}");
-            assert_eq!(spliced.status, whole.status, "{label}");
-            assert_eq!(spliced.diagnostics, whole.diagnostics, "{label}");
-            assert_eq!(spliced.incomplete, whole.incomplete, "{label}");
-            assert_eq!(
-                production_status_observation(checked.report.status),
-                status_observation(spliced.status),
-                "{label}"
-            );
-            assert_eq!(
-                checked
-                    .report
-                    .diagnostics
-                    .iter()
-                    .map(production_diagnostic)
-                    .collect::<Vec<_>>(),
-                spliced
-                    .diagnostics
-                    .iter()
-                    .map(reference_diagnostic)
-                    .collect::<Vec<_>>(),
-                "{label}"
-            );
-            assert_eq!(
-                checked
-                    .report
-                    .incomplete
-                    .iter()
-                    .map(general_production_incomplete)
-                    .collect::<Vec<_>>(),
-                spliced
-                    .incomplete
-                    .iter()
-                    .map(general_reference_incomplete)
-                    .collect::<Vec<_>>(),
-                "{label}"
-            );
-
-            // The witness of the admitted transition, checked against the
-            // independent model: its runs are exactly the rerun and created
-            // instances, each with the target schedule's reads and outcome
-            // multiplicities.
-            let mut applied = validated.clone();
-            if let Ok(witness) = applied.apply_edit(
+            let transition = Transition {
+                label: &label,
+                before: &before,
+                after: &after,
+                reference_rerun: &reference_rerun,
+                target: &target,
+            };
+            assert_incremental_report(
+                &transition,
+                &validated,
                 &edit,
-                AdmissionPolicy::NoNewFailures,
-                &ValidationBudget::default(),
-                &none,
-            ) {
-                let scheduled: BTreeSet<String> = footprint
-                    .rerun
-                    .iter()
-                    .chain(&footprint.created)
-                    .map(production_instance)
-                    .collect();
-                assert_eq!(
-                    witness
-                        .runs
-                        .iter()
-                        .map(|run| production_instance(&run.instance))
-                        .collect::<BTreeSet<_>>(),
-                    scheduled,
-                    "{label} witness runs"
-                );
-                let target_runs: BTreeMap<String, &reference::CheckRun> = after
-                    .runs()
-                    .iter()
-                    .map(|run| (reference_instance(&run.instance), run))
-                    .collect();
-                for run in &witness.runs {
-                    let key = production_instance(&run.instance);
-                    let expected = target_runs
-                        .get(&key)
-                        .unwrap_or_else(|| panic!("{label}: {key} is in the target schedule"));
-                    assert_eq!(
-                        run.reads
-                            .iter()
-                            .map(production_view)
-                            .collect::<BTreeSet<_>>(),
-                        expected
-                            .reads
-                            .iter()
-                            .map(reference_view)
-                            .collect::<BTreeSet<_>>(),
-                        "{label} witness reads of {key}"
-                    );
-                    let panproto_inst::validation::RunVerdict::Evaluated {
-                        findings,
-                        incomplete,
-                    } = &run.verdict
-                    else {
-                        panic!("{label}: an unlimited run is evaluated");
-                    };
-                    assert_eq!(
-                        (findings.len(), incomplete.len()),
-                        (expected.diagnostics.len(), expected.incomplete.len()),
-                        "{label} witness outcome of {key}"
-                    );
-                }
+                &reference_schema,
+                &semantics,
+            );
+            if assert_transition_witness(&label, &validated, &edit, &footprint, &after) {
                 witnesses += 1;
             }
             transitions += 1;
@@ -1565,13 +1619,17 @@ fn general_production_incomplete(entry: &IncompleteCheck) -> IncompleteObservati
     }
 }
 
+/// Coverage by check kind and declaration: class, requirement, and the
+/// instance, passed, failed and incomplete counts.
+type CoverageTable = BTreeMap<(String, String), (String, String, u64, u64, u64, u64)>;
+
 /// The reference coverage summed under production's check keys (the
 /// reference refines structural keys by declaration), as
 /// `(class, requirement, instances, passed, failed, incomplete)`.
 fn reference_coverage(
     coverage: &BTreeMap<reference::CheckKey, reference::CheckCoverage>,
-) -> BTreeMap<(String, String), (String, String, u64, u64, u64, u64)> {
-    let mut out: BTreeMap<(String, String), (String, String, u64, u64, u64, u64)> = BTreeMap::new();
+) -> CoverageTable {
+    let mut out: CoverageTable = BTreeMap::new();
     for (key, entry) in coverage {
         let slot = out
             .entry((format!("{:?}", key.kind), reference_declaration(key)))
@@ -1598,9 +1656,7 @@ fn reference_coverage(
 /// declaration check per declaration and gives every typed node an
 /// attribute instance), but every failed or incomplete instance is one
 /// instance of the same kind on both sides.
-fn outcome_counts(
-    coverage: &BTreeMap<(String, String), (String, String, u64, u64, u64, u64)>,
-) -> BTreeMap<String, (u64, u64)> {
+fn outcome_counts(coverage: &CoverageTable) -> BTreeMap<String, (u64, u64)> {
     let mut out: BTreeMap<String, (u64, u64)> = BTreeMap::new();
     for ((kind, _), (_, _, _, _, failed, incomplete)) in coverage {
         let slot = out.entry(kind.clone()).or_default();
@@ -1613,7 +1669,7 @@ fn outcome_counts(
 
 fn production_coverage(
     coverage: &BTreeMap<CheckKey, panproto_inst::validation::CheckCoverage>,
-) -> BTreeMap<(String, String), (String, String, u64, u64, u64, u64)> {
+) -> CoverageTable {
     coverage
         .iter()
         .map(|(key, entry)| {
@@ -1637,6 +1693,31 @@ fn production_coverage(
 /// vertex, each child judged passed, rejected or left without a verdict.
 /// The whole report is compared, incomplete entries field by field and
 /// coverage per check key included.
+/// The `audit` verdict on the child node, absent when `verdict` is `None`,
+/// as the reference's validation context and production's verdicts.
+fn audit_verdicts(verdict: Option<bool>) -> (reference::ValidationContext, ExternalVerdicts) {
+    let child = panproto_reference::lens::ViewRef::Node(1);
+    let context = reference::ValidationContext {
+        external: verdict
+            .map(|passed| (("audit".to_owned(), child), passed))
+            .into_iter()
+            .collect(),
+        ..reference::ValidationContext::default()
+    };
+    let mut external = ExternalVerdicts::default();
+    if let Some(passed) = verdict {
+        external.insert(
+            "audit".into(),
+            panproto_inst::ViewRef::Node(1),
+            panproto_inst::validation::ExternalVerdict {
+                passed,
+                witness: panproto_inst::Digest([7; 32]),
+            },
+        );
+    }
+    (context, external)
+}
+
 #[test]
 fn status_law_holds_with_external_verdicts_on_every_shape_status() {
     let (mut reference_schema, mut semantics) = fixture_schema();
@@ -1662,25 +1743,7 @@ fn status_law_holds_with_external_verdicts_on_every_shape_status() {
     let mut cases = 0usize;
     for (index, graph) in graph_cases(&edge).iter().enumerate() {
         for verdict in [Some(true), Some(false), None] {
-            let child = panproto_reference::lens::ViewRef::Node(1);
-            let context = reference::ValidationContext {
-                external: verdict
-                    .map(|passed| (("audit".to_owned(), child.clone()), passed))
-                    .into_iter()
-                    .collect(),
-                ..reference::ValidationContext::default()
-            };
-            let mut external = ExternalVerdicts::default();
-            if let Some(passed) = verdict {
-                external.insert(
-                    "audit".into(),
-                    panproto_inst::ViewRef::Node(1),
-                    panproto_inst::validation::ExternalVerdict {
-                        passed,
-                        witness: panproto_inst::Digest([7; 32]),
-                    },
-                );
-            }
+            let (context, external) = audit_verdicts(verdict);
             let label = format!("graph-{index} verdict {verdict:?}");
             let expected = reference::witness_with_trust(
                 reference::ValidationInput::Graph {
@@ -1996,9 +2059,11 @@ fn key_unique_under_a_named_collation_is_undecided_on_text() {
     schema
         .declarations
         .insert_key("item".into(), one_part_key(named));
-    let mut protocol = Protocol::default();
-    protocol.syntactic_shape = InstanceShapeKind::Graph;
-    protocol.semantic_shape = InstanceShapeKind::Graph;
+    let protocol = Protocol {
+        syntactic_shape: InstanceShapeKind::Graph,
+        semantic_shape: InstanceShapeKind::Graph,
+        ..Protocol::default()
+    };
     let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
     let graph = |a: panproto_inst::Value, b: panproto_inst::Value| {
         GInstance::new()

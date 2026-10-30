@@ -1550,6 +1550,53 @@ fn a_coerced_value_is_a_fixed_point_under_every_dialect() {
     assert_eq!(cases, 9 * kinds.len() as u64 * 2 * probes.len() as u64);
 }
 
+/// The lexeme classes of the discriminated-coercion carrier: the six
+/// untagged classes, then every scalar-kind name of the open-tag reading,
+/// `null` and an unknown name, under each written prefix.
+fn discriminated_classes() -> Vec<LexClass> {
+    let mut classes = vec![
+        LexClass::Number,
+        LexClass::String,
+        LexClass::Bool,
+        LexClass::Null,
+        LexClass::DateTime,
+        LexClass::Bytes,
+    ];
+    let names = [
+        "bool",
+        "boolean",
+        "int",
+        "integer",
+        "numberLong",
+        "numberInt",
+        "float",
+        "double",
+        "numberDouble",
+        "decimal",
+        "numberDecimal",
+        "str",
+        "string",
+        "binary",
+        "base64",
+        "hex",
+        "timestamp",
+        "datetime",
+        "date-time",
+        "date",
+        "time",
+        "null",
+        "custom",
+    ];
+    for prefix in ["", "!!", "tag:yaml.org,2002:"] {
+        classes.extend(
+            names
+                .iter()
+                .map(|name| LexClass::Tagged(format!("{prefix}{name}").into())),
+        );
+    }
+    classes
+}
+
 /// Under the discriminator table {integer, float, text}, every tag of the
 /// table, two unknown tags and no tag, crossed with every class and a set
 /// of lexemes, under specs of several own kinds, agrees with the
@@ -1587,48 +1634,7 @@ fn discriminated_coercion_agrees_with_the_reference() {
     // A number, an exponent numeral, a fraction, a word, a boolean, the
     // empty text, a date and a base64 text.
     assert_eq!(lexemes.len(), 8);
-    let mut classes = vec![
-        LexClass::Number,
-        LexClass::String,
-        LexClass::Bool,
-        LexClass::Null,
-        LexClass::DateTime,
-        LexClass::Bytes,
-    ];
-    // The scalar-kind names of the open-tag reading, `null` and an unknown
-    // name, under each written prefix.
-    let names = [
-        "bool",
-        "boolean",
-        "int",
-        "integer",
-        "numberLong",
-        "numberInt",
-        "float",
-        "double",
-        "numberDouble",
-        "decimal",
-        "numberDecimal",
-        "str",
-        "string",
-        "binary",
-        "base64",
-        "hex",
-        "timestamp",
-        "datetime",
-        "date-time",
-        "date",
-        "time",
-        "null",
-        "custom",
-    ];
-    for prefix in ["", "!!", "tag:yaml.org,2002:"] {
-        classes.extend(
-            names
-                .iter()
-                .map(|name| LexClass::Tagged(format!("{prefix}{name}").into())),
-        );
-    }
+    let classes = discriminated_classes();
     assert_eq!(classes.len(), 6 + 3 * 23);
     let mut cases = 0_u64;
     let mut untabled = 0_u64;

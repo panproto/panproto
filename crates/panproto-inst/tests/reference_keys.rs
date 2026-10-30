@@ -233,17 +233,18 @@ impl GraphPair {
         name: &str,
         value: ReferenceValue,
     ) -> Result<(), Box<dyn Error>> {
+        let production = production_value(&value)?;
         self.reference
             .nodes
             .get_mut(&id)
             .ok_or_else(|| invalid(format!("missing reference node {id}")))?
             .fields
-            .insert(name.to_owned(), value.clone());
+            .insert(name.to_owned(), value);
         self.production
             .node_mut(id)
             .ok_or_else(|| invalid(format!("missing production node {id}")))?
             .extra_fields
-            .insert(name.into(), production_value(&value)?);
+            .insert(name.into(), production);
         Ok(())
     }
 
@@ -1455,7 +1456,7 @@ fn annotated_formats_match_the_independent_recognizer() {
 
 /// A temporal value outside the canonical encoder's domain: a fixed offset
 /// of a whole day or more.
-fn ill_formed_temporal(minutes: i16) -> ReferenceValue {
+const fn ill_formed_temporal(minutes: i16) -> ReferenceValue {
     use panproto_reference::temporal::{Offset, OffsetForm, Temporal};
     ReferenceValue::Temporal(Temporal {
         date: None,
@@ -1467,7 +1468,7 @@ fn ill_formed_temporal(minutes: i16) -> ReferenceValue {
 }
 
 #[test]
-fn values_without_canonical_bytes_are_a_typed_keying_refusal() -> Result<(), Box<dyn Error>> {
+fn values_without_canonical_bytes_are_a_typed_keying_refusal() {
     let first = ill_formed_temporal(1440);
     let second = ill_formed_temporal(1441);
     assert_eq!(panproto_reference::canonical::value_bytes(&first), None);
@@ -1511,7 +1512,6 @@ fn values_without_canonical_bytes_are_a_typed_keying_refusal() -> Result<(), Box
             "{equality:?}"
         );
     }
-    Ok(())
 }
 
 /// The typed refusal a reference keying error becomes in production.
@@ -1619,8 +1619,12 @@ fn production_refuses_values_without_canonical_bytes_as_the_reference_does()
     assert!(refused > 0);
     println!("canonical-bytes keying refusal: pairs={compared}, refused={refused}");
 
-    // Validation: KeyUnique over two such values is undecided with the typed
-    // reason, never a duplicate or a pass.
+    validation_refuses_values_without_canonical_bytes()
+}
+
+/// Validation: `KeyUnique` over two values without canonical bytes is
+/// undecided with the typed reason, never a duplicate or a pass.
+fn validation_refuses_values_without_canonical_bytes() -> Result<(), Box<dyn Error>> {
     let mut pair = GraphPair::default();
     pair.add_node(
         0,

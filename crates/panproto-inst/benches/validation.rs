@@ -88,19 +88,8 @@ fn declare_edge(schema: &mut Schema, edge: Edge) {
         .push(edge);
 }
 
-fn indexed_fixture(size: u32) -> (Arc<ValidationPlan>, GInstance, GraphEdit, ExternalVerdicts) {
-    let id = Edge {
-        src: "record".into(),
-        tgt: "record.id".into(),
-        kind: "prop".into(),
-        name: Some("id".into()),
-    };
-    let resolves = Edge {
-        src: "record".into(),
-        tgt: "record".into(),
-        kind: "ref".into(),
-        name: Some("self".into()),
-    };
+/// The keyed, self-referencing record schema of the indexed fixture.
+fn indexed_schema(id: &Edge, resolves: &Edge) -> Schema {
     let mut schema = Schema::default();
     for vertex in ["record", "record.id"] {
         schema.vertices.insert(
@@ -138,10 +127,27 @@ fn indexed_fixture(size: u32) -> (Arc<ValidationPlan>, GInstance, GraphEdit, Ext
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: panproto_schema::NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     });
+    schema
+}
+
+fn indexed_fixture(size: u32) -> (Arc<ValidationPlan>, GInstance, GraphEdit, ExternalVerdicts) {
+    let id = Edge {
+        src: "record".into(),
+        tgt: "record.id".into(),
+        kind: "prop".into(),
+        name: Some("id".into()),
+    };
+    let resolves = Edge {
+        src: "record".into(),
+        tgt: "record".into(),
+        kind: "ref".into(),
+        name: Some("self".into()),
+    };
+    let schema = indexed_schema(&id, &resolves);
     let options = ValidationOptions {
         external: BTreeMap::from([(
             "audit".into(),

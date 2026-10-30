@@ -1615,7 +1615,7 @@ fn distant_reference_plan() -> (Arc<ValidationPlan>, Edge, Edge) {
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: panproto_schema::NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     });
@@ -1748,7 +1748,7 @@ fn position_reference_plan() -> (Arc<ValidationPlan>, Edge, Edge) {
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: panproto_schema::NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     });
@@ -1913,7 +1913,7 @@ fn changing_node_shape_reruns_references_to_the_changed_target() -> TestResult {
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: panproto_schema::NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     });
@@ -2074,11 +2074,8 @@ fn a_finite_transition_budget_breaks_sequence_agreement() -> TestResult {
         u64::try_from(charged)? < all_scheduled,
         "the transition charges a strict subset of the whole schedule"
     );
-    assert_ne!(checked.report.canonical_bytes(), scoped(whole_zero.clone()));
-    assert_ne!(
-        checked.report.canonical_bytes(),
-        scoped(whole_unlimited.clone())
-    );
+    assert_ne!(checked.report.canonical_bytes(), scoped(whole_zero));
+    assert_ne!(checked.report.canonical_bytes(), scoped(whole_unlimited));
     assert_ne!(checked.report.status, CheckStatus::Passed);
     Ok(())
 }
@@ -4833,6 +4830,41 @@ fn run_mutants(witness: &EditWitness) -> Vec<(String, EditWitness)> {
     out
 }
 
+/// The admission policy other than `policy`.
+const fn other_policy(policy: AdmissionPolicy) -> AdmissionPolicy {
+    match policy {
+        AdmissionPolicy::RequirePassed => AdmissionPolicy::NoNewFailures,
+        AdmissionPolicy::NoNewFailures => AdmissionPolicy::RequirePassed,
+    }
+}
+
+/// The budgets a witness is replayed under: unlimited, zero and three
+/// reads.
+fn replay_budgets() -> [ValidationBudget; 3] {
+    [
+        ValidationBudget::default(),
+        ValidationBudget { max_reads: Some(0) },
+        ValidationBudget { max_reads: Some(3) },
+    ]
+}
+
+/// The external projections a witness is replayed under: none, and a
+/// failing `audit` verdict on every element of the prior instance.
+fn replay_externals<I: Surface>(replay: &WitnessReplay<'_, I>) -> Vec<ExternalVerdicts> {
+    let mut flipped = replay.external.clone();
+    for element in replay.prior.elements() {
+        flipped.insert(
+            "audit".into(),
+            element,
+            ExternalVerdict {
+                passed: false,
+                witness: Digest([1; 32]),
+            },
+        );
+    }
+    vec![ExternalVerdicts::default(), flipped]
+}
+
 /// Witness verification for one admitted transition: the witness verifies against its
 /// exact replay context; an altered witness verifies iff it has the
 /// witness's canonical bytes; and under an altered replay context (policy,
@@ -4855,28 +4887,9 @@ fn v6_case<I: Surface>(
         let accepted = mutant.verify(replay).is_ok();
         prop_assert_eq!(accepted, mutant.canonical_bytes() == bytes, "{}", what);
     }
-    let other_policy = match replay.policy {
-        AdmissionPolicy::RequirePassed => AdmissionPolicy::NoNewFailures,
-        AdmissionPolicy::NoNewFailures => AdmissionPolicy::RequirePassed,
-    };
-    let budgets = [
-        ValidationBudget::default(),
-        ValidationBudget { max_reads: Some(0) },
-        ValidationBudget { max_reads: Some(3) },
-    ];
-    let mut externals = vec![ExternalVerdicts::default()];
-    let mut flipped = replay.external.clone();
-    for element in replay.prior.elements() {
-        flipped.insert(
-            "audit".into(),
-            element,
-            ExternalVerdict {
-                passed: false,
-                witness: Digest([1; 32]),
-            },
-        );
-    }
-    externals.push(flipped);
+    let other_policy = other_policy(replay.policy);
+    let budgets = replay_budgets();
+    let externals = replay_externals(replay);
     let mut later = replay.baseline.clone();
     later.seq = later.seq.wrapping_add(1);
     // Another prior instance (the edit's own target, when the delta changes
@@ -7384,20 +7397,7 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
     };
     let (required, advisory) = (key(Requirement::Required), key(Requirement::Advisory));
     let advisory_key = advisory.clone();
-    let schedule: Vec<CheckInstance> = [
-        (required.clone(), 1),
-        (required.clone(), 2),
-        (required, 3),
-        (advisory, 1),
-    ]
-    .into_iter()
-    .map(|(check, n)| CheckInstance {
-        check,
-        subject: Some(ViewRef::Node(n)),
-    })
-    .collect::<BTreeSet<_>>()
-    .into_iter()
-    .collect();
+    let schedule = admission_schedule(required, advisory);
     assert_eq!(
         schedule.last().map(|instance| &instance.check),
         Some(&advisory_key),
@@ -7408,15 +7408,7 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
         .iter()
         .map(|s| realize(&plan, &schedule, s))
         .collect();
-    let reference_states: Vec<_> = states
-        .iter()
-        .map(|state| {
-            let (open, cut) = reference_bundles(state);
-            let mut result = open.clone();
-            result.extend(cut.clone());
-            (open, cut, result)
-        })
-        .collect();
+    let reference_states: Vec<ReferenceBundles> = states.iter().map(reference_state).collect();
     for (state, real) in states.iter().zip(&realized) {
         assert_eq!(
             real.status == CheckStatus::Passed,
@@ -7481,9 +7473,52 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
         admitted_counts[1]
     );
 
-    // The same scope over a plan with one required plan-static finding. The
-    // finding is part of every state's report, so the reference receives it
-    // as one more required bundle on both sides of every pair.
+    assert_static_finding_admission(&states, &schedule, &reference_states);
+}
+
+/// The canonical schedule of three required instances on nodes 1 to 3 and
+/// one advisory instance on node 1.
+fn admission_schedule(required: CheckKey, advisory: CheckKey) -> Vec<CheckInstance> {
+    [
+        (required.clone(), 1),
+        (required.clone(), 2),
+        (required, 3),
+        (advisory, 1),
+    ]
+    .into_iter()
+    .map(|(check, n)| CheckInstance {
+        check,
+        subject: Some(ViewRef::Node(n)),
+    })
+    .collect::<BTreeSet<_>>()
+    .into_iter()
+    .collect()
+}
+
+/// The reference bundles of one abstract state: its open and cut bundles,
+/// and their union as the result.
+fn reference_state(state: &Abstract) -> ReferenceBundles {
+    let (open, cut) = reference_bundles(state);
+    let mut result = open.clone();
+    result.extend(cut.clone());
+    (open, cut, result)
+}
+
+/// The reference's open, cut and result bundles of one abstract state.
+type ReferenceBundles = (
+    BTreeMap<usize, Vec<u8>>,
+    BTreeMap<usize, Vec<u8>>,
+    BTreeMap<usize, Vec<u8>>,
+);
+
+/// The same scope over a plan with one required plan-static finding. The
+/// finding is part of every state's report, so the reference receives it
+/// as one more required bundle on both sides of every pair.
+fn assert_static_finding_admission(
+    states: &[Abstract],
+    schedule: &[CheckInstance],
+    reference_states: &[ReferenceBundles],
+) {
     let static_plan = admission_plan_with_static_finding();
     let required_static = static_plan
         .static_findings()
@@ -7495,13 +7530,9 @@ fn admission_policies_agree_with_their_predicates_on_three_bundles() {
     assert_eq!(required_static, 2, "{:?}", static_plan.static_findings());
     let static_realized: Vec<ValidationState> = states
         .iter()
-        .map(|s| realize(&static_plan, &schedule, s))
+        .map(|s| realize(&static_plan, schedule, s))
         .collect();
-    let static_bundle = |(open, cut, result): &(
-        BTreeMap<usize, Vec<u8>>,
-        BTreeMap<usize, Vec<u8>>,
-        BTreeMap<usize, Vec<u8>>,
-    )| {
+    let static_bundle = |(open, cut, result): &ReferenceBundles| {
         let mut open = open.clone();
         let mut result = result.clone();
         for finding in 0..required_static {

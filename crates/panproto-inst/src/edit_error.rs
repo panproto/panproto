@@ -250,6 +250,15 @@ pub enum EditError {
         /// Why.
         reason: String,
     },
+
+    /// A tree edit names the root in an operation the root cannot undergo:
+    /// deleting, contracting or moving it (the root has no parent arc).
+    #[error("the root node {0} cannot undergo this operation")]
+    RootOperation(u32),
+
+    /// A leaf-only deletion names a node that has children.
+    #[error("node {0} is not a leaf; use ContractNode to remove it and reattach its children")]
+    NotLeaf(u32),
 }
 
 impl From<ComposeError> for EditError {
@@ -343,6 +352,8 @@ impl EditError {
             Self::MissingRowEndpoint { .. } => "missing_row_endpoint",
             Self::DanglingForeignKeys { .. } => "dangling_foreign_keys",
             Self::NotTableEdit { .. } => "not_table_edit",
+            Self::RootOperation(_) => "root_operation",
+            Self::NotLeaf(_) => "not_leaf",
         };
         name.to_owned()
     }
@@ -353,6 +364,8 @@ impl EditError {
             Self::NodeNotFound(node)
             | Self::ParentNotFound(node)
             | Self::DuplicateNodeId(node)
+            | Self::RootOperation(node)
+            | Self::NotLeaf(node)
             | Self::AnchorMismatch { node_id: node, .. }
             | Self::CycleDetected { node_id: node, .. }
             | Self::DanglingEdges { node, .. }

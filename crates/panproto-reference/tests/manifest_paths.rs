@@ -220,117 +220,131 @@ fn lenses_law_to_public_path_incidences_are_exact() {
     assert_eq!(unique_paths.len(), 26);
 }
 
+/// The validation page's laws and their reference paths, in manifest order.
+const VALIDATION_INCIDENCES: &[(&str, &[&str])] = &[
+    (
+        "validation.v1",
+        &[
+            "panproto_reference::validation::validate",
+            "panproto_reference::validation::validate_table",
+            "panproto_reference::validation::validate_tree",
+        ],
+    ),
+    (
+        "validation.v2",
+        &["panproto_reference::validation::validate"],
+    ),
+    (
+        "validation.v3",
+        &[
+            "panproto_reference::validation::witness_with_trust",
+            "panproto_reference::validation::incremental_footprint",
+        ],
+    ),
+    (
+        "validation.v4",
+        &[
+            "panproto_reference::validation::witness_with_trust",
+            "panproto_reference::validation::incremental_report",
+        ],
+    ),
+    (
+        "validation.v5",
+        &["panproto_reference::validation::witness_with_trust"],
+    ),
+    (
+        "validation.v6",
+        &["panproto_reference::validation::witness_with_trust"],
+    ),
+    (
+        "validation.v7",
+        &["panproto_reference::validation::witness_with_trust"],
+    ),
+    (
+        "validation.v8",
+        &[
+            "panproto_reference::validation::validate",
+            "panproto_reference::validation::validate_table",
+            "panproto_reference::validation::validate_tree",
+        ],
+    ),
+    (
+        "validation.v9",
+        &["panproto_reference::validation::restriction_boundary"],
+    ),
+    (
+        "validation.v10",
+        &["panproto_reference::validation::validate"],
+    ),
+    (
+        "validation.v11",
+        &["panproto_reference::validation::validate"],
+    ),
+    (
+        "validation.admission-policies",
+        &["panproto_reference::validation::admits"],
+    ),
+    (
+        "validation.key-equality-checks",
+        &["panproto_reference::resolution::declared_key_equality"],
+    ),
+    (
+        "validation.variable-binding-checks",
+        &["panproto_reference::resolution::nearest_preceding"],
+    ),
+    (
+        "validation.guard-target-set-sort-key-checks",
+        &[
+            "panproto_reference::keys::target_set",
+            "panproto_reference::schema::validate_declarations",
+        ],
+    ),
+    (
+        "validation.index-null-match-checks",
+        &[
+            "panproto_reference::resolution::get",
+            "panproto_reference::resolution::put",
+            "panproto_reference::schema::validate_declarations",
+        ],
+    ),
+    (
+        "validation.lexical-space-advisory",
+        &[
+            "panproto_reference::validation::classify_selector",
+            "panproto_reference::validation::lexical_space",
+        ],
+    ),
+    (
+        "validation.annotated-format-no-assertion-equivalence",
+        &["panproto_reference::validation::annotated_format_parse"],
+    ),
+    (
+        "validation.annotated-format-advisory-exactness",
+        &["panproto_reference::validation::annotated_format_advisory"],
+    ),
+    (
+        "validation.format-assertion-acceptance",
+        &["panproto_reference::validation::format_assertion_acceptance"],
+    ),
+];
+
 #[test]
 fn validation_law_to_public_path_incidences_are_exact() {
     let manifest_text = std::fs::read_to_string(correctness_manifest_path()).unwrap();
     let manifest = panproto_reference::manifest::load(&manifest_text).unwrap();
     let page = &manifest.pages["validation"];
-    let expected = vec![
-        (
-            "validation.v1".to_owned(),
-            vec![
-                "panproto_reference::validation::validate".to_owned(),
-                "panproto_reference::validation::validate_table".to_owned(),
-                "panproto_reference::validation::validate_tree".to_owned(),
-            ],
-        ),
-        (
-            "validation.v2".to_owned(),
-            vec!["panproto_reference::validation::validate".to_owned()],
-        ),
-        (
-            "validation.v3".to_owned(),
-            vec![
-                "panproto_reference::validation::witness_with_trust".to_owned(),
-                "panproto_reference::validation::incremental_footprint".to_owned(),
-            ],
-        ),
-        (
-            "validation.v4".to_owned(),
-            vec![
-                "panproto_reference::validation::witness_with_trust".to_owned(),
-                "panproto_reference::validation::incremental_report".to_owned(),
-            ],
-        ),
-        (
-            "validation.v5".to_owned(),
-            vec!["panproto_reference::validation::witness_with_trust".to_owned()],
-        ),
-        (
-            "validation.v6".to_owned(),
-            vec!["panproto_reference::validation::witness_with_trust".to_owned()],
-        ),
-        (
-            "validation.v7".to_owned(),
-            vec!["panproto_reference::validation::witness_with_trust".to_owned()],
-        ),
-        (
-            "validation.v8".to_owned(),
-            vec![
-                "panproto_reference::validation::validate".to_owned(),
-                "panproto_reference::validation::validate_table".to_owned(),
-                "panproto_reference::validation::validate_tree".to_owned(),
-            ],
-        ),
-        (
-            "validation.v9".to_owned(),
-            vec!["panproto_reference::validation::restriction_boundary".to_owned()],
-        ),
-        (
-            "validation.v10".to_owned(),
-            vec!["panproto_reference::validation::validate".to_owned()],
-        ),
-        (
-            "validation.v11".to_owned(),
-            vec!["panproto_reference::validation::validate".to_owned()],
-        ),
-        (
-            "validation.admission-policies".to_owned(),
-            vec!["panproto_reference::validation::admits".to_owned()],
-        ),
-        (
-            "validation.key-equality-checks".to_owned(),
-            vec!["panproto_reference::resolution::declared_key_equality".to_owned()],
-        ),
-        (
-            "validation.variable-binding-checks".to_owned(),
-            vec!["panproto_reference::resolution::nearest_preceding".to_owned()],
-        ),
-        (
-            "validation.guard-target-set-sort-key-checks".to_owned(),
-            vec![
-                "panproto_reference::keys::target_set".to_owned(),
-                "panproto_reference::schema::validate_declarations".to_owned(),
-            ],
-        ),
-        (
-            "validation.index-null-match-checks".to_owned(),
-            vec![
-                "panproto_reference::resolution::get".to_owned(),
-                "panproto_reference::resolution::put".to_owned(),
-                "panproto_reference::schema::validate_declarations".to_owned(),
-            ],
-        ),
-        (
-            "validation.lexical-space-advisory".to_owned(),
-            vec![
-                "panproto_reference::validation::classify_selector".to_owned(),
-                "panproto_reference::validation::lexical_space".to_owned(),
-            ],
-        ),
-        (
-            "validation.annotated-format-no-assertion-equivalence".to_owned(),
-            vec!["panproto_reference::validation::annotated_format_parse".to_owned()],
-        ),
-        (
-            "validation.annotated-format-advisory-exactness".to_owned(),
-            vec!["panproto_reference::validation::annotated_format_advisory".to_owned()],
-        ),
-        (
-            "validation.format-assertion-acceptance".to_owned(),
-            vec!["panproto_reference::validation::format_assertion_acceptance".to_owned()],
-        ),
-    ];
+    let expected = VALIDATION_INCIDENCES
+        .iter()
+        .map(|(law, paths)| {
+            (
+                (*law).to_owned(),
+                paths
+                    .iter()
+                    .map(|path| (*path).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
     let actual = page
         .laws
         .iter()
@@ -432,7 +446,11 @@ fn block_named_tests(chapter: &str, anchor: &str) -> Option<Vec<NamedTest>> {
                 }
             } else if let Some(command) = span.strip_prefix("command: ") {
                 let binary = command_binary(command);
-                named.extend(pending.drain(..).map(|name| (name, binary.clone())));
+                named.extend(
+                    std::mem::take(&mut pending)
+                        .into_iter()
+                        .map(|name| (name, binary.clone())),
+                );
             } else if is_test_identifier(span) {
                 pending.push(span.to_owned());
             }

@@ -2866,35 +2866,18 @@ fn reference_tree_refusal(error: &reference::TreeApplyError) -> TreeRefusalObs {
     }
 }
 
-/// Production reports the root and non-leaf deletion refusals as
-/// `ApplyFailed` with a fixed message naming the letter's node; each is read
-/// back only when the message is exactly the one for that node.
-fn production_tree_refusal(error: &EditError, letter: &reference::TreeEdit) -> TreeRefusalObs {
-    match (error, letter) {
-        (EditError::ApplyFailed(message), reference::TreeEdit::DeleteNode { id })
-            if message == "cannot delete the root node" =>
-        {
-            TreeRefusalObs::RootOperation(*id)
-        }
-        (EditError::ApplyFailed(message), reference::TreeEdit::DeleteNode { id })
-            if *message
-                == format!(
-                    "cannot delete non-leaf node {id}; use ContractNode to remove and reattach children"
-                ) =>
-        {
-            TreeRefusalObs::NotLeaf(*id)
-        }
-        (
-            EditError::CycleDetected {
-                node_id,
-                new_parent,
-            },
-            _,
-        ) => TreeRefusalObs::Cycle {
+fn production_tree_refusal(error: &EditError) -> TreeRefusalObs {
+    match error {
+        EditError::RootOperation(id) => TreeRefusalObs::RootOperation(*id),
+        EditError::NotLeaf(id) => TreeRefusalObs::NotLeaf(*id),
+        EditError::CycleDetected {
+            node_id,
+            new_parent,
+        } => TreeRefusalObs::Cycle {
             node: *node_id,
             parent: *new_parent,
         },
-        (other, _) => panic!("production refusal outside the scope's alphabet: {other:?}"),
+        other => panic!("production refusal outside the scope's alphabet: {other:?}"),
     }
 }
 
@@ -2960,7 +2943,7 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
                 Err(error) => {
                     let expected = reference_tree_refusal(error);
                     let actual = applied.expect_err("production refuses with the reference");
-                    assert_eq!(production_tree_refusal(&actual, letter), expected, "{letter:?}");
+                    assert_eq!(production_tree_refusal(&actual), expected, "{letter:?}");
                     assert_eq!(
                         tree_to_reference(&production_state),
                         tree_to_reference(&prefixes[length - 1])
@@ -2972,7 +2955,7 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
                     assert_eq!(lowered_embedding, start.reference_embedding);
                     let actual = production_lowered.expect_err("production lowering refuses");
                     assert_eq!(
-                        production_tree_refusal(&actual, letter),
+                        production_tree_refusal(&actual),
                         expected,
                         "{:?}",
                         word.letters
@@ -3028,4 +3011,84 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
         ["Cycle", "NotLeaf", "RootOperation"]
     );
     assert!(tally.replacements > 0);
+}
+
+/// Every move of the root, under each node including itself, is a root
+/// operation in both implementations, before any cycle check; in both, tree
+/// apply and graph lowering refuse alike and leave the tree and embedding
+/// unchanged.
+#[test]
+fn moving_the_root_is_a_root_operation_in_production_and_the_reference() {
+    let edge = reference_model::SEdge::new("a", "a", "e", None);
+    let mut tree = reference_model::Tree {
+        nodes: (0..3)
+            .map(|id| (id, reference_model::Node::new(id, "a")))
+            .collect(),
+        arcs: vec![(0, 1, edge.clone()), (1, 2, edge.clone())],
+        fans: Vec::new(),
+        root: 0,
+    };
+    tree.nodes.get_mut(&2).expect("leaf").fields.insert(
+        "f".to_owned(),
+        ReferenceValue::Int(1),
+    );
+    let mut checked = 0usize;
+    for new_parent in 0..3 {
+        let letter = reference::TreeEdit::MoveSubtree {
+            node_id: 0,
+            new_parent,
+            edge: edge.clone(),
+        };
+        let (_, mut reference_embedding_state) =
+            panproto_reference::encode::tree_to_graph(&tree, None).expect("tree embeds");
+        let before = reference_embedding_state.clone();
+        let expected = reference::apply_tree(&letter, &tree, &mut reference_embedding_state)
+            .expect_err("a root move refuses");
+        assert_eq!(
+            reference_tree_refusal(&expected),
+            TreeRefusalObs::RootOperation(0)
+        );
+        assert_eq!(reference_embedding_state, before);
+
+        let production_letter = tree_edit_to_production(&letter);
+        let production_tree = tree_to_production(&tree);
+        let mut applied = production_tree.clone();
+        let actual = production_letter
+            .apply(&mut applied)
+            .expect_err("production refuses a root move");
+        assert_eq!(
+            production_tree_refusal(&actual),
+            TreeRefusalObs::RootOperation(0),
+            "{letter:?}"
+        );
+        assert_eq!(tree_to_reference(&applied), tree);
+        let (graph, mut embedding) =
+            GInstance::from_wtype_embedded(&production_tree, None).expect("tree embeds");
+        let production_before = embedding.clone();
+        let lowered = GraphDelta::from_tree_edit(&graph, &mut embedding, &production_letter)
+            .expect_err("production lowering refuses a root move");
+        assert_eq!(
+            production_tree_refusal(&lowered),
+            TreeRefusalObs::RootOperation(0)
+        );
+        assert_eq!(embedding, production_before);
+        checked += 1;
+    }
+    assert_eq!(checked, 3);
+
+    // Contracting the root is the same root operation in both.
+    let contract = reference::TreeEdit::ContractNode { id: 0 };
+    let (_, mut reference_embedding_state) =
+        panproto_reference::encode::tree_to_graph(&tree, None).expect("tree embeds");
+    let expected = reference::apply_tree(&contract, &tree, &mut reference_embedding_state)
+        .expect_err("contracting the root refuses");
+    let mut applied = tree_to_production(&tree);
+    let actual = tree_edit_to_production(&contract)
+        .apply(&mut applied)
+        .expect_err("production refuses contracting the root");
+    assert_eq!(
+        production_tree_refusal(&actual),
+        reference_tree_refusal(&expected)
+    );
+    assert_eq!(tree_to_reference(&applied), tree);
 }

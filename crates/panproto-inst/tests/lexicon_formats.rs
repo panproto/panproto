@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The AT Protocol Lexicon string formats of `ValueFormat`.
 //!
 //! Each format is checked end to end: a schema whose string vertex carries
@@ -721,7 +722,7 @@ const BASE58FLICKR: &str = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRST
 const BASE45: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 
 /// The base256emoji alphabet, byte value 0 first, as the multibase
-/// Base256Emoji specification tabulates it.
+/// `Base256Emoji` specification tabulates it.
 const BASE256EMOJI: [char; 256] = [
     '\u{1F680}',
     '\u{1FA90}',
@@ -1010,6 +1011,17 @@ fn rfc4648(bytes: &[u8], alphabet: &str, bits: u32, pad: Option<usize>) -> Strin
     out
 }
 
+/// The bits of `bytes`, eight binary digits per byte, most significant
+/// first.
+fn binary_digits(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut digits, byte| {
+        // Writing to a `String` cannot fail.
+        let _ = write!(digits, "{byte:08b}");
+        digits
+    })
+}
+
 /// A big-endian base conversion over `alphabet` that writes each leading
 /// zero byte as the alphabet's first symbol (the base 10, base 36 and
 /// base 58 rule).
@@ -1083,7 +1095,7 @@ fn proquint(bytes: &[u8]) -> String {
 /// words and defines no form for an odd number of bytes, so it is left out
 /// for those.
 fn multibase_forms(bytes: &[u8]) -> Vec<(&'static str, String)> {
-    let base2: String = bytes.iter().map(|b| format!("{b:08b}")).collect();
+    let base2 = binary_digits(bytes);
     let base10 = base_n(bytes, "0123456789");
     let mut forms = vec![
         ("base2", format!("0{base2}")),
@@ -1294,7 +1306,7 @@ fn noncanonical_and_other_multibase_forms_fail() {
         })
         .collect();
     let hex = rfc4648(&link, BASE16_LOWER, 4, None);
-    let base2: String = link.iter().map(|b| format!("{b:08b}")).collect();
+    let binary = binary_digits(&link);
     let base8 = rfc4648(&link, "01234567", 3, None);
     check(
         "cid",
@@ -1312,7 +1324,7 @@ fn noncanonical_and_other_multibase_forms_fail() {
             &format!("k{}", base_n(&link, BASE36).to_uppercase()),
             // The version byte 0x01 written without its seven leading
             // zeros.
-            &format!("0{}", base2.trim_start_matches('0')),
+            &format!("0{}", binary.trim_start_matches('0')),
             &format!("7{base8}1"),
             &format!("7{base8}77"),
         ],
@@ -1334,7 +1346,7 @@ fn cid_strings_that_no_base_decodes_fail() {
     let base58 = base_n(&link, BASE58BTC);
     let base45 = base45(&link);
     let proquint = proquint(&link);
-    let base2: String = link.iter().map(|b| format!("{b:08b}")).collect();
+    let binary = binary_digits(&link);
     let cid_v0 = cid_bytes(&[0x12, 0x20], 32);
     check(
         "cid",
@@ -1372,7 +1384,7 @@ fn cid_strings_that_no_base_decodes_fail() {
             &format!("z0{base58}"),
             &format!("zl{base58}"),
             // Base 2 and base 10 symbols.
-            &format!("0{}2", &base2[1..]),
+            &format!("0{}2", &binary[1..]),
             &format!("9{}a", base_n(&link, "0123456789")),
             // RFC 9285: a triplet over 65535, a pair over 255, a length of
             // 3k + 1, and a lower-case letter.
@@ -1753,8 +1765,8 @@ fn all_vectors() -> Vec<String> {
     files.sort();
     files
         .iter()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "txt"))
         .filter_map(|path| path.file_name()?.to_str())
-        .filter(|name| name.ends_with(".txt"))
         .flat_map(vectors)
         .collect()
 }

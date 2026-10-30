@@ -899,18 +899,22 @@ fn segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal() {
             Ok(whole.clone())
         );
         let max_edge = case.graph.edges.keys().next_back().copied();
-        let expected = match max_edge.and_then(|max| {
-            reference_partition
-                .specs
-                .iter()
-                .find(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= max))
-        }) {
-            Some(spec) => Err(reference::SegmentError::AllocationBelowFloor {
-                segment: spec.id,
-                kind: reference::IdKind::Edge,
-            }),
-            None => Ok(whole.clone()),
-        };
+        let expected = max_edge
+            .and_then(|max| {
+                reference_partition
+                    .specs
+                    .iter()
+                    .find(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= max))
+            })
+            .map_or_else(
+                || Ok(whole.clone()),
+                |spec| {
+                    Err(reference::SegmentError::AllocationBelowFloor {
+                        segment: spec.id,
+                        kind: reference::IdKind::Edge,
+                    })
+                },
+            );
         assert_eq!(
             reference::segmented(
                 &reference_segments,
@@ -1282,6 +1286,77 @@ fn storage_vocabulary_serde_layout_and_run_identity_are_stable() {
     );
 }
 
+/// A journal holding one record per task of `task_carrier`: production
+/// reuse agrees with the reference on each recorded task with its own,
+/// wrong inputs and wrong outputs, and on an unrecorded task.
+fn assert_journal_reuse_matches_the_reference(task_carrier: &[TaskKey]) {
+    let mut production_tasks = BTreeMap::new();
+    let mut reference_tasks = BTreeMap::new();
+    for (index, task) in task_carrier.iter().copied().enumerate() {
+        let index = u8::try_from(index).unwrap();
+        let inputs = Digest([80 + index; 32]);
+        let output = Digest([110 + index; 32]);
+        let bytes = u64::from(index) * 17;
+        production_tasks.insert(
+            task,
+            TaskRecord {
+                inputs,
+                output,
+                bytes,
+            },
+        );
+        reference_tasks.insert(
+            task_key_to_reference(task),
+            reference::TaskRecord {
+                inputs: reference::Digest(inputs.0),
+                output: reference::Digest(output.0),
+                bytes,
+            },
+        );
+    }
+    let production_journal = RunJournal {
+        run: Digest([140; 32]),
+        tasks: production_tasks,
+    };
+    let reference_journal = reference::RunJournal {
+        run: reference::Digest([140; 32]),
+        tasks: reference_tasks,
+    };
+    let compare_reuse = |task: TaskKey, inputs: Digest, output: Digest, expected: bool| {
+        let production = production_journal.reusable(&task, &inputs, &output);
+        let reference = reference::journal_task_reusable(
+            &reference_journal,
+            &task_key_to_reference(task),
+            &reference::Digest(inputs.0),
+            &reference::Digest(output.0),
+        );
+        assert_eq!(production, expected, "unexpected reuse result for {task:?}");
+        assert_eq!(production, reference, "reuse disagrees for {task:?}");
+    };
+
+    let wrong_inputs = Digest([240; 32]);
+    let wrong_output = Digest([241; 32]);
+    let mut reuse_cases = 0;
+    for task in task_carrier {
+        let record = production_journal.tasks[task];
+        compare_reuse(*task, record.inputs, record.output, true);
+        compare_reuse(*task, wrong_inputs, record.output, false);
+        compare_reuse(*task, record.inputs, wrong_output, false);
+        reuse_cases += 3;
+    }
+    compare_reuse(
+        TaskKey {
+            phase: Phase::Seal,
+            segment: Some(SegmentId(1)),
+        },
+        wrong_inputs,
+        wrong_output,
+        false,
+    );
+    reuse_cases += 1;
+    assert_eq!(reuse_cases, 55);
+}
+
 #[test]
 fn bounded_task_input_digest_and_journal_reuse_match_the_reference() {
     let phases = [
@@ -1351,71 +1426,7 @@ fn bounded_task_input_digest_and_journal_reuse_match_the_reference() {
     }
     assert!(observation_groups.remainder().is_empty());
 
-    let mut production_tasks = BTreeMap::new();
-    let mut reference_tasks = BTreeMap::new();
-    for (index, task) in task_carrier.iter().copied().enumerate() {
-        let index = u8::try_from(index).unwrap();
-        let inputs = Digest([80 + index; 32]);
-        let output = Digest([110 + index; 32]);
-        let bytes = u64::from(index) * 17;
-        production_tasks.insert(
-            task,
-            TaskRecord {
-                inputs,
-                output,
-                bytes,
-            },
-        );
-        reference_tasks.insert(
-            task_key_to_reference(task),
-            reference::TaskRecord {
-                inputs: reference::Digest(inputs.0),
-                output: reference::Digest(output.0),
-                bytes,
-            },
-        );
-    }
-    let production_journal = RunJournal {
-        run: Digest([140; 32]),
-        tasks: production_tasks,
-    };
-    let reference_journal = reference::RunJournal {
-        run: reference::Digest([140; 32]),
-        tasks: reference_tasks,
-    };
-    let compare_reuse = |task: TaskKey, inputs: Digest, output: Digest, expected: bool| {
-        let production = production_journal.reusable(&task, &inputs, &output);
-        let reference = reference::journal_task_reusable(
-            &reference_journal,
-            &task_key_to_reference(task),
-            &reference::Digest(inputs.0),
-            &reference::Digest(output.0),
-        );
-        assert_eq!(production, expected, "unexpected reuse result for {task:?}");
-        assert_eq!(production, reference, "reuse disagrees for {task:?}");
-    };
-
-    let wrong_inputs = Digest([240; 32]);
-    let wrong_output = Digest([241; 32]);
-    let mut reuse_cases = 0;
-    for task in &task_carrier {
-        let record = production_journal.tasks[task];
-        compare_reuse(*task, record.inputs, record.output, true);
-        compare_reuse(*task, wrong_inputs, record.output, false);
-        compare_reuse(*task, record.inputs, wrong_output, false);
-        reuse_cases += 3;
-    }
-    compare_reuse(
-        TaskKey {
-            phase: Phase::Seal,
-            segment: Some(SegmentId(1)),
-        },
-        wrong_inputs,
-        wrong_output,
-        false,
-    );
-    reuse_cases += 1;
-    assert_eq!(reuse_cases, 55);
+    assert_journal_reuse_matches_the_reference(&task_carrier);
 }
 
 #[test]

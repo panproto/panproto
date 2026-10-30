@@ -94,9 +94,20 @@ fn embedding(tree: &WInstance) -> TreeEmbedding {
 }
 
 fn lower(tree: &WInstance, embedding: &TreeEmbedding, edit: &TreeEdit) -> GraphDelta {
+    lower_with_embedding(tree, embedding, edit).0
+}
+
+/// The lowering of `edit` with the embedding it reaches, which names the
+/// fresh arc ids a replacement or move allocates.
+fn lower_with_embedding(
+    tree: &WInstance,
+    embedding: &TreeEmbedding,
+    edit: &TreeEdit,
+) -> (GraphDelta, TreeEmbedding) {
     let graph = GInstance::from_wtype_under(tree, embedding, None).unwrap();
     let mut next_embedding = embedding.clone();
-    GraphDelta::from_tree_edit(&graph, &mut next_embedding, edit).unwrap()
+    let delta = GraphDelta::from_tree_edit(&graph, &mut next_embedding, edit).unwrap();
+    (delta, next_embedding)
 }
 
 fn node_to_reference(node: &Node) -> reference_model::Node {
@@ -332,7 +343,8 @@ fn translation_fixture() -> TranslationFixture {
 fn assert_get_case(fixture: &TranslationFixture, case: &carrier::EditTranslationCase) {
     let name = case.name;
     let edit = edit_to_production(&case.edit);
-    let source_delta = lower(&fixture.source, &fixture.source_embedding, &edit);
+    let (source_delta, edited_embedding) =
+        lower_with_embedding(&fixture.source, &fixture.source_embedding, &edit);
     let reference_source_delta = delta_to_reference(&source_delta);
     let expected = panproto_reference::edit::get_edit(
         &|state| Ok::<_, &'static str>(project(state)),
@@ -353,7 +365,7 @@ fn assert_get_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
         .unwrap_or_else(|error| panic!("graph get translation {name}: {error:?}"));
     assert_eq!(delta_to_reference(&graph_actual), expected.delta, "{name}");
     assert_eq!(
-        complement_to_reference(&graph_lens.complement, &fixture.source_embedding),
+        complement_to_reference(&graph_lens.complement, &edited_embedding),
         expected.complement,
         "graph complement: {name}"
     );
@@ -373,7 +385,7 @@ fn assert_get_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
         "tree lowering: {name}"
     );
     assert_eq!(
-        complement_to_reference(&tree_lens.complement, &fixture.source_embedding),
+        complement_to_reference(&tree_lens.complement, &edited_embedding),
         expected.complement,
         "tree complement: {name}"
     );
@@ -427,10 +439,11 @@ fn assert_put_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
     let translated = production
         .put_edit(edit)
         .unwrap_or_else(|error| panic!("tree put translation {name}: {error:?}"));
-    let actual = lower(&fixture.source, &fixture.source_embedding, &translated);
+    let (actual, edited_embedding) =
+        lower_with_embedding(&fixture.source, &fixture.source_embedding, &translated);
     assert_eq!(delta_to_reference(&actual), expected.delta, "{name}");
     assert_eq!(
-        complement_to_reference(&production.complement, &fixture.source_embedding),
+        complement_to_reference(&production.complement, &edited_embedding),
         expected.complement,
         "put complement: {name}"
     );

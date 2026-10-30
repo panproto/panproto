@@ -3026,25 +3026,9 @@ fn references_compile_to_reference_resolves_with_the_declared_requirement() {
     )));
 }
 
-#[test]
-fn fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly() {
-    use panproto_schema::OnUnresolved;
-
-    let id = prop("person", "person.id", "id");
-    let boss = prop("person", "person.boss", "boss");
-    let mut schema = referencing_schema(OnUnresolved::Error);
-    schema
-        .declarations
-        .references
-        .get_mut("boss")
-        .expect("the fixture declares its boss reference")
-        .edge = None;
-    let graph_protocol = Protocol {
-        syntactic_shape: InstanceShapeKind::Graph,
-        semantic_shape: InstanceShapeKind::Graph,
-        ..Protocol::default()
-    };
-    let plan = plan(&schema, &graph_protocol);
+/// Four persons with ids 10, 20, 10, 30 and bosses 20, 20, 99, 10: one
+/// duplicate id, one dangling boss and one ambiguous boss.
+fn fixed_person_graph(id: &Edge, boss: &Edge) -> GInstance {
     let ids = [10_i64, 20, 10, 30];
     let bosses = [20_i64, 20, 99, 10];
     let mut graph = GInstance::new();
@@ -3067,6 +3051,29 @@ fn fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly() {
             boss.clone(),
         );
     }
+    graph
+}
+
+#[test]
+fn fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly() {
+    use panproto_schema::OnUnresolved;
+
+    let id = prop("person", "person.id", "id");
+    let boss = prop("person", "person.boss", "boss");
+    let mut schema = referencing_schema(OnUnresolved::Error);
+    schema
+        .declarations
+        .references
+        .get_mut("boss")
+        .expect("the fixture declares its boss reference")
+        .edge = None;
+    let graph_protocol = Protocol {
+        syntactic_shape: InstanceShapeKind::Graph,
+        semantic_shape: InstanceShapeKind::Graph,
+        ..Protocol::default()
+    };
+    let plan = plan(&schema, &graph_protocol);
+    let graph = fixed_person_graph(&id, &boss);
 
     let report = plan.validate_graph(&graph, &unlimited(), &none());
     let reference_key = CheckKey::new(
