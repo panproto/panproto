@@ -1549,9 +1549,8 @@ mod tests {
                     }
                 }
             }
-            match refusal {
-                Some(error) => (Err(error), None),
-                None => {
+            refusal.map_or_else(
+                || {
                     let mut restored = edit(&view);
                     let mut put = None;
                     for (stage, complement) in stages.iter().zip(&complements).rev() {
@@ -1564,8 +1563,9 @@ mod tests {
                         }
                     }
                     (Ok(view), Some(put.unwrap_or(Ok(restored))))
-                }
-            }
+                },
+                |error| (Err(error), None),
+            )
         };
         let normal = match path.get(&source) {
             Err(error) => (Err(unlocated(&error)), None),

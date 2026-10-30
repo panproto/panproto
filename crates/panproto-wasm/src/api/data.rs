@@ -51,7 +51,7 @@ pub fn store_dataset(schema_handle: u32, data_json: &[u8]) -> Result<u32, JsErro
     let mut instances = Vec::new();
     for record in &records {
         let instance =
-            inst::parse_json(&schema, &root, record).map_err(|e| WasmError::ParseFailed {
+            inst::parse_json(&schema, &super::helpers::protocol_of(&schema), &root, record).map_err(|e| WasmError::ParseFailed {
                 reason: format!("parse instance: {e}"),
             })?;
         instances.push(instance);

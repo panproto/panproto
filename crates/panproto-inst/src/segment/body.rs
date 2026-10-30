@@ -7,7 +7,7 @@
 //! contents in one order in every process.
 //!
 //! A tree segment carries its fans in their graph form: the fan node is held
-//! in `nodes` with [`NodeShape::HyperEdge`](crate::NodeShape::HyperEdge) and
+//! in `nodes` with [`NodeShape::HyperEdge`] and
 //! its hyper-edge as anchor, its parent edge and labelled child edges in
 //! `arcs` under the ids its [`FanEmbedding`] records, so a fan whose children
 //! are owned elsewhere crosses the boundary like any other edge.

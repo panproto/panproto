@@ -206,7 +206,12 @@ impl PyInstance {
     fn from_json(schema: &PySchema, root_vertex: &str, json_str: &str) -> PyResult<Self> {
         let json_val: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| crate::error::IoError::new_err(format!("invalid JSON: {e}")))?;
-        let instance = inst::parse_json(&schema.inner, root_vertex, &json_val)
+        let instance = inst::parse_json(
+            &schema.inner,
+            &crate::protocols::protocol_for_schema(&schema.inner),
+            root_vertex,
+            &json_val,
+        )
             .map_err(|e| crate::error::IoError::new_err(format!("parse failed: {e}")))?;
         Ok(Self {
             inner: instance,

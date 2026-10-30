@@ -788,7 +788,13 @@ pub fn parse_json_value(
     json_value: &serde_json::Value,
     protocol: &str,
 ) -> Result<WInstance, ParseInstanceError> {
-    parse_json(schema, root_vertex, json_value).map_err(|error| ParseInstanceError::Parse {
+    parse_json(
+        schema,
+        &protocol_definition(protocol),
+        root_vertex,
+        json_value,
+    )
+    .map_err(|error| ParseInstanceError::Parse {
         protocol: protocol.to_owned(),
         message: error.to_string(),
     })
@@ -929,13 +935,24 @@ fn walk_raw_json(
         }
     };
     if let (Some(declaration), Some((shape, offset))) = (scalar_kind, structural_value) {
-        return Err(ParseInstanceError::SchemaMismatch {
-            protocol: protocol.name.clone(),
-            message: format!(
-                "JSON {shape} at byte {offset} cannot populate scalar vertex '{anchor}' of kind '{}'",
-                declaration.kind
-            ),
-        });
+        let spec = ValueSpec::for_vertex(schema, protocol, &declaration.id);
+        if spec.kind != ScalarKind::Any {
+            return Err(ParseInstanceError::SchemaMismatch {
+                protocol: protocol.name.clone(),
+                message: format!(
+                    "JSON {shape} at byte {offset} cannot populate scalar vertex '{anchor}' of kind '{}'",
+                    declaration.kind
+                ),
+            });
+        }
+        // A vertex whose kind holds any value takes a structured one
+        // whole: the object or array is the node's one value, not a
+        // subtree whose members its vertex would have to declare.
+        let presence = raw_scalar(raw, anchor, &spec, state);
+        state
+            .nodes
+            .insert(node_id, Node::new(node_id, anchor).with_value(presence));
+        return Ok(());
     }
 
     match raw {
@@ -1926,6 +1943,13 @@ fn write_json_presence(
     enclosing_depth: usize,
 ) -> Result<(), EmitInstanceError> {
     match presence {
+        // A structured value is written whole only at a vertex whose kind
+        // holds any value, which is where the reader reads one back whole.
+        FieldPresence::Present(value @ (Value::Blob { .. } | Value::Unknown(_) | Value::List(_)))
+            if spec.kind == ScalarKind::Any =>
+        {
+            write_json_value_at_depth(value, spec, site, output, enclosing_depth)
+        }
         FieldPresence::Present(
             value @ (Value::Null | Value::Blob { .. } | Value::Unknown(_) | Value::List(_)),
         ) => Err(EmitValueError::new(

@@ -10,8 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::domain::{
-    PutDomainError, ViewRef, key_part_present, part_column, required_value_violations,
-    uniqueness_role, key_uniqueness_violations,
+    PutDomainError, ViewRef, key_part_present, key_uniqueness_violations, part_column,
+    required_value_violations, uniqueness_role,
 };
 use crate::canonical::Writer;
 use crate::encode::{TableEncodeError, table_to_graph};

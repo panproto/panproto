@@ -132,7 +132,7 @@ fn put_preserves_view_edit_with_per_field_child_vertices() {
         "email": "d@e.com",
         "joinedAt": "2025-01-01",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     let lens = build_final_lens(&src_schema, &protocol);
 
@@ -279,7 +279,7 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         "email": "d@e.com",
         "joinedAt": "2025-01-01",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     let lens = build_final_lens(&src_schema, &protocol);
     // Sanity check: the target schema must retain the `user` entry so
@@ -301,7 +301,7 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         .unwrap()
         .insert("displayName".into(), serde_json::json!("EDITED"));
 
-    let reparsed = parse_json(&lens.tgt_schema, "user", &view_json).expect("reparse view");
+    let reparsed = parse_json(&lens.tgt_schema, &protocol, "user", &view_json).expect("reparse view");
     let remapped = remap_view_ids_by_anchor(&reparsed, &view);
 
     // The reparse turns the `bio` field the lens adds into a `user.bio`
@@ -419,7 +419,7 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
         "email": "d@e.com",
         "joinedAt": "2025-01-01",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     let mut surviving_verts = HashSet::new();
     surviving_verts.insert(Name::from("user"));

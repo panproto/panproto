@@ -5789,19 +5789,19 @@ impl TabularReader<'_> {
         fields: &[&Name],
     ) -> Result<(Vec<usize>, bool), CstCodecError> {
         let cst = self.cst;
-        let layout = self
-            .delimiter
-            .zip(self.document_start)
-            .and_then(|(delimiter, document_start)| {
-                let (start, end) = cst_recorded_span(cst, row_name)?;
-                let text = self
-                    .source
-                    .get(start.checked_sub(document_start)?..end.checked_sub(document_start)?)?;
-                Some((
-                    start,
-                    delimited_field_starts(text, delimiter, self.format == "csv"),
-                ))
-            });
+        let layout =
+            self.delimiter
+                .zip(self.document_start)
+                .and_then(|(delimiter, document_start)| {
+                    let (start, end) = cst_recorded_span(cst, row_name)?;
+                    let text = self.source.get(
+                        start.checked_sub(document_start)?..end.checked_sub(document_start)?,
+                    )?;
+                    Some((
+                        start,
+                        delimited_field_starts(text, delimiter, self.format == "csv"),
+                    ))
+                });
         let field_count = layout
             .as_ref()
             .map_or(fields.len(), |(_, starts)| starts.len());

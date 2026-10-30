@@ -20,7 +20,9 @@ use panproto_core::{
 use safer_ffi::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::api::helpers::{build_theory_registry, compose_compiled, extract_migration_ref};
+use crate::api::helpers::{
+    build_theory_registry, compose_compiled, extract_migration_ref, protocol_for_schema,
+};
 use crate::error::{FfiError, PpStatus};
 use crate::handle::{self, Resource};
 use crate::panic::guard;
@@ -374,7 +376,12 @@ pub fn pp_mig_lift_json(
             let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
 
             let root = resolve_root(root_vertex, &src_schema)?;
-            let instance = inst::parse_json(&src_schema, &root, &json_value)
+            let instance = inst::parse_json(
+                &src_schema,
+                &protocol_for_schema(&src_schema),
+                &root,
+                &json_value,
+            )
                 .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))?;
 
             let (src_protocol, tgt_protocol) = (

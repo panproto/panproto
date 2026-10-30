@@ -4434,7 +4434,7 @@ mod tests {
         let result = p.check_applicability(&schema);
         assert!(result.is_err());
         let reasons = result.unwrap_err();
-        assert!(!reasons.is_empty());
+        assert_ne!(reasons, [] as [String; 0]);
         assert!(reasons[0].contains("missing"));
     }
 
@@ -5179,7 +5179,7 @@ mod tests {
             .expect("hoist chain instantiate");
 
         let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
-        let instance = parse_json(&source, "user", &input).expect("parse input");
+        let instance = parse_json(&source, &protocol, "user", &input).expect("parse input");
 
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
         let restored = asymmetric::put(&lens, &view, &complement).expect("put");
@@ -5211,7 +5211,7 @@ mod tests {
             .expect("hoist chain instantiate");
 
         let input: serde_json::Value = serde_json::json!({"profile": {"name": "Alice"}});
-        let instance = parse_json(&source, "user", &input).expect("parse input");
+        let instance = parse_json(&source, &protocol, "user", &input).expect("parse input");
 
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
         let restored = asymmetric::put(&lens, &view, &complement).expect("put");

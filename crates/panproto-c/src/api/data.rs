@@ -60,7 +60,7 @@ pub fn pp_data_store_dataset(
         let root = infer_root_vertex(&schema);
         let mut instances = Vec::with_capacity(records.len());
         for record in &records {
-            let instance = inst::parse_json(&schema, &root, record)
+            let instance = inst::parse_json(&schema, &protocol_for_schema(&schema), &root, record)
                 .map_err(|e| FfiError::Operation(format!("parse instance: {e}")))?;
             instances.push(instance);
         }

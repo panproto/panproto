@@ -1530,15 +1530,13 @@ fn tree_schema_violations(
         source.schema_root.clone(),
     );
     match GInstance::from_wtype_with_schema(&fanless, schema) {
-        Ok(graph) => {
-            found.extend(crate::graph_lens::schema_violations(&graph, schema, &|id| {
-                view.nodes.contains_key(&id)
-            }));
-            found
-        }
+        Ok(graph) => found.extend(crate::graph_lens::schema_violations(
+            &graph,
+            schema,
+            &|id| view.nodes.contains_key(&id),
+        )),
         Err(InstError::MalformedFan { node, reason }) => {
             found.push(PutDomainError::MalformedFan { node, reason });
-            found
         }
         Err(error @ InstError::ReservedVocabulary { .. }) => {
             found.push(reserved_vocabulary_violation(&fanless).unwrap_or_else(|| {
@@ -1549,7 +1547,6 @@ fn tree_schema_violations(
                     },
                 }
             }));
-            found
         }
         Err(error) => {
             found.push(PutDomainError::SurvivalPredicateRefused {
@@ -1558,9 +1555,9 @@ fn tree_schema_violations(
                     message: error.to_string(),
                 },
             });
-            found
         }
     }
+    found
 }
 
 /// The graph-coordinate fan violation of a fanless tree that holds reserved

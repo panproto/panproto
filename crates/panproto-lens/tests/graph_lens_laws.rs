@@ -375,7 +375,7 @@ fn graph_isomorphism_is_classified_throughout_finite_scope() {
         max_edges: 2,
     };
     let sources = GraphShape::enumerate_small(&source_schema, scope, &());
-    assert!(!sources.is_empty());
+    assert_ne!(sources, [] as [panproto_inst::GInstance; 0]);
     assert!(panproto_lens::graph_lens::is_isomorphism(&identity));
     let identity_round_trips = sources.iter().all(|source| {
         let (view, _) = get(&identity, source).expect("identity get in finite scope");
@@ -1557,7 +1557,7 @@ fn an_unchanged_fan_leaves_tree_residue_trivial() {
     let source = graph.try_to_wtype(&schema).expect("tree form");
     let lens = identity_lens(&schema);
     let (view, complement) = panproto_lens::get(&lens, &source).expect("get");
-    assert!(complement.dropped_fans.is_empty());
+    assert_eq!(complement.dropped_fans, [] as [panproto_inst::Fan; 0]);
     assert!(complement.residue_is_trivial());
     let restored = panproto_lens::put(&lens, &view, &complement).expect("put");
     assert_eq!(restored.fans, source.fans);
@@ -1631,7 +1631,7 @@ fn a_fan_id_is_not_reversed_through_the_vertex_remap() {
     );
 
     let (view, complement) = panproto_lens::get(&lens, &source).expect("get");
-    assert!(complement.dropped_fans.is_empty());
+    assert_eq!(complement.dropped_fans, [] as [panproto_inst::Fan; 0]);
     let restored = panproto_lens::put(&lens, &view, &complement).expect("put");
     assert_eq!(restored.fans, source.fans);
 }

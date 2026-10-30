@@ -510,7 +510,7 @@ mod tests {
         let defaults = HashMap::from([(Name::from("boolean"), Value::Bool(true))]);
         let lens = diff_to_lens(&d, &old, &new, &protocol, &defaults).unwrap();
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"})).unwrap();
 
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
@@ -554,7 +554,7 @@ mod tests {
             })
         }));
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"})).unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
             panproto_inst::to_json(&new, &view),
@@ -571,7 +571,7 @@ mod tests {
         let defaults = HashMap::from([(Name::from("root.active"), Value::Null)]);
         let lens = diff_to_lens(&diff, &old, &new, &protocol, &defaults).unwrap();
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"})).unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
 
         assert_eq!(
@@ -653,7 +653,7 @@ mod tests {
         assert_schema_eq(&lens.tgt_schema, &new);
 
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"})).unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
             panproto_inst::to_json(&new, &view),
@@ -949,6 +949,7 @@ mod tests {
 
         let source = panproto_inst::parse_json(
             &old,
+            &protocol,
             "root",
             &serde_json::json!({"untouched": "same", "value": "yes"}),
         )

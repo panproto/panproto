@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::domain::{
-    PutDomainError, ViewRef, key_part_present, part_column, required_value_violations,
-    key_uniqueness_violations, structural_required_cell_violations, uniqueness_role,
+    PutDomainError, ViewRef, key_part_present, key_uniqueness_violations, part_column,
+    required_value_violations, structural_required_cell_violations, uniqueness_role,
 };
 use super::tree::TreeOperationalError;
 use crate::fan::{candidates, violations_at};

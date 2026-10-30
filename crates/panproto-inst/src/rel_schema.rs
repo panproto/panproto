@@ -1,6 +1,6 @@
 //! The attributed relation-ified schema of a table schema.
 //!
-//! A table instance ([`FInstance`](crate::FInstance)) reads every foreign key
+//! A table instance ([`FInstance`]) reads every foreign key
 //! as a relation: a set of pairs that may be partial and many-valued. So it
 //! is a presheaf, not on the schema's vertices and edges, but on the entity
 //! category of a [`RelSchema`]: one object per table, and one object per

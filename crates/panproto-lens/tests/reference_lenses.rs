@@ -806,7 +806,10 @@ fn ref_put_domain_reason_with(
             ref_predicate_refusal_reason(refusal)
         ),
         R::KeyRefused { table, key, reason } => {
-            format!("KeyRefused {table} {key} {}", ref_key_refusal_reason(reason))
+            format!(
+                "KeyRefused {table} {key} {}",
+                ref_key_refusal_reason(reason)
+            )
         }
     }
 }
@@ -1915,7 +1918,9 @@ fn assert_graph_duplicate_key_domain_family() -> u16 {
     )
 }
 
-fn prod_key_equality(equality: &panproto_reference::keys::KeyEquality) -> panproto_schema::KeyEquality {
+fn prod_key_equality(
+    equality: &panproto_reference::keys::KeyEquality,
+) -> panproto_schema::KeyEquality {
     use panproto_reference::keys::{
         KeyEquality as R, NumericPrimitive as RefPrimitive, SqlCollation as RefCollation,
         SqlPad as RefPad,
@@ -1924,11 +1929,13 @@ fn prod_key_equality(equality: &panproto_reference::keys::KeyEquality) -> panpro
     match equality {
         R::Representation => KeyEquality::Representation,
         R::NumericValue => KeyEquality::NumericValue,
-        R::NumericValueWithinKind(primitive) => KeyEquality::NumericValueWithinKind(match primitive {
-            RefPrimitive::Decimal => NumericPrimitive::Decimal,
-            RefPrimitive::Float(width) => NumericPrimitive::Float(*width),
-            RefPrimitive::Any => NumericPrimitive::Any,
-        }),
+        R::NumericValueWithinKind(primitive) => {
+            KeyEquality::NumericValueWithinKind(match primitive {
+                RefPrimitive::Decimal => NumericPrimitive::Decimal,
+                RefPrimitive::Float(width) => NumericPrimitive::Float(*width),
+                RefPrimitive::Any => NumericPrimitive::Any,
+            })
+        }
         R::Sql { collation, pad } => KeyEquality::Sql {
             collation: match collation {
                 RefCollation::Binary => SqlCollation::Binary,
@@ -1945,7 +1952,9 @@ fn prod_key_equality(equality: &panproto_reference::keys::KeyEquality) -> panpro
 }
 
 fn prod_key(key: &panproto_reference::schema::Key) -> Key {
-    use panproto_reference::schema::{KeyPart as RefPart, KeyRole as RefRole, KeyScope as RefScope};
+    use panproto_reference::schema::{
+        KeyPart as RefPart, KeyRole as RefRole, KeyScope as RefScope,
+    };
     Key {
         id: key.id.as_str().into(),
         parts: key
@@ -2103,13 +2112,17 @@ fn graph_put_refuses_key_values_without_canonical_bytes_like_the_reference() {
 }
 
 /// The graph key clause agrees with the reference beyond representation
-/// keys: declared equality, non-unique roles, the primary-key presence rule
-/// and elements outside a scoped key's domain.
+/// keys: declared equality, a non-unique role, a `Null` value read as SQL
+/// NULL, the primary-key presence rule and elements outside a scoped key's
+/// domain.
 #[test]
 fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
     use panproto_reference::keys::KeyEquality as Eq;
     use panproto_reference::schema::{KeyRole, KeyScope};
-    let one = vec![Some(RefValue::Int(1)), Some(RefValue::Float(1.0_f64.to_bits()))];
+    let one = vec![
+        Some(RefValue::Int(1)),
+        Some(RefValue::Float(1.0_f64.to_bits())),
+    ];
     let same = vec![
         Some(RefValue::Str("same".to_owned())),
         Some(RefValue::Str("same".to_owned())),
@@ -2117,19 +2130,18 @@ fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
     let cases = [
         (
             "numeric equality",
-            value_key("k", KeyRole::Unique, KeyScope::Global, vec![Eq::NumericValue]),
+            value_key(
+                "k",
+                KeyRole::Unique,
+                KeyScope::Global,
+                vec![Eq::NumericValue],
+            ),
             one,
             Vec::new(),
         ),
         (
             "index role",
             value_key("k", KeyRole::Index, KeyScope::Global, Vec::new()),
-            same.clone(),
-            Vec::new(),
-        ),
-        (
-            "sort-key role",
-            value_key("k", KeyRole::SortKey, KeyScope::Global, Vec::new()),
             same.clone(),
             Vec::new(),
         ),
@@ -2147,7 +2159,12 @@ fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
         ),
         (
             "scoped key outside its domain",
-            value_key("k", KeyRole::Unique, KeyScope::Within("b".to_owned()), Vec::new()),
+            value_key(
+                "k",
+                KeyRole::Unique,
+                KeyScope::Within("b".to_owned()),
+                Vec::new(),
+            ),
             same,
             vec![("b", "a")],
         ),

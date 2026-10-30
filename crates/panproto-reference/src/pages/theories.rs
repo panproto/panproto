@@ -6979,7 +6979,7 @@ pub mod theory {
                     Box::new(classes.clone())
                 ))
             );
-            assert!(freshened.is_empty());
+            assert_eq!(freshened, Vec::<Freshening>::new());
             let majority = vec![
                 vec![sym("l", "a")],
                 vec![sym("l", "b"), sym("m", "a"), sym("n", "a")],

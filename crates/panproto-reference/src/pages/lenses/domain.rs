@@ -270,7 +270,9 @@ impl PutDomainError {
                         key: right_key,
                         ..
                     },
-                ) => left_table.cmp(right_table).then_with(|| left_key.cmp(right_key)),
+                ) => left_table
+                    .cmp(right_table)
+                    .then_with(|| left_key.cmp(right_key)),
                 _ => Ordering::Equal,
             })
     }
@@ -419,7 +421,10 @@ mod tests {
             },
         );
 
-        assert!(structural_required_cell_violations(&schema, &graph, ViewRef::Node).is_empty());
+        assert_eq!(
+            structural_required_cell_violations(&schema, &graph, ViewRef::Node),
+            Vec::<PutDomainError>::new()
+        );
     }
 
     #[test]
@@ -429,7 +434,10 @@ mod tests {
         node.fields.insert("b".to_owned(), Value::Int(1));
         graph.nodes.insert(0, node);
 
-        assert!(structural_required_cell_violations(&schema, &graph, ViewRef::Node).is_empty());
+        assert_eq!(
+            structural_required_cell_violations(&schema, &graph, ViewRef::Node),
+            Vec::<PutDomainError>::new()
+        );
     }
 
     #[test]

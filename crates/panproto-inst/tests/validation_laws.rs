@@ -338,7 +338,10 @@ fn assert_reference_key_and_reference_carrier() {
             ),
         ]
     );
-    assert!(report.incomplete.is_empty());
+    assert_eq!(
+        report.incomplete,
+        Vec::<panproto_reference::validation::IncompleteCheck>::new()
+    );
     assert_eq!(report.status, ReferenceStatus::Failed);
 }
 

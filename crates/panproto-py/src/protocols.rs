@@ -35,6 +35,18 @@ fn lookup(name: &str) -> Option<Protocol> {
     protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
+/// The protocol a schema names: the built-in or grammar protocol of that
+/// name, or, for a name neither recognizes, a protocol that classifies no
+/// vertex kind.
+pub(crate) fn protocol_for_schema(schema: &panproto_core::schema::Schema) -> Protocol {
+    lookup(&schema.protocol)
+        .or_else(|| grammar_protocol(&schema.protocol))
+        .unwrap_or_else(|| Protocol {
+            name: schema.protocol.clone(),
+            ..Protocol::default()
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Module-level functions
 // ---------------------------------------------------------------------------

@@ -264,7 +264,7 @@ pub fn cmd_migrate_coverage(
                 .map_or_else(|| "root".to_owned(), ToString::to_string)
         };
 
-        match panproto_core::inst::parse_json(&old_schema, &root, &json_value) {
+        match panproto_core::inst::parse_json(&old_schema, &protocol, &root, &json_value) {
             Ok(instance) => match lens::get(&result.lens, &instance) {
                 Ok(_) => succeeded += 1,
                 Err(e) => {

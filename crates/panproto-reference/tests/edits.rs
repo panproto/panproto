@@ -9683,3 +9683,35 @@ fn graph_delta_sequences_have_literal_membership_and_positions() {
         Some(vec![alphabet[24].clone(); 3])
     );
 }
+
+#[test]
+fn zz_debug_reader_triple() {
+    for tree in readback_trees() {
+        let script = TreeEdit::Sequence(vec![
+            TreeEdit::MoveSubtree {
+                node_id: 3,
+                new_parent: 0,
+                edge: SEdge::new("feature", "leaf", "child", Some("c")),
+            },
+            TreeEdit::DeleteFan { hyper_edge: "fan".into() },
+            TreeEdit::InsertFan {
+                fan: Fan {
+                    parent: 1,
+                    hyper_edge: "fan".into(),
+                    children: BTreeMap::from([("other-arm".into(), 4)]),
+                },
+            },
+        ]);
+        let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+        let mut lowered = embedding.clone();
+        let Ok(delta) = edit::graph_delta_from_tree_edit(&tree, &mut lowered, &script, None) else {
+            continue;
+        };
+        let read = edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None);
+        if read.is_ok() {
+            continue;
+        }
+        println!("read {read:?}");
+        panic!("refused");
+    }
+}

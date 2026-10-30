@@ -2299,7 +2299,7 @@ fn lift_api_add_field() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Alice"});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
     let protocol = lift_protocol();
     let lifted = mig::lift_wtype(
         &compiled,
@@ -2356,7 +2356,7 @@ fn lift_api_drop_field() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Bob", "age": 30});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
     let protocol = lift_protocol();
     let lifted = mig::lift_wtype(
         &compiled,
@@ -2421,7 +2421,7 @@ fn lift_api_identity_all_fields_survive() {
 
     let compiled = mig::compile(&schema, &schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Eve", "email": "eve@example.com"});
-    let instance = inst::parse_json(&schema, "root", &record).unwrap();
+    let instance = inst::parse_json(&schema, &lift_protocol(), "root", &record).unwrap();
     let protocol = lift_protocol();
     let lifted = mig::lift_wtype(
         &compiled,
@@ -2494,7 +2494,7 @@ fn lift_api_multi_field_projection() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Dana", "email": "dana@example.com", "age": 25});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
     let protocol = lift_protocol();
     let lifted = mig::lift_wtype(
         &compiled,
@@ -2549,7 +2549,7 @@ fn lift_api_preserves_value_types() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"active": true, "name": "test"});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
     let protocol = lift_protocol();
     let lifted = mig::lift_wtype(
         &compiled,

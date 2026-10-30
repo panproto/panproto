@@ -206,10 +206,10 @@ pub fn cmd_lift(
         .clone()
     };
 
-    let instance = inst::parse_json(&src_schema, &root_vertex, &record_json)
+    let src_protocol = resolve_protocol(&src_schema.protocol)?;
+    let instance = inst::parse_json(&src_schema, &src_protocol, &root_vertex, &record_json)
         .into_diagnostic()
         .wrap_err("failed to parse record as W-type instance")?;
-    let src_protocol = resolve_protocol(&src_schema.protocol)?;
     let tgt_protocol = resolve_protocol(&tgt_schema.protocol)?;
     let protocols = inst::BoundaryProtocols {
         src: &src_protocol,

@@ -129,3 +129,55 @@ fn a_post_with_a_malformed_language_tag_fails_and_is_refused() -> TestResult {
     );
     Ok(())
 }
+
+
+#[test]
+fn probe_unknown_and_placeholder() -> TestResult {
+    let lexicon = serde_json::json!({
+        "lexicon": 1, "id": "ex.probe",
+        "defs": {"main": {"type": "record", "key": "tid", "record": {"type": "object",
+            "properties": {
+                "meta": {"type": "unknown"},
+                "subject": {"type": "ref", "ref": "com.atproto.repo.strongRef"},
+                "embed": {"type": "union", "refs": ["app.bsky.embed.images", "#local"]}
+            }}},
+            "local": {"type": "object", "properties": {"n": {"type": "integer"}}}}
+    });
+    let schema = atproto::parse_lexicon(&lexicon)?;
+    let feed = feed_post()?;
+    let protocol = atproto::protocol();
+    let registry = panproto_core::io::default_registry();
+    let recs = [
+        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","meta":{"a":1,"b":"x"}})),
+        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","meta":[1,{"z":null}]})),
+        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","embed":{"$type":"app.bsky.embed.images","images":[{"alt":"x","image":{"$type":"blob","ref":{"$link":"bafkreie"},"mimeType":"image/png","size":3}}]}})),
+        (schema.clone(), "ex.probe", serde_json::json!({"$type":"ex.probe","embed":{"$type":"ex.probe#local","n":3}})),
+        (feed.clone(), "app.bsky.feed.post", serde_json::from_slice(POSTS[3].1)?),
+    ];
+    for (schema, root, rec) in recs {
+        eprintln!("---- {rec}");
+        let bytes = serde_json::to_vec(&rec)?;
+        let io = registry.parse_wtype("atproto", &schema, &bytes);
+        match &io {
+            Ok(i) => {
+                let mut ns: Vec<_> = i.nodes.values().collect(); ns.sort_by_key(|n| n.id);
+                for n in ns { eprintln!("IO node {} @{} disc={:?} value={:?} extra={:?}", n.id, n.anchor, n.discriminator, n.value, n.extra_fields); }
+                eprintln!("IO report {:?}", validate_wtype(i, &schema, &protocol).diagnostics);
+                match registry.emit_wtype("atproto", &schema, i) {
+                    Ok(b) => eprintln!("IO emit {}", String::from_utf8_lossy(&b)),
+                    Err(e) => eprintln!("IO emit error {e}"),
+                }
+            }
+            Err(e) => eprintln!("IO parse error {e}"),
+        }
+        match panproto_core::inst::parse_json(&schema, &protocol, root, &rec) {
+            Ok(i) => {
+                eprintln!("INST report {:?}", validate_wtype(&i, &schema, &protocol).diagnostics);
+                eprintln!("INST to_json {}", panproto_core::inst::to_json(&schema, &i));
+                if let Ok(io) = &io { eprintln!("AGREE {}", serde_json::to_value(io)? == serde_json::to_value(&i)?); }
+            }
+            Err(e) => eprintln!("INST parse error {e}"),
+        }
+    }
+    panic!("probe");
+}

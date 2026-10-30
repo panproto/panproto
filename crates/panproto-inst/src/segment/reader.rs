@@ -1,6 +1,6 @@
 //! Reading canonical bytes back.
 //!
-//! [`Reader`] is the inverse of the [`CanonicalSink`](crate::CanonicalSink)
+//! [`Reader`] is the inverse of the [`CanonicalSink`]
 //! encoders for the records a segment holds. It checks every length against
 //! the bytes left, so a corrupt count cannot make it allocate more than the
 //! input could hold, and every value it builds through the value types' own
@@ -226,7 +226,7 @@ impl<'a> Reader<'a> {
         Ok(map)
     }
 
-    /// An instance value, as [`CanonicalSink::value`](crate::CanonicalSink::value)
+    /// An instance value, as [`CanonicalSink::value`]
     /// writes it.
     pub fn value(&mut self, depth: usize) -> Result<Value, SegmentError> {
         if depth > MAX_VALUE_DEPTH {

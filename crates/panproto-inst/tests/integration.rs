@@ -165,7 +165,7 @@ fn test_3_node_validate_and_round_trip() {
     assert_eq!(json_out["desc"], "A person");
 
     // Parse back
-    let parsed = parse_json(&schema, "obj", &json_out);
+    let parsed = parse_json(&schema, &panproto_schema::Protocol::default(), "obj", &json_out);
     assert!(parsed.is_ok(), "parse failed: {parsed:?}");
     let parsed = parsed
         .unwrap_or_else(|_| WInstance::new(HashMap::new(), vec![], vec![], 0, Name::default()));

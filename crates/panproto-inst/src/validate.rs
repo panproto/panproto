@@ -7,9 +7,9 @@
 //! with the arcs, fans well formed) are the `NodeAnchor`, `EdgeDeclared`,
 //! `EndpointCoherence`, `TreeRoot`, `TreeReachable`, `RequiredEdge`,
 //! `TreeParentMap` and `FanWellFormed` checks of
-//! [`validation`](crate::validation).
+//! [`validation`].
 //!
-//! [`validate_attributes`], defined in [`attributes`](crate::attributes),
+//! [`validate_attributes`], defined in [`attributes`],
 //! is the attribute-only projection of a tree's validation under
 //! [`Protocol::default`](panproto_schema::Protocol::default), which has no
 //! value kinds and so declares the schema's leaf edges alone. Under a

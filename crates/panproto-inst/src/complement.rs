@@ -393,7 +393,7 @@ pub fn tree_id_floor(tree: &WInstance) -> Result<u32, InstError> {
 ///
 /// The id `u32::MAX` is never returned: the floor that would follow it does
 /// not fit in a `u32`, so, as
-/// [`TreeEmbedding::allocate_node`](crate::TreeEmbedding::allocate_node)
+/// [`TreeEmbedding::allocate_node`]
 /// does for the tree's graph form, allocation reports exhaustion there. A
 /// complement whose source holds that id records the floor `u32::MAX`, and
 /// every allocation against it fails.

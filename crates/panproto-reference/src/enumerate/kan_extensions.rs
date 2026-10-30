@@ -3908,7 +3908,7 @@ mod tests {
         assert_eq!(table_row_maps(&a, &b), expected);
         assert_eq!(table_row_maps_count(&a, &b), 4);
         // Table `c` has a row in `b` and none in `a`: no map back.
-        assert!(table_row_maps(&b, &a).is_empty());
+        assert_eq!(table_row_maps(&b, &a), Vec::<BTreeMap<u32, u32>>::new());
         assert_eq!(table_row_maps_count(&b, &a), 0);
         let empty = Table::default();
         assert_eq!(table_row_maps(&empty, &b), vec![BTreeMap::new()]);
@@ -3996,7 +3996,7 @@ mod tests {
         assert_eq!(overlap.schema(), expected);
         assert_eq!(GraphSpec::default().schema(), Schema::default());
         assert!(GraphSpec::default().table_names().is_empty());
-        assert!(GraphSpec::default().inner_edges().is_empty());
+        assert_eq!(GraphSpec::default().inner_edges(), Vec::<SEdge>::new());
     }
 
     #[test]
@@ -4046,7 +4046,7 @@ mod tests {
                 .map(|value| CellForm::Leaf(Presence::Present(value.clone())))
                 .collect::<Vec<_>>()
         );
-        assert!(leaf_forms(&[]).is_empty());
+        assert_eq!(leaf_forms(&[]), Vec::<CellForm>::new());
         assert_eq!(o7_encoding_forms(), encoding_forms());
         assert_eq!(o7_encoding_forms().len(), 7);
         assert!(distinct(&o7_encoding_forms()));

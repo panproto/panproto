@@ -172,10 +172,11 @@ fn register_diagrams<S: ::std::hash::BuildHasher>(
 /// and edges for structural relationships (properties, array items,
 /// union variants, references).
 ///
-/// A `$ref` to a def in another lexicon document resolves to an opaque
-/// `"ref"`-kind placeholder vertex, because this entry point sees only
-/// the one document. To resolve refs across a set of documents, use
-/// [`parse_lexicon_bundle`].
+/// A `$ref` to a def in another lexicon document resolves to an
+/// `"unknown"`-kind placeholder vertex, because this entry point sees
+/// only the one document: the placeholder holds the referenced data as
+/// one opaque value of any shape, as a Lexicon `unknown` field does. To
+/// resolve refs across a set of documents, use [`parse_lexicon_bundle`].
 ///
 /// # Errors
 ///
@@ -191,7 +192,7 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 /// Every document's defs are registered as vertices before any
 /// document's structure is parsed, so a `nsid#frag` ref into a *sibling*
 /// document lands on that def's real, typed vertex instead of on an
-/// opaque `"ref"` placeholder. A ref whose target is in no document of
+/// opaque `"unknown"` placeholder. A ref whose target is in no document of
 /// the bundle still becomes a placeholder, which is what marks it as
 /// genuinely external.
 ///
@@ -646,8 +647,8 @@ fn resolve_ref_target(lexicon_id: &str, ref_target: &str) -> String {
 }
 
 /// Emit the structural morphism for a `ref` property: resolve the
-/// target, ensure a placeholder vertex exists for cross-lexicon
-/// targets, and add a `ref` edge `src_vertex_id --ref--> resolved`.
+/// target, ensure a placeholder vertex exists for a target no parsed
+/// document defines, and add a `ref` edge `src_vertex_id --ref--> resolved`.
 ///
 /// Keeps the signature of the schema graph complete: every semantic
 /// reference in the lexicon becomes an edge in `C_S`, so the referenced
@@ -661,13 +662,14 @@ fn add_ref_edge(
 ) -> Result<SchemaBuilder, ProtocolError> {
     let resolved = resolve_ref_target(lexicon_id, ref_target);
 
-    // Ensure the target vertex exists. Cross-lexicon refs and forward
-    // refs to yet-unparsed defs need a placeholder; mirrors how
-    // `parse_union_def` handles unresolved variants. Using `"ref"` kind
-    // for placeholders marks them as opaque pointers rather than
-    // typed structures.
+    // Every def of every parsed document is registered before any ref
+    // is added, so a missing target is defined in no parsed document.
+    // Its shape is unknown here, so the placeholder is an `"unknown"`
+    // vertex: a record's data at it is one opaque value of any shape,
+    // exactly as at a Lexicon `unknown` field. A non-scalar kind would
+    // leave that data no declared place to go.
     if !builder.has_vertex(&resolved) {
-        builder = builder.vertex(&resolved, "ref", None)?;
+        builder = builder.vertex(&resolved, "unknown", None)?;
     }
 
     builder = builder.edge(src_vertex_id, &resolved, "ref", None)?;
@@ -1848,7 +1850,7 @@ mod tests {
     }
 
     /// Parsing one document alone leaves its cross-document ref target
-    /// an opaque `"ref"` placeholder: this is the behavior
+    /// an opaque `"unknown"` placeholder: this is the behavior
     /// `parse_lexicon_bundle` exists to improve on.
     #[test]
     #[allow(clippy::expect_used)]
@@ -1858,7 +1860,7 @@ mod tests {
 
         let anchor_def = &schema.vertices["pub.layers.defs#spatioTemporalAnchor"];
         assert_eq!(
-            &*anchor_def.kind, "ref",
+            &*anchor_def.kind, "unknown",
             "a lone document cannot type its cross-file ref target"
         );
     }
@@ -1911,7 +1913,7 @@ mod tests {
 
         assert_eq!(
             &*schema.vertices["pub.layers.defs#spatioTemporalAnchor"].kind,
-            "ref"
+            "unknown"
         );
     }
 

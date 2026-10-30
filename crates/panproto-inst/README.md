@@ -24,7 +24,7 @@ use panproto_inst::{parse_json, to_json};
 use serde_json::json;
 
 let input = json!({ "name": "Ada" });
-let instance = parse_json(&schema, "user", &input)?;
+let instance = parse_json(&schema, &protocol, "user", &input)?;
 let output = to_json(&schema, &instance);
 ```
 
@@ -32,8 +32,10 @@ let output = to_json(&schema, &instance);
 
 `Instance` has three variants. `WInstance` stores a rooted tree with nodes, arcs, and hyperedge fans. `FInstance` stores tables and foreign-key row pairs. `GInstance` stores a general directed multigraph with no required root: nodes keyed by id and edges keyed by `EdgeId`, each edge a `GEdge` carrying its endpoints, its schema edge and an optional position. Its tables are private and change only through methods that keep the adjacency indices in step. `GInstance::from_wtype` and `to_wtype` move a tree into a graph and back without loss, reifying each hyperedge fan as a node of shape `NodeShape::HyperEdge` (`reify_fans`, `unreify_fans`); `GInstance::from_finstance` lays tables out as rows and foreign-key edges; `to_node_link_json` and `from_node_link_json` give the node-link JSON form. The `AcsetOps` trait and the methods on `Instance` dispatch to the shape-specific implementations.
 
-`parse_json(schema, root_vertex, value)` and `to_json(schema, instance)` convert
-between JSON values and `WInstance`. `validate_wtype(instance, schema, protocol)`
+`parse_json(schema, protocol, root_vertex, value)` and `to_json(schema, instance)`
+convert between JSON values and `WInstance`. The protocol classifies the schema's
+vertex kinds, so an object or array at a vertex whose kind holds any value is read
+as that node's one value. `validate_wtype(instance, schema, protocol)`
 returns a `ValidationReport`; inspect its status, diagnostics, incomplete checks,
 and coverage rather than treating validation as a list of structural strings.
 

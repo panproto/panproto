@@ -31,7 +31,7 @@
 //! empty. A range ending below `u32::MAX` hands out its own `hi`.
 //!
 //! Whole-state execution uses one allocator over [`IdRange::FULL`] per id
-//! kind. Its floor is then the [`IdFloor`](crate::IdFloor) component of the
+//! kind. Its floor is then the [`IdFloor`] component of the
 //! source (the maximum id plus one, saturating at `u32::MAX`, and 0 for an
 //! empty source), and its fresh ids are the ones the whole-state rule
 //! gives. A segment allocates from the ranges its partition assigns it

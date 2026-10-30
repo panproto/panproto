@@ -168,7 +168,10 @@ mod tests {
             right: &protocol,
         };
         let middle = FInstance::default();
-        assert!(verify_complement_coherence(&symmetric, &middle, &context).is_empty());
+        assert_eq!(
+            verify_complement_coherence(&symmetric, &middle, &context),
+            [] as [crate::symmetric::CoherenceViolation; 0]
+        );
         check_symmetric_laws(&symmetric, &middle, &context).unwrap();
     }
 

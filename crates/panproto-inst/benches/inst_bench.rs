@@ -240,7 +240,7 @@ fn parse_json_flat_fields(bencher: Bencher, n: usize) {
     }
     let json_val = serde_json::Value::Object(obj);
 
-    bencher.bench(|| parse_json(&schema, "root", &json_val));
+    bencher.bench(|| parse_json(&schema, &panproto_schema::Protocol::default(), "root", &json_val));
 }
 
 #[divan::bench(args = [3, 10, 20])]
@@ -299,7 +299,7 @@ fn parse_json_nested_objects(bencher: Bencher, depth: usize) {
         json_val = serde_json::Value::Object(obj);
     }
 
-    bencher.bench(|| parse_json(&schema, "root", &json_val));
+    bencher.bench(|| parse_json(&schema, &panproto_schema::Protocol::default(), "root", &json_val));
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +407,7 @@ fn wtype_restrict_identity(bencher: Bencher) {
         "text": "hello world",
         "createdAt": "2024-01-01"
     });
-    let instance = parse_json(&schema, "body", &json_val).expect("parse should succeed");
+    let instance = parse_json(&schema, &panproto_schema::Protocol::default(), "body", &json_val).expect("parse should succeed");
 
     let compiled = CompiledMigration {
         surviving_verts: HashSet::from([

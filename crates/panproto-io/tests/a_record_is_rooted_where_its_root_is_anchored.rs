@@ -57,6 +57,7 @@ fn the_codec_and_the_schema_parse_read_a_record_alike() {
         .expect("the codec parses the record");
     let through_schema = panproto_inst::parse_json(
         &schema,
+        &panproto_protocols::atproto::protocol(),
         "app.bsky.feed.post",
         &serde_json::from_slice(&bytes).expect("the record is JSON"),
     )

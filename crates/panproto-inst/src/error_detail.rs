@@ -248,7 +248,9 @@ pub enum KeyRefusal {
 impl From<KeyingError> for KeyRefusal {
     fn from(error: KeyingError) -> Self {
         match error {
-            KeyingError::UnsupportedCollation(collation) => Self::UnsupportedCollation { collation },
+            KeyingError::UnsupportedCollation(collation) => {
+                Self::UnsupportedCollation { collation }
+            }
             KeyingError::EqualityArity { expected, found } => {
                 Self::EqualityArity { expected, found }
             }

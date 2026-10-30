@@ -612,7 +612,7 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
 
         let src_root = find_root(root_vertex, &src_schema)?;
-        let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+        let instance = inst::parse_json(&src_schema, &super::helpers::protocol_of(&src_schema), &src_root, &json_value).map_err(|e| {
             WasmError::ParseFailed {
                 reason: e.to_string(),
             }
@@ -665,7 +665,7 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
         slab::with_resource(migration, extract_migration_owned)?;
 
     let src_root = find_root(root_vertex, &src_schema)?;
-    let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
+    let instance = inst::parse_json(&src_schema, &super::helpers::protocol_of(&src_schema), &src_root, &json_value).map_err(|e| {
         WasmError::ParseFailed {
             reason: e.to_string(),
         }
@@ -724,7 +724,7 @@ pub fn put_json(
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+        let view_instance = inst::parse_json(&tgt_schema, &super::helpers::protocol_of(&tgt_schema), &tgt_root, &view_json).map_err(|e| {
             WasmError::ParseFailed {
                 reason: e.to_string(),
             }
@@ -785,7 +785,7 @@ pub fn put_json_without_complement(
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
+        let view_instance = inst::parse_json(&tgt_schema, &super::helpers::protocol_of(&tgt_schema), &tgt_root, &view_json).map_err(|e| {
             WasmError::ParseFailed {
                 reason: e.to_string(),
             }

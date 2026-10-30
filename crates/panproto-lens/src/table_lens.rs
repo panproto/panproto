@@ -14,9 +14,8 @@ use panproto_inst::identity::{
 use panproto_inst::{
     BoundaryProtocols, CellFate, CellPlan, CheckKind, EntityFunctor, FInstance, FieldTransform,
     IdAllocator, IdRange, IncompleteReason, InstError, KeyRefusal, PairResolution,
-    PredicateRefusal, PutDomainError,
-    RestrictError, RestrictPlan, Row, RowId, SchemaRef, TableComplement, Value, ViewRef, Violation,
-    functor_restrict_with_plan, validate_table,
+    PredicateRefusal, PutDomainError, RestrictError, RestrictPlan, Row, RowId, SchemaRef,
+    TableComplement, Value, ViewRef, Violation, functor_restrict_with_plan, validate_table,
 };
 use panproto_schema::{ConstraintValue, Edge, Protocol, ScalarKind, Schema};
 

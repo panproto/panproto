@@ -261,7 +261,7 @@ fn a_nonnullable_many_reference_does_not_guard_an_fk_lift() {
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
             guard: None,
-            null_match: Default::default(),
+            null_match: panproto_schema::NullMatch::default(),
             null_vertex: None,
             scope_via: None,
         },

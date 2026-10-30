@@ -842,8 +842,6 @@ impl RestrictPlan {
     /// The errors of the transforms ([`apply_field_transforms`]), and
     /// [`RestrictError::ValueFidelity`] for the least written key whose
     /// value the column cannot hold exactly.
-    ///
-    /// [`apply_field_transforms`]: crate::wtype::apply_field_transforms
     pub(crate) fn transform(
         &self,
         node: &mut Node,

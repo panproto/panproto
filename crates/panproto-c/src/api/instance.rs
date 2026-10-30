@@ -146,7 +146,12 @@ pub fn pp_inst_json_to_instance(
                     })?
             };
 
-            inst::parse_json(schema, &root, &json_value)
+            inst::parse_json(
+                schema,
+                &crate::api::helpers::protocol_for_schema(schema),
+                &root,
+                &json_value,
+            )
                 .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))
         })?;
 

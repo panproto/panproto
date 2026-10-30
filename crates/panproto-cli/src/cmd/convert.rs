@@ -77,7 +77,12 @@ pub fn cmd_convert(
     // Helper closure to convert a single record.
     let convert_one = |data_json: &serde_json::Value| -> Result<String> {
         let root_vertex = infer_root_vertex(forward_schema)?;
-        let instance = inst::parse_json(forward_schema, root_vertex.as_str(), data_json)
+        let instance = inst::parse_json(
+            forward_schema,
+            &super::helpers::schema_protocol(forward_schema),
+            root_vertex.as_str(),
+            data_json,
+        )
             .into_diagnostic()
             .wrap_err("failed to parse data as W-type instance")?;
 

@@ -1461,13 +1461,18 @@ fn lift_records(
         });
     }
 
+    // An unknown protocol classifies no vertex kind, so the parse reads
+    // every object and array as structure; validation then refuses the
+    // record for the unknown protocol unless verification is skipped.
+    let unclassified = Protocol::default();
+    let parse_protocol = protocol.unwrap_or(&unclassified);
     let mut instances = Vec::with_capacity(records.len());
     for (i, record) in records.iter().enumerate() {
         let mut accepted = None;
         let mut rejections: Vec<String> = Vec::with_capacity(roots.len());
 
         for root in &roots {
-            match panproto_inst::parse_json(schema, root.as_str(), record) {
+            match panproto_inst::parse_json(schema, parse_protocol, root.as_str(), record) {
                 Err(e) => rejections.push(format!("at {root}: {e}")),
                 Ok(instance) => {
                     let reasons = if skip_verify {

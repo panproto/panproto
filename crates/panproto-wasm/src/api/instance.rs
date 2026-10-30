@@ -427,7 +427,7 @@ pub fn json_to_instance_with_root(
     };
 
     let instance =
-        inst::parse_json(&schema, &root, &json_value).map_err(|e| WasmError::ParseFailed {
+        inst::parse_json(&schema, &super::helpers::protocol_of(&schema), &root, &json_value).map_err(|e| WasmError::ParseFailed {
             reason: e.to_string(),
         })?;
 

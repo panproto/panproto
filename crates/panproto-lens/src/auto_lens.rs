@@ -2177,7 +2177,7 @@ mod tests {
             ..Default::default()
         };
         let source =
-            panproto_inst::parse_json(&src, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&src, &protocol, "root", &serde_json::json!({"name": "Ada"})).unwrap();
 
         let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let (view, _) = crate::get(&generated.lens, &source).unwrap();
@@ -2218,7 +2218,7 @@ mod tests {
             ..Default::default()
         };
         let source =
-            panproto_inst::parse_json(&src, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&src, &protocol, "root", &serde_json::json!({"name": "Ada"})).unwrap();
 
         let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let (view, _) = crate::get(&generated.lens, &source).unwrap();
