@@ -1699,12 +1699,56 @@ pub mod edit {
         delta
     }
 
+    /// The node ids of a tree state with whether each holds a fan node:
+    /// every tree node, and the node of every embedded fan.
+    fn node_classes<I: TreeId>(
+        tree: &crate::model::Tree,
+        embedding: &crate::encode::TreeEmbedding<I>,
+    ) -> BTreeMap<I, bool> {
+        tree.nodes
+            .keys()
+            .map(|id| (I::from(*id), false))
+            .chain(embedding.fans.iter().map(|(node, _, _)| (*node, true)))
+            .collect()
+    }
+
+    /// `delta` with node `id` read as a replacement from its payload in
+    /// `before` to its payload in `after`, with no attribute change of its
+    /// own.
+    fn replacing_node(delta: &mut GraphDelta, before: &Graph, after: &Graph, id: u32) {
+        delta
+            .attrs
+            .retain(|key, _| GraphSpace::owner(key) != GElem::Node(id));
+        delta
+            .del
+            .insert(GElem::Node(id), GPayload::Node(before.nodes[&id].clone()));
+        delta
+            .add
+            .insert(GElem::Node(id), GPayload::Node(after.nodes[&id].clone()));
+    }
+
     /// Lower `edit` step by step: apply the whole edit first (so a refusal
-    /// is the edit's), then replay its flattened steps, take each step's
-    /// [`tree_step_delta`] between the graph forms `graph_of` builds, and
-    /// compose them left to right. `Ok(None)` when some intermediate graph
-    /// form does not exist. On success `embedding` becomes the one the edit
-    /// reaches; on every error it is unchanged.
+    /// is the edit's), then replay its flattened steps and read off the
+    /// left-to-right composite of their [`tree_step_delta`]s from the graph
+    /// forms of the start and end states alone.
+    ///
+    /// The composite is the differ of those two graphs, except at a node id
+    /// both graphs hold whose identity breaks during the run: some step
+    /// leaves it out (a tree node deleted and inserted again) or moves it
+    /// between a fan node and a tree node (a fan relocated from under a new
+    /// tree node). By the E.1 case table such an id composes to a
+    /// replacement (`Del` then `Add`, or a step replacement, followed by any
+    /// actions, is `Repl` from the first payload to the last), every other
+    /// id held by both graphs to the attribute changes the differ reports,
+    /// an id held by one graph only to its deletion or addition, and an id
+    /// held by neither to nothing. Edge ids are drawn from a monotone floor
+    /// and never reused, so no edge breaks this way. The intermediate graph
+    /// forms are never built, so an id beyond `u32` that a step allocates
+    /// and a later step removes does not prevent the lowering.
+    ///
+    /// `Ok(None)` when the start or end graph form does not exist. On
+    /// success `embedding` becomes the one the edit reaches; on every error
+    /// it is unchanged.
     fn lower_tree_steps<I: TreeId>(
         tree: &crate::model::Tree,
         embedding: &mut crate::encode::TreeEmbedding<I>,
@@ -1712,39 +1756,41 @@ pub mod edit {
         graph_of: impl Fn(&crate::model::Tree, &crate::encode::TreeEmbedding<I>) -> Option<Graph>,
     ) -> Result<Option<GraphDelta>, TreeApplyError> {
         let mut reached = embedding.clone();
-        apply_tree_in(edit, tree, &mut reached)?;
+        let after_tree = apply_tree_in(edit, tree, &mut reached)?;
         // The steps replay the run `apply_tree_in` has just accepted, so
         // none of them refuses and the replay reaches `reached`.
         let mut current = tree.clone();
         let mut followed = embedding.clone();
-        let mut graph = graph_of(&current, &followed);
-        let mut net = Some(GraphDelta::identity());
+        let mut classes = node_classes(&current, &followed);
+        let mut broken = BTreeSet::new();
         for step in edit.steps() {
             apply_tree_step(step, &mut current, &mut followed)?;
-            let stepped = graph_of(&current, &followed);
-            net =
-                match (net, &graph, &stepped) {
-                    (Some(prefix), Some(before), Some(after)) => {
-                        // Each step delta applies to the state the steps before
-                        // it reach, so the composite of applicable deltas is
-                        // defined at every element (E.1 case table): a deletion
-                        // or replacement reads the payload its predecessor
-                        // wrote, an addition takes an id absent there, and an
-                        // attribute change reads the value written before it.
-                        // A mismatch would mean the graph forms do not chain,
-                        // and is reported as a typed refusal, never a panic.
-                        Some(prefix.compose(&tree_step_delta(before, after)).map_err(
-                            |mismatch| TreeApplyError::NotTreeEdit {
-                                reason: format!("step deltas do not compose at {mismatch:?}"),
-                            },
-                        )?)
-                    }
-                    _ => None,
-                };
-            graph = stepped;
+            let next = node_classes(&current, &followed);
+            broken.extend(
+                classes
+                    .iter()
+                    .filter(|(id, fan)| next.get(id) != Some(fan))
+                    .map(|(id, _)| *id),
+            );
+            classes = next;
         }
+        let lowered = graph_of(tree, embedding)
+            .zip(graph_of(&after_tree, &reached))
+            .map(|(before, after)| {
+                let mut delta = diff(&before, &after);
+                let replaced: Vec<u32> = before
+                    .nodes
+                    .keys()
+                    .filter(|id| after.nodes.contains_key(id) && broken.contains(&I::from(**id)))
+                    .copied()
+                    .collect();
+                for id in replaced {
+                    replacing_node(&mut delta, &before, &after, id);
+                }
+                delta
+            });
         *embedding = reached;
-        Ok(net)
+        Ok(lowered)
     }
 
     /// Definition: Lower a tree edit to its exact graph delta.
@@ -2356,6 +2402,247 @@ pub mod edit {
                 .eq(delta.attrs.keys())
     }
 
+    /// A node of an added part, named up to the renaming of fresh fan
+    /// nodes: a node id the delta does not allocate, or the rank of a fresh
+    /// fan node among the delta's fresh fan nodes.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum AddedNode {
+        Fixed(u32),
+        Fresh(usize),
+    }
+
+    /// An added element, named up to the renaming of fresh ids: a node, an
+    /// edge whose id the delta does not allocate, or a fresh edge by its
+    /// named endpoints and label.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum AddedKey {
+        Node(AddedNode),
+        Edge(u32),
+        FreshEdge(AddedNode, AddedNode, SEdge),
+    }
+
+    /// An added payload with its fresh ids named: a node with a fresh
+    /// fan node's id cleared, or an edge's named endpoints, label and
+    /// position.
+    type AddedPayload = (
+        Option<Node>,
+        Option<(AddedNode, AddedNode, SEdge, Option<u32>)>,
+    );
+
+    /// The added part of `delta` with its fresh ids named: a fan node at or
+    /// above the node floor and an edge at or above the edge floor are the
+    /// ids the delta allocates. Two deltas with equal deleted and attribute
+    /// parts and equal named additions differ by a bijective renaming of
+    /// those ids. `None` when two added elements get one name, or a fresh
+    /// fan node is filed under another id.
+    fn named_additions(
+        delta: &GraphDelta,
+        node_floor: u32,
+        edge_floor: u32,
+    ) -> Option<BTreeMap<AddedKey, AddedPayload>> {
+        let fresh: Vec<u32> = delta
+            .add
+            .iter()
+            .filter_map(|(element, payload)| match (element, payload) {
+                (GElem::Node(id), GPayload::Node(node))
+                    if node.shape == NodeShape::HyperEdge && *id >= node_floor =>
+                {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .collect();
+        let name = |id: u32| {
+            fresh
+                .iter()
+                .position(|fan| *fan == id)
+                .map_or(AddedNode::Fixed(id), AddedNode::Fresh)
+        };
+        let mut named = BTreeMap::new();
+        for (element, payload) in &delta.add {
+            let (key, value) = match (element, payload) {
+                (GElem::Node(id), GPayload::Node(node)) => {
+                    let mut node = node.clone();
+                    if matches!(name(*id), AddedNode::Fresh(_)) {
+                        if node.id != *id {
+                            return None;
+                        }
+                        node.id = 0;
+                    }
+                    (AddedKey::Node(name(*id)), (Some(node), None))
+                }
+                (GElem::Edge(id), GPayload::Edge(edge)) => {
+                    let (src, tgt) = (name(edge.src), name(edge.tgt));
+                    let key = if *id >= edge_floor {
+                        AddedKey::FreshEdge(src, tgt, edge.label.clone())
+                    } else {
+                        AddedKey::Edge(*id)
+                    };
+                    (key, (None, Some((src, tgt, edge.label.clone(), edge.position))))
+                }
+                _ => return None,
+            };
+            if named.insert(key, value).is_some() {
+                return None;
+            }
+        }
+        Some(named)
+    }
+
+    /// `reached`, the embedding of `tree`, with every fan node id at or
+    /// above `embedding.next_node` and every edge id at or above
+    /// `embedding.next_edge` renamed, in ascending order, to the least ids
+    /// from those floors that no tree node of `tree` holds: the same
+    /// carriers up to a renaming that keeps the order of the ids allocated.
+    /// The floors become the ids after the last one renamed, or `u32::MAX`
+    /// when they pass it, since a graph form does not read them. `None`
+    /// when a renamed id would pass `u32::MAX`.
+    fn compact_allocated_ids(
+        tree: &crate::model::Tree,
+        reached: &crate::encode::TreeEmbedding<u128>,
+        embedding: &crate::encode::TreeEmbedding,
+    ) -> Option<crate::encode::TreeEmbedding> {
+        let node_floor = u128::from(embedding.next_node);
+        let edge_floor = u128::from(embedding.next_edge);
+        let mut nodes: Vec<u128> = reached
+            .fans
+            .iter()
+            .map(|(node, _, _)| *node)
+            .filter(|node| *node >= node_floor)
+            .collect();
+        nodes.sort_unstable();
+        let mut edges: Vec<u128> = reached
+            .arcs
+            .values()
+            .copied()
+            .chain(reached.fans.iter().flat_map(|(_, parent, children)| {
+                std::iter::once(*parent).chain(children.values().copied())
+            }))
+            .filter(|edge| *edge >= edge_floor)
+            .collect();
+        edges.sort_unstable();
+        // The ids the fresh fan nodes take: the least ids from the floor
+        // that no tree node holds.
+        let mut node_ids = Vec::with_capacity(nodes.len());
+        let mut candidate = node_floor;
+        while node_ids.len() < nodes.len() {
+            let id = u32::try_from(candidate).ok()?;
+            if !tree.nodes.contains_key(&id) {
+                node_ids.push(id);
+            }
+            candidate += 1;
+        }
+        let rename_node = |id: u128| -> Option<u32> {
+            if id >= node_floor {
+                Some(node_ids[nodes.binary_search(&id).ok()?])
+            } else {
+                u32::try_from(id).ok()
+            }
+        };
+        let rename_edge = |id: u128| -> Option<u32> {
+            let renamed = if id >= edge_floor {
+                edge_floor + u128::try_from(edges.binary_search(&id).ok()?).ok()?
+            } else {
+                id
+            };
+            u32::try_from(renamed).ok()
+        };
+        let next_node = node_ids.last().map_or(node_floor, |id| u128::from(*id) + 1);
+        Some(crate::encode::TreeEmbedding {
+            arcs: reached
+                .arcs
+                .iter()
+                .map(|(child, edge)| Some((*child, rename_edge(*edge)?)))
+                .collect::<Option<_>>()?,
+            fans: reached
+                .fans
+                .iter()
+                .map(|(node, parent, children)| {
+                    Some((
+                        rename_node(*node)?,
+                        rename_edge(*parent)?,
+                        children
+                            .iter()
+                            .map(|(label, edge)| Some((label.clone(), rename_edge(*edge)?)))
+                            .collect::<Option<_>>()?,
+                    ))
+                })
+                .collect::<Option<_>>()?,
+            next_node: u32::try_from(next_node).unwrap_or(u32::MAX),
+            next_edge: u32::try_from(edge_floor + u128::try_from(edges.len()).ok()?)
+                .unwrap_or(u32::MAX),
+        })
+    }
+
+    /// The two steps that relocate the fans of `tree` from the fan at node
+    /// `fan` on and change nothing else: a leaf inserted under the root
+    /// over that fan's node id, then deleted.
+    fn fan_relocation_steps(tree: &crate::model::Tree, fan: u32) -> [TreeEdit; 2] {
+        let root_anchor = &tree.nodes[&tree.root].anchor;
+        [
+            TreeEdit::InsertNode {
+                parent: tree.root,
+                child_id: fan,
+                node: Node::new(fan, root_anchor),
+                edge: SEdge::new(root_anchor, root_anchor, "child", None),
+            },
+            TreeEdit::DeleteNode { id: fan },
+        ]
+    }
+
+    /// The soundness law of [`tree_edit_from_graph_delta`] on one reading:
+    /// `delta` is, up to a bijective renaming of the ids it allocates, the
+    /// unbounded lowering of `reading` alone or after relocating the fans
+    /// from one fan of `embedding` on. The lowering's allocated ids are
+    /// compacted first ([`compact_allocated_ids`]), which changes nothing
+    /// up to that renaming.
+    fn delta_is_image_of_reading(
+        tree: &crate::model::Tree,
+        embedding: &crate::encode::TreeEmbedding,
+        delta: &GraphDelta,
+        reading: &TreeEdit,
+        schema: Option<&crate::schema::Schema>,
+    ) -> bool {
+        let Some(expected) = named_additions(delta, embedding.next_node, embedding.next_edge)
+        else {
+            return false;
+        };
+        std::iter::once(Vec::new())
+            .chain(
+                embedding
+                    .fans
+                    .iter()
+                    .map(|(fan, _, _)| fan_relocation_steps(tree, *fan).to_vec()),
+            )
+            .any(|mut steps| {
+                steps.push(reading.clone());
+                let mut reached = unbounded_embedding(embedding);
+                let lowered = lower_tree_steps(
+                    tree,
+                    &mut reached,
+                    &TreeEdit::Sequence(steps),
+                    |tree, carriers| {
+                        let compacted = compact_allocated_ids(tree, carriers, embedding)?;
+                        Some(build_embedded_graph(
+                            tree,
+                            &compacted.arcs,
+                            &compacted.fans,
+                            schema,
+                        ))
+                    },
+                );
+                lowered.is_ok_and(|lowered| {
+                    lowered.is_some_and(|lowered| {
+                        lowered.del == delta.del
+                            && lowered.attrs == delta.attrs
+                            && named_additions(&lowered, embedding.next_node, embedding.next_edge)
+                                .as_ref()
+                                == Some(&expected)
+                    })
+                })
+            })
+    }
+
     fn check_graph_delta_tree_image(
         before: &Graph,
         embedding: &crate::encode::TreeEmbedding,
@@ -2708,7 +2995,14 @@ pub mod edit {
                 .add
                 .insert(GElem::Node(*id), GPayload::Node(kept.nodes[id].clone()));
         }
-        if fixed_delta_parts_match(&before_graph, delta, &lowered) {
+        // The fixed carriers match, and the whole delta, its allocated
+        // parts included, is an image of the reading: a reconstruction
+        // checks only the carriers it keeps, so without this a relocated
+        // fan whose fresh carriers differ from the relocation would read
+        // as the edit that relocates it.
+        if fixed_delta_parts_match(&before_graph, delta, &lowered)
+            && delta_is_image_of_reading(tree, embedding, delta, &edit, schema)
+        {
             Ok(edit)
         } else {
             Err(fixed_carriers_refusal())

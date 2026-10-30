@@ -4,11 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::domain::{
     PutDomainError, ViewRef, key_part_present, part_column, required_value_violations,
-    structural_required_cell_violations, uniqueness_role,
+    key_uniqueness_violations, structural_required_cell_violations, uniqueness_role,
 };
 use super::tree::TreeOperationalError;
 use crate::fan::{candidates, violations_at};
-use crate::keys;
 use crate::migration::Migration;
 use crate::model::{GEdge, Graph, Name, Node, SEdge};
 use crate::pages::representation::canonical::{ComplementShape, IdentityEnvelope};
@@ -807,15 +806,7 @@ impl GraphLens<'_> {
         for (vertex, ks) in &self.src.keys {
             for key in ks {
                 if uniqueness_role(key.role) {
-                    let (buckets, _) = keys::buckets(out, vertex, key).unwrap_or_default();
-                    for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
-                        let key_cols = key.parts.iter().map(part_column).zip(values).collect();
-                        errs.push(PutDomainError::DuplicateKey {
-                            table: vertex.clone(),
-                            key: key_cols,
-                            elems: elems.into_iter().map(ViewRef::Node).collect(),
-                        });
-                    }
+                    errs.extend(key_uniqueness_violations(out, vertex, key, ViewRef::Node));
                 }
                 if key.role != KeyRole::Primary {
                     continue;

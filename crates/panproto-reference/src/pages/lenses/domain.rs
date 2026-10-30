@@ -51,6 +51,34 @@ pub(super) fn key_part_present(
     }
 }
 
+/// The uniqueness clause of one key on a restored graph: a `DuplicateKey`
+/// for each bucket of two or more elements, or, when the keying function
+/// refuses a key tuple, the key's `KeyRefused` alone. `elem` names a
+/// graph node as an element of the view's shape.
+pub(super) fn key_uniqueness_violations(
+    graph: &Graph,
+    vertex: &Name,
+    key: &crate::schema::Key,
+    elem: impl Fn(u32) -> ViewRef,
+) -> Vec<PutDomainError> {
+    match crate::keys::buckets(graph, vertex, key) {
+        Ok((buckets, _)) => buckets
+            .into_values()
+            .filter(|(_, elems)| elems.len() > 1)
+            .map(|(values, elems)| PutDomainError::DuplicateKey {
+                table: vertex.clone(),
+                key: key.parts.iter().map(part_column).zip(values).collect(),
+                elems: elems.into_iter().map(&elem).collect(),
+            })
+            .collect(),
+        Err(reason) => vec![PutDomainError::KeyRefused {
+            table: vertex.clone(),
+            key: key.id.clone(),
+            reason,
+        }],
+    }
+}
+
 /// Compare named key values by column name and canonical value bytes.
 fn key_values_cmp(
     left: &[(String, crate::value::Value)],
@@ -169,11 +197,22 @@ pub enum PutDomainError {
         /// The refusal.
         refusal: PredicateRefusal,
     },
+    /// A uniqueness key of the restored source is undecided: the keying
+    /// function refuses the key tuple of its least such element.
+    KeyRefused {
+        /// The keyed vertex.
+        table: Name,
+        /// The key's id.
+        key: String,
+        /// The refusal.
+        reason: crate::keys::KeyingError,
+    },
 }
 
 impl PutDomainError {
     /// The report order key: the variant index, then the element (the fan
-    /// node for `MalformedFan`, the least element for `DuplicateKey`).
+    /// node for `MalformedFan`, the least element for `DuplicateKey`, none
+    /// for `KeyRefused`).
     #[must_use]
     pub fn order_key(&self) -> (u8, Option<ViewRef>) {
         match self {
@@ -189,6 +228,7 @@ impl PutDomainError {
             Self::MissingRequiredCell { elem, .. } => (9, Some(elem.clone())),
             Self::MalformedFan { node, .. } => (10, Some(ViewRef::Node(*node))),
             Self::SurvivalPredicateRefused { elem, .. } => (11, Some(elem.clone())),
+            Self::KeyRefused { .. } => (12, None),
         }
     }
 
@@ -219,6 +259,18 @@ impl PutDomainError {
                         field: right_field, ..
                     },
                 ) => left_field.cmp(right_field),
+                (
+                    Self::KeyRefused {
+                        table: left_table,
+                        key: left_key,
+                        ..
+                    },
+                    Self::KeyRefused {
+                        table: right_table,
+                        key: right_key,
+                        ..
+                    },
+                ) => left_table.cmp(right_table).then_with(|| left_key.cmp(right_key)),
                 _ => Ordering::Equal,
             })
     }

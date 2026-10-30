@@ -713,9 +713,41 @@ fn put_domain_reason(error: &PutDomainError) -> String {
             view_ref(elem),
             predicate_refusal_reason(refusal)
         ),
+        PutDomainError::KeyRefused { table, key, reason } => {
+            format!("KeyRefused {table} {key} {}", key_refusal_reason(reason))
+        }
         PutDomainError::PlanCompilation { detail } => {
             format!("PlanCompilation {detail}")
         }
+    }
+}
+
+fn key_refusal_reason(reason: &panproto_inst::KeyRefusal) -> String {
+    use panproto_inst::KeyRefusal;
+    match reason {
+        KeyRefusal::UnsupportedCollation { collation } => {
+            format!("UnsupportedCollation {collation}")
+        }
+        KeyRefusal::EqualityArity { expected, found } => {
+            format!("EqualityArity {expected} {found}")
+        }
+        KeyRefusal::InvalidNumericRepresentation { kind } => {
+            format!("InvalidNumericRepresentation {kind}")
+        }
+        KeyRefusal::NoCanonicalBytes => "NoCanonicalBytes".to_owned(),
+    }
+}
+
+fn ref_key_refusal_reason(reason: &panproto_reference::keys::KeyingError) -> String {
+    use panproto_reference::keys::KeyingError;
+    match reason {
+        KeyingError::UnsupportedCollation(collation) => {
+            format!("UnsupportedCollation {collation}")
+        }
+        KeyingError::EqualityArity { expected, found } => {
+            format!("EqualityArity {expected} {found}")
+        }
+        KeyingError::NoCanonicalBytes => "NoCanonicalBytes".to_owned(),
     }
 }
 
@@ -773,6 +805,9 @@ fn ref_put_domain_reason_with(
             elem_reason(elem),
             ref_predicate_refusal_reason(refusal)
         ),
+        R::KeyRefused { table, key, reason } => {
+            format!("KeyRefused {table} {key} {}", ref_key_refusal_reason(reason))
+        }
     }
 }
 
@@ -2099,6 +2134,12 @@ fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
             Vec::new(),
         ),
         (
+            "null value",
+            value_key("k", KeyRole::Unique, KeyScope::Global, Vec::new()),
+            vec![Some(RefValue::Null), Some(RefValue::Null)],
+            Vec::new(),
+        ),
+        (
             "primary key without a value",
             value_key("k", KeyRole::Primary, KeyScope::Global, Vec::new()),
             vec![Some(RefValue::Int(1)), None],
@@ -2111,10 +2152,17 @@ fn graph_put_key_clause_agrees_with_the_reference_on_declared_semantics() {
             vec![("b", "a")],
         ),
     ];
+    let mut disagreements = Vec::new();
     for (what, key, values, edges) in cases {
         let pair = keyed_graph_pair(&["a", "b"], &edges, vec![key]);
-        let _ = agreed_graph_put_domain(&pair, &valued_a_nodes(&values), what);
+        let source = valued_a_nodes(&values);
+        let production = production_put(&pair, &source, &source);
+        let reference = reference_strict_put(&pair, &source, &source);
+        if production != reference {
+            disagreements.push(format!("{what}: {production:?} != {reference:?}"));
+        }
     }
+    assert!(disagreements.is_empty(), "{disagreements:#?}");
 }
 
 fn assert_graph_malformed_fan_domain_family() -> u16 {

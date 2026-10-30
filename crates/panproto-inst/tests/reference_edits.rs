@@ -2074,6 +2074,7 @@ fn e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum JoinRefusalObs {
     NodeNotFound(u32),
+    RootOperation(u32),
     Rejected,
     Cycle { node: u32, parent: u32 },
 }
@@ -2081,9 +2082,9 @@ enum JoinRefusalObs {
 fn reference_join_refusal(error: &reference::TreeApplyError) -> JoinRefusalObs {
     match error {
         reference::TreeApplyError::NodeNotFound(id) => JoinRefusalObs::NodeNotFound(*id),
+        reference::TreeApplyError::RootOperation(id) => JoinRefusalObs::RootOperation(*id),
         reference::TreeApplyError::MisfiledNode { .. }
-        | reference::TreeApplyError::InvalidJoin(_)
-        | reference::TreeApplyError::RootOperation(_) => JoinRefusalObs::Rejected,
+        | reference::TreeApplyError::InvalidJoin(_) => JoinRefusalObs::Rejected,
         reference::TreeApplyError::Cycle { node, parent } => JoinRefusalObs::Cycle {
             node: *node,
             parent: *parent,
@@ -2095,6 +2096,7 @@ fn reference_join_refusal(error: &reference::TreeApplyError) -> JoinRefusalObs {
 fn production_join_refusal(error: &EditError) -> JoinRefusalObs {
     match error {
         EditError::NodeNotFound(id) => JoinRefusalObs::NodeNotFound(*id),
+        EditError::RootOperation(id) => JoinRefusalObs::RootOperation(*id),
         EditError::ApplyFailed(_) => JoinRefusalObs::Rejected,
         EditError::CycleDetected {
             node_id,
@@ -2117,9 +2119,8 @@ fn tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged() {
     let expected_refusal = |name: &str| match name {
         "joined-ancestor" => JoinRefusalObs::Cycle { node: 1, parent: 3 },
         "missing-primary" | "missing-joined" => JoinRefusalObs::NodeNotFound(9),
-        "joined-root" | "repeated-joined" | "joined-primary" | "misfiled-product" => {
-            JoinRefusalObs::Rejected
-        }
+        "joined-root" => JoinRefusalObs::RootOperation(0),
+        "repeated-joined" | "joined-primary" | "misfiled-product" => JoinRefusalObs::Rejected,
         other => panic!("unexpected refusal case {other}"),
     };
     let mut refusals = 0usize;

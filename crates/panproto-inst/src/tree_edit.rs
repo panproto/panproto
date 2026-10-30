@@ -536,9 +536,7 @@ fn apply_join_features(
             )));
         }
         if jid == instance.root {
-            return Err(EditError::ApplyFailed(format!(
-                "the root node {jid} cannot be joined into node {primary}"
-            )));
+            return Err(EditError::RootOperation(jid));
         }
         if !seen.insert(jid) {
             return Err(EditError::ApplyFailed(format!(

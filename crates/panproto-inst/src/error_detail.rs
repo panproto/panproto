@@ -21,6 +21,7 @@ use crate::error::RestrictError;
 use crate::fan_violation::FanViolation;
 use crate::graph_edit::EditConflict;
 use crate::identity::{IdentityField, LegacyRejectReason};
+use crate::key::KeyingError;
 use crate::segment::{ErrorKey, Residual, SegmentError};
 use crate::validation::ValidationReport;
 use crate::value::Value;
@@ -162,6 +163,40 @@ pub enum PutDomainError {
         /// Why the predicate gives no verdict.
         refusal: PredicateRefusal,
     },
+    /// A declared uniqueness key of the restored source is undecided: the
+    /// shared keying kernel refuses the value of one of its elements, so
+    /// the key's equality, and with it the key's `DuplicateKey` verdict, is
+    /// undefined.
+    ///
+    /// The reason is the kernel's refusal at the least element (in the
+    /// shape's element order) whose complete key tuple it refuses, at that
+    /// tuple's first refused part. The key then reports no duplicates.
+    ///
+    /// ```
+    /// use panproto_inst::{KeyRefusal, PutDomainError};
+    ///
+    /// let e = PutDomainError::KeyRefused {
+    ///     table: "item".into(),
+    ///     key: "by-value".into(),
+    ///     reason: KeyRefusal::NoCanonicalBytes,
+    /// };
+    /// let json = serde_json::to_string(&e).unwrap();
+    /// assert_eq!(
+    ///     json,
+    ///     r#"{"key_refused":{"table":"item","key":"by-value","reason":"no_canonical_bytes"}}"#,
+    /// );
+    /// assert_eq!(serde_json::from_str::<PutDomainError>(&json).unwrap(), e);
+    /// assert_eq!(e.variant_index(), 12);
+    /// ```
+    #[error("key {key} of {table} is undecided: {reason}")]
+    KeyRefused {
+        /// The keyed vertex (or table).
+        table: Name,
+        /// The key's id.
+        key: Name,
+        /// Why the keying kernel refuses.
+        reason: KeyRefusal,
+    },
     /// The migration cannot be compiled into an executable restrict plan.
     ///
     /// A plan failure is a property of the lens rather than of one view,
@@ -173,6 +208,58 @@ pub enum PutDomainError {
         /// Stable display form of the restrict-plan compilation error.
         detail: String,
     },
+}
+
+/// Why the keying kernel refuses a declared key: the serializable form of
+/// [`KeyingError`].
+///
+/// Serialized externally tagged in `snake_case`, with the derives of
+/// [`PutDomainError`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyRefusal {
+    /// A text value requires a collation whose kernel panproto does not
+    /// evaluate.
+    #[error("unsupported collation {collation}")]
+    UnsupportedCollation {
+        /// The named collation.
+        collation: Name,
+    },
+    /// The key's nonempty equality vector has the wrong arity.
+    #[error("expected {expected} key parts, found {found}")]
+    EqualityArity {
+        /// Number of key parts.
+        expected: usize,
+        /// Number of equality declarations.
+        found: usize,
+    },
+    /// A carried numeric value violates its representation's invariant.
+    #[error("invalid {kind} numeric representation")]
+    InvalidNumericRepresentation {
+        /// The numeric representation.
+        kind: String,
+    },
+    /// A keyed value has no canonical bytes: it is, or contains, a
+    /// temporal value outside the admitted carrier.
+    #[error("a keyed value has no canonical bytes")]
+    NoCanonicalBytes,
+}
+
+impl From<KeyingError> for KeyRefusal {
+    fn from(error: KeyingError) -> Self {
+        match error {
+            KeyingError::UnsupportedCollation(collation) => Self::UnsupportedCollation { collation },
+            KeyingError::EqualityArity { expected, found } => {
+                Self::EqualityArity { expected, found }
+            }
+            KeyingError::InvalidNumericRepresentation { kind } => {
+                Self::InvalidNumericRepresentation {
+                    kind: kind.to_owned(),
+                }
+            }
+            KeyingError::NoCanonicalBytes => Self::NoCanonicalBytes,
+        }
+    }
 }
 
 /// Why a survival predicate gives neither `true` nor `false` at an element.
@@ -239,7 +326,8 @@ impl PutDomainError {
             Self::MissingRequiredCell { .. } => 9,
             Self::MalformedFan { .. } => 10,
             Self::SurvivalPredicateRefused { .. } => 11,
-            Self::PlanCompilation { .. } => 12,
+            Self::KeyRefused { .. } => 12,
+            Self::PlanCompilation { .. } => 13,
         }
     }
 
@@ -297,7 +385,7 @@ impl PutDomainError {
             | Self::SurvivalPredicateRefused { elem, .. } => Some(elem.clone()),
             Self::DuplicateKey { elems, .. } => elems.iter().min().cloned(),
             Self::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
-            Self::PlanCompilation { .. } => None,
+            Self::KeyRefused { .. } | Self::PlanCompilation { .. } => None,
         }
     }
 
@@ -325,6 +413,20 @@ impl PutDomainError {
                     field: right_field, ..
                 },
             ) => left_field.cmp(right_field),
+            (
+                Self::KeyRefused {
+                    table: left_table,
+                    key: left_key,
+                    ..
+                },
+                Self::KeyRefused {
+                    table: right_table,
+                    key: right_key,
+                    ..
+                },
+            ) => left_table
+                .cmp(right_table)
+                .then_with(|| left_key.cmp(right_key)),
             _ => Ordering::Equal,
         }
     }

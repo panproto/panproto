@@ -4928,6 +4928,53 @@ fn words_up_to_two(alphabet: &[TreeEdit]) -> impl Iterator<Item = TreeEdit> + '_
         }))
 }
 
+// The smallest reader soundness case: inserting a leaf over the first fan's
+// node id relocates both fans of `fan@2:3,fan@2:3`, and a delta that does
+// so but names the first relocated fan's parent edge is not the lowering of
+// that insertion (a relocated fan parent edge keeps the name the graph gave
+// it). The reader must refuse it, since it checks only the carriers it
+// keeps otherwise.
+#[test]
+fn a_relocated_fan_with_a_renamed_parent_edge_is_not_read_as_its_relocating_insertion() {
+    let tree = Tree {
+        fans: vec![arm_fan(2, "fan", 3), arm_fan(2, "fan", 3)],
+        ..join_tree()
+    };
+    let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
+    let fan = embedding.fans[0].0;
+    let insert = TreeEdit::InsertNode {
+        parent: 0,
+        child_id: fan,
+        node: Node::new(fan, "leaf"),
+        edge: SEdge::new(&tree.nodes[&0].anchor, "leaf", "child", Some("inserted")),
+    };
+    let mut lowered_embedding = embedding.clone();
+    let delta =
+        edit::graph_delta_from_tree_edit(&tree, &mut lowered_embedding, &insert, None).unwrap();
+    assert_eq!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &delta, None),
+        Ok(insert)
+    );
+    let (parent_edge, payload) = delta
+        .add
+        .iter()
+        .find(|(_, payload)| {
+            matches!(payload, GPayload::Edge(edge) if edge.label.kind == "hyper_parent")
+        })
+        .map(|(element, payload)| (element.clone(), payload.clone()))
+        .unwrap();
+    let GPayload::Edge(mut renamed) = payload else {
+        unreachable!("the found payload is an edge");
+    };
+    renamed.label.name = Some("perturbed".to_owned());
+    let mut perturbed = delta;
+    perturbed.add.insert(parent_edge, GPayload::Edge(renamed));
+    assert!(matches!(
+        edit::tree_edit_from_graph_delta(&tree, &embedding, &perturbed, None),
+        Err(edit::TreeApplyError::NotTreeEdit { .. })
+    ));
+}
+
 // Soundness of the reader, checked exhaustively on bounded perturbations
 // of lowerings: every delta the reader accepts, a lowering or one
 // perturbation away from one, is the lowering of its reading up to renaming

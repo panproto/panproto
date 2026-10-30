@@ -123,7 +123,7 @@ pub use contraction_plan::{
 pub use edit_error::EditError;
 pub use element_ops::ElementOps;
 pub use error::{InstError, ParseError, RestrictError};
-pub use error_detail::{ErrorDetail, PredicateRefusal, PutDomainError};
+pub use error_detail::{ErrorDetail, KeyRefusal, PredicateRefusal, PutDomainError};
 pub use fan::Fan;
 pub use fan_violation::FanViolation;
 pub use functor::FInstance;

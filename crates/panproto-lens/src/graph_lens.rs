@@ -9,8 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{
-    CanonicalSink, ComplementShape, IdentityCarrier, IdentityPolicy, IdentityStatus,
-    compose_identities,
+    ComplementShape, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
 };
 use panproto_inst::{
     BoundaryProtocols, ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, GEdge,
@@ -502,7 +501,9 @@ pub fn check_put_domain(
     match restore_with_plan(lens, view, complement, &plan) {
         Ok(source) => {
             found.extend(forward_stability(lens, view, complement, &source, &plan));
-            found.extend(schema_violations(&source, &lens.src_schema));
+            found.extend(schema_violations(&source, &lens.src_schema, &|id| {
+                view.nodes().contains_key(&id)
+            }));
             found.extend(fan_violations(&source, &lens.src_schema));
         }
         Err(errors) => {
@@ -518,7 +519,9 @@ pub fn check_put_domain(
                     &source,
                     &plan,
                 ));
-                found.extend(schema_violations(&source, &lens.src_schema));
+                found.extend(schema_violations(&source, &lens.src_schema, &|id| {
+                    restorable.nodes().contains_key(&id)
+                }));
                 found.extend(fan_violations(&source, &lens.src_schema));
             }
         }
@@ -1767,12 +1770,16 @@ pub(crate) fn fan_violations(
         .collect()
 }
 
+/// The violations of the source schema's declarations read on a restored
+/// source: required cells, and the uniqueness keys with their primary-key
+/// presence rule, which applies to the restored elements `in_view` admits.
 pub(crate) fn schema_violations(
     source: &GInstance,
     schema: &panproto_schema::Schema,
+    in_view: &dyn Fn(u32) -> bool,
 ) -> Vec<PutDomainError> {
     let mut found = required_violations(source, schema);
-    found.extend(key_violations(source, schema));
+    found.extend(key_violations(source, schema, in_view));
     found
 }
 
@@ -1812,39 +1819,115 @@ fn required_violations(
     found
 }
 
-fn key_violations(source: &GInstance, schema: &panproto_schema::Schema) -> Vec<PutDomainError> {
+/// Whether a declared key role makes its key a uniqueness constraint.
+const fn uniqueness_role(role: &panproto_schema::KeyRole) -> bool {
+    matches!(
+        role,
+        panproto_schema::KeyRole::Primary
+            | panproto_schema::KeyRole::Unique
+            | panproto_schema::KeyRole::Identifier
+    )
+}
+
+/// The key clause of the put domain on a restored source.
+///
+/// Every uniqueness key buckets the non-fan elements of its vertex whose
+/// key tuple is complete (a part without a value, or with `Null`, is SQL
+/// NULL) and, for a `Within` key, that have a scope element. The bucket
+/// bytes are those of the shared keying kernel
+/// [`panproto_inst::key::canonical_key_bytes`], so the key's declared
+/// equality decides duplicates. When the kernel refuses an element's tuple
+/// the key is undecided: it reports [`PutDomainError::KeyRefused`] with the
+/// refusal at the least such element, and no duplicates. A primary key
+/// further requires each of its parts at every restored element that
+/// `in_view` admits.
+fn key_violations(
+    source: &GInstance,
+    schema: &panproto_schema::Schema,
+    in_view: &dyn Fn(u32) -> bool,
+) -> Vec<PutDomainError> {
     let mut found = Vec::new();
     for (vertex, keys) in &schema.declarations.keys {
+        let mut ids: Vec<u32> = source
+            .nodes()
+            .iter()
+            .filter_map(|(&id, node)| (&node.anchor == vertex).then_some(id))
+            .collect();
+        ids.sort_unstable();
         for key in keys {
-            let mut buckets: KeyBuckets = BTreeMap::new();
-            let mut ids: Vec<u32> = source
-                .nodes()
-                .iter()
-                .filter_map(|(&id, node)| (&node.anchor == vertex).then_some(id))
-                .collect();
-            ids.sort_unstable();
-            for id in ids {
-                let Some(values) = key_values(source, id, &key.parts) else {
-                    continue;
-                };
-                let scope = key_scope(source, id, &key.scope);
-                let bytes = key_bytes(&values);
-                let entry = buckets
-                    .entry((scope, bytes))
-                    .or_insert_with(|| (values, Vec::new()));
-                entry.1.push(id);
+            if uniqueness_role(&key.role) {
+                found.extend(key_uniqueness_violations(source, vertex, key, &ids));
             }
-            for (_, (values, ids)) in buckets.into_iter().filter(|(_, (_, ids))| ids.len() > 1) {
-                let named = key.parts.iter().map(key_part_name).zip(values).collect();
-                found.push(PutDomainError::DuplicateKey {
-                    table: vertex.clone(),
-                    key: named,
-                    elems: ids.into_iter().map(ViewRef::Node).collect(),
-                });
+            if key.role == panproto_schema::KeyRole::Primary {
+                for &id in ids.iter().filter(|&&id| in_view(id)) {
+                    for part in &key.parts {
+                        if part_value(source, id, part).is_none() {
+                            found.push(PutDomainError::MissingRequiredCell {
+                                elem: ViewRef::Node(id),
+                                field: key_part_name(part),
+                            });
+                        }
+                    }
+                }
             }
         }
     }
     found
+}
+
+/// The duplicate-key verdicts of one uniqueness key over the elements
+/// `ids` (ascending) of `vertex`, or its keying refusal.
+fn key_uniqueness_violations(
+    source: &GInstance,
+    vertex: &Name,
+    key: &panproto_schema::Key,
+    ids: &[u32],
+) -> Vec<PutDomainError> {
+    let mut buckets: KeyBuckets = BTreeMap::new();
+    for &id in ids {
+        if source
+            .node(id)
+            .is_some_and(|node| node.shape == panproto_inst::NodeShape::HyperEdge)
+        {
+            continue;
+        }
+        let Some(values) = key_values(source, id, &key.parts) else {
+            continue;
+        };
+        let scope = match &key.scope {
+            panproto_schema::KeyScope::Within(scope_vertex) => {
+                let Some(scope) = nearest_ancestor(source, id, scope_vertex) else {
+                    continue;
+                };
+                Some(scope)
+            }
+            panproto_schema::KeyScope::Global | panproto_schema::KeyScope::Document => None,
+        };
+        let bytes = match panproto_inst::key::canonical_key_bytes(key, &values) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return vec![PutDomainError::KeyRefused {
+                    table: vertex.clone(),
+                    key: key.id.clone(),
+                    reason: error.into(),
+                }];
+            }
+        };
+        buckets
+            .entry((scope, bytes))
+            .or_insert_with(|| (values, Vec::new()))
+            .1
+            .push(id);
+    }
+    buckets
+        .into_values()
+        .filter(|(_, ids)| ids.len() > 1)
+        .map(|(values, ids)| PutDomainError::DuplicateKey {
+            table: vertex.clone(),
+            key: key.parts.iter().map(key_part_name).zip(values).collect(),
+            elems: ids.into_iter().map(ViewRef::Node).collect(),
+        })
+        .collect()
 }
 
 fn key_values(
@@ -1854,123 +1937,140 @@ fn key_values(
 ) -> Option<Vec<panproto_inst::Value>> {
     parts
         .iter()
-        .map(|part| match part {
-            panproto_schema::KeyPart::Path(path) => path_value(source, node, path),
-            panproto_schema::KeyPart::Position { within } => graph_position(source, node, within)
-                .map(|position| panproto_inst::Value::Int(i64::from(position))),
-        })
+        .map(|part| part_value(source, node, part))
         .collect()
 }
 
-fn graph_position(source: &GInstance, node: u32, within: &Edge) -> Option<u32> {
-    let id = source
-        .in_edges(node)
-        .iter()
-        .copied()
-        .find(|id| source.edge(*id).is_some_and(|edge| &edge.edge == within))?;
-    let edge = source.edge(id)?;
-    if let Some(position) = edge.position {
-        return Some(position);
+/// The value of one key part at `node`, or `None` for SQL NULL.
+fn part_value(
+    source: &GInstance,
+    node: u32,
+    part: &panproto_schema::KeyPart,
+) -> Option<panproto_inst::Value> {
+    match part {
+        panproto_schema::KeyPart::Path(path) => path_value(source, node, path),
+        panproto_schema::KeyPart::Position { within } => graph_position(source, node, within)
+            .map(|position| panproto_inst::Value::Int(i64::from(position))),
     }
-    let index = source
-        .ordered_out_edges(edge.src)
-        .into_iter()
-        .filter(|candidate| {
+}
+
+/// Whether an edge is an arc between two ordinary nodes rather than fan
+/// incidence vocabulary.
+fn ordinary_arc(source: &GInstance, edge: &GEdge) -> bool {
+    !is_fan_edge(&edge.edge)
+        && [edge.src, edge.tgt].into_iter().all(|id| {
             source
-                .edge(*candidate)
-                .is_some_and(|edge| &edge.edge == within)
+                .node(id)
+                .is_some_and(|node| node.shape != panproto_inst::NodeShape::HyperEdge)
         })
-        .position(|candidate| candidate == id)?;
+}
+
+/// The index of `node` among the targets of its parent's ordinary `within`
+/// edges, ordered by position (absent first) and then edge id. The parent
+/// is the source of the least-id ordinary `within` edge into `node`.
+fn graph_position(source: &GInstance, node: u32, within: &Edge) -> Option<u32> {
+    let incoming = source.in_edges(node).iter().copied().find(|id| {
+        source
+            .edge(*id)
+            .is_some_and(|edge| &edge.edge == within && ordinary_arc(source, edge))
+    })?;
+    let parent = source.edge(incoming)?.src;
+    let mut siblings: Vec<(Option<u32>, EdgeId)> = source
+        .out_edges(parent)
+        .iter()
+        .filter_map(|id| {
+            let edge = source.edge(*id)?;
+            (&edge.edge == within && ordinary_arc(source, edge)).then_some((edge.position, *id))
+        })
+        .collect();
+    siblings.sort_unstable();
+    let index = siblings.iter().position(|(_, id)| *id == incoming)?;
     u32::try_from(index).ok()
 }
 
+/// The non-`Null` value a node carries itself.
+fn own_value(source: &GInstance, node: u32) -> Option<panproto_inst::Value> {
+    match source.node(node)?.value.as_ref()? {
+        panproto_inst::FieldPresence::Present(value) if *value != panproto_inst::Value::Null => {
+            Some(value.clone())
+        }
+        _ => None,
+    }
+}
+
+/// The value of a key path at `start`, or `None` for SQL NULL. The empty
+/// path reads the node's own value. Otherwise the hops are followed in edge
+/// order, and the last hop reads, at the first frontier node with one, the
+/// first of its targets with a value, or the node's field of that name when
+/// the node has no such edge.
 fn path_value(source: &GInstance, start: u32, path: &[Edge]) -> Option<panproto_inst::Value> {
-    let Some((last, prefix)) = path.split_last() else {
-        return source
-            .node(start)?
-            .value
-            .as_ref()
-            .and_then(presence_value)
-            .cloned();
+    let Some((last, hops)) = path.split_last() else {
+        return own_value(source, start);
     };
     let mut frontier = vec![start];
-    for hop in prefix {
+    for hop in hops {
         frontier = frontier
             .into_iter()
             .flat_map(|node| source.out_edges(node).iter().copied())
             .filter_map(|id| {
-                let edge = &source.edges()[&id];
+                let edge = source.edge(id)?;
                 (edge.edge == *hop).then_some(edge.tgt)
             })
             .collect();
     }
-    let mut reached: Vec<u32> = frontier
-        .iter()
-        .flat_map(|node| source.out_edges(*node).iter().copied())
-        .filter_map(|id| {
-            let edge = &source.edges()[&id];
-            (edge.edge == *last).then_some(edge.tgt)
-        })
-        .collect();
-    reached.sort_unstable();
-    if let Some(id) = reached.first() {
-        source
-            .node(*id)?
-            .value
-            .as_ref()
-            .and_then(presence_value)
-            .cloned()
-    } else {
-        let field = last
-            .name
-            .as_ref()
-            .map_or_else(|| last.tgt.to_string(), Name::to_string);
-        frontier.sort_unstable();
-        frontier
-            .into_iter()
-            .find_map(|id| source.node(id)?.extra_fields.get(&field).cloned())
-    }
+    let field = last
+        .name
+        .as_ref()
+        .map_or_else(|| last.tgt.to_string(), Name::to_string);
+    frontier.into_iter().find_map(|node| {
+        let targets: Vec<u32> = source
+            .out_edges(node)
+            .iter()
+            .filter_map(|id| {
+                let edge = source.edge(*id)?;
+                (edge.edge == *last).then_some(edge.tgt)
+            })
+            .collect();
+        if targets.is_empty() {
+            source
+                .node(node)?
+                .extra_fields
+                .get(&field)
+                .filter(|value| **value != panproto_inst::Value::Null)
+                .cloned()
+        } else {
+            targets
+                .into_iter()
+                .find_map(|target| own_value(source, target))
+        }
+    })
 }
 
-const fn presence_value(value: &panproto_inst::FieldPresence) -> Option<&panproto_inst::Value> {
-    match value {
-        panproto_inst::FieldPresence::Present(value) => Some(value),
-        panproto_inst::FieldPresence::Null | panproto_inst::FieldPresence::Absent => None,
-    }
-}
-
-fn key_scope(source: &GInstance, start: u32, scope: &panproto_schema::KeyScope) -> Option<u32> {
-    let panproto_schema::KeyScope::Within(vertex) = scope else {
-        return None;
-    };
+/// The nearest node anchored at `vertex` reached backwards from `start`
+/// along ordinary arcs, the least such node when several are equally near.
+fn nearest_ancestor(source: &GInstance, start: u32, vertex: &Name) -> Option<u32> {
     let mut seen = BTreeSet::from([start]);
     let mut frontier = vec![start];
     while !frontier.is_empty() {
         let mut next: Vec<u32> = frontier
             .iter()
             .flat_map(|id| source.in_edges(*id).iter().copied())
-            .map(|edge| source.edges()[&edge].src)
+            .filter_map(|id| source.edge(id))
+            .filter(|edge| ordinary_arc(source, edge))
+            .map(|edge| edge.src)
             .filter(|id| seen.insert(*id))
             .collect();
         next.sort_unstable();
-        if let Some(found) = next
-            .iter()
-            .find(|id| source.node(**id).is_some_and(|node| &node.anchor == vertex))
-        {
+        if let Some(found) = next.iter().find(|id| {
+            source.node(**id).is_some_and(|node| {
+                &node.anchor == vertex && node.shape != panproto_inst::NodeShape::HyperEdge
+            })
+        }) {
             return Some(*found);
         }
         frontier = next;
     }
     None
-}
-
-fn key_bytes(values: &[panproto_inst::Value]) -> Vec<u8> {
-    let mut writer = panproto_schema::CanonicalWriter::new();
-    writer.len(values.len());
-    for value in values {
-        writer.value(value);
-    }
-    writer.into_bytes()
 }
 
 fn key_part_name(part: &panproto_schema::KeyPart) -> String {

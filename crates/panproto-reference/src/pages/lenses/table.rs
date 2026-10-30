@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::domain::{
     PutDomainError, ViewRef, key_part_present, part_column, required_value_violations,
-    uniqueness_role,
+    uniqueness_role, key_uniqueness_violations,
 };
 use crate::canonical::Writer;
 use crate::encode::{TableEncodeError, table_to_graph};
@@ -1884,15 +1884,7 @@ fn key_violations(src: &Schema, g: &Graph, view: &Table) -> Vec<PutDomainError> 
     for (vertex, ks) in &src.keys {
         for key in ks {
             if uniqueness_role(key.role) {
-                let (buckets, _) = crate::keys::buckets(g, vertex, key).unwrap_or_default();
-                for (values, elems) in buckets.into_values().filter(|(_, e)| e.len() > 1) {
-                    let key_cols = key.parts.iter().map(part_column).zip(values).collect();
-                    errs.push(PutDomainError::DuplicateKey {
-                        table: vertex.clone(),
-                        key: key_cols,
-                        elems: elems.into_iter().map(ViewRef::Row).collect(),
-                    });
-                }
+                errs.extend(key_uniqueness_violations(g, vertex, key, ViewRef::Row));
             }
             if key.role == KeyRole::Primary {
                 for id in g

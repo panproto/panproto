@@ -285,7 +285,7 @@ Tree application and graph lowering agree: applying the tree edit and embedding 
 
 ### Outside the domain
 
-A missing primary or joined node, a repeated joined id, a joined id equal to the primary, a joined id equal to the root, a joined node that is an ancestor of the primary, a produced node with the wrong id, a malformed embedding, or an exhausted allocation floor returns its corresponding typed tree-edit refusal. The reference names a joined root `RootOperation` and a joined ancestor `Cycle`; production returns `ApplyFailed` and `CycleDetected` with the same node and primary. The tree and embedding remain unchanged.
+A missing primary or joined node, a repeated joined id, a joined id equal to the primary, a joined id equal to the root, a joined node that is an ancestor of the primary, a produced node with the wrong id, a malformed embedding, or an exhausted allocation floor returns its corresponding typed tree-edit refusal. A joined root is a `RootOperation` refusal naming the root in both implementations, as deleting, contracting or moving the root is. The reference names a joined ancestor `Cycle`, and production returns `CycleDetected` with the same node and primary. The tree and embedding remain unchanged.
 
 ### Definitions used
 

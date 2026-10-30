@@ -13,7 +13,8 @@ use panproto_inst::identity::{
 };
 use panproto_inst::{
     BoundaryProtocols, CellFate, CellPlan, CheckKind, EntityFunctor, FInstance, FieldTransform,
-    IdAllocator, IdRange, InstError, PairResolution, PredicateRefusal, PutDomainError,
+    IdAllocator, IdRange, IncompleteReason, InstError, KeyRefusal, PairResolution,
+    PredicateRefusal, PutDomainError,
     RestrictError, RestrictPlan, Row, RowId, SchemaRef, TableComplement, Value, ViewRef, Violation,
     functor_restrict_with_plan, validate_table,
 };
@@ -2051,7 +2052,20 @@ fn schema_violations(
     protocol: &Protocol,
 ) -> Vec<PutDomainError> {
     let mut found = Vec::new();
-    for diagnostic in validate_table(source, schema, protocol).diagnostics {
+    let report = validate_table(source, schema, protocol);
+    for incomplete in &report.incomplete {
+        if incomplete.check.kind == CheckKind::KeyUnique
+            && let SchemaRef::Key { vertex, key } = &incomplete.check.decl
+            && let Some(reason) = key_refusal(schema, vertex, key, &incomplete.reason)
+        {
+            found.push(PutDomainError::KeyRefused {
+                table: vertex.clone(),
+                key: key.clone(),
+                reason,
+            });
+        }
+    }
+    for diagnostic in report.diagnostics {
         match (&diagnostic.check.kind, &diagnostic.violation) {
             (CheckKind::RequiredValue, Violation::MissingValue { field: Some(field) }) => {
                 if let Some(elem) = diagnostic.subject.clone() {
@@ -2078,6 +2092,42 @@ fn schema_violations(
         }
     }
     found
+}
+
+/// The keying refusal behind an undecided `KeyUnique` check of key `key`
+/// on `vertex`, or `None` when the check is undecided for another reason.
+///
+/// The validator reports the shared keying kernel's refusal at the least
+/// row whose key tuple it refuses; an equality vector of the wrong arity
+/// reaches it as an ill-formed declaration, whose arity is the key's own.
+fn key_refusal(
+    schema: &panproto_schema::Schema,
+    vertex: &Name,
+    key: &Name,
+    reason: &IncompleteReason,
+) -> Option<KeyRefusal> {
+    match reason {
+        IncompleteReason::UnsupportedCollation { collation, .. } => {
+            Some(KeyRefusal::UnsupportedCollation {
+                collation: collation.clone(),
+            })
+        }
+        IncompleteReason::InvalidKeyRepresentation { kind, .. } => {
+            Some(KeyRefusal::InvalidNumericRepresentation { kind: kind.clone() })
+        }
+        IncompleteReason::NoCanonicalKeyBytes { .. } => Some(KeyRefusal::NoCanonicalBytes),
+        IncompleteReason::IllFormedDeclaration { .. } => schema
+            .declarations
+            .keys
+            .get(vertex)?
+            .iter()
+            .find(|declared| declared.id == *key)
+            .map(|declared| KeyRefusal::EqualityArity {
+                expected: declared.parts.len(),
+                found: declared.equality.len(),
+            }),
+        _ => None,
+    }
 }
 
 fn refusal_from_restrict(error: RestrictError) -> Vec<PutDomainError> {

@@ -7544,7 +7544,7 @@ pub mod theory {
             assert_digest(
                 "small morphism verdicts",
                 &verdicts,
-                "feb03b75da2e1b626e5c73e9d0eef363403d5088bf1a559a9afc30f1adfd91f0",
+                "50846cef11d30deec9fc04d01b7691fd7842ee1a1f025d8065d86bbf2cf9cc4c",
             );
         }
 
@@ -7562,7 +7562,7 @@ pub mod theory {
             assert_digest(
                 "verdicts on every 53rd signature with an equation against every 59th signature",
                 &verdicts,
-                "42ee418e2d9f6e4260eccddad3bd6440ac9ad70dd6e14790ce4b1f2b9e2981c1",
+                "27cae4cb08938206670b74d64c13581042b7e0ce3694f9b82d949965cfb70ca9",
             );
         }
 
@@ -7668,7 +7668,7 @@ pub mod theory {
             assert_digest(
                 "discrete pair compositions",
                 outcomes_in_every_option_set(&discrete),
-                "1b7c187c94bba7ae304b244f575b7f97676cd73ae4028fe5e6108d87c5244c79",
+                "c98dbbdd42132d32712b00829f0a24fc103c503700e8397557163f4beb86b422",
             );
             let built: Vec<TheoryDiagram> =
                 spans.iter().filter_map(|span| span.clone().ok()).collect();
@@ -7678,7 +7678,7 @@ pub mod theory {
                     .iter()
                     .map(|span| span.as_ref().err().map(|error| format!("{error:?}")))
                     .chain(outcomes_in_every_option_set(&built).into_iter().map(Some)),
-                "b1d480b1f0bd9aa64902f9e773203275f07b727d96d57c0fd4fc2594d7a2c2c2",
+                "8b877c547978e5f737a308fb2eb6cb50eac7bda38a94930a22cd1bd3d88cdf2c",
             );
         }
 
@@ -7705,7 +7705,7 @@ pub mod theory {
             assert_digest(
                 "operation class pair compositions",
                 &operation_pairs,
-                "36b285147881bc7fc2524170d915912f06e880b6eb9623bf65c9857aa604e59e",
+                "924b75db9d8d967f0c9fa8d37f93a20a30866182733717bea3ef5e91c2b10afa",
             );
             let sorts = scope::class_sort_scope();
             let sort_pairs: Vec<String> = sorts
@@ -7724,7 +7724,7 @@ pub mod theory {
             assert_digest(
                 "sort class pair compositions",
                 &sort_pairs,
-                "85f9eaff858d5526927d88727d042629bda932e719fde4ea652d8dcd69614b9c",
+                "49114aa3d6f39dac236ee5582126d0c4158581fdc1be9a98c48b97aad19cf414",
             );
             assert_digest(
                 "sort mismatch span compositions",
@@ -7734,12 +7734,12 @@ pub mod theory {
             assert_digest(
                 "fibre span compositions",
                 outcomes_in_every_option_set(&scope::fibre_spans()),
-                "11dd3a4d08dfd71ca3ac4689a4629e912f8e171aed78e050a47a094f7602942b",
+                "8645d97825e9e1762017d8611024959c455b7759118c1dc12e90f9d2d4162ef9",
             );
             assert_digest(
                 "derived span compositions",
                 outcomes_in_every_option_set(&[derived_span()]),
-                "bf2d22f6bd19b2b538b397ce9cf7847f746818b962ffa05299454937774a2ee5",
+                "49ecbd9e6223b4b109f930cb9d651d72d9732982ec372f40feb4109964dc117a",
             );
         }
 
@@ -7871,7 +7871,7 @@ pub mod theory {
             assert_digest(
                 "replays of every 4th against every 5th pair",
                 &out,
-                "f7865f7b431183d4130f9654a234bca1e13f1e23265c45103f9716f1f59fdda1",
+                "ece95ece069d881bd783e04a8d208f1d6893c66de448c0eba69ccbdad04367fd",
             );
         }
     }

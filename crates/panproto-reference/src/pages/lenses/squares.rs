@@ -911,6 +911,7 @@ fn table_domain_in_graph(
                 refusal,
             }
         }
+        key_refused @ PutDomainError::KeyRefused { .. } => key_refused,
     })
 }
 

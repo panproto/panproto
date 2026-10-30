@@ -796,6 +796,9 @@ pub(crate) fn put_with_identity(
 /// * [`PutDomainError::DuplicateKey`], [`PutDomainError::MissingRequiredCell`]
 ///   and [`PutDomainError::MalformedFan`]: the restored source violates the
 ///   source schema's key, required-cell or hyper-edge fan declarations.
+/// * [`PutDomainError::KeyRefused`]: the shared keying kernel refuses a
+///   restored value of a source uniqueness key (for instance a value with
+///   no canonical bytes), so that key's uniqueness is undecided.
 ///
 /// All violations are reported, ordered by variant (the declaration order
 /// of [`PutDomainError`]) and then by the element's [`ViewRef`]. Duplicate
@@ -1354,7 +1357,7 @@ fn value_violations(
     use panproto_inst::value::FieldPresence;
 
     let compiled = &lens.compiled;
-    let mut found = tree_schema_violations(source, &lens.src_schema);
+    let mut found = tree_schema_violations(source, &lens.src_schema, view);
     let rewrites_fields =
         !compiled.field_transforms.is_empty() || !compiled.op_term_assignments.is_empty();
     if !rewrites_fields && compiled.conditional_survival.is_empty() {
@@ -1511,10 +1514,12 @@ fn native_tree_fan_violations(
 /// graph embedding. Required cells and keys are independent of native fans,
 /// so the embedding omits fans and the tree-side predicate above reports
 /// their exact coordinates. This preserves required/key diagnostics even
-/// when a missing fan participant makes the full embedding impossible.
+/// when a missing fan participant makes the full embedding impossible. The
+/// primary-key presence rule applies to the restored nodes of `view`.
 fn tree_schema_violations(
     source: &WInstance,
     schema: &panproto_schema::Schema,
+    view: &WInstance,
 ) -> Vec<PutDomainError> {
     let mut found = native_tree_fan_violations(source, schema);
     let fanless = WInstance::new(
@@ -1526,7 +1531,9 @@ fn tree_schema_violations(
     );
     match GInstance::from_wtype_with_schema(&fanless, schema) {
         Ok(graph) => {
-            found.extend(crate::graph_lens::schema_violations(&graph, schema));
+            found.extend(crate::graph_lens::schema_violations(&graph, schema, &|id| {
+                view.nodes.contains_key(&id)
+            }));
             found
         }
         Err(InstError::MalformedFan { node, reason }) => {

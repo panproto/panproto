@@ -2132,7 +2132,7 @@ mod tests {
         assert_digest(
             "bare signatures",
             &bare,
-            "bbda54d42974da95158181d3d7c550056d5879b4f9e8c453adf4369e3e5584f2",
+            "07c9174539873ee78891ef7b6c974876826f1eec68ff821b7a262212bd91258e",
         );
         // A list with c constants has (2 + c)^2 equations. Per shape with n
         // operations of which k are constants, the lists contribute
@@ -2145,7 +2145,7 @@ mod tests {
         assert_digest(
             "signatures",
             &all,
-            "0424effcc1f186a1ca2605a94d5732e9fa6b0aa961b00d2b3e4268e077ba89ac",
+            "dae8f0d39e302e7b2be1610207398f826da810b59749f54210923c1574706c6a",
         );
         let terms: Vec<Vec<Term>> = bare
             .iter()
@@ -2177,7 +2177,7 @@ mod tests {
         assert_digest(
             "raw sort lists",
             raw_sort_lists(),
-            "371f77139a3ca187a827efcb00325258453b20a75ee1e0c65ee67075e8e17f35",
+            "544b03434dcfd637f2c9b5a94d26912aff8c6b8df385c8c6fa51754809b04fa1",
         );
         // Seven outputs per input list; 2 * 7 = 14 choices per input.
         assert_eq!(raw_operations().len(), 7 * (1 + 14 + 14 * 14));
@@ -2194,7 +2194,7 @@ mod tests {
         assert_digest(
             "raw signatures",
             raw_signatures(),
-            "2db971c098107b0b782e8578166a5867fb27e4b274e642da9b44b278f2c9180f",
+            "431b5b571932e0c4916a6e2f5fe5a4d25c53dbca06166ba7c12807f4b0807dff",
         );
     }
 
@@ -2322,7 +2322,7 @@ mod tests {
         assert_digest(
             "recipes",
             &all,
-            "af8ed5c411f51701834d0ff4ac8c26d637d977fc1812d39af9f9d87f503a81f3",
+            "996e0d5065307cbc365da5a7943d50754e91af3156452408e64b0adcb9a86d61",
         );
     }
 
@@ -2344,12 +2344,12 @@ mod tests {
         assert_digest(
             "whole action domains",
             &whole.domains,
-            "a26a3be7b5498cd3f0ed5b10dcef6033de951d69bf2d1aed0d97694171d807fa",
+            "93444b91e7d43d6358b52c49a6f9d2ae0b08cca7b133bed126b4bc41294f0330",
         );
         assert_digest(
             "whole action codomains",
             &whole.codomains,
-            "495080fd94457b0966beae4591848e7d9723845a73eeda8cd58fc058f27ee669",
+            "0ff1aeb7117120370b7f655e12f97d0c86ec33ed22398e6899062f1995bdee45",
         );
         assert_digest(
             "whole action legs",
@@ -2373,7 +2373,7 @@ mod tests {
         assert_digest(
             "constructor scope",
             [constructors],
-            "ae2ca591c8ae8881c1a5c7c589675aab5c185ba616ede73b9d7fbe7058df0b82",
+            "2f8b5c5bb1a7ac4db994015f555b246766c868e687aaa59fc437c6c174d452a1",
         );
     }
 
@@ -2383,12 +2383,12 @@ mod tests {
         assert_digest(
             "fibre spans",
             fibre_spans(),
-            "dccfa53a20e8742b67a28dd51a5a56bab7c77d7801cf4ae0f24db9d516adec17",
+            "28eae36b0aa93251fd1850fe5df207a2fcffd5a663bd176daab2630c7cf335cd",
         );
         assert_digest(
             "a renamed fibre span",
             [fibre_span("k", ["u", "v", "w"], [false, true])],
-            "f57fa22e342ab62ea53e8ed8bd9e06b54f3d9e4e42ff147a7ec0b906a05d1dde",
+            "2f44c0f231079827d9dfbf37fbf2b8cd5c69ce1ec2fc400a3b459df916e7ed6d",
         );
     }
 
@@ -2616,7 +2616,7 @@ mod tests {
         assert_digest(
             "class sort scope",
             &sorts,
-            "6bffcc1739aafbffe69d14780f6135ba048095fd88b35b5d2d68afbfff098217",
+            "1426cc58d28c5010825b33f4e8b5480af02b358ee037acecd80d67e9ee7c674b",
         );
         let sort_syntax: BTreeSet<String> = sorts.iter().map(|sort| format!("{sort:?}")).collect();
         assert_eq!(
@@ -2631,7 +2631,7 @@ mod tests {
                 class_operation_capture_witnesses(),
                 class_sort_capture_witnesses()
             )],
-            "8840ef67155ddc9dadc5a6c71b40d29a08f0ad6626b2f94f93ed8eb2e4362a9e",
+            "0e3ee8a686d93686cce4c706d25e2a0062dd87e532a6bd37a86f7db40d5f1d0f",
         );
     }
 
@@ -2711,7 +2711,7 @@ mod tests {
         assert_digest(
             "operation class pairs",
             &operation_pairs,
-            "38771f3c80bcffabf9d2eedba9af7f0293a83adcd0b056dbd14bc975c34ae411",
+            "b9c96aa2200f2e52832ec2657fdf92c9286bbf83fd20ffc55de196de420bc0cf",
         );
         let sort_pairs: Vec<TheoryDiagram> = sorts
             .iter()
@@ -2731,7 +2731,7 @@ mod tests {
         assert_digest(
             "sort class pairs",
             &sort_pairs,
-            "6472b63af000fa17d6836dd653e4488fa27363da75fef9717f5863aaf4bff429",
+            "e81e020eeb541e518dd544ea685fe66bd4f0c688b1dbdf1130c9438139422804",
         );
         assert_eq!(
             sort_mismatch_spans().len(),
@@ -2741,7 +2741,7 @@ mod tests {
         assert_digest(
             "sort mismatch spans",
             sort_mismatch_spans(),
-            "a04e8523218469755ec4a5afa8b9c17a00527f225c66e5c8a1dc9bde04ca1b61",
+            "48345511a78eabd098f57f4ce60bda9c08d28ac390d280043d9bb411aa9047b9",
         );
     }
 }

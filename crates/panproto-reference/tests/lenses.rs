@@ -57,7 +57,7 @@ impl ValueLayer for RefusingPredicate {
 }
 
 #[test]
-fn put_domain_error_census_is_exactly_twelve_variants_in_structural_order() {
+fn put_domain_error_census_is_exactly_thirteen_variants_in_structural_order() {
     let node = ViewRef::Node(7);
     let errors = vec![
         PutDomainError::IdCollision { elem: node.clone() },
@@ -98,15 +98,20 @@ fn put_domain_error_census_is_exactly_twelve_variants_in_structural_order() {
             elem: node,
             refusal: PredicateRefusal::NotBoolean { got: "null".into() },
         },
+        PutDomainError::KeyRefused {
+            table: "T".into(),
+            key: "k".into(),
+            reason: panproto_reference::keys::KeyingError::NoCanonicalBytes,
+        },
     ];
 
-    assert_eq!(errors.len(), 12);
+    assert_eq!(errors.len(), 13);
     assert_eq!(
         errors
             .iter()
             .map(|error| error.order_key().0)
             .collect::<Vec<_>>(),
-        (0..12).collect::<Vec<_>>()
+        (0..13).collect::<Vec<_>>()
     );
 }
 

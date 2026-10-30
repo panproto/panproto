@@ -1192,6 +1192,7 @@ const fn domain_name(error: &PutDomainError) -> &'static str {
         PutDomainError::MissingRequiredCell { .. } => "MissingRequiredCell",
         PutDomainError::MalformedFan { .. } => "MalformedFan",
         PutDomainError::SurvivalPredicateRefused { .. } => "SurvivalPredicateRefused",
+        PutDomainError::KeyRefused { .. } => "KeyRefused",
     }
 }
 
@@ -1206,7 +1207,7 @@ const fn refusal_name(refusal: &PredicateRefusal) -> &'static str {
 }
 
 #[test]
-fn put_domain_vocabulary_is_exactly_twelve_variants_with_five_predicate_refusals() {
+fn put_domain_vocabulary_is_exactly_thirteen_variants_with_five_predicate_refusals() {
     let row = ViewRef::Row(1);
     let edge = ViewRef::Pair(Box::new(SEdge::new("a", "b", "fk", Some("b"))), 1, 2);
     let variants = vec![
@@ -1246,8 +1247,13 @@ fn put_domain_vocabulary_is_exactly_twelve_variants_with_five_predicate_refusals
                 got: "integer".to_owned(),
             },
         },
+        PutDomainError::KeyRefused {
+            table: "t".to_owned(),
+            key: "id".to_owned(),
+            reason: panproto_reference::keys::KeyingError::NoCanonicalBytes,
+        },
     ];
-    assert_eq!(variants.len(), 12);
+    assert_eq!(variants.len(), 13);
     assert_eq!(
         variants.iter().map(domain_name).collect::<Vec<_>>(),
         [
@@ -1263,6 +1269,7 @@ fn put_domain_vocabulary_is_exactly_twelve_variants_with_five_predicate_refusals
             "MissingRequiredCell",
             "MalformedFan",
             "SurvivalPredicateRefused",
+            "KeyRefused",
         ]
     );
     assert_eq!(
@@ -1270,7 +1277,7 @@ fn put_domain_vocabulary_is_exactly_twelve_variants_with_five_predicate_refusals
             .iter()
             .map(|variant| variant.order_key().0)
             .collect::<Vec<_>>(),
-        (0..12).collect::<Vec<_>>()
+        (0..13).collect::<Vec<_>>()
     );
 
     let predicate_refusals = [

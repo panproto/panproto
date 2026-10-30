@@ -7,7 +7,8 @@ use std::fmt::Debug;
 
 use panproto_inst::identity::{IdentityField, LegacyRejectReason};
 use panproto_inst::{
-    EdgeId, ErrorDetail, FanViolation, PredicateRefusal, PutDomainError, RowId, Value, ViewRef,
+    EdgeId, ErrorDetail, FanViolation, KeyRefusal, PredicateRefusal, PutDomainError, RowId, Value,
+    ViewRef,
 };
 use panproto_schema::Edge;
 use serde::Serialize;
@@ -108,11 +109,46 @@ fn every_put_domain_error() -> Vec<(PutDomainError, &'static str)> {
             "survival_predicate_refused",
         ),
         (
+            PutDomainError::KeyRefused {
+                table: "items".into(),
+                key: "by-when".into(),
+                reason: KeyRefusal::NoCanonicalBytes,
+            },
+            "key_refused",
+        ),
+        (
             PutDomainError::PlanCompilation {
                 detail: "incoherent edge image".into(),
             },
             "plan_compilation",
         ),
+    ]
+}
+
+/// One keying refusal of each variant, in declaration order, with its serde
+/// tag.
+fn every_key_refusal() -> Vec<(KeyRefusal, &'static str)> {
+    vec![
+        (
+            KeyRefusal::UnsupportedCollation {
+                collation: "de_DE".into(),
+            },
+            "unsupported_collation",
+        ),
+        (
+            KeyRefusal::EqualityArity {
+                expected: 2,
+                found: 1,
+            },
+            "equality_arity",
+        ),
+        (
+            KeyRefusal::InvalidNumericRepresentation {
+                kind: "decimal".into(),
+            },
+            "invalid_numeric_representation",
+        ),
+        (KeyRefusal::NoCanonicalBytes, "no_canonical_bytes"),
     ]
 }
 
@@ -183,7 +219,7 @@ fn tag_of<T: Serialize>(value: &T) -> String {
 #[test]
 fn put_domain_error_serde_tags_and_order_are_fixed() {
     let errors = every_put_domain_error();
-    assert_eq!(errors.len(), 13);
+    assert_eq!(errors.len(), 14);
     for (index, (error, tag)) in errors.iter().enumerate() {
         assert_eq!(usize::from(error.variant_index()), index, "{tag}");
         assert_eq!(tag_of(error), *tag);
@@ -223,7 +259,31 @@ fn put_domain_error_serde_tags_and_order_are_fixed() {
         });
     }
 
-    let (plan, _) = &errors[12];
+    for (reason, tag) in every_key_refusal() {
+        let json = serde_json::to_value(&reason).unwrap();
+        let found = json
+            .as_str()
+            .or_else(|| {
+                json.as_object()
+                    .and_then(|object| object.keys().next())
+                    .map(String::as_str)
+            })
+            .map(ToOwned::to_owned);
+        assert_eq!(found.as_deref(), Some(tag));
+        round_trips(&reason);
+        round_trips(&PutDomainError::KeyRefused {
+            table: "items".into(),
+            key: "k".into(),
+            reason,
+        });
+    }
+    let (keyed, _) = &errors[12];
+    assert_eq!(
+        serde_json::to_string(keyed).unwrap(),
+        r#"{"key_refused":{"table":"items","key":"by-when","reason":"no_canonical_bytes"}}"#
+    );
+
+    let (plan, _) = &errors[13];
     assert_eq!(
         serde_json::to_string(plan).unwrap(),
         r#"{"plan_compilation":{"detail":"incoherent edge image"}}"#

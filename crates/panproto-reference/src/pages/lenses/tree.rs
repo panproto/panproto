@@ -4,11 +4,10 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::domain::{
     PutDomainError, ViewRef, key_part_present, part_column, required_value_violations,
-    structural_required_cell_violations, uniqueness_role,
+    key_uniqueness_violations, structural_required_cell_violations, uniqueness_role,
 };
 use super::graph::{GraphLens, LensError};
 use crate::fan::{candidates as fan_candidates, violations_at};
-use crate::keys;
 use crate::model::{Fan, GEdge, Graph, Name, Node, NodeShape, SEdge, Tree};
 use crate::pages::representation::canonical::ComplementShape;
 use crate::restrict::{
@@ -1533,15 +1532,12 @@ fn native_source_violations(
     for (vertex, keys_for_vertex) in &lens.src.keys {
         for key in keys_for_vertex {
             if uniqueness_role(key.role) {
-                let (buckets, _) = keys::buckets(restored, vertex, key).unwrap_or_default();
-                for (values, elements) in buckets.into_values().filter(|(_, elems)| elems.len() > 1)
-                {
-                    errors.push(PutDomainError::DuplicateKey {
-                        table: vertex.clone(),
-                        key: key.parts.iter().map(part_column).zip(values).collect(),
-                        elems: elements.into_iter().map(ViewRef::Node).collect(),
-                    });
-                }
+                errors.extend(key_uniqueness_violations(
+                    restored,
+                    vertex,
+                    key,
+                    ViewRef::Node,
+                ));
             }
             if key.role != KeyRole::Primary {
                 continue;
