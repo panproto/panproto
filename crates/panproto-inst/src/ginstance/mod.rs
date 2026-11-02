@@ -1044,8 +1044,8 @@ mod tests {
         g.remove_edge(EdgeId(0)).unwrap();
         g.remove_edge(EdgeId(1)).unwrap();
         assert_eq!(g.remove_node(1).unwrap().id, 1);
-        assert!(g.out_edges(0).is_empty());
-        assert!(g.in_edges(1).is_empty());
+        assert_eq!(g.out_edges(0), []);
+        assert_eq!(g.in_edges(1), []);
         assert!(matches!(g.remove_node(1), Err(InstError::NodeNotFound(1))));
     }
 
@@ -1053,8 +1053,8 @@ mod tests {
     fn set_endpoints_moves_the_edge_between_indices() {
         let mut g = people(3).with_edge(0, 1, knows());
         assert_eq!(g.set_endpoints(EdgeId(0), 2, 0).unwrap(), (0, 1));
-        assert!(g.out_edges(0).is_empty());
-        assert!(g.in_edges(1).is_empty());
+        assert_eq!(g.out_edges(0), []);
+        assert_eq!(g.in_edges(1), []);
         assert_eq!(g.out_edges(2), &[EdgeId(0)]);
         assert_eq!(g.in_edges(0), &[EdgeId(0)]);
         assert!(matches!(

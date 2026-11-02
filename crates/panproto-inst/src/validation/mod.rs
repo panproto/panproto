@@ -811,7 +811,7 @@ mod subset_tests {
             },
         );
         let cut = super::finish_subset_report(&plan, cut, &cut_cursor);
-        assert!(cut.diagnostics.is_empty());
+        assert_eq!(cut.diagnostics, []);
         assert_eq!(cut.coverage[&selected.check].incomplete, 1);
         assert!(cut.incomplete.iter().any(|entry| {
             entry.check == selected.check
@@ -850,7 +850,7 @@ mod subset_tests {
             },
         );
         assert_eq!(super::checks::semantic_evaluations(), 0);
-        assert!(report.diagnostics.is_empty());
+        assert_eq!(report.diagnostics, []);
         assert_eq!(report.coverage[&selected.check].incomplete, 1);
         assert_eq!(cursor.spent, 0);
         assert!(cursor.is_exhausted());
@@ -976,7 +976,7 @@ mod subset_tests {
                 segment: SegmentId(0),
             },
         );
-        assert!(report.diagnostics.is_empty());
+        assert_eq!(report.diagnostics, []);
         assert_eq!(report.coverage[&selected.check].passed, 1);
         assert_eq!(cursor.spent, 1);
     }
@@ -1103,7 +1103,7 @@ mod subset_tests {
             },
         );
 
-        assert!(report.diagnostics.is_empty());
+        assert_eq!(report.diagnostics, []);
         assert_eq!(report.coverage[&selected.check].instances, 1);
         assert_eq!(report.coverage[&selected.check].passed, 1);
         // Without a limit nothing is charged: no cut can occur.
@@ -1141,7 +1141,7 @@ mod subset_tests {
             },
         );
         assert_eq!(second_report.coverage[&second.check].incomplete, 1);
-        assert!(second_report.incomplete.is_empty());
+        assert_eq!(second_report.incomplete, []);
         assert_eq!(cursor.spent, 1);
         assert!(cursor.exhausted);
         let cuts = cursor.incomplete(&plan);

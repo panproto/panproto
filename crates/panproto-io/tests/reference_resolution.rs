@@ -1242,7 +1242,7 @@ fn renamed_production_violation(
         )),
         other => other.clone(),
     };
-    let rename_optional = |carrier: &Option<ViewRef>| carrier.as_ref().map(&rename);
+    let rename_optional = |carrier: &Option<ViewRef>| carrier.as_ref().map(rename);
     match violation {
         ResolveDomainError::NoPlacement { carrier } => ResolveDomainError::NoPlacement {
             carrier: rename(carrier),
@@ -1576,89 +1576,7 @@ fn deferred_declaration(
     scope_via: bool,
 ) -> (Schema, reference_schema::Schema) {
     use panproto_reference::schema as rs;
-    let field = |name: &str| prop("note", "label", name);
-    let sfield = |name: &str| reference_model::SEdge::new("note", "label", "prop", Some(name));
-    let (production_source, reference_source) = match source {
-        DeclaredSource::KeyValue => (
-            RefSource::KeyValue {
-                parts: vec![vec![field("key")]],
-            },
-            rs::RefSource::KeyValue {
-                parts: vec![vec![sfield("key")]],
-            },
-        ),
-        DeclaredSource::Inline => (
-            RefSource::Inline {
-                field: vec![field("inline")],
-            },
-            rs::RefSource::Inline {
-                field: vec![sfield("inline")],
-            },
-        ),
-        DeclaredSource::Standoff(fragments, text) => {
-            let (production_text, reference_text) = match text {
-                0 => (
-                    panproto_schema::RefTextSource::Local(vec![field("text")]),
-                    rs::RefTextSource::Local(vec![sfield("text")]),
-                ),
-                1 => (
-                    panproto_schema::RefTextSource::Span {
-                        reference: "outer".into(),
-                    },
-                    rs::RefTextSource::Span {
-                        reference: "outer".to_owned(),
-                    },
-                ),
-                2 => (
-                    panproto_schema::RefTextSource::Referenced {
-                        reference: "sofa".into(),
-                        text: vec![field("text")],
-                        external: None,
-                    },
-                    rs::RefTextSource::Referenced {
-                        reference: "sofa".to_owned(),
-                        text: vec![sfield("text")],
-                        external: None,
-                    },
-                ),
-                _ => (
-                    panproto_schema::RefTextSource::ExternalUri {
-                        field: vec![field("href")],
-                        base: panproto_schema::UriBase::Absolute,
-                    },
-                    rs::RefTextSource::ExternalUri {
-                        field: vec![sfield("href")],
-                        base: rs::UriBase::Absolute,
-                    },
-                ),
-            };
-            (
-                RefSource::Standoff {
-                    text: production_text,
-                    start: vec![field("start")],
-                    end: vec![field("end")],
-                    unit: panproto_schema::OffsetUnit::Byte,
-                    end_inclusive: false,
-                    end_form: SpanEnd::Offset,
-                    origin: 0,
-                    fragments: fragments
-                        .then(|| edge("note", "fragment", "prop", Some("fragments"))),
-                },
-                rs::RefSource::Standoff {
-                    text: reference_text,
-                    start: vec![sfield("start")],
-                    end: vec![sfield("end")],
-                    unit: rs::OffsetUnit::Byte,
-                    end_inclusive: false,
-                    end_form: rs::SpanEnd::Offset,
-                    origin: 0,
-                    fragments: fragments.then(|| {
-                        reference_model::SEdge::new("note", "fragment", "prop", Some("fragments"))
-                    }),
-                },
-            )
-        }
-    };
+    let (production_source, reference_source) = deferred_sources(source);
     let production = Reference {
         id: "mention".into(),
         holder: "note".into(),
@@ -1725,6 +1643,109 @@ fn deferred_declaration(
         );
     }
     (production_schema, reference_schema)
+}
+
+/// The occurrence source of [`deferred_declaration`], written once for
+/// production and once for the reference.
+fn deferred_sources(source: DeclaredSource) -> (RefSource, panproto_reference::schema::RefSource) {
+    use panproto_reference::schema as rs;
+    let field = |name: &str| prop("note", "label", name);
+    let sfield = |name: &str| reference_model::SEdge::new("note", "label", "prop", Some(name));
+    match source {
+        DeclaredSource::KeyValue => (
+            RefSource::KeyValue {
+                parts: vec![vec![field("key")]],
+            },
+            rs::RefSource::KeyValue {
+                parts: vec![vec![sfield("key")]],
+            },
+        ),
+        DeclaredSource::Inline => (
+            RefSource::Inline {
+                field: vec![field("inline")],
+            },
+            rs::RefSource::Inline {
+                field: vec![sfield("inline")],
+            },
+        ),
+        DeclaredSource::Standoff(fragments, text) => {
+            let (production_text, reference_text) = standoff_text_sources(text);
+            (
+                RefSource::Standoff {
+                    text: production_text,
+                    start: vec![field("start")],
+                    end: vec![field("end")],
+                    unit: panproto_schema::OffsetUnit::Byte,
+                    end_inclusive: false,
+                    end_form: SpanEnd::Offset,
+                    origin: 0,
+                    fragments: fragments
+                        .then(|| edge("note", "fragment", "prop", Some("fragments"))),
+                },
+                rs::RefSource::Standoff {
+                    text: reference_text,
+                    start: vec![sfield("start")],
+                    end: vec![sfield("end")],
+                    unit: rs::OffsetUnit::Byte,
+                    end_inclusive: false,
+                    end_form: rs::SpanEnd::Offset,
+                    origin: 0,
+                    fragments: fragments.then(|| {
+                        reference_model::SEdge::new("note", "fragment", "prop", Some("fragments"))
+                    }),
+                },
+            )
+        }
+    }
+}
+
+/// The standoff text form `text` (0 local, 1 span-relative, 2 referenced,
+/// 3 URI-named), written once for production and once for the reference.
+fn standoff_text_sources(
+    text: u8,
+) -> (
+    panproto_schema::RefTextSource,
+    panproto_reference::schema::RefTextSource,
+) {
+    use panproto_reference::schema as rs;
+    let field = |name: &str| prop("note", "label", name);
+    let sfield = |name: &str| reference_model::SEdge::new("note", "label", "prop", Some(name));
+    match text {
+        0 => (
+            panproto_schema::RefTextSource::Local(vec![field("text")]),
+            rs::RefTextSource::Local(vec![sfield("text")]),
+        ),
+        1 => (
+            panproto_schema::RefTextSource::Span {
+                reference: "outer".into(),
+            },
+            rs::RefTextSource::Span {
+                reference: "outer".to_owned(),
+            },
+        ),
+        2 => (
+            panproto_schema::RefTextSource::Referenced {
+                reference: "sofa".into(),
+                text: vec![field("text")],
+                external: None,
+            },
+            rs::RefTextSource::Referenced {
+                reference: "sofa".to_owned(),
+                text: vec![sfield("text")],
+                external: None,
+            },
+        ),
+        _ => (
+            panproto_schema::RefTextSource::ExternalUri {
+                field: vec![field("href")],
+                base: panproto_schema::UriBase::Absolute,
+            },
+            rs::RefTextSource::ExternalUri {
+                field: vec![sfield("href")],
+                base: rs::UriBase::Absolute,
+            },
+        ),
+    }
 }
 
 #[test]
@@ -2608,8 +2629,8 @@ fn uri_arc(child: u32, name: &str) -> (u32, u32, reference_model::SEdge) {
 
 /// Append one target per IRI to a URI document.
 fn with_uri_targets(tree: &mut reference_model::Tree, iris: &BTreeSet<String>) {
-    let mut id = tree.nodes.keys().next_back().copied().unwrap_or(0) + 1;
-    for iri in iris {
+    let first = tree.nodes.keys().next_back().copied().unwrap_or(0) + 1;
+    for (id, iri) in (first..).zip(iris) {
         tree.nodes.insert(
             id,
             reference_model::Node::new(id, "target")
@@ -2620,7 +2641,6 @@ fn with_uri_targets(tree: &mut reference_model::Tree, iris: &BTreeSet<String>) {
             id,
             reference_model::SEdge::new("doc", "target", "prop", Some("targets")),
         ));
-        id += 1;
     }
 }
 
@@ -2971,8 +2991,6 @@ fn standoff_texts() -> Vec<String> {
 
 #[test]
 fn standoff_forms_are_injective_and_left_inverse_in_every_unit() {
-    use panproto_io::resolution::{bytes_to_written_form, written_form_to_bytes};
-    use panproto_reference::resolution::{standoff_byte_inverse, standoff_byte_span};
     use panproto_schema::OffsetUnit as ProductionUnit;
     use reference_schema::OffsetUnit as ReferenceUnit;
 
@@ -2995,117 +3013,144 @@ fn standoff_forms_are_injective_and_left_inverse_in_every_unit() {
             };
             for origin in [0u64, 1] {
                 for end_is_length in [false, true] {
-                    let end_form = if end_is_length {
-                        SpanEnd::Length
-                    } else {
-                        SpanEnd::Offset
-                    };
-                    // Every written pair up to one past the text, so that
-                    // out-of-range and in-unit offsets are refused alike.
-                    let mut images = BTreeMap::new();
-                    for start in 0..=unit_len + origin + 1 {
-                        for end in 0..=unit_len + origin + 1 {
-                            written_cases += 1;
-                            let reference = standoff_byte_span(
-                                text,
-                                (start, end),
-                                origin,
-                                end_is_length,
-                                *reference_unit,
-                            );
-                            let production = written_form_to_bytes(
-                                bytes,
-                                (start, end),
-                                origin,
-                                end_form,
-                                production_unit,
-                            );
-                            assert_eq!(
-                                production, reference,
-                                "decode {text:?} {reference_unit:?} ({start}, {end}) o={origin} len={end_is_length}"
-                            );
-                            let Some(span) = reference else { continue };
-                            admitted += 1;
-                            assert_eq!(
-                                images.insert(span, (start, end)),
-                                None,
-                                "two forms name {span:?} in {text:?} {reference_unit:?}"
-                            );
-                            // Converse: the inverse reproduces every admitted form.
-                            assert_eq!(
-                                standoff_byte_inverse(
-                                    text,
-                                    span,
-                                    origin,
-                                    end_is_length,
-                                    *reference_unit
-                                ),
-                                Some((start, end))
-                            );
-                            assert_eq!(
-                                bytes_to_written_form(
-                                    bytes,
-                                    span,
-                                    origin,
-                                    end_form,
-                                    production_unit
-                                ),
-                                Some((start, end))
-                            );
-                        }
-                    }
+                    let (images, written, admitted_here) = written_forms_agree(
+                        text,
+                        unit_len,
+                        origin,
+                        end_is_length,
+                        *reference_unit,
+                        production_unit,
+                    );
+                    written_cases += written;
+                    admitted += admitted_here;
                     // Left inverse: decoding the written form of every byte
                     // span the unit can express returns that span.
-                    for byte_start in 0..=byte_len {
-                        for byte_end in byte_start..=byte_len {
-                            byte_cases += 1;
-                            let span = (byte_start, byte_end);
-                            let written = standoff_byte_inverse(
-                                text,
-                                span,
-                                origin,
-                                end_is_length,
-                                *reference_unit,
-                            );
-                            assert_eq!(
-                                bytes_to_written_form(
-                                    bytes,
-                                    span,
-                                    origin,
-                                    end_form,
-                                    production_unit
-                                ),
-                                written,
-                                "encode {text:?} {reference_unit:?} {span:?}"
-                            );
-                            if let Some(written) = written {
-                                assert_eq!(
-                                    standoff_byte_span(
-                                        text,
-                                        written,
-                                        origin,
-                                        end_is_length,
-                                        *reference_unit
-                                    ),
-                                    Some(span)
-                                );
-                            } else {
-                                assert!(images.values().all(|form| standoff_byte_span(
-                                    text,
-                                    *form,
-                                    origin,
-                                    end_is_length,
-                                    *reference_unit
-                                ) != Some(span)));
-                            }
-                        }
-                    }
+                    byte_cases += byte_spans_agree(
+                        text,
+                        origin,
+                        end_is_length,
+                        *reference_unit,
+                        production_unit,
+                        &images,
+                    );
                 }
             }
         }
     }
     eprintln!("written={written_cases} admitted={admitted} byte_spans={byte_cases}");
     assert!(admitted > 0 && byte_cases > 0);
+}
+
+/// Each admitted byte span with the written form that names it.
+type StandoffImages = BTreeMap<(u64, u64), (u64, u64)>;
+
+/// The images of every written standoff pair up to one past `text`, with the
+/// number of pairs and the number admitted, after checking that production
+/// and the reference decode each pair alike and that each admitted pair is
+/// the only form of its span and is reproduced by both inverses.
+fn written_forms_agree(
+    text: &str,
+    unit_len: u64,
+    origin: u64,
+    end_is_length: bool,
+    reference_unit: reference_schema::OffsetUnit,
+    production_unit: &panproto_schema::OffsetUnit,
+) -> (StandoffImages, usize, usize) {
+    use panproto_io::resolution::{bytes_to_written_form, written_form_to_bytes};
+    use panproto_reference::resolution::{standoff_byte_inverse, standoff_byte_span};
+
+    let bytes = text.as_bytes();
+    let end_form = if end_is_length {
+        SpanEnd::Length
+    } else {
+        SpanEnd::Offset
+    };
+    // Every written pair up to one past the text, so that
+    // out-of-range and in-unit offsets are refused alike.
+    let mut images = BTreeMap::new();
+    let (mut written_cases, mut admitted) = (0usize, 0usize);
+    for start in 0..=unit_len + origin + 1 {
+        for end in 0..=unit_len + origin + 1 {
+            written_cases += 1;
+            let reference =
+                standoff_byte_span(text, (start, end), origin, end_is_length, reference_unit);
+            let production =
+                written_form_to_bytes(bytes, (start, end), origin, end_form, production_unit);
+            assert_eq!(
+                production, reference,
+                "decode {text:?} {reference_unit:?} ({start}, {end}) o={origin} len={end_is_length}"
+            );
+            let Some(span) = reference else { continue };
+            admitted += 1;
+            assert_eq!(
+                images.insert(span, (start, end)),
+                None,
+                "two forms name {span:?} in {text:?} {reference_unit:?}"
+            );
+            // Converse: the inverse reproduces every admitted form.
+            assert_eq!(
+                standoff_byte_inverse(text, span, origin, end_is_length, reference_unit),
+                Some((start, end))
+            );
+            assert_eq!(
+                bytes_to_written_form(bytes, span, origin, end_form, production_unit),
+                Some((start, end))
+            );
+        }
+    }
+    (images, written_cases, admitted)
+}
+
+/// The number of byte spans of `text`, after checking that production and
+/// the reference write each span alike and that decoding the written form
+/// returns the span, or, for a span with no written form, that no admitted
+/// form in `images` decodes to it.
+fn byte_spans_agree(
+    text: &str,
+    origin: u64,
+    end_is_length: bool,
+    reference_unit: reference_schema::OffsetUnit,
+    production_unit: &panproto_schema::OffsetUnit,
+    images: &StandoffImages,
+) -> usize {
+    use panproto_io::resolution::bytes_to_written_form;
+    use panproto_reference::resolution::{standoff_byte_inverse, standoff_byte_span};
+
+    let bytes = text.as_bytes();
+    let byte_len = u64::try_from(bytes.len()).expect("short text");
+    let end_form = if end_is_length {
+        SpanEnd::Length
+    } else {
+        SpanEnd::Offset
+    };
+    let mut byte_cases = 0usize;
+    for byte_start in 0..=byte_len {
+        for byte_end in byte_start..=byte_len {
+            byte_cases += 1;
+            let span = (byte_start, byte_end);
+            let written = standoff_byte_inverse(text, span, origin, end_is_length, reference_unit);
+            assert_eq!(
+                bytes_to_written_form(bytes, span, origin, end_form, production_unit),
+                written,
+                "encode {text:?} {reference_unit:?} {span:?}"
+            );
+            if let Some(written) = written {
+                assert_eq!(
+                    standoff_byte_span(text, written, origin, end_is_length, reference_unit),
+                    Some(span)
+                );
+            } else {
+                assert!(images.values().all(|form| standoff_byte_span(
+                    text,
+                    *form,
+                    origin,
+                    end_is_length,
+                    reference_unit
+                ) != Some(span)));
+            }
+        }
+    }
+    byte_cases
 }
 
 proptest::proptest! {
@@ -3425,14 +3470,16 @@ fn assert_inherited_get_matches_the_fold(forms: [&str; 3], iris: &BTreeSet<Strin
                         node = node.with_field("base", ReferenceValue::Str(base.to_owned()));
                     }
                     nodes.insert(id, node);
-                    arcs.push(match parent {
-                        None => uri_arc(id, "el"),
-                        Some(parent) => (
-                            u32::try_from(*parent).expect("small") + 1,
-                            id,
-                            reference_model::SEdge::new("el", "el", "prop", Some("child")),
-                        ),
-                    });
+                    arcs.push(parent.as_ref().map_or_else(
+                        || uri_arc(id, "el"),
+                        |parent| {
+                            (
+                                u32::try_from(*parent).expect("small") + 1,
+                                id,
+                                reference_model::SEdge::new("el", "el", "prop", Some("child")),
+                            )
+                        },
+                    ));
                     let mut chain = Vec::new();
                     let mut at = Some(index);
                     while let Some(current) = at {
@@ -3864,7 +3911,6 @@ fn production_variable_tree(names: &[&str]) -> WInstance {
 
 #[test]
 fn variable_binding_partitions_names_by_the_binder_keys_declared_equality() {
-    use panproto_io::resolution::KeyEqualityReason;
     use panproto_reference::keys::{
         KeyEquality as ReferenceEquality, SqlCollation as ReferenceCollation,
         SqlPad as ReferencePad,
@@ -3949,7 +3995,14 @@ fn variable_binding_partitions_names_by_the_binder_keys_declared_equality() {
     }
     assert_eq!(cases, 4);
 
-    // Under the ASCII case-insensitive binder `X` is a later binding of `x`.
+    case_insensitive_binder_binds_a_later_spelling();
+    named_collation_binder_is_refused();
+}
+
+/// Under the ASCII case-insensitive binder `X` is a later binding of `x`.
+fn case_insensitive_binder_binds_a_later_spelling() {
+    use panproto_schema::{SqlCollation, SqlPad};
+
     let (resolution, binding) = variable_resolution_with(
         VariableBinding::FirstDefines,
         vec![KeyEquality::Sql {
@@ -3971,16 +4024,21 @@ fn variable_binding_partitions_names_by_the_binder_keys_declared_equality() {
         view.edges_sorted()
             .any(|(_, edge)| edge.edge == binding && edge.src == 2 && edge.tgt == 1)
     );
+}
 
-    // Text under a named collation has no executable equality: refused.
-    let (named, _) = variable_resolution_with(
+/// Text under a named collation has no executable equality: refused.
+fn named_collation_binder_is_refused() {
+    use panproto_io::resolution::KeyEqualityReason;
+    use panproto_schema::{SqlCollation, SqlPad};
+
+    let (collated, _) = variable_resolution_with(
         VariableBinding::FirstDefines,
         vec![KeyEquality::Sql {
             collation: SqlCollation::Named("database".into()),
             pad: SqlPad::NoPad,
         }],
     );
-    match named.get(
+    match collated.get(
         &AnyInstance::Tree(production_variable_tree(&["x", "X"])),
         &ResolveOptions { lenient: true },
         &ResolveContext::empty(),
@@ -4074,7 +4132,6 @@ fn variable_binding_matches_the_reference_on_every_bounded_holder_sequence() {
             ],
         ),
     ];
-    let child = prop("doc", "concept", "child");
     let mut sequences = 0usize;
     let mut bound = 0usize;
     for (equality, reference_equality, values) in &carriers {
@@ -4095,30 +4152,10 @@ fn variable_binding_matches_the_reference_on_every_bounded_holder_sequence() {
             let (resolution, binding) = variable_resolution_with(policy, equality.clone());
             for length in 1..=5_u32 {
                 for code in 0..3_usize.pow(length) {
-                    let picks: Vec<usize> = (0..length)
-                        .scan(code, |rest, _| {
-                            let pick = *rest % 3;
-                            *rest /= 3;
-                            Some(pick)
-                        })
-                        .collect();
-                    let mut nodes = HashMap::from([(0, Node::new(0, "doc"))]);
-                    for (position, pick) in picks.iter().enumerate() {
-                        let id = u32::try_from(position + 1).unwrap();
-                        let mut node = Node::new(id, "concept");
-                        node.extra_fields
-                            .insert("variable".to_owned(), values[*pick].0.clone());
-                        nodes.insert(id, node);
-                    }
-                    let source = WInstance::new(
-                        nodes,
-                        (1..=length)
-                            .map(|target| (0, target, child.clone()))
-                            .collect(),
-                        Vec::new(),
-                        0,
-                        "doc".into(),
-                    );
+                    let picks = base_three_digits(code, length);
+                    let variables: Vec<Value> =
+                        picks.iter().map(|pick| values[*pick].0.clone()).collect();
+                    let source = holder_sequence_tree(&variables);
                     let (view, _) = resolution
                         .get(
                             &AnyInstance::Tree(source),
@@ -4165,6 +4202,40 @@ fn variable_binding_matches_the_reference_on_every_bounded_holder_sequence() {
     assert!(bound > 0);
 }
 
+/// The `length` base-three digits of `code`, least significant first.
+fn base_three_digits(code: usize, length: u32) -> Vec<usize> {
+    (0..length)
+        .scan(code, |rest, _| {
+            let pick = *rest % 3;
+            *rest /= 3;
+            Some(pick)
+        })
+        .collect()
+}
+
+/// A document whose children are concepts holding `variables` in order.
+fn holder_sequence_tree(variables: &[Value]) -> WInstance {
+    let child = prop("doc", "concept", "child");
+    let mut nodes = HashMap::from([(0, Node::new(0, "doc"))]);
+    for (position, variable) in variables.iter().enumerate() {
+        let id = u32::try_from(position + 1).unwrap();
+        let mut node = Node::new(id, "concept");
+        node.extra_fields
+            .insert("variable".to_owned(), variable.clone());
+        nodes.insert(id, node);
+    }
+    let length = u32::try_from(variables.len()).unwrap();
+    WInstance::new(
+        nodes,
+        (1..=length)
+            .map(|target| (0, target, child.clone()))
+            .collect(),
+        Vec::new(),
+        0,
+        "doc".into(),
+    )
+}
+
 #[test]
 fn preserving_registry_is_the_ordered_cartesian_product() {
     let choices = vec![vec!["a", "b"], vec!["x"], vec!["0", "1", "2"]];
@@ -4182,7 +4253,10 @@ fn preserving_registry_is_the_ordered_cartesian_product() {
         ]
     );
     assert_eq!(preserving_registry::<u8>(&[]), vec![Vec::<u8>::new()]);
-    assert!(preserving_registry(&[vec![1u8], Vec::new()]).is_empty());
+    assert_eq!(
+        preserving_registry(&[vec![1u8], Vec::new()]),
+        Vec::<Vec<u8>>::new()
+    );
 }
 
 /// A target whose key value has no canonical bytes (a temporal value with a

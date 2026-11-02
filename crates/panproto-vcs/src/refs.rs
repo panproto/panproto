@@ -433,7 +433,7 @@ mod tests {
         assert!(create_branch(&mut store, "feature", id).is_err());
 
         delete_branch(&mut store, "feature")?;
-        assert!(list_branches(&store)?.is_empty());
+        assert_eq!(list_branches(&store)?, []);
         Ok(())
     }
 
@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(tags[0].0, "v1.0");
 
         delete_tag(&mut store, "v1.0")?;
-        assert!(list_tags(&store)?.is_empty());
+        assert_eq!(list_tags(&store)?, []);
         Ok(())
     }
 

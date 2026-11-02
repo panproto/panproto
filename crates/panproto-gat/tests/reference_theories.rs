@@ -88,7 +88,7 @@ mod convert {
         }
     }
 
-    fn kind(kind: r::SortKind) -> p::SortKind {
+    const fn kind(kind: r::SortKind) -> p::SortKind {
         match kind {
             r::SortKind::Structural => p::SortKind::Structural,
             r::SortKind::Val(value) => p::SortKind::Val(value_kind(value)),
@@ -3158,6 +3158,21 @@ fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeT
             })
         }) as OutcomeTest,
     );
+    let [unification_after_typing, unification_fails] = implicit_input_refusal_morphisms();
+    vec![
+        unknown_target,
+        ill_typed_first,
+        unbound_only,
+        unification_after_typing,
+        unification_fails,
+    ]
+}
+
+/// Cases 4 and 5 of [`refusal_order_morphisms`]: `f : (x : X) -> X` sent to
+/// `p(k1(), k2(), z)` and to `p(k1(), k2(), x)`, where `p`'s implicit input
+/// cannot be solved.
+fn implicit_input_refusal_morphisms() -> [(r::Theory, r::Theory, r::Morphism, OutcomeTest); 2] {
+    use outside_scope::{app, morphism, named, op, sort, theory, var};
     let y_of = |c: &str| r::SortExpr::App("Y".to_owned(), vec![app(c, vec![])]);
     let y_i = r::SortExpr::App("Y".to_owned(), vec![var("i")]);
     let implicit_codomain = theory(
@@ -3217,13 +3232,34 @@ fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeT
         (|o: &Result<(), r::MorphismError>| matches!(o, Err(r::MorphismError::TermAssignmentIllTyped { op, .. }) if op == "f"))
             as OutcomeTest,
     );
-    vec![
-        unknown_target,
-        ill_typed_first,
-        unbound_only,
-        unification_after_typing,
-        unification_fails,
-    ]
+    [unification_after_typing, unification_fails]
+}
+
+/// A domain equation `e : h(x) = h(x)`, a codomain whose one directed rule
+/// `h(x) ~> h(h(x))` does not terminate on it, and the identity on `h`.
+fn agreeing_sides_under_a_looping_rule() -> (r::Theory, r::Theory, r::Morphism) {
+    use outside_scope::{app, directed, morphism, named, op, sort, theory, var};
+    let h = || op("h", &[("u", "A")], named("A"));
+    let mut domain = theory("D", vec![sort("A", vec![])], vec![h()]);
+    domain.eqs.push(r::Equation {
+        name: "e".to_owned(),
+        lhs: app("h", vec![var("x")]),
+        rhs: app("h", vec![var("x")]),
+    });
+    let mut codomain = theory("C", vec![sort("A", vec![])], vec![h()]);
+    codomain.directed_eqs.push(directed(
+        "loop",
+        app("h", vec![var("x")]),
+        app("h", vec![app("h", vec![var("x")])]),
+        "x",
+    ));
+    let identity = morphism(
+        "D",
+        "C",
+        &[("A", "A")],
+        vec![("h", r::OpImage::Op("h".to_owned()))],
+    );
+    (domain, codomain, identity)
 }
 
 /// Inputs outside the enumerated scopes on which production and the
@@ -3236,7 +3272,7 @@ fn refusal_order_morphisms() -> Vec<(r::Theory, r::Theory, r::Morphism, OutcomeT
 /// local binder name.
 #[test]
 fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
-    use outside_scope::{app, directed, let_in, morphism, named, op, options, sort, theory, var};
+    use outside_scope::{app, let_in, named, op, options, sort, theory, var};
     let modes = [
         r::CompositionMode::Amalgamate,
         r::CompositionMode::ExplicitIdentity,
@@ -3268,26 +3304,7 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
 
     // An equation whose two sides agree, into a codomain whose one directed
     // rule does not terminate on them.
-    let h = || op("h", &[("u", "A")], named("A"));
-    let mut domain = theory("D", vec![sort("A", vec![])], vec![h()]);
-    domain.eqs.push(r::Equation {
-        name: "e".to_owned(),
-        lhs: app("h", vec![var("x")]),
-        rhs: app("h", vec![var("x")]),
-    });
-    let mut codomain = theory("C", vec![sort("A", vec![])], vec![h()]);
-    codomain.directed_eqs.push(directed(
-        "loop",
-        app("h", vec![var("x")]),
-        app("h", vec![app("h", vec![var("x")])]),
-        "x",
-    ));
-    let identity = morphism(
-        "D",
-        "C",
-        &[("A", "A")],
-        vec![("h", r::OpImage::Op("h".to_owned()))],
-    );
+    let (domain, codomain, identity) = agreeing_sides_under_a_looping_rule();
     assert!(
         morphism_agrees(&domain, &codomain, &identity),
         "an equation whose sides agree is preserved whatever the codomain's rules"

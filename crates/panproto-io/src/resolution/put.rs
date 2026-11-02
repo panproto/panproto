@@ -407,7 +407,8 @@ pub fn not_tree_carrier(reason: &NotTreeReason, root: Option<u32>) -> Option<Vie
 #[cfg(test)]
 mod tests {
     use panproto_schema::{
-        Cardinality, Key, KeyRole, KeyScope, OnUnresolved, PathSyntax, RefSource, Reference,
+        Cardinality, Key, KeyRole, KeyScope, NullMatch, OnUnresolved, PathSyntax, RefSource,
+        Reference,
     };
 
     use super::*;
@@ -460,7 +461,7 @@ mod tests {
                 on_unresolved: OnUnresolved::Error,
                 mode: ResolveMode::AddEdge,
                 guard: None,
-                null_match: Default::default(),
+                null_match: NullMatch::default(),
                 null_vertex: None,
                 scope_via: None,
             },

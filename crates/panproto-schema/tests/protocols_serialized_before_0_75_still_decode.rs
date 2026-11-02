@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use panproto_gat::Name;
 use panproto_schema::{
     Cardinality, ConstraintSemantics, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope,
-    LengthUnit, OnUnresolved, Protocol, RefSource, Reference, ResolveMode, ScalarKind, Schema,
-    SchemaBuilder, SchemaDeclarations,
+    LengthUnit, NullMatch, OnUnresolved, Protocol, RefSource, Reference, ResolveMode, ScalarKind,
+    Schema, SchemaBuilder, SchemaDeclarations,
 };
 
 /// A protocol as a pre-0.75 writer produced it: no shape, constraint
@@ -130,7 +130,7 @@ fn declaring_schema() -> Result<Schema, Box<dyn std::error::Error>> {
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
             guard: None,
-            null_match: Default::default(),
+            null_match: NullMatch::default(),
             null_vertex: None,
             scope_via: None,
         },

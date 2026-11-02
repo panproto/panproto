@@ -375,6 +375,65 @@ fn an_in_document_arm_reads_as_its_object() -> TestResult {
     Ok(())
 }
 
+/// A bundled union resolves both the bare NSID of a `main` object and a
+/// named definition, including when the union is an array's item type.
+#[test]
+fn bundled_union_items_resolve_to_their_declared_objects() -> TestResult {
+    let schema = atproto::parse_lexicon_bundle(&[
+        serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.pick",
+            "defs": {"main": {"type": "record", "key": "tid", "record": {
+                "type": "object",
+                "required": ["items"],
+                "properties": {"items": {"type": "array", "items": {
+                    "type": "union",
+                    "refs": ["com.example.arm#main", "com.example.arm#other"],
+                    "closed": true
+                }}}
+            }}}
+        }),
+        serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.arm",
+            "defs": {
+                "main": {"type": "object", "required": ["n"],
+                    "properties": {"n": {"type": "integer", "minimum": 0}}},
+                "other": {"type": "object", "required": ["text"],
+                    "properties": {"text": {"type": "string"}}}
+            }
+        }),
+    ])?;
+    let record = serde_json::json!({
+        "$type": "com.example.pick",
+        "items": [
+            {"$type": "com.example.arm", "n": 3},
+            {"$type": "com.example.arm#other", "text": "named arm"}
+        ]
+    });
+    reads_validates_and_writes_back("bundled items", &schema, "com.example.pick", &record)?;
+    let registry = panproto_core::io::default_registry();
+    let instance = registry.parse_wtype("atproto", &schema, &serde_json::to_vec(&record)?)?;
+    for anchor in ["com.example.arm", "com.example.arm#other"] {
+        assert!(
+            instance
+                .nodes
+                .values()
+                .any(|node| node.anchor.as_ref() == anchor),
+            "the selected union arm must anchor at its resolved object {anchor}"
+        );
+    }
+    let mut invalid = record;
+    invalid["items"][0]["n"] = serde_json::json!(-1);
+    let instance = registry.parse_wtype("atproto", &schema, &serde_json::to_vec(&invalid)?)?;
+    assert_eq!(
+        validate_wtype(&instance, &schema, &atproto::protocol()).status,
+        CheckStatus::Failed,
+        "the selected object's field constraints must be checked"
+    );
+    Ok(())
+}
+
 /// A closed union refuses a `$type` none of its refs names, and every
 /// union refuses a value with no `$type`, as an object without one or a
 /// value that is not an object. Both readers refuse alike.

@@ -949,46 +949,8 @@ fn xml_distinguishes_null_empty_and_absent_then_rerenders() {
             .values()
             .all(|node| node.anchor.as_ref() != "absent")
     );
-    // The three states are written apart and read back apart: the empty
-    // string as an empty element without `xsi:nil`, null with it, and
-    // absence as no element.
-    let three = emit_xml_bytes(&schema, &instance, "cassandra").expect("emit the three states");
-    let three_text = std::str::from_utf8(&three).expect("XML UTF-8");
-    assert!(
-        three_text.contains("<empty></empty>") || three_text.contains("<empty/>"),
-        "{three_text}"
-    );
-    assert!(!three_text.contains("<absent"), "{three_text}");
-    let three_reparsed = parse_xml_bytes(&schema, &three, "cassandra").expect("reparse three");
-    assert!(matches!(
-        value_at(&three_reparsed, "null_value"),
-        FieldPresence::Null
-    ));
-    assert_eq!(
-        value_at(&three_reparsed, "empty"),
-        &FieldPresence::Present(Value::Str(String::new()))
-    );
-    assert!(
-        three_reparsed
-            .nodes
-            .values()
-            .all(|node| node.anchor.as_ref() != "absent")
-    );
-
-    assert!(matches!(
-        value_at(&instance, "u64_max"),
-        FieldPresence::Present(Value::BigInt(value))
-            if value.to_string() == "18446744073709551615"
-    ));
-    assert!(matches!(
-        value_at(&instance, "ten_to_29"),
-        FieldPresence::Present(Value::BigInt(value))
-            if value.to_string() == "100000000000000000000000000000"
-    ));
-    assert!(matches!(
-        value_at(&instance, "nan"),
-        FieldPresence::Present(Value::Float(value)) if value.is_nan()
-    ));
+    assert_xml_writes_the_three_states_apart(&schema, &instance);
+    assert_xml_reads_exact_numbers(&instance);
 
     for (anchor, value) in edited_exact_values().into_iter().chain([
         ("null_value", Value::Str("materialized-null".into())),
@@ -1046,6 +1008,53 @@ fn xml_distinguishes_null_empty_and_absent_then_rerenders() {
     {
         assert_eq!(value_at(&reparsed, anchor), value_at(&instance, anchor));
     }
+}
+
+/// The three states are written apart and read back apart: the empty string
+/// as an empty element without `xsi:nil`, null with it, and absence as no
+/// element.
+fn assert_xml_writes_the_three_states_apart(schema: &Schema, instance: &WInstance) {
+    let three = emit_xml_bytes(schema, instance, "cassandra").expect("emit the three states");
+    let three_text = std::str::from_utf8(&three).expect("XML UTF-8");
+    assert!(
+        three_text.contains("<empty></empty>") || three_text.contains("<empty/>"),
+        "{three_text}"
+    );
+    assert!(!three_text.contains("<absent"), "{three_text}");
+    let three_reparsed = parse_xml_bytes(schema, &three, "cassandra").expect("reparse three");
+    assert!(matches!(
+        value_at(&three_reparsed, "null_value"),
+        FieldPresence::Null
+    ));
+    assert_eq!(
+        value_at(&three_reparsed, "empty"),
+        &FieldPresence::Present(Value::Str(String::new()))
+    );
+    assert!(
+        three_reparsed
+            .nodes
+            .values()
+            .all(|node| node.anchor.as_ref() != "absent")
+    );
+}
+
+/// The exact XML fixture reads `u64::MAX` and `10^29` as big integers and
+/// `NaN` as a float NaN.
+fn assert_xml_reads_exact_numbers(instance: &WInstance) {
+    assert!(matches!(
+        value_at(instance, "u64_max"),
+        FieldPresence::Present(Value::BigInt(value))
+            if value.to_string() == "18446744073709551615"
+    ));
+    assert!(matches!(
+        value_at(instance, "ten_to_29"),
+        FieldPresence::Present(Value::BigInt(value))
+            if value.to_string() == "100000000000000000000000000000"
+    ));
+    assert!(matches!(
+        value_at(instance, "nan"),
+        FieldPresence::Present(Value::Float(value)) if value.is_nan()
+    ));
 }
 
 #[test]

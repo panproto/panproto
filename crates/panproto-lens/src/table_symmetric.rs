@@ -170,7 +170,7 @@ mod tests {
         let middle = FInstance::default();
         assert_eq!(
             verify_complement_coherence(&symmetric, &middle, &context),
-            [] as [crate::symmetric::CoherenceViolation; 0]
+            []
         );
         check_symmetric_laws(&symmetric, &middle, &context).unwrap();
     }

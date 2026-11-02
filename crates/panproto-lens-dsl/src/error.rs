@@ -201,6 +201,16 @@ pub enum LensDslError {
         /// violations and the evidence-not-proof caveat.
         message: String,
     },
+
+    /// A concrete stage's migration has no executable restrict plan.
+    #[error("lens document '{id}': migration plan compilation failed: {source}")]
+    #[diagnostic(code(panproto_lens_dsl::plan_compilation))]
+    PlanCompilation {
+        /// The lens document ID.
+        id: String,
+        /// The typed plan compilation refusal.
+        source: panproto_inst::RestrictError,
+    },
 }
 
 impl From<panproto_dsl_eval::DslEvalError> for LensDslError {

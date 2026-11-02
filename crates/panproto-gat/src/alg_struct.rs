@@ -115,8 +115,8 @@ mod tests {
     #[test]
     fn empty_struct() {
         let s = AlgStruct::new("Unit");
-        assert!(s.params.is_empty());
-        assert!(s.fields.is_empty());
+        assert_eq!(s.params, []);
+        assert_eq!(s.fields, []);
         assert_eq!(s.required_field_count(), 0);
     }
 

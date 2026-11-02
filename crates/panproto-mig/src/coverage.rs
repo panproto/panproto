@@ -506,7 +506,7 @@ mod tests {
             PartialReason::BoundaryValidation { side, report } => {
                 assert_eq!(*side, BoundarySide::Input);
                 assert_eq!(report.status, panproto_gat::CheckStatus::Failed);
-                assert!(!report.diagnostics.is_empty());
+                assert_ne!(report.diagnostics, []);
             }
             other => panic!("expected a boundary validation failure, got {other:?}"),
         }

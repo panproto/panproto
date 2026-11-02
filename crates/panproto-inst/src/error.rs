@@ -643,6 +643,20 @@ pub enum RestrictError {
     /// checked after the source schema's.
     #[error("the target schema's declarations are ill formed: {0:?}")]
     TargetDeclarations(Vec<panproto_schema::KeyRefError>),
+
+    /// A value transform writes a field that the target vertex does not
+    /// declare as an attribute.
+    #[error(
+        "transform at `{source_vertex}` writes undeclared attribute `{field}` on `{target_vertex}`"
+    )]
+    UndeclaredTransformField {
+        /// The source vertex carrying the transform.
+        source_vertex: Name,
+        /// Its image in the target schema.
+        target_vertex: Name,
+        /// The undeclared output field.
+        field: String,
+    },
 }
 
 /// The place of a non-conforming row's violation in its message: ` at

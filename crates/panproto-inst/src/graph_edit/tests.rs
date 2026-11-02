@@ -1027,8 +1027,8 @@ fn independence_reports_anchor_use() -> TestResult {
     assert_eq!(moved.independence(&anchor), anchor.independence(&moved));
     // An added edge with neither endpoint at the node is not.
     let away = GraphDelta::identity().with_added_edge(EdgeId(9), GEdge::new(0, 1, label("likes")));
-    assert!(anchor.independence(&away).is_empty());
-    assert!(away.independence(&anchor).is_empty());
+    assert_eq!(anchor.independence(&away), []);
+    assert_eq!(away.independence(&anchor), []);
     let relabel = GraphEdit::relabel_edge(&g, EdgeId(1), label("likes"))?.to_delta()?;
     assert_eq!(
         relabel.independence(&anchor),
@@ -1187,11 +1187,11 @@ fn two_deltas_that_together_break_a_fan_are_not_independent() -> TestResult {
     // Two different labels are still reported: the check is on the
     // representation, which does not see the labels already present.
     let c = GraphDelta::identity().with_added_edge(EdgeId(11), GEdge::new(5, 0, fan_label("y")));
-    assert!(!a.independence(&c).is_empty());
+    assert_ne!(a.independence(&c), []);
     // An edge change away from any fan node is not a fan conflict, even at
     // the target of a reserved edge.
     let d = GraphDelta::identity().with_added_edge(EdgeId(12), GEdge::new(0, 1, label("knows")));
-    assert!(a.independence(&d).is_empty());
+    assert_eq!(a.independence(&d), []);
     // A shape change to the fan shape meets any edge change at the node.
     let mut meta = NodeMeta::of(&person(1));
     meta.shape = NodeShape::HyperEdge;
@@ -2194,7 +2194,7 @@ fn every_edit_error_has_a_detail() -> TestResult {
         assert_eq!(found, kind);
         assert_eq!(err.clone(), err);
         assert!(serde_json::to_string(&err).is_ok());
-        assert!(!err.to_string().is_empty());
+        assert_ne!(err.to_string(), "");
         round_trips(&err.detail())?;
     }
     Ok(())

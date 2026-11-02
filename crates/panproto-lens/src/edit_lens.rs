@@ -2398,10 +2398,7 @@ mod tests {
         };
         let result = edit_lens.get_edit(edit).unwrap();
         assert!(result.is_identity());
-        assert_eq!(
-            edit_lens.complement.dropped_fans,
-            [] as [panproto_inst::Fan; 0]
-        );
+        assert_eq!(edit_lens.complement.dropped_fans, []);
     }
 
     #[test]

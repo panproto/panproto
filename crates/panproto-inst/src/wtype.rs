@@ -1882,6 +1882,34 @@ pub fn apply_field_transforms(
     apply_transforms_tracked(node, transforms, ctx, &mut KeyTrack::default())
 }
 
+/// Apply transforms and return the operations that executed, in forward order.
+///
+/// Selected `Case` branches and empty paths are flattened. Defaults whose
+/// field already exists and renames whose source is absent are omitted;
+/// erasures remain even when the erased field was absent. An expression
+/// that writes an equal value still executes. Own-value applications keep
+/// their `ApplyExpr` representation, distinct from ordinary fields named
+/// `__value__`. This opt-in trace allocates no intermediate node snapshots.
+///
+/// # Errors
+///
+/// Returns the same evaluation errors as [`apply_field_transforms`].
+pub fn apply_field_transforms_traced(
+    node: &mut Node,
+    transforms: &[FieldTransform],
+    ctx: &TransformContext<'_>,
+) -> Result<Vec<FieldTransform>, RestrictError> {
+    let mut trace = Vec::new();
+    apply_transforms_observed(
+        node,
+        transforms,
+        ctx,
+        &mut KeyTrack::default(),
+        Some(&mut trace),
+    )?;
+    Ok(trace)
+}
+
 /// The keys of a node's `extra_fields` that a run of transforms wrote: the keys the run's coercion
 /// to the target columns' specs must visit. A key a value moves onto takes the written state of the
 /// key the value left, so a value renamed after it was written is still coerced under its new name,
@@ -1949,35 +1977,54 @@ pub(crate) fn apply_transforms_tracked(
     ctx: &TransformContext<'_>,
     track: &mut KeyTrack,
 ) -> Result<(), RestrictError> {
+    apply_transforms_observed(node, transforms, ctx, track, None)
+}
+
+/// Execute transforms, optionally recording the operations that actually ran.
+fn apply_transforms_observed(
+    node: &mut Node,
+    transforms: &[FieldTransform],
+    ctx: &TransformContext<'_>,
+    written_keys: &mut KeyTrack,
+    mut trace: Option<&mut Vec<FieldTransform>>,
+) -> Result<(), RestrictError> {
     for transform in transforms {
+        let mut executed = false;
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
                 if let Some(val) = node.extra_fields.remove(old_key) {
                     node.extra_fields.insert(new_key.clone(), val);
-                    track.moved(old_key, new_key);
-                    track.written.insert(new_key.clone());
+                    written_keys.moved(old_key, new_key);
+                    written_keys.written.insert(new_key.clone());
+                    executed = true;
                 }
             }
             FieldTransform::DropField { key } => {
                 node.extra_fields.remove(key);
-                track.removed(key);
+                written_keys.removed(key);
+                executed = true;
             }
             FieldTransform::AddField { key, value } => {
                 if let std::collections::hash_map::Entry::Vacant(slot) =
                     node.extra_fields.entry(key.clone())
                 {
                     slot.insert(value.clone());
-                    track.wrote(key);
+                    executed = true;
+                    written_keys.wrote(key);
                 }
             }
             FieldTransform::KeepFields { keys } => {
                 let keep: HashSet<&str> = keys.iter().map(String::as_str).collect();
                 node.extra_fields.retain(|k, _| keep.contains(k.as_str()));
-                track.kept(&keep);
+                written_keys.kept(&keep);
+                executed = true;
             }
             FieldTransform::ApplyExpr { key, expr, .. } => {
+                executed = key == "__value__"
+                    && matches!(node.value, Some(crate::value::FieldPresence::Present(_)));
                 if apply_expr_transform(node, key, expr, ctx)? {
-                    track.wrote(key);
+                    executed = true;
+                    written_keys.wrote(key);
                 }
             }
             FieldTransform::ComputeField {
@@ -1993,45 +2040,77 @@ pub(crate) fn apply_transforms_tracked(
                 })?;
                 node.extra_fields
                     .insert(target_key.clone(), expr_literal_to_value(&result));
-                track.wrote(target_key);
+                written_keys.wrote(target_key);
+                executed = true;
             }
             FieldTransform::PathTransform { path, inner } => {
                 if path.is_empty() {
                     // Empty path = apply directly. PathTransform operates on nested
                     // extra_fields, not the instance tree, so it binds no children.
-                    apply_transforms_tracked(
+                    apply_transforms_observed(
                         node,
                         std::slice::from_ref(inner),
                         &ctx.with_child_values(HashMap::new()),
-                        track,
+                        written_keys,
+                        trace.as_deref_mut(),
                     )?;
+                } else if let Some(trace) = trace.as_deref_mut() {
+                    let mut nested = Vec::new();
+                    if apply_path_transform_observed(node, path, inner, ctx, &mut nested)? {
+                        written_keys.wrote(&path[0]);
+                    }
+                    trace.extend(
+                        nested
+                            .into_iter()
+                            .map(|inner| FieldTransform::PathTransform {
+                                path: path.clone(),
+                                inner: Box::new(inner),
+                            }),
+                    );
                 } else if apply_path_transform(node, path, inner, ctx)? {
-                    track.wrote(&path[0]);
+                    written_keys.wrote(&path[0]);
                 }
             }
             FieldTransform::MapReferences { field, rename_map } => {
+                // A deleted reference is an executed erasure even though
+                // the helper reports no remaining written field.
+                executed = node.extra_fields.contains_key(field);
                 if apply_map_references(node, field, rename_map) {
-                    track.wrote(field);
+                    written_keys.wrote(field);
+                } else if executed {
+                    written_keys.removed(field);
                 }
             }
             FieldTransform::Case { branches } => {
-                // Case predicates evaluate against the full fiber (extra_fields +
-                // children) so that branching can depend on schema-defined
-                // child values.
-                let config = panproto_expr::EvalConfig::default();
-                for (index, branch) in branches.iter().enumerate() {
-                    let failed = |source| RestrictError::FieldTransformFailed {
-                        key: format!("<case branch {index}>"),
-                        source,
-                    };
-                    let env = ctx.environment(&branch.predicate, &node.extra_fields)?;
-                    let result = ctx.eval(&branch.predicate, &env, &config).map_err(failed)?;
-                    if matches!(result, panproto_expr::Literal::Bool(true)) {
-                        apply_transforms_tracked(node, &branch.transforms, ctx, track)?;
-                        break;
-                    }
-                }
+                apply_case_observed(node, branches, ctx, written_keys, trace.as_deref_mut())?;
             }
+        }
+        if executed && let Some(trace) = trace.as_deref_mut() {
+            trace.push(transform.clone());
+        }
+    }
+    Ok(())
+}
+
+/// Execute the first matching case branch in the current full fiber.
+fn apply_case_observed(
+    node: &mut Node,
+    branches: &[CaseBranch],
+    ctx: &TransformContext<'_>,
+    written_keys: &mut KeyTrack,
+    trace: Option<&mut Vec<FieldTransform>>,
+) -> Result<(), RestrictError> {
+    // Case predicates see extra fields and schema-defined child values.
+    let config = panproto_expr::EvalConfig::default();
+    for (index, branch) in branches.iter().enumerate() {
+        let failed = |source| RestrictError::FieldTransformFailed {
+            key: format!("<case branch {index}>"),
+            source,
+        };
+        let env = ctx.environment(&branch.predicate, &node.extra_fields)?;
+        let result = ctx.eval(&branch.predicate, &env, &config).map_err(failed)?;
+        if matches!(result, panproto_expr::Literal::Bool(true)) {
+            return apply_transforms_observed(node, &branch.transforms, ctx, written_keys, trace);
         }
     }
     Ok(())
@@ -2138,6 +2217,39 @@ fn apply_path_transform(
     // otherwise erase the nested fields it was asked to transform.
     if let Some(Value::Unknown(slot)) = node.extra_fields.get_mut(first) {
         *slot = temp_node.extra_fields;
+    }
+    outcome
+}
+
+/// The traced path evaluator preserves the same context and map restoration
+/// as the ordinary evaluator; only the selected inner operations are logged.
+fn apply_path_transform_observed(
+    node: &mut Node,
+    path: &[String],
+    inner: &FieldTransform,
+    ctx: &TransformContext<'_>,
+    trace: &mut Vec<FieldTransform>,
+) -> Result<bool, RestrictError> {
+    let first = &path[0];
+    let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) else {
+        return Ok(false);
+    };
+    let mut nested = Node::new(0, "");
+    nested.extra_fields = std::mem::take(map);
+    let outcome = if path.len() == 1 {
+        apply_transforms_observed(
+            &mut nested,
+            std::slice::from_ref(inner),
+            &ctx.with_child_values(HashMap::new()),
+            &mut KeyTrack::default(),
+            Some(trace),
+        )
+        .map(|()| true)
+    } else {
+        apply_path_transform_observed(&mut nested, &path[1..], inner, ctx, trace)
+    };
+    if let Some(Value::Unknown(slot)) = node.extra_fields.get_mut(first) {
+        *slot = nested.extra_fields;
     }
     outcome
 }
@@ -2725,10 +2837,12 @@ impl<'a> TransformContext<'a> {
 
     /// A context carrying pre-collected child values and no instance.
     #[must_use]
-    pub fn from_child_values(child_values: HashMap<String, Value>) -> Self {
+    pub const fn from_child_values(child_values: HashMap<String, Value>) -> Self {
         Self {
             child_values,
-            ..Self::detached()
+            instance: None,
+            repeated: BTreeSet::new(),
+            not_trees: BTreeSet::new(),
         }
     }
 
@@ -4200,7 +4314,7 @@ mod tests {
             crate::segment::canonical_winstance_bytes(&partial),
             crate::segment::canonical_winstance_bytes(&extended)
         );
-        assert!(dropped.is_empty());
+        assert_eq!(dropped, []);
     }
 
     /// An otherwise-unmapped arc takes the unique direct target edge between
@@ -4840,7 +4954,9 @@ mod tests {
     #[test]
     fn value_to_expr_literal_empty_list_is_empty_list() -> Result<(), NotExpressible> {
         match value_to_expr_literal(&Value::List(Vec::new()))? {
-            panproto_expr::Literal::List(items) => assert!(items.is_empty()),
+            panproto_expr::Literal::List(items) => {
+                assert_eq!(items, []);
+            }
             other => panic!("expected Literal::List, got {other:?}"),
         }
         Ok(())
@@ -6351,5 +6467,248 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod transform_trace_tests {
+    use super::*;
+    use crate::value::FieldPresence;
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+
+    #[test]
+    fn transform_trace_child_context_constructor_remains_const() {
+        const fn context(child_values: HashMap<String, Value>) -> TransformContext<'static> {
+            TransformContext::from_child_values(child_values)
+        }
+
+        let bindings = HashMap::from([("f".to_owned(), Value::Int(1))]);
+        let ctx = context(bindings.clone());
+        assert_eq!(ctx.child_values, bindings);
+        assert!(ctx.instance.is_none());
+        assert!(ctx.repeated.is_empty());
+        assert!(ctx.not_trees.is_empty());
+    }
+
+    fn add(key: &str, value: i64) -> FieldTransform {
+        FieldTransform::AddField {
+            key: key.to_owned(),
+            value: Value::Int(value),
+        }
+    }
+
+    fn apply(key: &str, expr: Expr) -> FieldTransform {
+        FieldTransform::ApplyExpr {
+            key: key.to_owned(),
+            expr,
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Projection,
+        }
+    }
+
+    fn parity(
+        source: &Node,
+        transforms: &[FieldTransform],
+        ctx: &TransformContext<'_>,
+    ) -> (Node, Result<Vec<FieldTransform>, RestrictError>) {
+        let mut plain = source.clone();
+        let mut traced = source.clone();
+        let plain_result = apply_field_transforms(&mut plain, transforms, ctx);
+        let traced_result = apply_field_transforms_traced(&mut traced, transforms, ctx);
+        assert_eq!(
+            serde_json::to_value(&plain).expect("node serializes"),
+            serde_json::to_value(&traced).expect("node serializes")
+        );
+        match (&plain_result, &traced_result) {
+            (Ok(()), Ok(_)) => {}
+            (Err(plain), Err(traced)) => assert_eq!(format!("{plain:?}"), format!("{traced:?}")),
+            _ => panic!("plain and traced evaluation must return the same typed result"),
+        }
+        (traced, traced_result)
+    }
+
+    fn exact_trace(actual: &[FieldTransform], expected: &[FieldTransform]) {
+        assert_eq!(
+            serde_json::to_value(actual).expect("trace serializes"),
+            serde_json::to_value(expected).expect("trace serializes")
+        );
+    }
+
+    #[test]
+    fn transform_trace_distinguishes_noops_guards_and_value_namespaces() {
+        for presence in [
+            None,
+            Some(FieldPresence::Absent),
+            Some(FieldPresence::Null),
+            Some(FieldPresence::Present(Value::Int(0))),
+        ] {
+            let mut source = Node::new(0, "a");
+            source.value = presence.clone();
+            source.extra_fields = HashMap::from([
+                ("f".to_owned(), Value::Int(1)),
+                ("__value__".to_owned(), Value::Int(2)),
+            ]);
+            let drop = FieldTransform::DropField {
+                key: "absent".to_owned(),
+            };
+            let keep = FieldTransform::KeepFields {
+                keys: vec!["f".to_owned(), "__value__".to_owned()],
+            };
+            let identity = apply("f", Expr::Var("f".into()));
+            let own = apply("__value__", Expr::Lit(Literal::Int(0)));
+            let field = FieldTransform::ComputeField {
+                target_key: "__value__".to_owned(),
+                expr: Expr::Lit(Literal::Int(7)),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Projection,
+            };
+            let transforms = vec![
+                add("f", 9),
+                FieldTransform::RenameField {
+                    old_key: "absent".to_owned(),
+                    new_key: "f".to_owned(),
+                },
+                drop.clone(),
+                keep.clone(),
+                identity.clone(),
+                own.clone(),
+                field.clone(),
+            ];
+            let (node, result) = parity(&source, &transforms, &TransformContext::detached());
+            let mut expected = vec![drop, keep, identity];
+            if matches!(presence, Some(FieldPresence::Present(_))) {
+                expected.push(own);
+            }
+            expected.push(field);
+            exact_trace(&result.expect("all transforms evaluate"), &expected);
+            assert_eq!(node.value, presence);
+            assert_eq!(node.extra_fields.get("__value__"), Some(&Value::Int(7)));
+        }
+    }
+
+    #[test]
+    fn transform_trace_selects_the_first_true_branch_after_its_prefix() {
+        let mut source = Node::new(0, "a");
+        source.extra_fields.insert("g".to_owned(), Value::Int(1));
+        let prefix = apply("g", Expr::Lit(Literal::Int(0)));
+        let selected = add("f", 2);
+        let transforms = vec![
+            prefix.clone(),
+            FieldTransform::Case {
+                branches: vec![
+                    CaseBranch {
+                        predicate: Expr::Builtin(
+                            BuiltinOp::Eq,
+                            vec![Expr::Var("g".into()), Expr::Lit(Literal::Int(0))],
+                        ),
+                        transforms: vec![selected.clone()],
+                    },
+                    CaseBranch {
+                        predicate: Expr::Lit(Literal::Bool(true)),
+                        transforms: vec![add("f", 3)],
+                    },
+                ],
+            },
+        ];
+        let (node, result) = parity(&source, &transforms, &TransformContext::detached());
+        exact_trace(&result.expect("case evaluates"), &[prefix, selected]);
+        assert_eq!(node.extra_fields.get("f"), Some(&Value::Int(2)));
+    }
+
+    #[test]
+    fn transform_trace_paths_preserve_child_suppression_and_error_state() {
+        let mut ctx = TransformContext::detached();
+        ctx.child_values.insert("child".to_owned(), Value::Int(5));
+        for path in [
+            Vec::new(),
+            vec!["nested".to_owned()],
+            vec!["nested".to_owned(), "deeper".to_owned()],
+        ] {
+            let mut source = Node::new(0, "a");
+            source.extra_fields.insert(
+                "nested".to_owned(),
+                Value::Unknown(HashMap::from([(
+                    "deeper".to_owned(),
+                    Value::Unknown(HashMap::new()),
+                )])),
+            );
+            let success = FieldTransform::PathTransform {
+                path: path.clone(),
+                inner: Box::new(FieldTransform::Case {
+                    branches: vec![CaseBranch {
+                        predicate: Expr::Lit(Literal::Bool(true)),
+                        transforms: vec![add("f", 2)],
+                    }],
+                }),
+            };
+            let (_, result) = parity(&source, &[success], &ctx);
+            let expected = if path.is_empty() {
+                add("f", 2)
+            } else {
+                FieldTransform::PathTransform {
+                    path: path.clone(),
+                    inner: Box::new(add("f", 2)),
+                }
+            };
+            exact_trace(&result.expect("path evaluates"), &[expected]);
+            let failed = FieldTransform::PathTransform {
+                path,
+                inner: Box::new(FieldTransform::Case {
+                    branches: vec![CaseBranch {
+                        predicate: Expr::Lit(Literal::Bool(true)),
+                        transforms: vec![
+                            add("f", 2),
+                            FieldTransform::ComputeField {
+                                target_key: "g".to_owned(),
+                                expr: Expr::Var("child".into()),
+                                inverse: None,
+                                coercion_class: panproto_gat::CoercionClass::Projection,
+                            },
+                        ],
+                    }],
+                }),
+            };
+            let (_, result) = parity(&source, &[failed], &ctx);
+            assert!(
+                matches!(result, Err(RestrictError::FieldTransformFailed { key, .. }) if key == "g")
+            );
+        }
+    }
+
+    #[test]
+    fn transform_trace_retains_reference_deletion_and_list_filtering() {
+        let mut source = Node::new(0, "a");
+        source.extra_fields = HashMap::from([
+            ("scalar".to_owned(), Value::Str("x".to_owned())),
+            (
+                "list".to_owned(),
+                Value::List(vec![
+                    Value::Str("x".to_owned()),
+                    Value::Str("y".to_owned()),
+                    Value::Int(1),
+                ]),
+            ),
+        ]);
+        let transforms: Vec<_> = ["scalar", "list"]
+            .into_iter()
+            .map(|field| FieldTransform::MapReferences {
+                field: field.to_owned(),
+                rename_map: HashMap::from([
+                    ("x".to_owned(), None),
+                    ("y".to_owned(), Some("z".to_owned())),
+                ]),
+            })
+            .collect();
+        let (node, result) = parity(&source, &transforms, &TransformContext::detached());
+        exact_trace(&result.expect("reference mapping evaluates"), &transforms);
+        assert!(!node.extra_fields.contains_key("scalar"));
+        assert_eq!(
+            node.extra_fields.get("list"),
+            Some(&Value::List(vec![
+                Value::Str("z".to_owned()),
+                Value::Int(1)
+            ]))
+        );
     }
 }

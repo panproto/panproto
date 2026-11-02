@@ -1412,7 +1412,7 @@ mod tests {
         assert_eq!(span.apex_coverage, 0.0);
         assert!(!span.is_total());
         assert!(span.as_total_morphism().is_none());
-        assert!(span.to_overlap().vertex_pairs.is_empty());
+        assert_eq!(span.to_overlap().vertex_pairs, []);
     }
 
     #[test]
@@ -1456,7 +1456,7 @@ mod tests {
         );
         assert_eq!(first.apex_digest_hex(), second.apex_digest_hex());
         assert_eq!(first.apex_digest_hex().len(), 64);
-        assert!(validate(&first.apex, &protocol).is_empty());
+        assert_eq!(validate(&first.apex, &protocol), []);
         assert_eq!(
             canonical_digest(&first.apex),
             first.certificate.apex_digest,
@@ -1477,9 +1477,9 @@ mod tests {
         let span = SpanSearch::new(&protocol).run(&s, &s).unwrap();
 
         assert!(!span.apex.edges.is_empty());
-        assert!(!span.apex.outgoing_edges("root").is_empty());
-        assert!(!span.apex.incoming_edges("root.a").is_empty());
-        assert!(!span.apex.edges_between("root", "root.a").is_empty());
+        assert_ne!(span.apex.outgoing_edges("root"), []);
+        assert_ne!(span.apex.incoming_edges("root.a"), []);
+        assert_ne!(span.apex.edges_between("root", "root.a"), []);
     }
 
     #[test]
@@ -1679,7 +1679,7 @@ mod tests {
             1,
             "the marker and its target both survive, so the point does"
         );
-        assert!(validate(&span.apex, &protocol).is_empty());
+        assert_eq!(validate(&span.apex, &protocol), []);
 
         // A target with room for both arms keeps the whole group instead, which
         // is the branch that exercises the arm-level count.
@@ -1715,7 +1715,7 @@ mod tests {
         assert_eq!(span.apex.spans.len(), 1);
         assert_eq!(span.apex.hyper_edges.len(), 1);
         assert!(!span.apex.vertices.contains_key("orphan"));
-        assert!(validate(&span.apex, &protocol).is_empty());
+        assert_eq!(validate(&span.apex, &protocol), []);
     }
 
     #[test]

@@ -8,7 +8,7 @@ Finite presentations and operations for generalized algebraic theories (GATs).
 
 ## Installation
 
-Add the crate to a Rust 1.85 or newer project:
+Add the crate to a Rust 1.97 or newer project:
 
 ```sh
 cargo add panproto-gat

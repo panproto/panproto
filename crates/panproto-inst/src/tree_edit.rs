@@ -2722,7 +2722,7 @@ mod graph_tests {
             vec![EdgeId(0), EdgeId(2), EdgeId(3), EdgeId(4)]
         );
         assert!(d.add_nodes().is_empty() && d.add_edges().is_empty());
-        assert!(emb.fans.is_empty());
+        assert_eq!(emb.fans, []);
         Ok(())
     }
 

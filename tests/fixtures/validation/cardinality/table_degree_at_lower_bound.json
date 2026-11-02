@@ -289,6 +289,22 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "actor"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "film"
           }
         },

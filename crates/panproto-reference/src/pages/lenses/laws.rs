@@ -302,6 +302,8 @@ impl LensShape for TableShape {
             Some(complement_divergence("original tables differ"))
         } else if left.original_cells != right.original_cells {
             Some(complement_divergence("original cells differ"))
+        } else if left.original_absent_cells != right.original_absent_cells {
+            Some(complement_divergence("original absent cells differ"))
         } else if left.synthesized_fk_pairs != right.synthesized_fk_pairs {
             Some(complement_divergence(
                 "synthesized foreign-key pairs differ",
@@ -2574,6 +2576,10 @@ fn table_reserved_negative_cases(
                 .any(|(_, source, target)| source == id || target == id)
             && !complement.original_tables.contains_key(id)
             && !complement.original_cells.keys().any(|(row, _)| row == id)
+            && !complement
+                .original_absent_cells
+                .iter()
+                .any(|(row, _)| row == id)
             && !complement
                 .synthesized_fk_pairs
                 .iter()
@@ -5595,6 +5601,9 @@ mod table_basis_tests {
             .retain(|(_, source, target), _| *source != id && *target != id);
         complement.original_tables.remove(&id);
         complement.original_cells.retain(|(row, _), _| *row != id);
+        complement
+            .original_absent_cells
+            .retain(|(row, _)| *row != id);
         complement
             .synthesized_fk_pairs
             .retain(|(_, source, target)| *source != id && *target != id);

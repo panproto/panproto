@@ -229,7 +229,7 @@ mod tests {
 
         let diff: crate::api::helpers::SchemaDiff = decode(&out).unwrap();
         assert_eq!(diff.added_vertices, vec!["post".to_string()]);
-        assert!(diff.removed_vertices.is_empty());
+        assert_eq!(diff.removed_vertices, Vec::<String>::new());
 
         pp_buf_free(out);
         handle::free(h1);
@@ -274,7 +274,7 @@ mod tests {
 
         let report: check::CompatReport = decode(&report_out).unwrap();
         assert!(!report.compatible, "removing a vertex must be breaking");
-        assert!(!report.breaking.is_empty());
+        assert_ne!(report.breaking, []);
 
         // Text rendering.
         let report_slice: c_slice::Box<u8> = report_out.to_vec().into_boxed_slice().into();

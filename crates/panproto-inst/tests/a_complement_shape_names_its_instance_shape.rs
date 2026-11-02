@@ -73,13 +73,13 @@ fn complement_shape_functor_serializes_as_functor() {
         r#""functor""#
     );
     let format = ComplementShape::Functor.current_format();
-    assert_eq!(format.to_string(), "functor/1");
+    assert_eq!(format.to_string(), "functor/2");
     assert_eq!(
         serde_json::to_string(&format).unwrap(),
-        r#"{"shape":"functor","version":1}"#
+        r#"{"shape":"functor","version":2}"#
     );
     assert_eq!(
-        serde_json::from_str::<ComplementFormat>(r#"{"shape":"functor","version":1}"#).unwrap(),
+        serde_json::from_str::<ComplementFormat>(r#"{"shape":"functor","version":2}"#).unwrap(),
         format
     );
 }
@@ -109,7 +109,7 @@ fn a_tree_complement_is_not_a_table_or_resolution_complement() {
         (Encoding::MsgpackPositional, rmp_serde::to_vec(&c).unwrap()),
     ] {
         for (expected, name) in [
-            (ComplementShape::Functor, "functor/1"),
+            (ComplementShape::Functor, "functor/2"),
             (ComplementShape::Resolution, "resolution/1"),
         ] {
             assert_eq!(

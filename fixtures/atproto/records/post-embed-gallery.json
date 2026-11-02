@@ -1,0 +1,93 @@
+{
+  "$type": "app.bsky.feed.post",
+  "createdAt": "2026-06-08T21:10:01.530Z",
+  "embed": {
+    "$type": "app.bsky.embed.gallery",
+    "items": [
+      {
+        "$type": "app.bsky.embed.gallery#image",
+        "alt": "We've increased the number of photos you can attach to a post from 4 to 10. That's why we're adding a carousel.",
+        "aspectRatio": {
+          "height": 1000,
+          "width": 1000
+        },
+        "image": {
+          "$type": "blob",
+          "mimeType": "image/jpeg",
+          "ref": {
+            "$link": "bafkreibmn42rzhlqwv2mkw3owiqy4nnnsvxjxpin2jfahze3ugwx3g5o7y"
+          },
+          "size": 305203
+        }
+      },
+      {
+        "$type": "app.bsky.embed.gallery#image",
+        "alt": "The carousel only shows for posts with at least 5 photos.\nOld posts with photos will continue to show the regular grid layout.",
+        "aspectRatio": {
+          "height": 1000,
+          "width": 1000
+        },
+        "image": {
+          "$type": "blob",
+          "mimeType": "image/jpeg",
+          "ref": {
+            "$link": "bafkreigbqt7wvn2eekgtzut7kjwss6phxz5llyamplvm4iweyb6rp2nucy"
+          },
+          "size": 315149
+        }
+      },
+      {
+        "$type": "app.bsky.embed.gallery#image",
+        "alt": "Each photo displays a numbered badge to make it super clear there are more photos to browse.",
+        "aspectRatio": {
+          "height": 1000,
+          "width": 1000
+        },
+        "image": {
+          "$type": "blob",
+          "mimeType": "image/jpeg",
+          "ref": {
+            "$link": "bafkreid3dxu5yyb3xpfbrq2grskp2ma32zszwg6u7pnwsjwd5dwi7ci4bi"
+          },
+          "size": 288000
+        }
+      },
+      {
+        "$type": "app.bsky.embed.gallery#image",
+        "alt": "We've improved the gesture handling so you don't accidentally open the drawer menu or go back/forward in your browser while swiping.",
+        "aspectRatio": {
+          "height": 1000,
+          "width": 1000
+        },
+        "image": {
+          "$type": "blob",
+          "mimeType": "image/jpeg",
+          "ref": {
+            "$link": "bafkreibm5edsjc46wqjkp6jhldam2ot42tsmebmo6qybk7vvaf6sjgx32q"
+          },
+          "size": 336142
+        }
+      },
+      {
+        "$type": "app.bsky.embed.gallery#image",
+        "alt": "We're always eager to hear your feedback. Let us know your thoughts about the new carousel!",
+        "aspectRatio": {
+          "height": 1000,
+          "width": 1000
+        },
+        "image": {
+          "$type": "blob",
+          "mimeType": "image/jpeg",
+          "ref": {
+            "$link": "bafkreib2gw2f2pliv5oxeq5pyb43xwlma6zizcfqokviwvym2i33vyhaxe"
+          },
+          "size": 266597
+        }
+      }
+    ]
+  },
+  "langs": [
+    "en"
+  ],
+  "text": "v1.123 is live! You can now attach up to 10 photos in posts. \n\nWe listened to your feedback and redesigned the photo carousel. It only appears for posts with at least 5 photos. \n\nSwipe through to learn more."
+}

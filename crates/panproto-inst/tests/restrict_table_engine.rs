@@ -12,7 +12,8 @@ use panproto_gat::Name;
 use panproto_inst::{
     BoundaryProtocols, BoundarySide, CompiledMigration, FInstance, GInstance, RestrictError,
     RestrictPlan, RowId, TableComplement, Value, functor_extend, functor_restrict,
-    functor_restrict_with_complement, functor_restrict_with_plan, graph_restrict_with_plan,
+    functor_restrict_finite_with_plan, functor_restrict_with_complement,
+    functor_restrict_with_plan, graph_restrict_with_plan,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
 use proptest::prelude::*;
@@ -101,6 +102,32 @@ fn plan(src: &Schema, tgt: &Schema, m: &CompiledMigration) -> RestrictPlan {
     RestrictPlan::compile_for_tables(src, tgt, m, protocols(&p)).unwrap()
 }
 
+/// Both compilers refuse the original target before evaluating an instance.
+fn assert_undeclared_output(
+    schema: &Schema,
+    migration: &CompiledMigration,
+    anchor: &str,
+    output: &str,
+) {
+    let p = protocol();
+    for compiled in [
+        RestrictPlan::compile_for_tables(schema, schema, migration, protocols(&p)),
+        RestrictPlan::compile_with_protocols(schema, schema, migration, protocols(&p)),
+    ] {
+        assert!(
+            matches!(
+                &compiled,
+                Err(RestrictError::UndeclaredTransformField {
+                    source_vertex, target_vertex, field,
+                }) if source_vertex.as_str() == anchor
+                    && target_vertex.as_str() == anchor
+                    && field == output
+            ),
+            "{compiled:?}"
+        );
+    }
+}
+
 fn people() -> (Schema, FInstance) {
     let schema = tables(&[("person", &[("name", "string"), ("age", "int")])], &[]);
     let f = FInstance::new()
@@ -158,7 +185,16 @@ fn functor_restrict_applies_field_transforms() {
     let mut m = identity(&schema);
     m.add_field_rename("person", "name", "label");
     m.add_field_keep("person", &["label"]);
-    let (view, _) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    assert_undeclared_output(&schema, &m, "person", "label");
+    // Declare the output only on the target; the original people are unchanged.
+    let target = tables(
+        &[(
+            "person",
+            &[("name", "string"), ("age", "int"), ("label", "string")],
+        )],
+        &[],
+    );
+    let (view, _) = functor_restrict_with_plan(&f, &plan(&schema, &target, &m)).unwrap();
     assert_eq!(
         view.row(RowId(0)).unwrap(),
         &cells(&[("label", Value::Str("Ann".into()))])
@@ -482,6 +518,265 @@ fn table_residue_ignores_synthesized_pairs_floor_and_identity() {
 }
 
 #[test]
+fn table_absence_residue_extends_the_original_wire_prefix() {
+    // The old positional complement has exactly nine fields.
+    let legacy = [0x99, 0x80, 0x90, 0x90, 0x90, 0x80, 0x90, 0x90, 0x00, 0xc0];
+    let empty: TableComplement = rmp_serde::from_slice(&legacy).unwrap();
+    assert_eq!(empty, TableComplement::empty());
+    assert_eq!(rmp_serde::to_vec(&empty).unwrap(), legacy);
+    let old_named = serde_json::to_string(&empty).unwrap();
+    assert!(!old_named.contains("original_absent_cells"));
+    assert_eq!(
+        serde_json::from_str::<TableComplement>(&old_named).unwrap(),
+        empty
+    );
+
+    let mut absent = empty;
+    absent.original_absent_cells.insert((RowId(0), "f".into()));
+    assert!(!absent.residue_is_trivial());
+    assert!(!absent.is_empty());
+    assert!(!panproto_inst::identity::IdentityCarrier::records_nothing(
+        &absent
+    ));
+    let encoded = rmp_serde::to_vec(&absent).unwrap();
+    assert_eq!(encoded[0], 0x9a);
+    assert_eq!(&encoded[1..legacy.len()], &legacy[1..]);
+    assert_eq!(
+        rmp_serde::from_slice::<TableComplement>(&encoded).unwrap(),
+        absent
+    );
+    let json = serde_json::to_string(&absent).unwrap();
+    assert!(json.ends_with("\"identity\":null,\"original_absent_cells\":[[0,\"f\"]]}"));
+    assert_eq!(
+        serde_json::from_str::<TableComplement>(&json).unwrap(),
+        absent
+    );
+}
+
+#[test]
+fn finite_row_defaults_distinguish_absence_from_an_existing_default_value() {
+    let schema = tables(&[("t", &[("f", "int")])], &[]);
+    let mut m = identity(&schema);
+    m.add_field_default("t", "f", Value::Int(0));
+    let compiled = plan(&schema, &schema, &m);
+    let absent = one_row(&[]);
+    let present = one_row(&[("f", Value::Int(0))]);
+    let (absent_view, absent_complement) =
+        functor_restrict_finite_with_plan(&absent, &compiled).unwrap();
+    let (present_view, present_complement) =
+        functor_restrict_finite_with_plan(&present, &compiled).unwrap();
+    assert_eq!(absent_view.row(RowId(0)), present_view.row(RowId(0)));
+    assert_eq!(absent_view.row(RowId(0)), present.row(RowId(0)));
+    assert_eq!(
+        absent_complement.original_absent_cells,
+        BTreeSet::from([(RowId(0), "f".to_owned())])
+    );
+    assert!(present_complement.original_absent_cells.is_empty());
+    assert!(present_complement.residue_is_trivial());
+    assert_ne!(absent_complement, present_complement);
+    for (source, view, complement) in [
+        (&absent, &absent_view, &absent_complement),
+        (&present, &present_view, &present_complement),
+    ] {
+        assert_eq!(
+            &restored_row(view.row(RowId(0)).unwrap(), complement, RowId(0), &["f"]),
+            source.row(RowId(0)).unwrap()
+        );
+    }
+    let null = one_row(&[("f", Value::Null)]);
+    let (null_view, null_complement) = functor_restrict_finite_with_plan(&null, &compiled).unwrap();
+    assert_eq!(null_view.row(RowId(0)), null.row(RowId(0)));
+    assert!(null_complement.residue_is_trivial());
+}
+
+#[test]
+fn absence_residue_records_only_declared_source_cells_present_in_the_final_view() {
+    let source = tables(&[("t", &[("f", "int"), ("g", "int"), ("h", "int")])], &[]);
+    let target = tables(
+        &[(
+            "t",
+            &[("f", "int"), ("g", "int"), ("h", "int"), ("out", "int")],
+        )],
+        &[],
+    );
+    let mut m = identity(&source);
+    m.add_field_default("t", "f", Value::Int(0));
+    m.add_field_drop("t", "f");
+    m.add_field_default("t", "g", Value::Int(1));
+    m.add_field_default("t", "out", Value::Int(2));
+    let (view, complement) =
+        functor_restrict_finite_with_plan(&one_row(&[]), &plan(&source, &target, &m)).unwrap();
+    assert_eq!(
+        view.row(RowId(0)),
+        Some(&cells(&[("g", Value::Int(1)), ("out", Value::Int(2))]))
+    );
+    assert_eq!(
+        complement.original_absent_cells,
+        BTreeSet::from([(RowId(0), "g".to_owned())])
+    );
+    assert!(complement.dropped_cells.is_empty());
+    assert!(complement.original_cells.is_empty());
+    assert_eq!(
+        restored_row(
+            view.row(RowId(0)).unwrap(),
+            &complement,
+            RowId(0),
+            &["f", "g", "h"]
+        ),
+        cells(&[])
+    );
+}
+
+#[test]
+fn a_structural_rename_records_an_originally_absent_source_column() {
+    let source = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+    let target = tables(&[("t", &[("c", "int")])], &[]);
+    let m = CompiledMigration {
+        surviving_verts: [Name::from("t"), Name::from("t.c")].into(),
+        surviving_edges: [column("t", "c")].into(),
+        vertex_remap: HashMap::from([("t.a".into(), "t.c".into())]),
+        edge_remap: HashMap::from([(column("t", "a"), column("t", "c"))]),
+        ..CompiledMigration::default()
+    };
+    let source_row = one_row(&[("a", Value::Int(1))]);
+    let (view, complement) =
+        functor_restrict_finite_with_plan(&source_row, &plan(&source, &target, &m)).unwrap();
+    assert_eq!(view.row(RowId(0)), Some(&cells(&[("c", Value::Int(1))])));
+    assert_eq!(
+        complement.original_absent_cells,
+        BTreeSet::from([(RowId(0), "c".to_owned())])
+    );
+    assert_eq!(
+        complement.dropped_cells,
+        BTreeMap::from([((RowId(0), "a".to_owned()), Value::Int(1))])
+    );
+    assert!(complement.original_cells.is_empty());
+    assert_eq!(
+        &restored_row(
+            view.row(RowId(0)).unwrap(),
+            &complement,
+            RowId(0),
+            &["a", "c"]
+        ),
+        source_row.row(RowId(0)).unwrap()
+    );
+}
+
+#[test]
+fn finite_row_predicates_read_absence_before_defaults() {
+    let schema = tables(&[("t", &[("f", "int")])], &[]);
+    let mut m = identity(&schema);
+    m.add_conditional_survival(
+        "t",
+        Expr::Builtin(
+            BuiltinOp::Eq,
+            vec![Expr::Var("f".into()), Expr::Lit(Literal::Int(0))],
+        ),
+    );
+    m.add_field_default("t", "f", Value::Int(0));
+    let compiled = plan(&schema, &schema, &m);
+    let refused = functor_restrict_finite_with_plan(&one_row(&[]), &compiled);
+    assert!(
+        matches!(
+            &refused,
+            Err(RestrictError::SurvivalPredicateFailed {
+                source: panproto_expr::ExprError::UnboundVariable(field), ..
+            }) if field == "f"
+        ),
+        "{refused:?}"
+    );
+    let present = one_row(&[("f", Value::Int(0))]);
+    let (view, complement) = functor_restrict_finite_with_plan(&present, &compiled).unwrap();
+    assert_eq!(view.row(RowId(0)), present.row(RowId(0)));
+    assert!(complement.residue_is_trivial());
+}
+
+#[test]
+fn finite_row_cases_and_terms_read_genuine_absence() {
+    use panproto_inst::{CaseBranch, FieldTransform, TermAssignment};
+
+    let source = tables(&[("t", &[("f", "int")])], &[]);
+    let target = tables(&[("t", &[("f", "int"), ("out", "int")])], &[]);
+    let transforms = vec![FieldTransform::Case {
+        branches: vec![CaseBranch {
+            predicate: Expr::Builtin(
+                BuiltinOp::Eq,
+                vec![Expr::Var("f".into()), Expr::Lit(Literal::Int(0))],
+            ),
+            transforms: vec![FieldTransform::ComputeField {
+                target_key: "out".into(),
+                expr: Expr::Var("f".into()),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
+            }],
+        }],
+    }];
+    for lowered in [false, true] {
+        let mut m = identity(&source);
+        if lowered {
+            m.op_term_assignments.insert(
+                "t".into(),
+                transforms
+                    .iter()
+                    .map(TermAssignment::from_field_transform)
+                    .collect(),
+            );
+        } else {
+            m.field_transforms.insert("t".into(), transforms.clone());
+        }
+        let compiled = plan(&source, &target, &m);
+        let refused = functor_restrict_finite_with_plan(&one_row(&[]), &compiled);
+        assert!(
+            matches!(
+                &refused,
+                Err(RestrictError::FieldTransformFailed {
+                    key, source: panproto_expr::ExprError::UnboundVariable(field),
+                }) if key == "<case branch 0>" && field == "f"
+            ),
+            "lowered={lowered}: {refused:?}"
+        );
+        let present = one_row(&[("f", Value::Int(0))]);
+        let (view, complement) = functor_restrict_finite_with_plan(&present, &compiled).unwrap();
+        assert_eq!(
+            view.row(RowId(0)),
+            Some(&cells(&[("f", Value::Int(0)), ("out", Value::Int(0))]))
+        );
+        assert!(complement.residue_is_trivial());
+    }
+}
+
+#[test]
+fn finite_rows_still_refuse_stray_cells_and_unknown_tables() {
+    let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+    let compiled = plan(&schema, &schema, &identity(&schema));
+    let stray = functor_restrict_finite_with_plan(&one_row(&[("b", Value::Int(2))]), &compiled);
+    assert!(
+        refused_as_nonconforming(
+            &stray,
+            0,
+            Some("b"),
+            &panproto_inst::NonConformance::StrayCell
+        ),
+        "{stray:?}"
+    );
+    let outside = FInstance::new()
+        .with_rows("t.a", [(RowId(0), cells(&[]))])
+        .unwrap();
+    let refused = functor_restrict_finite_with_plan(&outside, &compiled);
+    assert!(
+        refused_as_nonconforming(
+            &refused,
+            0,
+            None,
+            &panproto_inst::NonConformance::TableOutside {
+                table: "t.a".into()
+            }
+        ),
+        "{refused:?}"
+    );
+}
+
+#[test]
 fn reserved_row_ids_are_the_dropped_rows() {
     let (schema, f) = people();
     let mut m = identity(&schema);
@@ -692,11 +987,25 @@ fn the_table_graph_restrict_square_commutes_under_transforms() {
             vec![Expr::Var("age".into()), Expr::Lit(Literal::Int(1))],
         ),
     );
-    let (table_view, _) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    assert_undeclared_output(&schema, &m, "person", "label");
+    // The same input and transforms run with both output fields declared.
+    let target = tables(
+        &[(
+            "person",
+            &[
+                ("name", "string"),
+                ("age", "int"),
+                ("label", "string"),
+                ("older", "int"),
+            ],
+        )],
+        &[],
+    );
+    let (table_view, _) = functor_restrict_with_plan(&f, &plan(&schema, &target, &m)).unwrap();
     let (graph, _) = GInstance::from_finstance(&f).unwrap();
     let p = protocol();
     let graph_plan =
-        RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
+        RestrictPlan::compile_with_protocols(&schema, &target, &m, protocols(&p)).unwrap();
     let (graph_view, _) = graph_restrict_with_plan(&graph, &graph_plan).unwrap();
     let (expected, _) = GInstance::from_finstance(&table_view).unwrap();
     assert!(
@@ -907,11 +1216,23 @@ fn a_renamed_column_is_a_dropped_cell() {
 #[test]
 fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
     let (schema, f) = people();
+    let renamed = tables(
+        &[(
+            "person",
+            &[
+                ("name", "string"),
+                ("age", "int"),
+                ("label", "string"),
+                ("years", "int"),
+            ],
+        )],
+        &[],
+    );
     // A rename alone: the view row holds no cell named `name`, so each
     // source cell of that column is a dropped cell under it.
     let mut m = identity(&schema);
     m.add_field_rename("person", "name", "label");
-    let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &renamed, &m)).unwrap();
     assert_eq!(
         view.row(RowId(0)).unwrap().get("label"),
         Some(&Value::Str("Ann".into()))
@@ -940,7 +1261,7 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
             coercion_class: panproto_gat::CoercionClass::Opaque,
         },
     );
-    let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &renamed, &m)).unwrap();
     assert_eq!(
         view.row(RowId(0)).unwrap().get("years"),
         Some(&Value::Int(11))
@@ -953,6 +1274,30 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
         ])
     );
     assert_eq!(complement.original_cells, BTreeMap::new());
+    assert_rename_overwrite_records_both_source_cells();
+    // A computed value written over a column the row holds is that
+    // column's changed value.
+    let mut m = identity(&schema);
+    m.field_transforms.entry("person".into()).or_default().push(
+        panproto_inst::FieldTransform::ComputeField {
+            target_key: "age".into(),
+            expr: Expr::Lit(Literal::Int(0)),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
+        },
+    );
+    let (_, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    assert_eq!(complement.dropped_cells, BTreeMap::new());
+    assert_eq!(
+        complement.original_cells,
+        BTreeMap::from([
+            ((RowId(0), "age".to_owned()), Value::Int(10)),
+            ((RowId(1), "age".to_owned()), Value::Int(40)),
+        ])
+    );
+}
+
+fn assert_rename_overwrite_records_both_source_cells() {
     // A rename onto a column the row holds: the view row holds no cell
     // named `a`, so `a` is a dropped cell, and its cell named `b` holds
     // `a`'s value, so `b` is an original cell.
@@ -987,31 +1332,11 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
         ),
         cells(&[("a", Value::Int(1)), ("b", Value::Int(2))])
     );
-    // A computed value written over a column the row holds is that
-    // column's changed value.
-    let mut m = identity(&schema);
-    m.field_transforms.entry("person".into()).or_default().push(
-        panproto_inst::FieldTransform::ComputeField {
-            target_key: "age".into(),
-            expr: Expr::Lit(Literal::Int(0)),
-            inverse: None,
-            coercion_class: panproto_gat::CoercionClass::Opaque,
-        },
-    );
-    let (_, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
-    assert_eq!(complement.dropped_cells, BTreeMap::new());
-    assert_eq!(
-        complement.original_cells,
-        BTreeMap::from([
-            ((RowId(0), "age".to_owned()), Value::Int(10)),
-            ((RowId(1), "age".to_owned()), Value::Int(40)),
-        ])
-    );
 }
 
 /// The source row a put rebuilds from the view row and the complement,
-/// column by column of the row's source table: `dropped_cells`, else
-/// `original_cells`, else the view's cell of that name.
+/// column by column of the row's source table: omit `original_absent_cells`,
+/// then use `dropped_cells`, else `original_cells`, else the view's cell.
 fn restored_row(
     view_row: &HashMap<String, Value>,
     complement: &TableComplement,
@@ -1022,6 +1347,9 @@ fn restored_row(
         .iter()
         .filter_map(|column| {
             let key = (id, (*column).to_owned());
+            if complement.original_absent_cells.contains(&key) {
+                return None;
+            }
             complement
                 .dropped_cells
                 .get(&key)
@@ -1064,16 +1392,26 @@ fn a_value_dependent_swap_leaves_distinct_table_complements() {
     // the renames can tell them apart; the per-column comparison
     // does, and the complements differ.
     let (schema, m) = value_dependent_swap();
+    let target = tables(&[("t", &[("a", "int"), ("c", "int"), ("tmp", "int")])], &[]);
     let p = protocol();
+    for refused in [
+        RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)),
+        RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)),
+    ] {
+        assert!(matches!(refused,
+            Err(RestrictError::UndeclaredTransformField { source_vertex, target_vertex, field })
+                if source_vertex == "t" && target_vertex == "t" && field == "tmp"
+        ));
+    }
     let graph_plan =
-        RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
+        RestrictPlan::compile_with_protocols(&schema, &target, &m, protocols(&p)).unwrap();
     let run = |a: i64, c: i64| {
         let row = cells(&[("a", Value::Int(a)), ("c", Value::Int(c))]);
         let f = FInstance::new()
             .with_rows("t", [(RowId(0), row.clone())])
             .unwrap();
         let (view, complement) =
-            functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+            functor_restrict_with_plan(&f, &plan(&schema, &target, &m)).unwrap();
         let view_row = view.row(RowId(0)).unwrap().clone();
         assert_eq!(
             restored_row(&view_row, &complement, RowId(0), &["a", "c"]),
@@ -1130,13 +1468,11 @@ fn refused_as_nonconforming<T: std::fmt::Debug>(
 }
 
 #[test]
-fn a_partial_row_is_refused_since_no_complement_could_restore_its_absent_cell() {
+fn a_partial_row_remains_outside_the_total_row_engine() {
     // `AddField c := 0` sends {a: 1} and {a: 1, c: 0} to the one view row
-    // {a: 1, c: 0}. The second is unchanged, so its complement is empty,
-    // and a put from the view must give it back; the first then has no
-    // complement that restores it. The table restrict reads total rows
-    // only (absent and null cells differ), so it refuses the partial row
-    // and keeps the total one.
+    // {a: 1, c: 0}. The total-row entrypoint retains its existing domain:
+    // it refuses the partial row and keeps the total one. The finite-row
+    // entrypoint records absence separately, as the collision test checks.
     let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
     let mut m = identity(&schema);
     m.field_transforms.insert(
@@ -1192,7 +1528,10 @@ fn the_table_engine_refuses_a_stray_cell_and_a_row_outside_the_tables() {
         }],
     );
     let p = protocol();
-    let table_plan = plan(&schema, &schema, &m);
+    assert_undeclared_output(&schema, &m, "t", "x");
+    // Declaring x on the target leaves it stray on the original source.
+    let target = tables(&[("t", &[("a", "int"), ("c", "int"), ("x", "int")])], &[]);
+    let table_plan = plan(&schema, &target, &m);
     let stray = one_row(&[
         ("a", Value::Int(1)),
         ("c", Value::Int(2)),
@@ -1380,14 +1719,15 @@ fn drawn_row(
 /// cell residue agreement of
 /// `table_and_graph_cell_residues_agree_but_for_a_computed_column`.
 fn cell_residues_agree(
-    schema: &Schema,
+    source: &Schema,
+    target: &Schema,
     m: &CompiledMigration,
     f: &FInstance,
 ) -> Result<(), TestCaseError> {
     let p = protocol();
-    let table_plan = RestrictPlan::compile_for_tables(schema, schema, m, protocols(&p)).unwrap();
+    let table_plan = RestrictPlan::compile_for_tables(source, target, m, protocols(&p)).unwrap();
     let graph_plan =
-        RestrictPlan::compile_with_protocols(schema, schema, m, protocols(&p)).unwrap();
+        RestrictPlan::compile_with_protocols(source, target, m, protocols(&p)).unwrap();
     let (graph, _) = GInstance::from_finstance(f).unwrap();
     let table = functor_restrict_with_plan(f, &table_plan);
     let graph = graph_restrict_with_plan(&graph, &graph_plan);
@@ -1463,6 +1803,35 @@ proptest! {
         let mut m = identity(&schema);
         m.field_transforms
             .insert("t".into(), choices.iter().map(|c| pooled_transform(*c)).collect());
+        let p = protocol();
+        // The original target remains an observation of the compile
+        // domain. Derive its expected first missing destination directly
+        // from the fixed transform alphabet, independently of the planner.
+        let undeclared = choices.iter().find_map(|choice| match choice {
+            0 => Some("tmp"),
+            1 => Some("k"),
+            5 => Some("z"),
+            _ => None,
+        });
+        for compiled in [
+            RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)),
+            RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)),
+        ] {
+            match undeclared {
+                Some(expected) => prop_assert!(matches!(compiled,
+                    Err(RestrictError::UndeclaredTransformField { source_vertex, target_vertex, field })
+                        if source_vertex == "t" && target_vertex == "t" && field == expected
+                ), "the first undeclared destination must be {expected}"),
+                None => prop_assert!(compiled.is_ok(), "{compiled:?}"),
+            }
+        }
+        // Every generated transform and row is also run against a target
+        // declaring all destinations, including the transient swap key.
+        // Source columns and rows stay exactly t(a, c).
+        let target = tables(
+            &[("t", &[("a", "int"), ("c", "int"), ("tmp", "int"), ("k", "int"), ("z", "int")])],
+            &[],
+        );
         let mut f = FInstance::new();
         // The rows before the first that is not total, and that row's
         // refusal.
@@ -1482,9 +1851,8 @@ proptest! {
         if let Some((id, column, reason)) = owed {
             // Rows are refused in ascending id: a refusal of a total row
             // before it comes first, and otherwise the row's own.
-            let p = protocol();
             let table_plan =
-                RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)).unwrap();
+                RestrictPlan::compile_for_tables(&schema, &target, &m, protocols(&p)).unwrap();
             let refused = functor_restrict_with_plan(&f, &table_plan);
             match functor_restrict_with_plan(&prefix, &table_plan) {
                 Err(earlier) => prop_assert_eq!(
@@ -1498,7 +1866,7 @@ proptest! {
                 ),
             }
         } else {
-            cell_residues_agree(&schema, &m, &f)?;
+            cell_residues_agree(&schema, &target, &m, &f)?;
         }
     }
 }
@@ -1875,7 +2243,7 @@ fn the_default_protocol_declares_the_leaf_edges_alone() {
     assert!(rel.is_table("t"));
     assert!(rel.columns("t").is_empty());
     let attrs = panproto_inst::AttributeSchema::from_schema(&keyed, &Protocol::default());
-    assert!(attrs.for_vertex("t").is_empty());
+    assert_eq!(attrs.for_vertex("t"), []);
     // On a table with a leaf and a structured column, the default protocol
     // declares the leaf column alone, and the classifying one both.
     let classifying = protocol_with_struct();

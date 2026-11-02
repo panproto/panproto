@@ -6,6 +6,8 @@ This page states thirteen laws. [L-restrict-and-contraction-1](#L-restrict-and-c
 
 Let $S$ and $T$ be source and target schemas, let $m : S \to T$ be a compiled migration, and let $G$ be a finite source graph. A source vertex is *endpoint-capable* when it survives $m$. It is *interior-capable* when it is dropped by $m$ or has a conditional-survival predicate; a conditional vertex is therefore both endpoint-capable and interior-capable. A source node survives when its anchor is endpoint-capable and, where required, its predicate accepts the node in the original graph. A *realized pair* $(x,y)$ consists of surviving source nodes joined by a nonempty directed walk whose internal nodes include at least one dropped non-fan node and are all dropped non-fan nodes.
 
+A transform's **output fields** are the top-level fields that any of its operations may write, in operation order. At every surviving source anchor, each output field must be an attribute of the mapped target anchor. This condition includes unrealized anchors, inactive branches and temporary destinations; deleting a top-level field imposes no write obligation, and a nested update names its outer field. Updating a node's own value imposes no field obligation. Production derives these outputs from transform syntax. The reference requires complete ordered output metadata from its caller, including writes that no supplied instance realizes.
+
 Cross-shape statements quantify only over the validated common conversion image. Thus a tree, its graph encoding, and a table-shaped graph are compared only when the relevant encodings and schema-relative shape checks succeed; no law identifies malformed carriers merely because they can be stored by one raw representation.
 
 The reference operations live in [`panproto_reference::restrict`](https://docs.rs/panproto-reference/latest/panproto_reference/restrict/) and [`panproto_reference::lens`](https://docs.rs/panproto-reference/latest/panproto_reference/lens/). The release carrier contains 57 schemas crossed with 27 survival classifications, 375 pair-resolution cases, 12,366 graph cases (each run bare and with decorated node payloads), 585 ordered child-binding words, nine column-fate cases, 70 tree cases, 16 `Keep`/`Drop`-between-survivors tree cases, and one fan-plus-expansion tree case. The tree-edit carrier adds 38 get words, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal.
@@ -20,7 +22,7 @@ For every declaration-valid $S$, $T$, and $m$, `edge_image` assigns exactly one 
 
 ### Outside the domain
 
-Invalid source or target declarations are refused before the edge image is compiled. A direct or expanded image that is absent from $T$, has the wrong endpoints, or has a label that does not join its adjacent anchors is refused as `IncoherentEdgeImage`. Failure to resolve an expansion hop is data in the plan (`Unresolved`), not a compilation refusal; execution reports that failure only when an instance edge has the fate.
+Invalid source or target declarations are refused before the edge image is compiled. A direct or expanded image that is absent from $T$, has the wrong endpoints, or has a label that does not join its adjacent anchors is refused as `IncoherentEdgeImage`. Failure to resolve an expansion hop is data in the plan (`Unresolved`), not a compilation refusal; execution reports that failure only when an instance edge has the fate. Base plan compilation checks source declarations, target declarations, edge images, contraction, then output fields. An undeclared output is refused as [`UndeclaredTransformField`](https://docs.rs/panproto-inst/latest/panproto_inst/enum.RestrictError.html), with its source anchor, mapped target anchor and field; a dropped anchor imposes no output obligation.
 
 ### Definitions used
 
@@ -153,11 +155,11 @@ None. Resolver-first selection, unique-edge fallback, and the prohibition on rec
 
 ### Statement
 
-On a declaration-valid plan and a graph in the fan domain, graph get evaluates in this order: non-fan nodes by ascending id; non-fan edges by ascending id; realized contraction pairs by ascending pair; fan nodes by ascending id; synthesized allocation by ordered synthesis key. A surviving node keeps its id, takes its target anchor, and receives its declared transform. A source edge whose endpoints survive follows the compiled fate: `Keep` retains id and position with the image label, `Drop` enters the complement, and `Expand` enters the complement while its path is synthesized. Every realized pair produces one labelled edge or one expansion path. Fans are evaluated after contraction. The first typed error in stage order is returned. Synthesized node and edge ids begin at their separate source floors, increase in synthesis-key order, and never equal `u32::MAX`.
+On a successfully compiled plan and a graph in the fan domain, graph get evaluates in this order: non-fan nodes by ascending id; non-fan edges by ascending id; realized contraction pairs by ascending pair; fan nodes by ascending id; synthesized allocation by ordered synthesis key. A surviving node keeps its id, takes its target anchor, and receives its declared transform. A source edge whose endpoints survive follows the compiled fate: `Keep` retains id and position with the image label, `Drop` enters the complement, and `Expand` enters the complement while its path is synthesized. Every realized pair produces one labelled edge or one expansion path. Fans are evaluated after contraction. The first typed error in stage order is returned. Synthesized node and edge ids begin at their separate source floors, increase in synthesis-key order, and never equal `u32::MAX`.
 
 ### Outside the domain
 
-Plan mismatch is refused before evaluation. A graph outside the fan domain is refused at its least offending node. An undeclared instance label between surviving endpoints, an unresolved edge fate or pair, a predicate or transform refusal, a fan-label collision, an overlong expansion, and id exhaustion each produce the typed refusal at the stage and element specified by `ErrorKey`.
+Output declarations are checked during compilation, before any instance is read. Plan mismatch is refused before evaluation. A graph outside the fan domain is refused at its least offending node. An undeclared instance label between surviving endpoints, an unresolved edge fate or pair, a predicate or transform refusal, a fan-label collision, an overlong expansion, and id exhaustion each produce the typed refusal at the stage and element specified by `ErrorKey`.
 
 ### Definitions used
 
@@ -165,11 +167,18 @@ The *fan domain* consists of graphs in which every hyper-edge-shaped node and ev
 
 ### Proof
 
-`get_with_plan` validates the plan stamp and fan domain before it constructs `Run`. It records both floors, then calls `nodes`, `edges`, `contract`, `fans`, `allocate`, and `record` in the order stated. Each stage iterates a `BTreeMap` or `BTreeSet`, hence ascending key order. The node and edge stages implement the compiled fates directly. `realized_pairs` uses one visited set per surviving source and inserts pairs into an ordered set, so cycles terminate and duplicate witnesses collapse. Allocation sorts pending objects by synthesis key and draws from half-open ranges ending before `u32::MAX`. The 12,366-case differential runs every graph twice, once bare and once with every node carrying a value, a discriminator, a field, and an annotation. Each run compares the complete view, with every node's id, anchor, value, discriminator, fields, position, shape, and annotations, and the complete complement, with its original fields and original values, together with synthesis keys, floors, and typed refusals. The decorated run also checks that every kept node keeps its payload. The carrier holds no predicate, transform, or fan, so the predicate, transform, fan, overlong-expansion, and id-exhaustion clauses rest on the stage argument above and on the pins of the other laws on this page, not on this differential.
+After compilation has checked declarations and output fields, `get_with_plan` validates the plan stamp and fan domain before it constructs `Run`. It records both floors, then calls `nodes`, `edges`, `contract`, `fans`, `allocate`, and `record` in the order stated. Each stage iterates a `BTreeMap` or `BTreeSet`, hence ascending key order. The node and edge stages implement the compiled fates directly. `realized_pairs` uses one visited set per surviving source and inserts pairs into an ordered set, so cycles terminate and duplicate witnesses collapse. Allocation sorts pending objects by synthesis key and draws from half-open ranges ending before `u32::MAX`. The 12,366-case differential runs every graph twice, once bare and once with every node carrying a value, a discriminator, a field, and an annotation. Each run compares the complete view, with every node's id, anchor, value, discriminator, fields, position, shape, and annotations, and the complete complement, with its original fields and original values, together with synthesis keys, floors, and typed refusals. The decorated run also checks that every kept node keeps its payload. The carrier holds no predicate, transform, or fan, so the predicate, transform, fan, overlong-expansion, and id-exhaustion clauses rest on the stage argument above and on the pins of the other laws on this page, not on this differential.
 
 ### Executable counterpart
 
 - Law ID: `restrict.c3`
+- Reference: `panproto_reference::restrict::compile`
+- Regression differential test: `undeclared_transform_stages_keep_every_original_source_as_a_refusal; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_attribute_edges_agree_with_the_reference; binary: panproto-lens::reference_lenses`
+- Independent reference test: `transform_outputs_follow_target_attribute_declarations; binary: panproto-reference::transform_declarations`
+- Independent reference test: `transform_output_refusals_keep_anchor_and_write_order; binary: panproto-reference::transform_declarations`
+- Independent reference test: `structural_plan_refusals_precede_transform_outputs; binary: panproto-reference::transform_declarations`
+- Independent reference test: `declaration_refusals_precede_structural_and_output_checks; binary: panproto-reference::transform_declarations`
 - Reference: `panproto_reference::restrict::get`
 - Reference: `panproto_reference::restrict::edge_image`
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
@@ -181,6 +190,9 @@ The *fan domain* consists of graphs in which every hyper-edge-shaped node and ev
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
+- File: `crates/panproto-reference/tests/transform_declarations.rs`
+- File: `crates/panproto-inst/src/restrict_plan.rs`
 
 ### Mutation equivalences
 
@@ -256,7 +268,7 @@ The law is stated for schemas that admit the relational attribute interpretation
 
 ### Definitions used
 
-An *attribute arrow* is a schema edge from an entity vertex to its value vertex. A *cell plan* is the per-entity ordered map of `Drop` and `Rename` fates compiled from those arrows.
+An *attribute arrow* is a schema edge from an entity vertex to its value vertex. A *cell plan* is the per-entity ordered map of `Drop` and `Rename` fates compiled from those arrows. For the default output check, an outgoing edge to a leaf declares an attribute regardless of its edge kind; the attribute takes the edge's name or, when unnamed, its target vertex's name. Protocol-aware compilation also accepts declared table columns with structured values.
 
 ### Proof
 
@@ -403,6 +415,9 @@ The *restored node* is the source candidate obtained from the view node plus rec
 ### Executable counterpart
 
 - Law ID: `restrict.tr10`
+- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; binary: panproto-lens::reference_lenses`
 - Reference: `panproto_reference::lens::TreeShape::check_put_domain`
 - Reference: `panproto_reference::lens::tree_put`
 - Exhaustive differential tests: `graph_square_agrees_with_the_reference_exhaustively` and `tree_put_law_certificate` in `crates/panproto-lens/tests/reference_lenses.rs`
@@ -414,6 +429,7 @@ The *restored node* is the source candidate obtained from the view node plus rec
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 
 ### Mutation equivalences
 
@@ -449,6 +465,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 ### Executable counterpart
 
 - Law ID: `restrict.tr11`
+- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; binary: panproto-lens::reference_lenses`
 - Reference: `panproto_reference::lens::check_tree_laws`
 - Reference: `panproto_reference::lens::TreeShape::single_step_basis`
 - Exhaustive differential tests: `lens_laws_agree_with_the_reference_exhaustively` and `graph_square_agrees_with_the_reference_exhaustively`
@@ -461,6 +478,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-lens/src/laws.rs`
 - File: `crates/panproto-lens/src/dispatch.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 
 ### Mutation equivalences
 

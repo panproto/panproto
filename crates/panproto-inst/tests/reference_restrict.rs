@@ -1326,7 +1326,7 @@ fn drop_between_survivors_witness() {
         tree_view.nodes.keys().copied().collect::<BTreeSet<_>>(),
         BTreeSet::from([0])
     );
-    assert!(tree_view.arcs.is_empty());
+    assert_eq!(tree_view.arcs, []);
     let source_graph = GInstance::from_wtype(&prod_tree(&tree)).unwrap();
     let (graph_view, _) = graph_restrict_with_plan(&source_graph, &plan).unwrap();
     assert_eq!(

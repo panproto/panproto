@@ -730,6 +730,7 @@ fn add_table_residue(
             .dropped_cells
             .keys()
             .chain(complement.original_cells.keys())
+            .chain(complement.original_absent_cells.iter())
             .any(|(row, _)| row == id);
         if changed {
             graph_complement

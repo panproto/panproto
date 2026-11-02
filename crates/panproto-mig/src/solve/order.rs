@@ -1421,7 +1421,7 @@ mod tests {
             .unwrap()
             .build();
         let (order, width) = choose_order(&cfn);
-        assert!(order.is_empty());
+        assert_eq!(order, []);
         assert_eq!(width, 0);
     }
 

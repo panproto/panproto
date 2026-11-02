@@ -6,9 +6,9 @@
 use panproto_gat::Name;
 use panproto_schema::{
     CanonicalWriter, Cardinality, DeclarationReport, Edge, Key, KeyPart, KeyRefError, KeyRole,
-    KeyScope, OffsetUnit, OnUnresolved, PathSyntax, Protocol, RefSource, RefTextSource, Reference,
-    ResolveMode, Schema, SchemaBuilder, SchemaDeclarations, SchemaError, SchemaOverlap, UriBase,
-    canonical_bytes, induce_on_vertices, schema_pushout,
+    KeyScope, NullMatch, OffsetUnit, OnUnresolved, PathSyntax, Protocol, RefSource, RefTextSource,
+    Reference, ResolveMode, Schema, SchemaBuilder, SchemaDeclarations, SchemaError, SchemaOverlap,
+    SpanEnd, UriBase, VariableBinding, canonical_bytes, induce_on_vertices, schema_pushout,
 };
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -96,7 +96,7 @@ fn store_reference() -> Reference {
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     }
@@ -312,7 +312,7 @@ fn reference_sources_serialize_in_contract_form() {
                 end: vec![],
                 unit: OffsetUnit::Utf16,
                 end_inclusive: true,
-                end_form: Default::default(),
+                end_form: SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             },
@@ -324,7 +324,7 @@ fn reference_sources_serialize_in_contract_form() {
             RefSource::Variable {
                 field: vec![],
                 binder_key: Name::from("var"),
-                binding: Default::default(),
+                binding: VariableBinding::default(),
             },
             r#"{"variable":{"field":[],"binder_key":"var"}}"#.to_owned(),
         ),
@@ -353,7 +353,7 @@ fn references_and_reports_serialize_in_contract_form() {
         on_unresolved: OnUnresolved::Complement,
         mode: ResolveMode::Redirect,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     };
@@ -598,7 +598,7 @@ fn the_builder_records_keys_and_references() {
         schema.declarations.references.get("store_film"),
         Some(&store_reference())
     );
-    assert!(panproto_schema::validate(&schema, &protocol()).is_empty());
+    assert_eq!(panproto_schema::validate(&schema, &protocol()), []);
 
     let mut clashing = film_key();
     clashing.role = KeyRole::Unique;
@@ -809,7 +809,7 @@ fn validate_reports_binder_not_identifier() {
     let variable = |binder: &str| RefSource::Variable {
         field: vec![edge("store", "store.film_id", "column", "film_id")],
         binder_key: Name::from(binder),
-        binding: Default::default(),
+        binding: VariableBinding::default(),
     };
     let found = findings_after(|schema| {
         let reference = store_ref(schema);
@@ -985,7 +985,7 @@ fn a_reference_to_a_subtype_vertex_does_not_resolve() {
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     };
@@ -1086,7 +1086,7 @@ fn unmapped_declarations_are_dropped_and_reported() {
     assert_eq!(mapped.keys, schema.declarations.keys);
     assert!(mapped.references.is_empty());
     assert_eq!(report.dropped_references, vec![Name::from("store_film")]);
-    assert!(report.dropped_keys.is_empty());
+    assert_eq!(report.dropped_keys, []);
 
     // A morphism that identifies two keyed vertices merges equal keys
     // and refuses different ones.
@@ -1156,7 +1156,7 @@ fn induce_and_pushout_report_dropped_declarations() {
             .expect("induce");
     assert_eq!(apex.declarations.keys, schema.declarations.keys);
     assert_eq!(report.dropped_references, vec![Name::from("store_film")]);
-    assert!(report.dropped_keys.is_empty());
+    assert_eq!(report.dropped_keys, []);
 
     // A pushout whose sides are disjoint renames the right side's
     // colliding vertices, keeps both sides' keys and reports nothing.
@@ -1248,7 +1248,7 @@ fn plain_reference(id: &str, holder: &str, source: RefSource, target: &str) -> R
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     }
@@ -1360,7 +1360,7 @@ fn standoff_family() -> Schema {
                 end: vec![prop("ann", "ann.end", "end")],
                 unit: OffsetUnit::Utf8Char,
                 end_inclusive: false,
-                end_form: Default::default(),
+                end_form: SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             },
@@ -1397,7 +1397,7 @@ fn penman_family() -> Schema {
             RefSource::Variable {
                 field: vec![prop("concept", "concept.var", "var")],
                 binder_key: Name::from("var"),
-                binding: Default::default(),
+                binding: VariableBinding::default(),
             },
             "concept",
         )

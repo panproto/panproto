@@ -342,6 +342,22 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "item"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "list"
           }
         },
@@ -515,6 +531,22 @@
             {
               "kind": "attribute",
               "decl": {
+                "vertex": "item"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 2,
+              "passed": 2,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
                 "vertex": "list"
               }
             },
@@ -640,6 +672,22 @@
               "requirement": "required",
               "instances": 1,
               "passed": 1,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "item"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 2,
+              "passed": 2,
               "failed": 0,
               "incomplete": 0
             }
@@ -808,6 +856,22 @@
                   "requirement": "required",
                   "instances": 1,
                   "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "attribute",
+                  "decl": {
+                    "vertex": "item"
+                  }
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 2,
+                  "passed": 2,
                   "failed": 0,
                   "incomplete": 0
                 }

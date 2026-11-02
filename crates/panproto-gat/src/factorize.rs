@@ -467,7 +467,7 @@ mod tests {
         );
         let result = factorize(&morph, &domain, &codomain).unwrap();
         // Should have: drop f, drop B, rename A→Alpha, add C, add g
-        assert!(!result.steps.is_empty());
+        assert_ne!(result.steps, []);
         validate_factorization(&result, &domain, &codomain).unwrap();
     }
 

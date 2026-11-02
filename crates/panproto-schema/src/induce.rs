@@ -880,14 +880,14 @@ mod tests {
     #[test]
     fn fixture_populates_every_field() {
         let schema = fixture();
-        assert!(!schema.protocol.is_empty());
+        assert_ne!(schema.protocol, "");
         assert!(!schema.vertices.is_empty());
         assert!(!schema.edges.is_empty());
         assert!(!schema.hyper_edges.is_empty());
         assert!(!schema.constraints.is_empty());
         assert!(!schema.required.is_empty());
         assert!(!schema.nsids.is_empty());
-        assert!(!schema.entries.is_empty());
+        assert_ne!(schema.entries, Vec::<Name>::new());
         assert!(!schema.variants.is_empty());
         assert!(!schema.orderings.is_empty());
         assert!(!schema.recursion_points.is_empty());
@@ -1041,7 +1041,7 @@ mod tests {
         );
 
         // And the apex validates.
-        assert!(validate(&apex, &protocol).is_empty());
+        assert_eq!(validate(&apex, &protocol), []);
     }
 
     #[test]
@@ -1204,7 +1204,7 @@ mod tests {
         assert!(apex.constraints.is_empty());
         assert!(apex.required.is_empty());
         assert!(apex.nsids.is_empty());
-        assert!(apex.entries.is_empty());
+        assert_eq!(apex.entries, Vec::<Name>::new());
         assert!(apex.variants.is_empty());
         assert!(apex.orderings.is_empty());
         assert!(apex.recursion_points.is_empty());
@@ -1220,7 +1220,7 @@ mod tests {
         // `policies` is keyed by sort name, so an empty vertex set leaves it
         // untouched.
         assert_eq!(apex.policies, schema.policies);
-        assert!(validate(&apex, &protocol).is_empty());
+        assert_eq!(validate(&apex, &protocol), []);
     }
 
     #[test]

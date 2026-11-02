@@ -1366,7 +1366,7 @@ mod tests {
             })
             .map(|op| &*op.name)
             .collect();
-        assert!(!fan_ops.is_empty());
+        assert_ne!(fan_ops, Vec::<&str>::new());
         for eq in &theory.eqs {
             let text = format!("{:?} {:?}", eq.lhs, eq.rhs);
             for op in &fan_ops {

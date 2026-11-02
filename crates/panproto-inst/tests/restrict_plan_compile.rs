@@ -127,7 +127,7 @@ fn preimages_list_every_source_edge_mapped_to_an_image() {
         image.preimages(&e("r", "a", "z")),
         vec![&e("r", "a", "x"), &e("r", "a", "y")]
     );
-    assert!(image.preimages(&e("r", "a", "x")).is_empty());
+    assert_eq!(image.preimages(&e("r", "a", "x")), Vec::<&Edge>::new());
 }
 
 #[test]
@@ -848,4 +848,143 @@ fn an_engine_refuses_an_expansion_too_long_to_number() {
     let graph_error = panproto_inst::graph_restrict_with_plan(&graph, &plan).unwrap_err();
     assert!(too_long(&graph_error), "{graph_error:?}");
     assert_eq!(graph_error.key().map(|k| (k.stage, k.id)), Some((1, 0)));
+}
+
+#[test]
+fn transform_outputs_are_declared_at_the_remapped_target_vertex() {
+    use panproto_expr::{Expr, Literal};
+    use panproto_gat::CoercionClass;
+    use panproto_inst::{CaseBranch, FieldTransform, TermAssignment};
+
+    let source = schema(&["source"], &[]);
+    let target = schema(&["target", "value"], &[&e("target", "value", "declared")]);
+    let mut migration = keep(&["target"]);
+    migration
+        .vertex_remap
+        .insert("source".into(), "target".into());
+    let computed = |field: &str| FieldTransform::ComputeField {
+        target_key: field.to_owned(),
+        expr: Expr::Lit(Literal::Int(1)),
+        inverse: None,
+        coercion_class: CoercionClass::Projection,
+    };
+    let transforms = [
+        computed("missing"),
+        FieldTransform::AddField {
+            key: "missing".into(),
+            value: panproto_inst::Value::Int(1),
+        },
+        FieldTransform::RenameField {
+            old_key: "declared".into(),
+            new_key: "missing".into(),
+        },
+        FieldTransform::ApplyExpr {
+            key: "missing".into(),
+            expr: Expr::Lit(Literal::Int(1)),
+            inverse: None,
+            coercion_class: CoercionClass::Projection,
+        },
+        FieldTransform::Case {
+            branches: vec![CaseBranch {
+                predicate: Expr::Lit(Literal::Bool(false)),
+                transforms: vec![computed("missing")],
+            }],
+        },
+        FieldTransform::PathTransform {
+            path: vec![],
+            inner: Box::new(computed("missing")),
+        },
+        FieldTransform::PathTransform {
+            path: vec!["missing".into()],
+            inner: Box::new(computed("inner")),
+        },
+    ];
+    for transform in transforms {
+        for as_terms in [false, true] {
+            migration.field_transforms.clear();
+            migration.op_term_assignments.clear();
+            if as_terms {
+                migration.op_term_assignments.insert(
+                    "source".into(),
+                    vec![TermAssignment::from_field_transform(&transform)],
+                );
+            } else {
+                migration
+                    .field_transforms
+                    .insert("source".into(), vec![transform.clone()]);
+            }
+            let error = RestrictPlan::compile(&source, &target, &migration).unwrap_err();
+            assert!(
+                matches!(error, RestrictError::UndeclaredTransformField { source_vertex, target_vertex, field }
+                if source_vertex == "source" && target_vertex == "target" && field == "missing")
+            );
+        }
+    }
+    migration.op_term_assignments.clear();
+    migration
+        .field_transforms
+        .insert("source".into(), vec![computed("declared")]);
+    assert!(RestrictPlan::compile(&source, &target, &migration).is_ok());
+}
+
+#[test]
+fn leaf_value_coercions_and_nested_value_writes_keep_their_distinct_scopes() {
+    use panproto_expr::{Expr, Literal};
+    use panproto_gat::CoercionClass;
+    use panproto_inst::FieldTransform;
+
+    let schema = schema(&["root", "payload"], &[&e("root", "payload", "payload")]);
+    let mut migration = keep(&["root", "payload"]);
+    migration.field_transforms.insert(
+        "payload".into(),
+        vec![FieldTransform::ApplyExpr {
+            key: "__value__".into(),
+            expr: Expr::Var("__value__".into()),
+            inverse: None,
+            coercion_class: CoercionClass::Projection,
+        }],
+    );
+    migration.field_transforms.insert(
+        "root".into(),
+        vec![FieldTransform::PathTransform {
+            path: vec!["payload".into()],
+            inner: Box::new(FieldTransform::ComputeField {
+                target_key: "inside".into(),
+                expr: Expr::Lit(Literal::Int(1)),
+                inverse: None,
+                coercion_class: CoercionClass::Projection,
+            }),
+        }],
+    );
+    assert!(RestrictPlan::compile(&schema, &schema, &migration).is_ok());
+}
+
+#[test]
+fn schema_declaration_refusals_precede_transform_output_refusals() {
+    use panproto_expr::{Expr, Literal};
+    use panproto_schema::{Key, KeyRole, KeyScope};
+
+    let valid = schema(&["root"], &[]);
+    let mut invalid = valid.clone();
+    invalid.declarations.insert_key(
+        "absent".into(),
+        Key {
+            id: "key".into(),
+            parts: Vec::new(),
+            role: KeyRole::Unique,
+            scope: KeyScope::Document,
+            equality: Vec::new(),
+        },
+    );
+    let expected = panproto_schema::validate_declarations(&invalid).unwrap_err();
+    let mut migration = keep(&["root"]);
+    migration.add_computed_field("root", "missing", Expr::Lit(Literal::Int(1)));
+    assert!(
+        matches!(RestrictPlan::compile(&invalid, &invalid, &migration),
+        Err(RestrictError::SourceDeclarations(errors)) if errors == expected)
+    );
+    assert!(
+        matches!(RestrictPlan::compile(&valid, &invalid, &migration),
+        Err(RestrictError::TargetDeclarations(errors)) if errors == expected)
+    );
 }

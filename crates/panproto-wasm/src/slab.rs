@@ -88,7 +88,7 @@ pub fn alloc(resource: Resource) -> u32 {
 
 /// Return the number of occupied slots in this thread's slab.
 #[cfg(test)]
-pub(crate) fn live_resource_count() -> usize {
+pub fn live_resource_count() -> usize {
     SLAB.with_borrow(|slab| slab.iter().flatten().count())
 }
 

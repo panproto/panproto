@@ -63,7 +63,7 @@ fn required_value_treats_present_null_as_missing_at_an_own_site() {
         ..Graph::default()
     };
     let report = validation::validate(&schema, &semantics, &present);
-    assert!(report.diagnostics.is_empty());
+    assert_eq!(report.diagnostics, []);
     assert_eq!(report.status, CheckStatus::Passed);
 
     for value in [
@@ -81,7 +81,7 @@ fn required_value_treats_present_null_as_missing_at_an_own_site() {
         };
         let report = validation::validate(&schema, &semantics, &graph);
         if matches!(value, Some(Value::Str(_))) {
-            assert!(report.diagnostics.is_empty());
+            assert_eq!(report.diagnostics, []);
         } else {
             assert_eq!(report.diagnostics.len(), 1);
             assert_eq!(
@@ -147,7 +147,7 @@ fn the_probe_instance_fails_five_ways() {
     );
     assert_eq!(r.status, CheckStatus::Failed);
     let unsupported = validation::validate(&s, &BTreeMap::new(), &g);
-    assert!(!unsupported.incomplete.is_empty());
+    assert_ne!(unsupported.incomplete, []);
     assert_eq!(unsupported.status, CheckStatus::Failed);
 }
 
@@ -909,7 +909,7 @@ fn advisory_references_remain_advisory_in_segments_schedules_and_budget_cuts() {
         .iter()
         .filter(|run| run.instance.check.kind == CheckKind::ReferenceResolves)
         .collect();
-    assert!(!reference_runs.is_empty());
+    assert_ne!(reference_runs, Vec::<&CheckRun>::new());
     assert!(
         reference_runs
             .iter()
@@ -3012,7 +3012,7 @@ fn one_value_constraint(semantics: Semantics, bound: &str, value: Value) -> vali
 fn scalar_grapheme_and_format_subsets_refuse_unsupported_values_explicitly() {
     for semantics in [Semantics::Enum, Semantics::Const] {
         let report = one_value_constraint(semantics, "1", Value::Float(1.0f64.to_bits()));
-        assert!(report.diagnostics.is_empty());
+        assert_eq!(report.diagnostics, []);
         assert!(report.incomplete.iter().any(|entry| {
             entry.check.kind == CheckKind::ValueConstraint
                 && matches!(entry.reason, IncompleteReason::Unsupported { .. })
@@ -3043,8 +3043,8 @@ fn scalar_grapheme_and_format_subsets_refuse_unsupported_values_explicitly() {
         "time",
         Value::Str("12:30:45+04:00".to_owned()),
     );
-    assert!(valid_time.diagnostics.is_empty());
-    assert!(valid_time.incomplete.is_empty());
+    assert_eq!(valid_time.diagnostics, []);
+    assert_eq!(valid_time.incomplete, []);
     let unsupported_time = one_value_constraint(
         Semantics::Format("json-schema".to_owned()),
         "time",
@@ -3097,15 +3097,15 @@ fn only_the_direct_did_format_uses_the_declared_family() {
         "did",
         Value::Str("DID:m123:value".to_owned()),
     );
-    assert!(shared.incomplete.is_empty());
-    assert!(shared.diagnostics.is_empty());
+    assert_eq!(shared.incomplete, []);
+    assert_eq!(shared.diagnostics, []);
 
     let atproto = one_value_constraint(
         Semantics::Format("atproto".to_owned()),
         "did",
         Value::Str("DID:m123:value".to_owned()),
     );
-    assert!(atproto.incomplete.is_empty());
+    assert_eq!(atproto.incomplete, []);
     assert_eq!(atproto.diagnostics.len(), 1);
 
     for format in ["at-identifier", "at-uri"] {
@@ -3410,7 +3410,7 @@ fn assert_external_sort_identity(input: &ValidationInput, subject: &ViewRef) {
             .count(),
         1,
     );
-    assert!(still_missing.diagnostics.is_empty());
+    assert_eq!(still_missing.diagnostics, []);
 
     let passing_context = ValidationContext {
         external: BTreeMap::from([(("audit_sort".to_owned(), subject.clone()), true)]),
@@ -3462,7 +3462,7 @@ fn assert_external_rejection_is_exact(input: &ValidationInput, subject: &ViewRef
     );
     let rejected_run = scheduled_run(&rejected_schedule, CheckKind::External, Some(subject));
     assert_eq!(rejected_run.diagnostics.len(), 1);
-    assert!(rejected_run.incomplete.is_empty());
+    assert_eq!(rejected_run.incomplete, []);
 }
 
 #[test]

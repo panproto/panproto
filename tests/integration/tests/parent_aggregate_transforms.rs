@@ -41,8 +41,10 @@ fn transform_protocol() -> Protocol {
             "array".into(),
             "string".into(),
             "integer".into(),
+            "unknown".into(),
         ],
         value_kinds: BTreeMap::from([
+            ("unknown".to_owned(), ScalarKind::Any),
             ("string".to_owned(), ScalarKind::Str),
             (
                 "integer".to_owned(),
@@ -155,15 +157,37 @@ fn keyframe_schema() -> Schema {
         kind: "prop".into(),
         name: Some("seconds".into()),
     };
+    let mut vertices = vec![
+        ("clip".to_owned(), "object"),
+        ("clip.keyframes".to_owned(), "array"),
+        ("clip.keyframe".to_owned(), "object"),
+        ("clip.keyframe.timeMs".to_owned(), "integer"),
+        ("clip.keyframe.seconds".to_owned(), "integer"),
+    ];
+    let mut edges = vec![e_keyframes, e_item, e_time, e_seconds];
+    for (field, kind) in [
+        ("temporalSpan", "unknown"),
+        ("count", "integer"),
+        ("first", "integer"),
+        ("viaSelf", "integer"),
+        ("outDegree", "integer"),
+        ("at", "string"),
+    ] {
+        let target = format!("clip.{field}");
+        vertices.push((target.clone(), kind));
+        edges.push(Edge {
+            src: "clip".into(),
+            tgt: target.into(),
+            kind: "prop".into(),
+            name: Some(field.into()),
+        });
+    }
     make_schema(
-        &[
-            ("clip", "object"),
-            ("clip.keyframes", "array"),
-            ("clip.keyframe", "object"),
-            ("clip.keyframe.timeMs", "integer"),
-            ("clip.keyframe.seconds", "integer"),
-        ],
-        &[e_keyframes, e_item, e_time, e_seconds],
+        &vertices
+            .iter()
+            .map(|(id, kind)| (id.as_str(), *kind))
+            .collect::<Vec<_>>(),
+        &edges,
     )
 }
 

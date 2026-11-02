@@ -1119,7 +1119,7 @@ mod cross_process {
             rewrite_budget: DEFAULT_VERIFY_BUDGET,
         };
         let composition = compose(&diagram, &opts).expect("the span composes");
-        assert!(!composition.report.freshened.is_empty());
+        assert_ne!(composition.report.freshened, []);
         composition
     }
 

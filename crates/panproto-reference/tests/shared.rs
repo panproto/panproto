@@ -42,7 +42,7 @@ fn shared_model_observables_follow_their_definitions() {
     );
     assert!(graph.well_formed());
     assert_eq!(graph.ordered_out_edges(0), vec![3, 5, 7]);
-    assert!(graph.ordered_out_edges(1).is_empty());
+    assert_eq!(graph.ordered_out_edges(1), []);
 
     let mut bad_id = graph.clone();
     bad_id.nodes.get_mut(&0).unwrap().id = 9;

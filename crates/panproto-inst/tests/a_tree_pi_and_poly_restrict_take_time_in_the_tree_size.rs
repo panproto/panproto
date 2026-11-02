@@ -17,8 +17,9 @@ use panproto_inst::{
 };
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
-fn schema() -> Schema {
-    SchemaBuilder::new(&Protocol::default())
+fn schema(with_output: bool) -> Schema {
+    let p = Protocol::default();
+    let mut builder = SchemaBuilder::new(&p)
         .vertex("r", "record", None)
         .unwrap()
         .vertex("mid", "record", None)
@@ -28,9 +29,15 @@ fn schema() -> Schema {
         .edge("r", "mid", "prop", Some("m"))
         .unwrap()
         .edge("mid", "leaf", "prop", Some("k"))
-        .unwrap()
-        .build()
-        .unwrap()
+        .unwrap();
+    if with_output {
+        builder = builder
+            .vertex("copy", "integer", None)
+            .unwrap()
+            .edge("mid", "copy", "prop", Some("copy"))
+            .unwrap();
+    }
+    builder.build().unwrap()
 }
 
 fn edge(src: &str, tgt: &str, name: &str) -> Edge {
@@ -93,11 +100,11 @@ enum Operation {
 /// The time of `operation` on `instance`, after checking that it copied
 /// each `mid`'s child into its field.
 fn run_time(operation: Operation, instance: &WInstance) -> Duration {
-    let (s, m) = (schema(), migration());
+    let (s, t, m) = (schema(false), schema(true), migration());
     let start = Instant::now();
     let result = match operation {
-        Operation::Pi => wtype_pi(instance, &s, &m, usize::MAX).unwrap(),
-        Operation::PolyRestrict => restrict_with_complement(instance, &s, &s, &m).unwrap().0,
+        Operation::Pi => wtype_pi(instance, &t, &m, usize::MAX).unwrap(),
+        Operation::PolyRestrict => restrict_with_complement(instance, &s, &t, &m).unwrap().0,
     };
     let elapsed = start.elapsed();
     assert_eq!(result.nodes.len(), instance.nodes.len());

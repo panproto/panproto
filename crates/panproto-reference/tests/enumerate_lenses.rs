@@ -350,17 +350,35 @@ fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
 }
 
 /// A positive basis candidate a put-domain clause refuses is out of the
-/// domain, not a Totality violation: under `T`, which adds the computed field
-/// `f`, the field edit of `f` is refused with `DerivedCellEdited` and the
-/// report passes every gate.
+/// domain, not a Totality violation. The original `T` refuses its undeclared
+/// output. Under `DeclaredDefault`, which declares the computed field `f`,
+/// editing `f` is refused with `DerivedCellEdited` and the report passes
+/// every gate.
 #[test]
 fn a_refused_positive_candidate_is_out_of_the_domain() {
-    use panproto_reference::enumerate::lenses::{C11AddField, c11_stages};
+    use panproto_reference::enumerate::lenses::{
+        C11AddField, c11_stages, declared_transform_stages,
+    };
     use panproto_reference::lens::{GraphLens, LawGateStatus, check_graph_laws};
     use panproto_reference::model::Node;
 
     let stages = c11_stages();
     let stage = stages.iter().find(|stage| stage.name == "T").unwrap();
+    assert_eq!(
+        panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration),
+        Err(
+            panproto_reference::restrict::PlanError::UndeclaredTransformField {
+                source_vertex: "a".to_owned(),
+                target_vertex: "a".to_owned(),
+                field: "f".to_owned(),
+            }
+        )
+    );
+    let stages = declared_transform_stages();
+    let stage = stages
+        .iter()
+        .find(|stage| stage.name == "DeclaredDefault")
+        .unwrap();
     let plan =
         panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration)
             .unwrap();

@@ -1765,7 +1765,7 @@ mod tests {
             theory_result("ThMulti", "passed", 0),
         ]);
         assert_eq!(run.status, "passed");
-        assert!(run.unchecked().is_empty());
+        assert_eq!(run.unchecked(), Vec::<&str>::new());
     }
 
     #[test]

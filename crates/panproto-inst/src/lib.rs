@@ -211,8 +211,8 @@ pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;
 pub use table_restrict::{
     functor_extend, functor_extend_engine, functor_extend_partial, functor_extend_validated,
-    functor_restrict, functor_restrict_validated, functor_restrict_with_complement,
-    functor_restrict_with_plan,
+    functor_restrict, functor_restrict_finite_with_plan, functor_restrict_validated,
+    functor_restrict_with_complement, functor_restrict_with_plan,
 };
 pub use tree_edit::{TreeEdit, canonical_tree_edit_bytes};
 pub use validate::{validate_attributes, validate_wtype};
@@ -232,11 +232,12 @@ pub use view_ref::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
 pub use wtype::{
     CaseBranch, CompiledMigration, FanResolver, FanShape, FieldTransform, HyperResolverEntry,
     HyperResolverTable, TermAssignment, TermBranch, TermScope, TransformContext, WInstance,
-    ancestor_contraction, anchor_surviving, apply_term_assignments_to_row,
-    build_env_from_extra_fields, build_env_with_children, canonical_label_shape,
-    collect_child_values, collect_scalar_child_values, expr_literal_to_value,
-    extend_env_from_extra_fields, node_to_value, reconstruct_fans, referenced_names, resolve_edge,
-    value_to_expr_literal, wtype_extend, wtype_extend_partial, wtype_restrict,
+    ancestor_contraction, anchor_surviving, apply_field_transforms_traced,
+    apply_term_assignments_to_row, build_env_from_extra_fields, build_env_with_children,
+    canonical_label_shape, collect_child_values, collect_scalar_child_values,
+    expr_literal_to_value, extend_env_from_extra_fields, node_to_value, reconstruct_fans,
+    referenced_names, resolve_edge, value_to_expr_literal, wtype_extend, wtype_extend_partial,
+    wtype_restrict,
 };
 pub use wtype::{
     InstanceRef, NotExpressible, TreeSynthesis, tree_survival_verdicts, wtype_extend_engine,

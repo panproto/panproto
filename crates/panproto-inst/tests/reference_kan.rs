@@ -1303,7 +1303,7 @@ fn production_read_back(graph: &GInstance, _schema: &Schema) -> ReadBack {
             else {
                 panic!("production does not report a cycle for unreached features {candidates:?}")
             };
-            assert!(!witness.is_empty());
+            assert_ne!(witness, []);
             assert!(witness.iter().all(|edge| {
                 let edge = &graph.edges()[edge];
                 candidates.contains(&edge.src) && candidates.contains(&edge.tgt)
@@ -2636,7 +2636,7 @@ fn check_pair(case: &PairCase, source: &PairSource, target: &PairTarget) -> Pair
             stats.sigma_homs += check_sigma_pair(&case.functors, source, sigma, target);
         }
         Err(rel::KanError::SigmaConstantClash { .. }) => {
-            assert!(rel::homs(&source.input, &target.delta).is_empty());
+            assert_eq!(rel::homs(&source.input, &target.delta), []);
             stats.sigma_refusals += 1;
         }
         Err(other) => panic!("{}: Sigma refused with {other:?}", case.name),

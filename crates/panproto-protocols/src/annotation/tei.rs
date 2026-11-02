@@ -1218,7 +1218,7 @@ mod tests {
         let emitted = emit_tei(&schema).expect("emit verse/drama");
         let body = emitted["document"]["text"]["body"].as_object().unwrap();
         let divs = body["divs"].as_array().unwrap();
-        assert!(!divs.is_empty());
+        assert_ne!(*divs, Vec::<serde_json::Value>::new());
         let line_groups = divs[0]["lineGroups"].as_array().unwrap();
         assert_eq!(line_groups.len(), 1);
         let speeches = divs[0]["speeches"].as_array().unwrap();

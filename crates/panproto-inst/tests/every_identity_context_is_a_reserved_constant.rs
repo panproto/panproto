@@ -187,10 +187,10 @@ fn segment_context_strings_are_the_contract_strings() {
 }
 
 #[test]
-fn every_complement_format_version_is_one() {
+fn every_complement_format_version_is_explicit() {
     assert_eq!(TREE_COMPLEMENT_FORMAT_VERSION, 1);
     assert_eq!(GRAPH_COMPLEMENT_FORMAT_VERSION, 1);
-    assert_eq!(FUNCTOR_COMPLEMENT_FORMAT_VERSION, 1);
+    assert_eq!(FUNCTOR_COMPLEMENT_FORMAT_VERSION, 2);
     assert_eq!(RESOLUTION_COMPLEMENT_FORMAT_VERSION, 1);
 }
 

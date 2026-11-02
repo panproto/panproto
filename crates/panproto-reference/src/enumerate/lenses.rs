@@ -1192,6 +1192,10 @@ impl TableGetRefusalCase {
                             .then(|| "t".to_owned())
                             .into_iter()
                             .collect(),
+                        output_fields: (self == Self::TransformRefusal)
+                            .then(|| ("t".to_owned(), vec!["x".to_owned()]))
+                            .into_iter()
+                            .collect(),
                         ..Migration::default()
                     },
                     source_schema,
@@ -3288,6 +3292,9 @@ pub fn c11_stages() -> Vec<C11Stage> {
     ));
     let mut transform = identity_migration(&a);
     transform.transformed.insert("a".to_owned());
+    transform
+        .output_fields
+        .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
     out.push(stage(
         "T",
         a.clone(),
@@ -3306,6 +3313,9 @@ pub fn c11_stages() -> Vec<C11Stage> {
     ));
     let mut read_field = identity_migration(&a);
     read_field.transformed.insert("a".to_owned());
+    read_field
+        .output_fields
+        .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
     out.push(stage(
         "ReadF",
         a.clone(),
@@ -3315,6 +3325,9 @@ pub fn c11_stages() -> Vec<C11Stage> {
     ));
     let mut op_term = identity_migration(&a);
     op_term.transformed.insert("a".to_owned());
+    op_term
+        .output_fields
+        .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
     out.push(stage("Op", a.clone(), a, op_term, C11Layer::OpTerm));
     let bare_identity = identity_migration(&bare);
     out.push(stage(
@@ -3330,6 +3343,126 @@ pub fn c11_stages() -> Vec<C11Stage> {
         .insert(c11_edge("a", "b"), c11_edge("b", "a"));
     out.push(stage("B", ab.clone(), ab, incoherent, C11Layer::None));
     out
+}
+
+/// A separate transform carrier whose field is a declared integer attribute.
+///
+/// These five stages do not change the original stage alphabet: identity,
+/// default insertion, deletion, invertible read, and constant computation.
+#[must_use]
+pub fn declared_transform_stages() -> Vec<C11Stage> {
+    let schema = Schema::default()
+        .vertex("a", "obj")
+        .vertex("value", "int")
+        .edge("a", "value", "prop", Some(C11_FIELD));
+    [
+        ("DeclaredId", C11Layer::None),
+        ("DeclaredDefault", C11Layer::AddField),
+        ("DeclaredDrop", C11Layer::DropField),
+        ("DeclaredRead", C11Layer::ReadField),
+        ("DeclaredCompute", C11Layer::OpTerm),
+    ]
+    .into_iter()
+    .map(|(name, layer)| {
+        let mut migration = identity_migration(&schema);
+        if layer != C11Layer::None {
+            migration.transformed.insert("a".to_owned());
+        }
+        if matches!(
+            layer,
+            C11Layer::AddField | C11Layer::ReadField | C11Layer::OpTerm
+        ) {
+            migration
+                .output_fields
+                .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
+        }
+        stage(name, schema.clone(), schema.clone(), migration, layer)
+    })
+    .collect()
+}
+
+/// All sources with zero through two labelled object nodes and one field
+/// independently absent, zero, or one at each node.
+#[must_use]
+pub fn declared_transform_graphs() -> Vec<Graph> {
+    let mut out = Vec::new();
+    for count in 0_u8..=2 {
+        for mut code in 0..power(3, usize::from(count)) {
+            let mut graph = Graph::default();
+            for id in 0..count {
+                let mut node = Node::new(u32::from(id), "a");
+                if code % 3 != 0 {
+                    node.fields
+                        .insert(C11_FIELD.to_owned(), Value::Int(i64::from(code % 3 != 1)));
+                }
+                code /= 3;
+                graph.nodes.insert(node.id, node);
+            }
+            out.push(graph);
+        }
+    }
+    out
+}
+
+/// The three one-root trees of the declared-field carrier.
+#[must_use]
+pub fn declared_transform_trees() -> Vec<Tree> {
+    declared_transform_graphs()
+        .into_iter()
+        .filter(|graph| graph.nodes.len() == 1)
+        .map(|graph| Tree {
+            root: 0,
+            nodes: graph.nodes,
+            arcs: Vec::new(),
+            fans: Vec::new(),
+        })
+        .collect()
+}
+
+/// The thirteen row sets of the declared-field carrier.
+#[must_use]
+pub fn declared_transform_tables() -> Vec<Table> {
+    declared_transform_graphs()
+        .into_iter()
+        .map(|graph| Table {
+            rows: graph
+                .nodes
+                .into_iter()
+                .map(|(id, node)| (id, (node.anchor, node.fields)))
+                .collect(),
+            pairs: BTreeSet::new(),
+        })
+        .collect()
+}
+
+/// Independent cardinalities of the additional declared-field carrier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeclaredTransformCounts {
+    /// Atomic operations, including identity.
+    pub stages: usize,
+    /// Source cardinalities for graph, tree, and table respectively.
+    pub sources: [usize; 3],
+    /// Stage/source observations for the three shapes.
+    pub atomic_cases: usize,
+    /// Composable words of lengths one, two, and three.
+    pub words: usize,
+    /// Word/source observations for the three shapes.
+    pub path_cases: usize,
+}
+
+/// Arithmetic independent of the carrier enumerators.
+#[must_use]
+pub const fn declared_transform_count_certificate() -> DeclaredTransformCounts {
+    let finite_maps = 1 + 3 + 3 * 3;
+    let sources = finite_maps + 3 + finite_maps;
+    let words = 5 + 5 * 5 + 5 * 5 * 5;
+    DeclaredTransformCounts {
+        stages: 5,
+        sources: [finite_maps, 3, finite_maps],
+        atomic_cases: 5 * sources,
+        words,
+        path_cases: words * sources,
+    }
 }
 
 /// One schema-level case in the L.19 protolens certificate.
@@ -4445,7 +4578,7 @@ impl crate::restrict::ValueLayer for C11SurvivalFalse {
     }
 }
 
-/// The transform value layer of stage `T`.
+/// The transform value layer of stage `T`, acting only at source anchor `a`.
 ///
 /// Get defaults an absent [`C11_FIELD`] to [`C11_VALUE`]. Put requires an inserted default to remain
 /// unedited and removes it, while a field already present in the source
@@ -4474,6 +4607,9 @@ impl crate::restrict::ValueLayer for C11AddField {
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::LayerRefusal,
     > {
+        if node.anchor != "a" {
+            return Ok((node.fields.clone(), node.value.clone()));
+        }
         let mut fields = node.fields.clone();
         fields.entry(C11_FIELD.to_owned()).or_insert(C11_VALUE);
         Ok((fields, node.value.clone()))
@@ -4483,50 +4619,38 @@ impl crate::restrict::ValueLayer for C11AddField {
         &self,
         view: &Node,
         original_fields: Option<&BTreeMap<String, Value>>,
-        original_value: Option<&Option<crate::value::Presence>>,
+        _: Option<&Option<crate::value::Presence>>,
     ) -> Result<
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::PutFieldRefusal,
     > {
-        if let Some(original_fields) = original_fields {
-            if !original_fields.contains_key(C11_FIELD)
-                && view.fields.get(C11_FIELD) != Some(&C11_VALUE)
-            {
+        if view.anchor != "a" {
+            return Ok((view.fields.clone(), view.value.clone()));
+        }
+        let mut fields = view.fields.clone();
+        if original_fields.is_some_and(|original| !original.contains_key(C11_FIELD)) {
+            if fields.get(C11_FIELD) != Some(&C11_VALUE) {
                 return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
                     field: C11_FIELD.to_owned(),
                 });
             }
-            return Ok((
-                original_fields.clone(),
-                original_value
-                    .cloned()
-                    .unwrap_or_else(|| view.value.clone()),
-            ));
-        }
-        if !view.fields.contains_key(C11_FIELD) {
+            fields.remove(C11_FIELD);
+        } else if !fields.contains_key(C11_FIELD) {
             return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
                 field: C11_FIELD.to_owned(),
             });
         }
-        // Get records a node's source fields exactly when its view fields
-        // differ from them. An unrecorded present field was therefore already
-        // present, or belongs to a new view node, and remains independently
-        // editable. An absent field was handled above because the next get
-        // would add it and violate PutGet.
-        Ok((
-            view.fields.clone(),
-            original_value
-                .cloned()
-                .unwrap_or_else(|| view.value.clone()),
-        ))
+        Ok((fields, view.value.clone()))
     }
 }
 
-/// The dropping value layer of stage `DropF`: get removes [`C11_FIELD`]
-/// and put restores a captured source row.
+/// The dropping value layer of stage `DropF`, acting only at source anchor `a`:
+/// get removes [`C11_FIELD`]
+/// and put restores only that field from the captured source row.
 ///
-/// With no captured row, put keeps the view, as the production graph lens
-/// does for an externally supplied complement.
+/// Reinserting the dropped field has no inverse and is refused. Other
+/// fields and the node's own value remain as edited; without a captured
+/// original field, put keeps the remaining view fields.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct C11DropField;
 
@@ -4551,6 +4675,9 @@ impl crate::restrict::ValueLayer for C11DropField {
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::LayerRefusal,
     > {
+        if node.anchor != "a" {
+            return Ok((node.fields.clone(), node.value.clone()));
+        }
         let mut fields = node.fields.clone();
         fields.remove(C11_FIELD);
         Ok((fields, node.value.clone()))
@@ -4560,23 +4687,36 @@ impl crate::restrict::ValueLayer for C11DropField {
         &self,
         view: &Node,
         original_fields: Option<&BTreeMap<String, Value>>,
-        original_value: Option<&Option<crate::value::Presence>>,
+        _: Option<&Option<crate::value::Presence>>,
     ) -> Result<
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::PutFieldRefusal,
     > {
-        Ok((
-            original_fields
-                .cloned()
-                .unwrap_or_else(|| view.fields.clone()),
-            original_value
-                .cloned()
-                .unwrap_or_else(|| view.value.clone()),
-        ))
+        if view.anchor != "a" {
+            return Ok((view.fields.clone(), view.value.clone()));
+        }
+        if view.fields.contains_key(C11_FIELD) {
+            return Err(crate::restrict::PutFieldRefusal::TransformNotInvertible {
+                field: C11_FIELD.to_owned(),
+            });
+        }
+        let mut fields = view.fields.clone();
+        if let Some(original) = original_fields {
+            match original.get(C11_FIELD) {
+                Some(value) => {
+                    fields.insert(C11_FIELD.to_owned(), value.clone());
+                }
+                None => {
+                    fields.remove(C11_FIELD);
+                }
+            }
+        }
+        Ok((fields, view.value.clone()))
     }
 }
 
-/// The invertible field-read layer of stage `ReadF`. Its forward and inverse
+/// The invertible field-read layer of stage `ReadF`, at source anchor `a`.
+/// Its forward and inverse
 /// maps are both the identity on [`C11_FIELD`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct C11ReadField;
@@ -4609,22 +4749,17 @@ impl crate::restrict::ValueLayer for C11ReadField {
         &self,
         view: &Node,
         _: Option<&BTreeMap<String, Value>>,
-        original_value: Option<&Option<crate::value::Presence>>,
+        _: Option<&Option<crate::value::Presence>>,
     ) -> Result<
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::PutFieldRefusal,
     > {
-        Ok((
-            view.fields.clone(),
-            original_value
-                .cloned()
-                .unwrap_or_else(|| view.value.clone()),
-        ))
+        Ok((view.fields.clone(), view.value.clone()))
     }
 }
 
-/// The op-term layer of stage `Op`: get computes [`C11_FIELD`] as
-/// [`C11_VALUE`], and put restores the captured source row.
+/// The op-term layer of stage `Op`, at source anchor `a`: get computes [`C11_FIELD`] as
+/// [`C11_VALUE`], and put restores only that field from the captured source row.
 ///
 /// This separate implementation keeps the op-term execution path distinct
 /// from `T` even though the two stages agree on the bounded carrier's forward
@@ -4653,6 +4788,9 @@ impl crate::restrict::ValueLayer for C11OpTerm {
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::LayerRefusal,
     > {
+        if node.anchor != "a" {
+            return Ok((node.fields.clone(), node.value.clone()));
+        }
         let mut fields = node.fields.clone();
         fields.insert(C11_FIELD.to_owned(), C11_VALUE);
         Ok((fields, node.value.clone()))
@@ -4660,32 +4798,37 @@ impl crate::restrict::ValueLayer for C11OpTerm {
 
     /// The op term computes [`C11_FIELD`] and has no inverse: a view that
     /// shows another value (or none) has edited a derived field. Otherwise
-    /// the source fields are those recorded, or else the view's.
+    /// the source field is the recorded original, or else the view's value.
+    /// Other fields and the node's own value remain as edited.
     fn restore(
         &self,
         view: &Node,
         original_fields: Option<&BTreeMap<String, Value>>,
-        original_value: Option<&Option<crate::value::Presence>>,
+        _: Option<&Option<crate::value::Presence>>,
     ) -> Result<
         (BTreeMap<String, Value>, Option<crate::value::Presence>),
         crate::restrict::PutFieldRefusal,
     > {
+        if view.anchor != "a" {
+            return Ok((view.fields.clone(), view.value.clone()));
+        }
         if view.fields.get(C11_FIELD) != Some(&C11_VALUE) {
             return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
                 field: C11_FIELD.to_owned(),
             });
         }
-        // Get records a node's source fields exactly when its view fields
-        // differ from them, so an unrecorded node's source fields are its
-        // view fields.
-        Ok((
-            original_fields
-                .cloned()
-                .unwrap_or_else(|| view.fields.clone()),
-            original_value
-                .cloned()
-                .unwrap_or_else(|| view.value.clone()),
-        ))
+        let mut fields = view.fields.clone();
+        if let Some(original) = original_fields {
+            match original.get(C11_FIELD) {
+                Some(value) => {
+                    fields.insert(C11_FIELD.to_owned(), value.clone());
+                }
+                None => {
+                    fields.remove(C11_FIELD);
+                }
+            }
+        }
+        Ok((fields, view.value.clone()))
     }
 }
 

@@ -167,7 +167,7 @@ fn the_by_value_forms_hand_a_fanless_graph_back_unchanged() {
     assert!(GInstance::identical(&reified, &graph));
     let (rest, fans) = unreify_fans_owned(graph.clone()).unwrap();
     assert!(GInstance::identical(&rest, &graph));
-    assert!(fans.is_empty());
+    assert_eq!(fans, []);
     // Both keep refusing what the by-reference forms refuse.
     let malformed = fan_node(items(2), 5).with_edge(5, 0, label_edge("a"));
     assert!(matches!(
@@ -203,7 +203,7 @@ fn the_by_value_forms_do_not_copy_a_fanless_graph() {
         "reify_fans_owned copied the graph"
     );
     let (rest, fans) = unreify_fans_owned(reified).unwrap();
-    assert!(fans.is_empty());
+    assert_eq!(fans, []);
     assert_eq!(
         storage(&rest),
         before,

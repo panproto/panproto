@@ -1405,8 +1405,8 @@ fn assert_tree_transport(
     target: &Tree,
     table_transport: &panproto_reference::enumerate::kan_extensions::ProfileTransport,
 ) {
-    assert!(source.fans.is_empty());
-    assert!(target.fans.is_empty());
+    assert_eq!(source.fans, []);
+    assert_eq!(target.fans, []);
     let mut nodes = table_transport
         .rows
         .iter()
@@ -2368,7 +2368,7 @@ fn homs_refuses_a_dangling_pair_in_the_domain_without_panicking() {
 
     let result = std::panic::catch_unwind(|| rel::homs(&malformed, &well_formed));
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert_eq!(result.unwrap(), []);
 }
 
 #[test]
@@ -2383,7 +2383,7 @@ fn homs_refuses_a_dangling_pair_in_the_codomain() {
         pairs: BTreeSet::from([(edge, 0, 1)]),
     };
 
-    assert!(rel::homs(&well_formed, &malformed).is_empty());
+    assert_eq!(rel::homs(&well_formed, &malformed), []);
 }
 
 #[test]

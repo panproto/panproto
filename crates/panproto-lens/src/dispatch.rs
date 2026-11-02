@@ -272,6 +272,7 @@ pub fn table_complement_to_graph(
     view_embedding: &TableEmbedding,
     source_protocol: &Protocol,
 ) -> Result<GraphComplement, LensError> {
+    check_table_conversion_residue(complement)?;
     let source_rel = RelSchema::new(&lens.src_schema, source_protocol).map_err(|error| {
         not_table(NotTableComplementReason::RelSchema {
             detail: error.to_string(),
@@ -343,6 +344,9 @@ pub fn table_complement_to_graph(
         let mut snapshot = BTreeMap::new();
         for column in source_rel.columns(source_table.as_str()).keys() {
             let key = (id, column.clone());
+            if complement.original_absent_cells.contains(&key) {
+                continue;
+            }
             let value = complement
                 .dropped_cells
                 .get(&key)
@@ -364,6 +368,21 @@ pub fn table_complement_to_graph(
     graph.id_floor.edge = source_embedding.next_edge;
     graph.identity = Some(lens.identity(ComplementShape::Graph));
     Ok(graph)
+}
+
+fn check_table_conversion_residue(complement: &TableComplement) -> Result<(), LensError> {
+    let expected = ComplementShape::Functor.current_format();
+    if let Some(envelope) = &complement.identity
+        && envelope.complement_format != expected
+    {
+        return Err(panproto_inst::IdentityError::Mismatch {
+            field: panproto_inst::identity::IdentityField::Format,
+            expected: expected.to_string(),
+            found: envelope.complement_format.to_string(),
+        }
+        .into());
+    }
+    crate::table_lens::validate_absence_residue(complement)
 }
 
 fn copy_graph_table_elements(
@@ -440,6 +459,9 @@ fn copy_graph_table_cells(
         let view_row = view.row(row).cloned().unwrap_or_default();
         for column in source_rel.columns(source_table.as_str()).keys() {
             let Some(source_value) = snapshot.get(column) else {
+                if view_row.contains_key(column) {
+                    table.original_absent_cells.insert((row, column.clone()));
+                }
                 continue;
             };
             match view_row.get(column) {
@@ -491,6 +513,8 @@ fn copy_graph_table_synthesized_edges(
 /// Whole-map graph field snapshots are differenced against `view` over the
 /// columns of the row's source table: an absent same-named view cell becomes
 /// `dropped_cells`, while a differing one becomes `original_cells`.
+/// A source cell absent from the snapshot but present in the view becomes
+/// `original_absent_cells`.
 /// This conversion and [`table_complement_to_graph`] are a functional witness
 /// of lens equivalence, modulo the supplied embedding, in the sense of
 /// `hofmann2011symmetric`, Definitions 3.1--3.2 (coincidence with
@@ -1481,6 +1505,92 @@ mod tests {
             table.dropped_cells.get(&(RowId(1), "c".to_owned())),
             Some(&Value::Int(2))
         );
+    }
+
+    #[test]
+    fn absent_source_cells_survive_both_complement_conversions() {
+        let lens = lens();
+        let view = view();
+        let protocol = protocol();
+        let (source_embedding, view_embedding) = embeddings();
+        for other_cell in [None, Some(Value::Int(2))] {
+            let mut table = TableComplement::empty();
+            table
+                .original_absent_cells
+                .insert((RowId(1), "a".to_owned()));
+            table.id_floor = 4;
+            table.identity = Some(lens.identity(ComplementShape::Functor));
+            let mut snapshot = BTreeMap::new();
+            if let Some(value) = other_cell {
+                table
+                    .dropped_cells
+                    .insert((RowId(1), "c".to_owned()), value.clone());
+                snapshot.insert("c".to_owned(), value);
+            }
+            let graph = table_complement_to_graph(
+                &lens,
+                &view,
+                &table,
+                &source_embedding,
+                &view_embedding,
+                &protocol,
+            )
+            .test_unwrap("absence converts to a source snapshot");
+            assert_eq!(graph.original_extra_fields.get(&1), Some(&snapshot));
+            let restored =
+                graph_complement_to_table(&lens, &view, &graph, &view_embedding, &protocol)
+                    .test_unwrap("the snapshot converts back to absence residue");
+            assert_eq!(restored, table);
+        }
+    }
+
+    #[test]
+    fn table_conversion_refuses_legacy_format_and_conflicting_presence() {
+        let lens = lens();
+        let view = view();
+        let protocol = protocol();
+        let (source_embedding, view_embedding) = embeddings();
+        let mut legacy = TableComplement::empty();
+        let mut envelope = lens.identity(ComplementShape::Functor);
+        envelope.complement_format.version = 1;
+        legacy.identity = Some(envelope);
+        assert!(matches!(
+            table_complement_to_graph(
+                &lens,
+                &view,
+                &legacy,
+                &source_embedding,
+                &view_embedding,
+                &protocol,
+            ),
+            Err(LensError::Identity(
+                panproto_inst::IdentityError::Mismatch {
+                    field: panproto_inst::identity::IdentityField::Format,
+                    ..
+                }
+            ))
+        ));
+        let mut conflicting = TableComplement::empty();
+        conflicting
+            .original_absent_cells
+            .insert((RowId(1), "a".to_owned()));
+        conflicting
+            .original_cells
+            .insert((RowId(1), "a".to_owned()), Value::Int(1));
+        assert!(matches!(
+            table_complement_to_graph(
+                &lens,
+                &view,
+                &conflicting,
+                &source_embedding,
+                &view_embedding,
+                &protocol,
+            ),
+            Err(LensError::ComplementConflict {
+                kind: "original_absent_cells",
+                ..
+            })
+        ));
     }
 
     #[test]

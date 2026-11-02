@@ -300,6 +300,22 @@
           "failed": 0,
           "incomplete": 0
         }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "b"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
       ]
     ]
   },

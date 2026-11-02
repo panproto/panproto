@@ -385,6 +385,17 @@ fn oracle_migration_bytes(migration: &Migration) -> Vec<u8> {
     for vertex in &migration.transformed {
         writer.str(vertex);
     }
+    if !migration.output_fields.is_empty() {
+        writer.tag(9);
+        writer.len(migration.output_fields.len());
+        for (anchor, fields) in &migration.output_fields {
+            writer.str(anchor);
+            writer.len(fields.len());
+            for field in fields {
+                writer.str(field);
+            }
+        }
+    }
     writer.bytes
 }
 
@@ -737,6 +748,12 @@ fn migration_coordinate_mutations(base: &Migration) -> Vec<(&'static str, Migrat
     changed.transformed.insert("transformed".to_owned());
     mutations.push(("transformed", changed));
 
+    let mut changed = base.clone();
+    changed
+        .output_fields
+        .insert("source".to_owned(), vec!["field".to_owned()]);
+    mutations.push(("output_fields", changed));
+
     mutations
 }
 
@@ -821,9 +838,16 @@ fn table_identity_uses_the_exact_domain_separated_envelope_layout() {
         &NoValueLayer,
     ));
     let actual = *lens.identity();
-    assert_eq!(actual, expected);
+    assert_eq!(actual.format_version, 2);
     assert_eq!(
-        hex(canonical::identity(&actual)),
+        IdentityEnvelope {
+            format_version: 1,
+            ..actual
+        },
+        expected
+    );
+    assert_eq!(
+        hex(canonical::identity(&expected)),
         "0200148e79a3f2c067d49f395e36e201b9354615f16e4ffebcd6d3d6ef9db0d2eff74b04e54b12b75a983759c7acda1cfa3f148ebb7878ffee12bdbd3b4dac82c348977043ccd34ec173c40ebff0d82423d89d1e83d93aa7c6fa3f9bd197f5356b8f020100"
     );
 }
@@ -960,7 +984,7 @@ fn identity_separates_every_rel_schema_and_migration_coordinate_independently() 
     }
 
     let migration_mutations = migration_coordinate_mutations(&migration);
-    assert_eq!(migration_mutations.len(), 8);
+    assert_eq!(migration_mutations.len(), 9);
     for (field, changed_migration) in migration_mutations {
         let identity = construct_coordinate_identity(
             &source,
@@ -976,7 +1000,7 @@ fn identity_separates_every_rel_schema_and_migration_coordinate_independently() 
             "Migration::{field} collided with another coordinate"
         );
     }
-    assert_eq!(lens_digests.len(), 21);
+    assert_eq!(lens_digests.len(), 22);
 
     // Table plans reject every hyper resolver as non-relational. Prove the
     // otherwise valid migration coordinate separately rather than silently
@@ -1686,6 +1710,7 @@ fn transformed_candidate_collations_use_restored_source_values_and_skip_refusals
         .into(),
         edge_remap: [(a_key, t_key.clone()), (b_key, t_key)].into(),
         transformed: ["a".to_owned()].into(),
+        output_fields: [("a".to_owned(), vec!["key".to_owned()])].into(),
         ..Migration::default()
     };
     let (source_boundary, target_boundary, plan) = table_plan(&source, &target, &migration);
@@ -1826,6 +1851,7 @@ fn complement_layout_helpers_distinguish_residue_from_bookkeeping() {
             "synthesized_fk_pairs",
             "id_floor",
             "identity",
+            "original_absent_cells",
         ]
     );
     let TableComplement {
@@ -1838,6 +1864,7 @@ fn complement_layout_helpers_distinguish_residue_from_bookkeeping() {
         synthesized_fk_pairs,
         id_floor,
         identity,
+        original_absent_cells,
     } = TableComplement::empty();
     assert!(dropped_rows.is_empty());
     assert!(dropped_cells.is_empty());
@@ -1848,6 +1875,7 @@ fn complement_layout_helpers_distinguish_residue_from_bookkeeping() {
     assert!(synthesized_fk_pairs.is_empty());
     assert_eq!(id_floor, 0);
     assert_eq!(identity, None);
+    assert!(original_absent_cells.is_empty());
     assert!(complement.is_empty());
     assert!(complement.residue_is_trivial());
     assert!(complement.reserved_row_ids().is_empty());
@@ -1897,11 +1925,178 @@ fn complement_layout_helpers_distinguish_residue_from_bookkeeping() {
     case.original_cells
         .insert((1, "x".to_owned()), Value::Int(1));
     residue_cases.push(case);
+    let mut case = TableComplement::empty();
+    case.original_absent_cells.insert((1, "x".to_owned()));
+    residue_cases.push(case);
     assert!(
         residue_cases
             .iter()
             .all(|case| !case.residue_is_trivial() && case.reserved_row_ids().is_empty())
     );
+}
+
+fn with_default_table_lens<T>(run: impl FnOnce(&Schema, &TableLens<'_>) -> T) -> T {
+    let schema = Schema::default()
+        .vertex("a", "record")
+        .vertex("value", "int")
+        .edge("a", "value", "prop", Some("f"));
+    let mut migration = identity_migration(&schema);
+    migration.transformed.insert("a".to_owned());
+    migration
+        .output_fields
+        .insert("a".to_owned(), vec!["f".to_owned()]);
+    let (source, target, plan) = table_plan(&schema, &schema, &migration);
+    let layer = panproto_reference::enumerate::lenses::C11AddField;
+    let semantics = BTreeMap::new();
+    let lens = must(TableLens::new(
+        &schema,
+        &schema,
+        TableBoundaries::new(&source, &target),
+        &migration,
+        &plan,
+        &semantics,
+        &layer,
+    ));
+    run(&schema, &lens)
+}
+
+fn default_table_source(value: Option<i64>) -> Table {
+    Table {
+        rows: BTreeMap::from([(
+            0,
+            (
+                "a".to_owned(),
+                value
+                    .map(|value| ("f".to_owned(), Value::Int(value)))
+                    .into_iter()
+                    .collect(),
+            ),
+        )]),
+        pairs: BTreeSet::new(),
+    }
+}
+
+#[test]
+fn declared_default_absence_residue_separates_equal_views_and_restores_both_sources() {
+    with_default_table_lens(|_, lens| {
+        let absent = default_table_source(None);
+        let present = default_table_source(Some(0));
+        let (absent_view, absent_complement) = must(lens.get(&absent));
+        let (present_view, present_complement) = must(lens.get(&present));
+        assert_eq!(absent_view, present_view);
+        assert_eq!(absent_view, present);
+        assert_eq!(
+            absent_complement.original_absent_cells,
+            BTreeSet::from([(0, "f".to_owned())])
+        );
+        assert!(present_complement.original_absent_cells.is_empty());
+        assert!(absent_complement.original_cells.is_empty());
+        assert!(absent_complement.dropped_cells.is_empty());
+        assert_ne!(absent_complement, present_complement);
+        assert_eq!(lens.put(&absent_view, &absent_complement), Ok(absent));
+        assert_eq!(lens.put(&present_view, &present_complement), Ok(present));
+        let edited = default_table_source(Some(1));
+        assert_eq!(
+            lens.put(&edited, &absent_complement),
+            Err(TablePutError::Domain(PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Row(0),
+                field: "f".to_owned()
+            },))
+        );
+        assert_eq!(lens.put(&edited, &present_complement), Ok(edited));
+        let (_, empty_complement) = must(lens.get(&Table::default()));
+        assert_eq!(
+            lens.put(&default_table_source(None), &empty_complement),
+            Err(TablePutError::Domain(PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Row(0),
+                field: "f".to_owned()
+            },))
+        );
+    });
+}
+
+#[test]
+fn declared_default_path_keeps_absence_at_its_original_stage() {
+    use panproto_reference::path::{self, LensPath, PathComplement, PathStage};
+    with_default_table_lens(|schema, lens| {
+        let stages = (0_u8..2)
+            .map(|index| PathStage::new((), schema, schema, vec![index], vec![index]))
+            .collect();
+        let path = must(LensPath::try_from_stages(stages));
+        let source = default_table_source(None);
+        let (view, complement) = must(path::get_path(
+            &path,
+            |_, (), source| lens.get(source),
+            &source,
+        ));
+        let PathComplement::Stages(entries) = &complement else {
+            panic!("two atomic stages have stage complements");
+        };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            entries[0].complement.original_absent_cells,
+            BTreeSet::from([(0, "f".to_owned())])
+        );
+        assert!(entries[1].complement.original_absent_cells.is_empty());
+        assert_eq!(
+            path::put_path(
+                &path,
+                &|_, (), view, comp| lens.put(view, comp),
+                &view,
+                &complement
+            ),
+            Ok(source)
+        );
+    });
+}
+
+#[test]
+fn structural_rename_records_an_originally_absent_source_column() {
+    let source_schema = two_column_schema(&[("f", "f_value"), ("g", "g_value")]);
+    let target_schema = two_column_schema(&[("g", "f_value")]);
+    let source_edge = SEdge::new("t", "f_value", "prop", Some("f"));
+    let target_edge = SEdge::new("t", "f_value", "prop", Some("g"));
+    let migration = Migration {
+        surviving_verts: target_schema.vertices.keys().cloned().collect(),
+        surviving_edges: target_schema.edges.clone(),
+        edge_remap: BTreeMap::from([(source_edge, target_edge)]),
+        ..Migration::default()
+    };
+    let (source_boundary, target_boundary, plan) =
+        table_plan(&source_schema, &target_schema, &migration);
+    let lens = must(TableLens::new(
+        &source_schema,
+        &target_schema,
+        TableBoundaries::new(&source_boundary, &target_boundary),
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &NoValueLayer,
+    ));
+    let source = Table {
+        rows: BTreeMap::from([(
+            0,
+            (
+                "t".to_owned(),
+                BTreeMap::from([("f".to_owned(), Value::Int(9))]),
+            ),
+        )]),
+        pairs: BTreeSet::new(),
+    };
+    let (view, complement) = must(lens.get(&source));
+    assert_eq!(
+        view.rows[&0].1,
+        BTreeMap::from([("g".to_owned(), Value::Int(9))])
+    );
+    assert_eq!(
+        complement.original_absent_cells,
+        BTreeSet::from([(0, "g".to_owned())])
+    );
+    assert_eq!(
+        complement.dropped_cells,
+        BTreeMap::from([((0, "f".to_owned()), Value::Int(9))])
+    );
+    assert_eq!(lens.put(&view, &complement), Ok(source));
 }
 
 #[test]
@@ -2545,6 +2740,7 @@ fn transformed_cells_recompute_the_baseline_and_use_only_valid_inverses() {
         surviving_verts: schema.vertices.keys().cloned().collect(),
         surviving_edges: schema.edges.clone(),
         transformed: ["t".to_owned()].into(),
+        output_fields: [("t".to_owned(), vec!["x".to_owned()])].into(),
         ..Migration::default()
     };
     let (source_boundary, target_boundary, plan) = table_plan(&schema, &schema, &migration);
@@ -2583,9 +2779,36 @@ fn transformed_cells_recompute_the_baseline_and_use_only_valid_inverses() {
         Some(&Value::Int(5))
     );
 
+    let mut migration = migration;
+    migration
+        .output_fields
+        .insert("t".to_owned(), vec!["x".to_owned(), "derived".to_owned()]);
+    assert_eq!(
+        table::compile_for_tables(
+            &schema,
+            &schema,
+            &source_boundary,
+            &target_boundary,
+            &migration,
+        ),
+        Err(TablePlanError::Plan(Box::new(
+            PlanError::UndeclaredTransformField {
+                source_vertex: "t".to_owned(),
+                target_vertex: "t".to_owned(),
+                field: "derived".to_owned(),
+            }
+        )))
+    );
+    let target = schema.clone().vertex("derived-value", "int").edge(
+        "t",
+        "derived-value",
+        "prop",
+        Some("derived"),
+    );
+    let (source_boundary, target_boundary, plan) = table_plan(&schema, &target, &migration);
     let lens = must(TableLens::new_at_boundary(
         &schema,
-        &schema,
+        &target,
         TableBoundaries::new(&source_boundary, &target_boundary),
         &migration,
         &plan,
@@ -2661,12 +2884,36 @@ fn schema_and_forward_stability_violations_are_accumulated_before_sorting() {
         surviving_verts: schema.vertices.keys().cloned().collect(),
         surviving_edges: schema.edges.clone(),
         transformed: ["t".to_owned()].into(),
+        output_fields: [("t".to_owned(), vec!["x".to_owned(), "derived".to_owned()])].into(),
         ..Migration::default()
     };
-    let (source_boundary, target_boundary, plan) = table_plan(&schema, &schema, &migration);
+    let original_boundary = record_boundary(&schema);
+    assert_eq!(
+        table::compile_for_tables(
+            &schema,
+            &schema,
+            &original_boundary,
+            &original_boundary,
+            &migration,
+        ),
+        Err(TablePlanError::Plan(Box::new(
+            PlanError::UndeclaredTransformField {
+                source_vertex: "t".to_owned(),
+                target_vertex: "t".to_owned(),
+                field: "derived".to_owned(),
+            }
+        )))
+    );
+    let target = schema.clone().vertex("derived-value", "int").edge(
+        "t",
+        "derived-value",
+        "prop",
+        Some("derived"),
+    );
+    let (source_boundary, target_boundary, plan) = table_plan(&schema, &target, &migration);
     let lens = must(TableLens::new_at_boundary(
         &schema,
-        &schema,
+        &target,
         TableBoundaries::new(&source_boundary, &target_boundary),
         &migration,
         &plan,

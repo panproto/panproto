@@ -77,11 +77,48 @@ pub fn functor_restrict_with_plan(
     instance: &FInstance,
     plan: &RestrictPlan,
 ) -> Result<(FInstance, TableComplement), RestrictError> {
+    restrict_with_row_domain(instance, plan, RowDomain::Total)
+}
+
+/// Restrict finite table rows along a plan compiled for tables.
+///
+/// This runs the same row, pair, and contraction stages as
+/// [`functor_restrict_with_plan`], admitting absent declared cells. Predicates
+/// and transforms read those genuine finite rows; no placeholder cells are
+/// inserted. The complement records declared source cells that were absent
+/// but became present under the same name in the final view.
+///
+/// The caller supplies boundary validation, including requiredness checks.
+/// The returned complement is unstamped.
+///
+/// # Errors
+///
+/// As [`functor_restrict_with_plan`], except an absent declared cell does not
+/// produce [`NonConformance::MissingCell`]. Unknown tables and stray cells
+/// are still refused before a row's predicate or transforms run.
+pub fn functor_restrict_finite_with_plan(
+    instance: &FInstance,
+    plan: &RestrictPlan,
+) -> Result<(FInstance, TableComplement), RestrictError> {
+    restrict_with_row_domain(instance, plan, RowDomain::Finite)
+}
+
+#[derive(Clone, Copy)]
+enum RowDomain {
+    Total,
+    Finite,
+}
+
+fn restrict_with_row_domain(
+    instance: &FInstance,
+    plan: &RestrictPlan,
+    domain: RowDomain,
+) -> Result<(FInstance, TableComplement), RestrictError> {
     let Some(functor) = plan.table_functor() else {
         return Err(RestrictError::TablePlanRequired);
     };
     let mut run = TableRun::new(instance, plan, functor.source());
-    run.rows()?;
+    run.rows(domain)?;
     run.pairs()?;
     run.contraction()?;
     Ok((run.view, run.complement))
@@ -118,13 +155,13 @@ impl<'a> TableRun<'a> {
     }
 
     /// Survival and transforms, row by row.
-    fn rows(&mut self) -> Result<(), RestrictError> {
+    fn rows(&mut self, domain: RowDomain) -> Result<(), RestrictError> {
         for id in self.instance.row_ids() {
             let (Some(table), Some(row)) = (self.instance.table_of(id), self.instance.row(id))
             else {
                 continue;
             };
-            self.conform(id, table, row)?;
+            self.conform(id, table, row, domain)?;
             match self.row(id, table, row)? {
                 Some((image, cells)) => self.view.place_row(image, id, cells),
                 None => {
@@ -142,14 +179,15 @@ impl<'a> TableRun<'a> {
     }
 
     /// Refuse a row that lies at no table of the source schema, or whose
-    /// cells are not exactly its table's columns, at the least column that
-    /// is missing or stray.
-    ///
-    /// The complement names the source columns on which a view row and its
-    /// source row disagree, which determines the source row only when its
-    /// keys are fixed: `AddField c := 0` sends `{a: 1}` and `{a: 1, c: 0}`
-    /// to one view row, and leaves the second nothing to record.
-    fn conform(&self, id: RowId, table: &Name, row: &Row) -> Result<(), RestrictError> {
+    /// cells include a stray key, or a missing column under total-row
+    /// admission. Refuse at the least missing or stray column.
+    fn conform(
+        &self,
+        id: RowId,
+        table: &Name,
+        row: &Row,
+        domain: RowDomain,
+    ) -> Result<(), RestrictError> {
         let refuse = |column: Option<String>, reason: NonConformance| {
             Err(RestrictError::NonConforming {
                 row: id,
@@ -166,7 +204,10 @@ impl<'a> TableRun<'a> {
             );
         }
         let columns = self.source.columns(table);
-        let missing = columns.keys().find(|column| !row.contains_key(*column));
+        let missing = match domain {
+            RowDomain::Total => columns.keys().find(|column| !row.contains_key(*column)),
+            RowDomain::Finite => None,
+        };
         let stray = row.keys().filter(|key| !columns.contains_key(*key)).min();
         match (missing, stray) {
             (Some(missing), Some(stray)) if stray < missing => {
@@ -231,6 +272,13 @@ impl<'a> TableRun<'a> {
                         .insert((id, column.clone()), value.clone());
                 }
                 Some(_) => {}
+            }
+        }
+        for column in self.source.columns(table).keys() {
+            if !row.contains_key(column) && node.extra_fields.contains_key(column) {
+                self.complement
+                    .original_absent_cells
+                    .insert((id, column.clone()));
             }
         }
         Ok(Some((image, node.extra_fields)))

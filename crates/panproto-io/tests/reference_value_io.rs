@@ -594,8 +594,18 @@ fn reference_emission(result: Result<Vec<u8>, ValueIoError>, context: &str) -> S
 fn default_routes_match_null_and_absence_reference() {
     let tree_schema = one_text_column("root");
 
+    json_presence_matches_reference(&tree_schema);
+    toml_presence_matches_reference(&tree_schema);
+    xml_presence_matches_reference(&tree_schema);
+    table_presence_matches_reference();
+    #[cfg(feature = "tree-sitter")]
+    yaml_presence_matches_reference(&tree_schema);
+}
+
+/// Law 3 on the canonical JSON writer.
+fn json_presence_matches_reference(tree_schema: &Schema) {
     let json_null = emit_json_bytes(
-        &tree_schema,
+        tree_schema,
         &one_tree_value("root", FieldPresence::Null),
         "cassandra",
     )
@@ -606,7 +616,7 @@ fn default_routes_match_null_and_absence_reference() {
         PresenceOutcome::NullSyntax
     );
     let json_absent = emit_json_bytes(
-        &tree_schema,
+        tree_schema,
         &one_tree_value("root", FieldPresence::Absent),
         "cassandra",
     )
@@ -616,9 +626,12 @@ fn default_routes_match_null_and_absence_reference() {
         panproto_reference::value_io::presence(Route::Json, ReferencePresence::Absent),
         PresenceOutcome::Omitted
     );
+}
 
+/// Law 3 on the canonical TOML writer.
+fn toml_presence_matches_reference(tree_schema: &Schema) {
     let toml_null = emit_toml_bytes(
-        &tree_schema,
+        tree_schema,
         &one_tree_value("root", FieldPresence::Null),
         "cassandra",
     );
@@ -632,7 +645,7 @@ fn default_routes_match_null_and_absence_reference() {
         PresenceOutcome::NullNotRepresentable
     );
     let toml_absent = emit_toml_bytes(
-        &tree_schema,
+        tree_schema,
         &one_tree_value("root", FieldPresence::Absent),
         "cassandra",
     )
@@ -646,9 +659,12 @@ fn default_routes_match_null_and_absence_reference() {
         panproto_reference::value_io::presence(Route::Toml, ReferencePresence::Absent),
         PresenceOutcome::Omitted
     );
+}
 
+/// Law 3 on the canonical XML writer.
+fn xml_presence_matches_reference(tree_schema: &Schema) {
     let xml_null = emit_xml_bytes(
-        &tree_schema,
+        tree_schema,
         &one_xml_tree_value("root", FieldPresence::Null),
         "cassandra",
     )
@@ -663,7 +679,7 @@ fn default_routes_match_null_and_absence_reference() {
         PresenceOutcome::NullSyntax
     );
     let xml_absent = emit_xml_bytes(
-        &tree_schema,
+        tree_schema,
         &one_xml_tree_value("root", FieldPresence::Absent),
         "cassandra",
     )
@@ -677,7 +693,10 @@ fn default_routes_match_null_and_absence_reference() {
         panproto_reference::value_io::presence(Route::Xml, ReferencePresence::Absent),
         PresenceOutcome::Omitted
     );
+}
 
+/// Law 3 on the canonical CSV and TSV writers.
+fn table_presence_matches_reference() {
     let table_schema = one_text_column("rows");
     for (route, delimiter) in [(Route::Csv, b','), (Route::Tsv, b'\t')] {
         let null = emit_tsv_with_schema(
@@ -711,37 +730,38 @@ fn default_routes_match_null_and_absence_reference() {
             PresenceOutcome::AbsentNotRepresentable
         );
     }
+}
 
-    #[cfg(feature = "tree-sitter")]
-    {
-        let yaml = UnifiedCodec::yaml("cassandra").expect("YAML canonical codec");
-        for (presence, expected, bytes) in [
-            (
-                ReferencePresence::Null,
-                PresenceOutcome::NullSyntax,
-                br#"{"value":null}"#.as_slice(),
-            ),
-            (
-                ReferencePresence::Absent,
-                PresenceOutcome::Omitted,
-                b"{}".as_slice(),
-            ),
-        ] {
-            let instance = one_tree_value(
-                "root",
-                match presence {
-                    ReferencePresence::Null => FieldPresence::Null,
-                    ReferencePresence::Absent => FieldPresence::Absent,
-                },
-            );
-            let emitted = panproto_io::InstanceEmitter::emit_wtype(&yaml, &tree_schema, &instance)
-                .test_unwrap("YAML presence");
-            assert_eq!(emitted, bytes);
-            assert_eq!(
-                panproto_reference::value_io::presence(Route::Yaml, presence),
-                expected
-            );
-        }
+/// Law 3 on the canonical YAML writer.
+#[cfg(feature = "tree-sitter")]
+fn yaml_presence_matches_reference(tree_schema: &Schema) {
+    let yaml = UnifiedCodec::yaml("cassandra").expect("YAML canonical codec");
+    for (presence, expected, bytes) in [
+        (
+            ReferencePresence::Null,
+            PresenceOutcome::NullSyntax,
+            br#"{"value":null}"#.as_slice(),
+        ),
+        (
+            ReferencePresence::Absent,
+            PresenceOutcome::Omitted,
+            b"{}".as_slice(),
+        ),
+    ] {
+        let instance = one_tree_value(
+            "root",
+            match presence {
+                ReferencePresence::Null => FieldPresence::Null,
+                ReferencePresence::Absent => FieldPresence::Absent,
+            },
+        );
+        let emitted = panproto_io::InstanceEmitter::emit_wtype(&yaml, tree_schema, &instance)
+            .test_unwrap("YAML presence");
+        assert_eq!(emitted, bytes);
+        assert_eq!(
+            panproto_reference::value_io::presence(Route::Yaml, presence),
+            expected
+        );
     }
 }
 
@@ -816,7 +836,7 @@ fn canonical_xml_normalizes_encodings_and_reports_typed_refusals() {
 
 /// Law 19 compares the independent reference layout with the public JSON
 /// route, then applies the public parser to establish the Law 1 section
-/// equation. The nested `$link` object is part of the ATProto blob form.
+/// equation. The nested `$link` object is part of the `ATProto` blob form.
 #[test]
 fn canonical_blob_writer_matches_independent_atproto_layout() {
     let protocol = panproto_schema::Protocol {
@@ -852,6 +872,14 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
             if error.reason == EmitValueReason::NotRepresentable
     ));
 
+    blob_fields_round_trip(&schema);
+    blob_near_misses_remain_ordinary_data(&schema);
+    blob_depth_matches_the_parser_limit();
+}
+
+/// Every blob of the reference scope emits in the reference layout and
+/// reparses to itself.
+fn blob_fields_round_trip(schema: &Schema) {
     for fields in scope::blob_fields() {
         let expected_value = Value::Blob {
             ref_: fields.ref_.to_owned(),
@@ -868,7 +896,7 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
             0,
             "root".into(),
         );
-        let emitted = emit_json_bytes(&schema, &instance, "reference-value-io")
+        let emitted = emit_json_bytes(schema, &instance, "reference-value-io")
             .test_unwrap("canonical blob JSON");
         let mut expected = br#"{"blob":"#.to_vec();
         expected.extend_from_slice(&panproto_reference::value_io::blob_writer(
@@ -879,7 +907,7 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
         expected.push(b'}');
         assert_eq!(emitted, expected, "fields={fields:?}");
 
-        let reparsed = parse_json_bytes(&schema, "root", &emitted, "reference-value-io")
+        let reparsed = parse_json_bytes(schema, "root", &emitted, "reference-value-io")
             .test_unwrap("canonical blob JSON reparses");
         assert_eq!(
             reparsed
@@ -889,7 +917,11 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
             "fields={fields:?}"
         );
     }
+}
 
+/// Near misses of the reserved blob shape read as ordinary data, and
+/// duplicated reserved members are refused as duplicate members.
+fn blob_near_misses_remain_ordinary_data(schema: &Schema) {
     for input in [
         br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"}}}"#.as_slice(),
         br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":1,"extra":null}}"#.as_slice(),
@@ -907,7 +939,7 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
         br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":"1"}}"#.as_slice(),
         br#"{"blob":{"$type":"blob","mimeType":"x","ref":{"$link":"r"},"size":18446744073709551616}}"#.as_slice(),
     ] {
-        let reparsed = parse_json_bytes(&schema, "root", input, "reference-value-io")
+        let reparsed = parse_json_bytes(schema, "root", input, "reference-value-io")
             .test_unwrap("a non-blob reserved-shape near miss remains ordinary data");
         assert!(
             matches!(
@@ -929,7 +961,7 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
     ] {
         assert!(
             matches!(
-                parse_json_bytes(&schema, "root", input, "reference-value-io"),
+                parse_json_bytes(schema, "root", input, "reference-value-io"),
                 Err(ParseInstanceError::DuplicateMember { ref name, .. })
                     if name == "mimeType" || name == "$link"
             ),
@@ -937,7 +969,11 @@ fn canonical_blob_writer_matches_independent_atproto_layout() {
             String::from_utf8_lossy(input)
         );
     }
+}
 
+/// A blob emits and reparses at parser depth 125 but not 126, and a scalar
+/// at depth 127 but not 128.
+fn blob_depth_matches_the_parser_limit() {
     let boundary_blob = Value::Blob {
         ref_: "boundary".to_owned(),
         mime: "application/octet-stream".to_owned(),
@@ -1353,7 +1389,7 @@ fn bounded_tabular_observables_match_reference() {
                             empty_rows += 1;
                         }
                     }
-                    (2, "", Ok(parsed)) => assert!(parsed.rows("rows").is_empty()),
+                    (2, "", Ok(parsed)) => assert_eq!(parsed.rows("rows"), []),
                     (2, _, Err(ParseInstanceError::Parse { message, .. })) => {
                         assert!(message.contains("fields"), "line={line:?}: {message}");
                     }
@@ -2038,105 +2074,124 @@ fn bounded_scalar_and_cst_parsing_matches_reference() {
 
     for input in inputs {
         for (route, codec) in &tree_codecs {
-            let expected =
-                reference_parse_outcome(panproto_reference::value_io::parse(*route, &input));
-            let reference_cst = panproto_reference::value_io::parse_cst(*route, &input);
-            assert_eq!(
-                reference_cst
-                    .as_ref()
-                    .map(|cst| ScalarParseOutcome::Parsed(reference_scalar(&cst.value)))
-                    .unwrap_or_else(|error| reference_parse_outcome(Err(error.clone()))),
-                expected,
-                "reference CST parse differs from scalar parse: route={route:?}, input={input:?}"
-            );
-            if let Ok(cst) = &reference_cst {
-                assert_eq!(cst.source, input, "route={route:?}");
-            }
-
-            let schema = select_scalar_schema(
-                &expected,
-                &tree_text,
-                &tree_boolean,
-                &tree_integer,
-                &tree_decimal,
-            );
-            let wrapped = wrap_scalar(*route, &input);
-            let production = codec.parse_wtype_preserving(&schema, &wrapped);
-            let (actual, production_round_trip) = match production {
-                Ok((instance, complement)) => {
-                    let emitted = codec
-                        .emit_wtype_preserving(&schema, &instance, &complement)
-                        .unwrap_or_else(|error| {
-                            panic!("CST emit failed: route={route:?}, input={input:?}: {error:?}")
-                        });
-                    (
-                        ScalarParseOutcome::Parsed(production_tree_scalar(&instance)),
-                        emitted == wrapped,
-                    )
-                }
-                Err(error) => (production_parse_error(error), false),
-            };
-            assert_eq!(
-                panproto_reference::value_io::round_trip_cst(*route, &input),
-                production_round_trip,
-                "CST round trip differs: route={route:?}, input={input:?}"
-            );
-            assert_eq!(
-                actual, expected,
-                "scalar parse differs: route={route:?}, input={input:?}"
+            assert_tree_cst_parse_matches_reference(
+                *route,
+                codec,
+                &input,
+                [&tree_text, &tree_boolean, &tree_integer, &tree_decimal],
             );
         }
-
         for (route, codec) in &table_codecs {
-            let expected =
-                reference_parse_outcome(panproto_reference::value_io::parse(*route, &input));
-            let reference_cst = panproto_reference::value_io::parse_cst(*route, &input);
-            assert_eq!(
-                reference_cst
-                    .as_ref()
-                    .map(|cst| ScalarParseOutcome::Parsed(reference_scalar(&cst.value)))
-                    .unwrap_or_else(|error| reference_parse_outcome(Err(error.clone()))),
-                expected,
-                "reference CST parse differs from scalar parse: route={route:?}, input={input:?}"
-            );
-            if let Ok(cst) = &reference_cst {
-                assert_eq!(cst.source, input, "route={route:?}");
-            }
-
-            let schema = select_scalar_schema(
-                &expected,
-                &table_text,
-                &table_boolean,
-                &table_integer,
-                &table_decimal,
-            );
-            let wrapped = wrap_scalar(*route, &input);
-            let production = codec.parse_functor_preserving(&schema, &wrapped);
-            let (actual, production_round_trip) = match production {
-                Ok((instance, complement)) => {
-                    let emitted = codec
-                        .emit_functor_preserving(&schema, &instance, &complement)
-                        .unwrap_or_else(|error| {
-                            panic!("CST emit failed: route={route:?}, input={input:?}: {error:?}")
-                        });
-                    (
-                        ScalarParseOutcome::Parsed(production_table_scalar(&instance)),
-                        emitted == wrapped,
-                    )
-                }
-                Err(error) => (production_parse_error(error), false),
-            };
-            assert_eq!(
-                panproto_reference::value_io::round_trip_cst(*route, &input),
-                production_round_trip,
-                "CST round trip differs: route={route:?}, input={input:?}"
-            );
-            assert_eq!(
-                actual, expected,
-                "scalar parse differs: route={route:?}, input={input:?}"
+            assert_table_cst_parse_matches_reference(
+                *route,
+                codec,
+                &input,
+                [&table_text, &table_boolean, &table_integer, &table_decimal],
             );
         }
     }
+}
+
+/// Laws 4, 20 and 22 for one byte string on one tree route, given the text,
+/// boolean, integer and decimal scalar schemas.
+#[cfg(feature = "tree-sitter")]
+fn assert_tree_cst_parse_matches_reference(
+    route: Route,
+    codec: &UnifiedCodec,
+    input: &[u8],
+    [text, boolean, integer, decimal]: [&Schema; 4],
+) {
+    let expected = reference_parse_outcome(panproto_reference::value_io::parse(route, input));
+    let reference_cst = panproto_reference::value_io::parse_cst(route, input);
+    assert_eq!(
+        reference_cst.as_ref().map_or_else(
+            |error| reference_parse_outcome(Err(error.clone())),
+            |cst| ScalarParseOutcome::Parsed(reference_scalar(&cst.value))
+        ),
+        expected,
+        "reference CST parse differs from scalar parse: route={route:?}, input={input:?}"
+    );
+    if let Ok(cst) = &reference_cst {
+        assert_eq!(cst.source, input, "route={route:?}");
+    }
+
+    let schema = select_scalar_schema(&expected, text, boolean, integer, decimal);
+    let wrapped = wrap_scalar(route, input);
+    let production = codec.parse_wtype_preserving(schema, &wrapped);
+    let (actual, production_round_trip) = match production {
+        Ok((instance, complement)) => {
+            let emitted = codec
+                .emit_wtype_preserving(schema, &instance, &complement)
+                .unwrap_or_else(|error| {
+                    panic!("CST emit failed: route={route:?}, input={input:?}: {error:?}")
+                });
+            (
+                ScalarParseOutcome::Parsed(production_tree_scalar(&instance)),
+                emitted == wrapped,
+            )
+        }
+        Err(error) => (production_parse_error(error), false),
+    };
+    assert_eq!(
+        panproto_reference::value_io::round_trip_cst(route, input),
+        production_round_trip,
+        "CST round trip differs: route={route:?}, input={input:?}"
+    );
+    assert_eq!(
+        actual, expected,
+        "scalar parse differs: route={route:?}, input={input:?}"
+    );
+}
+
+/// Laws 4, 20 and 22 for one byte string on one table route, given the text,
+/// boolean, integer and decimal scalar schemas.
+#[cfg(feature = "tree-sitter")]
+fn assert_table_cst_parse_matches_reference(
+    route: Route,
+    codec: &UnifiedCodec,
+    input: &[u8],
+    [text, boolean, integer, decimal]: [&Schema; 4],
+) {
+    let expected = reference_parse_outcome(panproto_reference::value_io::parse(route, input));
+    let reference_cst = panproto_reference::value_io::parse_cst(route, input);
+    assert_eq!(
+        reference_cst.as_ref().map_or_else(
+            |error| reference_parse_outcome(Err(error.clone())),
+            |cst| ScalarParseOutcome::Parsed(reference_scalar(&cst.value))
+        ),
+        expected,
+        "reference CST parse differs from scalar parse: route={route:?}, input={input:?}"
+    );
+    if let Ok(cst) = &reference_cst {
+        assert_eq!(cst.source, input, "route={route:?}");
+    }
+
+    let schema = select_scalar_schema(&expected, text, boolean, integer, decimal);
+    let wrapped = wrap_scalar(route, input);
+    let production = codec.parse_functor_preserving(schema, &wrapped);
+    let (actual, production_round_trip) = match production {
+        Ok((instance, complement)) => {
+            let emitted = codec
+                .emit_functor_preserving(schema, &instance, &complement)
+                .unwrap_or_else(|error| {
+                    panic!("CST emit failed: route={route:?}, input={input:?}: {error:?}")
+                });
+            (
+                ScalarParseOutcome::Parsed(production_table_scalar(&instance)),
+                emitted == wrapped,
+            )
+        }
+        Err(error) => (production_parse_error(error), false),
+    };
+    assert_eq!(
+        panproto_reference::value_io::round_trip_cst(route, input),
+        production_round_trip,
+        "CST round trip differs: route={route:?}, input={input:?}"
+    );
+    assert_eq!(
+        actual, expected,
+        "scalar parse differs: route={route:?}, input={input:?}"
+    );
 }
 
 /// Law 25 on the preserving TOML production path.
@@ -3016,15 +3071,13 @@ fn exact_integer_and_special_numeric_scalars_match_reference() {
             &ValueSpec::new(ScalarKind::Any),
         )
         .unwrap_or_else(|error| panic!("production integer {lexeme}: {error:?}"));
-        let reference = panproto_reference::exact::parse_numeral(lexeme)
+        let integer = panproto_reference::exact::parse_numeral(lexeme)
             .and_then(|numeral| panproto_reference::exact::integer_of_numeral(&numeral))
-            .map(|integer| match integer {
-                panproto_reference::exact::ExactInteger::Int(value) => ReferenceValue::Int(value),
-                panproto_reference::exact::ExactInteger::Big(value) => {
-                    ReferenceValue::BigInt(value)
-                }
-            })
             .unwrap_or_else(|| panic!("reference integer {lexeme}"));
+        let reference = match integer {
+            panproto_reference::exact::ExactInteger::Int(value) => ReferenceValue::Int(value),
+            panproto_reference::exact::ExactInteger::Big(value) => ReferenceValue::BigInt(value),
+        };
         let kind = match (&production, &reference) {
             (Value::Int(_), ReferenceValue::Int(_)) => "bigint",
             (Value::BigInt(_), ReferenceValue::BigInt(_)) => "varint",

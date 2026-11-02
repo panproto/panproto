@@ -3750,7 +3750,7 @@ mod tests {
             ));
             let one = one_table("t", vec![(0, row(&[("b", Value::Float(f64::NAN))]))]);
             let other = one_table("t", vec![(0, row(&[("b", Value::Float(payload))]))]);
-            assert!(reference::homs(&one, &other).is_empty());
+            assert_eq!(reference::homs(&one, &other), []);
             assert!(FInstanceHom::identity(&one).check(&one, &other).is_err());
             assert!(FInstanceHom::identity(&one).check(&one, &one).is_ok());
         }

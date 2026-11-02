@@ -438,7 +438,9 @@ fn prod_schema(schema: &RefSchema) -> Schema {
 
 fn prod_migration(migration: &RefMigration) -> CompiledMigration {
     assert!(
-        migration.conditional.is_empty() && migration.transformed.is_empty(),
+        migration.conditional.is_empty()
+            && migration.transformed.is_empty()
+            && migration.output_fields.is_empty(),
         "value-layer stages are converted by their own stage constructors"
     );
     CompiledMigration {
@@ -508,6 +510,7 @@ fn production_stage(stage: &C11Stage) -> Lens {
     let mut structural = stage.migration.clone();
     structural.conditional.clear();
     structural.transformed.clear();
+    structural.output_fields.clear();
     let mut compiled = prod_migration(&structural);
     match stage.layer {
         C11Layer::None => {}
@@ -904,6 +907,13 @@ fn restrict_reason(error: &RestrictError) -> String {
         RestrictError::TargetDeclarations(errors) => {
             format!("TargetDeclarations {}", declaration_reasons(errors))
         }
+        RestrictError::UndeclaredTransformField {
+            source_vertex,
+            target_vertex,
+            field,
+        } => {
+            format!("UndeclaredTransformField {source_vertex} {target_vertex} {field}")
+        }
         other => format!("production restrict refusal {other:?}"),
     }
 }
@@ -1031,6 +1041,11 @@ fn ref_restrict_reason(error: &RefRestrictError) -> String {
         RefRestrictError::Plan(PlanError::TargetDeclarations(errors)) => {
             format!("TargetDeclarations {}", ref_declaration_reasons(errors))
         }
+        RefRestrictError::Plan(PlanError::UndeclaredTransformField {
+            source_vertex,
+            target_vertex,
+            field,
+        }) => format!("UndeclaredTransformField {source_vertex} {target_vertex} {field}"),
         other @ RefRestrictError::Plan(_) => format!("reference restrict refusal {other:?}"),
     }
 }
@@ -1352,12 +1367,17 @@ impl Pair {
             C11Layer::ReadField => &C11ReadField,
             C11Layer::OpTerm => &C11OpTerm,
         };
+        let production = production_stage(stage);
+        assert_eq!(
+            stage.migration.output_fields,
+            reference_output_fields(&production.compiled)
+        );
         Self::with_production(
             stage.source.clone(),
             stage.target.clone(),
             stage.migration.clone(),
             layer,
-            production_stage(stage),
+            production,
         )
     }
 
@@ -1844,10 +1864,13 @@ fn assert_graph_predicate_domain_families() -> u16 {
 }
 
 fn assert_graph_noninvertible_transform_domain_family() -> u16 {
-    let schema = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
+    let schema = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[])
+        .vertex("x_value", "int")
+        .edge("a", "x_value", "prop", Some("x"));
     let migration = RefMigration {
         surviving_verts: ["a".to_owned()].into(),
         transformed: ["a".to_owned()].into(),
+        output_fields: [("a".to_owned(), vec!["x".to_owned()])].into(),
         ..RefMigration::default()
     };
     let production_schema = prod_schema(&schema);
@@ -2731,6 +2754,11 @@ fn ref_table_complement(complement: &TableComplement) -> RefTableComplement {
             .collect(),
         id_floor: complement.id_floor,
         identity: None,
+        original_absent_cells: complement
+            .original_absent_cells
+            .iter()
+            .map(|(id, column)| (id.0, column.clone()))
+            .collect(),
     }
 }
 
@@ -2806,9 +2834,25 @@ impl TablePair {
             C11Layer::OpTerm => &C11OpTerm,
         };
         let kinds = std::collections::BTreeSet::from(["obj".to_owned()]);
-        let classify = |schema: &RefSchema| {
-            panproto_reference::rel::classify(schema, &std::collections::BTreeSet::new(), &kinds)
-        };
+        let value_kinds: BTreeMap<String, ScalarKind> = stage
+            .source
+            .vertices
+            .values()
+            .chain(stage.target.vertices.values())
+            .filter(|kind| kind.as_str() == "int")
+            .map(|kind| {
+                (
+                    kind.clone(),
+                    ScalarKind::Int {
+                        bits: 64,
+                        signed: true,
+                    },
+                )
+            })
+            .collect();
+        let values = value_kinds.keys().cloned().collect();
+        let classify =
+            |schema: &RefSchema| panproto_reference::rel::classify(schema, &values, &kinds);
         let source_boundary = classify(&stage.source);
         let target_boundary = classify(&stage.target);
         let plan = match (&source_boundary, &target_boundary) {
@@ -2834,6 +2878,7 @@ impl TablePair {
             production: production_stage(stage),
             protocol: Protocol {
                 non_value_kinds: kinds,
+                value_kinds,
                 ..Protocol::default()
             },
             layer,
@@ -2901,7 +2946,7 @@ fn reference_table_get(pair: &TablePair, source: &RefTable) -> TableGetOutcome {
             &pair.tgt,
             &pair.migration,
             plan,
-            &NoValueLayer,
+            pair.layer,
             source,
         )
         .map(|(view, complement)| {
@@ -3270,7 +3315,23 @@ fn assert_table_complement_field_order() {
                 .trim_matches('"')
         })
         .collect();
-    assert_eq!(production_field_order, RefTableComplement::FIELD_ORDER);
+    assert_eq!(production_field_order, RefTableComplement::FIELD_ORDER[..9]);
+    let extended = TableComplement {
+        original_absent_cells: BTreeSet::from([(RowId(0), "f".to_owned())]),
+        ..TableComplement::empty()
+    };
+    let extended = serde_json::to_value(extended).expect("absence residue is serializable");
+    assert_eq!(
+        extended
+            .as_object()
+            .expect("a complement is an object")
+            .len(),
+        10
+    );
+    assert_eq!(
+        extended["original_absent_cells"],
+        serde_json::json!([[0, "f"]])
+    );
 }
 
 fn assert_table_fixture_complement(fixture: &TableFixture) {
@@ -3413,6 +3474,7 @@ fn table_refusal_pair(case: TableGetRefusalCase) -> TablePair {
     let mut structural = fixture.migration.clone();
     structural.conditional.clear();
     structural.transformed.clear();
+    structural.output_fields.clear();
     let mut pair = TablePair::new(
         fixture.source_schema,
         fixture.target_schema,
@@ -3813,8 +3875,12 @@ fn assert_table_put_noninvertible_transform_refusal() {
     };
     let mut migration = fixture.migration();
     migration.transformed.insert("t".to_owned());
+    migration
+        .output_fields
+        .insert("t".to_owned(), vec!["x".to_owned()]);
     let mut structural = migration.clone();
     structural.transformed.clear();
+    structural.output_fields.clear();
     let mut pair = TablePair::new(
         fixture.source_schema(),
         fixture.target_schema(),
@@ -4927,6 +4993,43 @@ fn tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors() 
 /// domain (a stage dropping an edge between surviving vertices).
 type TreeOutcome = Option<Result<(RefTree, TreeResidue, Result<RefTree, Reason>), Reason>>;
 
+#[derive(Debug, PartialEq, Eq)]
+struct TreePutOutcome {
+    put: Result<RefTree, Reason>,
+    domain: Result<(), Vec<String>>,
+}
+
+fn production_tree_put(pair: &Pair, source: &RefTree, edited: &RefTree) -> Option<TreePutOutcome> {
+    let (_, complement) = panproto_lens::get(&pair.production, &prod_tree(source)).ok()?;
+    let view = prod_tree(edited);
+    Some(TreePutOutcome {
+        put: panproto_lens::put(&pair.production, &view, &complement)
+            .map(|restored| ref_tree(&restored))
+            .map_err(|error| lens_reason(&error)),
+        domain: panproto_lens::asymmetric::check_put_domain(&pair.production, &view, &complement)
+            .map_err(|errors| errors.iter().map(put_domain_reason).collect()),
+    })
+}
+
+fn reference_tree_put(pair: &Pair, source: &RefTree, edited: &RefTree) -> Option<TreePutOutcome> {
+    pair.with_reference(|lens| {
+        let lens = lens.ok()?;
+        let (_, complement) = RefTreeShape::get(lens, source, &()).ok()?;
+        Some(TreePutOutcome {
+            put: RefTreeShape::put(lens, edited, &complement, &())
+                .map_err(|error| reference_tree_law_reason(&error)),
+            domain: RefTreeShape::check_put_domain(lens, edited, &complement, &()).map_err(
+                |error| match error {
+                    panproto_reference::lens::ReferenceLawError::PutDomain(errors) => {
+                        errors.iter().map(ref_put_domain_reason).collect()
+                    }
+                    other => panic!("unexpected reference domain refusal: {other:?}"),
+                },
+            ),
+        })
+    })
+}
+
 fn production_tree_case(pair: &Pair, source: &RefTree, inside: bool) -> TreeOutcome {
     if !inside {
         return None;
@@ -4955,7 +5058,10 @@ fn production_tree_case(pair: &Pair, source: &RefTree, inside: bool) -> TreeOutc
 
 fn reference_tree_case(pair: &Pair, source: &RefTree) -> TreeOutcome {
     pair.with_reference(|lens| {
-        let lens = lens.ok()?;
+        let lens = match lens {
+            Ok(lens) => lens,
+            Err(error) => return Some(Err(Reason::Restrict(error))),
+        };
         Some(
             panproto_reference::lens::tree_get(lens, source)?
                 .map(|(view, complement, embedding)| {
@@ -5015,10 +5121,14 @@ fn tree_lens_agrees_with_the_reference_on_cases(cases: &[(usize, RefTree)]) {
             let outcome = reference_tree_case(&pairs[*stage], tree);
             let laws = outcome.as_ref().map(|_| {
                 pairs[*stage].with_reference(|lens| {
-                    reference_law_outcome(&panproto_reference::lens::check_tree_laws(
-                        lens.expect("inside the reference domain the plan compiles"),
-                        tree,
-                    ))
+                    lens.map_or_else(
+                        |_| refused_law_outcome(),
+                        |lens| {
+                            reference_law_outcome(&panproto_reference::lens::check_tree_laws(
+                                lens, tree,
+                            ))
+                        },
+                    )
                 })
             });
             (outcome, laws)
@@ -5039,14 +5149,26 @@ use panproto_reference::path::{LensPath as RefLensPath, PathError, PathStage, Pa
 const C11_PROTOCOL: &str = "";
 
 fn ref_path_stage(index: usize, stage: &C11Stage) -> PathStage<usize> {
+    let migration = panproto_reference::table::canonical_migration_bytes(&stage.migration);
+    let mut identity = u64::try_from(migration.len())
+        .expect("migration descriptor length")
+        .to_le_bytes()
+        .to_vec();
+    identity.extend_from_slice(&migration);
+    identity.extend_from_slice(
+        &u64::try_from(stage.name.len())
+            .expect("stage-name length")
+            .to_le_bytes(),
+    );
+    identity.extend_from_slice(stage.name.as_bytes());
     PathStage::new_with_protocols(
         index,
         &stage.source,
         C11_PROTOCOL,
         &stage.target,
         C11_PROTOCOL,
-        stage.name.as_bytes().to_vec(),
-        stage.name.as_bytes().to_vec(),
+        identity.clone(),
+        identity,
     )
 }
 
@@ -5524,10 +5646,22 @@ fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
             true,
         ),
         (1, "contraction", named("C"), identity_after("C"), false),
-        (2, "unbound field", named("DropF"), named("ReadF"), false),
+        (
+            2,
+            "former unbound-field case; ReadF output declaration refuses",
+            named("DropF"),
+            named("ReadF"),
+            false,
+        ),
         (3, "direct edge image", named("D"), named("Ext"), false),
         (4, "expansion", named("X"), identity_after("X"), false),
-        (5, "value layers", named("Q"), named("T"), false),
+        (
+            5,
+            "value-layer pair with a T output declaration refusal",
+            named("Q"),
+            named("T"),
+            false,
+        ),
         (6, "fan retarget", named("H"), named("Id_h"), false),
         (7, "plan refusal", named("B"), identity_after("B"), false),
         (
@@ -5788,13 +5922,13 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
         fused.len(),
         units.len()
     );
+    println!("{bound}");
     assert_eq!(anchors, source_states);
     assert_eq!(anchors + labels, units.len());
     assert_eq!(fused.len(), 384);
     assert_eq!(source_states, 761_742);
     assert_eq!(labels, 761_358);
     assert_eq!(units.len(), 1_523_100);
-    println!("{bound}");
     let compared = assert_agree(agree_in_parallel(
         &bound,
         &units,
@@ -6072,19 +6206,30 @@ fn assert_fan_parent_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
 
 fn assert_derived_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
     let transform = c11_stage_index(stages, "T");
+    assert_eq!(
+        Pair::from_stage(&stages[transform]).plan,
+        Err(PlanError::UndeclaredTransformField {
+            source_vertex: "a".to_owned(),
+            target_vertex: "a".to_owned(),
+            field: C11_FIELD.to_owned(),
+        })
+    );
+    let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
+    let transform = c11_stage_index(&stages, "DeclaredDefault");
     let pair = Pair::from_stage(&stages[transform]);
     let source = RefGraph {
         nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
         edges: BTreeMap::new(),
     };
     pair.with_reference(|lens| {
-        let lens = lens.expect("T compiles");
-        let (view, complement) = RefGraphShape::get(lens, &source, &()).expect("T gets");
+        let lens = lens.expect("the declared default compiles");
+        let (view, complement) =
+            RefGraphShape::get(lens, &source, &()).expect("the declared default gets");
         let basis = RefGraphShape::single_step_basis(lens, &source, &view, &complement, &());
         let case = basis
             .iter()
             .find(|case| case.mutation == RefMutation::FieldEdit)
-            .expect("the T basis retains the derived-field edit");
+            .expect("the declared default basis retains the derived-field edit");
         assert!(matches!(case.domain, DomainExpectation::Admitted));
         let observed = RefGraphShape::check_put_domain(lens, &case.view, &complement, &());
         let Err(panproto_reference::lens::ReferenceLawError::PutDomain(errors)) = &observed else {
@@ -6096,7 +6241,7 @@ fn assert_derived_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
         );
         assert_eq!(
             classify_reference_basis_case(&case.domain, observed, || {
-                "T derived-field edit".to_owned()
+                "declared default derived-field edit".to_owned()
             }),
             ReferenceBasisPartition::RefusedPositive
         );
@@ -6950,11 +7095,6 @@ fn tree_path_normal_forms_match_independent_atomic_folds() {
     let edit_families = edit_families.into_inner();
     let edits = edits.into_inner();
     let outside = outside.into_inner();
-    assert_eq!(
-        outside, 920,
-        "the production-only tree-path consistency scope is part of the certificate"
-    );
-    assert_eq!(edit_families.total(), edits);
     println!(
         "L16 tree fusion: bases={}, inside={}, outside={}, final edits={}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
         units.len(),
@@ -6965,6 +7105,11 @@ fn tree_path_normal_forms_match_independent_atomic_folds() {
         edit_families.refused_positive.named(),
         edit_families.designated_negative.named()
     );
+    assert_eq!(
+        outside, 920,
+        "the production-only tree-path consistency scope is part of the certificate"
+    );
+    assert_eq!(edit_families.total(), edits);
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
 
@@ -7031,6 +7176,14 @@ fn table_path_normal_forms_match_independent_atomic_folds() {
     let edit_families = edit_families.into_inner();
     let edits = edits.into_inner();
     assert_eq!(edit_families.total(), edits);
+    println!(
+        "L16 table fusion: bases={}, final edits={}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
+        units.len(),
+        edits,
+        edit_families.admitted_positive.named(),
+        edit_families.refused_positive.named(),
+        edit_families.designated_negative.named()
+    );
     assert_eq!(
         edit_families.admitted_positive.families,
         [0, 0, 19_258, 28_445, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -7045,14 +7198,6 @@ fn table_path_normal_forms_match_independent_atomic_folds() {
         edit_families.designated_negative.families,
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 168, 0, 573, 271, 0],
         "the designated-negative table-path mutation-family census is part of the certificate"
-    );
-    println!(
-        "L16 table fusion: bases={}, final edits={}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
-        units.len(),
-        edits,
-        edit_families.admitted_positive.named(),
-        edit_families.refused_positive.named(),
-        edit_families.designated_negative.named()
     );
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
@@ -8587,7 +8732,7 @@ fn assert_tree_fusion_boundary_witness(witness: TreeFusionBoundaryWitness) {
 
             let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
             let sources = c11_tree_states(&stages[identity].source);
-            assert_ne!(sources, [] as [panproto_reference::model::Tree; 0]);
+            assert_ne!(sources, []);
             for source in &sources {
                 let fused = production_tree_path_outcome(&path, source, &[]);
                 let atomic = reference_tree_path_outcome(&pairs, &word, source, &[]);
@@ -8879,7 +9024,7 @@ fn empty_schema_path_properties_skip_only_the_empty_tree_carrier() {
     let carrier = path_property_carrier();
     assert_eq!(carrier.stages[0].name, "Id0");
     assert_eq!(carrier.graphs[0].len(), 1);
-    assert_eq!(carrier.trees[0], [] as [panproto_reference::model::Tree; 0]);
+    assert_eq!(carrier.trees[0], []);
     assert_eq!(carrier.tables[0].len(), 1);
 
     assert_randomized_path_form(PathLawForm::LeftIdentity, 0, 0, 0);
@@ -9802,6 +9947,13 @@ fn assert_graph_square_census(
 ) {
     let certificate = c11_tree_square_count_certificate();
     assert_eq!(edit_families.total(), edits);
+    println!(
+        "C11 graph/tree square: bases={bases}, edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}, total={}",
+        edit_families.admitted_positive.named(),
+        edit_families.refused_positive.named(),
+        edit_families.designated_negative.named(),
+        bases + edits
+    );
     assert_eq!(
         edit_families.admitted_positive.families,
         [
@@ -9818,13 +9970,6 @@ fn assert_graph_square_census(
         edit_families.designated_negative.families,
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 48, 0, 48, 0, 0],
         "the designated-negative graph/tree-square mutation-family census is part of the certificate"
-    );
-    println!(
-        "C11 graph/tree square: bases={bases}, edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}, total={}",
-        edit_families.admitted_positive.named(),
-        edit_families.refused_positive.named(),
-        edit_families.designated_negative.named(),
-        bases + edits
     );
     assert_eq!(edits, certificate.edited_views);
     assert_eq!(bases + edits, certificate.observations);
@@ -10493,9 +10638,1097 @@ fn ref_migration(compiled: &CompiledMigration) -> RefMigration {
             .iter()
             .filter(|(_, transforms)| !transforms.is_empty())
             .map(|(vertex, _)| vertex.to_string())
+            .chain(
+                compiled
+                    .op_term_assignments
+                    .iter()
+                    .filter(|(_, assignments)| !assignments.is_empty())
+                    .map(|(vertex, _)| vertex.to_string()),
+            )
             .collect(),
+        output_fields: reference_output_fields(compiled),
         ..RefMigration::default()
     }
+}
+
+#[test]
+fn undeclared_transform_stages_keep_every_original_source_as_a_refusal() {
+    let stages = c11_stages();
+    assert_eq!(stages.len(), 31);
+    let mut cases = [0_usize; 3];
+    for name in ["T", "ReadF", "Op"] {
+        let stage = &stages[c11_stage_index(&stages, name)];
+        let pair = Pair::from_stage(stage);
+        let expected = Reason::Restrict("UndeclaredTransformField a a f".to_owned());
+        let plan_error = PlanError::UndeclaredTransformField {
+            source_vertex: "a".to_owned(),
+            target_vertex: "a".to_owned(),
+            field: "f".to_owned(),
+        };
+        assert_eq!(
+            panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration),
+            Err(plan_error.clone())
+        );
+        assert_eq!(pair.plan, Err(plan_error.clone()));
+        for source in c11_sources(stage) {
+            assert_eq!(reference_get(&pair, &source), Err(expected.clone()));
+            assert_eq!(production_get(&pair, &source), Err(expected.clone()));
+            cases[0] += 1;
+        }
+        for source in c11_tree_states(&stage.source) {
+            assert_eq!(
+                reference_tree_case(&pair, &source),
+                Some(Err(expected.clone()))
+            );
+            assert_eq!(
+                production_tree_case(&pair, &source, true),
+                Some(Err(expected.clone()))
+            );
+            cases[1] += 1;
+        }
+        let table = TablePair::from_stage(stage);
+        assert_eq!(
+            panproto_reference::table::compile_for_tables(
+                &table.src,
+                &table.tgt,
+                &table.boundaries.0,
+                &table.boundaries.1,
+                &table.migration,
+            ),
+            Err(TablePlanError::Plan(Box::new(plan_error)))
+        );
+        for source in c11_table_states(&stage.source) {
+            assert_eq!(table.try_with_reference(|_, _| ()), Err(expected.clone()));
+            assert_eq!(production_table_get(&table, &source), Err(expected.clone()));
+            cases[2] += 1;
+        }
+    }
+    assert_eq!(cases, [45, 6, 45]);
+    println!(
+        "undeclared transform source refusals: graph={}, tree={}, table={}, total={}",
+        cases[0],
+        cases[1],
+        cases[2],
+        cases.iter().sum::<usize>()
+    );
+}
+
+#[test]
+fn declared_transform_absence_complements_separate_the_default_collision() {
+    let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
+    let pair = TablePair::from_stage(&stages[c11_stage_index(&stages, "DeclaredDefault")]);
+    let mut views = Vec::new();
+    let mut complements = Vec::new();
+    for source_value in [None, Some(0)] {
+        let source = RefTable {
+            rows: BTreeMap::from([(
+                0,
+                (
+                    "a".to_owned(),
+                    source_value
+                        .map(|value| ("f".to_owned(), RefValue::Int(value)))
+                        .into_iter()
+                        .collect(),
+                ),
+            )]),
+            pairs: BTreeSet::new(),
+        };
+        let expected = reference_table_get(&pair, &source).expect("finite reference get");
+        assert_eq!(production_table_get(&pair, &source), Ok(expected.clone()));
+        let markers = if source_value.is_none() {
+            BTreeSet::from([(0, "f".to_owned())])
+        } else {
+            BTreeSet::new()
+        };
+        assert_eq!(expected.1.original_absent_cells, markers);
+        let expected_put = reference_table_put(&pair, &source, &expected.0);
+        assert_eq!(expected_put.put, Ok(source.clone()));
+        assert_eq!(
+            production_table_put(&pair, &source, &expected.0),
+            expected_put
+        );
+        views.push(expected.0);
+        complements.push(expected.1);
+    }
+    assert_eq!(views[0], views[1]);
+    assert_ne!(complements[0], complements[1]);
+    assert_table_complement_field_order();
+}
+
+#[test]
+fn declared_transform_absence_composition_matches_independent_union() {
+    use panproto_lens::ComplementCompose;
+    let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
+    let pair = TablePair::from_stage(&stages[c11_stage_index(&stages, "DeclaredDefault")]);
+    let source = RefTable {
+        rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
+        pairs: BTreeSet::new(),
+    };
+    let (_, left) = table_lens::get(&pair.production, &prod_table(&source), pair.protocols())
+        .expect("default inserts f");
+    let mut right = left.clone();
+    right.original_absent_cells = BTreeSet::from([(RowId(1), "f".to_owned())]);
+    right.id_floor = 2;
+    let mut expected = ref_table_complement(&left);
+    expected
+        .original_absent_cells
+        .extend(ref_table_complement(&right).original_absent_cells);
+    expected.id_floor = 2;
+    for (one, two) in [(&left, &right), (&right, &left)] {
+        assert_eq!(
+            ref_table_complement(&one.compose(two).expect("compatible absence union")),
+            expected
+        );
+    }
+    let mut present = TableComplement {
+        identity: left.identity.clone(),
+        ..TableComplement::empty()
+    };
+    present
+        .original_cells
+        .insert((RowId(0), "f".to_owned()), Value::Int(0));
+    assert!(matches!(
+        left.compose(&present),
+        Err(LensError::ComplementConflict { .. })
+    ));
+    assert!(matches!(
+        present.compose(&left),
+        Err(LensError::ComplementConflict { .. })
+    ));
+    let mut malformed = left.clone();
+    malformed.original_cells = present.original_cells;
+    assert!(matches!(
+        malformed.compose(&TableComplement::empty()),
+        Err(LensError::ComplementConflict { .. })
+    ));
+    assert!(matches!(
+        TableComplement::empty().compose(&malformed),
+        Err(LensError::ComplementConflict { .. })
+    ));
+}
+
+#[test]
+fn declared_transform_atomic_laws_agree_with_the_reference() {
+    use panproto_reference::enumerate::lenses::{
+        declared_transform_count_certificate, declared_transform_graphs, declared_transform_stages,
+        declared_transform_tables, declared_transform_trees,
+    };
+    let stages = declared_transform_stages();
+    let mut cases = [0_usize; 3];
+    for stage in &stages {
+        let pair = Pair::from_stage(stage);
+        assert!(pair.plan.is_ok(), "{} compiles", stage.name);
+        for source in declared_transform_graphs() {
+            assert_eq!(
+                production_get(&pair, &source),
+                reference_get(&pair, &source),
+                "{} graph get {source:?}",
+                stage.name
+            );
+            let candidates = graph_candidates(&pair, &source);
+            assert_eq!(
+                graph_common_laws(&pair, &source, &candidates, true),
+                graph_common_laws(&pair, &source, &candidates, false),
+                "{} graph laws {source:?}",
+                stage.name
+            );
+            cases[0] += 1;
+        }
+        for source in declared_transform_trees() {
+            assert_eq!(
+                production_tree_case(&pair, &source, true),
+                reference_tree_case(&pair, &source),
+                "{} tree get/put {source:?}",
+                stage.name
+            );
+            let candidates = tree_candidates(&pair, &source);
+            assert_eq!(
+                tree_common_laws(&pair, &source, &candidates, true),
+                tree_common_laws(&pair, &source, &candidates, false),
+                "{} tree laws {source:?}",
+                stage.name
+            );
+            cases[1] += 1;
+        }
+        let table = TablePair::from_stage(stage);
+        assert!(table.plan.is_ok(), "{} table compiles", stage.name);
+        for source in declared_transform_tables() {
+            let candidates = table_candidates(&table, &source);
+            assert_eq!(
+                table_common_laws(&table, &source, &candidates, true),
+                table_common_laws(&table, &source, &candidates, false),
+                "{} table laws {source:?}",
+                stage.name
+            );
+            cases[2] += 1;
+        }
+    }
+    assert_eq!(cases, [65, 15, 65]);
+    assert_eq!(
+        cases.iter().sum::<usize>(),
+        declared_transform_count_certificate().atomic_cases
+    );
+    println!(
+        "declared transform atomic laws: graph={}, tree={}, table={}, total={}",
+        cases[0],
+        cases[1],
+        cases[2],
+        cases.iter().sum::<usize>()
+    );
+}
+
+#[test]
+fn declared_transform_wrappers_preserve_their_active_field_domain() {
+    use panproto_expr::{Expr, Literal};
+    use panproto_inst::{CaseBranch, FieldTransform};
+    use panproto_reference::enumerate::lenses::declared_transform_stages;
+
+    let stage = declared_transform_stages()
+        .into_iter()
+        .find(|stage| stage.layer == C11Layer::AddField)
+        .expect("the separate declared carrier includes default insertion");
+    let default = FieldTransform::AddField {
+        key: C11_FIELD.to_owned(),
+        value: Value::Int(0),
+    };
+    let wrappers = [
+        (
+            "empty path",
+            true,
+            FieldTransform::PathTransform {
+                path: Vec::new(),
+                inner: Box::new(default.clone()),
+            },
+        ),
+        (
+            "true case",
+            true,
+            FieldTransform::Case {
+                branches: vec![CaseBranch {
+                    predicate: Expr::Lit(Literal::Bool(true)),
+                    transforms: vec![default.clone()],
+                }],
+            },
+        ),
+        (
+            "false case",
+            false,
+            FieldTransform::Case {
+                branches: vec![CaseBranch {
+                    predicate: Expr::Lit(Literal::Bool(false)),
+                    transforms: vec![default],
+                }],
+            },
+        ),
+    ];
+    let mut cases = [0_usize; 2];
+    for (name, active, transform) in wrappers {
+        let mut production = production_stage(&stage);
+        production
+            .compiled
+            .field_transforms
+            .insert("a".into(), vec![transform]);
+        assert_eq!(
+            reference_output_fields(&production.compiled),
+            stage.migration.output_fields,
+            "inactive branches still contribute static output declarations"
+        );
+        let layer: &'static dyn ValueLayer = if active { &C11AddField } else { &NoValueLayer };
+        let pair = Pair::with_production(
+            stage.source.clone(),
+            stage.target.clone(),
+            stage.migration.clone(),
+            layer,
+            production,
+        );
+        assert!(pair.plan.is_ok(), "{name} has a declared output");
+        assert_default_wrapper_edits(&pair, name, &mut cases);
+    }
+    assert_eq!(cases, [81, 81]);
+    println!(
+        "declared transform wrapper edits: graph={}, tree={}, total={}",
+        cases[0],
+        cases[1],
+        cases.iter().sum::<usize>()
+    );
+}
+
+fn assert_default_wrapper_edits(pair: &Pair, name: &str, cases: &mut [usize; 2]) {
+    for source_field in [None, Some(0), Some(1)] {
+        let mut node = RefNode::new(0, "a");
+        node.fields.insert("other".to_owned(), RefValue::Int(0));
+        if let Some(value) = source_field {
+            node.fields
+                .insert(C11_FIELD.to_owned(), RefValue::Int(value));
+        }
+        let source = RefGraph {
+            nodes: [(0, node)].into(),
+            edges: BTreeMap::new(),
+        };
+        let tree = RefTree {
+            root: 0,
+            nodes: source.nodes.clone(),
+            arcs: Vec::new(),
+            fans: Vec::new(),
+        };
+        assert_eq!(
+            production_get(pair, &source),
+            reference_get(pair, &source),
+            "{name} graph get with source f={source_field:?}"
+        );
+        assert_eq!(
+            production_tree_case(pair, &tree, true),
+            reference_tree_case(pair, &tree),
+            "{name} tree get with source f={source_field:?}"
+        );
+        for edited_field in [None, Some(0), Some(1)] {
+            for other_field in [None, Some(0), Some(1)] {
+                let mut edited = source.clone();
+                let fields = &mut edited.nodes.get_mut(&0).expect("one source node").fields;
+                fields.clear();
+                for (key, value) in [(C11_FIELD, edited_field), ("other", other_field)] {
+                    if let Some(value) = value {
+                        fields.insert(key.to_owned(), RefValue::Int(value));
+                    }
+                }
+                let expected = reference_put(pair, &source, &edited)
+                    .expect("the reference wrapper has a successful get");
+                assert_eq!(
+                    production_put(pair, &source, &edited),
+                    Some(expected),
+                    "{name} graph source f={source_field:?}, edit f={edited_field:?}, other={other_field:?}"
+                );
+                cases[0] += 1;
+                let edited_tree = RefTree {
+                    nodes: edited.nodes,
+                    ..tree.clone()
+                };
+                let expected = reference_tree_put(pair, &tree, &edited_tree)
+                    .expect("the reference wrapper has a successful tree get");
+                assert_eq!(
+                    production_tree_put(pair, &tree, &edited_tree),
+                    Some(expected),
+                    "{name} tree source f={source_field:?}, edit f={edited_field:?}, other={other_field:?}"
+                );
+                cases[1] += 1;
+            }
+        }
+    }
+}
+
+fn conditional_default_stage() -> (C11Stage, Lens) {
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_inst::{CaseBranch, FieldTransform};
+
+    let schema = RefSchema::default()
+        .vertex("a", "obj")
+        .vertex("f-value", "int")
+        .vertex("g-value", "int")
+        .vertex("hidden-value", "int")
+        .edge("a", "f-value", "prop", Some("f"))
+        .edge("a", "g-value", "prop", Some("g"))
+        .edge("a", "hidden-value", "prop", Some("hidden"));
+    let stage = C11Stage {
+        name: "ConditionalDefaultWithResidue".to_owned(),
+        source: schema.clone(),
+        target: schema.clone(),
+        migration: RefMigration {
+            surviving_verts: schema.vertices.keys().cloned().collect(),
+            surviving_edges: schema.edges,
+            transformed: ["a".to_owned()].into(),
+            output_fields: [("a".to_owned(), vec![C11_FIELD.to_owned()])].into(),
+            ..RefMigration::default()
+        },
+        layer: C11Layer::AddField,
+    };
+    let mut production = production_stage(&stage);
+    production.compiled.field_transforms.insert(
+        "a".into(),
+        vec![
+            FieldTransform::DropField {
+                key: "hidden".to_owned(),
+            },
+            FieldTransform::Case {
+                branches: vec![CaseBranch {
+                    predicate: Expr::Builtin(
+                        BuiltinOp::Eq,
+                        vec![Expr::Var("g".into()), Expr::Lit(Literal::Int(0))],
+                    ),
+                    transforms: vec![FieldTransform::AddField {
+                        key: C11_FIELD.to_owned(),
+                        value: Value::Int(0),
+                    }],
+                }],
+            },
+        ],
+    );
+    assert_eq!(
+        reference_output_fields(&production.compiled),
+        stage.migration.output_fields
+    );
+    (stage, production)
+}
+
+#[test]
+fn declared_transform_conditional_defaults_track_actual_writes() {
+    let (stage, production) = conditional_default_stage();
+    let mut table_pair = TablePair::from_stage(&stage);
+    table_pair.production = duplicate_lens(&production);
+    table_pair.layer = &ConditionalDefaultWithResidue;
+    let pair = Pair::with_production(
+        stage.source,
+        stage.target,
+        stage.migration,
+        &ConditionalDefaultWithResidue,
+        production,
+    );
+    let fixtures = [
+        ("inactive branch", 1, Some(7), 1, Some(8), true),
+        ("existing default", 0, Some(7), 0, Some(8), true),
+        (
+            "switch with an existing field",
+            1,
+            Some(7),
+            0,
+            Some(8),
+            true,
+        ),
+        ("baseline default disappears", 0, None, 1, Some(0), false),
+        ("replay default appears", 1, None, 0, None, false),
+    ];
+    let mut accepted = [0_usize; 3];
+    let mut refused = [0_usize; 2];
+    for (name, source_g, source_f, edited_g, edited_f, admitted) in fixtures {
+        let (source, edited) = conditional_default_graphs(source_g, source_f, edited_g, edited_f);
+        assert_eq!(
+            production_get(&pair, &source),
+            reference_get(&pair, &source),
+            "{name}"
+        );
+        let graph_outcome = reference_put(&pair, &source, &edited).expect("successful graph get");
+        assert_eq!(
+            production_put(&pair, &source, &edited).expect("successful production graph get"),
+            graph_outcome,
+            "{name} graph put and domain"
+        );
+        let tree = RefTree {
+            root: 0,
+            nodes: source.nodes.clone(),
+            arcs: Vec::new(),
+            fans: Vec::new(),
+        };
+        let edited_tree = RefTree {
+            nodes: edited.nodes.clone(),
+            ..tree.clone()
+        };
+        assert_eq!(
+            production_tree_case(&pair, &tree, true),
+            reference_tree_case(&pair, &tree),
+            "{name} tree get"
+        );
+        let tree_outcome =
+            reference_tree_put(&pair, &tree, &edited_tree).expect("successful tree get");
+        assert_eq!(
+            production_tree_put(&pair, &tree, &edited_tree)
+                .expect("successful production tree get"),
+            tree_outcome,
+            "{name} tree put and domain"
+        );
+        if admitted {
+            assert_conditional_default_graph_tree_round_trip(
+                name,
+                &pair,
+                &edited,
+                tree,
+                &edited_tree,
+                &graph_outcome,
+                &tree_outcome,
+            );
+            accepted[0] += 1;
+            accepted[1] += 1;
+
+            assert_conditional_default_table_round_trip(name, &table_pair, &source, &edited);
+            accepted[2] += 1;
+        } else {
+            assert_conditional_default_refusal(name, &graph_outcome, &tree_outcome);
+            refused[0] += 1;
+            refused[1] += 1;
+        }
+    }
+    assert_eq!(accepted, [3, 3, 3]);
+    assert_eq!(refused, [2, 2]);
+    println!(
+        "conditional default edits: graph=5, tree=5, table=3, accepted=9, refused=4, total=13"
+    );
+}
+
+fn assert_conditional_default_refusal(
+    name: &str,
+    graph_outcome: &PutOutcome,
+    tree_outcome: &TreePutOutcome,
+) {
+    let reason = "DerivedCellEdited Node(0) f".to_owned();
+    assert_eq!(graph_outcome.domain, Err(vec![reason.clone()]), "{name}");
+    assert_eq!(tree_outcome.domain, Err(vec![reason.clone()]), "{name}");
+    assert_eq!(
+        graph_outcome.put,
+        Err(Reason::PutDomain(reason.clone())),
+        "{name}"
+    );
+    assert_eq!(tree_outcome.put, Err(Reason::PutDomain(reason)), "{name}");
+}
+
+fn conditional_default_graphs(
+    source_g: i64,
+    source_f: Option<i64>,
+    edited_g: i64,
+    edited_f: Option<i64>,
+) -> (RefGraph, RefGraph) {
+    let mut node = RefNode::new(0, "a");
+    node.fields.insert("g".to_owned(), RefValue::Int(source_g));
+    node.fields.insert("hidden".to_owned(), RefValue::Int(9));
+    if let Some(value) = source_f {
+        node.fields
+            .insert(C11_FIELD.to_owned(), RefValue::Int(value));
+    }
+    let source = RefGraph {
+        nodes: [(0, node)].into(),
+        edges: BTreeMap::new(),
+    };
+    let mut edited = source.clone();
+    let fields = &mut edited.nodes.get_mut(&0).expect("one source node").fields;
+    fields.remove("hidden");
+    fields.insert("g".to_owned(), RefValue::Int(edited_g));
+    fields.remove(C11_FIELD);
+    if let Some(value) = edited_f {
+        fields.insert(C11_FIELD.to_owned(), RefValue::Int(value));
+    }
+    (source, edited)
+}
+
+fn assert_conditional_default_graph_tree_round_trip(
+    name: &str,
+    pair: &Pair,
+    edited: &RefGraph,
+    tree: RefTree,
+    edited_tree: &RefTree,
+    graph_outcome: &PutOutcome,
+    tree_outcome: &TreePutOutcome,
+) {
+    assert_eq!(graph_outcome.domain, Ok(()), "{name}");
+    assert_eq!(tree_outcome.domain, Ok(()), "{name}");
+    let mut restored = edited.clone();
+    restored
+        .nodes
+        .get_mut(&0)
+        .expect("one restored node")
+        .fields
+        .insert("hidden".to_owned(), RefValue::Int(9));
+    assert_eq!(graph_outcome.put, Ok(restored.clone()), "{name}");
+    assert_eq!(
+        production_get(pair, &restored).unwrap().0,
+        *edited,
+        "{name}"
+    );
+    assert_eq!(reference_get(pair, &restored).unwrap().0, *edited, "{name}");
+    let restored_tree = RefTree {
+        nodes: restored.nodes,
+        ..tree
+    };
+    assert_eq!(tree_outcome.put, Ok(restored_tree.clone()), "{name}");
+    let production_view = panproto_lens::get(&pair.production, &prod_tree(&restored_tree))
+        .expect("restored tree re-gets")
+        .0;
+    assert_eq!(ref_tree(&production_view), *edited_tree, "{name}");
+    let reference_view = pair.with_reference(|lens| {
+        RefTreeShape::get(lens.expect("compiled reference lens"), &restored_tree, &())
+            .expect("restored reference tree re-gets")
+            .0
+    });
+    assert_eq!(reference_view, *edited_tree, "{name}");
+}
+
+fn assert_conditional_default_table_round_trip(
+    name: &str,
+    table_pair: &TablePair,
+    source: &RefGraph,
+    edited: &RefGraph,
+) {
+    let table_source = RefTable {
+        rows: [(0, ("a".to_owned(), source.nodes[&0].fields.clone()))].into(),
+        pairs: std::collections::BTreeSet::new(),
+    };
+    let table_edit = RefTable {
+        rows: [(0, ("a".to_owned(), edited.nodes[&0].fields.clone()))].into(),
+        pairs: std::collections::BTreeSet::new(),
+    };
+    assert_eq!(
+        production_table_get(table_pair, &table_source),
+        reference_table_get(table_pair, &table_source),
+        "{name} table get"
+    );
+    let table_outcome = reference_table_put(table_pair, &table_source, &table_edit);
+    assert_eq!(
+        production_table_put(table_pair, &table_source, &table_edit),
+        table_outcome,
+        "{name} table put and domain"
+    );
+    assert_eq!(table_outcome.domain, Ok(()), "{name}");
+    let mut table_restored = table_edit.clone();
+    table_restored
+        .rows
+        .get_mut(&0)
+        .expect("one restored row")
+        .1
+        .insert("hidden".to_owned(), RefValue::Int(9));
+    assert_eq!(table_outcome.put, Ok(table_restored.clone()), "{name}");
+    assert_eq!(
+        production_table_get(table_pair, &table_restored).unwrap().0,
+        table_edit,
+        "{name} production table re-get"
+    );
+    assert_eq!(
+        reference_table_get(table_pair, &table_restored).unwrap().0,
+        table_edit,
+        "{name} reference table re-get"
+    );
+}
+
+/// Absent cells remain in the public finite-map get domain. Both observations
+/// execute before comparison, separately from the total-row put witnesses.
+#[test]
+fn declared_transform_conditional_absent_cells_agree_at_table_get() {
+    let (stage, production) = conditional_default_stage();
+    let mut pair = TablePair::from_stage(&stage);
+    pair.production = production;
+    pair.layer = &ConditionalDefaultWithResidue;
+    let sources: Vec<_> = [0, 1]
+        .into_iter()
+        .map(|source_g| RefTable {
+            rows: [(
+                0,
+                (
+                    "a".to_owned(),
+                    [
+                        ("g".to_owned(), RefValue::Int(source_g)),
+                        ("hidden".to_owned(), RefValue::Int(9)),
+                    ]
+                    .into(),
+                ),
+            )]
+            .into(),
+            pairs: std::collections::BTreeSet::new(),
+        })
+        .collect();
+    let production: Vec<_> = sources
+        .iter()
+        .map(|source| production_table_get(&pair, source))
+        .collect();
+    let reference: Vec<_> = sources
+        .iter()
+        .map(|source| reference_table_get(&pair, source))
+        .collect();
+    assert_eq!(sources.len(), 2);
+    println!("conditional absent-cell table gets: sources=2");
+    assert_eq!(production, reference, "absent f with g=0 and g=1");
+}
+
+/// Fixed independent layer for Drop(hidden); Case(g=0, Default(f,0)).
+/// Its baseline and replay inspect actual default insertion, not the set
+/// of fields named by either syntactic branch.
+struct ConditionalDefaultWithResidue;
+
+impl ConditionalDefaultWithResidue {
+    fn inserts_default(fields: &BTreeMap<String, RefValue>) -> bool {
+        fields.get("g") == Some(&RefValue::Int(0)) && !fields.contains_key(C11_FIELD)
+    }
+}
+
+impl ValueLayer for ConditionalDefaultWithResidue {
+    fn canonical_semantics(&self) -> ValueLayerSemantics {
+        ValueLayerSemantics {
+            domain: "panproto-reference/conditional-default-with-residue",
+            version: 1,
+            canonical_payload: b"a:drop(hidden);if(g=0):default(f,0);baseline-pullback-replay"
+                .to_vec(),
+        }
+    }
+
+    fn survives(&self, _: &RefGraph, _: &RefNode) -> Result<bool, RefPredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &RefGraph,
+        node: &RefNode,
+    ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+        let mut fields = node.fields.clone();
+        if node.anchor == "a" {
+            fields.remove("hidden");
+            if Self::inserts_default(&fields) {
+                fields.insert(C11_FIELD.to_owned(), RefValue::Int(0));
+            }
+        }
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &RefNode,
+        original_fields: Option<&BTreeMap<String, RefValue>>,
+        _: Option<&Option<RefPresence>>,
+    ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+        if view.anchor != "a" {
+            return Ok((view.fields.clone(), view.value.clone()));
+        }
+        if view.fields.contains_key("hidden") {
+            return Err(PutFieldRefusal::TransformNotInvertible {
+                field: "hidden".to_owned(),
+            });
+        }
+        let baseline = original_fields.unwrap_or(&view.fields);
+        let baseline_writes_f = Self::inserts_default(baseline);
+        let mut restored = view.fields.clone();
+        if let Some(hidden) = baseline.get("hidden") {
+            restored.insert("hidden".to_owned(), hidden.clone());
+        }
+        if baseline_writes_f {
+            restored.remove(C11_FIELD);
+        }
+        let replay_writes_f = Self::inserts_default(&restored);
+        let replay_f = if replay_writes_f {
+            Some(&C11_VALUE)
+        } else {
+            restored.get(C11_FIELD)
+        };
+        if (baseline_writes_f || replay_writes_f) && replay_f != view.fields.get(C11_FIELD) {
+            return Err(PutFieldRefusal::DerivedCellEdited {
+                field: C11_FIELD.to_owned(),
+            });
+        }
+        Ok((restored, view.value.clone()))
+    }
+}
+
+#[test]
+fn declared_transform_attribute_edges_agree_with_the_reference() {
+    for (target, name) in [("value", Some(C11_FIELD)), (C11_FIELD, None)] {
+        let schema = RefSchema::default()
+            .vertex("a", "obj")
+            .vertex(target, "int")
+            .edge("a", target, "attribute", name);
+        let stage = C11Stage {
+            name: "DeclaredAttribute".to_owned(),
+            source: schema.clone(),
+            target: schema.clone(),
+            migration: RefMigration {
+                surviving_verts: schema.vertices.keys().cloned().collect(),
+                surviving_edges: schema.edges.clone(),
+                transformed: ["a".to_owned()].into(),
+                output_fields: [("a".to_owned(), vec![C11_FIELD.to_owned()])].into(),
+                ..RefMigration::default()
+            },
+            layer: C11Layer::AddField,
+        };
+        let pair = Pair::from_stage(&stage);
+        let reference_plan =
+            panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration)
+                .expect("any-kind leaf attributes and unnamed fallback attributes declare outputs");
+        assert_eq!(pair.plan, Ok(reference_plan));
+        let source = RefGraph {
+            nodes: [(0, RefNode::new(0, "a"))].into(),
+            edges: BTreeMap::new(),
+        };
+        let expected = reference_get(&pair, &source).expect("declared output compiles");
+        assert_eq!(production_get(&pair, &source), Ok(expected.clone()));
+        assert_eq!(
+            production_put(&pair, &source, &expected.0),
+            reference_put(&pair, &source, &expected.0),
+            "edge name {name:?}"
+        );
+    }
+}
+
+#[test]
+fn declared_transform_table_functor_refusal_precedes_output_refusal() {
+    let stage = C11Stage {
+        name: "DeclaredOutputCompetingRefusals".to_owned(),
+        source: RefSchema::default().vertex("a", "obj"),
+        target: RefSchema::default().vertex("value", "int"),
+        migration: RefMigration {
+            surviving_verts: ["value".to_owned()].into(),
+            vertex_remap: [("a".to_owned(), "value".to_owned())].into(),
+            transformed: ["a".to_owned()].into(),
+            output_fields: [("a".to_owned(), vec![C11_FIELD.to_owned()])].into(),
+            ..RefMigration::default()
+        },
+        layer: C11Layer::AddField,
+    };
+    let pair = TablePair::from_stage(&stage);
+    assert_eq!(
+        panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration),
+        Err(PlanError::UndeclaredTransformField {
+            source_vertex: "a".to_owned(),
+            target_vertex: "value".to_owned(),
+            field: C11_FIELD.to_owned(),
+        })
+    );
+    let expected = TablePlanError::Functor(Box::new(
+        panproto_reference::rel::FunctorError::VertexImageNotATable {
+            vertex: "a".to_owned(),
+            image: "value".to_owned(),
+        },
+    ));
+    assert_eq!(
+        panproto_reference::table::compile_for_tables(
+            &pair.src,
+            &pair.tgt,
+            &pair.boundaries.0,
+            &pair.boundaries.1,
+            &pair.migration,
+        ),
+        Err(expected.clone())
+    );
+    assert_eq!(pair.plan, Err(expected));
+    let error = panproto_inst::RestrictPlan::compile_for_tables(
+        &pair.production.src_schema,
+        &pair.production.tgt_schema,
+        &pair.production.compiled,
+        pair.protocols(),
+    )
+    .expect_err("entity functor refusal precedes the undeclared output");
+    assert!(matches!(
+        error,
+        RestrictError::VertexImageNotATable { vertex, image }
+            if vertex == "a" && image == "value"
+    ));
+    let get_error = panproto_lens::table_lens::get(
+        &pair.production,
+        &prod_table(&RefTable::default()),
+        pair.protocols(),
+    )
+    .expect_err("table get preserves the entity functor refusal on an empty source");
+    assert!(matches!(
+        get_error,
+        LensError::Restrict(RestrictError::VertexImageNotATable { vertex, image })
+            if vertex == "a" && image == "value"
+    ));
+}
+
+#[test]
+fn declared_transform_paths_agree_with_the_reference() {
+    use panproto_reference::enumerate::lenses::{
+        declared_transform_count_certificate, declared_transform_graphs, declared_transform_stages,
+        declared_transform_tables, declared_transform_trees,
+    };
+    let stages = declared_transform_stages();
+    let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
+    let tables: Vec<_> = stages.iter().map(TablePair::from_stage).collect();
+    let graph_sources = declared_transform_graphs();
+    let tree_sources = declared_transform_trees();
+    let table_sources = declared_transform_tables();
+    let paths = words(stages.len());
+    let certificate = declared_transform_count_certificate();
+    assert_eq!(paths.len(), certificate.words);
+    let mut cases = [0_usize; 3];
+    for word in &paths {
+        let reference = reference_word(&stages, word).expect("declared stage boundaries agree");
+        let production = production_word(&stages, word).expect("declared stage boundaries agree");
+        for source in &graph_sources {
+            let expected = reference_path_outcome(&pairs, &reference, source, &graph_sources);
+            let actual = production_path_outcome(&production, source, &graph_sources);
+            assert!(
+                path_outcomes_agree(&actual, &expected),
+                "graph path {word:?}, source {source:?}: actual {actual:?}, expected {expected:?}"
+            );
+            cases[0] += 1;
+        }
+        for source in &tree_sources {
+            let expected = reference_tree_path_outcome(&pairs, word, source, &tree_sources);
+            let actual = production_tree_path_outcome(&production, source, &tree_sources);
+            assert!(
+                shape_path_outcomes_agree(&actual, &expected),
+                "tree path {word:?}, source {source:?}: actual {actual:?}, expected {expected:?}"
+            );
+            cases[1] += 1;
+        }
+        for source in &table_sources {
+            let expected = reference_table_path_outcome(&tables, word, source, &table_sources);
+            let actual = production_table_path_outcome(
+                &production,
+                &tables[0].protocol,
+                source,
+                &table_sources,
+            );
+            assert!(
+                shape_path_outcomes_agree(&actual, &expected),
+                "table path {word:?}, source {source:?}: actual {actual:?}, expected {expected:?}"
+            );
+            cases[2] += 1;
+        }
+    }
+    assert_eq!(cases, [2_015, 465, 2_015]);
+    assert_eq!(cases.iter().sum::<usize>(), certificate.path_cases);
+    println!(
+        "declared transform paths: words={}, graph={}, tree={}, table={}, total={}",
+        paths.len(),
+        cases[0],
+        cases[1],
+        cases[2],
+        cases.iter().sum::<usize>()
+    );
+}
+
+/// Successful atomic plans retain both guarded sequential pairs and the
+/// admitted identity/read control, compared with independent atomic folds.
+#[test]
+fn declared_transform_fusion_boundaries_preserve_atomic_behavior() {
+    use panproto_reference::enumerate::lenses::{
+        declared_transform_graphs, declared_transform_stages, declared_transform_trees,
+    };
+
+    let stages = declared_transform_stages();
+    let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
+    let graph_sources = declared_transform_graphs();
+    let tree_sources = declared_transform_trees();
+    let id = c11_stage_index(&stages, "DeclaredId");
+    let default = c11_stage_index(&stages, "DeclaredDefault");
+    let drop = c11_stage_index(&stages, "DeclaredDrop");
+    let read = c11_stage_index(&stages, "DeclaredRead");
+    let witnesses = [
+        ("dropped field before read", [drop, read], 2),
+        ("value layers on both stages", [default, default], 2),
+        ("structural identity before read", [id, read], 1),
+    ];
+    let mut cases = [0_usize; 2];
+    for (name, word, groups) in witnesses {
+        let first = &stages[word[0]];
+        let second = &stages[word[1]];
+        assert_eq!(
+            first.target, second.source,
+            "{name} has compatible boundaries"
+        );
+        for index in word {
+            let stage = &stages[index];
+            assert!(
+                panproto_reference::restrict::compile(
+                    &stage.source,
+                    &stage.target,
+                    &stage.migration,
+                )
+                .is_ok(),
+                "{name}: {} reference stage compiles",
+                stage.name
+            );
+            let lens = &pairs[index].production;
+            assert!(
+                panproto_inst::RestrictPlan::compile(
+                    &lens.src_schema,
+                    &lens.tgt_schema,
+                    &lens.compiled,
+                )
+                .is_ok(),
+                "{name}: {} production stage compiles",
+                stage.name
+            );
+        }
+        let production = production_word(&stages, &word).expect("declared boundaries agree");
+        let reference = reference_word(&stages, &word).expect("declared boundaries agree");
+        // These observations concern the public normal form. Drop also
+        // violates the first-stage Unit/value-layer premise, so its missing
+        // read does not isolate a private unbound-field composition guard.
+        assert_eq!(production.tree_normal_form().len(), groups, "{name}");
+        for source in &graph_sources {
+            let expected = reference_path_outcome(&pairs, &reference, source, &graph_sources);
+            let actual = production_path_outcome(&production, source, &graph_sources);
+            assert!(
+                path_outcomes_agree(&actual, &expected),
+                "{name} graph source {source:?}: actual {actual:?}, expected {expected:?}"
+            );
+            cases[0] += 1;
+        }
+        for source in &tree_sources {
+            let expected = reference_tree_path_outcome(&pairs, &word, source, &tree_sources);
+            let actual = production_tree_path_outcome(&production, source, &tree_sources);
+            assert!(
+                shape_path_outcomes_agree(&actual, &expected),
+                "{name} tree source {source:?}: actual {actual:?}, expected {expected:?}"
+            );
+            cases[1] += 1;
+        }
+    }
+    assert_eq!(cases, [39, 9]);
+    println!("declared transform fusion boundaries: graph=39, tree=9, total=48");
+}
+
+/// Decode possible writes from public syntax into the reference migration.
+/// Declaration checking belongs to the independent reference compiler.
+fn reference_output_fields(compiled: &CompiledMigration) -> BTreeMap<String, Vec<String>> {
+    fn fields(transform: &panproto_inst::FieldTransform, writes: &mut Vec<String>) {
+        use panproto_inst::FieldTransform as F;
+        match transform {
+            F::RenameField { new_key, .. } => writes.push(new_key.clone()),
+            F::AddField { key, .. } => writes.push(key.clone()),
+            F::ApplyExpr { key, .. } => {
+                if key != "__value__" {
+                    writes.push(key.clone());
+                }
+            }
+            F::ComputeField { target_key, .. } => writes.push(target_key.clone()),
+            F::MapReferences { field, .. } => writes.push(field.clone()),
+            F::PathTransform { path, inner } => match path.first() {
+                Some(field) => writes.push(field.clone()),
+                None => fields(inner, writes),
+            },
+            F::Case { branches } => {
+                for branch in branches {
+                    for transform in &branch.transforms {
+                        fields(transform, writes);
+                    }
+                }
+            }
+            F::DropField { .. } | F::KeepFields { .. } => {}
+        }
+    }
+    fn terms(assignment: &panproto_inst::TermAssignment, writes: &mut Vec<String>) {
+        use panproto_inst::{TermAssignment as T, TermScope};
+        match assignment {
+            T::Compute { target, scope, .. } => {
+                if !matches!(scope, TermScope::Field) || target != "__value__" {
+                    writes.push(target.clone());
+                }
+            }
+            T::Rename { new, .. } => writes.push(new.clone()),
+            T::Default { key, .. } => writes.push(key.clone()),
+            T::MapReferences { field, .. } => writes.push(field.clone()),
+            T::AtPath { path, inner } => match path.first() {
+                Some(field) => writes.push(field.clone()),
+                None => terms(inner, writes),
+            },
+            T::Case { branches } => {
+                for branch in branches {
+                    for assignment in &branch.assignments {
+                        terms(assignment, writes);
+                    }
+                }
+            }
+            T::Drop { .. } | T::Keep { .. } => {}
+        }
+    }
+    let mut out = BTreeMap::<String, Vec<String>>::new();
+    for (anchor, transforms) in &compiled.field_transforms {
+        for transform in transforms {
+            fields(transform, out.entry(anchor.to_string()).or_default());
+        }
+    }
+    for (anchor, assignments) in &compiled.op_term_assignments {
+        for assignment in assignments {
+            terms(assignment, out.entry(anchor.to_string()).or_default());
+        }
+    }
+    out.retain(|_, writes| !writes.is_empty());
+    out
 }
 
 fn assert_protolens_schema_agrees(
@@ -10778,6 +12011,7 @@ struct SemanticMigration {
     hyper_resolver: SemanticHyperResolver,
     conditional: std::collections::BTreeSet<String>,
     transformed: std::collections::BTreeSet<String>,
+    output_fields: BTreeMap<String, Vec<String>>,
 }
 
 fn semantic_migration(
@@ -10805,6 +12039,7 @@ fn semantic_migration(
         hyper_resolver: migration.hyper_resolver.clone(),
         conditional: migration.conditional.clone(),
         transformed: migration.transformed.clone(),
+        output_fields: migration.output_fields.clone(),
     }
 }
 

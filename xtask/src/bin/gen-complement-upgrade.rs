@@ -41,14 +41,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use panproto_gat::{CompositionSpec, Name};
+use panproto_gat::Name;
 use panproto_inst::identity::{LegacyWidth, legacy_schema_fingerprint};
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{Complement, Fan, Node, WInstance};
 use panproto_lens::Lens;
 use panproto_mig::Migration;
-use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder};
-use serde::{Deserialize, Serialize};
+use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize, Serializer};
 
 /// The fixture directory, relative to the repo root.
 const FIXTURE_DIR: &str = "tests/fixtures/complement_upgrade";
@@ -114,54 +115,38 @@ struct LegacyComplement {
     contracted_into: HashMap<u32, u32>,
 }
 
-/// The protocol wire shape present when the upgrade fixtures were captured.
+/// A borrowed [`Protocol`] serialized in the wire shape present when the
+/// upgrade fixtures were captured.
 ///
 /// The current [`Protocol`] has additional defaulted shape, value-kind, and
 /// constraint-semantics fields. Old readers never saw those fields, so the
 /// historical input files omit them even though current code uses the full
 /// protocol while reconstructing the fixture.
-#[derive(Clone, Debug, Serialize)]
-struct LegacyProtocol {
-    name: String,
-    schema_theory: String,
-    instance_theory: String,
-    schema_composition: Option<CompositionSpec>,
-    instance_composition: Option<CompositionSpec>,
-    edge_rules: Vec<EdgeRule>,
-    obj_kinds: Vec<String>,
-    constraint_sorts: Vec<String>,
-    has_order: bool,
-    has_coproducts: bool,
-    has_recursion: bool,
-    has_causal: bool,
-    nominal_identity: bool,
-    has_defaults: bool,
-    has_coercions: bool,
-    has_mergers: bool,
-    has_policies: bool,
-}
+#[derive(Clone, Copy, Debug)]
+struct LegacyProtocol<'a>(&'a Protocol);
 
-impl From<&Protocol> for LegacyProtocol {
-    fn from(protocol: &Protocol) -> Self {
-        Self {
-            name: protocol.name.clone(),
-            schema_theory: protocol.schema_theory.clone(),
-            instance_theory: protocol.instance_theory.clone(),
-            schema_composition: protocol.schema_composition.clone(),
-            instance_composition: protocol.instance_composition.clone(),
-            edge_rules: protocol.edge_rules.clone(),
-            obj_kinds: protocol.obj_kinds.clone(),
-            constraint_sorts: protocol.constraint_sorts.clone(),
-            has_order: protocol.has_order,
-            has_coproducts: protocol.has_coproducts,
-            has_recursion: protocol.has_recursion,
-            has_causal: protocol.has_causal,
-            nominal_identity: protocol.nominal_identity,
-            has_defaults: protocol.has_defaults,
-            has_coercions: protocol.has_coercions,
-            has_mergers: protocol.has_mergers,
-            has_policies: protocol.has_policies,
-        }
+impl Serialize for LegacyProtocol<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let protocol = self.0;
+        let mut state = serializer.serialize_struct("LegacyProtocol", 17)?;
+        state.serialize_field("name", &protocol.name)?;
+        state.serialize_field("schema_theory", &protocol.schema_theory)?;
+        state.serialize_field("instance_theory", &protocol.instance_theory)?;
+        state.serialize_field("schema_composition", &protocol.schema_composition)?;
+        state.serialize_field("instance_composition", &protocol.instance_composition)?;
+        state.serialize_field("edge_rules", &protocol.edge_rules)?;
+        state.serialize_field("obj_kinds", &protocol.obj_kinds)?;
+        state.serialize_field("constraint_sorts", &protocol.constraint_sorts)?;
+        state.serialize_field("has_order", &protocol.has_order)?;
+        state.serialize_field("has_coproducts", &protocol.has_coproducts)?;
+        state.serialize_field("has_recursion", &protocol.has_recursion)?;
+        state.serialize_field("has_causal", &protocol.has_causal)?;
+        state.serialize_field("nominal_identity", &protocol.nominal_identity)?;
+        state.serialize_field("has_defaults", &protocol.has_defaults)?;
+        state.serialize_field("has_coercions", &protocol.has_coercions)?;
+        state.serialize_field("has_mergers", &protocol.has_mergers)?;
+        state.serialize_field("has_policies", &protocol.has_policies)?;
+        state.end()
     }
 }
 
@@ -520,7 +505,7 @@ fn pretty_json<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
 /// Every file of one case, keyed by file name.
 fn case_files(dir: &Path, case: &Case) -> Result<Vec<(String, Vec<u8>)>, String> {
     let current_protocol = protocol();
-    let legacy_protocol = LegacyProtocol::from(&current_protocol);
+    let legacy_protocol = LegacyProtocol(&current_protocol);
     // Inputs, as JSON for reading and as named msgpack for the WASM driver.
     // An instance serializes its maps in key order already, and its integer
     // node keys must stay integers for the WASM reader, so it is encoded
@@ -640,6 +625,25 @@ fn run(check: bool) -> Result<(), String> {
     }
 }
 
+fn main() -> ExitCode {
+    let mode = std::env::args().nth(1).unwrap_or_default();
+    let check = match mode.as_str() {
+        "write" => false,
+        "check" => true,
+        _ => {
+            eprintln!("usage: gen-complement-upgrade (write|check)");
+            return ExitCode::from(2);
+        }
+    };
+    match run(check) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -675,24 +679,5 @@ mod tests {
             HashMap::from([((0, 1), prop("post", "post.text", "text"))])
         );
         Ok(())
-    }
-}
-
-fn main() -> ExitCode {
-    let mode = std::env::args().nth(1).unwrap_or_default();
-    let check = match mode.as_str() {
-        "write" => false,
-        "check" => true,
-        _ => {
-            eprintln!("usage: gen-complement-upgrade (write|check)");
-            return ExitCode::from(2);
-        }
-    };
-    match run(check) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("{e}");
-            ExitCode::FAILURE
-        }
     }
 }

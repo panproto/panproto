@@ -225,6 +225,22 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "child"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "record"
           }
         },
@@ -498,6 +514,22 @@
                 "instances": 1,
                 "passed": 0,
                 "failed": 1,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "attribute",
+                "decl": {
+                  "vertex": "child"
+                }
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 1,
+                "passed": 1,
+                "failed": 0,
                 "incomplete": 0
               }
             ],

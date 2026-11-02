@@ -4334,7 +4334,7 @@ mod tests {
             push_sort_expr_eqs_into(&SortExpr::from("A"), &SortExpr::from("B"), &op, &mut eqs),
             Err(GatError::ArgTypeMismatch { .. })
         ));
-        assert!(eqs.is_empty());
+        assert_eq!(eqs, []);
         let fc = SortExpr::app("Fib", vec![Term::constant("c")]);
         assert!(push_sort_expr_eqs_into(&fx, &fc, &op, &mut eqs).is_ok());
         assert_eq!(eqs, [(Term::var("x"), Term::constant("c"))]);

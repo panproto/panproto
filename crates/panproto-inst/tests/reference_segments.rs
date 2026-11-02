@@ -1424,7 +1424,7 @@ fn bounded_task_input_digest_and_journal_reuse_match_the_reference() {
             "reference task-input digest must preserve duplicate multiplicity"
         );
     }
-    assert!(observation_groups.remainder().is_empty());
+    assert_eq!(observation_groups.remainder(), []);
 
     assert_journal_reuse_matches_the_reference(&task_carrier);
 }

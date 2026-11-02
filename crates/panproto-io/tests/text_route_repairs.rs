@@ -313,7 +313,7 @@ fn bigint_text_routes_observe_the_output_allowance() {
             if matches!(errors.as_slice(), [error]
                 if error.reason == panproto_inst::FidelityReason::NotANumber)
     ));
-    let mut huge_xml = xml.clone();
+    let mut huge_xml = xml;
     huge_xml
         .nodes
         .values_mut()

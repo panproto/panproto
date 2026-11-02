@@ -77,10 +77,7 @@ mod tests {
         let schema = three_node_schema();
         let symmetric = from_span(identity_lens(&schema), identity_lens(&schema)).unwrap();
         let middle = GInstance::default();
-        assert_eq!(
-            verify_complement_coherence(&symmetric, &middle),
-            [] as [crate::symmetric::CoherenceViolation; 0]
-        );
+        assert_eq!(verify_complement_coherence(&symmetric, &middle), []);
         check_symmetric_laws(&symmetric, &middle).unwrap();
     }
 

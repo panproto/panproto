@@ -321,7 +321,15 @@ impl Protolens {
         self.check_applicability(schema)
             .map_err(|reasons| LensError::ProtolensInapplicable { reasons })?;
         let lens = self.instantiate(schema, protocol)?;
-        RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
+        RestrictPlan::compile_with_protocols(
+            &lens.src_schema,
+            &lens.tgt_schema,
+            &lens.compiled,
+            panproto_inst::BoundaryProtocols {
+                src: protocol,
+                tgt: protocol,
+            },
+        )?;
         Ok(lens)
     }
 
@@ -4434,7 +4442,7 @@ mod tests {
         let result = p.check_applicability(&schema);
         assert!(result.is_err());
         let reasons = result.unwrap_err();
-        assert_ne!(reasons, [] as [String; 0]);
+        assert_ne!(reasons, Vec::<String>::new());
         assert!(reasons[0].contains("missing"));
     }
 

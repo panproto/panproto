@@ -123,8 +123,8 @@ pub const TREE_COMPLEMENT_FORMAT_VERSION: u16 = 1;
 pub const GRAPH_COMPLEMENT_FORMAT_VERSION: u16 = 1;
 
 /// The version of the table ([`ComplementShape::Functor`]) complement
-/// format.
-pub const FUNCTOR_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+/// format. Version 2 records source-cell absence when get creates a cell.
+pub const FUNCTOR_COMPLEMENT_FORMAT_VERSION: u16 = 2;
 
 /// The version of the resolution ([`ComplementShape::Resolution`])
 /// complement format.
@@ -2412,6 +2412,83 @@ pub fn decode_complement(
         decode_shape,
         std::slice::from_ref,
     )
+}
+
+/// Decode a version-1 table complement for inspection or migration.
+///
+/// The original envelope is retained. This does not upgrade the complement
+/// or authorize reuse with the current table engine: version-1 finite-row
+/// evaluation could depend on placeholder values that the stored residue
+/// cannot recover. Recompute a current complement from its original source
+/// before using it for put. An unstamped old payload remains unstamped.
+///
+/// # Errors
+///
+/// [`IdentityError::Mismatch`] for an envelope other than `functor/1`,
+/// [`IdentityError::UnsupportedEnvelopeVersion`] for an unreadable envelope,
+/// or [`IdentityError::Undecodable`] for malformed or trailing bytes or a
+/// payload containing the version-2 absence residue.
+pub fn decode_legacy_table_complement(
+    bytes: &[u8],
+    encoding: Encoding,
+) -> Result<TableComplement, IdentityError> {
+    let complement = decode_with_envelope_error(bytes, encoding)?;
+    check_legacy_table_complement(&complement)?;
+    Ok(complement)
+}
+
+/// Decode a sequence of version-1 table complements without upgrading them.
+///
+/// Each envelope and absence set receives the same checks as
+/// [`decode_legacy_table_complement`]. The sequence must consume all bytes.
+///
+/// # Errors
+///
+/// As [`decode_legacy_table_complement`], for the first invalid element.
+pub fn decode_legacy_table_complements(
+    bytes: &[u8],
+    encoding: Encoding,
+) -> Result<Vec<TableComplement>, IdentityError> {
+    let complements: Vec<TableComplement> = decode_with_envelope_error(bytes, encoding)?;
+    for complement in &complements {
+        check_legacy_table_complement(complement)?;
+    }
+    Ok(complements)
+}
+
+fn decode_with_envelope_error<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    encoding: Encoding,
+) -> Result<T, IdentityError> {
+    REFUSED_ENVELOPE_VERSION.with(|slot| slot.set(None));
+    let decoded = decode_as::<T>(bytes, encoding);
+    let refused = REFUSED_ENVELOPE_VERSION.with(Cell::take);
+    if let Some(found) = refused {
+        return Err(IdentityError::UnsupportedEnvelopeVersion { found });
+    }
+    decoded.map_err(IdentityError::Undecodable)
+}
+
+fn check_legacy_table_complement(complement: &TableComplement) -> Result<(), IdentityError> {
+    let legacy_format = ComplementFormat {
+        shape: ComplementShape::Functor,
+        version: 1,
+    };
+    if let Some(envelope) = &complement.identity
+        && envelope.complement_format != legacy_format
+    {
+        return Err(IdentityError::Mismatch {
+            field: IdentityField::Format,
+            expected: legacy_format.to_string(),
+            found: envelope.complement_format.to_string(),
+        });
+    }
+    if !complement.original_absent_cells.is_empty() {
+        return Err(IdentityError::Undecodable(
+            "version-1 table complements cannot contain source-absence residue".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// Decode a sequence of complements read from outside the process, as

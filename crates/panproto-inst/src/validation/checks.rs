@@ -2985,6 +2985,6 @@ mod tests {
         );
         // A well-formed fan has no reason.
         let ok = Fan::new("h", 0).with_child("x", 1);
-        assert!(tree_fan_reasons(&tree, &schema, &FanRecord::of(&ok)).is_empty());
+        assert_eq!(tree_fan_reasons(&tree, &schema, &FanRecord::of(&ok)), []);
     }
 }

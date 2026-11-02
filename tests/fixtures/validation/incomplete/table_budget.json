@@ -125,6 +125,26 @@
             }
           }
         }
+      },
+      {
+        "check": {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "item"
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "row": 0
+            }
+          }
+        }
       }
     ],
     "coverage": [
@@ -210,6 +230,22 @@
           "passed": 0,
           "failed": 0,
           "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "item"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 6,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 6
         }
       ]
     ]

@@ -375,6 +375,17 @@ pub enum BreakingChange {
         new_id: String,
     },
 
+    /// A residual, non-empty diff sub-case with no dedicated variant.
+    ///
+    /// This is the conservative fail-closed bucket: any change routed
+    /// here forces `compatible == false` rather than being dropped.
+    UnclassifiedChange {
+        /// A short label for the sub-case.
+        category: String,
+        /// The number of changes rolled into this bucket.
+        count: usize,
+    },
+
     /// A key was declared on a vertex the old schema already had, so values
     /// it accepted may now collide.
     KeyAdded {
@@ -418,17 +429,6 @@ pub enum BreakingChange {
     TargetSetTightened {
         /// The target-set ID.
         set_id: String,
-    },
-
-    /// A residual, non-empty diff sub-case with no dedicated variant.
-    ///
-    /// This is the conservative fail-closed bucket: any change routed
-    /// here forces `compatible == false` rather than being dropped.
-    UnclassifiedChange {
-        /// A short label for the sub-case.
-        category: String,
-        /// The number of changes rolled into this bucket.
-        count: usize,
     },
 }
 
@@ -1358,7 +1358,7 @@ mod tests {
         let report = classify(&diff, &test_protocol());
         assert!(report.compatible, "adding a vertex should be non-breaking");
         assert_eq!(report.non_breaking.len(), 2); // vertex + edge
-        assert!(report.breaking.is_empty());
+        assert_eq!(report.breaking, []);
         assert_eq!(report.classification, Classification::BackwardCompatible);
     }
 
@@ -1366,8 +1366,8 @@ mod tests {
     fn classify_empty_diff_is_fully_compatible() {
         let report = classify(&SchemaDiff::default(), &test_protocol());
         assert!(report.compatible);
-        assert!(report.breaking.is_empty());
-        assert!(report.non_breaking.is_empty());
+        assert_eq!(report.breaking, []);
+        assert_eq!(report.non_breaking, []);
         assert_eq!(report.classification, Classification::FullyCompatible);
     }
 

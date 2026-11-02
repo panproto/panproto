@@ -19,8 +19,8 @@ use panproto_inst::{
 };
 use panproto_schema::{
     Cardinality, Constraint, ConstraintSemantics, Edge, HyperEdge, InstanceShapeKind, Key, KeyPart,
-    KeyRole, KeyScope, LengthUnit, OnUnresolved, Protocol, RefSource, Reference, ResolveMode,
-    Schema, Vertex,
+    KeyRole, KeyScope, LengthUnit, NullMatch, OnUnresolved, Protocol, RefSource, Reference,
+    ResolveMode, Schema, Vertex,
 };
 use serde::Serialize;
 
@@ -1882,7 +1882,7 @@ fn reference(
         on_unresolved,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     }

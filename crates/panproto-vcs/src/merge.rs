@@ -4089,7 +4089,7 @@ mod tests {
         let theirs = schema_with_entries(&["A"]);
         let verts = HashMap::new();
         let merged = three_way_merge_entries(&base, &ours, &theirs, &verts);
-        assert!(merged.is_empty());
+        assert_eq!(merged, Vec::<Name>::new());
     }
 
     #[test]

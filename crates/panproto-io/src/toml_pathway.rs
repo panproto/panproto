@@ -1343,14 +1343,14 @@ mod tests {
             ),
             "canonical TOML writes the negative NaN",
         );
-        let text = String::from_utf8(emitted).expect("TOML is UTF-8");
+        let text = success(String::from_utf8(emitted), "TOML is UTF-8");
         assert!(text.contains("= -nan\n"), "{text:?}");
     }
 
     #[test]
     fn canonical_toml_refuses_special_decimals_as_non_finite() {
         for lexeme in ["Infinity", "-Infinity", "NaN", "-NaN", "sNaN"] {
-            let decimal = panproto_inst::value::DecimalValue::parse(lexeme).expect("special");
+            let decimal = success(panproto_inst::value::DecimalValue::parse(lexeme), "special");
             let error = failure(
                 emit_toml_bytes(
                     &schema(),

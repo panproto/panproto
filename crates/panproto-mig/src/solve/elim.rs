@@ -1623,7 +1623,7 @@ mod tests {
         // value; what makes the network infeasible is the constant the first
         // bucket contributed, which decode never revisits.
         assert_eq!(trace.dead_ends, 1);
-        assert!(all_optima(&cfn, &buckets, 16).is_empty());
+        assert_eq!(all_optima(&cfn, &buckets, 16), []);
     }
 
     // -- The width ---------------------------------------------------------
@@ -1742,7 +1742,7 @@ mod tests {
         assert_eq!(capped.len(), 2);
         assert_eq!(capped, all[..2].to_vec());
         assert!(trace.truncated);
-        assert!(all_optima(&cfn, &buckets, 0).is_empty());
+        assert_eq!(all_optima(&cfn, &buckets, 0), []);
     }
 
     // -- Counting ----------------------------------------------------------
@@ -1925,7 +1925,7 @@ mod tests {
 
             assert_eq!(buckets.optimum(), optimum);
             if optimum == Cost::TOP_SENTINEL {
-                assert!(argmins.is_empty());
+                assert_eq!(argmins, []);
                 continue;
             }
             let best = decode(&cfn, &buckets, &order);

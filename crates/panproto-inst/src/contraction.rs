@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(record.original_parent, 1);
 
         assert!(!tracker.is_contracted(5));
-        assert!(tracker.contracted_into(1).is_empty());
+        assert_eq!(tracker.contracted_into(1), Vec::<u32>::new());
     }
 
     #[test]

@@ -681,7 +681,7 @@ fn every_graph_case_and_only_a_graph_case_has_a_node_link_form() {
         .keys()
         .filter_map(|file| file.strip_suffix(".nodelink.json").map(str::to_owned))
         .collect();
-    assert!(!fixture_names.is_empty());
+    assert_ne!(fixture_names, Vec::<String>::new());
     assert_eq!(
         node_link, graph_cases,
         "the node-link forms differ from the graph cases; regenerate with `{REGENERATE}`"

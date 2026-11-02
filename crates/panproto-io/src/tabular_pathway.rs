@@ -1498,7 +1498,7 @@ mod tests {
     fn delimited_cells_use_the_json_numeral_dialect() {
         let double = double_table_schema("double");
         let decimal = double_table_schema("decimal");
-        for delimiter in [b',', b'\t'] {
+        for delimiter in *b",\t" {
             for value in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, -f64::NAN] {
                 let error = emit_tsv_with_schema(
                     &double,

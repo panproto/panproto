@@ -661,7 +661,7 @@ mod tests {
     fn fiber_at_anchor_nonexistent() {
         let (inst, compiled) = make_test_instance();
         let fiber = fiber_at_anchor(&compiled, &inst, &Name::from("nonexistent"));
-        assert!(fiber.is_empty());
+        assert_eq!(fiber, Vec::<u32>::new());
     }
 
     #[test]

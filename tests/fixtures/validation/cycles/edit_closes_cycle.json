@@ -313,6 +313,22 @@
       ],
       [
         {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "item"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
           "kind": "acyclic",
           "decl": {
             "constraint": {
@@ -484,6 +500,22 @@
               "requirement": "required",
               "instances": 0,
               "passed": 0,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "item"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 3,
+              "passed": 3,
               "failed": 0,
               "incomplete": 0
             }
@@ -693,6 +725,22 @@
                 "requirement": "required",
                 "instances": 0,
                 "passed": 0,
+                "failed": 0,
+                "incomplete": 0
+              }
+            ],
+            [
+              {
+                "kind": "attribute",
+                "decl": {
+                  "vertex": "item"
+                }
+              },
+              {
+                "class": "graph_local",
+                "requirement": "required",
+                "instances": 3,
+                "passed": 3,
                 "failed": 0,
                 "incomplete": 0
               }

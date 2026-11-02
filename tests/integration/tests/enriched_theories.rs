@@ -783,7 +783,7 @@ fn coverage_all_pass() {
 
     // All vertices survive, coverage ratio is 1.0.
     assert!(report.compatible, "identical schemas should be compatible");
-    assert!(report.breaking.is_empty());
+    assert_eq!(report.breaking, []);
 
     // Calculate coverage: all source vertices map to target vertices.
     let total = schema1.vertex_count();

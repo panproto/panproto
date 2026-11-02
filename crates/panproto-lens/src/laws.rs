@@ -5566,6 +5566,40 @@ mod tests {
         Vertex,
     };
 
+    fn declare_string_attribute(schema: &mut Schema, anchor: &str, field: &str) {
+        let target = panproto_gat::Name::from(format!("{anchor}.{field}"));
+        schema.vertices.insert(
+            target.clone(),
+            Vertex {
+                id: target.clone(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        let edge = Edge {
+            src: anchor.into(),
+            tgt: target,
+            kind: "prop".into(),
+            name: Some(field.into()),
+        };
+        schema.edges.insert(edge.clone(), edge.kind.clone());
+        schema
+            .outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        schema
+            .incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        schema
+            .between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge);
+    }
+
     #[derive(Clone, Copy)]
     enum MockMode {
         Partial,
@@ -10721,7 +10755,9 @@ mod tests {
         }
 
         fn lens_with(transforms: Vec<FieldTransform>) -> Lens {
-            let mut lens = identity_lens(&three_node_schema());
+            let mut schema = three_node_schema();
+            declare_string_attribute(&mut schema, "post:body", "shout");
+            let mut lens = identity_lens(&schema);
             lens.compiled
                 .field_transforms
                 .insert("post:body".into(), transforms);
@@ -10811,7 +10847,8 @@ mod tests {
             let lens = apply_over_a_child_scalar();
             let result = check_put_get(&lens, &three_node_instance());
             assert!(result.is_ok(), "PutGet must hold: {result:?}");
-            assert!(check_laws(&lens, &three_node_instance()).is_ok());
+            let laws = check_laws(&lens, &three_node_instance());
+            assert!(laws.is_ok(), "the strict tree laws must hold: {laws:?}");
         }
     }
 
@@ -11188,7 +11225,8 @@ mod tests {
                             .iter()
                             .map(|(a, b)| (a.as_str(), b.as_str()))
                             .collect();
-                        let schema = make_schema(&vert_refs, &edges);
+                        let mut schema = make_schema(&vert_refs, &edges);
+                        declare_string_attribute(&mut schema, root_name, "derived_from_child0");
 
                         let mut nodes = HashMap::new();
                         nodes.insert(0, Node::new(0, root_name));
@@ -11524,7 +11562,9 @@ mod tests {
                 .iter()
                 .map(|(a, b)| (a.as_str(), b.as_str()))
                 .collect();
-            let schema = make_schema(&vert_refs, &edges);
+            let mut schema = make_schema(&vert_refs, &edges);
+            declare_string_attribute(&mut schema, root_name, "field_a_renamed");
+            declare_string_attribute(&mut schema, root_name, "field_c");
 
             let mut root = Node::new(0, root_name);
             root.extra_fields
@@ -11627,7 +11667,8 @@ mod tests {
                 .iter()
                 .map(|(a, b)| (a.as_str(), b.as_str()))
                 .collect();
-            let schema = make_schema(&vert_refs, &edges);
+            let mut schema = make_schema(&vert_refs, &edges);
+            declare_string_attribute(&mut schema, root_name, "label");
 
             let mut root = Node::new(0, root_name);
             root.extra_fields

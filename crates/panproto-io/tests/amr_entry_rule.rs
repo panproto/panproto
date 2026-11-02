@@ -79,7 +79,7 @@ fn the_registered_amr_codec_refuses_a_schema_without_its_table() -> TestResult {
         "{refused:?}"
     );
     let table = registry.parse_functor("amr", &schema(true)?, INPUT)?;
-    assert!(!table.rows("amr_graph").is_empty());
+    assert_ne!(table.rows("amr_graph"), []);
     let refused = registry.emit_functor("amr", &missing, &table).err();
     assert!(
         matches!(

@@ -2833,7 +2833,7 @@ mod tests {
         let root_bound = search.bound(&root).bound;
 
         let (best, argmins) = iso_optimum(&cfn, &src, &tgt);
-        assert!(!argmins.is_empty());
+        assert_ne!(argmins, []);
         let optimal_reward = instance.baseline.raw() - best.raw();
         assert!(
             root_bound >= optimal_reward,
@@ -2922,7 +2922,7 @@ mod tests {
         let tgt = schema(&[("x", "string")], &[]);
         let cfn = network(&src, &tgt);
         let outcome = solve_iso(&cfn, &src, &tgt, &SearchBudget::default()).unwrap();
-        assert!(mapping(&cfn, &outcome).is_empty());
+        assert_eq!(mapping(&cfn, &outcome), []);
         assert_eq!(outcome.best.as_ref().unwrap().dropped(), 1);
         assert!(outcome.proven_optimal);
     }

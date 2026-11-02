@@ -1176,7 +1176,7 @@ mod tests {
         let _normalized = normalize_schema(s1).unwrap();
         let proto_h = test_support::protocol_handle();
         let report = validate_schema(s1, proto_h).unwrap();
-        assert!(!report.is_empty());
+        assert_ne!(report, Vec::<u8>::new());
     }
 
     /// The payloads built from two freshly parsed lexicons, so from schemas

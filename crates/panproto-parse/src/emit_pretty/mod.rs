@@ -340,7 +340,7 @@ mod tests {
             }
         }"#;
         let g2 = Grammar::from_bytes("t2", bytes2).expect("valid grammar");
-        assert!(g2.trailing_break_markers.is_empty());
+        assert_eq!(g2.trailing_break_markers, Vec::<String>::new());
         assert!(!g2.trailing_break_on_whitespace);
     }
 

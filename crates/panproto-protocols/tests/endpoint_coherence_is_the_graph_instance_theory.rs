@@ -31,6 +31,7 @@ use panproto_inst::{GInstance, Node, ViewRef};
 use panproto_protocols::graph_instance_model;
 use panproto_protocols::theories::th_graph_instance;
 use panproto_schema::{Edge, Protocol, RecursionPoint, Schema, Variant, Vertex};
+use std::collections::BTreeMap;
 
 fn assert_reference_validation_on_the_endpoint_carrier() {
     use panproto_reference::lens::ViewRef as ReferenceViewRef;
@@ -79,14 +80,14 @@ fn assert_reference_validation_on_the_endpoint_carrier() {
                 ReferenceEdge {
                     src: 0,
                     tgt: 3,
-                    label: label.clone(),
+                    label,
                     position: None,
                 },
             ),
         ]
         .into(),
     };
-    let report = panproto_reference::validation::validate(&schema, &Default::default(), &graph);
+    let report = panproto_reference::validation::validate(&schema, &BTreeMap::default(), &graph);
     let diagnostic = |edge, node, source, expected: &str, found: &str| ReferenceDiagnostic {
         check: ReferenceCheckKey {
             kind: ReferenceCheckKind::EndpointCoherence,
@@ -109,7 +110,7 @@ fn assert_reference_validation_on_the_endpoint_carrier() {
             diagnostic(2, 3, false, "b", "a"),
         ]
     );
-    assert!(report.incomplete.is_empty());
+    assert_eq!(report.incomplete, []);
     assert_eq!(report.status, ReferenceStatus::Failed);
 }
 
@@ -269,7 +270,7 @@ fn reference_reported(schema: &Schema, graph: &GInstance) -> Vec<Finding> {
             .collect(),
     };
     let mut out: Vec<Finding> =
-        panproto_reference::validation::validate(&reference, &Default::default(), &model)
+        panproto_reference::validation::validate(&reference, &BTreeMap::default(), &model)
             .diagnostics
             .iter()
             .filter_map(|d| match (&d.subject, &d.violation) {

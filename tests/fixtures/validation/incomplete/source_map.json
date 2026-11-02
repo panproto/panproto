@@ -285,6 +285,22 @@
           "failed": 1,
           "incomplete": 0
         }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "name"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
       ]
     ]
   },

@@ -345,7 +345,7 @@ mod tests {
         };
         let diag = validate_migration(&schema, &schema, &migration);
         assert!(diag.is_clean());
-        assert!(diag.migration_warnings.is_empty());
+        assert_eq!(diag.migration_warnings, Vec::<String>::new());
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
             codomain: None,
         };
         let diag = validate_migration(&schema, &schema, &migration);
-        assert!(!diag.migration_warnings.is_empty());
+        assert_ne!(diag.migration_warnings, Vec::<String>::new());
     }
 
     #[test]

@@ -767,7 +767,7 @@ mod tests {
             .clone();
         let evaluation = evaluate_traced(&ctx, &key, Some(&ViewRef::Node(0)));
         assert_eq!(evaluation.reads, set(&[ViewRef::Node(0)]));
-        assert!(evaluation.outcome.findings.is_empty());
+        assert_eq!(evaluation.outcome.findings, []);
         Ok(())
     }
 

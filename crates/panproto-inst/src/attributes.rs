@@ -488,7 +488,7 @@ mod tests {
                 .with_extra_field("count", Value::Int(3)),
         );
         let inst = WInstance::new(nodes, vec![], vec![], 0, "post".into());
-        assert!(attrs.validate_wtype(&inst).is_empty());
+        assert_eq!(attrs.validate_wtype(&inst), []);
     }
 
     #[test]

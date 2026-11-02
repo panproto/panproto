@@ -269,7 +269,7 @@ fn complement_to_reference(
     complement: &Complement,
     source_embedding: &TreeEmbedding,
 ) -> ComplementObs {
-    assert_eq!(complement.dropped_fans, [] as [panproto_inst::Fan; 0]);
+    assert_eq!(complement.dropped_fans, []);
     assert!(complement.contraction_choices.is_empty());
     let nodes = complement
         .dropped_nodes

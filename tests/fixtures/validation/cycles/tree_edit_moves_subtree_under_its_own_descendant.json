@@ -329,6 +329,22 @@
       ],
       [
         {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "item"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
           "kind": "tree_root",
           "decl": "schema"
         },

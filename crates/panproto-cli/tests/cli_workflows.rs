@@ -439,7 +439,7 @@ fn cli_add_data_stages_one_index_entry_per_file() {
         .collect();
     keys.sort();
     assert_eq!(keys, vec!["records/one.json", "records/two.json"]);
-    assert!(staged_data_entries(tmp.path()).is_empty());
+    assert_eq!(staged_data_entries(tmp.path()), []);
 }
 
 #[test]

@@ -563,7 +563,7 @@ fn blog_schema_evolution() -> Result<(), Box<dyn std::error::Error>> {
     // Verify initial commit has no migration.
     let commit1 = load_commit(repo.store(), c1);
     assert!(commit1.migration_id.is_none());
-    assert!(commit1.parents.is_empty());
+    assert_eq!(commit1.parents, []);
 
     // v2: add Comment (v1's 6 + Comment, Comment.text = 8 vertices)
     let v2 = blog_v2();

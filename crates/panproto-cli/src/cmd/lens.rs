@@ -814,7 +814,7 @@ pub fn cmd_lens_verify(
 
         match lens::check_laws(&result.lens, &instance) {
             Ok(()) => {
-                println!("GetPut: OK\nPutGet: OK\nTotality: OK\nPutTwice: OK\nCongruence: OK")
+                println!("GetPut: OK\nPutGet: OK\nTotality: OK\nPutTwice: OK\nCongruence: OK");
             }
             Err(violation) => {
                 println!("Lens law violation: {violation:?}");

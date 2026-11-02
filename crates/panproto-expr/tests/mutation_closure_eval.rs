@@ -20,7 +20,7 @@ fn name(text: &str) -> Arc<str> {
     Arc::from(text)
 }
 
-fn int(n: i64) -> Expr {
+const fn int(n: i64) -> Expr {
     Expr::Lit(Literal::Int(n))
 }
 
@@ -47,7 +47,7 @@ fn payload() -> Expr {
     let_chain(5, int(1))
 }
 
-fn config(max_depth: u32, max_list_len: usize) -> EvalConfig {
+const fn config(max_depth: u32, max_list_len: usize) -> EvalConfig {
     EvalConfig {
         max_steps: 1_000_000,
         max_depth,

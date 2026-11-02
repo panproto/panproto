@@ -757,6 +757,22 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "child"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 4,
+          "passed": 4,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "item"
           }
         },
@@ -1281,6 +1297,22 @@
               "instances": 4,
               "passed": 2,
               "failed": 2,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "child"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 4,
+              "passed": 4,
+              "failed": 0,
               "incomplete": 0
             }
           ],

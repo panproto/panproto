@@ -320,7 +320,7 @@ mod tests {
             pp_io_parse_instance(reg, proto.as_ref(), schema_h, input.as_ref(), &mut parsed);
         assert_eq!(status, PpStatus::Ok as i32, "parse failed");
         let parsed_bytes = parsed.to_vec();
-        assert!(!parsed_bytes.is_empty());
+        assert_ne!(parsed_bytes, Vec::<u8>::new());
         pp_buf_free(parsed);
 
         // Emit the instance back to raw bytes.

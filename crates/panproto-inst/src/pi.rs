@@ -1234,7 +1234,7 @@ mod tests {
         };
 
         let out = wtype_pi(&inst, &schema, &migration, usize::MAX).unwrap();
-        assert!(out.arcs.is_empty());
+        assert_eq!(out.arcs, []);
     }
 
     #[test]

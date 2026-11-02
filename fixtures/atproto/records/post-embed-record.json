@@ -1,0 +1,15 @@
+{
+  "$type": "app.bsky.feed.post",
+  "createdAt": "2026-10-09T15:53:59.424Z",
+  "embed": {
+    "$type": "app.bsky.embed.record",
+    "record": {
+      "cid": "bafyreihfqrbkfwrqvhrxiubonvhss7fazauxbxg565q5slst6k5p6xlzhq",
+      "uri": "at://did:plc:hkxtqxfvk4xh2roqbkebmoiq/app.bsky.feed.post/3mxfldtvy522k"
+    }
+  },
+  "langs": [
+    "en"
+  ],
+  "text": "a masterclass in alt text"
+}

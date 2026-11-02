@@ -531,7 +531,7 @@ fn empty_key() -> Key {
 #[cfg(test)]
 mod tests {
     use panproto_schema::{
-        Cardinality, KeyPart, KeyRole, OnUnresolved, PathSyntax, SchemaDeclarations,
+        Cardinality, KeyPart, KeyRole, NullMatch, OnUnresolved, PathSyntax, SchemaDeclarations,
     };
 
     use super::*;
@@ -563,7 +563,7 @@ mod tests {
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
             guard: None,
-            null_match: Default::default(),
+            null_match: NullMatch::default(),
             null_vertex: None,
             scope_via: None,
         }
@@ -646,7 +646,7 @@ mod tests {
                 RefSource::Variable {
                     field,
                     binder_key: "binder".into(),
-                    binding: Default::default(),
+                    binding: VariableBinding::default(),
                 },
                 None,
             );
@@ -680,7 +680,7 @@ mod tests {
                 end: vec![path("end")],
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
-                end_form: Default::default(),
+                end_form: SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             },

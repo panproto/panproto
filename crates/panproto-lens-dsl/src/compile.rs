@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use panproto_gat::Name;
-use panproto_inst::FieldTransform;
+use panproto_inst::{BoundaryProtocols, FieldTransform, RestrictPlan};
 use panproto_lens::{
     AutoLensConfig, DiffSpec, KindChange, LensPath, ProtolensChain, Stringency, auto_generate,
     auto_generate_with_hints, combinators, diff_to_protolens,
@@ -94,8 +94,9 @@ impl CompiledLens {
     ///
     /// # Errors
     ///
-    /// Returns a lens error when a stage cannot be instantiated or adjacent
-    /// concrete lenses cannot be composed.
+    /// Returns a lens error when a stage cannot be instantiated, a value
+    /// transform writes an undeclared target attribute, or adjacent concrete
+    /// lenses cannot be composed.
     pub fn instantiate(
         &self,
         schema: &Schema,
@@ -115,6 +116,15 @@ impl CompiledLens {
                     .or_default()
                     .extend(transforms.iter().cloned());
             }
+            RestrictPlan::compile_with_protocols(
+                &stage_lens.src_schema,
+                &stage_lens.tgt_schema,
+                &stage_lens.compiled,
+                BoundaryProtocols {
+                    src: protocol,
+                    tgt: protocol,
+                },
+            )?;
             let stage_path = LensPath::single(stage_lens);
             composed = Some(match composed {
                 Some(accumulated) => accumulated.then(&stage_path)?,
@@ -207,8 +217,9 @@ pub fn compile(
 ///
 /// Returns any error [`compile`] can, plus
 /// [`LensDslError::Generation`] if auto/diff generation or chain
-/// instantiation fails, and [`LensDslError::TargetMismatch`] if the
-/// produced schema's NSID does not match the declared target.
+/// instantiation fails, [`LensDslError::PlanCompilation`] when a stage's
+/// migration has no executable plan, and [`LensDslError::TargetMismatch`]
+/// if the produced schema's NSID does not match the declared target.
 pub fn compile_with_schemas(
     doc: &LensDocument,
     body_vertex: &str,
@@ -492,25 +503,33 @@ fn first_lossy_element(compiled: &CompiledLens) -> Option<String> {
 ///
 /// Instantiates `compiled.chain` at `source_schema` and compares the
 /// NSID of the resulting schema's primary entry vertex against
-/// `compiled.target`. The check is skipped when the declared target is
-/// empty or the produced schema declares no entry NSID (unverifiable).
+/// `compiled.target`. Plan compilation is always checked. The NSID check
+/// is skipped when the declared target is empty or the produced schema
+/// declares no entry NSID (unverifiable).
 fn verify_target(
     compiled: &CompiledLens,
     source_schema: &Schema,
     protocol: &Protocol,
 ) -> Result<(), LensDslError> {
+    let lens = compiled
+        .instantiate(source_schema, protocol)
+        .map_err(|error| match error {
+            panproto_lens::LensError::Restrict(source) => LensDslError::PlanCompilation {
+                id: compiled.id.clone(),
+                source,
+            },
+            other => LensDslError::Generation {
+                id: compiled.id.clone(),
+                message: format!(
+                    "cannot instantiate chain at source schema to verify target: {other}"
+                ),
+            },
+        })?;
+
     let declared = compiled.target.trim();
     if declared.is_empty() {
         return Ok(());
     }
-
-    let lens =
-        compiled
-            .instantiate(source_schema, protocol)
-            .map_err(|e| LensDslError::Generation {
-                id: compiled.id.clone(),
-                message: format!("cannot instantiate chain at source schema to verify target: {e}"),
-            })?;
 
     // The produced schema's identity is the NSID of its primary entry.
     // When absent, we cannot verify and do not fail.
@@ -736,6 +755,57 @@ mod tests {
                 .is_some_and(|t| !t.is_empty()),
             "apply_expr should survive as a field transform"
         );
+    }
+
+    #[test]
+    fn instantiation_refuses_an_undeclared_computed_output() {
+        let document = doc(r#"{
+            "id": "computed", "source": "app.test.post", "target": "",
+            "steps": [{"compute_field": {"target": "derived", "expr": "text"}}]
+        }"#);
+        let compiled = compile(&document, "post", &null_resolver).unwrap();
+        let result = compiled.instantiate(&source_schema(), &test_protocol());
+        assert!(matches!(result,
+            Err(panproto_lens::LensError::Restrict(
+                panproto_inst::RestrictError::UndeclaredTransformField { source_vertex, target_vertex, field }
+            )) if source_vertex == "post" && target_vertex == "post" && field == "derived"
+        ));
+    }
+
+    #[test]
+    fn schema_aware_compilation_checks_outputs_even_without_a_target_nsid() {
+        let schema = source_schema();
+        let protocol = test_protocol();
+        let document = doc(r#"{
+            "id": "computed", "source": "app.test.post", "target": "",
+            "steps": [{"compute_field": {"target": "derived", "expr": "text"}}]
+        }"#);
+        assert!(matches!(
+            compile_with_schemas(&document, "post", &schema, &schema, &protocol, &null_resolver),
+            Err(LensDslError::PlanCompilation { id, source:
+                panproto_inst::RestrictError::UndeclaredTransformField { field, .. }
+            }) if id == "computed" && field == "derived"
+        ));
+    }
+
+    #[test]
+    fn instantiation_accepts_a_declared_computed_output() {
+        let schema = source_schema();
+        let protocol = test_protocol();
+        let document = doc(r#"{
+            "id": "computed", "source": "app.test.post", "target": "",
+            "steps": [{"compute_field": {"target": "subtitle", "expr": "text"}}]
+        }"#);
+        let compiled = compile_with_schemas(
+            &document,
+            "post",
+            &schema,
+            &schema,
+            &protocol,
+            &null_resolver,
+        )
+        .unwrap();
+        assert!(compiled.instantiate(&schema, &protocol).is_ok());
     }
 
     // -- auto body ------------------------------------------------

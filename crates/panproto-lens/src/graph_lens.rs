@@ -19,10 +19,7 @@ use panproto_inst::{
 };
 use panproto_schema::{Edge, Schema};
 
-use crate::asymmetric::{
-    ComplementCompose, extra_fields_equiv, node_equiv, presence_equiv,
-    propagate_view_edits_through_inverse,
-};
+use crate::asymmetric::{ComplementCompose, extra_fields_equiv, node_equiv, presence_equiv};
 use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::{Lens, LensError};
 
@@ -1059,24 +1056,19 @@ fn restore_nodes(
         let anchor = anchor.clone();
         let mut restored = node.clone();
         restored.anchor = anchor;
-        let transforms = lens.compiled.field_transforms.get(&restored.anchor);
+        let transforms = lens.compiled.value_transforms(&restored.anchor);
         if let Some(original) = complement.original_extra_fields.get(&id) {
-            let view_fields = restored.extra_fields.clone();
             restored.extra_fields = original
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            if let Some(transforms) = transforms {
-                propagate_view_edits_through_inverse(&mut restored, &view_fields, transforms);
-            }
-        } else if let Some(transforms) = transforms {
-            crate::asymmetric::restore_unrecorded_fields(
-                &mut restored,
-                transforms,
-                complement.identity.is_some(),
-            );
+            crate::asymmetric::seed_new_baseline_inputs(&mut restored, node, &transforms);
         }
-        if let Some(value) = complement.original_values.get(&id) {
+        if let Some(value) = complement.original_values.get(&id).filter(|_| {
+            transforms
+                .iter()
+                .any(crate::asymmetric::transforms_node_value)
+        }) {
             restored.value.clone_from(value);
         }
         let _ = source.insert_node(restored);
@@ -1086,7 +1078,6 @@ fn restore_nodes(
             let _ = source.insert_node(node.clone());
         }
     }
-    invert_graph_child_scalars(lens, view, &mut source);
     (source, errors)
 }
 
@@ -1143,6 +1134,31 @@ fn restore_with_plan(
 ) -> Result<GInstance, Vec<PutDomainError>> {
     let (mut source, mut errors) = restore_nodes(lens, view, complement);
     restore_edges(lens, view, complement, plan, &mut source, &mut errors);
+    let baseline = source.clone();
+    let mut traces = HashMap::new();
+    let mut ids: Vec<_> = view.nodes().keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        if complement.synthesized_nodes.contains_key(&id) {
+            continue;
+        }
+        match graph_transform_trace(lens, &baseline, id) {
+            Ok(trace) => {
+                if let Some(node) = source.node_mut(id) {
+                    crate::asymmetric::restore_traced_fields(
+                        node,
+                        &view.nodes()[&id],
+                        &trace,
+                        complement.original_extra_fields.contains_key(&id)
+                            || complement.identity.is_some(),
+                    );
+                }
+                traces.insert(id, trace.operations);
+            }
+            Err(error) => errors.extend(trace_refusal(id, error)),
+        }
+    }
+    invert_graph_child_scalars(view, &traces, &mut source);
     if errors.is_empty() {
         Ok(source)
     } else {
@@ -1150,7 +1166,50 @@ fn restore_with_plan(
     }
 }
 
-fn invert_graph_child_scalars(lens: &Lens, view: &GInstance, source: &mut GInstance) {
+fn trace_refusal(id: u32, error: panproto_inst::RestrictError) -> Vec<PutDomainError> {
+    refusal_from_restrict(panproto_inst::RestrictError::At {
+        key: panproto_inst::segment::ErrorKey {
+            stage: 0,
+            id,
+            id2: 0,
+            kind: error.kind_index(),
+        },
+        error: Box::new(error),
+    })
+}
+
+fn graph_transform_trace(
+    lens: &Lens,
+    source: &GInstance,
+    id: u32,
+) -> Result<crate::asymmetric::TransformTrace, panproto_inst::RestrictError> {
+    let Some(node) = source.node(id) else {
+        return Ok(crate::asymmetric::TransformTrace::default());
+    };
+    let transforms = lens.compiled.value_transforms(&node.anchor);
+    if transforms.is_empty() {
+        return Ok(crate::asymmetric::TransformTrace {
+            operations: Vec::new(),
+            fields: HashMap::new(),
+            value: node.value.clone(),
+        });
+    }
+    let mut node = node.clone();
+    let ctx =
+        panproto_inst::TransformContext::for_graph(Some(&lens.src_schema), source, id, &transforms);
+    let operations = panproto_inst::apply_field_transforms_traced(&mut node, &transforms, &ctx)?;
+    Ok(crate::asymmetric::TransformTrace {
+        operations,
+        fields: node.extra_fields,
+        value: node.value,
+    })
+}
+
+fn invert_graph_child_scalars(
+    view: &GInstance,
+    traces: &HashMap<u32, Vec<panproto_inst::FieldTransform>>,
+    source: &mut GInstance,
+) {
     use panproto_inst::{FieldPresence, FieldTransform};
 
     let mut parent_ids: Vec<u32> = view.nodes().keys().copied().collect();
@@ -1159,10 +1218,7 @@ fn invert_graph_child_scalars(lens: &Lens, view: &GInstance, source: &mut GInsta
         let Some(parent) = view.node(parent_id) else {
             continue;
         };
-        let Some(source_anchor) = source.node(parent_id).map(|node| node.anchor.clone()) else {
-            continue;
-        };
-        let Some(transforms) = lens.compiled.field_transforms.get(&source_anchor) else {
+        let Some(transforms) = traces.get(&parent_id) else {
             continue;
         };
         let child_of: HashMap<String, (u32, panproto_inst::Value)> = view
@@ -1617,6 +1673,15 @@ fn forward_stability(
         Err(error) => return refusal_from_restrict(error),
     };
     let mut found = Vec::new();
+    let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement);
+    restore_edges(
+        lens,
+        view,
+        complement,
+        plan,
+        &mut baseline,
+        &mut baseline_errors,
+    );
     for (&id, node) in view.nodes() {
         if complement.synthesized_nodes.contains_key(&id) {
             continue;
@@ -1628,8 +1693,21 @@ fn forward_stability(
             continue;
         };
         if !node_equiv(node, actual) {
-            let source_anchor = source.node(id).map(|node| &node.anchor);
-            classify_transform_differences(lens, id, source_anchor, node, actual, &mut found);
+            let mut transforms = match graph_transform_trace(lens, &baseline, id) {
+                Ok(trace) => trace.operations,
+                Err(error) => {
+                    found.extend(trace_refusal(id, error));
+                    continue;
+                }
+            };
+            match graph_transform_trace(lens, source, id) {
+                Ok(trace) => transforms.extend(trace.operations),
+                Err(error) => {
+                    found.extend(trace_refusal(id, error));
+                    continue;
+                }
+            }
+            classify_transform_differences(view, id, &transforms, node, actual, &mut found);
         }
     }
     found
@@ -1637,9 +1715,16 @@ fn forward_stability(
 
 fn refusal_from_restrict(error: panproto_inst::RestrictError) -> Vec<PutDomainError> {
     use panproto_inst::{PredicateRefusal, RestrictError};
-    let error = match error {
-        RestrictError::At { error, .. } => *error,
-        other => other,
+    let (error, location) = match error {
+        RestrictError::At { key, error } => (
+            *error,
+            Some(if key.stage == 1 {
+                ViewRef::Edge(EdgeId(key.id))
+            } else {
+                ViewRef::Node(key.id)
+            }),
+        ),
+        other => (other, None),
     };
     match error {
         RestrictError::SurvivalPredicateFailed { node, source } => {
@@ -1676,57 +1761,53 @@ fn refusal_from_restrict(error: panproto_inst::RestrictError) -> Vec<PutDomainEr
             elem: ViewRef::Node(node),
             refusal: PredicateRefusal::ValueNotExpressible { field, value_type },
         }],
-        _ => Vec::new(),
+        RestrictError::FieldTransformFailed { source, .. } => {
+            vec![PutDomainError::SurvivalPredicateRefused {
+                elem: location.unwrap_or(ViewRef::Node(0)),
+                refusal: PredicateRefusal::EvaluationFailed {
+                    message: source.to_string(),
+                },
+            }]
+        }
+        other => vec![PutDomainError::SurvivalPredicateRefused {
+            elem: location.unwrap_or(ViewRef::Node(0)),
+            refusal: PredicateRefusal::EvaluationFailed {
+                message: other.to_string(),
+            },
+        }],
     }
 }
 
 fn classify_transform_differences(
-    lens: &Lens,
+    view: &GInstance,
     id: u32,
-    source_anchor: Option<&Name>,
+    transforms: &[panproto_inst::FieldTransform],
     expected: &panproto_inst::Node,
     actual: &panproto_inst::Node,
     found: &mut Vec<PutDomainError>,
 ) {
-    let source_anchor = source_anchor.unwrap_or(&expected.anchor);
-    for field in crate::asymmetric::computed_term_fields(&lens.compiled, source_anchor) {
-        let differs = match (
-            expected.extra_fields.get(field),
-            actual.extra_fields.get(field),
-        ) {
-            (Some(a), Some(b)) => !crate::asymmetric::value_equiv(a, b),
-            (None, None) => false,
-            _ => true,
-        };
-        if differs {
-            found.push(PutDomainError::DerivedCellEdited {
-                elem: ViewRef::Node(id),
-                field: field.to_owned(),
-            });
+    use panproto_inst::FieldTransform;
+
+    let mut coordinates = crate::asymmetric::transformed_coordinates(
+        transforms,
+        &expected.extra_fields,
+        &actual.extra_fields,
+    );
+    coordinates.reverse();
+    let mut seen = HashSet::new();
+    for (coordinate, transform) in coordinates {
+        if !seen.insert(coordinate) {
+            continue;
         }
-    }
-    let transforms = lens.compiled.field_transforms.get(source_anchor);
-    let Some(transforms) = transforms else {
-        return;
-    };
-    for transform in transforms {
-        use panproto_inst::FieldTransform;
-        let (field, invertible, derived) = match transform {
-            FieldTransform::AddField { key, .. } => (key.as_str(), false, true),
-            FieldTransform::ComputeField {
-                target_key,
-                inverse,
-                ..
-            } => (target_key.as_str(), inverse.is_some(), true),
-            FieldTransform::ApplyExpr { key, inverse, .. } => {
-                (key.as_str(), inverse.is_some(), false)
+        let derived = matches!(
+            transform,
+            FieldTransform::AddField { .. } | FieldTransform::ComputeField { .. }
+        );
+        let differs = match coordinate {
+            crate::asymmetric::TransformCoordinate::OwnValue => {
+                !presence_equiv(expected.value.as_ref(), actual.value.as_ref())
             }
-            _ => continue,
-        };
-        let differs = if field == "__value__" {
-            !presence_equiv(expected.value.as_ref(), actual.value.as_ref())
-        } else {
-            match (
+            crate::asymmetric::TransformCoordinate::Field(field) => match (
                 expected.extra_fields.get(field),
                 actual.extra_fields.get(field),
             ) {
@@ -1734,20 +1815,29 @@ fn classify_transform_differences(
                     &HashMap::from([(field.to_owned(), a.clone())]),
                     &HashMap::from([(field.to_owned(), b.clone())]),
                 ),
+                (None, Some(recomputed)) => crate::asymmetric::inverse_child_output(
+                    transform,
+                    field,
+                    view.out_edges(id).iter().filter_map(|edge_id| {
+                        let edge = view.edge(*edge_id)?;
+                        Some((&edge.edge, view.node(edge.tgt)?))
+                    }),
+                )
+                .is_none_or(|shown| !crate::asymmetric::value_equiv(shown, recomputed)),
                 (None, None) => false,
                 _ => true,
-            }
+            },
         };
-        if differs && (derived || !invertible) {
+        if differs {
             found.push(if derived {
                 PutDomainError::DerivedCellEdited {
                     elem: ViewRef::Node(id),
-                    field: field.to_owned(),
+                    field: coordinate.label().to_owned(),
                 }
             } else {
                 PutDomainError::TransformNotInvertible {
                     elem: ViewRef::Node(id),
-                    field: field.to_owned(),
+                    field: coordinate.label().to_owned(),
                 }
             });
         }

@@ -1546,6 +1546,46 @@ fn read_forms(forms: &[(String, rt::TemporalLexicalForm)]) -> Vec<AcceptedLexeme
         .collect()
 }
 
+/// Assert that every value read from an unwritten-offset form carries the
+/// unwritten offset 0 or +05:30 and displays as the text it was read from.
+fn assert_unwritten_offsets(read_unwritten: &[AcceptedLexeme]) {
+    for item in read_unwritten {
+        assert!(
+            matches!(
+                item.reference.offset,
+                rt::Offset::Fixed(0 | 330, rt::OffsetForm::Unwritten)
+            ),
+            "{} carries an unwritten offset",
+            item.text
+        );
+        assert_eq!(item.value.to_string(), item.text, "{}", item.text);
+    }
+}
+
+/// The number of distinct canonical byte strings among the accepted values
+/// and the number of distinct values, asserting that values sharing canonical
+/// bytes are equal.
+fn canonical_byte_strings(accepted: &[AcceptedLexeme]) -> (usize, usize) {
+    let mut by_bytes: std::collections::HashMap<Vec<u8>, &Temporal> =
+        std::collections::HashMap::new();
+    for item in accepted {
+        let bytes = item.value.canonical_bytes();
+        if let Some(previous) = by_bytes.insert(bytes, &item.value) {
+            assert_eq!(
+                previous, &item.value,
+                "{} shares canonical bytes",
+                item.text
+            );
+        }
+    }
+    let distinct_values = accepted
+        .iter()
+        .map(|item| &item.value)
+        .collect::<HashSet<_>>()
+        .len();
+    (by_bytes.len(), distinct_values)
+}
+
 #[test]
 fn temporal_lexemes_agree_with_the_reference() {
     let scope = panproto_reference::enumerate::values::chronological_scope();
@@ -1607,17 +1647,7 @@ fn temporal_lexemes_agree_with_the_reference() {
         ],
         [2 * valid_dates, 2 * valid_times, 2 * valid_date_times]
     );
-    for item in &read_unwritten {
-        assert!(
-            matches!(
-                item.reference.offset,
-                rt::Offset::Fixed(0 | 330, rt::OffsetForm::Unwritten)
-            ),
-            "{} carries an unwritten offset",
-            item.text
-        );
-        assert_eq!(item.value.to_string(), item.text, "{}", item.text);
-    }
+    assert_unwritten_offsets(&read_unwritten);
     accepted.extend(read_unwritten);
     accepted.extend(read_forms(forms));
     assert_eq!(
@@ -1644,24 +1674,8 @@ fn temporal_lexemes_agree_with_the_reference() {
     let (pairs, comparable) = check_lexeme_order(&accepted);
     assert_eq!(pairs, accepted.len() * accepted.len());
 
-    let mut by_bytes: std::collections::HashMap<Vec<u8>, &Temporal> =
-        std::collections::HashMap::new();
-    for item in &accepted {
-        let bytes = item.value.canonical_bytes();
-        if let Some(previous) = by_bytes.insert(bytes, &item.value) {
-            assert_eq!(
-                previous, &item.value,
-                "{} shares canonical bytes",
-                item.text
-            );
-        }
-    }
-    let distinct_values = accepted
-        .iter()
-        .map(|item| &item.value)
-        .collect::<HashSet<_>>()
-        .len();
-    assert_eq!(by_bytes.len(), distinct_values);
+    let (byte_strings, distinct_values) = canonical_byte_strings(&accepted);
+    assert_eq!(byte_strings, distinct_values);
 
     let (classes, class_pairs) = check_lexeme_class_orders(&accepted);
     // The 54 classes of the form scope: the lexeme product adds no shape the
@@ -1692,6 +1706,6 @@ fn temporal_lexemes_agree_with_the_reference() {
         unwritten.len(),
         forms.len(),
         accepted.len(),
-        by_bytes.len(),
+        byte_strings,
     );
 }

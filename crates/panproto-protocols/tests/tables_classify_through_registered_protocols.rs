@@ -136,7 +136,7 @@ fn asn1_choice_alternatives_are_tables() {
     let schema = parse_schema_source("asn1", ASN1_MODULE).unwrap();
     let rel = classify("asn1", &schema).unwrap();
     assert!(rel.is_table("Shape.radius") && rel.is_table("Shape.label"));
-    assert!(columns(&rel, "Shape").is_empty());
+    assert_eq!(columns(&rel, "Shape"), Vec::<&str>::new());
 }
 
 /// The tags of a CoNLL-U word are its columns, named by column role, so a

@@ -779,7 +779,7 @@ mod tests {
             Some("configured")
         );
         assert_eq!(instance.rows("configured").len(), 1);
-        assert!(instance.rows("declared").is_empty());
+        assert_eq!(instance.rows("declared"), []);
 
         let insertion_order_a = SchemaBuilder::new(&test_protocol())
             .vertex("b", "object", None)

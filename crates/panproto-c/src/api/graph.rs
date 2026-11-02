@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(status, PpStatus::Ok as i32);
 
         let ids: Vec<u32> = decode(&out).unwrap();
-        assert!(ids.is_empty());
+        assert_eq!(ids, Vec::<u32>::new());
     }
 
     #[test]

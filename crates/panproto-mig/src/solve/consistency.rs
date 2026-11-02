@@ -2683,8 +2683,8 @@ mod tests {
             let mut draw = Draw::new(script);
 
             // Every draw offers a site for each of the three.
-            assert!(!project_sites(&network).is_empty());
-            assert!(!extend_sites(&network).is_empty());
+            assert_ne!(project_sites(&network), []);
+            assert_ne!(extend_sites(&network), []);
             assert!(network.n_variables() >= 2);
 
             // And a transformation applied at one of those sites does move

@@ -465,7 +465,7 @@ mod tests {
         let keep = compose_relabeling(&first, &second, OnMissing::KeepIntermediate);
         assert_eq!(keep.map.get("a"), Some(&Name::from("B")));
         assert_eq!(keep.map.get("c"), Some(&Name::from("d")));
-        assert!(keep.dropped.is_empty());
+        assert_eq!(keep.dropped, Vec::<Name>::new());
     }
 
     #[test]

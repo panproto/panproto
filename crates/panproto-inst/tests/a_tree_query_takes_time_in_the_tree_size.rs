@@ -24,8 +24,9 @@ fn protocol() -> Protocol {
     }
 }
 
-fn schema() -> Schema {
-    SchemaBuilder::new(&protocol())
+fn schema(with_output: bool) -> Schema {
+    let p = protocol();
+    let mut builder = SchemaBuilder::new(&p)
         .vertex("r", "record", None)
         .unwrap()
         .vertex("mid", "record", None)
@@ -35,9 +36,15 @@ fn schema() -> Schema {
         .edge("r", "mid", "prop", Some("m"))
         .unwrap()
         .edge("mid", "leaf", "prop", Some("k"))
-        .unwrap()
-        .build()
-        .unwrap()
+        .unwrap();
+    if with_output {
+        builder = builder
+            .vertex("copy", "integer", None)
+            .unwrap()
+            .edge("mid", "copy", "prop", Some("copy"))
+            .unwrap();
+    }
+    builder.build().unwrap()
 }
 
 fn edge(src: &str, tgt: &str, name: &str) -> Edge {
@@ -106,7 +113,7 @@ fn workload() -> (InstanceQuery, InstanceQuery, CompiledMigration) {
 /// The time of the workload on `instance`, with `n` mids, after checking
 /// its answers.
 fn run_time(instance: &WInstance, n: usize) -> Duration {
-    let s = schema();
+    let (s, t) = (schema(false), schema(true));
     let (selected, stepped, migration) = workload();
     let start = Instant::now();
     let by_predicate = execute_query(&selected, instance, &s).unwrap();
@@ -115,7 +122,7 @@ fn run_time(instance: &WInstance, n: usize) -> Duration {
     let extended = wtype_extend_engine(
         instance,
         &s,
-        &s,
+        &t,
         &migration,
         BoundaryProtocols { src: &p, tgt: &p },
     )

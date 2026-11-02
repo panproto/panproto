@@ -308,7 +308,7 @@ fn an_ordered_edge_made_unordered_is_reported_as_such() {
         report.breaking,
         vec![BreakingChange::OrderToUnordered { edge }]
     );
-    assert!(report.non_breaking.is_empty());
+    assert_eq!(report.non_breaking, []);
 }
 
 #[test]

@@ -572,7 +572,7 @@ fn parse_reports_every_fidelity_error_in_document_order() {
         ),
         Some(Value::Int(1))
     );
-    assert!(clean.errors().is_empty());
+    assert_eq!(clean.errors(), []);
     assert!(clean.finish().is_ok());
 }
 

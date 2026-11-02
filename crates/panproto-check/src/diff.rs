@@ -1249,7 +1249,7 @@ mod tests {
         });
         let d = diff(&base, &new);
         assert_eq!(d.added_hyper_edges, vec!["he1"]);
-        assert!(d.removed_hyper_edges.is_empty());
+        assert_eq!(d.removed_hyper_edges, Vec::<String>::new());
         assert!(!d.is_empty());
     }
 
@@ -1478,8 +1478,8 @@ mod tests {
             );
         });
         let d = diff(&old, &new);
-        assert!(d.added_variants.is_empty());
-        assert!(d.removed_variants.is_empty());
+        assert_eq!(d.added_variants, []);
+        assert_eq!(d.removed_variants, []);
         assert_eq!(d.modified_variants.len(), 1);
         assert_eq!(d.modified_variants[0].old_tag, Some("a".into()));
         assert_eq!(d.modified_variants[0].new_tag, Some("b".into()));
@@ -1522,8 +1522,8 @@ mod tests {
             },
         );
         let d = diff(&old, &new);
-        assert!(d.added_recursion_points.is_empty());
-        assert!(d.removed_recursion_points.is_empty());
+        assert_eq!(d.added_recursion_points, []);
+        assert_eq!(d.removed_recursion_points, []);
         assert_eq!(d.modified_recursion_points.len(), 1);
         assert_eq!(d.modified_recursion_points[0].old_target, "b");
         assert_eq!(d.modified_recursion_points[0].new_target, "c");
@@ -1931,7 +1931,7 @@ mod tests {
         };
         // new id is not actually an added vertex: no rename recorded.
         apply_renames(&mut d, &[("root.text".into(), "root.other".into())]);
-        assert!(d.renamed_vertices.is_empty());
+        assert_eq!(d.renamed_vertices, []);
         assert_eq!(d.removed_vertices, vec!["root.text".to_string()]);
     }
 }

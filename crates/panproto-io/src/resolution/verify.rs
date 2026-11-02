@@ -1182,7 +1182,7 @@ mod tests {
             }
         }
         let (moved, moved_index) = renamed(&view, &index)?;
-        assert!(view_diff(&view, &index, &moved, &moved_index).is_empty());
+        assert_eq!(view_diff(&view, &index, &moved, &moved_index), []);
         assert_eq!(
             GraphShape::divergence(&view, &index, &moved, &moved_index),
             None
@@ -1199,7 +1199,7 @@ mod tests {
         left.edges.insert(EdgeId(4), key(0));
         let mut right = SynthIndex::default();
         right.edges.insert(EdgeId(4), key(1));
-        assert!(!view_diff(&view, &left, &view, &right).is_empty());
+        assert_ne!(view_diff(&view, &left, &view, &right), []);
         Ok(())
     }
 

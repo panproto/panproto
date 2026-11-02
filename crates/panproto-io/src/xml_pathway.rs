@@ -3384,6 +3384,7 @@ fn find_schema_edge(
 mod tests {
     use super::*;
     use panproto_schema::SchemaBuilder;
+    use std::fmt::Write as _;
 
     #[test]
     fn bounded_xml_entity_expansion_covers_success_and_typed_refusals() {
@@ -3856,9 +3857,13 @@ b"/>"#;
         let schema = xml_schema();
         let mut depth_subset = String::new();
         for depth in 0..=MAX_XML_ENTITY_DEPTH {
-            depth_subset.push_str(&format!("<!ENTITY e{depth} \"&e{};\">", depth + 1));
+            let _ = write!(depth_subset, "<!ENTITY e{depth} \"&e{};\">", depth + 1);
         }
-        depth_subset.push_str(&format!("<!ENTITY e{} \"x\">", MAX_XML_ENTITY_DEPTH + 1));
+        let _ = write!(
+            depth_subset,
+            "<!ENTITY e{} \"x\">",
+            MAX_XML_ENTITY_DEPTH + 1
+        );
         let depth_document = format!("<!DOCTYPE doc [{depth_subset}]><doc>&e0;</doc>");
         let depth_offset = u64::try_from(depth_document.rfind("&e0;").expect("reference"));
         assert!(matches!(
@@ -3877,7 +3882,7 @@ b"/>"#;
         let mut bytes_subset = "<!ENTITY e0 \"x\">".to_owned();
         for depth in 1..=10 {
             let references = format!("&e{};", depth - 1).repeat(10);
-            bytes_subset.push_str(&format!("<!ENTITY e{depth} \"{references}\">"));
+            let _ = write!(bytes_subset, "<!ENTITY e{depth} \"{references}\">");
         }
         let bytes_document = format!("<!DOCTYPE doc [{bytes_subset}]><doc>&e10;</doc>");
         let bytes_offset = u64::try_from(bytes_document.rfind("&e10;").expect("reference"));
@@ -3967,10 +3972,7 @@ b"/>"#;
                 br#"<!DOCTYPE doc [<!ENTITY % p "x">]><doc/>"#.as_slice(),
                 b"<!ENTITY %".as_slice(),
             ),
-            (
-                br#"<!DOCTYPE doc [%p;]><doc/>"#.as_slice(),
-                b"%p;".as_slice(),
-            ),
+            (br"<!DOCTYPE doc [%p;]><doc/>".as_slice(), b"%p;".as_slice()),
         ] {
             let expected_offset = input
                 .windows(needle.len())

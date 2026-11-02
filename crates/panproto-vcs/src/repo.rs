@@ -2813,7 +2813,7 @@ mod tests {
 
         let index = repo.add_tree(root)?;
         let diag = staged_diagnostics(&index).ok_or("staged diagnostics expected")?;
-        assert!(diag.equation_notes.is_empty());
+        assert_eq!(diag.equation_notes, Vec::<String>::new());
         assert!(diag.is_clean(), "a conforming project must stage clean");
 
         let commit_id = repo.commit("initial", "alice")?;
@@ -3152,12 +3152,15 @@ mod tests {
         let report = panproto_inst::validate_wtype(&record, &schema, &protocol);
         assert_eq!(report.status, panproto_gat::CheckStatus::Failed);
         let expected: Vec<String> = report.diagnostics.iter().map(ToString::to_string).collect();
-        assert!(!expected.is_empty());
+        assert_ne!(expected, Vec::<String>::new());
         assert_eq!(
             record_violations(&schema, Some(&protocol), &record),
             expected
         );
-        assert!(record_violations(&schema, Some(&protocol), &text_record("abc")).is_empty());
+        assert_eq!(
+            record_violations(&schema, Some(&protocol), &text_record("abc")),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -3181,15 +3184,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_advisory_diagnostic_is_not_a_recorded_violation() {
+    /// Items keyed by `name`, each referring to another by `tag`; an
+    /// unresolved reference is kept in the complement, so its diagnostic is
+    /// advisory. Returns the schema with its `name` and `tag` edges.
+    fn item_schema_with_advisory_reference()
+    -> (Schema, panproto_schema::Edge, panproto_schema::Edge) {
         use panproto_schema::{
-            Cardinality, Key, KeyPart, KeyRole, KeyScope, OnUnresolved, RefSource, Reference,
-            ResolveMode,
+            Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
+            Reference, ResolveMode,
         };
-        // Items keyed by `name`, each referring to another by `tag`; an
-        // unresolved reference is kept in the complement, so its diagnostic
-        // is advisory.
         let mut schema = make_schema(&[("item", "object"), ("name", "string"), ("tag", "string")]);
         let name_edge = panproto_schema::Edge {
             src: "item".into(),
@@ -3245,10 +3248,16 @@ mod tests {
             on_unresolved: OnUnresolved::Complement,
             mode: ResolveMode::AddEdge,
             guard: None,
-            null_match: Default::default(),
+            null_match: NullMatch::default(),
             null_vertex: None,
             scope_via: None,
         });
+        (schema, name_edge, tag_edge)
+    }
+
+    #[test]
+    fn an_advisory_diagnostic_is_not_a_recorded_violation() {
+        let (schema, name_edge, tag_edge) = item_schema_with_advisory_reference();
         let present = |s: &str| {
             panproto_inst::value::FieldPresence::Present(panproto_inst::Value::Str(s.into()))
         };
@@ -3283,6 +3292,9 @@ mod tests {
                 .any(|d| d.requirement == panproto_inst::validation::Requirement::Advisory),
             "{report:?}"
         );
-        assert!(record_violations(&schema, Some(&protocol), &record).is_empty());
+        assert_eq!(
+            record_violations(&schema, Some(&protocol), &record),
+            Vec::<String>::new()
+        );
     }
 }

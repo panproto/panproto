@@ -163,6 +163,17 @@ pub enum PutDomainError {
         /// Why the predicate gives no verdict.
         refusal: PredicateRefusal,
     },
+    /// The migration cannot be compiled into an executable restrict plan.
+    ///
+    /// A plan failure is a property of the lens rather than of one view,
+    /// but it still makes every view lie outside that lens's put domain.
+    /// Keeping it in the ordered domain report prevents a failed compile
+    /// from being mistaken for an admitted view.
+    #[error("the migration cannot be compiled into a restrict plan: {detail}")]
+    PlanCompilation {
+        /// Stable display form of the restrict-plan compilation error.
+        detail: String,
+    },
     /// A declared uniqueness key of the restored source is undecided: the
     /// shared keying kernel refuses the value of one of its elements, so
     /// the key's equality, and with it the key's `DuplicateKey` verdict, is
@@ -186,7 +197,7 @@ pub enum PutDomainError {
     ///     r#"{"key_refused":{"table":"item","key":"by-value","reason":"no_canonical_bytes"}}"#,
     /// );
     /// assert_eq!(serde_json::from_str::<PutDomainError>(&json).unwrap(), e);
-    /// assert_eq!(e.variant_index(), 12);
+    /// assert_eq!(e.variant_index(), 13);
     /// ```
     #[error("key {key} of {table} is undecided: {reason}")]
     KeyRefused {
@@ -196,17 +207,6 @@ pub enum PutDomainError {
         key: Name,
         /// Why the keying kernel refuses.
         reason: KeyRefusal,
-    },
-    /// The migration cannot be compiled into an executable restrict plan.
-    ///
-    /// A plan failure is a property of the lens rather than of one view,
-    /// but it still makes every view lie outside that lens's put domain.
-    /// Keeping it in the ordered domain report prevents a failed compile
-    /// from being mistaken for an admitted view.
-    #[error("the migration cannot be compiled into a restrict plan: {detail}")]
-    PlanCompilation {
-        /// Stable display form of the restrict-plan compilation error.
-        detail: String,
     },
 }
 
@@ -328,8 +328,8 @@ impl PutDomainError {
             Self::MissingRequiredCell { .. } => 9,
             Self::MalformedFan { .. } => 10,
             Self::SurvivalPredicateRefused { .. } => 11,
-            Self::KeyRefused { .. } => 12,
-            Self::PlanCompilation { .. } => 13,
+            Self::PlanCompilation { .. } => 12,
+            Self::KeyRefused { .. } => 13,
         }
     }
 
@@ -617,6 +617,7 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::MalformedFan { .. } => "malformed_fan",
         RestrictError::SourceDeclarations(_) => "source_declarations",
         RestrictError::TargetDeclarations(_) => "target_declarations",
+        RestrictError::UndeclaredTransformField { .. } => "undeclared_transform_field",
     }
 }
 
@@ -790,7 +791,7 @@ mod tests {
 
     #[test]
     fn plan_compilation_domain_error_has_a_stable_wire_shape_and_order()
-    -> Result<(), serde_json::Error> {
+    -> Result<(), Box<dyn std::error::Error>> {
         let error = PutDomainError::PlanCompilation {
             detail: "incoherent edge image".to_owned(),
         };
@@ -802,6 +803,17 @@ mod tests {
             r#"{"plan_compilation":{"detail":"incoherent edge image"}}"#
         );
         assert_eq!(serde_json::from_str::<PutDomainError>(&json)?, error);
+        let packed = rmp_serde::to_vec(&error)?;
+        assert_eq!(rmp_serde::from_slice::<PutDomainError>(&packed)?, error);
+        let key_refused = PutDomainError::KeyRefused {
+            table: "item".into(),
+            key: "by-value".into(),
+            reason: crate::KeyRefusal::NoCanonicalBytes,
+        };
+        assert_eq!(key_refused.variant_index(), 13);
+        let mut report = vec![key_refused.clone(), error.clone()];
+        PutDomainError::sort_report(&mut report);
+        assert_eq!(report, vec![error, key_refused]);
         Ok(())
     }
 

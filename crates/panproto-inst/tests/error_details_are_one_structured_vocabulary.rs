@@ -16,6 +16,14 @@ use serde::de::DeserializeOwned;
 
 /// One error of each variant, in declaration order, with its serde tag.
 fn every_put_domain_error() -> Vec<(PutDomainError, &'static str)> {
+    let mut errors = edited_view_put_domain_errors();
+    errors.extend(declared_constraint_put_domain_errors());
+    errors
+}
+
+/// The errors of the variants from `IdCollision` through
+/// `TransformNotInvertible`, in declaration order, with their serde tags.
+fn edited_view_put_domain_errors() -> Vec<(PutDomainError, &'static str)> {
     let node = ViewRef::Node(3);
     vec![
         (
@@ -72,11 +80,18 @@ fn every_put_domain_error() -> Vec<(PutDomainError, &'static str)> {
         ),
         (
             PutDomainError::TransformNotInvertible {
-                elem: node.clone(),
+                elem: node,
                 field: "f".into(),
             },
             "transform_not_invertible",
         ),
+    ]
+}
+
+/// The errors of the variants from `DuplicateKey` through
+/// `PlanCompilation`, in declaration order, with their serde tags.
+fn declared_constraint_put_domain_errors() -> Vec<(PutDomainError, &'static str)> {
+    vec![
         (
             PutDomainError::DuplicateKey {
                 table: "users".into(),
@@ -87,7 +102,7 @@ fn every_put_domain_error() -> Vec<(PutDomainError, &'static str)> {
         ),
         (
             PutDomainError::MissingRequiredCell {
-                elem: node,
+                elem: ViewRef::Node(3),
                 field: "name".into(),
             },
             "missing_required_cell",

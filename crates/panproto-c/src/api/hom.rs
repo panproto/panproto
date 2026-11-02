@@ -1193,7 +1193,7 @@ mod tests {
 
         assert_eq!(wire.vertex_pairs, engine_overlap.vertex_pairs);
         assert_eq!(wire.edge_pairs, engine_overlap.edge_pairs);
-        assert!(!wire.vertex_pairs.is_empty());
+        assert_ne!(wire.vertex_pairs, []);
     }
 
     #[test]

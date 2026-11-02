@@ -1,10 +1,10 @@
 # Rust SDK reference
 
-The [Rust](https://www.rust-lang.org/) entry point is the [`panproto-core`](https://docs.rs/panproto-core/latest/panproto_core/) facade. Version 0.72 requires Rust 1.85 or later.
+The [Rust](https://www.rust-lang.org/) entry point is the [`panproto-core`](https://docs.rs/panproto-core/latest/panproto_core/) facade. Version 0.77 requires Rust 1.97 or later.
 
 ```toml
 [dependencies]
-panproto-core = "0.72"
+panproto-core = "0.77"
 ```
 
 The facade re-exports each component crate as a module. For instance, `panproto_core::schema::Schema` is the `Schema` type from `panproto-schema`. Depending on `panproto-schema` directly exposes the same type without the facade.

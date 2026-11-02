@@ -190,7 +190,7 @@ fn restrict_boundary_errors_carry_the_side_and_report() {
         Err(RestrictError::Validation { side, report }) => {
             assert_eq!(side, BoundarySide::Output);
             assert_eq!(report.status, CheckStatus::Failed);
-            assert!(!report.diagnostics.is_empty());
+            assert_ne!(report.diagnostics, []);
             assert_eq!(report.shape, panproto_inst::InstanceShapeKind::Graph);
         }
         other => panic!("unexpected {other:?}"),

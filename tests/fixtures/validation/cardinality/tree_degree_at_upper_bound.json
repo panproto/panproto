@@ -350,6 +350,22 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "child"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "parent"
           }
         },

@@ -2346,7 +2346,7 @@ fn float32_routes_agree_with_the_ties_to_even_reference_on_the_audited_values() 
         &disagreements[..disagreements.len().min(8)]
     );
     assert!(drawn >= 66_611);
-    assert!(disagreements.is_empty());
+    assert_eq!(disagreements, Vec::<String>::new());
     // The four named texts read by the ties-to-even rule.
     assert_eq!(
         coerce(&Lexeme::new("52401.313", LexClass::Number), &f32_)

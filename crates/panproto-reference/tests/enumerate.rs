@@ -1097,41 +1097,41 @@ fn manifest_page_enumerators_have_concrete_scopes() {
         restrict_and_contraction, segments, theories, validation, value_io, values,
     };
 
-    assert!(!values::numerals().is_empty());
+    assert_ne!(values::numerals(), Vec::<String>::new());
     assert_eq!(values::binary16_patterns().len(), 65_536);
-    assert!(!values::temporal_lexemes().is_empty());
+    assert_ne!(values::temporal_lexemes(), Vec::<String>::new());
     assert_eq!(values::byte_strings().unwrap().len(), 65_793);
     assert_eq!(value_io::byte_strings().unwrap().len(), 65_793);
-    assert!(!value_io::numerals().is_empty());
+    assert_ne!(value_io::numerals(), Vec::<String>::new());
     assert_eq!(value_io::sequences(&[0u8, 1]).len(), 7);
-    assert!(!value_io::temporal_lexemes().is_empty());
-    assert!(!theories::schemas().is_empty());
+    assert_ne!(value_io::temporal_lexemes(), Vec::<String>::new());
+    assert_ne!(theories::schemas(), []);
     assert_eq!(theories::sequences(&[0u8, 1]).len(), 7);
     assert_eq!(theories::subsets(&[0u8, 1]).len(), 4);
-    assert!(!keys_and_registration::schemas().is_empty());
+    assert_ne!(keys_and_registration::schemas(), []);
     assert_eq!(keys_and_registration::subsets(&[0u8, 1]).len(), 4);
-    assert!(!representation::graphs().is_empty());
-    assert!(!representation::tables().is_empty());
-    assert!(!representation::trees().is_empty());
-    assert!(!kan_extensions::schemas().is_empty());
-    assert!(!kan_extensions::migrations().is_empty());
-    assert!(!kan_extensions::tables().is_empty());
-    assert!(!restrict_and_contraction::schemas().is_empty());
-    assert!(!restrict_and_contraction::migrations().is_empty());
-    assert!(!restrict_and_contraction::graphs().is_empty());
-    assert!(!edits::graphs().is_empty());
-    assert!(!edits::graph_deltas().is_empty());
-    assert!(!validation::schemas().is_empty());
-    assert!(!validation::graphs().is_empty());
+    assert_ne!(representation::graphs(), []);
+    assert_ne!(representation::tables(), []);
+    assert_ne!(representation::trees(), []);
+    assert_ne!(kan_extensions::schemas(), []);
+    assert_ne!(kan_extensions::migrations(), []);
+    assert_ne!(kan_extensions::tables(), []);
+    assert_ne!(restrict_and_contraction::schemas(), []);
+    assert_ne!(restrict_and_contraction::migrations(), []);
+    assert_ne!(restrict_and_contraction::graphs(), []);
+    assert_ne!(edits::graphs(), []);
+    assert_ne!(edits::graph_deltas(), []);
+    assert_ne!(validation::schemas(), []);
+    assert_ne!(validation::graphs(), []);
     assert_eq!(validation::sequences(&[0u8, 1]).len(), 15);
-    assert!(!segments::graphs().is_empty());
-    assert!(!lenses::schemas().is_empty());
-    assert!(!lenses::migrations().is_empty());
-    assert!(!lenses::graphs().is_empty());
-    assert!(!lenses::tables().is_empty());
-    assert!(!lenses::trees().is_empty());
+    assert_ne!(segments::graphs(), []);
+    assert_ne!(lenses::schemas(), []);
+    assert_ne!(lenses::migrations(), []);
+    assert_ne!(lenses::graphs(), []);
+    assert_ne!(lenses::tables(), []);
+    assert_ne!(lenses::trees(), []);
     assert_eq!(resolution::sequences(&[0u8, 1]).len(), 15);
-    assert!(!resolution::trees().is_empty());
+    assert_ne!(resolution::trees(), []);
 }
 
 #[test]

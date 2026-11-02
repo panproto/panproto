@@ -218,7 +218,7 @@ mod tests {
         let (resolver, paths, dropped) = compose_contraction_keys(&m1(), &m2);
         assert_eq!(resolver, m1().resolver);
         assert_eq!(paths, m1().expansion_path);
-        assert!(dropped.is_empty());
+        assert_eq!(dropped, []);
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
         let (resolver, paths, dropped) = compose_contraction_keys(&m1(), &m2);
         assert_eq!(resolver[&key("r", "leaf")], edge("r", "item"));
         assert_eq!(paths[&key("r", "c")], vec![Name::from("m2")]);
-        assert!(dropped.is_empty());
+        assert_eq!(dropped, []);
     }
 
     fn named(src: &str, tgt: &str, name: &str) -> Edge {

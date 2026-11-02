@@ -102,7 +102,7 @@ fn the_document_listing_is_exactly_the_document_parsers() {
         .map(|d| d.name)
         .collect();
     assert_eq!(listed, expected);
-    assert!(!listed.is_empty());
+    assert_ne!(listed, Vec::<&str>::new());
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn the_source_listing_is_exactly_the_source_parsers() {
         .map(|d| d.name)
         .collect();
     assert_eq!(listed, expected);
-    assert!(!listed.is_empty());
+    assert_ne!(listed, Vec::<&str>::new());
 }
 
 #[test]

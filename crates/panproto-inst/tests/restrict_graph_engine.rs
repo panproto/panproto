@@ -596,7 +596,7 @@ fn graph_and_tree_fan_survival_agree() {
     let m = keep(&["r"]);
     let plan = RestrictPlan::compile(&s, &tgt, &m).unwrap();
     let (tree_view, _) = wtype_restrict_with_plan(&tree, &plan).unwrap();
-    assert!(tree_view.fans.is_empty());
+    assert_eq!(tree_view.fans, []);
     let g = GInstance::from_wtype(&tree).unwrap();
     let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
     assert!(view.node(2).is_none());

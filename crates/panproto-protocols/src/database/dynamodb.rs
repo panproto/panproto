@@ -432,11 +432,9 @@ mod tests {
         let schema = parse_dynamodb(&json).expect("parse");
         let emitted = emit_dynamodb(&schema).expect("emit");
         assert_eq!(emitted["TableName"], "items");
-        assert!(
-            !emitted["AttributeDefinitions"]
-                .as_array()
-                .unwrap()
-                .is_empty()
+        assert_ne!(
+            *emitted["AttributeDefinitions"].as_array().unwrap(),
+            Vec::<serde_json::Value>::new()
         );
     }
 

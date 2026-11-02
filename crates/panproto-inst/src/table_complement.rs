@@ -34,13 +34,13 @@ pub struct DroppedRow {
 ///
 /// It is a complement in the sense of bancilhonspyratos1981update (Def 4.4,
 /// stated): get paired with it is injective on the sources the table
-/// restrict accepts, whose rows are total. Selection keeps the
-/// rows it hides here, but a view deletion cascades into the pairs held here,
-/// so it is not a constant complement (inferred).
+/// restrict accepts, including finite rows with absent declared cells.
+/// Selection keeps the rows it hides here, but a view deletion cascades into
+/// the pairs held here, so it is not a constant complement (inferred).
 ///
 /// Every map is ordered; maps keyed by tuples are written as sequences of
 /// entries in key order. The fields are serialized in declaration order with
-/// no defaults, so a complement has one encoding.
+/// the optional absence residue appended after the original field prefix.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TableComplement {
     /// The rows the view does not hold: rows of dropped tables and rows a
@@ -71,14 +71,13 @@ pub struct TableComplement {
     /// cell of that name for with another value, by row and source column,
     /// with their source value.
     ///
-    /// With [`dropped_cells`](Self::dropped_cells) it names every source
-    /// column on which the view row and the source row disagree, so a put
-    /// rebuilds the source row, column by column of its source table, from
-    /// `dropped_cells`, else `original_cells`, else the view's cell of that
-    /// name. Since the table restrict refuses a row whose cells are not
-    /// exactly its table's columns, get paired with the complement is
-    /// injective on the sources it accepts, value-dependent renames
-    /// included.
+    /// Together with [`dropped_cells`](Self::dropped_cells) and
+    /// [`original_absent_cells`](Self::original_absent_cells), it records
+    /// every source column on which the view row and source row disagree.
+    /// A put first omits an originally absent cell, then restores each other
+    /// source column from `dropped_cells`, else `original_cells`, else the
+    /// view's cell of that name. Get paired with the complement is injective
+    /// on finite source rows, value-dependent renames included.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub original_cells: BTreeMap<(RowId, String), Value>,
     /// The pairs contraction synthesized, each keyed in the graph form by
@@ -89,6 +88,12 @@ pub struct TableComplement {
     pub id_floor: u32,
     /// The envelope binding the complement to a lens, once stamped.
     pub identity: Option<IdentityEnvelope>,
+    /// Declared source columns absent in a surviving source row but present
+    /// under the same name in its final view row. These coordinates are
+    /// disjoint from the positive source values in `dropped_cells` and
+    /// `original_cells`. Target-only columns are not recorded.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub original_absent_cells: BTreeSet<(RowId, String)>,
 }
 
 impl TableComplement {
@@ -105,6 +110,7 @@ impl TableComplement {
             synthesized_fk_pairs: BTreeSet::new(),
             id_floor: 0,
             identity: None,
+            original_absent_cells: BTreeSet::new(),
         }
     }
 
@@ -125,6 +131,7 @@ impl TableComplement {
             && self.original_fk_edges.is_empty()
             && self.original_tables.is_empty()
             && self.original_cells.is_empty()
+            && self.original_absent_cells.is_empty()
     }
 
     /// The row ids the complement reserves: those of the dropped rows.

@@ -320,6 +320,22 @@
           "failed": 0,
           "incomplete": 0
         }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "b"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
       ]
     ]
   },
@@ -422,6 +438,22 @@
               "kind": "attribute",
               "decl": {
                 "vertex": "a"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 1,
+              "passed": 1,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "b"
               }
             },
             {
@@ -568,6 +600,22 @@
                   "failed": 0,
                   "incomplete": 0
                 }
+              ],
+              [
+                {
+                  "kind": "attribute",
+                  "decl": {
+                    "vertex": "b"
+                  }
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "incomplete": 0
+                }
               ]
             ]
           },
@@ -592,7 +640,19 @@
                 }
               }
             ],
-            "created": [],
+            "created": [
+              {
+                "check": {
+                  "kind": "attribute",
+                  "decl": {
+                    "vertex": "b"
+                  }
+                },
+                "subject": {
+                  "node": 1
+                }
+              }
+            ],
             "retired": [
               {
                 "check": {
@@ -680,6 +740,30 @@
                 },
                 {
                   "edge": 0
+                }
+              ],
+              "verdict": {
+                "evaluated": {
+                  "findings": [],
+                  "incomplete": []
+                }
+              }
+            },
+            {
+              "instance": {
+                "check": {
+                  "kind": "attribute",
+                  "decl": {
+                    "vertex": "b"
+                  }
+                },
+                "subject": {
+                  "node": 1
+                }
+              },
+              "reads": [
+                {
+                  "node": 1
                 }
               ],
               "verdict": {

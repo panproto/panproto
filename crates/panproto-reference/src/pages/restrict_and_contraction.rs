@@ -155,6 +155,15 @@ pub mod restrict {
             /// The number of edges in the expansion.
             hops: usize,
         },
+        /// A possible transform output has no declared target attribute.
+        UndeclaredTransformField {
+            /// Source anchor carrying the transform.
+            source_vertex: Name,
+            /// Its surviving target anchor.
+            target_vertex: Name,
+            /// The written field.
+            field: Name,
+        },
     }
 
     fn check_plan_expansion(src: &str, tgt: &str, labels: &[SEdge]) -> Result<(), PlanError> {
@@ -173,7 +182,8 @@ pub mod restrict {
     /// Field tags fix the struct layout, collection lengths make every run
     /// self-delimiting, maps and sets are already in key order, and vectors
     /// retain their semantic order. This is private plan-binding material,
-    /// not a portable interchange format.
+    /// not a portable interchange format. Nonempty output metadata has a
+    /// trailing framed extension; empty metadata preserves the prior bytes.
     pub(crate) fn canonical_migration_bytes(migration: &Migration) -> Vec<u8> {
         let mut writer = Writer::default();
         writer.raw(b"panproto-reference/restrict-plan-migration/v1");
@@ -249,6 +259,18 @@ pub mod restrict {
         writer.len(migration.transformed.len());
         for vertex in &migration.transformed {
             writer.str(vertex);
+        }
+
+        if !migration.output_fields.is_empty() {
+            writer.tag(9);
+            writer.len(migration.output_fields.len());
+            for (vertex, fields) in &migration.output_fields {
+                writer.str(vertex);
+                writer.len(fields.len());
+                for field in fields {
+                    writer.str(field);
+                }
+            }
         }
 
         writer.bytes
@@ -857,17 +879,60 @@ pub mod restrict {
     }
 
     /// Compile the plan: source declarations, target declarations, the edge
-    /// image, then the contraction plan.
+    /// image, the contraction plan, then possible transform outputs.
     ///
     /// # Errors
     ///
     /// The first [`PlanError`].
     pub fn compile(src: &Schema, tgt: &Schema, m: &Migration) -> Result<Plan, PlanError> {
+        compile_with_columns(src, tgt, m, &BTreeMap::new())
+    }
+
+    /// Compile with the additional attributes supplied by a relational
+    /// interpretation, including its structured value columns.
+    pub(crate) fn compile_with_columns(
+        src: &Schema,
+        tgt: &Schema,
+        m: &Migration,
+        columns: &BTreeMap<Name, BTreeSet<Name>>,
+    ) -> Result<Plan, PlanError> {
         validate_declarations(src).map_err(PlanError::SourceDeclarations)?;
         validate_declarations(tgt).map_err(PlanError::TargetDeclarations)?;
+        let fates = edge_image(tgt, src, m)?;
+        let pairs = contraction_plan(src, tgt, m)?;
+        let mut attributes = columns.clone();
+        if !m.output_fields.is_empty() {
+            let outgoing: BTreeSet<_> = tgt.edges.iter().map(|edge| &edge.src).collect();
+            for edge in &tgt.edges {
+                if tgt.vertices.contains_key(&edge.tgt) && !outgoing.contains(&edge.tgt) {
+                    attributes
+                        .entry(edge.src.clone())
+                        .or_default()
+                        .insert(edge.column().to_owned());
+                }
+            }
+        }
+        for (source_vertex, fields) in &m.output_fields {
+            if !m.survives(source_vertex) {
+                continue;
+            }
+            let target_vertex = m.vertex_image(source_vertex);
+            for field in fields {
+                if !attributes
+                    .get(target_vertex)
+                    .is_some_and(|declared| declared.contains(field))
+                {
+                    return Err(PlanError::UndeclaredTransformField {
+                        source_vertex: source_vertex.clone(),
+                        target_vertex: target_vertex.to_owned(),
+                        field: field.clone(),
+                    });
+                }
+            }
+        }
         Ok(Plan {
-            fates: edge_image(tgt, src, m)?,
-            pairs: contraction_plan(src, tgt, m)?,
+            fates,
+            pairs,
             source_schema: canonical_bytes(src),
             target_schema: canonical_bytes(tgt),
             migration: canonical_migration_bytes(m),
@@ -1053,6 +1118,13 @@ pub mod restrict {
     }
 
     /// The value layer of a migration, evaluated by the expression language.
+    ///
+    /// Callers must supply complete [`Migration::output_fields`] metadata for
+    /// this opaque layer before compiling its migration. It must include all
+    /// possible transform destinations, in execution order, including inactive
+    /// branches and transient scratch fields. Nested writes name their outer
+    /// attribute. Public syntax adapters derive this metadata from syntax;
+    /// observing a layer on particular instances cannot establish completeness.
     pub trait ValueLayer {
         /// Complete canonical descriptor of this value layer's semantics.
         fn canonical_semantics(&self) -> ValueLayerSemantics;
@@ -1067,7 +1139,9 @@ pub mod restrict {
         fn survives(&self, source: &Graph, node: &Node) -> Result<bool, PredicateRefusal>;
 
         /// The transformed fields and value of a surviving node whose source
-        /// vertex carries transforms.
+        /// vertex carries transforms. The migration's `output_fields` lists
+        /// every field this layer may write, including untaken branches and
+        /// fields subsequently removed or renamed.
         ///
         /// # Errors
         ///

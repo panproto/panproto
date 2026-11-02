@@ -25123,6 +25123,22 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "child"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 256,
+          "passed": 256,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "item"
           }
         },
@@ -34537,6 +34553,22 @@
                     "value": "3"
                   }
                 }
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 256,
+              "passed": 256,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "child"
               }
             },
             {
@@ -44065,6 +44097,22 @@
                         "value": "3"
                       }
                     }
+                  }
+                },
+                {
+                  "class": "graph_local",
+                  "requirement": "required",
+                  "instances": 256,
+                  "passed": 256,
+                  "failed": 0,
+                  "incomplete": 0
+                }
+              ],
+              [
+                {
+                  "kind": "attribute",
+                  "decl": {
+                    "vertex": "child"
                   }
                 },
                 {

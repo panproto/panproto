@@ -998,7 +998,7 @@ fn advisory_outcomes_do_not_control_admission() -> TestResult {
             &target_external,
         )?;
         assert_eq!(validated.state().status, CheckStatus::Passed);
-        assert!(!validated.report().diagnostics.is_empty());
+        assert_ne!(validated.report().diagnostics, []);
     }
     Ok(())
 }
@@ -2490,7 +2490,7 @@ fn check_graph_delta_uses_the_exact_local_footprint() -> TestResult {
     )?;
     assert_eq!(report.scope, ReportScope::DeltaLocal);
     assert_eq!(report.status, CheckStatus::Passed);
-    assert!(report.diagnostics.is_empty());
+    assert_eq!(report.diagnostics, []);
     Ok(())
 }
 
@@ -2585,7 +2585,7 @@ fn check_graph_delta_uses_the_supplied_external_projection() -> TestResult {
     let accepted =
         plan.check_graph_delta(&graph, &delta, &ValidationBudget::default(), &external)?;
     assert_eq!(accepted.status, CheckStatus::Passed);
-    assert!(accepted.incomplete.is_empty());
+    assert_eq!(accepted.incomplete, []);
     Ok(())
 }
 
@@ -2630,7 +2630,7 @@ fn check_table_delta_uses_the_supplied_external_projection() -> TestResult {
     let accepted =
         plan.check_table_delta(&table, &delta, &ValidationBudget::default(), &external)?;
     assert_eq!(accepted.status, CheckStatus::Passed);
-    assert!(accepted.incomplete.is_empty());
+    assert_eq!(accepted.incomplete, []);
     Ok(())
 }
 
@@ -3469,7 +3469,7 @@ fn validation_state_stores_complete_open_bundles() {
         .values()
         .find(|bundle| bundle.diagnostics.len() == 2)
         .expect("both endpoint failures remain in one check-instance bundle");
-    assert!(bundle.incomplete.is_empty());
+    assert_eq!(bundle.incomplete, []);
 }
 
 #[test]
@@ -3902,7 +3902,7 @@ fn v4_unknown_anchor_counterexample_has_the_independently_expected_report() -> T
             baseline_status: CheckStatus::Passed,
         }
     );
-    assert!(checked.report.incomplete.is_empty());
+    assert_eq!(checked.report.incomplete, []);
     assert_eq!(checked.report.diagnostics.len(), 1);
     let diagnostic = &checked.report.diagnostics[0];
     assert_eq!(diagnostic.check.kind, CheckKind::NodeAnchor);

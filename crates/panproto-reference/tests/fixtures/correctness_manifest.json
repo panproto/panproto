@@ -3849,7 +3849,8 @@
           ],
           "references": [
             "panproto_reference::restrict::get",
-            "panproto_reference::restrict::edge_image"
+            "panproto_reference::restrict::edge_image",
+            "panproto_reference::restrict::compile"
           ],
           "due_gate": "phase3",
           "consumers": [
@@ -3864,6 +3865,42 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "graph_get_and_covered_reachability_agree_on_three_node_carriers"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "undeclared_transform_stages_keep_every_original_source_as_a_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_attribute_edges_agree_with_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::transform_declarations",
+              "test": "transform_outputs_follow_target_attribute_declarations"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::transform_declarations",
+              "test": "transform_output_refusals_keep_anchor_and_write_order"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::transform_declarations",
+              "test": "structural_plan_refusals_precede_transform_outputs"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::transform_declarations",
+              "test": "declaration_refusals_precede_structural_and_output_checks"
             }
           ]
         },
@@ -3993,6 +4030,24 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "tree_put_law_certificate"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_atomic_laws_agree_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_wrappers_preserve_their_active_field_domain"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_conditional_defaults_track_actual_writes"
             }
           ]
         },
@@ -4022,6 +4077,12 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "graph_square_agrees_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_atomic_laws_agree_with_the_reference"
             }
           ]
         },
@@ -5598,6 +5659,24 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_graph_put_domain_and_cascade_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_attribute_edges_agree_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_wrappers_preserve_their_active_field_domain"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_conditional_defaults_track_actual_writes"
             }
           ]
         },
@@ -5631,6 +5710,18 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_tree_put_law_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_wrappers_preserve_their_active_field_domain"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_conditional_defaults_track_actual_writes"
             }
           ]
         },
@@ -5706,7 +5797,9 @@
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
-            "panproto_reference::lens::put"
+            "panproto_reference::lens::put",
+            "panproto_reference::lens::check_graph_laws",
+            "panproto_reference::lens::check_laws_report"
           ],
           "due_gate": "phase3",
           "consumers": [
@@ -5721,6 +5814,18 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_lens_law_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_atomic_laws_agree_with_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::enumerate_lenses",
+              "test": "a_refused_positive_candidate_is_out_of_the_domain"
             }
           ]
         },
@@ -5842,6 +5947,54 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_table_get_put_law_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "undeclared_transform_stages_keep_every_original_source_as_a_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_table_functor_refusal_precedes_output_refusal"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::transform_declarations",
+              "test": "table_interpretations_declare_structured_transform_outputs"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::transform_declarations",
+              "test": "table_functor_refusals_precede_transform_outputs"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_table_contract",
+              "test": "transformed_cells_recompute_the_baseline_and_use_only_valid_inverses"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_table_contract",
+              "test": "schema_and_forward_stability_violations_are_accumulated_before_sorting"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_conditional_defaults_track_actual_writes"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_conditional_absent_cells_agree_at_table_get"
             }
           ]
         },
@@ -5965,6 +6118,18 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_path_fusion_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_paths_agree_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "declared_transform_fusion_boundaries_preserve_atomic_behavior"
             }
           ]
         },
@@ -6194,7 +6359,7 @@
             },
             {
               "section": "O12",
-              "clause": "B16(d) forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) forms, origins and units"
             },
             {
               "section": "O12",
@@ -6260,7 +6425,7 @@
             },
             {
               "section": "O12",
-              "clause": "B16(d) forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) forms, origins and units"
             },
             {
               "section": "O12",
@@ -6329,7 +6494,7 @@
             },
             {
               "section": "O12",
-              "clause": "B16(d) forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) forms, origins and units"
             },
             {
               "section": "O12",
@@ -6395,7 +6560,7 @@
             },
             {
               "section": "O12",
-              "clause": "B16(d) forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) forms, origins and units"
             },
             {
               "section": "O12",
@@ -6466,7 +6631,7 @@
             },
             {
               "section": "O12",
-              "clause": "B16(d) forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) forms, origins and units"
             },
             {
               "section": "O12",
@@ -6558,7 +6723,7 @@
           "contract": [
             {
               "section": "O12",
-              "clause": "B14b(d) text-identity law for Local and External sites; Referenced text deferred"
+              "clause": "B14b(d) text-identity law for Local and External sites"
             }
           ],
           "references": [
@@ -6602,7 +6767,7 @@
           "contract": [
             {
               "section": "O12",
-              "clause": "B16(d) injectivity law for forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) injectivity law for forms, origins and units"
             }
           ],
           "references": [
@@ -6631,7 +6796,7 @@
           "contract": [
             {
               "section": "O12",
-              "clause": "B16(d) left-inverse law for forms, origins and units; fragments and Span text deferred"
+              "clause": "B16(d) left-inverse law for forms, origins and units"
             }
           ],
           "references": [

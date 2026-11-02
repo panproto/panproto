@@ -122,6 +122,11 @@ impl<'a> GraphLens<'a> {
     /// Build a graph lens only when `plan` was compiled for these exact
     /// source and target schemas and migration.
     ///
+    /// The caller must satisfy the [`ValueLayer`] metadata contract: `m`
+    /// lists every possible output of `vl`, including inactive branches and
+    /// transient fields. Construction checks plan binding, not the behavior
+    /// of this opaque layer.
+    ///
     /// # Errors
     ///
     /// [`PlanError::SourceSchemaMismatch`] or

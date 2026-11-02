@@ -163,7 +163,7 @@ fn a_compose_report_is_empty_exactly_when_it_drops_nothing() {
 
 #[test]
 fn a_compose_report_renders_one_line_per_drop() {
-    assert!(ComposeReport::default().to_lines().is_empty());
+    assert_eq!(ComposeReport::default().to_lines(), Vec::<String>::new());
     assert_eq!(
         full_report().to_lines(),
         vec![

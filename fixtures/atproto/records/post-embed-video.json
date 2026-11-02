@@ -1,0 +1,24 @@
+{
+  "$type": "app.bsky.feed.post",
+  "createdAt": "2024-11-12T19:39:08.700Z",
+  "embed": {
+    "$type": "app.bsky.embed.video",
+    "alt": "An actress standing up at an awards ceremony",
+    "aspectRatio": {
+      "height": 698,
+      "width": 1074
+    },
+    "video": {
+      "$type": "blob",
+      "mimeType": "video/mp4",
+      "ref": {
+        "$link": "bafkreifdwmjnl7ociaajrfu4tkbble3cx5z3y4ma4q67ohptagnozmkqhi"
+      },
+      "size": 576816
+    }
+  },
+  "langs": [
+    "en"
+  ],
+  "text": "hello and welcome to the 1M people that have joined Bluesky in the last week!!!"
+}

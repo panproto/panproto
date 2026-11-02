@@ -337,8 +337,53 @@ mod tests {
 
     #[test]
     fn consistency_detects_value_corruption() {
-        let lens = value_corrupting_lens();
+        let mut lens = value_corrupting_lens();
         let instance = three_node_instance();
+        assert!(matches!(
+            crate::get(&lens, &instance),
+            Err(crate::LensError::Restrict(
+                panproto_inst::RestrictError::UndeclaredTransformField {
+                    source_vertex,
+                    target_vertex,
+                    field,
+                }
+            )) if source_vertex == "post:body.text"
+                && target_vertex == "post:body.text"
+                && field == "tag"
+        ));
+
+        let edge = panproto_schema::Edge {
+            src: "post:body.text".into(),
+            tgt: "post:body.text.tag".into(),
+            kind: "prop".into(),
+            name: Some("tag".into()),
+        };
+        lens.tgt_schema.vertices.insert(
+            edge.tgt.clone(),
+            panproto_schema::Vertex {
+                id: edge.tgt.clone(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        lens.tgt_schema
+            .edges
+            .insert(edge.clone(), edge.kind.clone());
+        lens.tgt_schema
+            .outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        lens.tgt_schema
+            .incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        lens.tgt_schema
+            .between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge);
         let mut edit_lens = EditLens::from_lens(lens, test_protocol());
         edit_lens.initialize(&instance).unwrap();
 

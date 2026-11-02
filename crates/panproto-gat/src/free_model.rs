@@ -944,7 +944,7 @@ mod tests {
     fn free_model_empty_theory() -> Result<(), Box<dyn std::error::Error>> {
         let theory = Theory::new("Empty", vec![Sort::simple("S")], vec![], vec![]);
         let model = free_model(&theory, &FreeModelConfig::default())?.model;
-        assert!(model.sort_interp["S"].is_empty());
+        assert_eq!(model.sort_interp["S"], []);
         Ok(())
     }
 
@@ -1056,8 +1056,8 @@ mod tests {
             vec![],
         );
         let model = free_model(&theory, &FreeModelConfig::default())?.model;
-        assert!(model.sort_interp["Vertex"].is_empty());
-        assert!(model.sort_interp["Edge"].is_empty());
+        assert_eq!(model.sort_interp["Vertex"], []);
+        assert_eq!(model.sort_interp["Edge"], []);
         Ok(())
     }
 
@@ -1437,7 +1437,7 @@ mod tests {
         // Two vertices at depth 0; src/tgt need an Edge which is empty.
         // So at any depth: Vertex = {v0, v1}, Edge = {}.
         assert_eq!(model.sort_interp["Vertex"].len(), 2);
-        assert!(model.sort_interp["Edge"].is_empty());
+        assert_eq!(model.sort_interp["Edge"], []);
         Ok(())
     }
 
@@ -1703,7 +1703,7 @@ mod tests {
             )],
         );
         let shallow = free_model(&theory, &depth(1))?;
-        assert!(carrier(&shallow, "Out").is_empty());
+        assert_eq!(carrier(&shallow, "Out"), Vec::<String>::new());
         assert!(!shallow.is_complete);
         let deeper = free_model(&theory, &depth(2))?;
         assert_eq!(carrier(&deeper, "Out"), ["use(mk())"]);
@@ -1800,7 +1800,7 @@ mod tests {
             )],
         );
         let result = free_model(&theory, &depth(2))?;
-        assert!(carrier(&result, "E").is_empty());
+        assert_eq!(carrier(&result, "E"), Vec::<String>::new());
         assert_eq!(carrier(&result, "T"), ["c()"]);
         Ok(())
     }

@@ -952,7 +952,7 @@ fn direct_edge_records_and_reader_slices_are_left_inverses_and_truncate() {
     assert_eq!(reader.position(), 0);
     assert_eq!(read_graph_edge(&mut reader), Some((11, edge)));
     assert!(reader.done());
-    assert!(reader.remaining().is_empty());
+    assert_eq!(reader.remaining(), []);
 
     let mut short = Reader::new(&writer.bytes[..writer.bytes.len() - 1]);
     assert_eq!(read_graph_edge(&mut short), None);
@@ -965,20 +965,97 @@ fn direct_edge_records_and_reader_slices_are_left_inverses_and_truncate() {
 }
 
 #[test]
+fn table_absence_segments_preserve_legacy_bytes_and_current_residue() {
+    let mut legacy = vec![1, 0, 1];
+    legacy.extend(vec![0; 7 * 8 + 8]);
+    assert_eq!(legacy.len(), 67);
+    assert!(AnyComplementSegment::from_canonical_bytes(&legacy).is_err());
+    assert_eq!(
+        segment::decode_legacy_table_complement_segment_bytes(&legacy),
+        Ok(TableComplementSegment::default())
+    );
+    let value = TableComplementSegment {
+        original_absent_cells: BTreeSet::from([(3, "f".to_owned())]),
+        floors: SegmentFloors { node: 4, edge: 0 },
+        ..TableComplementSegment::default()
+    };
+    let encoded = AnyComplementSegment::Table(value.clone())
+        .canonical_bytes()
+        .test_unwrap("absence encodes");
+    assert_eq!(&encoded[..3], &[2, 0, 1]);
+    assert_eq!(
+        AnyComplementSegment::from_canonical_bytes(&encoded),
+        Ok(AnyComplementSegment::Table(value.clone()))
+    );
+    assert!(segment::decode_legacy_table_complement_segment_bytes(&encoded).is_err());
+    let whole =
+        segment::assemble_table_complement(&[value.clone()]).test_unwrap("absence assembles");
+    assert_eq!(whole.original_absent_cells, value.original_absent_cells);
+    assert!(!value.residue_is_trivial());
+    assert!(!whole.residue_is_trivial());
+    assert_eq!(
+        AnyComplementSegment::Table(value.clone()).element_count(),
+        1
+    );
+    assert!(segment::assemble_table_complement(&[value.clone(), value]).is_err());
+}
+
+#[test]
+fn table_absence_segments_refuse_positive_source_residue_in_either_order() {
+    let cell = (3, "f".to_owned());
+    let absent = TableComplementSegment {
+        original_absent_cells: BTreeSet::from([cell.clone()]),
+        ..TableComplementSegment::default()
+    };
+    let present = [
+        TableComplementSegment {
+            original_cells: BTreeMap::from([(cell.clone(), Value::Int(0))]),
+            ..TableComplementSegment::default()
+        },
+        TableComplementSegment {
+            dropped_cells: BTreeMap::from([(cell, Value::Int(0))]),
+            ..TableComplementSegment::default()
+        },
+        TableComplementSegment {
+            dropped_rows: BTreeMap::from([(
+                3,
+                DroppedRow {
+                    table: "a".to_owned(),
+                    row: BTreeMap::from([("f".to_owned(), Value::Int(0))]),
+                },
+            )]),
+            ..TableComplementSegment::default()
+        },
+    ];
+    for mut present in present {
+        assert!(segment::assemble_table_complement(&[absent.clone(), present.clone()]).is_err());
+        assert!(segment::assemble_table_complement(&[present.clone(), absent.clone()]).is_err());
+        present
+            .original_absent_cells
+            .clone_from(&absent.original_absent_cells);
+        assert!(
+            AnyComplementSegment::Table(present)
+                .canonical_bytes()
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn typed_complement_segments_have_exact_empty_layouts_and_strict_left_inverses() {
     let graph = AnyComplementSegment::Graph(GraphComplementSegment::default());
     let table = AnyComplementSegment::Table(TableComplementSegment::default());
     let tree = AnyComplementSegment::Tree(TreeComplementSegment::default());
     let empty = [
-        (graph, 2_u8, 8_usize, 75_usize),
-        (table, 1_u8, 7_usize, 67_usize),
-        (tree, 0_u8, 9_usize, 83_usize),
+        (graph, 1_u8, 2_u8, 8_usize, 75_usize),
+        (table, 2_u8, 1_u8, 8_usize, 75_usize),
+        (tree, 1_u8, 0_u8, 9_usize, 83_usize),
     ];
-    for (value, tag, zero_counts, length) in empty {
+    for (value, version, tag, zero_counts, length) in empty {
         let bytes = value
             .canonical_bytes()
             .test_unwrap("empty complement encodes");
-        let mut expected = vec![1, 0, tag];
+        let mut expected = vec![version, 0, tag];
         expected.extend(vec![0; zero_counts * 8 + 8]);
         assert_eq!(expected.len(), length);
         assert_eq!(bytes, expected);
@@ -1089,7 +1166,7 @@ fn complement_encoders_reject_invalid_keys_orders_and_table_edge_floors() {
     let mut invalid_bytes = valid_table
         .canonical_bytes()
         .test_unwrap("empty table complement encodes");
-    let edge_floor = invalid_bytes.len() - 4;
+    let edge_floor = invalid_bytes.len() - 12;
     invalid_bytes[edge_floor] = 1;
     assert_eq!(
         AnyComplementSegment::from_canonical_bytes(&invalid_bytes),
@@ -1787,7 +1864,7 @@ fn a_failed_commit_is_an_incomplete_run_with_an_orphan_and_resumes() {
     );
     assert!(matches!(resumed.report.status, RunStatus::Complete { .. }));
     assert_eq!(resumed.value, Some(whole));
-    assert!(resumed.report.orphans.is_empty());
+    assert_eq!(resumed.report.orphans, []);
 }
 
 #[test]

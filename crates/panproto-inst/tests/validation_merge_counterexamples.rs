@@ -156,7 +156,7 @@ fn assert_countermodel(
         )
     };
     assert_eq!(validate(baseline).status, CheckStatus::Passed);
-    assert!(left.independence(right).is_empty());
+    assert_eq!(left.independence(right), []);
     for delta in [left, right] {
         let mut result = baseline.clone();
         delta.apply(&mut result)?;

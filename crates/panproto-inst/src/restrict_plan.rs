@@ -17,9 +17,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, Schema, ValueSpec};
+use panproto_schema::{Edge, Protocol, Schema, ValueSpec};
 use serde::{Deserialize, Serialize};
 
+use crate::attributes::AttributeSchema;
 use crate::contraction_plan::{
     ContractionPlan, PairResolution, UnresolvedReason, failing_hop, incoherent_label, remap,
     resolve_pair, survives,
@@ -35,8 +36,8 @@ use crate::value::coerce::coerce_value;
 use crate::value::{Value, ValueSite};
 use crate::view_ref::SynthKey;
 use crate::wtype::{
-    CompiledMigration, KeyTrack, TransformContext, apply_transforms_tracked, check_expansion,
-    direct_source_edge_image,
+    CompiledMigration, FieldTransform, KeyTrack, TransformContext, apply_transforms_tracked,
+    check_expansion, direct_source_edge_image,
 };
 
 /// An element of the source schema on which the survival rule of the
@@ -279,15 +280,27 @@ impl RestrictPlan {
     /// ([`panproto_schema::validate_declarations`]);
     /// [`RestrictError::IncoherentEdgeImage`] from [`EdgeImage::compile`];
     /// then [`RestrictError::IncoherentPairImage`] from
-    /// [`ContractionPlan::compile`].
+    /// [`ContractionPlan::compile`]; then
+    /// [`RestrictError::UndeclaredTransformField`] for a value transform
+    /// whose output is not a target attribute. Without a protocol,
+    /// attributes are the leaf edges of [`AttributeSchema::from_schema`].
     pub fn compile(
         src: &Schema,
         tgt: &Schema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
+        Self::compile_with_target_protocol(src, tgt, migration, &Protocol::default())
+    }
+
+    fn compile_with_target_protocol(
+        src: &Schema,
+        tgt: &Schema,
+        migration: &CompiledMigration,
+        protocol: &Protocol,
+    ) -> Result<Self, RestrictError> {
         panproto_schema::validate_declarations(src).map_err(RestrictError::SourceDeclarations)?;
         panproto_schema::validate_declarations(tgt).map_err(RestrictError::TargetDeclarations)?;
-        Ok(Self {
+        let plan = Self {
             src_schema: schema_digest(src),
             tgt_schema: schema_digest(tgt),
             edge_image: EdgeImage::compile(src, tgt, migration)?,
@@ -296,7 +309,9 @@ impl RestrictPlan {
             src: src.clone(),
             tgt: tgt.clone(),
             migration: migration.clone(),
-        })
+        };
+        validate_transform_outputs(tgt, migration, protocol)?;
+        Ok(plan)
     }
 
     /// The plan with its boundary layer: the cell layer when
@@ -312,7 +327,7 @@ impl RestrictPlan {
         migration: &CompiledMigration,
         protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        let mut plan = Self::compile(src, tgt, migration)?;
+        let mut plan = Self::compile_with_target_protocol(src, tgt, migration, protocols.tgt)?;
         let cells = match (
             RelSchema::new(src, protocols.src),
             RelSchema::new(tgt, protocols.tgt),
@@ -353,7 +368,7 @@ impl RestrictPlan {
         let source = RelSchema::new(src, protocols.src)?;
         let target = RelSchema::new(tgt, protocols.tgt)?;
         let functor = EntityFunctor::between(source.clone(), target.clone(), migration)?;
-        let mut plan = Self::compile(src, tgt, migration)?;
+        let mut plan = Self::compile_with_target_protocol(src, tgt, migration, protocols.tgt)?;
         plan.refuse_unrepresentable_on_tables()?;
         plan.refuse_disagreement(&functor, &source, &target)?;
         let cells = cell_plan(&plan, &source, &target, protocols);
@@ -386,7 +401,7 @@ impl RestrictPlan {
         let source = RelSchema::new(src, protocols.src)?;
         let target = RelSchema::new(tgt, protocols.tgt)?;
         let functor = EntityFunctor::between(source.clone(), target.clone(), migration)?;
-        let mut plan = Self::compile(src, tgt, migration)?;
+        let mut plan = Self::compile_with_target_protocol(src, tgt, migration, protocols.tgt)?;
         plan.refuse_unrepresentable_on_tables()?;
         let cells = cell_plan(&plan, &source, &target, protocols);
         plan.boundary = Some(BoundaryPlan {
@@ -530,6 +545,75 @@ impl RestrictPlan {
     #[must_use]
     pub(crate) fn table_functor(&self) -> Option<&EntityFunctor> {
         self.boundary.as_ref().and_then(|b| b.table.as_ref())
+    }
+}
+
+/// Check every possible top-level write, in source-anchor and transform
+/// order. A nested value is one attribute: only the path's first key is a
+/// field of the instance node. Branches are checked even when their
+/// predicate is false on a particular instance.
+fn validate_transform_outputs(
+    target: &Schema,
+    migration: &CompiledMigration,
+    protocol: &Protocol,
+) -> Result<(), RestrictError> {
+    let anchors = migration
+        .field_transforms
+        .keys()
+        .chain(migration.op_term_assignments.keys())
+        .collect::<BTreeSet<_>>();
+    if anchors.is_empty() {
+        return Ok(());
+    }
+    let attributes = AttributeSchema::from_schema(target, protocol);
+    for source_vertex in anchors {
+        if !survives(migration, source_vertex) {
+            continue;
+        }
+        let target_vertex = remap(migration, source_vertex);
+        let declared = attributes.for_vertex(target_vertex);
+        let mut writes = Vec::new();
+        let transforms = migration.value_transforms(source_vertex);
+        for transform in &transforms {
+            transform_output_fields(transform, &mut writes);
+        }
+        for field in writes {
+            if !declared.iter().any(|attribute| attribute.name == field) {
+                return Err(RestrictError::UndeclaredTransformField {
+                    source_vertex: source_vertex.clone(),
+                    target_vertex: target_vertex.clone(),
+                    field: field.to_owned(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn transform_output_fields<'a>(transform: &'a FieldTransform, fields: &mut Vec<&'a str>) {
+    match transform {
+        FieldTransform::RenameField { new_key, .. } => fields.push(new_key),
+        FieldTransform::AddField { key, .. } => fields.push(key),
+        FieldTransform::ApplyExpr { key, .. } if key != "__value__" => fields.push(key),
+        FieldTransform::ComputeField { target_key, .. } => fields.push(target_key),
+        FieldTransform::MapReferences { field, .. } => fields.push(field),
+        FieldTransform::PathTransform { path, inner } => {
+            if let Some(first) = path.first() {
+                fields.push(first);
+            } else {
+                transform_output_fields(inner, fields);
+            }
+        }
+        FieldTransform::Case { branches } => {
+            for branch in branches {
+                for inner in &branch.transforms {
+                    transform_output_fields(inner, fields);
+                }
+            }
+        }
+        FieldTransform::DropField { .. }
+        | FieldTransform::KeepFields { .. }
+        | FieldTransform::ApplyExpr { .. } => {}
     }
 }
 
@@ -1020,6 +1104,7 @@ impl RestrictError {
             Self::MalformedFan { .. } => 37,
             Self::SourceDeclarations(_) => 38,
             Self::TargetDeclarations(_) => 39,
+            Self::UndeclaredTransformField { .. } => 40,
         }
     }
 

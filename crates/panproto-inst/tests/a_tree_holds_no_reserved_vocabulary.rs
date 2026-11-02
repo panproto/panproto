@@ -109,7 +109,7 @@ fn a_tree_with_fans_and_no_reserved_vocabulary_is_accepted() {
         "doc".into(),
     )
     .expect("a valid tree is accepted");
-    assert!(wtype_check::reserved_vocabulary(&tree).is_empty());
+    assert_eq!(wtype_check::reserved_vocabulary(&tree), []);
 }
 
 #[test]

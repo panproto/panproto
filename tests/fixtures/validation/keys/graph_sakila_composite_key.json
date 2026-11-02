@@ -1293,6 +1293,38 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "actor.actor_id"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "actor.name"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "film"
           }
         },
@@ -1301,6 +1333,38 @@
           "requirement": "required",
           "instances": 2,
           "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film.film_id"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film.title"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
           "failed": 0,
           "incomplete": 0
         }
@@ -1325,6 +1389,38 @@
         {
           "kind": "attribute",
           "decl": {
+            "vertex": "film_actor.actor_id"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film_actor.film_id"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
             "vertex": "staff"
           }
         },
@@ -1333,6 +1429,38 @@
           "requirement": "required",
           "instances": 3,
           "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "staff.reports_to"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "staff.staff_id"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
           "failed": 0,
           "incomplete": 0
         }

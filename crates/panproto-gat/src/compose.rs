@@ -3656,7 +3656,7 @@ mod tests {
 
         let disc = TheoryDiagram::discrete(vec![("s", s), ("l", l)]);
         assert_eq!(disc.nodes.len(), 2);
-        assert!(disc.edges.is_empty());
+        assert_eq!(disc.edges, []);
         let json = serde_json::to_value(&disc)?;
         assert!(json.get("nodes").is_some() && json.get("edges").is_some());
         assert_eq!(serde_json::from_value::<TheoryDiagram>(json)?, disc);
@@ -3698,7 +3698,7 @@ mod tests {
         let c = compose(&same_name_span(), &amalgamate())?;
         assert_eq!(names(&c.theory.sorts, |s| &s.name), ["Label", "S", "X"]);
         assert_eq!(names(&c.theory.ops, |o| &o.name), ["f", "h"]);
-        assert!(c.report.freshened.is_empty());
+        assert_eq!(c.report.freshened, []);
         Ok(())
     }
 
@@ -4868,7 +4868,7 @@ mod tests {
         assert_eq!(errors.len(), tags.len());
         for (err, tag) in errors.iter().zip(tags) {
             round_trips(err, tag)?;
-            assert!(!err.to_string().is_empty());
+            assert_ne!(err.to_string(), "");
         }
         Ok(())
     }
@@ -5030,11 +5030,11 @@ mod tests {
             assert_eq!(outcomes, [&CheckOutcome::Passed], "{:?}", opts.mode);
             assert_eq!(c.report.status, CheckStatus::Passed, "{:?}", opts.mode);
         }
-        assert!(
-            !compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?
+        assert_ne!(
+            compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?
                 .report
-                .freshened
-                .is_empty()
+                .freshened,
+            []
         );
         // Under `Reject` the same clashes return no composition at all.
         let differ = equation_span(idempotent("ax", "x"), involutive("ax"));
@@ -6456,7 +6456,7 @@ mod tests {
         };
         let original: Vec<&CheckRecord> = c.report.checks.iter().filter(construction).collect();
         let kept: Vec<&CheckRecord> = report.checks.iter().filter(construction).collect();
-        assert!(!original.is_empty());
+        assert_ne!(original, Vec::<&CheckRecord>::new());
         assert_eq!(kept, original);
         Ok(())
     }

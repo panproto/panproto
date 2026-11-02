@@ -653,12 +653,11 @@ fn exhaustive_theory() -> (Theory, reference::Theory) {
     (production, oracle)
 }
 
-fn composition(
-    production_theory: Theory,
-    oracle_theory: reference::Theory,
-    production_mode: CompositionMode,
-    oracle_mode: reference::CompositionMode,
-) -> (Composition, reference::Composition) {
+/// The inclusion of the carrier node into each composite theory.
+fn inclusions(
+    production_theory: &Theory,
+    oracle_theory: &reference::Theory,
+) -> (TheoryMorphism, reference::Morphism) {
     let production_inclusion = TheoryMorphism::new(
         "incl_carrier",
         "CarrierNode",
@@ -694,7 +693,11 @@ fn composition(
             ),
         ]),
     };
+    (production_inclusion, oracle_inclusion)
+}
 
+/// The provenance of every carrier symbol in each composite theory.
+fn provenances() -> (Provenance, reference::Provenance) {
     let source = |name: &str| SymRef::new("CarrierNode", name);
     let oracle_source = |name: &str| reference::SymRef {
         node: "CarrierNode".to_owned(),
@@ -730,9 +733,14 @@ fn composition(
             op: oracle_source("derived"),
         },
     );
+    (production_provenance, oracle_provenance)
+}
 
-    let production_report = CompositionReport::new(
-        production_mode,
+/// A production report with one check of each kind and one freshening.
+fn production_report(mode: CompositionMode) -> CompositionReport {
+    let source = |name: &str| SymRef::new("CarrierNode", name);
+    CompositionReport::new(
+        mode,
         false,
         vec![
             CheckRecord {
@@ -818,9 +826,17 @@ fn composition(
             candidate: "clash".into(),
             result: "CarrierNode.clash".into(),
         }],
-    );
-    let oracle_report = reference::CompositionReport {
-        mode: oracle_mode,
+    )
+}
+
+/// The reference form of [`production_report`].
+fn oracle_report(mode: reference::CompositionMode) -> reference::CompositionReport {
+    let oracle_source = |name: &str| reference::SymRef {
+        node: "CarrierNode".to_owned(),
+        name: name.to_owned(),
+    };
+    reference::CompositionReport {
+        mode,
         status: reference::CheckStatus::Failed,
         name_clash_free: false,
         checks: vec![
@@ -907,19 +923,29 @@ fn composition(
             candidate: "clash".to_owned(),
             result: "CarrierNode.clash".to_owned(),
         }],
-    };
+    }
+}
+
+fn composition(
+    production_theory: Theory,
+    oracle_theory: reference::Theory,
+    production_mode: CompositionMode,
+    oracle_mode: reference::CompositionMode,
+) -> (Composition, reference::Composition) {
+    let (production_inclusion, oracle_inclusion) = inclusions(&production_theory, &oracle_theory);
+    let (production_provenance, oracle_provenance) = provenances();
     (
         Composition {
             theory: production_theory,
             inclusions: vec![production_inclusion],
             provenance: production_provenance,
-            report: production_report,
+            report: production_report(production_mode),
         },
         reference::Composition {
             theory: oracle_theory,
             inclusions: vec![oracle_inclusion],
             provenance: oracle_provenance,
-            report: oracle_report,
+            report: oracle_report(oracle_mode),
         },
     )
 }

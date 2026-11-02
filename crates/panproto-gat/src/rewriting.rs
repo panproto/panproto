@@ -817,7 +817,7 @@ mod tests {
         let theory = trivial_theory(vec![r1, r2]);
         let report = validate_rewrite_system(&theory)?;
         assert!(!report.is_sound());
-        assert!(!report.warnings().is_empty());
+        assert_ne!(report.warnings(), Vec::<String>::new());
         Ok(())
     }
 

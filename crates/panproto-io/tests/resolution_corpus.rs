@@ -17,9 +17,9 @@ use panproto_io::resolution::{
 };
 use panproto_lens::{Mutation, SkipReason};
 use panproto_schema::{
-    Cardinality, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope, OffsetUnit,
+    Cardinality, Edge, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope, NullMatch, OffsetUnit,
     OnUnresolved, PathSyntax, Protocol, RefSource, RefTextSource, Reference, ResolveMode, Schema,
-    SchemaBuilder,
+    SchemaBuilder, SpanEnd, VariableBinding,
 };
 
 // ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ fn reference(
         on_unresolved: OnUnresolved::Error,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     }
@@ -461,7 +461,7 @@ fn a_tree_resolves_each_key_reference_to_one_edge() {
         &ResolveContext::empty(),
     )
     .expect("the five laws hold");
-    assert!(!report.ran.is_empty());
+    assert_ne!(report.ran, []);
 }
 
 #[test]
@@ -1128,7 +1128,7 @@ fn aliases_schema(alter: impl FnOnce(&mut Reference)) -> Aliases {
         RefSource::Variable {
             field: Vec::new(),
             binder_key: "anchor".into(),
-            binding: Default::default(),
+            binding: VariableBinding::default(),
         },
         "node",
         alias_of.clone(),
@@ -1410,7 +1410,7 @@ fn variables_schema() -> Variables {
         RefSource::Variable {
             field: vec![var.clone()],
             binder_key: "var".into(),
-            binding: Default::default(),
+            binding: VariableBinding::default(),
         },
         "concept",
         reentrancy.clone(),
@@ -2600,7 +2600,7 @@ fn notes_schema(declarations: &[Standoff]) -> Notes {
                 end: vec![prop("note", "offset", declaration.end)],
                 unit: declaration.unit.clone(),
                 end_inclusive: declaration.end_inclusive,
-                end_form: Default::default(),
+                end_form: SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             },
@@ -3772,7 +3772,7 @@ fn orders_schema(many: bool) -> Orders {
                 end: vec![prop("order", "num", "end")],
                 unit: OffsetUnit::Byte,
                 end_inclusive: false,
-                end_form: Default::default(),
+                end_form: SpanEnd::default(),
                 origin: 0,
                 fragments: None,
             },
@@ -4168,7 +4168,7 @@ fn check_put_domain_reports_an_unreadable_occurrence_beside_other_violations() {
     let respanned = violations_of(&resolution, &moved, &complement, &ctx());
     let unplaced = violations_of(&resolution, &stray, &complement, &ctx());
     for found in [&out_of_range, &respanned, &unplaced] {
-        assert!(!found.is_empty());
+        assert_ne!(found.as_slice(), []);
     }
     assert!(
         out_of_range
@@ -6581,7 +6581,7 @@ fn a_fan_naming_two_redirected_holders_is_kept_once() {
         .expect("remove the second post's reference");
     let restored = put_tree(&resolution, &edited, &complement).expect("admitted");
     assert!(!restored.nodes.contains_key(&7));
-    assert!(restored.fans.is_empty());
+    assert_eq!(restored.fans, []);
 }
 
 #[test]
@@ -7485,7 +7485,10 @@ fn put_twice_is_checked_where_put_get_holds_up_to_presentation() {
     // pick's (row 11), so get re-allocates the existing occurrence's id.
     let candidate = production_edit(&view, &model_view, &picked, model::Edit::Add(0));
     let existing = pick_edges(&view, &picked)[&pick_row(1)];
-    assert!(violations_of(&resolution, &candidate, &complement, &ctx()).is_empty());
+    assert_eq!(
+        violations_of(&resolution, &candidate, &complement, &ctx()),
+        []
+    );
     let once = resolution
         .put(&AnyInstance::Graph(candidate.clone()), &complement, &ctx())
         .expect("admitted");
@@ -8184,8 +8187,8 @@ fn a_table_route_serves_the_table_entry_points() {
     let native = registry
         .parse_table("listing", &syntactic, b"plain")
         .expect("the native codec");
-    assert!(!native.rows("cell").is_empty());
-    assert!(native.rows("entry").is_empty());
+    assert_ne!(native.rows("cell"), []);
+    assert_eq!(native.rows("entry"), []);
     let native_bytes = registry
         .emit_table("listing", &syntactic, &native)
         .expect("the native codec");

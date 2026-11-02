@@ -615,7 +615,7 @@ fn incomplete_reason_round_trips_every_variant() -> TestResult {
     assert_eq!(reasons.len(), 9);
     for r in &reasons {
         round_trip(r)?;
-        assert!(!r.to_string().is_empty());
+        assert_ne!(r.to_string(), "");
         round_trip(&i(CheckKind::Acyclic, Requirement::Required, r.clone()))?;
     }
     Ok(())
@@ -1739,7 +1739,7 @@ fn a_pattern_with_lookahead_is_ill_formed() {
         &none(),
     );
     assert_eq!(report.status, CheckStatus::Incomplete);
-    assert!(!report.incomplete.is_empty());
+    assert_ne!(report.incomplete, []);
 }
 
 #[test]
@@ -1915,7 +1915,7 @@ fn annotated_formats_are_advisory_and_width_formats_use_exact_coercion() {
             .keys()
             .all(|key| !matches!(key.decl, SchemaRef::Constraint { .. }))
     );
-    assert!(plan.static_findings().is_empty());
+    assert_eq!(plan.static_findings(), []);
 }
 
 #[test]
@@ -2073,7 +2073,7 @@ fn lexical_space_unknown_tag_is_advisory_and_preserves_passed_status() {
 
     let report = unknown_plan.validate_graph(&GInstance::new(), &unlimited(), &none());
     assert_eq!(report.status, CheckStatus::Passed);
-    assert!(report.diagnostics.is_empty());
+    assert_eq!(report.diagnostics, []);
     assert_eq!(report.incomplete, [expected]);
     assert!(
         report
@@ -2115,7 +2115,7 @@ fn lexical_space_ambiguous_tag_remains_a_required_declaration_failure() {
     let report = ambiguous_plan.validate_graph(&GInstance::new(), &unlimited(), &none());
 
     assert_eq!(report.status, CheckStatus::Incomplete);
-    assert!(report.diagnostics.is_empty());
+    assert_eq!(report.diagnostics, []);
     let reason = IncompleteReason::IllFormedDeclaration {
         detail: "lexical_space = \"datatype\" names more than one edge leaving literal".to_owned(),
     };
@@ -2169,7 +2169,7 @@ fn annotation_and_value_parameter_compile_to_no_check() {
         "{:?}",
         plan.checks().keys().collect::<Vec<_>>()
     );
-    assert!(plan.static_findings().is_empty());
+    assert_eq!(plan.static_findings(), []);
 }
 
 #[test]
@@ -2291,7 +2291,7 @@ fn static_findings_appear_in_every_report_of_the_plan() {
         .constraint("a", "mystery", "1")
         .build();
     let plan = plan(&schema, &Protocol::default());
-    assert!(!plan.static_findings().is_empty());
+    assert_ne!(plan.static_findings(), []);
     let tree = WInstance::new(
         HashMap::from([(0, str_node(0, "a", "x"))]),
         vec![],
@@ -3399,7 +3399,7 @@ fn fan_edges_are_checked_against_hyper_edges_not_schema_edges() {
             }
         )]
     );
-    assert!(of_kind(&report, CheckKind::NodeAnchor).is_empty());
+    assert_eq!(of_kind(&report, CheckKind::NodeAnchor), []);
 }
 
 #[test]
@@ -4303,7 +4303,7 @@ fn external_verdicts_missing_and_rejected() {
     );
     let report = plan.validate_graph(&graph, &unlimited(), &verdicts);
     assert_eq!(report.status, CheckStatus::Incomplete);
-    assert!(!report.incomplete.is_empty());
+    assert_ne!(report.incomplete, []);
 }
 
 #[test]
@@ -4674,7 +4674,7 @@ fn a_fan_of_an_undeclared_hyper_edge_is_one_malformed_fan_in_every_shape() {
                 .all(|(subject, _)| subject != &Some(ViewRef::Node(fan_node))),
             "{graph_report:?}"
         );
-        assert!(of_kind(&graph_report, CheckKind::NodeAnchor).is_empty());
+        assert_eq!(of_kind(&graph_report, CheckKind::NodeAnchor), []);
         let anchors = report_key(&graph_report, CheckKind::NodeAnchor);
         assert_eq!(graph_report.coverage[&anchors].instances, 2);
         assert_eq!(tree_report.status, CheckStatus::Failed);
@@ -5119,7 +5119,7 @@ fn a_sibling_variant_is_not_an_endpoint_of_its_siblings_edge() {
         .with_edge(0, 1, prop("root", "u", "y"))
         .with_edge(0, 2, prop("root", "a", "x"));
     let report = validate_graph(&graph, &schema, &Protocol::default());
-    assert!(of_kind(&report, CheckKind::EndpointCoherence).is_empty());
+    assert_eq!(of_kind(&report, CheckKind::EndpointCoherence), []);
 }
 
 #[test]

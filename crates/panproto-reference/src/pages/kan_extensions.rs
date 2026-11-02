@@ -6938,7 +6938,8 @@ pub mod migration {
     //! The value layer (survival predicates, field transforms, op-term
     //! assignments) is evaluated by the expression language, which the
     //! reference does not re-implement: a migration records only which source
-    //! vertices carry a survival predicate and which carry transforms, and the
+    //! vertices carry a survival predicate, which carry transforms, and the
+    //! ordered field names those transforms may write. The
     //! operations that evaluate them take a [`crate::restrict::ValueLayer`]
     //! supplied by the caller.
 
@@ -6971,6 +6972,14 @@ pub mod migration {
         pub conditional: BTreeSet<Name>,
         /// Source vertices with field transforms or op-term assignments.
         pub transformed: BTreeSet<Name>,
+        /// Every possible written field in execution order, keyed by source anchor.
+        ///
+        /// Deletions and assignments to a node's own scalar value contribute
+        /// no field. A nested write names its outermost attribute; every
+        /// conditional branch contributes its possible writes. This metadata
+        /// is supplied with the opaque value layer rather than inferred from
+        /// an instance or obtained by executing the layer.
+        pub output_fields: BTreeMap<Name, Vec<Name>>,
     }
 
     impl Migration {

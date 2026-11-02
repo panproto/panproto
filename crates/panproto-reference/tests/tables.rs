@@ -161,6 +161,7 @@ fn a_transformed_cell_is_restored_through_the_value_layer() {
         surviving_verts: s.vertices.keys().cloned().collect(),
         surviving_edges: s.edges.clone(),
         transformed: ["t".to_owned()].into(),
+        output_fields: [("t".to_owned(), vec!["a".to_owned()])].into(),
         ..Migration::default()
     };
     let tp = table::compile_for_tables(&s, &s, &rs, &rs, &m).unwrap();

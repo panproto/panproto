@@ -6,8 +6,8 @@ use panproto_check::classify::{BreakingChange, NonBreakingChange, classify};
 use panproto_check::diff::{KeyChange, ReferenceChange, SchemaDiff, diff};
 use panproto_gat::Name;
 use panproto_schema::{
-    Cardinality, Edge, Key, KeyPart, KeyRole, KeyScope, OnUnresolved, Protocol, RefSource,
-    Reference, ResolveMode, Schema, SchemaBuilder,
+    Cardinality, Edge, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, Protocol,
+    RefSource, Reference, ResolveMode, Schema, SchemaBuilder,
 };
 
 fn protocol() -> Protocol {
@@ -75,7 +75,7 @@ fn store_film(cardinality: Cardinality, nullable: bool, on_unresolved: OnUnresol
         on_unresolved,
         mode: ResolveMode::AddEdge,
         guard: None,
-        null_match: Default::default(),
+        null_match: NullMatch::default(),
         null_vertex: None,
         scope_via: None,
     }

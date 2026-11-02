@@ -1482,7 +1482,7 @@ mod tests {
             };
             let on_table: Vec<_> = on_table.iter().map(key).collect();
             let on_graph: Vec<_> = on_graph.iter().map(key).collect();
-            assert!(!on_table.is_empty());
+            assert_ne!(on_table, []);
             assert_eq!(on_table, on_graph, "query {query:?}");
         }
     }

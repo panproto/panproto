@@ -1037,13 +1037,11 @@ fn target_set_members_need_a_well_formed_equality_and_a_resolving_role() {
 
 #[test]
 fn target_sets_match_on_the_complete_local_predicate() {
+    let target = |holder: &str, key: &str| (holder.to_owned(), key.to_owned());
     let cases = [
         (
             "compatible",
-            vec![
-                ("a".to_owned(), "id".to_owned()),
-                ("b".to_owned(), "id".to_owned()),
-            ],
+            vec![target("a", "id"), target("b", "id")],
             Some(true),
             Vec::new(),
         ),
@@ -1055,61 +1053,43 @@ fn target_sets_match_on_the_complete_local_predicate() {
         ),
         (
             "duplicate",
-            vec![
-                ("a".to_owned(), "id".to_owned()),
-                ("a".to_owned(), "id".to_owned()),
-            ],
+            vec![target("a", "id"), target("a", "id")],
             Some(false),
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),
         (
             "arity mismatch",
-            vec![
-                ("a".to_owned(), "id".to_owned()),
-                ("b".to_owned(), "two".to_owned()),
-            ],
+            vec![target("a", "id"), target("b", "two")],
             Some(false),
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),
         (
             "equality mismatch",
-            vec![
-                ("a".to_owned(), "id".to_owned()),
-                ("b".to_owned(), "representation".to_owned()),
-            ],
+            vec![target("a", "id"), target("b", "representation")],
             Some(false),
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),
         (
             "implicit and explicit representation",
-            vec![
-                ("a".to_owned(), "implicit".to_owned()),
-                ("b".to_owned(), "explicit".to_owned()),
-            ],
+            vec![target("a", "implicit"), target("b", "explicit")],
             Some(true),
             Vec::new(),
         ),
         (
             "absent key",
-            vec![("missing".to_owned(), "id".to_owned())],
+            vec![target("missing", "id")],
             None,
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),
         (
             "scope mismatch",
-            vec![
-                ("a".to_owned(), "id".to_owned()),
-                ("c".to_owned(), "scoped".to_owned()),
-            ],
+            vec![target("a", "id"), target("c", "scoped")],
             Some(true),
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),
         (
             "invalid first member does not anchor the signature",
-            vec![
-                ("c".to_owned(), "scoped".to_owned()),
-                ("b".to_owned(), "two".to_owned()),
-            ],
+            vec![target("c", "scoped"), target("b", "two")],
             Some(false),
             vec![DeclarationClass::TargetSetMemberMismatch],
         ),

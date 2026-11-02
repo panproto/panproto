@@ -399,6 +399,22 @@
       ],
       [
         {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "item"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 4,
+          "passed": 4,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
           "kind": "acyclic",
           "decl": {
             "constraint": {

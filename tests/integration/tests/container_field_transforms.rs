@@ -103,10 +103,39 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
     }
 }
 
-/// A single-vertex schema. The container fields ride in `extra_fields`,
-/// which is where a lexicon-parsed array or nested object lands.
+/// A record with declared container inputs and optional transform outputs.
 fn record_schema() -> Schema {
-    make_schema(&[("rec", "object")], &[])
+    let fields = [
+        ("nums", "unknown"),
+        ("objs", "unknown"),
+        ("nested", "unknown"),
+        ("tags", "unknown"),
+        ("out", "unknown"),
+        ("big", "unknown"),
+        ("regrouped", "unknown"),
+        ("total", "integer"),
+        ("copy", "integer"),
+        ("matched", "boolean"),
+    ];
+    let mut vertices = vec![("rec".to_owned(), "object")];
+    let mut edges = Vec::new();
+    for (field, kind) in fields {
+        let target = format!("rec.{field}");
+        vertices.push((target.clone(), kind));
+        edges.push(Edge {
+            src: "rec".into(),
+            tgt: target.into(),
+            kind: "prop".into(),
+            name: Some(field.into()),
+        });
+    }
+    make_schema(
+        &vertices
+            .iter()
+            .map(|(id, kind)| (id.as_str(), *kind))
+            .collect::<Vec<_>>(),
+        &edges,
+    )
 }
 
 /// The record from the reported reproduction: a scalar array, an array
@@ -117,8 +146,13 @@ fn record_instance(schema: &Schema) -> WInstance {
         "objs": [{ "a": 1, "b": 10 }, { "a": 2, "b": 20 }],
         "nested": { "a": 7, "b": 70 },
     });
-    parse_json(schema, &panproto_schema::Protocol::default(), "rec", &json)
-        .expect("parse should succeed")
+    parse_json(
+        schema,
+        &panproto_protocols::atproto::protocol(),
+        "rec",
+        &json,
+    )
+    .expect("parse should succeed")
 }
 
 /// Parse an expression from source text, as a lens document carries it.
@@ -321,10 +355,9 @@ fn a_failing_transform_reports_rather_than_no_opping() {
 
     let err = restrict(&instance, &schema, &migration)
         .expect_err("an unevaluable transform must fail the restrict");
-    let msg = err.to_string();
     assert!(
-        msg.contains("out"),
-        "the error should name the offending field, got: {msg}"
+        matches!(err, RestrictError::FieldTransformFailed { key, .. } if key == "out"),
+        "the declared output reaches expression evaluation"
     );
 }
 
@@ -334,8 +367,13 @@ fn membership_predicate_reads_a_list_field() {
     // use the old joined-string conversion existed to serve.
     let schema = record_schema();
     let json = serde_json::json!({ "tags": ["alpha", "beta"] });
-    let instance = parse_json(&schema, &panproto_schema::Protocol::default(), "rec", &json)
-        .expect("parse should succeed");
+    let instance = parse_json(
+        &schema,
+        &panproto_protocols::atproto::protocol(),
+        "rec",
+        &json,
+    )
+    .expect("parse should succeed");
 
     let mut field_transforms = HashMap::new();
     field_transforms.insert(

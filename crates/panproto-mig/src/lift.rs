@@ -1495,8 +1495,8 @@ mod tests {
     /// references refused.
     fn referencing_schema() -> Schema {
         use panproto_schema::{
-            Cardinality, Key, KeyPart, KeyRole, KeyScope, OnUnresolved, RefSource, Reference,
-            ResolveMode,
+            Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
+            Reference, ResolveMode,
         };
         let mut schema = table_schema(&[("u", &["tag"]), ("w", &["name"])]);
         let column = |table: &str, name: &str| Edge {
@@ -1529,7 +1529,7 @@ mod tests {
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
             guard: None,
-            null_match: Default::default(),
+            null_match: NullMatch::default(),
             null_vertex: None,
             scope_via: None,
         });

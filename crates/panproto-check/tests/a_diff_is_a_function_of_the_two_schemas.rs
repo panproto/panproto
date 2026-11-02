@@ -309,7 +309,7 @@ fn the_fixture_exercises_every_ordered_category() {
         .values()
         .next()
         .unwrap_or_else(|| panic!("a required-edge diff"));
-    assert!(!required.is_empty());
+    assert_ne!(required.as_slice(), []);
 }
 
 #[test]

@@ -29,14 +29,15 @@ use crate::value::Value;
 
 const SCHEMA_CONTEXT: &str = "panproto 2026-09 schema identity v2";
 const TABLE_LENS_CONTEXT: &str = "panproto 2026-09 compiled table lens identity v2";
-const FUNCTOR_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+const FUNCTOR_COMPLEMENT_FORMAT_VERSION: u16 = 2;
 
 /// Canonical bytes of every semantic field in the finite reference
 /// migration.
 ///
 /// This is the reference model's analogue of production's compiled-
 /// migration encoding. Field tags fix the record layout, maps and sets are
-/// already in key order, and vectors retain their semantic order.
+/// already in key order, and vectors retain their semantic order. Nonempty
+/// output metadata is a framed extension; empty metadata preserves prior bytes.
 #[must_use]
 pub fn canonical_migration_bytes(migration: &Migration) -> Vec<u8> {
     let mut writer = Writer::default();
@@ -113,6 +114,18 @@ pub fn canonical_migration_bytes(migration: &Migration) -> Vec<u8> {
     writer.len(migration.transformed.len());
     for vertex in &migration.transformed {
         writer.str(vertex);
+    }
+
+    if !migration.output_fields.is_empty() {
+        writer.tag(9);
+        writer.len(migration.output_fields.len());
+        for (vertex, fields) in &migration.output_fields {
+            writer.str(vertex);
+            writer.len(fields.len());
+            for field in fields {
+                writer.str(field);
+            }
+        }
     }
 
     writer.bytes
@@ -372,12 +385,14 @@ fn cell_writer(fates: &[CellFate], target: &str) -> Option<String> {
     (!has_fate).then(|| target.to_owned())
 }
 
-/// Definition: Compile the table plan by the restrict plan, entity functor,
+/// Definition: Compile the table plan by the entity functor, restrict plan,
 /// table-representability and survival-agreement checks, then cell fates.
 ///
-/// The restrict plan, the entity functor, the refusal of expansions and hyper-edge resolution, the
-/// agreement check of the two survival rules (tables ascending, then relations and attribute arrows
-/// of tables both keep, ascending), and the cell fates.
+/// The relational boundaries have already been classified by the caller.
+/// The entity functor precedes base-plan validation, followed by the refusal
+/// of expansions and hyper-edge resolution, agreement of the two survival
+/// rules (tables ascending, then kept relations and attribute arrows), and
+/// the cell fates.
 ///
 /// # Errors
 ///
@@ -391,9 +406,15 @@ pub fn compile_for_tables(
     rt: &RelSchema,
     m: &Migration,
 ) -> Result<TablePlan, TablePlanError> {
-    let plan = restrict::compile(src, tgt, m).map_err(|e| TablePlanError::Plan(Box::new(e)))?;
     let entity = entity_functor(rs, rt, m).map_err(|e| TablePlanError::Functor(Box::new(e)))?;
     let functor = entity.table_part().clone();
+    let columns = rt
+        .columns
+        .iter()
+        .map(|(table, columns)| (table.clone(), columns.keys().cloned().collect()))
+        .collect();
+    let plan = restrict::compile_with_columns(src, tgt, m, &columns)
+        .map_err(|e| TablePlanError::Plan(Box::new(e)))?;
     let expands = plan
         .fates
         .values()
@@ -500,6 +521,8 @@ pub struct TableComplement {
     pub id_floor: u32,
     /// The envelope binding the complement to its lens.
     pub identity: Option<IdentityEnvelope>,
+    /// Declared source cells absent before get and present in its view.
+    pub original_absent_cells: BTreeSet<(u32, String)>,
 }
 
 impl TableComplement {
@@ -507,7 +530,7 @@ impl TableComplement {
     ///
     /// The reference carrier is not serialized, so this list is the public
     /// layout contract against which differential tests pin the declaration.
-    pub const FIELD_ORDER: [&'static str; 9] = [
+    pub const FIELD_ORDER: [&'static str; 10] = [
         "dropped_rows",
         "dropped_cells",
         "dropped_fk_pairs",
@@ -517,6 +540,7 @@ impl TableComplement {
         "synthesized_fk_pairs",
         "id_floor",
         "identity",
+        "original_absent_cells",
     ];
 
     /// The complement of nothing: empty residue and bookkeeping, floor zero,
@@ -533,6 +557,7 @@ impl TableComplement {
             synthesized_fk_pairs: BTreeSet::new(),
             id_floor: 0,
             identity: None,
+            original_absent_cells: BTreeSet::new(),
         }
     }
 
@@ -554,6 +579,7 @@ impl TableComplement {
             && self.original_fk_edges.is_empty()
             && self.original_tables.is_empty()
             && self.original_cells.is_empty()
+            && self.original_absent_cells.is_empty()
     }
 
     /// Row ids unavailable for new view rows because they name hidden rows.
@@ -742,6 +768,17 @@ fn get_with_identity(
                 Some(_) => {}
             }
         }
+        for col in tp
+            .source_boundary()
+            .columns
+            .get(stable)
+            .into_iter()
+            .flat_map(|columns| columns.keys())
+        {
+            if !source_cells.contains_key(col) && cells.contains_key(col) {
+                comp.original_absent_cells.insert((*id, col.clone()));
+            }
+        }
     }
     for (id, node) in &gc.dropped_nodes {
         comp.dropped_rows.insert(
@@ -890,6 +927,11 @@ impl<'a> TableLens<'a> {
     /// Build a table lens only when its table plan was compiled for these
     /// exact source and target schemas and migration.
     ///
+    /// The caller must satisfy the [`ValueLayer`] metadata contract: `m`
+    /// lists every possible output of `vl`, including inactive branches and
+    /// transient fields. Construction checks plan binding, not the behavior
+    /// of this opaque layer.
+    ///
     /// # Errors
     ///
     /// [`PlanError::SourceSchemaMismatch`] or
@@ -937,6 +979,8 @@ impl<'a> TableLens<'a> {
 
     /// Build a table lens only for the exact source and target relational
     /// boundaries through which its plan compiled.
+    ///
+    /// The complete output metadata obligation is the same as [`Self::new`].
     ///
     /// # Errors
     ///
@@ -1028,8 +1072,8 @@ impl TableLens<'_> {
     }
 
     /// The baseline source cells of a row: each column of its source table
-    /// from the complement's dropped or original cell, else the same-named
-    /// view cell.
+    /// omitted when recorded absent, otherwise from the complement's dropped
+    /// or original cell, else the same-named view cell.
     fn baseline(
         &self,
         comp: &TableComplement,
@@ -1046,6 +1090,9 @@ impl TableLens<'_> {
             .flat_map(|cs| cs.keys())
         {
             let key = (row, col.clone());
+            if comp.original_absent_cells.contains(&key) {
+                continue;
+            }
             if let Some(val) = comp
                 .dropped_cells
                 .get(&key)

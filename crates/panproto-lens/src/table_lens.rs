@@ -15,9 +15,9 @@ use panproto_inst::{
     BoundaryProtocols, CellFate, CellPlan, CheckKind, EntityFunctor, FInstance, FieldTransform,
     IdAllocator, IdRange, IncompleteReason, InstError, KeyRefusal, PairResolution,
     PredicateRefusal, PutDomainError, RestrictError, RestrictPlan, Row, RowId, SchemaRef,
-    TableComplement, Value, ViewRef, Violation, functor_restrict_with_plan, validate_table,
+    TableComplement, Value, ViewRef, Violation, functor_restrict_finite_with_plan, validate_table,
 };
-use panproto_schema::{ConstraintValue, Edge, Protocol, ScalarKind, Schema};
+use panproto_schema::{ConstraintValue, Edge, Protocol, Schema};
 
 use crate::asymmetric::{
     ComplementCompose, apply_inverse_transforms, propagate_view_edits_through_inverse, value_equiv,
@@ -39,8 +39,7 @@ pub fn get(
     source: &FInstance,
     protocols: BoundaryProtocols<'_>,
 ) -> Result<(FInstance, TableComplement), LensError> {
-    let source_protocol = protocols.src;
-    Bound::compile(lens, protocols)?.get(source, source_protocol)
+    Bound::compile(lens, protocols)?.get(source)
 }
 
 /// A table lens paired with the restrict plan compiled for one boundary.
@@ -71,13 +70,8 @@ impl<'a> Bound<'a> {
         })
     }
 
-    fn get(
-        &self,
-        source: &FInstance,
-        source_protocol: &Protocol,
-    ) -> Result<(FInstance, TableComplement), LensError> {
-        let (view, mut complement) =
-            restrict_finite_rows(self.lens, source, &self.plan, source_protocol)?;
+    fn get(&self, source: &FInstance) -> Result<(FInstance, TableComplement), LensError> {
+        let (view, mut complement) = functor_restrict_finite_with_plan(source, &self.plan)?;
         complement.stamp(
             self.lens.identity(ComplementShape::Functor),
             &self.lens.src_schema,
@@ -333,6 +327,7 @@ pub fn put_checked(
         &lens.identity(ComplementShape::Functor),
         policy,
     )?;
+    validate_absence_residue(complement)?;
     let plan = compile(lens, protocols)?;
     let source =
         check_and_restore(lens, view, complement, protocols.src, &plan).map_err(first_put_error)?;
@@ -1083,16 +1078,9 @@ fn check_and_restore(
     let mut found = id_collisions(view, complement);
     found.extend(synthesized_edits(view, complement));
     let mut restored = None;
-    match restore_with_plan(lens, view, complement, source_protocol, plan) {
+    match restore_with_plan(lens, view, complement, plan) {
         Ok(source) => {
-            found.extend(forward_stability(
-                lens,
-                view,
-                complement,
-                &source,
-                source_protocol,
-                plan,
-            ));
+            found.extend(forward_stability(lens, view, complement, &source, plan));
             found.extend(schema_violations(
                 &source,
                 &lens.src_schema,
@@ -1172,6 +1160,10 @@ impl ComplementCompose for TableComplement {
             value_equiv,
         )?;
         result
+            .original_absent_cells
+            .extend(other.original_absent_cells.iter().cloned());
+        validate_absence_residue(&result)?;
+        result
             .synthesized_fk_pairs
             .extend(other.synthesized_fk_pairs.iter().cloned());
         result.id_floor = result.id_floor.max(other.id_floor);
@@ -1182,6 +1174,25 @@ impl ComplementCompose for TableComplement {
     fn is_compatible(&self, other: &Self) -> bool {
         self.compose(other).is_ok()
     }
+}
+
+/// An original cell cannot simultaneously be absent and hold source data.
+pub(crate) fn validate_absence_residue(complement: &TableComplement) -> Result<(), LensError> {
+    for key @ (row, column) in &complement.original_absent_cells {
+        if complement.dropped_cells.contains_key(key)
+            || complement.original_cells.contains_key(key)
+            || complement
+                .dropped_rows
+                .get(row)
+                .is_some_and(|dropped| dropped.row.contains_key(column))
+        {
+            return Err(LensError::ComplementConflict {
+                kind: "original_absent_cells",
+                key: format!("{key:?}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Compose two table lenses, fusing only when all three table plans compile.
@@ -1392,7 +1403,6 @@ fn restore_with_plan(
     lens: &Lens,
     view: &FInstance,
     complement: &TableComplement,
-    source_protocol: &Protocol,
     plan: &RestrictPlan,
 ) -> Result<FInstance, Vec<PutDomainError>> {
     let Some(boundary) = &plan.boundary else {
@@ -1410,8 +1420,12 @@ fn restore_with_plan(
         return Err(errors);
     }
 
-    let baseline_view = match restrict_finite_rows(lens, &source, plan, source_protocol) {
+    let baseline_view = match functor_restrict_finite_with_plan(&source, plan) {
         Ok((baseline, _)) => baseline,
+        Err(error) => return Err(refusal_from_restrict(error)),
+    };
+    let traces = match table_transform_traces(lens, &source, &baseline_view) {
+        Ok(traces) => traces,
         Err(error) => return Err(refusal_from_restrict(error)),
     };
     errors.extend(pull_changed_rows(
@@ -1420,6 +1434,7 @@ fn restore_with_plan(
         &baseline_view,
         functor,
         cells,
+        &traces,
         &mut source,
     ));
     if errors.is_empty() {
@@ -1472,6 +1487,9 @@ fn restore_rows(
         let mut row = Row::new();
         for column in columns.keys() {
             let key = (id, column.clone());
+            if complement.original_absent_cells.contains(&key) {
+                continue;
+            }
             if let Some(value) = complement
                 .dropped_cells
                 .get(&key)
@@ -1483,6 +1501,10 @@ fn restore_rows(
         }
         let recorded = complement.dropped_cells.keys().any(|(row, _)| *row == id)
             || complement.original_cells.keys().any(|(row, _)| *row == id)
+            || complement
+                .original_absent_cells
+                .iter()
+                .any(|(row, _)| *row == id)
             || complement.original_tables.contains_key(&id);
         if !(recorded || id.0 < complement.id_floor) {
             let source_columns = columns.keys().cloned().collect();
@@ -1499,6 +1521,7 @@ fn restore_rows(
                 PullRowOptions {
                     removed_targets: &[],
                     has_snapshot: false,
+                    trace: None,
                 },
             );
         }
@@ -1528,6 +1551,7 @@ fn pull_changed_rows(
     baseline_view: &FInstance,
     functor: &panproto_inst::EntityFunctor,
     cells: &panproto_inst::CellPlan,
+    traces: &BTreeMap<RowId, Vec<FieldTransform>>,
     source: &mut FInstance,
 ) -> Vec<PutDomainError> {
     let mut errors = Vec::new();
@@ -1551,9 +1575,12 @@ fn pull_changed_rows(
         let differing = differing_fields(view_row, baseline_row);
         for field in &differing {
             let writer = cell_writer(fates, field);
-            if let Some(error) =
-                cell_edit_obstruction(lens, &source_table, id, field.clone(), writer.as_deref())
-            {
+            if let Some(error) = cell_edit_obstruction(
+                traces.get(&id).map_or(&[], Vec::as_slice),
+                id,
+                field.clone(),
+                writer.as_deref(),
+            ) {
                 errors.push(error);
             }
         }
@@ -1572,6 +1599,7 @@ fn pull_changed_rows(
                 PullRowOptions {
                     removed_targets: &removed,
                     has_snapshot: true,
+                    trace: Some(traces.get(&id).map_or(&[], Vec::as_slice)),
                 },
             );
         }
@@ -1583,6 +1611,7 @@ fn pull_changed_rows(
 struct PullRowOptions<'a> {
     removed_targets: &'a [String],
     has_snapshot: bool,
+    trace: Option<&'a [FieldTransform]>,
 }
 
 fn pull_row_edits(
@@ -1608,8 +1637,14 @@ fn pull_row_edits(
             post_transform.insert(writer, value.clone());
         }
     }
-    let transforms = lens.compiled.value_transforms(source_table);
-    let outputs = transform_outputs(&transforms);
+    let declared;
+    let transforms = if let Some(trace) = options.trace {
+        trace
+    } else {
+        declared = lens.compiled.value_transforms(source_table);
+        &declared
+    };
+    let outputs = transform_outputs(transforms);
     if options.has_snapshot {
         for (key, value) in &post_transform {
             if columns.contains(key) && !outputs.contains(key) {
@@ -1618,12 +1653,12 @@ fn pull_row_edits(
         }
         let mut node = panproto_inst::Node::new(0, source_table.clone());
         node.extra_fields = std::mem::take(source_row);
-        propagate_view_edits_through_inverse(&mut node, &post_transform, &transforms);
+        propagate_view_edits_through_inverse(&mut node, &post_transform, transforms);
         *source_row = node.extra_fields;
     } else {
         let mut node = panproto_inst::Node::new(0, source_table.clone());
         node.extra_fields = post_transform;
-        apply_inverse_transforms(&mut node, &transforms);
+        apply_inverse_transforms(&mut node, transforms);
         *source_row = node.extra_fields;
     }
     source_row.retain(|key, _| columns.contains(key));
@@ -1790,14 +1825,41 @@ fn forward_stability(
     view: &FInstance,
     complement: &TableComplement,
     source: &FInstance,
-    source_protocol: &Protocol,
     plan: &RestrictPlan,
 ) -> Vec<PutDomainError> {
-    let regenerated = match restrict_finite_rows(lens, source, plan, source_protocol) {
+    let regenerated = match functor_restrict_finite_with_plan(source, plan) {
         Ok((regenerated, _)) => regenerated,
         Err(error) => return refusal_from_restrict(error),
     };
     let mut found = Vec::new();
+    let mut traces = if let Some(boundary) = &plan.boundary
+        && let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells)
+    {
+        let (mut baseline, mut errors) = restore_rows(lens, view, complement, functor, cells);
+        restore_view_pairs(view, complement, plan, functor, &mut baseline, &mut errors);
+        restore_dropped_pairs(complement, &mut baseline);
+        if !errors.is_empty() {
+            return errors;
+        }
+        let baseline_view = match functor_restrict_finite_with_plan(&baseline, plan) {
+            Ok((view, _)) => view,
+            Err(error) => return refusal_from_restrict(error),
+        };
+        match table_transform_traces(lens, &baseline, &baseline_view) {
+            Ok(traces) => traces,
+            Err(error) => return refusal_from_restrict(error),
+        }
+    } else {
+        BTreeMap::new()
+    };
+    match table_transform_traces(lens, source, &regenerated) {
+        Ok(replayed) => {
+            for (id, trace) in replayed {
+                traces.entry(id).or_default().extend(trace);
+            }
+        }
+        Err(error) => return refusal_from_restrict(error),
+    }
     for id in view.row_ids() {
         let Some(expected) = view.row(id) else {
             continue;
@@ -1818,8 +1880,7 @@ fn forward_stability(
         for field in differing_fields(expected, actual) {
             let writer = cell_writer(fates, &field);
             found.push(classify_cell_edit(
-                lens,
-                source_table,
+                traces.get(&id).map_or(&[], Vec::as_slice),
                 id,
                 field,
                 writer.as_deref(),
@@ -1840,127 +1901,52 @@ fn forward_stability(
     found
 }
 
-/// Run the total-row restrict over a finite-map source without turning an
-/// absent optional cell into a null cell. Scratch nulls satisfy the engine's
-/// internal total-row precondition; their view and complement coordinates
-/// are removed afterward, while a real null in `source` remains.
-fn restrict_finite_rows(
+/// Trace the genuine source rows that survived this forward execution.
+fn table_transform_traces(
     lens: &Lens,
     source: &FInstance,
-    plan: &RestrictPlan,
-    source_protocol: &Protocol,
-) -> Result<(FInstance, TableComplement), RestrictError> {
-    let Some(boundary) = &plan.boundary else {
-        return functor_restrict_with_plan(source, plan);
-    };
-    let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells) else {
-        return functor_restrict_with_plan(source, plan);
-    };
-    let mut scratch = source.clone();
-    let mut absent = BTreeMap::new();
-    for id in source.row_ids() {
-        let Some(table) = source.table_of(id) else {
+    forward: &FInstance,
+) -> Result<BTreeMap<RowId, Vec<FieldTransform>>, RestrictError> {
+    let mut traces = BTreeMap::new();
+    for id in forward.row_ids() {
+        let (Some(table), Some(row)) = (source.table_of(id), source.row(id)) else {
             continue;
         };
-        let fates = cells.fates.get(table).map_or(&[][..], Vec::as_slice);
         let transforms = lens.compiled.value_transforms(table);
-        for (column, edge) in functor.source().columns(table) {
-            if source.row(id).is_some_and(|row| !row.contains_key(column)) {
-                if let Some(row) = scratch.row_mut(id) {
-                    row.insert(
-                        column.clone(),
-                        finite_map_placeholder(functor.source(), edge, source_protocol),
-                    );
-                }
-                absent.insert(
-                    (id, column.clone()),
-                    output_column(column, &transforms, fates),
-                );
-            }
+        if transforms.is_empty() {
+            continue;
         }
+        let mut node = panproto_inst::Node::new(id.0, table.clone());
+        node.extra_fields.clone_from(row);
+        let ctx = panproto_inst::TransformContext::for_table(
+            Some(&lens.src_schema),
+            source,
+            id,
+            &transforms,
+        );
+        let trace = panproto_inst::apply_field_transforms_traced(&mut node, &transforms, &ctx)
+            .map_err(|error| RestrictError::At {
+                key: panproto_inst::segment::ErrorKey {
+                    stage: 0,
+                    id: id.0,
+                    id2: 0,
+                    kind: error.kind_index(),
+                },
+                error: Box::new(error),
+            })?;
+        traces.insert(id, trace);
     }
-    let (mut view, mut complement) = functor_restrict_with_plan(&scratch, plan)?;
-    for (key, output) in absent {
-        if let Some(dropped) = complement.dropped_rows.get_mut(&key.0) {
-            dropped.row.remove(&key.1);
-        }
-        complement.dropped_cells.remove(&key);
-        complement.original_cells.remove(&key);
-        if let Some(output) = output
-            && let Some(row) = view.row_mut(key.0)
-        {
-            row.remove(&output);
-        }
-    }
-    Ok((view, complement))
-}
-
-fn finite_map_placeholder(
-    schema: &panproto_inst::RelSchema,
-    column: &Edge,
-    protocol: &Protocol,
-) -> Value {
-    let kind = schema
-        .value_kind(&column.tgt)
-        .and_then(|name| protocol.value_kinds.get(name.as_str()));
-    match kind {
-        Some(ScalarKind::Bool) => Value::Bool(false),
-        Some(ScalarKind::Int { .. } | ScalarKind::BigInt) => Value::Int(1),
-        Some(ScalarKind::Float { .. }) => Value::Float(1.0),
-        Some(ScalarKind::Decimal) => {
-            panproto_inst::value::DecimalValue::parse("1").map_or(Value::Int(1), Value::Decimal)
-        }
-        Some(ScalarKind::Str) => Value::Str(String::new()),
-        Some(ScalarKind::Bytes(_)) => Value::Bytes(Vec::new()),
-        Some(ScalarKind::Date) => panproto_inst::value::Temporal::parse_date("1970-01-01")
-            .map_or(Value::Null, Value::Temporal),
-        Some(ScalarKind::Time) => panproto_inst::value::Temporal::parse_time("00:00:00")
-            .map_or(Value::Null, Value::Temporal),
-        Some(ScalarKind::DateTime) => {
-            panproto_inst::value::Temporal::parse_date_time("1970-01-01T00:00:00")
-                .map_or(Value::Null, Value::Temporal)
-        }
-        Some(ScalarKind::Token) => Value::Token(String::new()),
-        Some(ScalarKind::Any) | None => Value::Null,
-    }
-}
-
-fn output_column(
-    source: &str,
-    transforms: &[FieldTransform],
-    fates: &[CellFate],
-) -> Option<String> {
-    let mut output = Some(source.to_owned());
-    for transform in transforms {
-        match transform {
-            FieldTransform::RenameField { old_key, new_key }
-                if output.as_deref() == Some(old_key) =>
-            {
-                output = Some(new_key.clone());
-            }
-            FieldTransform::DropField { key } if output.as_deref() == Some(key) => output = None,
-            FieldTransform::KeepFields { keys }
-                if output.as_ref().is_some_and(|key| !keys.contains(key)) =>
-            {
-                output = None;
-            }
-            _ => {}
-        }
-    }
-    let key = output?;
-    structural_column_output(&key, fates)
+    Ok(traces)
 }
 
 fn classify_cell_edit(
-    lens: &Lens,
-    table: Option<&Name>,
+    transforms: &[FieldTransform],
     id: RowId,
     target: String,
     writer: Option<&str>,
 ) -> PutDomainError {
-    let transforms = table.map_or_else(Vec::new, |table| lens.compiled.value_transforms(table));
     let key = writer.unwrap_or(&target);
-    for transform in &transforms {
+    for transform in transforms.iter().rev() {
         match transform {
             FieldTransform::ApplyExpr {
                 key: output,
@@ -1991,6 +1977,19 @@ fn classify_cell_edit(
                     field: target,
                 };
             }
+            FieldTransform::DropField { key: erased } if erased == key => {
+                return PutDomainError::TransformNotInvertible {
+                    elem: ViewRef::Row(id),
+                    field: target,
+                };
+            }
+            FieldTransform::KeepFields { keys } if !keys.iter().any(|kept| kept == key) => {
+                return PutDomainError::TransformNotInvertible {
+                    elem: ViewRef::Row(id),
+                    field: target,
+                };
+            }
+            FieldTransform::RenameField { new_key, .. } if new_key == key => break,
             _ => {}
         }
     }
@@ -2001,8 +2000,7 @@ fn classify_cell_edit(
 }
 
 fn cell_edit_obstruction(
-    lens: &Lens,
-    table: &Name,
+    transforms: &[FieldTransform],
     id: RowId,
     target: String,
     writer: Option<&str>,
@@ -2013,7 +2011,7 @@ fn cell_edit_obstruction(
             field: target,
         });
     };
-    for transform in lens.compiled.value_transforms(table) {
+    for transform in transforms.iter().rev() {
         match transform {
             FieldTransform::AddField { key, .. } if key == writer => {
                 return Some(PutDomainError::DerivedCellEdited {
@@ -2025,20 +2023,35 @@ fn cell_edit_obstruction(
                 target_key,
                 inverse,
                 ..
-            } if target_key == writer && inverse.is_none() => {
-                return Some(PutDomainError::DerivedCellEdited {
-                    elem: ViewRef::Row(id),
-                    field: target,
-                });
+            } if target_key == writer => {
+                return inverse
+                    .is_none()
+                    .then_some(PutDomainError::DerivedCellEdited {
+                        elem: ViewRef::Row(id),
+                        field: target,
+                    });
             }
-            FieldTransform::ApplyExpr { key, inverse, .. }
-                if key == writer && inverse.is_none() =>
-            {
+            FieldTransform::ApplyExpr { key, inverse, .. } if key == writer => {
+                return inverse
+                    .is_none()
+                    .then_some(PutDomainError::TransformNotInvertible {
+                        elem: ViewRef::Row(id),
+                        field: target,
+                    });
+            }
+            FieldTransform::DropField { key } if key == writer => {
                 return Some(PutDomainError::TransformNotInvertible {
                     elem: ViewRef::Row(id),
                     field: target,
                 });
             }
+            FieldTransform::KeepFields { keys } if !keys.iter().any(|kept| kept == writer) => {
+                return Some(PutDomainError::TransformNotInvertible {
+                    elem: ViewRef::Row(id),
+                    field: target,
+                });
+            }
+            FieldTransform::RenameField { new_key, .. } if new_key == writer => return None,
             _ => {}
         }
     }
@@ -2128,9 +2141,9 @@ fn key_refusal(
 }
 
 fn refusal_from_restrict(error: RestrictError) -> Vec<PutDomainError> {
-    let error = match error {
-        RestrictError::At { error, .. } => *error,
-        other => other,
+    let (error, location) = match error {
+        RestrictError::At { key, error } => (*error, Some(RowId(key.id))),
+        other => (other, None),
     };
     match error {
         RestrictError::SurvivalPredicateFailed { node, source } => {
@@ -2155,7 +2168,20 @@ fn refusal_from_restrict(error: RestrictError) -> Vec<PutDomainError> {
             elem: ViewRef::Row(RowId(node)),
             refusal: PredicateRefusal::ValueNotExpressible { field, value_type },
         }],
-        _ => Vec::new(),
+        RestrictError::FieldTransformFailed { source, .. } => {
+            vec![PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Row(location.unwrap_or(RowId(0))),
+                refusal: PredicateRefusal::EvaluationFailed {
+                    message: source.to_string(),
+                },
+            }]
+        }
+        other => vec![PutDomainError::SurvivalPredicateRefused {
+            elem: ViewRef::Row(location.unwrap_or(RowId(0))),
+            refusal: PredicateRefusal::EvaluationFailed {
+                message: other.to_string(),
+            },
+        }],
     }
 }
 
@@ -2308,7 +2334,7 @@ mod tests {
         let Ok(source) = FInstance::new().with_rows("row", [(RowId(0), Row::new())]) else {
             panic!("source row must be admitted")
         };
-        assert!(bound.get(&source, &protocol).is_ok());
+        assert!(bound.get(&source).is_ok());
         assert_eq!(calls.get(), 1);
     }
 
@@ -2348,15 +2374,66 @@ mod tests {
             .with_rows("row", [(RowId(0), Row::new())])
             .test_unwrap("source row must be admitted");
 
-        let (intermediate, _) = get(&first, &source, context)
-            .test_unwrap("the first stage may produce an untyped field");
-        assert!(
-            get(&second, &intermediate, context).is_err(),
-            "the atomic second stage must reject the introduced stray cell"
-        );
+        assert!(matches!(
+            get(&first, &source, context),
+            Err(LensError::Restrict(RestrictError::UndeclaredTransformField {
+                source_vertex,
+                target_vertex,
+                field,
+            })) if source_vertex == "row" && target_vertex == "row" && field == "outside"
+        ));
         assert!(
             table_fusion(&first, &second, &protocol, &protocol, &protocol).is_none(),
-            "fusion must not erase the intermediate source-boundary check"
+            "fusion must retain the original stage's compilation refusal"
+        );
+
+        let declared_protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        let declared_schema = schema_with_columns(&declared_protocol, &["outside"]);
+        first.tgt_schema = declared_schema.clone();
+        let (intermediate, _) = get(
+            &first,
+            &source,
+            BoundaryProtocols {
+                src: &protocol,
+                tgt: &declared_protocol,
+            },
+        )
+        .test_unwrap("the declared target admits the transform output");
+        assert_eq!(
+            intermediate
+                .row(RowId(0))
+                .test_unwrap("the row survives")
+                .get("outside"),
+            Some(&Value::Int(0))
+        );
+        assert!(
+            matches!(
+                get(&second, &intermediate, context),
+                Err(LensError::Restrict(RestrictError::NonConforming {
+                    row: RowId(0),
+                    column: Some(column),
+                    reason: panproto_inst::NonConformance::StrayCell,
+                })) if column == "outside"
+            ),
+            "the original second stage still rejects the stray cell"
+        );
+        let declared_second = mapped_lens(&declared_schema, &declared_schema, []);
+        let (accepted, _) = get(
+            &declared_second,
+            &intermediate,
+            BoundaryProtocols {
+                src: &declared_protocol,
+                tgt: &declared_protocol,
+            },
+        )
+        .test_unwrap("the matched declared boundary admits the same row");
+        assert_eq!(
+            accepted.row(RowId(0)),
+            intermediate.row(RowId(0)),
+            "the declared second stage preserves the intermediate row"
         );
     }
 
@@ -2410,6 +2487,331 @@ mod tests {
             src_schema: source.clone(),
             tgt_schema: target.clone(),
         }
+    }
+
+    mod absence_residue {
+        use super::*;
+
+        fn setup() -> (Protocol, Lens) {
+            let protocol = column_protocol(ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            });
+            let schema = schema_with_columns(&protocol, &["f"]);
+            let mut lens = mapped_lens(&schema, &schema, []);
+            lens.compiled.field_transforms.insert(
+                "row".into(),
+                vec![FieldTransform::AddField {
+                    key: "f".to_owned(),
+                    value: Value::Int(0),
+                }],
+            );
+            (protocol, lens)
+        }
+
+        fn instance(row: Row) -> FInstance {
+            FInstance::new()
+                .with_rows("row", [(RowId(0), row)])
+                .test_unwrap("finite source row is admitted")
+        }
+
+        #[test]
+        fn a_default_distinguishes_absent_and_present_source_cells() {
+            let (protocol, lens) = setup();
+            let context = BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            };
+            let default = Row::from([("f".to_owned(), Value::Int(0))]);
+            for present in [false, true] {
+                let original = if present { default.clone() } else { Row::new() };
+                let source = instance(original.clone());
+                let (view, complement) = get(&lens, &source, context).test_unwrap("default get");
+                assert_eq!(view.row(RowId(0)), Some(&default));
+                assert_eq!(
+                    complement.original_absent_cells,
+                    if present {
+                        BTreeSet::new()
+                    } else {
+                        [(RowId(0), "f".to_owned())].into()
+                    }
+                );
+                let restored =
+                    put(&lens, &view, &complement, context).test_unwrap("default GetPut");
+                assert_eq!(restored.row(RowId(0)), Some(&original));
+                let (again, next) = get(&lens, &restored, context).test_unwrap("default re-get");
+                assert_eq!(again.row(RowId(0)), view.row(RowId(0)));
+                let twice = put(&lens, &view, &next, context).test_unwrap("default PutTwice");
+                assert_eq!(twice.row(RowId(0)), Some(&original));
+            }
+        }
+
+        #[test]
+        fn a_generated_default_and_an_empty_inserted_row_are_refused() {
+            let (protocol, lens) = setup();
+            let context = BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            };
+            let source = instance(Row::new());
+            let (_, complement) = get(&lens, &source, context).test_unwrap("default get");
+            let expected = PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Row(RowId(0)),
+                field: "f".to_owned(),
+            };
+            for row in [Row::new(), Row::from([("f".to_owned(), Value::Int(1))])] {
+                let edited = instance(row);
+                assert_eq!(
+                    check_put_domain(&lens, &edited, &complement, context),
+                    Err(vec![expected.clone()])
+                );
+                assert!(matches!(put(&lens, &edited, &complement, context),
+                    Err(LensError::PutDomain(error)) if *error == expected));
+            }
+            let (_, empty) = get(&lens, &FInstance::new(), context).test_unwrap("empty table get");
+            assert_eq!(
+                check_put_domain(&lens, &source, &empty, context),
+                Err(vec![expected])
+            );
+        }
+
+        #[test]
+        fn a_structural_rename_restores_an_absent_destination_column() {
+            let protocol = column_protocol(ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            });
+            let source_schema = schema_with_columns(&protocol, &["f", "g"]);
+            let target_schema = schema_with_columns(&protocol, &["g"]);
+            let lens = mapped_lens(
+                &source_schema,
+                &target_schema,
+                [(
+                    edge_named(&source_schema, "f"),
+                    edge_named(&target_schema, "g"),
+                )],
+            );
+            let context = BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            };
+            let original = Row::from([("f".to_owned(), Value::Int(9))]);
+            let source = instance(original.clone());
+            let (view, complement) = get(&lens, &source, context).test_unwrap("rename get");
+            assert_eq!(
+                view.row(RowId(0)),
+                Some(&Row::from([("g".to_owned(), Value::Int(9))]))
+            );
+            assert_eq!(
+                complement.original_absent_cells,
+                [(RowId(0), "g".to_owned())].into()
+            );
+            let restored = put(&lens, &view, &complement, context).test_unwrap("rename GetPut");
+            assert_eq!(restored.row(RowId(0)), Some(&original));
+        }
+
+        #[test]
+        fn composition_and_put_refuse_absence_against_source_values() {
+            let (protocol, lens) = setup();
+            let context = BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            };
+            let (view, absent) =
+                get(&lens, &instance(Row::new()), context).test_unwrap("default get");
+            let key = (RowId(0), "f".to_owned());
+            let mut independent = TableComplement::empty();
+            independent
+                .original_absent_cells
+                .insert((RowId(1), "g".to_owned()));
+            let merged = absent
+                .compose(&independent)
+                .test_unwrap("disjoint absences compose");
+            assert_eq!(
+                merged.original_absent_cells,
+                [key.clone(), (RowId(1), "g".to_owned())].into()
+            );
+            for source_map in 0..3 {
+                let mut positive = TableComplement::empty();
+                match source_map {
+                    0 => {
+                        positive.dropped_cells.insert(key.clone(), Value::Int(9));
+                    }
+                    1 => {
+                        positive.original_cells.insert(key.clone(), Value::Int(9));
+                    }
+                    _ => {
+                        positive.dropped_rows.insert(
+                            RowId(0),
+                            panproto_inst::DroppedRow {
+                                table: "row".into(),
+                                row: Row::from([("f".to_owned(), Value::Int(9))]),
+                            },
+                        );
+                    }
+                }
+                for result in [absent.compose(&positive), positive.compose(&absent)] {
+                    assert!(matches!(
+                        result,
+                        Err(LensError::ComplementConflict {
+                            kind: "original_absent_cells",
+                            ..
+                        })
+                    ));
+                }
+                positive.original_absent_cells.insert(key.clone());
+                assert!(matches!(
+                    positive.compose(&TableComplement::empty()),
+                    Err(LensError::ComplementConflict {
+                        kind: "original_absent_cells",
+                        ..
+                    })
+                ));
+                positive.identity.clone_from(&absent.identity);
+                assert!(matches!(
+                    put(&lens, &view, &positive, context),
+                    Err(LensError::ComplementConflict {
+                        kind: "original_absent_cells",
+                        ..
+                    })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn erased_table_cells_refuse_edits_using_the_last_transform() {
+        let protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        let schema = schema_with_columns(&protocol, &["f", "g"]);
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        for terms in [false, true] {
+            for erasure in [
+                FieldTransform::DropField {
+                    key: "f".to_owned(),
+                },
+                FieldTransform::KeepFields {
+                    keys: vec!["g".to_owned()],
+                },
+            ] {
+                for replaced in [false, true] {
+                    let mut transforms = vec![erasure.clone()];
+                    if replaced {
+                        transforms.push(FieldTransform::AddField {
+                            key: "f".to_owned(),
+                            value: Value::Int(0),
+                        });
+                    }
+                    let mut lens = mapped_lens(&schema, &schema, []);
+                    if terms {
+                        lens.compiled.op_term_assignments.insert(
+                            "row".into(),
+                            transforms
+                                .iter()
+                                .map(panproto_inst::TermAssignment::from_field_transform)
+                                .collect(),
+                        );
+                    } else {
+                        lens.compiled
+                            .field_transforms
+                            .insert("row".into(), transforms);
+                    }
+                    let source = FInstance::new()
+                        .with_rows("row", [(RowId(0), Row::new())])
+                        .test_unwrap("source row must be admitted");
+                    let (mut view, complement) = get(&lens, &source, context)
+                        .test_unwrap("declared transforms must execute");
+                    assert_eq!(check_put_domain(&lens, &view, &complement, context), Ok(()));
+                    view.row_mut(RowId(0))
+                        .test_unwrap("the row survives")
+                        .insert("f".to_owned(), Value::Int(1));
+                    let expected = if replaced {
+                        PutDomainError::DerivedCellEdited {
+                            elem: ViewRef::Row(RowId(0)),
+                            field: "f".to_owned(),
+                        }
+                    } else {
+                        PutDomainError::TransformNotInvertible {
+                            elem: ViewRef::Row(RowId(0)),
+                            field: "f".to_owned(),
+                        }
+                    };
+                    assert_eq!(
+                        check_put_domain(&lens, &view, &complement, context),
+                        Err(vec![expected.clone()])
+                    );
+                    let Err(LensError::PutDomain(error)) = put(&lens, &view, &complement, context)
+                    else {
+                        panic!("put must return the erased or derived coordinate refusal");
+                    };
+                    assert_eq!(*error, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_later_inverse_writer_supersedes_a_table_erasure_obstruction() {
+        let protocol = column_protocol(ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        });
+        let schema = schema_with_columns(&protocol, &["f", "g"]);
+        let mut lens = mapped_lens(&schema, &schema, []);
+        lens.compiled.field_transforms.insert(
+            "row".into(),
+            vec![
+                FieldTransform::DropField {
+                    key: "f".to_owned(),
+                },
+                FieldTransform::RenameField {
+                    old_key: "g".to_owned(),
+                    new_key: "f".to_owned(),
+                },
+            ],
+        );
+        let context = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let source = FInstance::new()
+            .with_rows(
+                "row",
+                [(
+                    RowId(0),
+                    Row::from([
+                        ("f".to_owned(), Value::Int(9)),
+                        ("g".to_owned(), Value::Int(0)),
+                    ]),
+                )],
+            )
+            .test_unwrap("source row must be admitted");
+        let (mut view, complement) =
+            get(&lens, &source, context).test_unwrap("declared writes must execute");
+        view.row_mut(RowId(0))
+            .test_unwrap("row survives")
+            .insert("f".to_owned(), Value::Int(1));
+        assert_eq!(check_put_domain(&lens, &view, &complement, context), Ok(()));
+        let restored =
+            put(&lens, &view, &complement, context).test_unwrap("later rename has an inverse");
+        assert_eq!(
+            restored.row(RowId(0)),
+            Some(&Row::from([
+                ("f".to_owned(), Value::Int(9)),
+                ("g".to_owned(), Value::Int(1)),
+            ]))
+        );
+        let (again, fresh) = get(&lens, &restored, context).test_unwrap("restored row must get");
+        assert_eq!(again, view);
+        assert_eq!(
+            put(&lens, &view, &fresh, context).test_unwrap("repeated put must agree"),
+            restored
+        );
     }
 
     #[test]

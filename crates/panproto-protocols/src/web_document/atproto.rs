@@ -957,11 +957,11 @@ fn parse_query_procedure_def(
             let msg_kind = lexicon_type_to_kind(msg_type);
             builder = builder.vertex(&msg_id, &msg_kind, None)?;
             builder = builder.edge(vertex_id, &msg_id, "prop", Some("message"))?;
-            if msg_type == "object" {
-                builder = parse_object_def(builder, &msg_id, msg_schema, lexicon_id)?;
-            } else {
-                builder = parse_constraints(builder, &msg_id, msg_schema);
-            }
+            builder = match msg_type {
+                "object" => parse_object_def(builder, &msg_id, msg_schema, lexicon_id)?,
+                "union" => parse_union_def(builder, &msg_id, msg_schema, lexicon_id)?,
+                _ => parse_constraints(builder, &msg_id, msg_schema),
+            };
         }
     }
 
@@ -1411,7 +1411,7 @@ mod tests {
         assert_eq!(p.name, "atproto");
         assert_eq!(p.schema_theory, "ThATProtoSchema");
         assert_eq!(p.instance_theory, "ThATProtoInstance");
-        assert!(!p.edge_rules.is_empty());
+        assert_ne!(p.edge_rules, []);
         assert!(p.find_edge_rule("record-schema").is_some());
         assert!(p.find_edge_rule("prop").is_some());
         assert!(p.find_edge_rule("items").is_some());
@@ -1590,13 +1590,59 @@ mod tests {
             .keys()
             .any(|e| &*e.src == items_vertex && &*e.tgt == item_def && &*e.kind == "ref");
         assert!(has_edge, "items vertex must have a ref morphism to #item");
-        assert!(!schema.incoming_edges(item_def).is_empty());
+        assert_ne!(schema.incoming_edges(item_def), []);
     }
 
     /// Each variant of a lexicon union must emit a `ref` edge to the
     /// branch's target sort. The union-as-coproduct `⊔ᵢ Tᵢ` is
     /// realized by injection-labelled variant vertices plus a
     /// morphism from each variant to its branch.
+    #[test]
+    fn subscription_message_unions_register_their_tagged_variants() -> Result<(), ProtocolError> {
+        for closed in [false, true] {
+            let lexicon = serde_json::json!({
+                "lexicon": 1,
+                "id": "com.example.events",
+                "defs": {
+                    "main": {
+                        "type": "subscription",
+                        "message": {"schema": {
+                            "type": "union",
+                            "refs": ["#change", "com.example.other#main"],
+                            "closed": closed
+                        }}
+                    },
+                    "change": {"type": "object", "properties": {
+                        "sequence": {"type": "integer"}
+                    }}
+                }
+            });
+            let schema = parse_lexicon(&lexicon)?;
+            let union = "com.example.events:message";
+            let tags: Vec<_> = schema
+                .variants_of(union)
+                .iter()
+                .map(|arm| arm.tag.as_deref())
+                .collect();
+            let mut expected = vec![Some("com.example.events#change"), Some("com.example.other")];
+            if !closed {
+                expected.push(None);
+            }
+            assert_eq!(tags, expected);
+            assert_eq!(
+                schema
+                    .variant_for_tag(union, "com.example.future")
+                    .is_some(),
+                !closed
+            );
+            for index in 0..2 {
+                let variant = format!("{union}:variant{index}");
+                assert!(schema.outgoing_edges(&variant).iter().any(|edge| edge.kind == "ref"));
+            }
+        }
+        Ok(())
+    }
+
     /// Each union arm is declared a variant tagged with the `$type` its
     /// values carry, a `main` def by its bare NSID; its vertex is a `ref`
     /// standing for the referenced def. An open union also has an untagged
@@ -1732,8 +1778,8 @@ mod tests {
             ref_edge_exists(&variant_b, "com.example.msg#b"),
             "variant1 must have a ref morphism to #b"
         );
-        assert!(!schema.incoming_edges("com.example.msg#a").is_empty());
-        assert!(!schema.incoming_edges("com.example.msg#b").is_empty());
+        assert_ne!(schema.incoming_edges("com.example.msg#a"), []);
+        assert_ne!(schema.incoming_edges("com.example.msg#b"), []);
     }
 
     /// A cross-lexicon ref must create an opaque placeholder vertex

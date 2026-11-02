@@ -578,7 +578,7 @@ fn graph_required_value_sites_are_named_props_on_non_fan_nodes_only() {
     let errors = lens
         .check_put_domain(&fan_boundary, &complement)
         .expect_err("the malformed fan must be outside the put domain");
-    assert!(!errors.is_empty());
+    assert_ne!(errors, []);
     assert!(
         errors
             .iter()

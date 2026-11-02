@@ -207,7 +207,7 @@ fn segment_error_round_trips_every_variant() -> TestResult {
             .and_then(|o| o.keys().next().cloned())
             .ok_or("an externally tagged error")?;
         assert_eq!(tag, error.kind());
-        assert!(!error.to_string().is_empty());
+        assert_ne!(error.to_string(), "");
     }
     Ok(())
 }

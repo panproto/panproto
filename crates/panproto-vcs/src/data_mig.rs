@@ -924,7 +924,7 @@ mod tests {
         let (data_ids, complement_ids) =
             lift_commit_data(&mut store, &commit, &src, &src, &HashMap::new())?;
         assert_eq!(data_ids, vec![ds_id]);
-        assert!(complement_ids.is_empty());
+        assert_eq!(complement_ids, []);
         Ok(())
     }
 }

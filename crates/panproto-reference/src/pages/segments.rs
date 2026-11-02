@@ -30,6 +30,8 @@ pub mod segment {
 
     /// Segment wire-format version.
     pub const SEGMENT_FORMAT_VERSION: u16 = 1;
+    /// Table-complement segment version carrying source-cell absence.
+    pub const TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION: u16 = 2;
     /// Manifest wire-format version.
     pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
     /// The number of edge ids in the complete `u32` domain.
@@ -914,6 +916,8 @@ pub mod segment {
         pub synthesized_fk_pairs: BTreeSet<(SEdge, u32, u32)>,
         /// Allocation floors for this segment.
         pub floors: SegmentFloors,
+        /// Declared source cells originally absent and visible after get.
+        pub original_absent_cells: BTreeSet<(u32, String)>,
     }
 
     /// The owned restriction of the reference tree complement.
@@ -1088,6 +1092,7 @@ pub mod segment {
                 && self.original_fk_edges.is_empty()
                 && self.original_tables.is_empty()
                 && self.original_cells.is_empty()
+                && self.original_absent_cells.is_empty()
         }
 
         /// Whether residue and allocation bookkeeping are empty.
@@ -1114,6 +1119,7 @@ pub mod segment {
                 + self.original_tables.len()
                 + self.original_cells.len()
                 + self.synthesized_fk_pairs.len()
+                + self.original_absent_cells.len()
         }
     }
 
@@ -1291,6 +1297,14 @@ pub mod segment {
             extend_owned(&mut whole.original_fk_edges, &value.original_fk_edges)?;
             extend_owned(&mut whole.original_tables, &value.original_tables)?;
             extend_owned(&mut whole.original_cells, &value.original_cells)?;
+            for cell in &value.original_absent_cells {
+                if !whole.original_absent_cells.insert(cell.clone()) {
+                    return Err(decode_error(
+                        ArtifactKind::ComplementSegment,
+                        "absent cell occurs in more than one segment",
+                    ));
+                }
+            }
             for pair in &value.synthesized_fk_pairs {
                 if !whole.synthesized_fk_pairs.insert(pair.clone()) {
                     return Err(decode_error(
@@ -1301,6 +1315,12 @@ pub mod segment {
             }
             whole.id_floor = whole.id_floor.max(value.floors.node);
         }
+        validate_absent_cells(
+            &whole.original_absent_cells,
+            &whole.dropped_cells,
+            &whole.original_cells,
+            &whole.dropped_rows,
+        )?;
         Ok(whole)
     }
 
@@ -2125,6 +2145,7 @@ pub mod segment {
             .chain(value.dropped_cells.keys().map(|(id, _)| id))
             .chain(value.original_tables.keys())
             .chain(value.original_cells.keys().map(|(id, _)| id))
+            .chain(value.original_absent_cells.iter().map(|(id, _)| id))
         {
             require_node_owner(p, segment, *id, ViewRef::Row(*id))?;
         }
@@ -3162,12 +3183,39 @@ pub mod segment {
 
     fn validate_table_complement(value: &TableComplementSegment) -> Result<(), SegmentError> {
         if value.floors.edge == 0 {
-            Ok(())
+            validate_absent_cells(
+                &value.original_absent_cells,
+                &value.dropped_cells,
+                &value.original_cells,
+                &value.dropped_rows,
+            )
         } else {
             Err(decode_error(
                 ArtifactKind::ComplementSegment,
                 "table complement has a nonzero edge floor",
             ))
+        }
+    }
+
+    fn validate_absent_cells(
+        absent: &BTreeSet<(u32, String)>,
+        dropped: &BTreeMap<(u32, String), Value>,
+        original: &BTreeMap<(u32, String), Value>,
+        rows: &BTreeMap<u32, DroppedRow>,
+    ) -> Result<(), SegmentError> {
+        if absent.iter().any(|cell| {
+            dropped.contains_key(cell)
+                || original.contains_key(cell)
+                || rows
+                    .get(&cell.0)
+                    .is_some_and(|row| row.row.contains_key(&cell.1))
+        }) {
+            Err(decode_error(
+                ArtifactKind::ComplementSegment,
+                "source cell is recorded both absent and present",
+            ))
+        } else {
+            Ok(())
         }
     }
 
@@ -3282,7 +3330,11 @@ pub mod segment {
         segment: &AnyComplementSegment,
     ) -> Result<Vec<u8>, SegmentError> {
         let mut bytes = Canonical::default();
-        bytes.u16(SEGMENT_FORMAT_VERSION);
+        bytes.u16(if matches!(segment, AnyComplementSegment::Table(_)) {
+            TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION
+        } else {
+            SEGMENT_FORMAT_VERSION
+        });
         match segment {
             AnyComplementSegment::Tree(value) => {
                 validate_tree_arc_order(value)?;
@@ -3301,6 +3353,11 @@ pub mod segment {
                 write_table_complement_fields(&mut bytes, value)?;
                 bytes.u32(value.floors.node);
                 bytes.u32(value.floors.edge);
+                bytes.len(value.original_absent_cells.len());
+                for (row, field) in &value.original_absent_cells {
+                    bytes.u32(*row);
+                    bytes.string(field);
+                }
             }
             AnyComplementSegment::Graph(value) => {
                 bytes.tag(2);
@@ -3715,7 +3772,10 @@ pub mod segment {
         Some(values)
     }
 
-    fn read_table_complement(reader: &mut Reader<'_>) -> Option<TableComplementSegment> {
+    fn read_table_complement(
+        reader: &mut Reader<'_>,
+        has_absence: bool,
+    ) -> Option<TableComplementSegment> {
         let dropped_rows = read_ordered_map(reader, |reader| {
             Some((
                 reader.u32()?,
@@ -3755,7 +3815,12 @@ pub mod segment {
         if floors.edge != 0 {
             return None;
         }
-        Some(TableComplementSegment {
+        let original_absent_cells = if has_absence {
+            read_ordered_set(reader, |reader| Some((reader.u32()?, reader.str()?)))?
+        } else {
+            BTreeSet::new()
+        };
+        let value = TableComplementSegment {
             dropped_rows,
             dropped_cells,
             dropped_fk_pairs,
@@ -3764,7 +3829,10 @@ pub mod segment {
             original_cells,
             synthesized_fk_pairs,
             floors,
-        })
+            original_absent_cells,
+        };
+        validate_table_complement(&value).ok()?;
+        Some(value)
     }
 
     fn read_complement_floors(reader: &mut Reader<'_>) -> Result<SegmentFloors, SegmentError> {
@@ -3852,22 +3920,28 @@ pub mod segment {
                     )
                 })?,
         );
-        if version != SEGMENT_FORMAT_VERSION {
+        let tag = reader.tag();
+        let expected = if tag == Some(1) {
+            TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION
+        } else {
+            SEGMENT_FORMAT_VERSION
+        };
+        if version != expected {
             return Err(decode_error(
                 ArtifactKind::ComplementSegment,
                 "unsupported complement version",
             ));
         }
-        let segment = match reader.tag() {
+        let segment = match tag {
             Some(0) => decode_tree_complement(&mut reader)?,
-            Some(1) => AnyComplementSegment::Table(read_table_complement(&mut reader).ok_or_else(
-                || {
+            Some(1) => AnyComplementSegment::Table(
+                read_table_complement(&mut reader, true).ok_or_else(|| {
                     decode_error(
                         ArtifactKind::ComplementSegment,
                         "malformed table complement",
                     )
-                },
-            )?),
+                })?,
+            ),
             Some(2) => decode_graph_complement(&mut reader)?,
             _ => {
                 return Err(decode_error(
@@ -3883,6 +3957,39 @@ pub mod segment {
             ));
         }
         Ok(segment)
+    }
+
+    /// Decode a version-one table segment without claiming current replay compatibility.
+    ///
+    /// The original bytes remain legacy evidence. The returned carrier has no
+    /// absence residue; encoding that carrier uses the current table version.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a non-table or non-legacy prefix, malformed residue, and trailing bytes.
+    pub fn decode_legacy_table_complement_segment_bytes(
+        bytes: &[u8],
+    ) -> Result<TableComplementSegment, SegmentError> {
+        if !bytes.starts_with(&[1, 0, 1]) {
+            return Err(decode_error(
+                ArtifactKind::ComplementSegment,
+                "not a legacy table complement",
+            ));
+        }
+        let mut reader = Reader::new(&bytes[3..]);
+        let value = read_table_complement(&mut reader, false).ok_or_else(|| {
+            decode_error(
+                ArtifactKind::ComplementSegment,
+                "malformed legacy table complement",
+            )
+        })?;
+        if !reader.done() {
+            return Err(decode_error(
+                ArtifactKind::ComplementSegment,
+                "trailing legacy table complement bytes",
+            ));
+        }
+        Ok(value)
     }
 
     impl AnyComplementSegment {

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 
 use panproto_core::gat::Name;
-use panproto_core::inst::FieldTransform;
+use panproto_core::inst::{BoundaryProtocols, FieldTransform, RestrictPlan};
 use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, LensPath, Stringency};
 
 /// Parse a Python-side stringency string into the engine [`Stringency`].
@@ -500,6 +500,18 @@ impl PyProtolensChain {
                 &mut stage_lens.compiled.field_transforms,
                 &stage.field_transforms,
             );
+            RestrictPlan::compile_with_protocols(
+                &stage_lens.src_schema,
+                &stage_lens.tgt_schema,
+                &stage_lens.compiled,
+                BoundaryProtocols {
+                    src: &protocol.inner,
+                    tgt: &protocol.inner,
+                },
+            )
+            .map_err(|error| {
+                crate::error::LensError::new_err(format!("instantiate failed: {error}"))
+            })?;
             let stage_path = LensPath::single(stage_lens);
             lens_path = Some(match lens_path {
                 Some(accumulated) => accumulated.then(&stage_path).map_err(|e| {
@@ -884,6 +896,49 @@ mod tests {
             }
         }]
     }"#;
+
+    #[test]
+    fn dsl_instantiation_checks_the_computed_output_declaration() -> PyResult<()> {
+        let protocol = PyProtocol {
+            inner: panproto_core::schema::Protocol::default(),
+        };
+        let source = panproto_core::schema::SchemaBuilder::new(&protocol.inner)
+            .vertex("r:body", "record", None)
+            .and_then(|builder| builder.vertex("count", "integer", None))
+            .and_then(|builder| builder.edge("r:body", "count", "prop", Some("count")))
+            .and_then(panproto_core::schema::SchemaBuilder::build)
+            .map_err(|error| crate::error::SchemaValidationError::new_err(error.to_string()))?;
+        let chain = PyProtolensChain::from_dsl_json(COMPUTE_FIELD_JSON, "r:body")?;
+        assert!(
+            chain
+                .instantiate(
+                    &PySchema {
+                        inner: Arc::new(source)
+                    },
+                    &protocol
+                )
+                .is_err()
+        );
+        let declared = panproto_core::schema::SchemaBuilder::new(&protocol.inner)
+            .vertex("r:body", "record", None)
+            .and_then(|builder| builder.vertex("count", "integer", None))
+            .and_then(|builder| builder.vertex("derived", "integer", None))
+            .and_then(|builder| builder.edge("r:body", "count", "prop", Some("count")))
+            .and_then(|builder| builder.edge("r:body", "derived", "prop", Some("derived")))
+            .and_then(panproto_core::schema::SchemaBuilder::build)
+            .map_err(|error| crate::error::SchemaValidationError::new_err(error.to_string()))?;
+        assert!(
+            chain
+                .instantiate(
+                    &PySchema {
+                        inner: Arc::new(declared)
+                    },
+                    &protocol
+                )
+                .is_ok()
+        );
+        Ok(())
+    }
 
     #[test]
     fn dsl_field_transform_survives_json_round_trip() -> PyResult<()> {

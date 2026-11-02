@@ -193,8 +193,19 @@ fn collection_order_survives_the_round_trip() {
             ("root.items", "array"),
             ("root.item", "object"),
             ("root.item.n", "integer"),
+            ("root.item.n2", "integer"),
         ],
-        &[e_items, e_item, e_n],
+        &[
+            e_items,
+            e_item,
+            e_n,
+            Edge {
+                src: "root.item".into(),
+                tgt: "root.item.n2".into(),
+                kind: "prop".into(),
+                name: Some("n2".into()),
+            },
+        ],
     );
     let instance: WInstance = parse_json(
         &schema,

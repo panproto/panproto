@@ -347,6 +347,38 @@
       ],
       [
         {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "a"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "b"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
           "kind": "tree_root",
           "decl": "schema"
         },
@@ -560,6 +592,38 @@
               "requirement": "required",
               "instances": 0,
               "passed": 0,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "a"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 1,
+              "passed": 1,
+              "failed": 0,
+              "incomplete": 0
+            }
+          ],
+          [
+            {
+              "kind": "attribute",
+              "decl": {
+                "vertex": "b"
+              }
+            },
+            {
+              "class": "graph_local",
+              "requirement": "required",
+              "instances": 1,
+              "passed": 1,
               "failed": 0,
               "incomplete": 0
             }

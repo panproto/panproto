@@ -1024,7 +1024,7 @@ fn an_undeclared_sort_is_an_implicit_symbol_joined_by_name_or_left_free() {
     let mut c = th("C", &[]);
     c.ops.push(op("g", &[], "X"));
     let free = compose(&[("c", c)], &[], Mode::ExplicitIdentity).unwrap();
-    assert!(free.theory.sorts.is_empty());
+    assert_eq!(free.theory.sorts, []);
     assert_eq!(free.theory.ops[0].output, SortExpr::Name("X".into()));
     assert_eq!(free.report.status, theory::CheckStatus::Incomplete);
     assert!(free.report.checks.iter().any(|record| {
@@ -1772,7 +1772,7 @@ fn replay_preserves_base_parents_ignores_version_and_clones_dependent_interfaces
             .map(|sort| sort.params.len()),
         Some(1),
     );
-    assert!(result.extends.is_empty());
+    assert_eq!(result.extends, Vec::<String>::new());
 }
 
 #[test]
