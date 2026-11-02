@@ -2333,7 +2333,7 @@ fn lift_api_add_field() {
         },
     )
     .unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Alice", "name should be preserved");
     assert!(
@@ -2390,7 +2390,7 @@ fn lift_api_drop_field() {
         },
     )
     .unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Bob", "name should be preserved");
     assert!(
@@ -2455,7 +2455,7 @@ fn lift_api_identity_all_fields_survive() {
         },
     )
     .unwrap();
-    let output = inst::to_json(&schema, &lifted);
+    let output = inst::to_json(&schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Eve");
     assert_eq!(output["email"], "eve@example.com");
@@ -2528,7 +2528,7 @@ fn lift_api_multi_field_projection() {
         },
     )
     .unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Dana");
     assert_eq!(output["email"], "dana@example.com");
@@ -2583,7 +2583,7 @@ fn lift_api_preserves_value_types() {
         },
     )
     .unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["active"], true, "boolean value should be preserved");
     assert!(

@@ -395,7 +395,8 @@ pub fn pp_mig_lift_json(
             let lifted = mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols)
                 .map_err(|e| FfiError::Operation(format!("lift_wtype: {e}")))?;
 
-            Ok(inst::to_json(&tgt_schema, &lifted))
+            inst::to_json(&tgt_schema, &lifted)
+                .map_err(|e| FfiError::Operation(format!("to_json: {e}")))
         })?;
 
         let bytes =

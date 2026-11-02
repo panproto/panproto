@@ -157,7 +157,7 @@ fn put_preserves_view_edit_with_per_field_child_vertices() {
     // Put back.
     let restored = asymmetric::put(&lens, &view, &complement).expect("put back");
 
-    let restored_json = to_json(&src_schema, &restored);
+    let restored_json = to_json(&src_schema, &restored).unwrap();
     let obj = restored_json.as_object().expect("restored root is object");
 
     assert_eq!(
@@ -295,7 +295,7 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
 
     // Serialize the view, mutate its displayName, re-parse against the
     // target schema (which has `displayName` as the edge label).
-    let mut view_json = to_json(&lens.tgt_schema, &view);
+    let mut view_json = to_json(&lens.tgt_schema, &view).unwrap();
     view_json
         .as_object_mut()
         .unwrap()
@@ -341,7 +341,7 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
     );
 
     let restored = asymmetric::put(&lens, &remapped, &complement).expect("put");
-    let restored_json = to_json(&src_schema, &restored);
+    let restored_json = to_json(&src_schema, &restored).unwrap();
     let obj = restored_json.as_object().unwrap();
 
     assert_eq!(
@@ -492,7 +492,7 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
     );
 
     let restored = asymmetric::put(&lens, &view, &complement).expect("put back");
-    let restored_json = to_json(&src_schema, &restored);
+    let restored_json = to_json(&src_schema, &restored).unwrap();
     let obj = restored_json.as_object().unwrap();
 
     assert_eq!(

@@ -238,7 +238,7 @@ fn ordered_stages_compute_in_the_post_rename_field_frame() {
         .instantiate(&schema, &step_protocol())
         .expect("ordered stages instantiate");
     let (view, _) = lens.get(&instance).expect("ordered get succeeds");
-    let json = panproto_inst::to_json(lens.tgt_schema(), &view);
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(json.get("amount"), Some(&serde_json::json!(2)));
     assert_eq!(json.get("derived"), Some(&serde_json::json!(3)));
@@ -344,7 +344,7 @@ fn ordered_stage_keeps_default_synthesized_by_add_field() {
             && edge.name.as_ref() == Some(&Name::from("note"))
     }));
     let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
-    let json = panproto_inst::to_json(lens.tgt_schema(), &view);
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(json.get("note"), Some(&serde_json::json!("d")));
     assert!(json.get("doc.note").is_none());
@@ -452,7 +452,7 @@ fn scoped_transform_only_pipeline_does_not_require_a_structural_chain() {
         .instantiate(&nested_schema(), &step_protocol())
         .expect("transform-only scoped document instantiates");
     let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
-    let json = panproto_inst::to_json(lens.tgt_schema(), &view);
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(
         json.pointer("/meta/derived"),
@@ -480,7 +480,7 @@ fn scoped_pipeline_preserves_inner_rename_then_compute_order() {
         .instantiate(&nested_schema(), &step_protocol())
         .expect("ordered scoped document instantiates");
     let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
-    let json = panproto_inst::to_json(lens.tgt_schema(), &view);
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(json.pointer("/meta/writer"), Some(&serde_json::json!("A")));
     assert_eq!(

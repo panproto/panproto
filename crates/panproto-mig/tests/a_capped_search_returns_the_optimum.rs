@@ -70,8 +70,9 @@ fn record() -> serde_json::Value {
     serde_json::json!({"handle": "alice.test", "bio": "hi"})
 }
 
-/// Compile the migration of `found`, parse the record and lift it: the
-/// lift's own outcome, inside the outcome of the steps before it.
+/// Compile the migration of `found`, parse the record, lift it and write the
+/// view as JSON: the lift's own outcome, inside the outcome of the steps
+/// around it.
 fn lift_record(
     src: &Schema,
     tgt: &Schema,
@@ -91,7 +92,10 @@ fn lift_record(
             tgt: &protocol,
         },
     );
-    Ok(lifted.map(|view| to_json(tgt, &view)))
+    match lifted {
+        Ok(view) => Ok(Ok(to_json(tgt, &view)?)),
+        Err(refusal) => Ok(Err(refusal)),
+    }
 }
 
 #[test]

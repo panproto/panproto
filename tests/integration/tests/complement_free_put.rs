@@ -202,15 +202,15 @@ fn reconstruction_recovers_the_source() {
 
     let (view, _) = get(&lens, &source).expect("get");
     assert_eq!(
-        to_json(&schema, &view),
+        to_json(&schema, &view).unwrap(),
         serde_json::json!({"v": 5, "w": 7}),
         "the forward direction keeps both fields"
     );
 
     let restored = put_without_complement(&lens, &view).expect("the lens is an isomorphism");
     assert_eq!(
-        to_json(&schema, &restored),
-        to_json(&schema, &source),
+        to_json(&schema, &restored).unwrap(),
+        to_json(&schema, &source).unwrap(),
         "and the view alone determines the source it came from"
     );
 }
@@ -369,7 +369,7 @@ fn a_declared_inverse_is_not_certified_for_reconstruction() {
     let source = instance(&schema, 5, 7);
     let (view, complement) = get(&lens, &source).expect("get");
     assert_eq!(
-        to_json(&schema, &view),
+        to_json(&schema, &view).unwrap(),
         serde_json::json!({"v": 6, "w": 7}),
         "the forward direction shifts v"
     );
@@ -406,7 +406,7 @@ fn put_refuses_a_complement_outside_the_image_of_get() {
         ),
         Ok(restored) => panic!(
             "expected a refusal, got a silent reconstruction: {}",
-            to_json(&schema, &restored)
+            to_json(&schema, &restored).unwrap()
         ),
         other => panic!("expected ComplementMismatch, got {other:?}"),
     }

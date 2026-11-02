@@ -1222,7 +1222,13 @@ impl Repository {
                         .collect(),
                 });
             }
-            records.push(panproto_inst::to_json(&schema, instance));
+            let record = panproto_inst::to_json(&schema, instance).map_err(|error| {
+                VcsError::DataValidationFailed {
+                    path: display.clone(),
+                    reasons: vec![format!("record {index}: {error}")],
+                }
+            })?;
+            records.push(record);
         }
 
         Ok(DecodedDataSet {

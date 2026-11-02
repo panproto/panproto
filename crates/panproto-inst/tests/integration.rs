@@ -110,7 +110,7 @@ fn simple_schema() -> Schema {
 // Test 1: 3-node W-type instance -> validate -> round-trip JSON
 // ---------------------------------------------------------------------------
 #[test]
-fn test_3_node_validate_and_round_trip() {
+fn test_3_node_validate_and_round_trip() -> Result<(), panproto_inst::ParseError> {
     let schema = simple_schema();
 
     // Build instance
@@ -159,7 +159,7 @@ fn test_3_node_validate_and_round_trip() {
     );
 
     // Serialize to JSON
-    let json_out = to_json(&schema, &inst);
+    let json_out = to_json(&schema, &inst)?;
     assert!(json_out.is_object());
     assert_eq!(json_out["name"], "Alice");
     assert_eq!(json_out["desc"], "A person");
@@ -180,9 +180,10 @@ fn test_3_node_validate_and_round_trip() {
     assert_eq!(parsed.arc_count(), 2, "expected 2 arcs after round-trip");
 
     // Re-serialize and compare
-    let json_rt = to_json(&schema, &parsed);
+    let json_rt = to_json(&schema, &parsed)?;
     assert_eq!(json_rt["name"], "Alice");
     assert_eq!(json_rt["desc"], "A person");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -241,7 +241,9 @@ pub fn cmd_lift(
         }
     };
 
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let output = inst::to_json(&tgt_schema, &lifted)
+        .into_diagnostic()
+        .wrap_err("failed to write the instance as JSON")?;
     let pretty = serde_json::to_string_pretty(&output)
         .into_diagnostic()
         .wrap_err("failed to serialize output")?;

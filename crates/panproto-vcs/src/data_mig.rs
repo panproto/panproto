@@ -295,6 +295,12 @@ pub fn migrate_data_directory(
             }
         })?;
 
+        let output = panproto_inst::to_json(tgt_schema, &view).map_err(|e| {
+            VcsError::DataMigrationFailed {
+                reason: format!("serialize view: {e}"),
+            }
+        })?;
+
         // Store migrated data as a DataSetObject for complement tracking
         let tgt_schema_id = crate::hash::hash_schema(tgt_schema)?;
         let migrated_data = DataSetObject {
@@ -311,7 +317,6 @@ pub fn migrate_data_directory(
         };
         store.put(&Object::DataSet(migrated_data))?;
 
-        let output = panproto_inst::to_json(tgt_schema, &view);
         let pretty =
             serde_json::to_string_pretty(&output).map_err(|e| VcsError::DataMigrationFailed {
                 reason: format!("serialize: {e}"),

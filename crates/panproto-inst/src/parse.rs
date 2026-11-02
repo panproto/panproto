@@ -408,23 +408,34 @@ fn json_value_to_value(val: &serde_json::Value) -> Value {
 ///
 /// Reconstructs the JSON structure by walking the instance tree
 /// from the root, using schema edges as property names.
-#[must_use]
-pub fn to_json(schema: &Schema, instance: &WInstance) -> serde_json::Value {
-    node_to_json(schema, instance, instance.root)
+///
+/// # Errors
+///
+/// Returns [`ParseError::MultipleValuesOnField`] when a node that is not
+/// a list holds two or more arcs on a named outgoing edge of its anchor
+/// that the schema does not order: a single-valued field, which a JSON
+/// object can write only once.
+pub fn to_json(schema: &Schema, instance: &WInstance) -> Result<serde_json::Value, ParseError> {
+    node_to_json(schema, instance, instance.root, "$")
 }
 
-/// Recursively convert a node to JSON.
-fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_json::Value {
+/// Recursively convert a node to JSON; `path` is the node's JSON path.
+fn node_to_json(
+    schema: &Schema,
+    instance: &WInstance,
+    node_id: u32,
+    path: &str,
+) -> Result<serde_json::Value, ParseError> {
     let Some(node) = instance.node(node_id) else {
-        return serde_json::Value::Null;
+        return Ok(serde_json::Value::Null);
     };
 
     // Leaf node: return value directly
     if let Some(ref presence) = node.value {
-        return match presence {
+        return Ok(match presence {
             FieldPresence::Present(val) => value_to_json(val),
             FieldPresence::Null | FieldPresence::Absent => serde_json::Value::Null,
-        };
+        });
     }
 
     // List (ordered-collection) node. We treat a node as a list when
@@ -440,9 +451,14 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     //    same `(kind, name)` pair (recovers list shape when the
     //    annotation is absent, e.g. instances built by callers that
     //    bypass the CST extraction path).
+    //
+    // The third signal never overrides the schema: two arcs on a
+    // single-valued field of the anchor (a named, unordered outgoing
+    // edge) are two values for one field, not the items of a list, and
+    // are refused unless one of the first two signals makes the node a
+    // list.
     let list_via_schema = is_list_vertex(schema, &node.anchor);
     let list_via_annotation = node.is_list();
-    let list_via_instance_arcs = is_list_via_instance_arcs(instance, node_id);
     // The schema-shape signal (`list_via_schema`) is a heuristic: it fires
     // whenever every outgoing edge is anonymous, which is also true of a
     // hand-built record whose author didn't supply edge names. Object-only
@@ -453,15 +469,19 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     // both are positive evidence about the data, not the schema, and
     // cannot coexist with object content.
     let object_only_signals = !node.extra_fields.is_empty() || node.discriminator.is_some();
-    let is_list =
-        (list_via_schema && !object_only_signals) || list_via_annotation || list_via_instance_arcs;
+    let declared_list = (list_via_schema && !object_only_signals) || list_via_annotation;
+    if !declared_list {
+        refuse_repeated_field(schema, instance, node_id, &node.anchor, path)?;
+    }
+    let is_list = declared_list || is_list_via_instance_arcs(instance, node_id);
     if is_list {
         let children = instance.children(node_id);
-        let items: Vec<serde_json::Value> = children
+        let items = children
             .iter()
-            .map(|&child_id| node_to_json(schema, instance, child_id))
-            .collect();
-        return serde_json::Value::Array(items);
+            .enumerate()
+            .map(|(i, &child_id)| node_to_json(schema, instance, child_id, &format!("{path}[{i}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(serde_json::Value::Array(items));
     }
 
     // Object node: reconstruct as JSON object
@@ -476,10 +496,8 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
     for &(parent, child, ref edge) in &instance.arcs {
         if parent == node_id {
             let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
-            map.insert(
-                field_name.to_string(),
-                node_to_json(schema, instance, child),
-            );
+            let value = node_to_json(schema, instance, child, &format!("{path}.{field_name}"))?;
+            map.insert(field_name.to_string(), value);
         }
     }
 
@@ -493,7 +511,7 @@ fn node_to_json(schema: &Schema, instance: &WInstance, node_id: u32) -> serde_js
         map.insert(key.clone(), value_to_json(val));
     }
 
-    serde_json::Value::Object(map)
+    Ok(serde_json::Value::Object(map))
 }
 
 /// Convert a `Value` to a `serde_json::Value`.
@@ -566,6 +584,42 @@ fn is_list_vertex(schema: &Schema, vertex_id: &str) -> bool {
     !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none())
 }
 
+/// Refuse a node that holds two or more arcs on one single-valued field.
+///
+/// A single-valued field is a named outgoing schema edge of `anchor` that
+/// the schema does not order ([`Schema::orderings`]): a field projection,
+/// one value per node. An anonymous edge is the item slot of a list and an
+/// ordered edge indexes its targets, so arcs on either may repeat, as may
+/// arcs on an edge the anchor does not declare. The first field in arc
+/// order that repeats is reported, with the number of arcs on it.
+fn refuse_repeated_field(
+    schema: &Schema,
+    instance: &WInstance,
+    node_id: u32,
+    anchor: &str,
+    path: &str,
+) -> Result<(), ParseError> {
+    let fields = schema.outgoing_edges(anchor);
+    let mut counts: Vec<(&Edge, usize)> = Vec::new();
+    for (_, _, edge) in instance.arcs.iter().filter(|(p, _, _)| *p == node_id) {
+        if edge.name.is_none() || schema.orderings.contains_key(edge) || !fields.contains(edge) {
+            continue;
+        }
+        match counts.iter_mut().find(|(seen, _)| *seen == edge) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((edge, 1)),
+        }
+    }
+    match counts.into_iter().find(|&(_, count)| count >= 2) {
+        Some((edge, count)) => Err(ParseError::MultipleValuesOnField {
+            path: path.to_owned(),
+            field: edge.name.as_deref().unwrap_or_default().to_owned(),
+            count,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Detect a list-shaped node from its instance arcs.
 ///
 /// Returns `true` when the node has at least two outgoing arcs that
@@ -573,7 +627,9 @@ fn is_list_vertex(schema: &Schema, vertex_id: &str) -> bool {
 /// cannot be expressed as a JSON object (duplicate keys are
 /// disallowed), so the only consistent serialization is a JSON array.
 /// In particular, this catches the synthetic `"item"` arcs that the
-/// open-schema CST extractor emits for every array element.
+/// open-schema CST extractor emits for every array element. Arcs on a
+/// single-valued field of the anchor are refused before this signal is
+/// consulted ([`refuse_repeated_field`]).
 fn is_list_via_instance_arcs(instance: &WInstance, node_id: u32) -> bool {
     let mut signature: Option<(panproto_gat::Name, Option<panproto_gat::Name>)> = None;
     let mut count = 0_usize;
@@ -756,7 +812,7 @@ mod tests {
             )
         });
 
-        let output = to_json(&schema, &inst);
+        let output = to_json(&schema, &inst).unwrap();
         assert!(output.is_object());
         assert_eq!(output["text"], "hello world");
         assert_eq!(output["createdAt"], "2024-01-01T00:00:00Z");
@@ -801,7 +857,7 @@ mod tests {
         let json_val = json!({"tags": ["alpha", "beta", "gamma"]});
         let inst = parse_json(&schema, &Protocol::default(), "root", &json_val).unwrap();
 
-        let output = to_json(&schema, &inst);
+        let output = to_json(&schema, &inst).unwrap();
         assert!(output["tags"].is_array());
         let tags = output["tags"].as_array().unwrap();
         assert_eq!(tags.len(), 3, "array elements should not be dropped");
@@ -853,7 +909,7 @@ mod tests {
             let schema = list_schema_with_kind(kind);
             let input = json!({"items": ["alpha", "beta"]});
             let inst = parse_json(&schema, &Protocol::default(), "root", &input).unwrap();
-            let output = to_json(&schema, &inst);
+            let output = to_json(&schema, &inst).unwrap();
             assert!(
                 output["items"].is_array(),
                 "kind={kind}: expected JSON array, got {}",
@@ -895,7 +951,7 @@ mod tests {
         let schema = list_schema_with_kind("collection");
         let input = json!({"items": []});
         let inst = parse_json(&schema, &Protocol::default(), "root", &input).unwrap();
-        let output = to_json(&schema, &inst);
+        let output = to_json(&schema, &inst).unwrap();
         assert_eq!(output["items"], json!([]));
     }
 
@@ -985,7 +1041,7 @@ mod tests {
         });
 
         let inst = parse_json(&schema, &Protocol::default(), "post:body", &input).unwrap();
-        let output = to_json(&schema, &inst);
+        let output = to_json(&schema, &inst).unwrap();
 
         // Schema-anchored fields survive as usual.
         assert_eq!(output["text"], "Hello");
@@ -1049,7 +1105,7 @@ mod tests {
         // The data is preserved on the parse side as an extra_field on
         // the root: there is no schema edge named "tick", so the parser
         // routes it to extra_fields rather than dropping it.
-        let output = to_json(&schema, &inst);
+        let output = to_json(&schema, &inst).unwrap();
         assert!(
             output.is_object(),
             "node with extra_fields must emit as an object, not an array; got {output}"

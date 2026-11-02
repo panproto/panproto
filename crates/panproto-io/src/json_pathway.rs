@@ -24,7 +24,7 @@ use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
 use panproto_inst::value::{
     BigIntValue, CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
 };
-use panproto_inst::{ValueSite, WInstance, parse_json, to_json};
+use panproto_inst::{ParseError, ValueSite, WInstance, parse_json, to_json};
 use panproto_schema::{BytesText, Edge, Protocol, ScalarKind, Schema, ValueSpec};
 
 use crate::error::{
@@ -1782,8 +1782,16 @@ impl CanonicalTreeValidator<'_> {
 /// Use [`emit_json_bytes`] when exact typed values and structured emission
 /// errors matter. This wrapper preserves the public API used by callers that
 /// need a `serde_json::Value` for another format conversion.
-#[must_use]
-pub fn emit_json_value(schema: &Schema, instance: &WInstance) -> serde_json::Value {
+///
+/// # Errors
+///
+/// Returns [`ParseError::MultipleValuesOnField`] when a node that is not a
+/// list holds two or more values on a single-valued field, as
+/// [`to_json`] refuses.
+pub fn emit_json_value(
+    schema: &Schema,
+    instance: &WInstance,
+) -> Result<serde_json::Value, ParseError> {
     to_json(schema, instance)
 }
 

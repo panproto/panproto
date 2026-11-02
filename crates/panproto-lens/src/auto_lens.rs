@@ -2183,7 +2183,7 @@ mod tests {
         let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let (view, _) = crate::get(&generated.lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&tgt, &view),
+            panproto_inst::to_json(&tgt, &view).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "auto_generate must compile caller defaults into the public get path"
         );
@@ -2225,7 +2225,7 @@ mod tests {
         let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let (view, _) = crate::get(&generated.lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&tgt, &view),
+            panproto_inst::to_json(&tgt, &view).unwrap(),
             serde_json::json!({"name": "Ada"}),
             "an omitted default must remain absent rather than becoming explicit null"
         );

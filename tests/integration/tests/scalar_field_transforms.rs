@@ -219,7 +219,7 @@ fn compute_field_survives_restrict() {
     let restricted = result.unwrap();
 
     // Serialize and check the computed field appears
-    let json_out = to_json(&schema, &restricted);
+    let json_out = to_json(&schema, &restricted).unwrap();
     assert_eq!(
         json_out["repo_copy"], "at://did:plc:abc123/app.bsky.feed.post/rkey456",
         "ComputeField should have read the child scalar 'repo' and written 'repo_copy'"
@@ -311,7 +311,7 @@ fn at_uri_decomposition_end_to_end() {
     };
 
     let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
-    let json_out = to_json(&schema, &restricted);
+    let json_out = to_json(&schema, &restricted).unwrap();
 
     assert_eq!(json_out["repoDid"], "did:plc:abc123");
     assert_eq!(json_out["repoCollection"], "app.bsky.feed.post");
@@ -387,7 +387,7 @@ fn multiple_scalar_transforms_compose() {
     };
 
     let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
-    let json_out = to_json(&schema, &restricted);
+    let json_out = to_json(&schema, &restricted).unwrap();
 
     assert_eq!(
         json_out["field_a"],
@@ -429,7 +429,7 @@ fn scalar_child_identity_roundtrip() {
         "identity restrict must preserve node count"
     );
 
-    let json_out = to_json(&schema, &restricted);
+    let json_out = to_json(&schema, &restricted).unwrap();
     assert_eq!(
         json_out["repo"],
         "at://did:plc:abc123/app.bsky.feed.post/rkey456"
@@ -543,7 +543,7 @@ mod property {
             };
 
             let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
-            let json_out = to_json(&schema, &restricted);
+            let json_out = to_json(&schema, &restricted).unwrap();
 
             for name in &names {
                 let original_key = name.as_str();
@@ -581,8 +581,8 @@ mod property {
             );
             prop_assert_eq!(restricted.root, instance.root);
 
-            let json_before = to_json(&schema, &instance);
-            let json_after = to_json(&schema, &restricted);
+            let json_before = to_json(&schema, &instance).unwrap();
+            let json_after = to_json(&schema, &restricted).unwrap();
             prop_assert_eq!(
                 serde_json::to_string(&json_before).unwrap(),
                 serde_json::to_string(&json_after).unwrap(),

@@ -110,7 +110,7 @@ fn transparent_indirection_preserves_round_trip() -> Result<(), Box<dyn Error>> 
     let record = serde_json::json!({ "kf": { "t": 5 } });
     let inst = parse_json(&at, &atproto::protocol(), "d.a", &record)?;
     assert_eq!(
-        to_json(&at, &inst),
+        to_json(&at, &inst)?,
         record,
         "deep parse must still serialize back to the original record"
     );

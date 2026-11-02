@@ -182,9 +182,17 @@ impl PyInstance {
     }
 
     /// Serialize the instance to a JSON string using the schema's structure.
-    fn to_json(&self) -> String {
-        let val = inst::to_json(&self.schema, &self.inner);
-        serde_json::to_string_pretty(&val).unwrap_or_else(|_| "null".to_string())
+    ///
+    /// Raises
+    /// ------
+    /// IoError
+    ///     If a node that is not a list holds two or more values on a
+    ///     single-valued field, which a JSON object can write only once.
+    fn to_json(&self) -> PyResult<String> {
+        let val = inst::to_json(&self.schema, &self.inner)
+            .map_err(|e| crate::error::IoError::new_err(format!("to_json failed: {e}")))?;
+        serde_json::to_string_pretty(&val)
+            .map_err(|e| crate::error::IoError::new_err(format!("to_json failed: {e}")))
     }
 
     /// Serialize the raw W-type structure to a Python dict.

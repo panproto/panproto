@@ -185,7 +185,7 @@ fn run_transform(transform: FieldTransform) -> serde_json::Value {
     };
 
     let restricted = restrict(&instance, &schema, &migration).expect("restrict should succeed");
-    to_json(&schema, &restricted)
+    to_json(&schema, &restricted).unwrap()
 }
 
 fn apply_expr(key: &str, src: &str) -> FieldTransform {
@@ -302,7 +302,7 @@ fn transforms_compose_over_containers() {
     };
 
     let restricted = restrict(&instance, &schema, &migration).expect("restrict should succeed");
-    let out = to_json(&schema, &restricted);
+    let out = to_json(&schema, &restricted).unwrap();
 
     assert_eq!(out["nums"], serde_json::json!([10, 20, 30]));
     assert_eq!(
@@ -403,7 +403,7 @@ fn membership_predicate_reads_a_list_field() {
     };
 
     let restricted = restrict(&instance, &schema, &migration).expect("restrict should succeed");
-    let out = to_json(&schema, &restricted);
+    let out = to_json(&schema, &restricted).unwrap();
     assert_eq!(
         out["matched"],
         serde_json::json!(true),

@@ -3811,7 +3811,7 @@ mod tests {
         let lens = chain.instantiate(&schema, &protocol).unwrap();
         let (view, _) = crate::get(&lens, &instance).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&lens.tgt_schema, &view)["locale"],
+            panproto_inst::to_json(&lens.tgt_schema, &view).unwrap()["locale"],
             serde_json::json!("en"),
             "fusing a chain must not discard its constructor default"
         );
@@ -5191,7 +5191,7 @@ mod tests {
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
         let restored = asymmetric::put(&lens, &view, &complement).expect("put");
 
-        let restored_json = to_json(&source, &restored);
+        let restored_json = to_json(&source, &restored).unwrap();
         assert_eq!(
             restored_json, input,
             "hoist get/put must restore the source JSON byte-for-byte, got {restored_json}"
@@ -5222,7 +5222,7 @@ mod tests {
 
         let (view, complement) = asymmetric::get(&lens, &instance).expect("get");
         let restored = asymmetric::put(&lens, &view, &complement).expect("put");
-        let restored_json = to_json(&source, &restored);
+        let restored_json = to_json(&source, &restored).unwrap();
 
         assert!(
             restored_json["profile"].is_object(),

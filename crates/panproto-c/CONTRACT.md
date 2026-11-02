@@ -124,7 +124,7 @@ the ordered path normalizes to one concrete lens group.
 | Signature | Notes |
 | --- | --- |
 | `int32_t pp_inst_validate(uint32_t schema_handle, slice_ref_uint8_t instance, Vec_uint8_t *out)` | CBOR `WInstance` in, `Vec<String>` out; calls `inst::validate_wtype`. |
-| `int32_t pp_inst_to_json(uint32_t schema_handle, slice_ref_uint8_t instance, Vec_uint8_t *out)` | CBOR `WInstance` in; JSON out; calls `inst::to_json`. |
+| `int32_t pp_inst_to_json(uint32_t schema_handle, slice_ref_uint8_t instance, Vec_uint8_t *out)` | CBOR `WInstance` in; JSON out; calls `inst::to_json`, whose refusal of two or more values on a single-valued field is reported through the error slot. |
 | `int32_t pp_inst_json_to_instance(uint32_t schema_handle, slice_ref_uint8_t json, slice_ref_uint8_t root_vertex, Vec_uint8_t *out)` | Raw JSON in, CBOR `WInstance` out; `root_vertex` UTF-8; calls `inst::parse_json`. |
 | `int32_t pp_inst_element_count(slice_ref_uint8_t instance, uint32_t *out_count)` | CBOR `WInstance` in; node count out; calls `WInstance::node_count`. |
 

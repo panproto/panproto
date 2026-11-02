@@ -515,7 +515,7 @@ mod tests {
 
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "diff_to_lens must compile the default into executable get behavior"
         );
@@ -532,7 +532,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &lifted),
+            panproto_inst::to_json(&new, &lifted).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "the public WInstance lift path must execute the same compiled default"
         );
@@ -559,7 +559,7 @@ mod tests {
                 .unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"name": "Ada"})
         );
     }
@@ -578,7 +578,7 @@ mod tests {
         let (view, _) = crate::get(&lens, &source).unwrap();
 
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"active": null, "name": "Ada"})
         );
     }
@@ -660,7 +660,7 @@ mod tests {
                 .unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"active": true, "archived": false, "name": "Ada"})
         );
     }
@@ -960,7 +960,7 @@ mod tests {
         .unwrap();
         let (view, complement) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"untouched": "same", "value": true})
         );
         let restored = crate::put(&lens, &view, &complement).unwrap();

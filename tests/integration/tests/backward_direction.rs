@@ -151,14 +151,14 @@ fn an_overwriting_computation_is_undone() {
 
     let (view, comp) = get(&lens, &instance).expect("get");
     assert_eq!(
-        to_json(&schema, &view)["confidence"],
+        to_json(&schema, &view).unwrap()["confidence"],
         800,
         "the forward pass scales and rounds"
     );
 
     let restored = put(&lens, &view, &comp).expect("put");
     assert_eq!(
-        to_json(&schema, &restored)["confidence"],
+        to_json(&schema, &restored).unwrap()["confidence"],
         0.8,
         "the backward pass undoes it"
     );
@@ -233,7 +233,7 @@ fn collection_order_survives_the_round_trip() {
     let restored = put(&lens, &view, &comp).expect("put");
 
     assert_eq!(
-        to_json(&schema, &restored),
+        to_json(&schema, &restored).unwrap(),
         serde_json::json!({"items": [{"n": 1}, {"n": 2}, {"n": 3}]}),
         "elements come back in the order they went in"
     );
@@ -350,7 +350,7 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
     );
 
     let (view, comp) = get(&lens, &instance).expect("get");
-    let view_json = to_json(&schema, &view);
+    let view_json = to_json(&schema, &view).unwrap();
     assert_eq!(view_json["confidence"], 800);
 
     // The WASM `put_json` re-parses the view rather than using the
@@ -370,7 +370,7 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
 
     let restored = put(&lens, &reparsed, &comp).expect("put");
     assert_eq!(
-        to_json(&schema, &restored)["confidence"],
+        to_json(&schema, &restored).unwrap()["confidence"],
         0.8,
         "the inverse still has to run when the value arrives on the child"
     );

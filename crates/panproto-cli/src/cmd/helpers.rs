@@ -318,7 +318,9 @@ pub fn convert_single_file(
             .wrap_err("lens put (backward) failed")?
     };
 
-    let output = inst::to_json(backward_schema, &output_instance);
+    let output = inst::to_json(backward_schema, &output_instance)
+        .into_diagnostic()
+        .wrap_err("failed to write the instance as JSON")?;
     serde_json::to_string_pretty(&output)
         .into_diagnostic()
         .wrap_err("failed to serialize output")

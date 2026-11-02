@@ -151,7 +151,7 @@ fn real_posts_validate_through_the_schema_parse() -> TestResult {
             report.incomplete
         );
         assert_eq!(
-            panproto_core::inst::to_json(&schema, &instance),
+            panproto_core::inst::to_json(&schema, &instance)?,
             record,
             "{name}"
         );
@@ -223,7 +223,7 @@ fn opaque_data_is_one_value_in_both_readers() -> TestResult {
             serde_json::from_slice(&registry.emit_wtype("atproto", &schema, &through_codec)?)?;
         assert_eq!(emitted, record);
         assert_eq!(
-            panproto_core::inst::to_json(&schema, &through_schema),
+            panproto_core::inst::to_json(&schema, &through_schema)?,
             record
         );
     }
@@ -290,7 +290,7 @@ fn reads_validates_and_writes_back(
         serde_json::from_slice(&registry.emit_wtype("atproto", schema, &through_codec)?)?;
     assert_eq!(&emitted, record, "{name}");
     assert_eq!(
-        &panproto_core::inst::to_json(schema, &through_schema),
+        &panproto_core::inst::to_json(schema, &through_schema)?,
         record,
         "{name}"
     );

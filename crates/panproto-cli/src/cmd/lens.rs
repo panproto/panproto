@@ -729,7 +729,9 @@ pub fn cmd_lens_apply(
             let (view, _complement) = lens::get(&the_lens, &instance)
                 .into_diagnostic()
                 .wrap_err("lens get (forward) failed")?;
-            let output = inst::to_json(&the_lens.tgt_schema, &view);
+            let output = inst::to_json(&the_lens.tgt_schema, &view)
+                .into_diagnostic()
+                .wrap_err("failed to write the instance as JSON")?;
             let pretty = serde_json::to_string_pretty(&output)
                 .into_diagnostic()
                 .wrap_err("failed to serialize output")?;
@@ -748,7 +750,9 @@ pub fn cmd_lens_apply(
             let restored = lens::put(&the_lens, &instance, &complement)
                 .into_diagnostic()
                 .wrap_err("lens put (backward) failed")?;
-            let output = inst::to_json(&the_lens.src_schema, &restored);
+            let output = inst::to_json(&the_lens.src_schema, &restored)
+                .into_diagnostic()
+                .wrap_err("failed to write the instance as JSON")?;
             let pretty = serde_json::to_string_pretty(&output)
                 .into_diagnostic()
                 .wrap_err("failed to serialize output")?;

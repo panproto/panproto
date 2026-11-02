@@ -115,7 +115,7 @@ fn put_preserves_view_edit_on_renamed_record_field() {
     // Put back.
     let restored = asymmetric::put(&lens, &view, &complement).expect("put should succeed");
 
-    let restored_json = to_json(&src_schema, &restored);
+    let restored_json = to_json(&src_schema, &restored).unwrap();
     let obj = restored_json
         .as_object()
         .expect("restored root should be an object");

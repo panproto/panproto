@@ -635,8 +635,9 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
                 reason: e.to_string(),
             })?;
 
-        let out_json = inst::to_json(&tgt_schema, &lifted);
-        Ok(out_json)
+        inst::to_json(&tgt_schema, &lifted).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
     })?;
 
     serde_json::to_vec(&result).map_err(|e| -> JsError {
@@ -690,7 +691,10 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
             reason: e.to_string(),
         })?;
 
-    let view_json = inst::to_json(&tgt_schema, &view);
+    let view_json =
+        inst::to_json(&tgt_schema, &view).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })?;
     let complement_bytes =
         rmp_serde::to_vec_named(&complement).map_err(|e| WasmError::SerializationFailed {
             reason: format!("complement: {e}"),
@@ -753,8 +757,9 @@ pub fn put_json(
                 reason: e.to_string(),
             })?;
 
-        let out_json = inst::to_json(&src_schema, &restored);
-        Ok(out_json)
+        inst::to_json(&src_schema, &restored).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
     })?;
 
     serde_json::to_vec(&result).map_err(|e| -> JsError {
@@ -819,8 +824,9 @@ pub fn put_json_without_complement(
             }
         })?;
 
-        let out_json = inst::to_json(&src_schema, &restored);
-        Ok(out_json)
+        inst::to_json(&src_schema, &restored).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
     })?;
 
     serde_json::to_vec(&result).map_err(|e| -> JsError {

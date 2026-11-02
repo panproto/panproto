@@ -662,13 +662,15 @@ pub enum RestrictError {
     /// target edge.
     ///
     /// A named edge is a field projection and holds one value per parent;
-    /// the item slot of an ordered collection is anonymous. When the edge
-    /// map sends arcs of two or more distinct source edges under one parent
-    /// onto one named target edge (a non-injective map on sibling fields),
-    /// the restrict refuses rather than turning the field into a list or
-    /// keeping one of its values. Arcs of one source edge keep the
-    /// multiplicity they had in the source, and arcs a contraction
-    /// synthesizes are not counted; neither is refused.
+    /// the item slot of an ordered collection is anonymous. When arcs from
+    /// two or more distinct source edges land under one parent on one
+    /// named target edge, the restrict refuses rather than turning the
+    /// field into a list or keeping one of its values. That happens when
+    /// the edge map sends sibling fields to one edge (a non-injective map),
+    /// and when a contraction joins a flattened nested field to a parent
+    /// already holding that field directly; a contracted arc counts under
+    /// the source edge entering its child. Arcs of one source edge keep the
+    /// multiplicity they had in the source and are not refused.
     #[error("node {parent} would hold {count} arcs on the single-valued edge {edge:?}")]
     MultipleArcsOnSingleValuedEdge {
         /// The parent node, by its id in the source instance.
@@ -747,4 +749,24 @@ pub enum ParseError {
     /// every one in the document, in document order.
     #[error("{} value(s) cannot be read exactly; the first: {}", .0.len(), .0.first().map_or_else(String::new, ToString::to_string))]
     Fidelity(Vec<ValueFidelityError>),
+
+    /// A node holds two or more arcs on a single-valued field, so no JSON
+    /// value writes it.
+    ///
+    /// A named outgoing edge of a node's anchor that the schema does not
+    /// order is a field projection and holds one value per node; the item
+    /// slot of an ordered collection is anonymous or ordered. A JSON object
+    /// has one member per key, so [`to_json`](crate::to_json) refuses such a
+    /// node rather than writing it as an array of the field's values or
+    /// keeping one of them. A node marked as a list, or whose anchor the
+    /// schema marks as a list, is written as an array of its children.
+    #[error("{count} values on the single-valued field `{field}` at path {path}")]
+    MultipleValuesOnField {
+        /// JSON path of the node holding the field.
+        path: String,
+        /// The field's name.
+        field: String,
+        /// How many arcs the node holds on the field.
+        count: usize,
+    },
 }

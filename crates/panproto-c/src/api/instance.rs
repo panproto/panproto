@@ -92,7 +92,8 @@ pub fn pp_inst_to_json(
         let inst_value: inst::WInstance = crate::canonical::decode(instance.as_slice())?;
         let json_value = handle::with_resource(schema_handle, |r| {
             let schema = r.as_schema()?;
-            Ok(inst::to_json(schema, &inst_value))
+            inst::to_json(schema, &inst_value)
+                .map_err(|e| FfiError::Operation(format!("to_json: {e}")))
         })?;
         let bytes =
             serde_json::to_vec(&json_value).map_err(|e| FfiError::Serialization(e.to_string()))?;

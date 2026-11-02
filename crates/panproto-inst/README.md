@@ -25,7 +25,7 @@ use serde_json::json;
 
 let input = json!({ "name": "Ada" });
 let instance = parse_json(&schema, &protocol, "user", &input)?;
-let output = to_json(&schema, &instance);
+let output = to_json(&schema, &instance)?;
 ```
 
 ## Instance shapes
@@ -35,7 +35,11 @@ let output = to_json(&schema, &instance);
 `parse_json(schema, protocol, root_vertex, value)` and `to_json(schema, instance)`
 convert between JSON values and `WInstance`. The protocol classifies the schema's
 vertex kinds, so an object or array at a vertex whose kind holds any value is read
-as that node's one value. `validate_wtype(instance, schema, protocol)`
+as that node's one value. `to_json` refuses a node that holds two or more arcs on
+a single-valued field (a named, unordered outgoing edge of its anchor) with
+`ParseError::MultipleValuesOnField` rather than writing it as an array; a node marked
+as a list, and arcs on an anonymous or ordered edge, are written as arrays.
+`validate_wtype(instance, schema, protocol)`
 returns a `ValidationReport`; inspect its status, diagnostics, incomplete checks,
 and coverage rather than treating validation as a list of structural strings.
 

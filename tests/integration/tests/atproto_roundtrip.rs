@@ -121,7 +121,7 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
     );
 
     // Serialize back to JSON.
-    let output = to_json(&schema, &lifted);
+    let output = to_json(&schema, &lifted)?;
 
     // Verify the output contains the original field values.
     assert!(output.is_object(), "output should be a JSON object");
@@ -155,7 +155,7 @@ fn roundtrip_byte_compare() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Serialize the instance.
-    let json_out = to_json(&schema, &instance);
+    let json_out = to_json(&schema, &instance)?;
 
     // Re-parse the output.
     let instance2 = parse_json(
@@ -166,7 +166,7 @@ fn roundtrip_byte_compare() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Serialize again.
-    let json_out2 = to_json(&schema, &instance2);
+    let json_out2 = to_json(&schema, &instance2)?;
 
     // The two JSON outputs should be identical (idempotent round-trip).
     let bytes1 = serde_json::to_vec(&json_out)?;

@@ -354,7 +354,9 @@ pub fn validate_instance(schema_handle: u32, instance_bytes: &[u8]) -> Result<Ve
 ///
 /// # Errors
 ///
-/// Returns `JsError` if deserialization fails.
+/// Returns `JsError` if deserialization fails, or if a node that is not a
+/// list holds two or more values on a single-valued field, which a JSON
+/// object can write only once.
 #[wasm_bindgen]
 pub fn instance_to_json(schema_handle: u32, instance_bytes: &[u8]) -> Result<Vec<u8>, JsError> {
     let schema = slab::with_resource(schema_handle, |r| Ok(slab::as_schema(r)?.clone()))?;
@@ -364,7 +366,10 @@ pub fn instance_to_json(schema_handle: u32, instance_bytes: &[u8]) -> Result<Vec
             reason: e.to_string(),
         })?;
 
-    let json_value = inst::to_json(&schema, &instance);
+    let json_value =
+        inst::to_json(&schema, &instance).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })?;
     serde_json::to_vec(&json_value).map_err(|e| -> JsError {
         WasmError::SerializationFailed {
             reason: e.to_string(),
