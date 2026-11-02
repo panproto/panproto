@@ -1225,9 +1225,9 @@ pub fn compose(
 /// intermediate finite-map adapter validates the first view against the
 /// second stage's relational source boundary; fusing would skip that check
 /// and could admit a field introduced outside the boundary. A second-stage
-/// value layer also remains atomic when the source and middle protocols or
-/// the first plan's relational boundaries differ, because their typed
-/// placeholders for absent cells may differ.
+/// value layer reads the finite rows the first stage copies unchanged, never
+/// a placeholder for an absent cell, so a protocol or value-kind change
+/// across the first stage does not keep the pair atomic.
 /// Finally, the first target and second source relational schemas must be
 /// identical, the three entity functors must compose literally, and the
 /// second column map must be injective within each table, so fusion cannot
@@ -1256,17 +1256,6 @@ pub(crate) fn table_fusion(
     if first_writes_fields {
         return None;
     }
-    let second_has_value_layer = !second.compiled.conditional_survival.is_empty()
-        || second
-            .compiled
-            .field_transforms
-            .values()
-            .any(|transforms| !transforms.is_empty())
-        || second
-            .compiled
-            .op_term_assignments
-            .values()
-            .any(|assignments| !assignments.is_empty());
     let candidate = tree_fusion(first, second)?;
     let first_plan = compile(
         first,
@@ -1323,11 +1312,6 @@ pub(crate) fn table_fusion(
         &middle_field_vertices,
     )
     .is_some()
-    {
-        return None;
-    }
-    if second_has_value_layer
-        && (source != middle || first_functor.source() != first_functor.target())
     {
         return None;
     }
@@ -2863,73 +2847,109 @@ mod tests {
         );
     }
 
+    /// Fuses `first ; second`, where `second` keeps a row only when its
+    /// Boolean `f` holds, and checks it against the two atomic stages. Since
+    /// owner amendment 24 the finite-row lens feeds no typed placeholder to a
+    /// second-stage predicate, so a genuinely absent `f` is refused by both
+    /// executions with the same unbound-variable refusal, and a present `f`
+    /// gives both the same view and the same put.
+    fn assert_drift_fusion_matches_the_atomic_stages(
+        first: &Lens,
+        second: &Lens,
+        source_protocol: &Protocol,
+        middle_protocol: &Protocol,
+    ) {
+        let first_context = BoundaryProtocols {
+            src: source_protocol,
+            tgt: middle_protocol,
+        };
+        let second_context = BoundaryProtocols {
+            src: middle_protocol,
+            tgt: middle_protocol,
+        };
+        let fused = table_fusion(
+            first,
+            second,
+            source_protocol,
+            middle_protocol,
+            middle_protocol,
+        )
+        .test_unwrap("a protocol or value-kind change no longer keeps the pair atomic");
+        let absent = FInstance::new()
+            .with_rows("row", [(RowId(0), Row::new())])
+            .test_unwrap("source row must be admitted");
+        let (middle_view, _) =
+            get(first, &absent, first_context).test_unwrap("the identity stage keeps the row");
+        assert!(
+            !middle_view
+                .row(RowId(0))
+                .test_unwrap("the middle row survives")
+                .contains_key("f"),
+            "the first stage introduces no placeholder cell"
+        );
+        let refusal = |result: Result<(FInstance, TableComplement), LensError>| match result {
+            Err(LensError::Restrict(RestrictError::SurvivalPredicateFailed {
+                node: 0,
+                source: panproto_expr::ExprError::UnboundVariable(field),
+            })) => field,
+            other => panic!("expected the absent-cell predicate refusal, got {other:?}"),
+        };
+        let atomic = refusal(get(second, &middle_view, second_context));
+        let fused_refusal = refusal(get(&fused, &absent, first_context));
+        assert_eq!(atomic, "f", "the atomic second stage reads the absent cell");
+        assert_eq!(fused_refusal, atomic, "the fused lens refuses identically");
+
+        let present = FInstance::new()
+            .with_rows(
+                "row",
+                [(RowId(0), Row::from([("f".to_owned(), Value::Bool(true))]))],
+            )
+            .test_unwrap("source row must be admitted");
+        let (middle_view, first_complement) =
+            get(first, &present, first_context).test_unwrap("first atomic get");
+        let (atomic_view, second_complement) =
+            get(second, &middle_view, second_context).test_unwrap("second atomic get");
+        let (fused_view, fused_complement) =
+            get(&fused, &present, first_context).test_unwrap("fused get");
+        assert_eq!(fused_view, atomic_view, "fused and atomic get");
+        let atomic_put = put(second, &atomic_view, &second_complement, second_context)
+            .and_then(|middle| put(first, &middle, &first_complement, first_context))
+            .test_unwrap("atomic put");
+        let fused_put =
+            put(&fused, &fused_view, &fused_complement, first_context).test_unwrap("fused put");
+        assert_eq!(fused_put, atomic_put, "fused and atomic put");
+        assert_eq!(fused_put, present, "put restores the source");
+    }
+
+    fn keep_when_f(schema_in: &Schema, schema_out: &Schema) -> (Lens, Lens) {
+        let first = mapped_lens(schema_in, schema_out, std::iter::empty());
+        let mut second = mapped_lens(schema_out, schema_out, std::iter::empty());
+        second
+            .compiled
+            .conditional_survival
+            .insert("row".into(), panproto_expr::Expr::Var("f".into()));
+        (first, second)
+    }
+
     #[test]
-    fn table_fusion_retains_the_intermediate_placeholder_semantics() {
+    fn table_fusion_admits_a_protocol_change_before_a_predicate() {
         let source_protocol = column_protocol(ScalarKind::Bool);
         let middle_protocol = column_protocol(ScalarKind::Int {
             bits: 64,
             signed: true,
         });
         let schema = schema_with_columns(&source_protocol, &["f"]);
-        let first = mapped_lens(&schema, &schema, std::iter::empty());
-        let mut second = mapped_lens(&schema, &schema, std::iter::empty());
-        second
-            .compiled
-            .conditional_survival
-            .insert("row".into(), panproto_expr::Expr::Var("f".into()));
-        let source = FInstance::new()
-            .with_rows("row", [(RowId(0), Row::new())])
-            .test_unwrap("source row must be admitted");
-        let (middle_view, _) = get(
+        let (first, second) = keep_when_f(&schema, &schema);
+        assert_drift_fusion_matches_the_atomic_stages(
             &first,
-            &source,
-            BoundaryProtocols {
-                src: &source_protocol,
-                tgt: &middle_protocol,
-            },
-        )
-        .test_unwrap("the identity stage strips its typed placeholder");
-        assert!(
-            get(
-                &second,
-                &middle_view,
-                BoundaryProtocols {
-                    src: &middle_protocol,
-                    tgt: &middle_protocol,
-                },
-            )
-            .is_err(),
-            "the atomic second stage observes the middle protocol's integer placeholder"
-        );
-        let candidate =
-            tree_fusion(&first, &second).test_unwrap("graph/tree fusion admits the pair");
-        assert!(
-            get(
-                &candidate,
-                &source,
-                BoundaryProtocols {
-                    src: &source_protocol,
-                    tgt: &middle_protocol,
-                },
-            )
-            .is_ok(),
-            "the fused candidate instead observes the source protocol's Boolean placeholder"
-        );
-        assert!(
-            table_fusion(
-                &first,
-                &second,
-                &source_protocol,
-                &middle_protocol,
-                &middle_protocol,
-            )
-            .is_none(),
-            "table fusion must retain the intermediate placeholder type"
+            &second,
+            &source_protocol,
+            &middle_protocol,
         );
     }
 
     #[test]
-    fn table_fusion_retains_placeholder_semantics_across_value_kind_drift() {
+    fn table_fusion_admits_value_kind_drift_before_a_predicate() {
         let protocol = Protocol {
             value_kinds: BTreeMap::from([
                 ("bool".to_owned(), ScalarKind::Bool),
@@ -2946,34 +2966,8 @@ mod tests {
         };
         let source_schema = schema_with_column_kind(&protocol, "bool", &["f"]);
         let middle_schema = schema_with_column_kind(&protocol, "int", &["f"]);
-        let first = mapped_lens(&source_schema, &middle_schema, std::iter::empty());
-        let mut second = mapped_lens(&middle_schema, &middle_schema, std::iter::empty());
-        second
-            .compiled
-            .conditional_survival
-            .insert("row".into(), panproto_expr::Expr::Var("f".into()));
-        let source = FInstance::new()
-            .with_rows("row", [(RowId(0), Row::new())])
-            .test_unwrap("source row must be admitted");
-        let context = BoundaryProtocols {
-            src: &protocol,
-            tgt: &protocol,
-        };
-        let (middle_view, _) = get(&first, &source, context).test_unwrap("first table get");
-        assert!(
-            get(&second, &middle_view, context).is_err(),
-            "the atomic second stage observes the middle integer placeholder"
-        );
-        let candidate =
-            tree_fusion(&first, &second).test_unwrap("graph/tree fusion admits the pair");
-        assert!(
-            get(&candidate, &source, context).is_ok(),
-            "the fused candidate instead observes the source Boolean placeholder"
-        );
-        assert!(
-            table_fusion(&first, &second, &protocol, &protocol, &protocol).is_none(),
-            "table fusion must retain placeholder kinds even under one protocol"
-        );
+        let (first, second) = keep_when_f(&source_schema, &middle_schema);
+        assert_drift_fusion_matches_the_atomic_stages(&first, &second, &protocol, &protocol);
     }
 
     #[test]

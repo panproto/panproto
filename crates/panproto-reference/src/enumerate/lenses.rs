@@ -4956,13 +4956,16 @@ pub enum PathLawCarrier {
     Table,
 }
 
-/// A named boundary excluded by the table fusion predicate.
+/// A named boundary of the table fusion predicate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TableFusionBoundaryWitness {
     /// A noninjective second-stage column map changes the collision winner.
     ColumnMapInjectivity,
-    /// An absent cell receives a protocol-dependent typed placeholder.
-    TypedPlaceholder,
+    /// A protocol change across a structural first stage before a
+    /// second-stage predicate. It is admitted: the predicate reads the
+    /// finite rows the first stage copies, never a typed placeholder for an
+    /// absent cell, so fused and atomic executions refuse and succeed alike.
+    ProtocolDrift,
     /// The middle schema imposes required-value validation.
     RequiredValueValidation,
     /// Bundled target-only table, relation and column subcases have no reverse
@@ -5143,7 +5146,7 @@ pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
     }
     for witness in [
         TableFusionBoundaryWitness::ColumnMapInjectivity,
-        TableFusionBoundaryWitness::TypedPlaceholder,
+        TableFusionBoundaryWitness::ProtocolDrift,
         TableFusionBoundaryWitness::RequiredValueValidation,
         TableFusionBoundaryWitness::TargetOnlyRelationalCarrier,
     ] {

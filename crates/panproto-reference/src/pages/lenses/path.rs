@@ -131,8 +131,6 @@ pub struct TableFusionPremises {
     pub middle_boundaries_equal: Premise,
     /// The second source has no finite-table required-value obligation.
     pub second_source_validation_free: Premise,
-    /// A second-stage value layer sees identical placeholder contexts.
-    pub typed_placeholders_agree: Premise,
     /// The two atomic relational functors compose to the candidate functor.
     pub functors_compose: Premise,
     /// The second-stage column map is injective within each source table.
@@ -152,8 +150,6 @@ pub enum TableFusionObstruction {
     MiddleBoundaryMismatch,
     /// Atomic second put performs a required-value validation fusion skips.
     RequiredValueValidation,
-    /// Absent cells receive different typed placeholders across the boundary.
-    TypedPlaceholderMismatch,
     /// The candidate relational functor is not the atomic composite.
     FunctorComposition,
     /// Two source columns collide at one second-stage target column.
@@ -185,8 +181,6 @@ pub const fn classify_table_fusion(
         Err(TableFusionObstruction::MiddleBoundaryMismatch)
     } else if premises.second_source_validation_free.fails() {
         Err(TableFusionObstruction::RequiredValueValidation)
-    } else if premises.typed_placeholders_agree.fails() {
-        Err(TableFusionObstruction::TypedPlaceholderMismatch)
     } else if premises.functors_compose.fails() {
         Err(TableFusionObstruction::FunctorComposition)
     } else if premises.second_columns_injective.fails() {

@@ -2915,6 +2915,15 @@ impl TablePair {
             TablePlanError::Plan(error) => Reason::Restrict(ref_restrict_reason(
                 &RefRestrictError::Plan((**error).clone()),
             )),
+            // The reference compiles the entity functor before the restrict
+            // plan, so an incoherent kept relation is reported by the functor;
+            // production reports the same edge and image from its plan.
+            TablePlanError::Functor(error) => match error.as_ref() {
+                panproto_reference::rel::FunctorError::IncoherentEdgeImage { edge, image } => {
+                    Reason::Restrict(format!("IncoherentEdgeImage {edge:?} {image:?}"))
+                }
+                other => Reason::Restrict(format!("reference table functor refusal {other:?}")),
+            },
             other => Reason::Restrict(format!("reference table plan refusal {other:?}")),
         })?;
         let lens = RefTableLens::new(
@@ -8224,22 +8233,6 @@ fn reference_table_fusion_premises(
     let second_source_validation_free = second_plan.as_ref().is_some_and(|plan| {
         reference_required_value_free(&second.src_schema, protocols[1], plan.source_boundary())
     });
-    let second_has_value_layer = !second.compiled.conditional_survival.is_empty()
-        || second
-            .compiled
-            .field_transforms
-            .values()
-            .any(|transforms| !transforms.is_empty())
-        || second
-            .compiled
-            .op_term_assignments
-            .values()
-            .any(|assignments| !assignments.is_empty());
-    let typed_placeholders_agree = !second_has_value_layer
-        || (protocols[0] == protocols[1]
-            && first_plan
-                .as_ref()
-                .is_some_and(|plan| plan.source_boundary() == plan.target_boundary()));
     let functors_compose = first_plan
         .as_ref()
         .zip(second_plan.as_ref())
@@ -8267,7 +8260,6 @@ fn reference_table_fusion_premises(
         first_is_unit_bijection: first_is_unit_bijection.into(),
         middle_boundaries_equal: middle_boundaries_equal.into(),
         second_source_validation_free: second_source_validation_free.into(),
-        typed_placeholders_agree: typed_placeholders_agree.into(),
         functors_compose: functors_compose.into(),
         second_columns_injective: second_columns_injective.into(),
     }
@@ -8470,7 +8462,7 @@ fn table_fusion_column_injectivity_witness() {
     );
 }
 
-fn table_fusion_placeholder_witness() {
+fn table_fusion_protocol_drift_witness() {
     let source_protocol = certificate_column_protocol(ScalarKind::Bool);
     let middle_protocol = certificate_column_protocol(ScalarKind::Int {
         bits: 64,
@@ -8483,29 +8475,65 @@ fn table_fusion_placeholder_witness() {
         .compiled
         .conditional_survival
         .insert("row".into(), panproto_expr::Expr::Var("f".into()));
-    assert_table_fusion_decision(
-        &first,
-        &second,
-        [&source_protocol, &middle_protocol, &middle_protocol],
-        Err(panproto_reference::path::TableFusionObstruction::TypedPlaceholderMismatch),
-    );
-    let mut instance = FInstance::new();
-    instance
+    let protocols = [source_protocol, middle_protocol.clone(), middle_protocol];
+    let mut present = FInstance::new();
+    present
         .insert_row(
             "row",
             RowId(0),
             HashMap::from([("f".to_owned(), Value::Bool(true))]),
         )
-        .expect("the admitted placeholder control row is distinct");
-    assert_admitted_table_fusion_behavior(
+        .expect("the admitted drift row is distinct");
+    assert_admitted_table_fusion_behavior(&first, &second, &protocols, &present);
+
+    // Owner amendment 24: a genuinely absent cell reaches the predicate as
+    // absent in both executions, so both refuse with the same typed error.
+    let mut absent = FInstance::new();
+    absent
+        .insert_row("row", RowId(0), HashMap::new())
+        .expect("the absent-cell drift row is distinct");
+    let path = LensPath::single(duplicate_lens(&first))
+        .then(&LensPath::single(duplicate_lens(&second)))
+        .expect("the drift fixture has a shared middle schema");
+    let fused = path
+        .get_table(&absent, &protocols)
+        .expect_err("the fused predicate reads an absent cell");
+    let (middle, _) = table_lens::get(
         &first,
+        &absent,
+        BoundaryProtocols {
+            src: &protocols[0],
+            tgt: &protocols[1],
+        },
+    )
+    .expect("the structural first stage keeps the row");
+    let atomic = table_lens::get(
         &second,
-        &[
-            source_protocol.clone(),
-            source_protocol.clone(),
-            source_protocol,
-        ],
-        &instance,
+        &middle,
+        BoundaryProtocols {
+            src: &protocols[1],
+            tgt: &protocols[2],
+        },
+    )
+    .expect_err("the atomic predicate reads an absent cell");
+    assert!(
+        matches!(
+            &atomic,
+            LensError::Restrict(RestrictError::SurvivalPredicateFailed {
+                node: 0,
+                source: panproto_expr::ExprError::UnboundVariable(field),
+            }) if field == "f"
+        ),
+        "the atomic refusal is the absent-cell predicate failure: {atomic:?}"
+    );
+    let LensError::AtStage { at, error } = fused else {
+        panic!("a path refusal is located at its group: {fused:?}");
+    };
+    assert_eq!((at.group, at.stages), (0, 0..2), "one fused group");
+    assert_eq!(
+        format!("{error:?}"),
+        format!("{atomic:?}"),
+        "the fused group reports the atomic refusal"
     );
 }
 
@@ -8748,7 +8776,7 @@ fn assert_tree_fusion_boundary_witness(witness: TreeFusionBoundaryWitness) {
 
 const TABLE_FUSION_BOUNDARY_WITNESSES: [TableFusionBoundaryWitness; 4] = [
     TableFusionBoundaryWitness::ColumnMapInjectivity,
-    TableFusionBoundaryWitness::TypedPlaceholder,
+    TableFusionBoundaryWitness::ProtocolDrift,
     TableFusionBoundaryWitness::RequiredValueValidation,
     TableFusionBoundaryWitness::TargetOnlyRelationalCarrier,
 ];
@@ -8775,8 +8803,8 @@ fn assert_table_fusion_boundary_witness(witness: TableFusionBoundaryWitness) {
         TableFusionBoundaryWitness::ColumnMapInjectivity => {
             table_fusion_column_injectivity_witness();
         }
-        TableFusionBoundaryWitness::TypedPlaceholder => {
-            table_fusion_placeholder_witness();
+        TableFusionBoundaryWitness::ProtocolDrift => {
+            table_fusion_protocol_drift_witness();
         }
         TableFusionBoundaryWitness::RequiredValueValidation => {
             table_fusion_required_value_witness();
