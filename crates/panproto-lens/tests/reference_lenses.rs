@@ -15436,3 +15436,34 @@ fn stage_c_tree_common_basis_laws_agree_with_the_reference() {
     println!("stage C trees {}, compared {compared}", cases.len());
     assert!(compared > 0);
 }
+
+/// A cell inserted at a column the source table lacks has no writer, so the
+/// put domain reports it as derived before any value layer is consulted,
+/// even when the row's transform drops that same field.
+#[test]
+fn writerless_cell_under_a_dropping_transform_is_derived() {
+    use panproto_reference::enumerate::lenses::c11_stages;
+
+    let stage = c11_stages()
+        .into_iter()
+        .find(|stage| stage.layer == C11Layer::DropField)
+        .expect("the stage alphabet includes the dropping transform");
+    let pair = TablePair::from_stage(&stage);
+    let source = RefTable {
+        rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
+        pairs: BTreeSet::new(),
+    };
+    let mut edited = source.clone();
+    edited
+        .rows
+        .get_mut(&0)
+        .expect("row zero")
+        .1
+        .insert(C11_FIELD.to_owned(), C11_VALUE);
+    let reference = reference_table_put(&pair, &source, &edited);
+    assert_eq!(
+        reference.domain,
+        Err(vec![format!("DerivedCellEdited Row(0) {C11_FIELD}")])
+    );
+    assert_eq!(production_table_put(&pair, &source, &edited), reference);
+}

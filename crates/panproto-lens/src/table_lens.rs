@@ -1526,7 +1526,10 @@ fn pull_changed_rows(
         let source_columns: BTreeSet<String> = columns.keys().cloned().collect();
         let differing = differing_fields(view_row, baseline_row);
         for field in &differing {
-            let writer = cell_writer(fates, field);
+            // The effective writer is a column of the row's source table:
+            // a cell whose writer the source lacks is derived, whatever the
+            // row's transforms would make of that name.
+            let writer = cell_writer(fates, field).filter(|writer| source_columns.contains(writer));
             if let Some(error) = cell_edit_obstruction(
                 traces.get(&id).map_or(&[], Vec::as_slice),
                 id,
