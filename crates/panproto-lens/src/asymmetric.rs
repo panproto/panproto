@@ -2559,9 +2559,10 @@ fn rebuild_source_arcs(
 /// survives into the reconstruction.
 ///
 /// This pass covers that shape. For each `ComputeField` carrying an
-/// inverse whose target names a child scalar, it evaluates the inverse
-/// against the view's own child values and writes the result to the child
-/// the forward expression read.
+/// inverse whose target names a child scalar and whose expression reads
+/// only that same coordinate, it evaluates the inverse against the view's
+/// own child values and writes the result back to that child. A computation
+/// reading a distinct child leaves that child as the view shows it.
 fn invert_computations_on_child_scalars(
     view: &WInstance,
     traces: &HashMap<u32, Vec<panproto_inst::FieldTransform>>,
@@ -2621,6 +2622,12 @@ fn invert_computations_on_child_scalars(
             let Some(source_key) = crate::derived::sole_source_var(expr) else {
                 continue;
             };
+            // A distinct source shown in the view stays authoritative, as
+            // for a field source: forward replay checks the shown output
+            // against it, so only a self-reading computation is inverted.
+            if source_key != *target_key {
+                continue;
+            }
             let Some(&(target_child, _)) = child_of.get(&source_key) else {
                 continue;
             };
@@ -4427,6 +4434,211 @@ mod tests {
                     },
                 ] {
                     assert_serialized_child_inverse(&lens(program, terms));
+                }
+            }
+        }
+
+        fn distinct_child_source(lens: &Lens) -> WInstance {
+            let edge = |name: &str| {
+                lens.src_schema
+                    .edges
+                    .keys()
+                    .find(|edge| edge.src == "a" && edge.name.as_deref() == Some(name))
+                    .unwrap()
+                    .clone()
+            };
+            let scalar = |id: u32, value: i64| {
+                Node::new(id, "value").with_value(FieldPresence::Present(Value::Int(value)))
+            };
+            WInstance::new(
+                HashMap::from([(0, Node::new(0, "a")), (1, scalar(1, 7)), (2, scalar(2, 3))]),
+                vec![(0, 1, edge("f")), (0, 2, edge("g"))],
+                Vec::new(),
+                0,
+                "a".into(),
+            )
+        }
+
+        /// A view edit of the computed output `f` and of its distinct
+        /// source child `g`, applied to the view's root and to its two
+        /// children. `serialized` moves the shown output onto `f`'s child,
+        /// as a serialize-and-parse round trip does.
+        struct DistinctChildEdit {
+            serialized: bool,
+            f: Option<i64>,
+            g: Option<i64>,
+        }
+
+        impl DistinctChildEdit {
+            fn apply(&self, root: &mut Node, f_child: &mut Node, g_child: &mut Node) {
+                let shown = root.extra_fields.remove("f").unwrap();
+                let shown = self.f.map_or(shown, Value::Int);
+                if self.serialized {
+                    f_child.value = Some(FieldPresence::Present(shown));
+                } else {
+                    root.extra_fields.insert("f".to_owned(), shown);
+                }
+                if let Some(g) = self.g {
+                    g_child.value = Some(FieldPresence::Present(Value::Int(g)));
+                }
+            }
+        }
+
+        /// Put a distinct-source computation's edited view in both shapes.
+        /// `expected` is the restored `g` child value, or `None` for the
+        /// derived-field refusal of an `f` that `g` no longer computes.
+        fn assert_distinct_child_source(
+            lens: &Lens,
+            edit: &DistinctChildEdit,
+            expected: Option<i64>,
+        ) {
+            let refusal = PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Node(0),
+                field: "f".to_owned(),
+            };
+            let restored_g = |restored: &Node| restored.value.clone();
+            let expected_g = expected.map(|g| FieldPresence::Present(Value::Int(g)));
+
+            let source = distinct_child_source(lens);
+            let (mut view, complement) = get(lens, &source).unwrap();
+            let [Some(root), Some(f_child), Some(g_child)] =
+                view.nodes.get_disjoint_mut([&0, &1, &2])
+            else {
+                panic!("the view keeps the root and both scalar children");
+            };
+            edit.apply(root, f_child, g_child);
+            let tree_result = put(lens, &view, &complement);
+            if let Some(expected_g) = &expected_g {
+                assert_eq!(check_put_domain(lens, &view, &complement), Ok(()));
+                let restored = tree_result.unwrap();
+                assert_eq!(restored_g(&restored.nodes[&2]).as_ref(), Some(expected_g));
+                assert!(node_equiv(&restored.nodes[&0], &source.nodes[&0]));
+                assert!(node_equiv(&restored.nodes[&1], &source.nodes[&1]));
+                let (again, _) = get(lens, &restored).unwrap();
+                let shown = edit.f.map_or_else(
+                    || get(lens, &source).unwrap().0.nodes[&0].extra_fields["f"].clone(),
+                    Value::Int,
+                );
+                assert_eq!(again.nodes[&0].extra_fields.get("f"), Some(&shown));
+            } else {
+                assert_eq!(
+                    check_put_domain(lens, &view, &complement),
+                    Err(vec![refusal.clone()])
+                );
+                let Err(LensError::PutDomain(error)) = tree_result else {
+                    panic!("tree put must refuse an output its visible source does not compute");
+                };
+                assert_eq!(error.as_ref(), &refusal);
+            }
+
+            let source = GInstance::from_wtype(&source).unwrap();
+            let (mut view, complement) = crate::graph_lens::get(lens, &source).unwrap();
+            let mut root = view.node(0).unwrap().clone();
+            let mut f_child = view.node(1).unwrap().clone();
+            let mut g_child = view.node(2).unwrap().clone();
+            edit.apply(&mut root, &mut f_child, &mut g_child);
+            *view.node_mut(0).unwrap() = root;
+            *view.node_mut(1).unwrap() = f_child;
+            *view.node_mut(2).unwrap() = g_child;
+            let graph_result = crate::graph_lens::put(lens, &view, &complement);
+            if let Some(expected_g) = &expected_g {
+                assert_eq!(
+                    crate::graph_lens::check_put_domain(lens, &view, &complement),
+                    Ok(())
+                );
+                let restored = graph_result.unwrap();
+                assert_eq!(
+                    restored_g(restored.node(2).unwrap()).as_ref(),
+                    Some(expected_g)
+                );
+                assert!(node_equiv(
+                    restored.node(0).unwrap(),
+                    source.node(0).unwrap()
+                ));
+                assert!(node_equiv(
+                    restored.node(1).unwrap(),
+                    source.node(1).unwrap()
+                ));
+            } else {
+                assert_eq!(
+                    crate::graph_lens::check_put_domain(lens, &view, &complement),
+                    Err(vec![refusal.clone()])
+                );
+                let Err(LensError::PutDomain(error)) =
+                    crate::graph_lens::put(lens, &view, &complement)
+                else {
+                    panic!("graph put must refuse an output its visible source does not compute");
+                };
+                assert_eq!(error.as_ref(), &refusal);
+            }
+        }
+
+        #[test]
+        fn a_visible_distinct_source_child_stays_authoritative_over_an_inverse() {
+            // f = g / 2 reads a distinct source g; the inverse 2f picks
+            // another representative of g's fiber whenever g is odd.
+            let expr = Expr::Builtin(
+                panproto_expr::BuiltinOp::Div,
+                vec![Expr::Var("g".into()), Expr::Lit(Literal::Int(2))],
+            );
+            let inverse = Expr::Builtin(
+                panproto_expr::BuiltinOp::Mul,
+                vec![Expr::Var("f".into()), Expr::Lit(Literal::Int(2))],
+            );
+            let transform = FieldTransform::ComputeField {
+                target_key: "f".to_owned(),
+                expr,
+                inverse: Some(inverse),
+                coercion_class: panproto_gat::CoercionClass::Retraction,
+            };
+            for terms in [false, true] {
+                for program in [
+                    transform.clone(),
+                    FieldTransform::PathTransform {
+                        path: Vec::new(),
+                        inner: Box::new(transform.clone()),
+                    },
+                    FieldTransform::Case {
+                        branches: vec![panproto_inst::CaseBranch {
+                            predicate: Expr::Lit(Literal::Bool(true)),
+                            transforms: vec![transform.clone()],
+                        }],
+                    },
+                ] {
+                    let lens = lens(program, terms);
+                    let (view, _) = get(&lens, &distinct_child_source(&lens)).unwrap();
+                    assert_eq!(view.nodes[&0].extra_fields.get("f"), Some(&Value::Int(1)));
+                    for serialized in [false, true] {
+                        // Unchanged: the odd source g = 3 survives, not 2f = 2.
+                        let unchanged = DistinctChildEdit {
+                            serialized,
+                            f: None,
+                            g: None,
+                        };
+                        assert_distinct_child_source(&lens, &unchanged, Some(3));
+                        // A consistent edit of both keeps the edited g.
+                        let both = DistinctChildEdit {
+                            serialized,
+                            f: Some(2),
+                            g: Some(5),
+                        };
+                        assert_distinct_child_source(&lens, &both, Some(5));
+                        // An edited g with a stale f is refused by replay
+                        // rather than overwritten by the inverse of f.
+                        let stale = DistinctChildEdit {
+                            serialized,
+                            f: None,
+                            g: Some(5),
+                        };
+                        assert_distinct_child_source(&lens, &stale, None);
+                        // An edited f alone is not pulled back into g.
+                        let output = DistinctChildEdit {
+                            serialized,
+                            f: Some(4),
+                            g: None,
+                        };
+                        assert_distinct_child_source(&lens, &output, None);
+                    }
                 }
             }
         }

@@ -1258,6 +1258,12 @@ fn invert_graph_child_scalars(
             let Some(source_key) = crate::derived::sole_source_var(expr) else {
                 continue;
             };
+            // A distinct source shown in the view stays authoritative, as
+            // for a field source: forward replay checks the shown output
+            // against it, so only a self-reading computation is inverted.
+            if source_key != *target_key {
+                continue;
+            }
             let Some((target_child, _)) = child_of.get(&source_key) else {
                 continue;
             };
