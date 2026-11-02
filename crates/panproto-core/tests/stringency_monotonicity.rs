@@ -26,9 +26,18 @@
 //! pair where exactly that happens, so "monotone in the tier" is false as a
 //! general statement and only the pool claim is a theorem. What licenses the
 //! tier comparisons below is therefore checked rather than assumed:
-//! `assert_evidence_grows` asserts that on these two fixtures the aggregated
-//! evidence really does dominate up the ladder, which is the hypothesis the
-//! quality assertions rest on.
+//! `assert_evidence_grows` asserts that on every pair the quality assertions
+//! run on, the aggregated evidence really does dominate up the ladder, which is
+//! the hypothesis those assertions rest on.
+//!
+//! The two claims are accordingly asserted on different pairs. `feed.post ->
+//! actor.profile` carries the pool claim: its pool grows up the ladder, but
+//! `WlRefinement` proposes the two `labels` union arms as a match at `Lenient`
+//! and separates them in its third round at `Exploratory`, so the evidence at
+//! that scored pair falls and the pair cannot license a tier comparison of
+//! quality. The quality claim runs on `feed.post -> feed.repost` and
+//! `feed.post -> verifyCoercionLaws`, two pairs on which no withdrawal lands
+//! on a scored pair.
 //!
 //! # Two strategies are exempt from the first claim, and cannot be otherwise
 //!
@@ -64,8 +73,9 @@
 //!
 //! The monotonicity test therefore runs the search with the anchor term
 //! weighted into the objective, where the tier can reach the optimum at all.
-//! It bites: on both pairs the optimal quality cost strictly falls twice
-//! across the ladder, and the test refuses to pass if it stops doing so.
+//! It bites: on both quality pairs the optimal quality cost strictly falls at
+//! least twice across the ladder, and the test refuses to pass if it stops
+//! doing so.
 
 use std::collections::HashSet;
 use std::time::Instant;
@@ -80,6 +90,8 @@ use panproto_core::schema::{Protocol, Schema};
 const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 const ACTOR_PROFILE: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
+const FEED_REPOST: &str =
+    include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.repost.json");
 const VERIFY_COERCION_LAWS: &str =
     include_str!("../../../lexicons/dev/panproto/translate/verifyCoercionLaws.json");
 
@@ -100,7 +112,7 @@ const NON_THRESHOLD_STRATEGIES: [StrategyTag; 2] =
 
 /// What the whole monotonicity test may spend, in a release build.
 ///
-/// The second pair below took 24 seconds and 48 million search nodes before
+/// The `feed.post -> verifyCoercionLaws` pair below took 24 seconds and 48 million search nodes before
 /// the search became an exact optimiser over a cost function network. It now
 /// takes single-digit milliseconds per tier, and asserting a wall-clock bound
 /// is what lets this test run by default instead of carrying an `#[ignore]`.
@@ -216,9 +228,9 @@ fn assert_pool_grows(pools: &[HashSet<(Name, Name, StrategyTag)>], pair: &str) {
 /// say why it needs asserting: the pool claim tolerates two strategies
 /// withdrawing a proposal, and a withdrawal at a pair the search scores is
 /// evidence lost at that pair, which is enough for the optimum to rise. On
-/// these two fixtures no withdrawal lands on a scored pair, so the tier
-/// comparisons are licensed; on a fixture where one did, they would not be, and
-/// this says so rather than letting them pass by luck.
+/// the pairs the quality assertions run on, no withdrawal lands on a scored
+/// pair, so the tier comparisons are licensed; on a pair where one did, they
+/// would not be, and this says so rather than letting them pass by luck.
 fn assert_evidence_grows(tables: &[EvidenceTable], pair: &str) {
     for (i, lower) in tables.iter().enumerate() {
         for (j, higher) in tables.iter().enumerate().skip(i + 1) {
@@ -311,7 +323,7 @@ fn assert_span_monotone(src: &Schema, tgt: &Schema, pair: &str) {
 
     // Without this the comparisons above would pass on four identical spans,
     // which is exactly the state the shipped anchor weight of zero puts them
-    // in. Both fixtures improve at two of the three steps.
+    // in. Both quality pairs improve at two or more of the three steps.
     assert!(
         strictly_better >= 2,
         "{pair}: the optimum improved at {strictly_better} of the three tier steps, so the \
@@ -320,19 +332,35 @@ fn assert_span_monotone(src: &Schema, tgt: &Schema, pair: &str) {
     );
 }
 
-/// The pair the ladder broke on, and the pair that used to dominate the
-/// runtime.
+/// The pool claim on the pair whose anchor set the ladder broke on, and the
+/// quality claim on two pairs whose evidence grows up the whole ladder.
 #[test]
 fn span_quality_is_monotone_across_tiers() {
     let started = Instant::now();
 
     let post = lexicon(FEED_POST);
-    let profile = lexicon(ACTOR_PROFILE);
-    assert_span_monotone(&post, &profile, "feed.post -> actor.profile");
 
-    // The pair above is the one whose anchor set went jointly infeasible; this
-    // one cost 24 seconds and 48 million search nodes under
-    // enumerate-then-sort.
+    // This pair's anchor set is the one that went jointly infeasible, so its
+    // pool is asserted to grow. Its evidence is not monotone in the tier (the
+    // module docs give the `labels` union arms that `WlRefinement` withdraws at
+    // `Exploratory`), so it carries no quality assertion.
+    let profile = lexicon(ACTOR_PROFILE);
+    let profile_pools: Vec<HashSet<(Name, Name, StrategyTag)>> = TIERS
+        .iter()
+        .map(|tier| pool_keys(&anchor_pool(&post, &profile, *tier)))
+        .collect();
+    assert_pool_grows(&profile_pools, "feed.post -> actor.profile");
+
+    // The quality pair that shares the source schema above. Its aggregated
+    // evidence strictly grows at every one of the three tier steps, with no
+    // row falling, and its optimum strictly improves at all three, so it
+    // exercises the quality claim at every step of the ladder rather than at
+    // two of them.
+    let repost = lexicon(FEED_REPOST);
+    assert_span_monotone(&post, &repost, "feed.post -> feed.repost");
+
+    // The costliest of the three pairs to search, and the one the runtime
+    // budget below is sized against.
     let verify = lexicon(VERIFY_COERCION_LAWS);
     assert_span_monotone(&post, &verify, "feed.post -> verifyCoercionLaws");
 
