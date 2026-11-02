@@ -734,7 +734,11 @@ fn assert_tier_expectations(tier: Stringency) {
 // Monotonicity: a higher tier never returns a worse span, exactly.
 // -----------------------------------------------------------------------
 
-/// Quality and apex size are non-decreasing in the tier, with no tolerance.
+/// Quality is non-decreasing in the tier, with no tolerance.
+///
+/// Apex size is only the objective's tie-break, so it is non-decreasing only
+/// across tiers whose optimal quality cost is equal; here every comparison is
+/// such a tier pair (see below), so the apex check holds without exception.
 ///
 /// There used to be four per-case tolerances here, three of them non-zero, and
 /// they existed because ranking was done by enumerating the hom-set under a

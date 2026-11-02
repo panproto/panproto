@@ -16,7 +16,19 @@
 //! grows. Evidence enters the objective through one reward-only unary term and
 //! through nothing else, so it can change which assignment is optimal and can
 //! never make a feasible assignment infeasible. Quality is therefore monotone
-//! non-decreasing in the pool, and apex size with it.
+//! non-decreasing in the pool.
+//!
+//! Apex size is not. The objective is lexicographic, quality cost first and
+//! dropped source vertices second, so the apex only breaks ties on quality. A
+//! larger pool can reward a mapping that conflicts with keeping some other
+//! vertex, and the strictly better optimum then has the smaller apex. What does
+//! follow is the weaker claim: at a step where the optimal quality is unchanged,
+//! the lower tier's optimum is still optimal on quality at the higher tier, so
+//! the higher tier's apex is at least as large. The apex can shrink only at a
+//! step where quality strictly improves. `feed.post -> actor.profile` exhibits
+//! the shrink: with the anchor term weighted in, its optimum keeps 32 source
+//! vertices at `Balanced` and 31 at `Lenient`, while its quality cost strictly
+//! falls.
 //!
 //! The step from *pool* to *tier* is not free, and this is where the two claims
 //! come apart. A tier is not a superset of the tier below it: the two
@@ -312,13 +324,20 @@ fn assert_span_monotone(src: &Schema, tgt: &Schema, pair: &str) {
         );
         if quality_cost(higher) < quality_cost(lower) {
             strictly_better += 1;
+        } else {
+            // Apex size is the secondary key of the objective, so it is
+            // monotone only where the primary key ties. A shrink at a step
+            // where quality strictly improved is the objective working.
+            assert!(
+                higher.apex.vertices.len() >= lower.apex.vertices.len(),
+                "{pair}: the apex shrank from {lower_tier:?} to {higher_tier:?} ({} -> {} \
+                 vertices) at equal quality cost. With dominating evidence the lower tier's \
+                 optimum is still optimal on quality at the higher tier, so the higher tier's \
+                 tie-break on drops cannot keep fewer vertices",
+                lower.apex.vertices.len(),
+                higher.apex.vertices.len(),
+            );
         }
-        assert!(
-            higher.apex.vertices.len() >= lower.apex.vertices.len(),
-            "{pair}: the apex shrank from {lower_tier:?} to {higher_tier:?} ({} -> {} vertices)",
-            lower.apex.vertices.len(),
-            higher.apex.vertices.len(),
-        );
     }
 
     // Without this the comparisons above would pass on four identical spans,
