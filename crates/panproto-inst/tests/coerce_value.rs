@@ -153,7 +153,7 @@ impl Nat {
             .then_with(|| self.0.iter().rev().cmp(other.0.iter().rev()))
     }
 
-    fn is_zero(&self) -> bool {
+    const fn is_zero(&self) -> bool {
         self.0.is_empty()
     }
 
@@ -198,7 +198,7 @@ impl Nat {
     /// `self` with its trailing binary zeros removed, and their number.
     fn strip_twos(mut self) -> (Self, i64) {
         let mut count = 0;
-        while !self.is_zero() && self.0[0] % 2 == 0 {
+        while !self.is_zero() && self.0[0].is_multiple_of(2) {
             self = self.divmod_small(2).0;
             count += 1;
         }
@@ -331,7 +331,7 @@ fn reference_shortest_uncached(x: f64, bits: u8) -> String {
                 let rest = &exact[n..];
                 let half = format!("5{}", "0".repeat(rest.len() - 1));
                 // The closer, and at a tie the even significand.
-                let even = (lo.as_bytes()[n - 1] - b'0') % 2 == 0;
+                let even = (lo.as_bytes()[n - 1] - b'0').is_multiple_of(2);
                 let order = rest.cmp(half.as_str());
                 if order == Ordering::Less || (order == Ordering::Equal && even) {
                     lo.to_owned()
@@ -1958,7 +1958,7 @@ fn stated_f64_scope() -> Vec<f64> {
 fn narrowing_reference(x: f64) -> Result<f64, FidelityReason> {
     let fraction = x.to_bits() & ((1 << 52) - 1);
     if x.is_nan() {
-        let widened = fraction % (1 << 29) == 0;
+        let widened = fraction.is_multiple_of(1 << 29);
         return if widened {
             Ok(x)
         } else {

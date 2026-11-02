@@ -706,10 +706,10 @@ fn winstance_graph_builtin(
             let node_id = resolve_node_ref(&args[0], context)?;
             let mut children = Vec::new();
             for &(src, tgt, _) in &instance.arcs {
-                if src == node_id {
-                    if let Some(node) = instance.nodes.get(&tgt) {
-                        children.push(node_to_literal(node));
-                    }
+                if src == node_id
+                    && let Some(node) = instance.nodes.get(&tgt)
+                {
+                    children.push(node_to_literal(node));
                 }
             }
             Ok(Literal::List(children))

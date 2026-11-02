@@ -365,14 +365,14 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
 
     // --- Kind changes ---
     for v in old_verts.intersection(&new_verts) {
-        if let (Some(old_v), Some(new_v)) = (old.vertices.get(*v), new.vertices.get(*v)) {
-            if old_v.kind != new_v.kind {
-                result.kind_changes.push(KindChange {
-                    vertex_id: v.to_string(),
-                    old_kind: old_v.kind.to_string(),
-                    new_kind: new_v.kind.to_string(),
-                });
-            }
+        if let (Some(old_v), Some(new_v)) = (old.vertices.get(*v), new.vertices.get(*v))
+            && old_v.kind != new_v.kind
+        {
+            result.kind_changes.push(KindChange {
+                vertex_id: v.to_string(),
+                old_kind: old_v.kind.to_string(),
+                new_kind: new_v.kind.to_string(),
+            });
         }
     }
     result

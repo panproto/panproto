@@ -570,39 +570,29 @@ impl EditLens {
             let sort = constraint.sort.as_ref();
             match sort {
                 "maxLength" => {
-                    if let Some(s) = string_val {
-                        if let Ok(max) = constraint.value.parse::<usize>() {
-                            if s.len() > max {
-                                return Err(EditLensError::RefinementViolation {
-                                    vertex: vertex.to_string(),
-                                    constraint_sort: sort.to_owned(),
-                                    constraint_value: constraint.value.clone(),
-                                    detail: format!(
-                                        "string length {} exceeds maximum {}",
-                                        s.len(),
-                                        max
-                                    ),
-                                });
-                            }
-                        }
+                    if let Some(s) = string_val
+                        && let Ok(max) = constraint.value.parse::<usize>()
+                        && s.len() > max
+                    {
+                        return Err(EditLensError::RefinementViolation {
+                            vertex: vertex.to_string(),
+                            constraint_sort: sort.to_owned(),
+                            constraint_value: constraint.value.clone(),
+                            detail: format!("string length {} exceeds maximum {}", s.len(), max),
+                        });
                     }
                 }
                 "minLength" => {
-                    if let Some(s) = string_val {
-                        if let Ok(min) = constraint.value.parse::<usize>() {
-                            if s.len() < min {
-                                return Err(EditLensError::RefinementViolation {
-                                    vertex: vertex.to_string(),
-                                    constraint_sort: sort.to_owned(),
-                                    constraint_value: constraint.value.clone(),
-                                    detail: format!(
-                                        "string length {} below minimum {}",
-                                        s.len(),
-                                        min
-                                    ),
-                                });
-                            }
-                        }
+                    if let Some(s) = string_val
+                        && let Ok(min) = constraint.value.parse::<usize>()
+                        && s.len() < min
+                    {
+                        return Err(EditLensError::RefinementViolation {
+                            vertex: vertex.to_string(),
+                            constraint_sort: sort.to_owned(),
+                            constraint_value: constraint.value.clone(),
+                            detail: format!("string length {} below minimum {}", s.len(), min),
+                        });
                     }
                 }
                 "format" => {
@@ -680,10 +670,10 @@ impl EditLens {
         }
 
         // Record complement policy if one exists for the edit's anchor.
-        if let TreeEdit::InsertNode { ref node, .. } = edit {
-            if let Some(_policy) = self.policy_for(&node.anchor) {
-                provenance.record_policy(Arc::from(node.anchor.as_ref()));
-            }
+        if let TreeEdit::InsertNode { ref node, .. } = edit
+            && let Some(_policy) = self.policy_for(&node.anchor)
+        {
+            provenance.record_policy(Arc::from(node.anchor.as_ref()));
         }
 
         // Perform the translation.
@@ -729,26 +719,25 @@ impl EditLens {
         // anything is tracked or translated. Inside a sequence this reads the
         // source as the earlier steps left it, and the sequence's staging
         // discards those steps with the refusal.
-        if let TreeEdit::DeleteNode { id } = edit {
-            if self
+        if let TreeEdit::DeleteNode { id } = edit
+            && self
                 .pipeline
                 .as_ref()
                 .is_some_and(|pipeline| !pipeline.source().nodes.contains_key(&id))
-            {
-                return Err(EditLensError::EditApply(
-                    panproto_inst::EditError::NodeNotFound(id),
-                ));
-            }
+        {
+            return Err(EditLensError::EditApply(
+                panproto_inst::EditError::NodeNotFound(id),
+            ));
         }
         // Keep the tracked source in step with the edits this lens has seen, so
         // an edit that takes a node out of the view can still read the payload
         // the complement must absorb. A sequence is tracked step by step
         // through the recursive calls below, so tracking it here as well would
         // apply every step twice.
-        if !matches!(edit, TreeEdit::Sequence(_)) {
-            if let Some(pipeline) = self.pipeline.as_mut() {
-                pipeline.track_source_edit(&edit);
-            }
+        if !matches!(edit, TreeEdit::Sequence(_))
+            && let Some(pipeline) = self.pipeline.as_mut()
+        {
+            pipeline.track_source_edit(&edit);
         }
         match edit {
             TreeEdit::Identity => Ok(TreeEdit::Identity),
@@ -1675,10 +1664,10 @@ impl EditLens {
         // Check all vertex anchors for rename transforms that affect this field.
         for transforms in self.compiled.field_transforms.values() {
             for transform in transforms {
-                if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform {
-                    if old_key == field {
-                        return new_key.clone();
-                    }
+                if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform
+                    && old_key == field
+                {
+                    return new_key.clone();
                 }
             }
         }
@@ -1689,10 +1678,10 @@ impl EditLens {
     fn translate_field_name_backward(&self, field: &str) -> String {
         for transforms in self.compiled.field_transforms.values() {
             for transform in transforms {
-                if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform {
-                    if new_key == field {
-                        return old_key.clone();
-                    }
+                if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform
+                    && new_key == field
+                {
+                    return old_key.clone();
                 }
             }
         }

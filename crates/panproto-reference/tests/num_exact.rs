@@ -580,7 +580,7 @@ fn floor_logarithms_agree_with_integer_search() {
 
 /// The number of binary digits of `v`, from the machine word.
 fn bits_u128(v: u128) -> u64 {
-    u64::from(u128::BITS - v.leading_zeros())
+    u64::from(v.bit_width())
 }
 
 #[test]

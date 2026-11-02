@@ -141,10 +141,10 @@ pub fn parse_edi_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
                     builder =
                         builder.constraint(&elem_id, "max-length", &json_val_to_string(max_len));
                 }
-                if let Some(req) = element.get("required").and_then(serde_json::Value::as_bool) {
-                    if req {
-                        builder = builder.constraint(&elem_id, "required", "true");
-                    }
+                if let Some(req) = element.get("required").and_then(serde_json::Value::as_bool)
+                    && req
+                {
+                    builder = builder.constraint(&elem_id, "required", "true");
                 }
                 if let Some(usage) = element.get("usage").and_then(|v| v.as_str()) {
                     builder = builder.constraint(&elem_id, "usage", usage);

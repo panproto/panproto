@@ -832,7 +832,7 @@ impl WInstance {
     /// Returns the number of arcs.
     #[inline]
     #[must_use]
-    pub fn arc_count(&self) -> usize {
+    pub const fn arc_count(&self) -> usize {
         self.arcs.len()
     }
 

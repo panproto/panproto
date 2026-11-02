@@ -34,10 +34,10 @@ pub fn compile_rules(
     // Collect keep_attrs from all rules (value-level, not schema-level).
     let mut all_keep_attrs: Vec<String> = Vec::new();
     for rule in rules {
-        if let Some(rep) = &rule.replace {
-            if let Some(keep) = &rep.keep_attrs {
-                all_keep_attrs.extend(keep.clone());
-            }
+        if let Some(rep) = &rule.replace
+            && let Some(keep) = &rep.keep_attrs
+        {
+            all_keep_attrs.extend(keep.clone());
         }
     }
 
@@ -122,35 +122,35 @@ fn expand_rule(rule: &Rule, index: usize, steps: &mut Vec<Step>) -> Result<(), L
     };
 
     // Name remapping
-    if let Some(new_name) = &replacement.name {
-        if let Some(old_name) = match_name {
-            let new = match new_name {
-                ReplacementName::Literal(s) => s.clone(),
-                ReplacementName::Template { template } => {
-                    // Template names are handled as compute_field expressions.
-                    // Generate a compute step with string interpolation.
-                    steps.push(Step::ComputeField {
-                        compute_field: crate::document::ComputeFieldSpec {
-                            target: "name".to_owned(),
-                            expr: template_to_expr(template)?.into(),
-                            inverse: None,
-                            coercion: None,
-                        },
-                    });
-                    // Don't add a rename step for templates.
-                    expand_attr_ops(replacement, steps)?;
-                    return Ok(());
-                }
-            };
-
-            if old_name != new {
-                steps.push(Step::RenameSort {
-                    rename_sort: RenameSpec {
-                        old: old_name.to_owned(),
-                        new,
+    if let Some(new_name) = &replacement.name
+        && let Some(old_name) = match_name
+    {
+        let new = match new_name {
+            ReplacementName::Literal(s) => s.clone(),
+            ReplacementName::Template { template } => {
+                // Template names are handled as compute_field expressions.
+                // Generate a compute step with string interpolation.
+                steps.push(Step::ComputeField {
+                    compute_field: crate::document::ComputeFieldSpec {
+                        target: "name".to_owned(),
+                        expr: template_to_expr(template)?.into(),
+                        inverse: None,
+                        coercion: None,
                     },
                 });
+                // Don't add a rename step for templates.
+                expand_attr_ops(replacement, steps)?;
+                return Ok(());
             }
+        };
+
+        if old_name != new {
+            steps.push(Step::RenameSort {
+                rename_sort: RenameSpec {
+                    old: old_name.to_owned(),
+                    new,
+                },
+            });
         }
     }
 

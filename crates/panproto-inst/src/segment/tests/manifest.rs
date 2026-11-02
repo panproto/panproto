@@ -556,12 +556,12 @@ fn a_modified_segment_fails_verify_segment() -> TestResult {
         verify_segment(&manifest, part)?;
     }
     let mut changed = parts[1].clone();
-    if let AnySegment::Graph(s) = &mut changed {
-        if let Some(node) = s.nodes.get_mut(&2) {
-            node.value = Some(crate::value::FieldPresence::Present(
-                crate::value::Value::Int(1),
-            ));
-        }
+    if let AnySegment::Graph(s) = &mut changed
+        && let Some(node) = s.nodes.get_mut(&2)
+    {
+        node.value = Some(crate::value::FieldPresence::Present(
+            crate::value::Value::Int(1),
+        ));
     }
     assert!(matches!(
         verify_segment(&manifest, &changed),
@@ -668,7 +668,7 @@ fn one_segment_verifies_against_the_root_with_its_audit_path() -> TestResult {
             })
             .collect();
         m.root = merkle_root(&m.segments);
-        let bound = usize::BITS - (n as usize).saturating_sub(1).leading_zeros();
+        let bound = (n as usize).saturating_sub(1).bit_width();
         for i in 0..n {
             let path = audit_path(&m, SegmentId(i));
             assert!(path.len() <= bound as usize, "n = {n}, i = {i}");

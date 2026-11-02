@@ -952,10 +952,10 @@ fn apply_table_constraint(
         if let Some(cols) = extract_constraint_columns(def) {
             builder = builder.constraint(table_name, "UNIQUE", &cols.join(","));
         }
-    } else if contains_keyword(def, "CHECK") {
-        if let Ok(expr) = extract_parenthesized(def) {
-            builder = builder.constraint(table_name, "CHECK", &expr);
-        }
+    } else if contains_keyword(def, "CHECK")
+        && let Ok(expr) = extract_parenthesized(def)
+    {
+        builder = builder.constraint(table_name, "CHECK", &expr);
     }
     builder
 }
@@ -1197,10 +1197,10 @@ fn parse_alter_table(
 
     let mut remainder = stmt[after_alter..].trim_start();
     for guard in ["IF EXISTS", "ONLY"] {
-        if let Some(rest) = strip_keyword_prefix(remainder, guard) {
-            if rest.starts_with(char::is_whitespace) {
-                remainder = rest.trim_start();
-            }
+        if let Some(rest) = strip_keyword_prefix(remainder, guard)
+            && rest.starts_with(char::is_whitespace)
+        {
+            remainder = rest.trim_start();
         }
     }
     let Some((written, after_name)) = read_name(remainder) else {
@@ -1231,10 +1231,10 @@ fn parse_alter_table(
         }
         let mut col_def = added;
         for guard in ["COLUMN", "IF NOT EXISTS"] {
-            if let Some(rest) = strip_keyword_prefix(col_def, guard) {
-                if rest.starts_with(char::is_whitespace) {
-                    col_def = rest.trim_start();
-                }
+            if let Some(rest) = strip_keyword_prefix(col_def, guard)
+                && rest.starts_with(char::is_whitespace)
+            {
+                col_def = rest.trim_start();
             }
         }
         let (new_builder, spec) = declare_column(builder, &table_name, col_def, catalog)?;
@@ -1280,10 +1280,10 @@ fn extract_drop_table_names(stmt: &str) -> Vec<Vec<(String, bool)>> {
         return Vec::new();
     };
     let mut rest = stmt[after..].trim_start();
-    if let Some(stripped) = strip_keyword_prefix(rest, "IF EXISTS") {
-        if stripped.starts_with(char::is_whitespace) {
-            rest = stripped;
-        }
+    if let Some(stripped) = strip_keyword_prefix(rest, "IF EXISTS")
+        && stripped.starts_with(char::is_whitespace)
+    {
+        rest = stripped;
     }
     let mut names = Vec::new();
     while let Some((name, after_name)) = read_name_parts(rest) {

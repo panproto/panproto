@@ -107,7 +107,7 @@ impl<C> PathComplement<C> {
 
     /// Number of normal-form group entries.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
 
@@ -115,7 +115,7 @@ impl<C> PathComplement<C> {
     ///
     /// A complement produced by a valid path is never empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
@@ -166,7 +166,7 @@ impl LensPath {
 
     /// Number of atomic stages.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.stages.len()
     }
 
@@ -1041,7 +1041,7 @@ impl LensPath {
         Ok(())
     }
 
-    fn check_table_contexts(&self, protocols: &[Protocol]) -> Result<(), LensError> {
+    const fn check_table_contexts(&self, protocols: &[Protocol]) -> Result<(), LensError> {
         let expected = self.stages.len() + 1;
         if protocols.len() == expected {
             Ok(())

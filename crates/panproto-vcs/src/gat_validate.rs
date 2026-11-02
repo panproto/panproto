@@ -40,7 +40,7 @@ pub struct GatDiagnostics {
 impl GatDiagnostics {
     /// Returns `true` if there are no blocking errors.
     #[must_use]
-    pub fn is_clean(&self) -> bool {
+    pub const fn is_clean(&self) -> bool {
         self.type_errors.is_empty()
             && self.equation_errors.is_empty()
             && self.migration_errors.is_empty()
@@ -48,7 +48,7 @@ impl GatDiagnostics {
 
     /// Returns `true` if there are any blocking errors.
     #[must_use]
-    pub fn has_errors(&self) -> bool {
+    pub const fn has_errors(&self) -> bool {
         !self.is_clean()
     }
 

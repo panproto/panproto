@@ -83,12 +83,11 @@ fn remap_entries(
 fn build_ref_targets(schema: &Schema) -> FxHashMap<Name, (Name, Edge)> {
     let mut ref_targets: FxHashMap<Name, (Name, Edge)> = FxHashMap::default();
     for (id, vertex) in &schema.vertices {
-        if vertex.kind == REF_KIND {
-            if let Some(edges) = schema.outgoing.get(id) {
-                if let Some(edge) = edges.first() {
-                    ref_targets.insert(id.clone(), (edge.tgt.clone(), edge.clone()));
-                }
-            }
+        if vertex.kind == REF_KIND
+            && let Some(edges) = schema.outgoing.get(id)
+            && let Some(edge) = edges.first()
+        {
+            ref_targets.insert(id.clone(), (edge.tgt.clone(), edge.clone()));
         }
     }
     ref_targets

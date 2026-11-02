@@ -677,7 +677,7 @@ impl Buckets {
     /// How many buckets there are, which is how many variables there are.
     #[inline]
     #[must_use]
-    pub fn n_buckets(&self) -> usize {
+    pub const fn n_buckets(&self) -> usize {
         self.terms.len()
     }
 

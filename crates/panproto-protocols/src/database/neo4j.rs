@@ -100,21 +100,21 @@ fn parse_cypher_create(
         .trim();
 
     while !rest.is_empty() {
-        if let Some(paren_start) = rest.find('(') {
-            if let Some(paren_end) = rest[paren_start..].find(')') {
-                let inside = &rest[paren_start + 1..paren_start + paren_end];
-                builder = parse_node_pattern(builder, inside, labels_seen)?;
-                rest = &rest[paren_start + paren_end + 1..];
-                continue;
-            }
+        if let Some(paren_start) = rest.find('(')
+            && let Some(paren_end) = rest[paren_start..].find(')')
+        {
+            let inside = &rest[paren_start + 1..paren_start + paren_end];
+            builder = parse_node_pattern(builder, inside, labels_seen)?;
+            rest = &rest[paren_start + paren_end + 1..];
+            continue;
         }
-        if let Some(bracket_start) = rest.find('[') {
-            if let Some(bracket_end) = rest[bracket_start..].find(']') {
-                let inside = &rest[bracket_start + 1..bracket_start + bracket_end];
-                builder = parse_rel_pattern(builder, inside, labels_seen)?;
-                rest = &rest[bracket_start + bracket_end + 1..];
-                continue;
-            }
+        if let Some(bracket_start) = rest.find('[')
+            && let Some(bracket_end) = rest[bracket_start..].find(']')
+        {
+            let inside = &rest[bracket_start + 1..bracket_start + bracket_end];
+            builder = parse_rel_pattern(builder, inside, labels_seen)?;
+            rest = &rest[bracket_start + bracket_end + 1..];
+            continue;
         }
         break;
     }
@@ -222,39 +222,39 @@ fn parse_cypher_constraint(
     labels_seen: &mut std::collections::HashSet<String>,
 ) -> Result<SchemaBuilder, ProtocolError> {
     // Extract label from (n:Label).
-    if let Some(paren_start) = line.find('(') {
-        if let Some(paren_end) = line[paren_start..].find(')') {
-            let inside = &line[paren_start + 1..paren_start + paren_end];
-            let label = inside.split(':').nth(1).map_or("", str::trim).trim();
-            if !label.is_empty() {
-                if !labels_seen.contains(label) {
-                    builder = builder.vertex(label, "node-label", None)?;
-                    labels_seen.insert(label.to_string());
-                }
+    if let Some(paren_start) = line.find('(')
+        && let Some(paren_end) = line[paren_start..].find(')')
+    {
+        let inside = &line[paren_start + 1..paren_start + paren_end];
+        let label = inside.split(':').nth(1).map_or("", str::trim).trim();
+        if !label.is_empty() {
+            if !labels_seen.contains(label) {
+                builder = builder.vertex(label, "node-label", None)?;
+                labels_seen.insert(label.to_string());
+            }
 
-                // Determine constraint type.
-                if contains_keyword(line, "IS UNIQUE") {
-                    // Extract property name.
-                    if let Some(prop_name) = extract_constraint_property(line, label) {
-                        let prop_id = format!("{label}.{prop_name}");
-                        if !labels_seen.contains(&prop_id) {
-                            builder = builder.vertex(&prop_id, "property", None)?;
-                            builder = builder.edge(label, &prop_id, "prop", Some(&prop_name))?;
-                            labels_seen.insert(prop_id.clone());
-                        }
-                        builder = builder.constraint(&prop_id, "unique", "true");
+            // Determine constraint type.
+            if contains_keyword(line, "IS UNIQUE") {
+                // Extract property name.
+                if let Some(prop_name) = extract_constraint_property(line, label) {
+                    let prop_id = format!("{label}.{prop_name}");
+                    if !labels_seen.contains(&prop_id) {
+                        builder = builder.vertex(&prop_id, "property", None)?;
+                        builder = builder.edge(label, &prop_id, "prop", Some(&prop_name))?;
+                        labels_seen.insert(prop_id.clone());
                     }
-                } else if contains_keyword(line, "EXISTS") {
-                    if let Some(prop_name) = extract_constraint_property(line, label) {
-                        let prop_id = format!("{label}.{prop_name}");
-                        if !labels_seen.contains(&prop_id) {
-                            builder = builder.vertex(&prop_id, "property", None)?;
-                            builder = builder.edge(label, &prop_id, "prop", Some(&prop_name))?;
-                            labels_seen.insert(prop_id.clone());
-                        }
-                        builder = builder.constraint(&prop_id, "exists", "true");
-                    }
+                    builder = builder.constraint(&prop_id, "unique", "true");
                 }
+            } else if contains_keyword(line, "EXISTS")
+                && let Some(prop_name) = extract_constraint_property(line, label)
+            {
+                let prop_id = format!("{label}.{prop_name}");
+                if !labels_seen.contains(&prop_id) {
+                    builder = builder.vertex(&prop_id, "property", None)?;
+                    builder = builder.edge(label, &prop_id, "prop", Some(&prop_name))?;
+                    labels_seen.insert(prop_id.clone());
+                }
+                builder = builder.constraint(&prop_id, "exists", "true");
             }
         }
     }

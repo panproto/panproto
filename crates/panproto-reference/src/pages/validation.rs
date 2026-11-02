@@ -4181,10 +4181,9 @@ pub mod implementation {
         if let ValidationInput::Tree {
             schema, instance, ..
         } = input
+            && let Ok((graph, _)) = tree_validation_graph(instance, schema)
         {
-            if let Ok((graph, _)) = tree_validation_graph(instance, schema) {
-                refs.extend(graph.nodes.into_keys().map(ViewRef::Node));
-            }
+            refs.extend(graph.nodes.into_keys().map(ViewRef::Node));
         }
         refs.sort();
         refs.dedup();

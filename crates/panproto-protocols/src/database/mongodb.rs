@@ -182,20 +182,20 @@ fn walk_bson_schema(
             }
 
             // Handle array items.
-            if bson_type == "array" {
-                if let Some(items) = prop_schema.get("items") {
-                    let items_id = format!("{prop_id}:items");
-                    let items_type = items
-                        .get("bsonType")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("object");
-                    let items_kind = bson_type_to_kind(items_type);
-                    builder = builder.vertex(&items_id, &items_kind, None)?;
-                    builder = builder.edge(&prop_id, &items_id, "items", None)?;
+            if bson_type == "array"
+                && let Some(items) = prop_schema.get("items")
+            {
+                let items_id = format!("{prop_id}:items");
+                let items_type = items
+                    .get("bsonType")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("object");
+                let items_kind = bson_type_to_kind(items_type);
+                builder = builder.vertex(&items_id, &items_kind, None)?;
+                builder = builder.edge(&prop_id, &items_id, "items", None)?;
 
-                    if items_type == "object" {
-                        builder = walk_bson_schema(builder, items, &items_id)?;
-                    }
+                if items_type == "object" {
+                    builder = walk_bson_schema(builder, items, &items_id)?;
                 }
             }
 
@@ -203,14 +203,13 @@ fn walk_bson_schema(
             if let Some(serde_json::Value::Array(types)) = prop_schema.get("bsonType") {
                 // Already created with the first type; add variant edges for the rest.
                 for (i, t) in types.iter().enumerate() {
-                    if let Some(t_str) = t.as_str() {
-                        if i > 0 {
-                            let variant_id = format!("{prop_id}:variant{i}");
-                            let variant_kind = bson_type_to_kind(t_str);
-                            builder = builder.vertex(&variant_id, &variant_kind, None)?;
-                            builder =
-                                builder.edge(&prop_id, &variant_id, "variant", Some(t_str))?;
-                        }
+                    if let Some(t_str) = t.as_str()
+                        && i > 0
+                    {
+                        let variant_id = format!("{prop_id}:variant{i}");
+                        let variant_kind = bson_type_to_kind(t_str);
+                        builder = builder.vertex(&variant_id, &variant_kind, None)?;
+                        builder = builder.edge(&prop_id, &variant_id, "variant", Some(t_str))?;
                     }
                 }
             }
@@ -337,10 +336,10 @@ fn emit_bson_object(schema: &Schema, vertex_id: &str) -> serde_json::Value {
         // Nested object.
         if bson_type == "object" {
             let nested = emit_bson_object(schema, &child.id);
-            if let Some(nested_obj) = nested.as_object() {
-                if let Some(nested_props) = nested_obj.get("properties") {
-                    prop_obj.insert("properties".into(), nested_props.clone());
-                }
+            if let Some(nested_obj) = nested.as_object()
+                && let Some(nested_props) = nested_obj.get("properties")
+            {
+                prop_obj.insert("properties".into(), nested_props.clone());
             }
         }
 

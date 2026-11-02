@@ -498,10 +498,8 @@ impl Domains {
         if let Some(block) = self.block_mut(var) {
             let held = block.get(word).is_some_and(|cell| cell & bit != 0);
             block.fill(0);
-            if held {
-                if let Some(cell) = block.get_mut(word) {
-                    *cell = bit;
-                }
+            if held && let Some(cell) = block.get_mut(word) {
+                *cell = bit;
             }
         }
     }
@@ -583,7 +581,7 @@ impl Variable {
     /// plus one for `⊥`.
     #[inline]
     #[must_use]
-    pub fn slots(&self) -> usize {
+    pub const fn slots(&self) -> usize {
         self.values.len() + 1
     }
 
@@ -602,7 +600,7 @@ impl Variable {
     /// [`DomainIter`] alike.
     #[inline]
     #[must_use]
-    pub fn slot(&self, value: ValId) -> Option<usize> {
+    pub const fn slot(&self, value: ValId) -> Option<usize> {
         if value.is_bottom() {
             Some(self.values.len())
         } else if value.index() < self.values.len() {
@@ -670,7 +668,7 @@ impl CostFunction {
     /// How many variables the function constrains.
     #[inline]
     #[must_use]
-    pub fn arity(&self) -> usize {
+    pub const fn arity(&self) -> usize {
         self.scope.len()
     }
 }
@@ -720,7 +718,7 @@ impl Cfn {
     /// it was built over.
     #[inline]
     #[must_use]
-    pub fn n_variables(&self) -> usize {
+    pub const fn n_variables(&self) -> usize {
         self.variables.len()
     }
 
@@ -730,7 +728,7 @@ impl Cfn {
     /// counted here.
     #[inline]
     #[must_use]
-    pub fn n_functions(&self) -> usize {
+    pub const fn n_functions(&self) -> usize {
         self.functions.len()
     }
 
@@ -1163,7 +1161,7 @@ impl CfnBuilder {
     /// How many variables the network has.
     #[inline]
     #[must_use]
-    pub fn n_variables(&self) -> usize {
+    pub const fn n_variables(&self) -> usize {
         self.variables.len()
     }
 
@@ -1366,12 +1364,12 @@ impl CfnBuilder {
             if self.variables.get(var.index()).is_none() {
                 return Err(CfnError::UnknownVariable { variable: *var });
             }
-            if let Some(prior) = previous {
-                if *var <= prior {
-                    return Err(CfnError::ScopeNotAscending {
-                        scope: scope.to_vec(),
-                    });
-                }
+            if let Some(prior) = previous
+                && *var <= prior
+            {
+                return Err(CfnError::ScopeNotAscending {
+                    scope: scope.to_vec(),
+                });
             }
             previous = Some(*var);
         }

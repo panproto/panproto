@@ -101,20 +101,20 @@ pub fn parse_dataframe_schema(json: &serde_json::Value) -> Result<Schema, Protoc
             if let Some(nullable) = col_def.get("nullable").and_then(serde_json::Value::as_bool) {
                 builder = builder.constraint(&col_id, "nullable", &nullable.to_string());
             }
-            if let Some(unique) = col_def.get("unique").and_then(serde_json::Value::as_bool) {
-                if unique {
-                    builder = builder.constraint(&col_id, "unique", "true");
-                }
+            if let Some(unique) = col_def.get("unique").and_then(serde_json::Value::as_bool)
+                && unique
+            {
+                builder = builder.constraint(&col_id, "unique", "true");
             }
-            if let Some(coerce) = col_def.get("coerce").and_then(serde_json::Value::as_bool) {
-                if coerce {
-                    builder = builder.constraint(&col_id, "coerce", "true");
-                }
+            if let Some(coerce) = col_def.get("coerce").and_then(serde_json::Value::as_bool)
+                && coerce
+            {
+                builder = builder.constraint(&col_id, "coerce", "true");
             }
-            if let Some(regex) = col_def.get("regex").and_then(serde_json::Value::as_bool) {
-                if regex {
-                    builder = builder.constraint(&col_id, "regex", "true");
-                }
+            if let Some(regex) = col_def.get("regex").and_then(serde_json::Value::as_bool)
+                && regex
+            {
+                builder = builder.constraint(&col_id, "regex", "true");
             }
 
             // Parse checks.

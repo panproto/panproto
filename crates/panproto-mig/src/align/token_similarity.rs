@@ -213,23 +213,24 @@ pub fn token_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<Anchor> 
                 best = Some((tgt_id.clone(), score));
             }
         }
-        if let Some((tgt_id, score)) = best {
-            if score >= threshold && score < 1.0 {
-                // skip exact matches (covered by exact strategy)
-                out.push(Anchor {
-                    src: src_id.clone(),
-                    tgt: tgt_id.clone(),
-                    confidence: score,
-                    strategy: StrategyTag::TokenSimilarity,
-                    provenance: Provenance::Derived,
-                    explanation: format!(
-                        "token similarity {:.2}: {} ↔ {}",
-                        score,
-                        src_id.as_str(),
-                        tgt_id.as_str()
-                    ),
-                });
-            }
+        if let Some((tgt_id, score)) = best
+            && score >= threshold
+            && score < 1.0
+        {
+            // skip exact matches (covered by exact strategy)
+            out.push(Anchor {
+                src: src_id.clone(),
+                tgt: tgt_id.clone(),
+                confidence: score,
+                strategy: StrategyTag::TokenSimilarity,
+                provenance: Provenance::Derived,
+                explanation: format!(
+                    "token similarity {:.2}: {} ↔ {}",
+                    score,
+                    src_id.as_str(),
+                    tgt_id.as_str()
+                ),
+            });
         }
     }
     out

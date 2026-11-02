@@ -307,27 +307,28 @@ fn parse_type_def(
         }
 
         // Parse field: name: Type or name(args): Type
-        if !line.is_empty() && !line.starts_with('#') {
-            if let Some(colon_idx) = line.find(':') {
-                let field_name = line[..colon_idx].split('(').next().unwrap_or("").trim();
+        if !line.is_empty()
+            && !line.starts_with('#')
+            && let Some(colon_idx) = line.find(':')
+        {
+            let field_name = line[..colon_idx].split('(').next().unwrap_or("").trim();
 
-                if !field_name.is_empty() {
-                    let field_id = format!("{name}.{field_name}");
-                    builder = builder.vertex(&field_id, "field", None)?;
-                    vertex_ids.insert(field_id.clone());
-                    builder = builder.edge(name, &field_id, "field-of", Some(field_name))?;
+            if !field_name.is_empty() {
+                let field_id = format!("{name}.{field_name}");
+                builder = builder.vertex(&field_id, "field", None)?;
+                vertex_ids.insert(field_id.clone());
+                builder = builder.edge(name, &field_id, "field-of", Some(field_name))?;
 
-                    // Extract field type for deferred type-of edge
-                    let type_expr = line[colon_idx + 1..].trim();
-                    let base_type = extract_base_type(type_expr);
-                    if !base_type.is_empty() {
-                        deferred.push(Deferred {
-                            kind: DeferredKind::TypeOf {
-                                field_id,
-                                type_name: base_type.to_owned(),
-                            },
-                        });
-                    }
+                // Extract field type for deferred type-of edge
+                let type_expr = line[colon_idx + 1..].trim();
+                let base_type = extract_base_type(type_expr);
+                if !base_type.is_empty() {
+                    deferred.push(Deferred {
+                        kind: DeferredKind::TypeOf {
+                            field_id,
+                            type_name: base_type.to_owned(),
+                        },
+                    });
                 }
             }
         }
@@ -374,26 +375,27 @@ fn parse_extend_type(
             return Ok((builder, i + 1, deferred));
         }
 
-        if !line.is_empty() && !line.starts_with('#') {
-            if let Some(colon_idx) = line.find(':') {
-                let field_name = line[..colon_idx].split('(').next().unwrap_or("").trim();
+        if !line.is_empty()
+            && !line.starts_with('#')
+            && let Some(colon_idx) = line.find(':')
+        {
+            let field_name = line[..colon_idx].split('(').next().unwrap_or("").trim();
 
-                if !field_name.is_empty() {
-                    let field_id = format!("{name}.{field_name}");
-                    builder = builder.vertex(&field_id, "field", None)?;
-                    vertex_ids.insert(field_id.clone());
-                    builder = builder.edge(name, &field_id, "field-of", Some(field_name))?;
+            if !field_name.is_empty() {
+                let field_id = format!("{name}.{field_name}");
+                builder = builder.vertex(&field_id, "field", None)?;
+                vertex_ids.insert(field_id.clone());
+                builder = builder.edge(name, &field_id, "field-of", Some(field_name))?;
 
-                    let type_expr = line[colon_idx + 1..].trim();
-                    let base_type = extract_base_type(type_expr);
-                    if !base_type.is_empty() {
-                        deferred.push(Deferred {
-                            kind: DeferredKind::TypeOf {
-                                field_id,
-                                type_name: base_type.to_owned(),
-                            },
-                        });
-                    }
+                let type_expr = line[colon_idx + 1..].trim();
+                let base_type = extract_base_type(type_expr);
+                if !base_type.is_empty() {
+                    deferred.push(Deferred {
+                        kind: DeferredKind::TypeOf {
+                            field_id,
+                            type_name: base_type.to_owned(),
+                        },
+                    });
                 }
             }
         }

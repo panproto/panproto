@@ -762,7 +762,7 @@ impl<C> PathComplement<C> {
 
     /// Number of entries.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         match self {
             Self::Identity { .. } => 0,
             Self::Stages(entries) => entries.len(),
@@ -771,7 +771,7 @@ impl<C> PathComplement<C> {
 
     /// Whether this complement has no normal-form group entries.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 

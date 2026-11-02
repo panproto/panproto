@@ -294,10 +294,10 @@ pub fn emit_folia(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
 
         // Emit dep-head edge (FoLiA <hd> role, the syntactic head).
         let hd_children = children_by_edge(schema, &root.id, "dep-head");
-        if let Some((e, _)) = hd_children.first() {
-            if let Some(n) = e.name.as_deref() {
-                obj.insert("dep-head".into(), serde_json::json!(n));
-            }
+        if let Some((e, _)) = hd_children.first()
+            && let Some(n) = e.name.as_deref()
+        {
+            obj.insert("dep-head".into(), serde_json::json!(n));
         }
 
         // Emit dep-dependent edges (FoLiA <dep> role, the dependents).

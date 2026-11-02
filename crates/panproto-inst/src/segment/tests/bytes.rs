@@ -381,10 +381,10 @@ fn a_tampered_ghost_anchor_is_caught_by_the_cross_digests() -> TestResult {
     );
     // Segment 0's ghost of row 5 claims table `c`: the segment alone keeps
     // its contract, but its cross digest no longer pairs with segment 1's.
-    if let AnySegment::Table(s) = &mut parts[0] {
-        if let Some(ghost) = s.boundary.ghosts.get_mut(&5) {
-            ghost.anchor = "c".into();
-        }
+    if let AnySegment::Table(s) = &mut parts[0]
+        && let Some(ghost) = s.boundary.ghosts.get_mut(&5)
+    {
+        ghost.anchor = "c".into();
     }
     crate::segment::check_segment(&parts[0], &p)?;
     assert_eq!(

@@ -629,13 +629,31 @@ fn absence_residue_records_only_declared_source_cells_present_in_the_final_view(
 
 #[test]
 fn a_structural_rename_records_an_originally_absent_source_column() {
+    // The target column `c` reads the vertex of the source column `a`, so the
+    // rename `a -> c` is injective and the source column `c` is dropped, as a
+    // structural rename must be: keeping it would send two source columns to
+    // one target column, which the table plan refuses.
     let source = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
-    let target = tables(&[("t", &[("c", "int")])], &[]);
+    let renamed = Edge {
+        src: "t".into(),
+        tgt: "t.a".into(),
+        kind: "prop".into(),
+        name: Some("c".into()),
+    };
+    let p = protocol();
+    let target = SchemaBuilder::new(&p)
+        .vertex("t", "record", None)
+        .unwrap()
+        .vertex("t.a", "int", None)
+        .unwrap()
+        .edge("t", "t.a", "prop", Some("c"))
+        .unwrap()
+        .build()
+        .unwrap();
     let m = CompiledMigration {
-        surviving_verts: [Name::from("t"), Name::from("t.c")].into(),
-        surviving_edges: [column("t", "c")].into(),
-        vertex_remap: HashMap::from([("t.a".into(), "t.c".into())]),
-        edge_remap: HashMap::from([(column("t", "a"), column("t", "c"))]),
+        surviving_verts: [Name::from("t"), Name::from("t.a")].into(),
+        surviving_edges: [renamed.clone()].into(),
+        edge_remap: HashMap::from([(column("t", "a"), renamed)]),
         ..CompiledMigration::default()
     };
     let source_row = one_row(&[("a", Value::Int(1))]);

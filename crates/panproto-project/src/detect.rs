@@ -125,10 +125,10 @@ pub fn scan_packages(dir: &Path) -> Result<Vec<DetectedPackage>, ProjectError> {
             for sub_entry in sub_entries {
                 let sub_entry = sub_entry?;
                 let sub_path = sub_entry.path();
-                if sub_path.is_dir() {
-                    if let Some(pkg) = detect_single_package(&sub_path) {
-                        packages.push(pkg);
-                    }
+                if sub_path.is_dir()
+                    && let Some(pkg) = detect_single_package(&sub_path)
+                {
+                    packages.push(pkg);
                 }
             }
         }

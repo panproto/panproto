@@ -184,10 +184,10 @@ pub fn parse_web_annotation_schema(json: &serde_json::Value) -> Result<Schema, P
                 }
 
                 // bodyValue: a plain-string value on the annotation itself
-                if field_name == "bodyValue" {
-                    if let Some(val) = field_def.get("value").and_then(serde_json::Value::as_str) {
-                        builder = builder.constraint(name, "body-value", val);
-                    }
+                if field_name == "bodyValue"
+                    && let Some(val) = field_def.get("value").and_then(serde_json::Value::as_str)
+                {
+                    builder = builder.constraint(name, "body-value", val);
                 }
             }
         }

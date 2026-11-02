@@ -2779,18 +2779,27 @@ fn transformed_cells_recompute_the_baseline_and_use_only_valid_inverses() {
         Some(&Value::Int(5))
     );
 
-    let mut migration = migration;
+    derived_outputs_refuse_incoherent_edits(
+        &schema,
+        migration,
+        (&source_boundary, &target_boundary),
+        &source,
+    );
+}
+
+/// A declared derived output refuses an edit that its replay does not
+/// reproduce, and an inverse refuses an edited input outside its image.
+fn derived_outputs_refuse_incoherent_edits(
+    schema: &Schema,
+    mut migration: Migration,
+    (source_boundary, target_boundary): (&RelSchema, &RelSchema),
+    source: &Table,
+) {
     migration
         .output_fields
         .insert("t".to_owned(), vec!["x".to_owned(), "derived".to_owned()]);
     assert_eq!(
-        table::compile_for_tables(
-            &schema,
-            &schema,
-            &source_boundary,
-            &target_boundary,
-            &migration,
-        ),
+        table::compile_for_tables(schema, schema, source_boundary, target_boundary, &migration),
         Err(TablePlanError::Plan(Box::new(
             PlanError::UndeclaredTransformField {
                 source_vertex: "t".to_owned(),
@@ -2805,9 +2814,9 @@ fn transformed_cells_recompute_the_baseline_and_use_only_valid_inverses() {
         "prop",
         Some("derived"),
     );
-    let (source_boundary, target_boundary, plan) = table_plan(&schema, &target, &migration);
+    let (source_boundary, target_boundary, plan) = table_plan(schema, &target, &migration);
     let lens = must(TableLens::new_at_boundary(
-        &schema,
+        schema,
         &target,
         TableBoundaries::new(&source_boundary, &target_boundary),
         &migration,
@@ -2815,7 +2824,7 @@ fn transformed_cells_recompute_the_baseline_and_use_only_valid_inverses() {
         &BTreeMap::new(),
         &DerivedAndInvertible,
     ));
-    let (mut view, complement) = must(lens.get(&source));
+    let (mut view, complement) = must(lens.get(source));
     if let Some(row) = view.rows.get_mut(&1) {
         row.1.insert("x".to_owned(), Value::Int(10));
     }

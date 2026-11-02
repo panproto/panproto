@@ -436,15 +436,15 @@ fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDs
     let mut stages = body.stages;
 
     // Directed-equation modifier: append oriented rewrites to the chain.
-    if let Some(equations) = &doc.directed_equations {
-        if !equations.is_empty() {
-            let eq_chain = crate::steps::compile_directed_equations(equations)?;
-            chain = combinators::pipeline(vec![chain, eq_chain.clone()]);
-            stages.push(crate::steps::CompiledStage {
-                chain: eq_chain,
-                field_transforms: HashMap::new(),
-            });
-        }
+    if let Some(equations) = &doc.directed_equations
+        && !equations.is_empty()
+    {
+        let eq_chain = crate::steps::compile_directed_equations(equations)?;
+        chain = combinators::pipeline(vec![chain, eq_chain.clone()]);
+        stages.push(crate::steps::CompiledStage {
+            chain: eq_chain,
+            field_transforms: HashMap::new(),
+        });
     }
 
     let compiled = CompiledLens {
@@ -462,13 +462,13 @@ fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDs
     };
 
     // Honor `invertible: true` by rejecting a lossy chain.
-    if doc.invertible == Some(true) {
-        if let Some(element) = first_lossy_element(&compiled) {
-            return Err(LensDslError::NotInvertible {
-                id: doc.id.clone(),
-                element,
-            });
-        }
+    if doc.invertible == Some(true)
+        && let Some(element) = first_lossy_element(&compiled)
+    {
+        return Err(LensDslError::NotInvertible {
+            id: doc.id.clone(),
+            element,
+        });
     }
 
     Ok(compiled)
@@ -533,14 +533,14 @@ fn verify_target(
 
     // The produced schema's identity is the NSID of its primary entry.
     // When absent, we cannot verify and do not fail.
-    if let Some(actual) = schema_target_nsid(lens.tgt_schema()) {
-        if actual != declared {
-            return Err(LensDslError::TargetMismatch {
-                id: compiled.id.clone(),
-                declared: declared.to_owned(),
-                actual,
-            });
-        }
+    if let Some(actual) = schema_target_nsid(lens.tgt_schema())
+        && actual != declared
+    {
+        return Err(LensDslError::TargetMismatch {
+            id: compiled.id.clone(),
+            declared: declared.to_owned(),
+            actual,
+        });
     }
     Ok(())
 }

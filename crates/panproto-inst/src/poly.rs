@@ -335,16 +335,15 @@ fn restrict_bfs_step(
             .unwrap_or(&child_node.anchor);
         let mut child_survives = migration.surviving_verts.contains(target_anchor);
 
-        if child_survives {
-            if let Some(pred) = migration.conditional_survival.get(&child_node.anchor) {
-                let env = build_env_from_extra_fields(&child_node.extra_fields);
-                let config = panproto_expr::EvalConfig::default();
-                if matches!(
-                    panproto_expr::eval(pred, &env, &config),
-                    Ok(panproto_expr::Literal::Bool(false))
-                ) {
-                    child_survives = false;
-                }
+        if child_survives && let Some(pred) = migration.conditional_survival.get(&child_node.anchor)
+        {
+            let env = build_env_from_extra_fields(&child_node.extra_fields);
+            let config = panproto_expr::EvalConfig::default();
+            if matches!(
+                panproto_expr::eval(pred, &env, &config),
+                Ok(panproto_expr::Literal::Bool(false))
+            ) {
+                child_survives = false;
             }
         }
 

@@ -313,10 +313,10 @@ fn ground_congruence(
         let indices = &term_to_global[*sort];
         for (i, term) in terms.iter().enumerate() {
             let class = uf.find(&indices[i]);
-            if let Some(rep) = representative.get(&class) {
-                if rep != term {
-                    canonical.insert(term.clone(), rep.clone());
-                }
+            if let Some(rep) = representative.get(&class)
+                && rep != term
+            {
+                canonical.insert(term.clone(), rep.clone());
             }
         }
     }

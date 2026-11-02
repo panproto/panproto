@@ -257,7 +257,7 @@ impl IdGenerator {
 
     /// Get the current scope depth.
     #[must_use]
-    pub fn depth(&self) -> usize {
+    pub const fn depth(&self) -> usize {
         self.frames.len()
     }
 

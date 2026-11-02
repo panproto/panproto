@@ -146,10 +146,10 @@ pub fn check_existence(
             TheoryKind::Schema => schema_theory,
             TheoryKind::Instance => inst_theory,
         };
-        if let Some(theory) = theory {
-            if theory.find_sort(entry.sort).is_some() {
-                errors.extend((entry.check)(src, tgt, migration));
-            }
+        if let Some(theory) = theory
+            && theory.find_sort(entry.sort).is_some()
+        {
+            errors.extend((entry.check)(src, tgt, migration));
         }
     }
 
@@ -229,17 +229,16 @@ fn check_kind_consistency(
         let src_vertex = src.vertex(src_id);
         let tgt_vertex = tgt.vertex(tgt_id);
 
-        if let (Some(sv), Some(tv)) = (src_vertex, tgt_vertex) {
-            if sv.kind != tv.kind
-                && !tgt
-                    .coercions
-                    .contains_key(&(sv.kind.clone(), tv.kind.clone()))
-            {
-                errors.push(ExistenceError::KindInconsistency {
-                    kind: sv.kind.to_string(),
-                    targets: vec![sv.kind.to_string(), tv.kind.to_string()],
-                });
-            }
+        if let (Some(sv), Some(tv)) = (src_vertex, tgt_vertex)
+            && sv.kind != tv.kind
+            && !tgt
+                .coercions
+                .contains_key(&(sv.kind.clone(), tv.kind.clone()))
+        {
+            errors.push(ExistenceError::KindInconsistency {
+                kind: sv.kind.to_string(),
+                targets: vec![sv.kind.to_string(), tv.kind.to_string()],
+            });
         }
     }
 
@@ -262,15 +261,15 @@ fn check_constraint_compatibility(
         if let (Some(src_cs), Some(tgt_cs)) = (src_constraints, tgt_constraints) {
             for tgt_c in tgt_cs {
                 // Find matching constraint in source by sort.
-                if let Some(src_c) = src_cs.iter().find(|c| c.sort == tgt_c.sort) {
-                    if is_constraint_tightened(&src_c.sort, &src_c.value, &tgt_c.value) {
-                        errors.push(ExistenceError::ConstraintTightened {
-                            vertex: tgt_id.to_string(),
-                            sort: tgt_c.sort.to_string(),
-                            src_val: src_c.value.clone(),
-                            tgt_val: tgt_c.value.clone(),
-                        });
-                    }
+                if let Some(src_c) = src_cs.iter().find(|c| c.sort == tgt_c.sort)
+                    && is_constraint_tightened(&src_c.sort, &src_c.value, &tgt_c.value)
+                {
+                    errors.push(ExistenceError::ConstraintTightened {
+                        vertex: tgt_id.to_string(),
+                        sort: tgt_c.sort.to_string(),
+                        src_val: src_c.value.clone(),
+                        tgt_val: tgt_c.value.clone(),
+                    });
                 }
             }
         }

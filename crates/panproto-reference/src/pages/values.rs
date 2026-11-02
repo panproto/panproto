@@ -1011,7 +1011,7 @@ pub mod bytes {
             return Err(ByteTextError::InvalidPadding);
         }
         let mut output = Vec::new();
-        for quantum in normalized.as_bytes().chunks_exact(4) {
+        for quantum in normalized.as_bytes().as_chunks::<4>().0 {
             let padding = quantum
                 .iter()
                 .rev()
@@ -2129,7 +2129,7 @@ pub mod coerce {
             BytesText::Base64Padded => decode_base64(text, false, true),
             BytesText::Base64UrlPadded => decode_base64(text, true, true),
             BytesText::Hex => {
-                if text.len() % 2 != 0 {
+                if !text.len().is_multiple_of(2) {
                     return None;
                 }
                 text.as_bytes()
@@ -2561,10 +2561,10 @@ pub mod exact {
     /// [`halve_exponent`]. The limit lets tests force every recursive branch
     /// without constructing an infeasibly large power.
     fn pow10_exact_with_limit(k: &Int, direct_limit: u64) -> Rat {
-        if let Some(small) = k.to_i64() {
-            if small.unsigned_abs() <= direct_limit {
-                return Rat::pow10(small);
-            }
+        if let Some(small) = k.to_i64()
+            && small.unsigned_abs() <= direct_limit
+        {
+            return Rat::pow10(small);
         }
         let Some((half, rest)) = halve_exponent(k) else {
             return Rat::pow10(0);
@@ -2609,7 +2609,7 @@ pub mod exact {
 
         /// Whether this is zero.
         #[must_use]
-        pub fn is_zero(&self) -> bool {
+        pub const fn is_zero(&self) -> bool {
             self.digits.is_zero()
         }
 
@@ -3592,7 +3592,7 @@ pub mod float {
             Ordering::Less => (a, da),
             Ordering::Greater => (b, db),
             Ordering::Equal => {
-                if last_significant_digit(&a) % 2 == 0 {
+                if last_significant_digit(&a).is_multiple_of(2) {
                     (a, da)
                 } else {
                     (b, db)

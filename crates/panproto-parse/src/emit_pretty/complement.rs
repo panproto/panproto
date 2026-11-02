@@ -397,11 +397,11 @@ pub(crate) fn alt_satisfies_field_token_restrictions(
             }
             field_seen = true;
             let lit = literal_value(schema, &edge.tgt);
-            if let Some(l) = lit {
-                if allowed.contains(&l) {
-                    field_admits = true;
-                    break;
-                }
+            if let Some(l) = lit
+                && allowed.contains(&l)
+            {
+                field_admits = true;
+                break;
             }
         }
         if field_seen && !field_admits {
@@ -646,10 +646,10 @@ pub(crate) fn reconstruct_subtree_bytes(
             .iter()
             .find(|c| c.sort.as_ref() == "start-byte")
             .and_then(|c| c.value.parse::<usize>().ok());
-        if let Some(s) = start {
-            if let Some(lit) = cons.iter().find(|c| c.sort.as_ref() == "literal-value") {
-                fragments.push((s, lit.value.as_str()));
-            }
+        if let Some(s) = start
+            && let Some(lit) = cons.iter().find(|c| c.sort.as_ref() == "literal-value")
+        {
+            fragments.push((s, lit.value.as_str()));
         }
         for c in cons {
             let sort = c.sort.as_ref();

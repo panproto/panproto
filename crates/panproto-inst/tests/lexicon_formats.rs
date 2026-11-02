@@ -1004,7 +1004,7 @@ fn rfc4648(bytes: &[u8], alphabet: &str, bits: u32, pad: Option<usize>) -> Strin
         out.push(symbols[((buffer << (bits - held)) & mask) as usize]);
     }
     if let Some(block) = pad {
-        while out.chars().count() % block != 0 {
+        while !out.chars().count().is_multiple_of(block) {
             out.push('=');
         }
     }
@@ -1167,7 +1167,7 @@ fn multibase_forms(bytes: &[u8]) -> Vec<(&'static str, String)> {
                 .collect(),
         ),
     ];
-    if bytes.len() % 2 == 0 {
+    if bytes.len().is_multiple_of(2) {
         forms.push(("proquint", format!("p{}", proquint(bytes))));
     }
     forms

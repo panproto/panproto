@@ -309,12 +309,12 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 .and_then(serde_json::Value::as_array)
             {
                 for ref_val in refs {
-                    if let Some(ref_id) = ref_val.as_str() {
-                        if builder.has_vertex(ref_id) {
-                            builder = builder
-                                .edge(item_id, ref_id, "item-ref", None)
-                                .map_err(|e| ProtocolError::Parse(e.to_string()))?;
-                        }
+                    if let Some(ref_id) = ref_val.as_str()
+                        && builder.has_vertex(ref_id)
+                    {
+                        builder = builder
+                            .edge(item_id, ref_id, "item-ref", None)
+                            .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                     }
                 }
             }
@@ -399,12 +399,12 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 .and_then(serde_json::Value::as_array)
             {
                 for ref_val in refs {
-                    if let Some(ref_id) = ref_val.as_str() {
-                        if builder.has_vertex(ref_id) {
-                            builder = builder
-                                .edge(list_id, ref_id, "item-ref", None)
-                                .map_err(|e| ProtocolError::Parse(e.to_string()))?;
-                        }
+                    if let Some(ref_id) = ref_val.as_str()
+                        && builder.has_vertex(ref_id)
+                    {
+                        builder = builder
+                            .edge(list_id, ref_id, "item-ref", None)
+                            .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                     }
                 }
             }
@@ -442,12 +442,12 @@ pub fn parse_bead(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 builder = builder.constraint(j_id, "response-time", &rt.to_string());
             }
             // judgment-of edge: judgment -> item
-            if let Some(item_id) = j_def.get("item_id").and_then(serde_json::Value::as_str) {
-                if builder.has_vertex(item_id) {
-                    builder = builder
-                        .edge(j_id, item_id, "judgment-of", None)
-                        .map_err(|e| ProtocolError::Parse(e.to_string()))?;
-                }
+            if let Some(item_id) = j_def.get("item_id").and_then(serde_json::Value::as_str)
+                && builder.has_vertex(item_id)
+            {
+                builder = builder
+                    .edge(j_id, item_id, "judgment-of", None)
+                    .map_err(|e| ProtocolError::Parse(e.to_string()))?;
             }
         }
     }

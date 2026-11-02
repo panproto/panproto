@@ -1767,6 +1767,10 @@ fn refusal_from_restrict(error: panproto_inst::RestrictError) -> Vec<PutDomainEr
             elem: ViewRef::Node(node),
             refusal: PredicateRefusal::ValueNotExpressible { field, value_type },
         }],
+        // `fan_violations` reports every malformed fan of the restored
+        // source, in fan-domain order, beside this replay; a second, untyped
+        // refusal of the same fan would only restate it.
+        RestrictError::MalformedFan { .. } => Vec::new(),
         RestrictError::FieldTransformFailed { source, .. } => {
             vec![PutDomainError::SurvivalPredicateRefused {
                 elem: location.unwrap_or(ViewRef::Node(0)),

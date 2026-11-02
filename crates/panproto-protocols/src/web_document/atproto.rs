@@ -909,60 +909,60 @@ fn parse_query_procedure_def(
     }
 
     // Parse input schema (used by procedures).
-    if let Some(input) = def.get("input") {
-        if let Some(input_schema) = input.get("schema") {
-            let input_id = format!("{vertex_id}:input");
-            let input_type = input_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("object");
-            let input_kind = lexicon_type_to_kind(input_type);
-            builder = builder.vertex(&input_id, &input_kind, None)?;
-            builder = builder.edge(vertex_id, &input_id, "prop", Some("input"))?;
-            if input_type == "object" {
-                builder = parse_object_def(builder, &input_id, input_schema, lexicon_id)?;
-            } else {
-                builder = parse_constraints(builder, &input_id, input_schema);
-            }
+    if let Some(input) = def.get("input")
+        && let Some(input_schema) = input.get("schema")
+    {
+        let input_id = format!("{vertex_id}:input");
+        let input_type = input_schema
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+        let input_kind = lexicon_type_to_kind(input_type);
+        builder = builder.vertex(&input_id, &input_kind, None)?;
+        builder = builder.edge(vertex_id, &input_id, "prop", Some("input"))?;
+        if input_type == "object" {
+            builder = parse_object_def(builder, &input_id, input_schema, lexicon_id)?;
+        } else {
+            builder = parse_constraints(builder, &input_id, input_schema);
         }
     }
 
     // Parse output schema.
-    if let Some(output) = def.get("output") {
-        if let Some(output_schema) = output.get("schema") {
-            let output_id = format!("{vertex_id}:output");
-            let output_type = output_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("object");
-            let output_kind = lexicon_type_to_kind(output_type);
-            builder = builder.vertex(&output_id, &output_kind, None)?;
-            builder = builder.edge(vertex_id, &output_id, "prop", Some("output"))?;
-            if output_type == "object" {
-                builder = parse_object_def(builder, &output_id, output_schema, lexicon_id)?;
-            } else {
-                builder = parse_constraints(builder, &output_id, output_schema);
-            }
+    if let Some(output) = def.get("output")
+        && let Some(output_schema) = output.get("schema")
+    {
+        let output_id = format!("{vertex_id}:output");
+        let output_type = output_schema
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+        let output_kind = lexicon_type_to_kind(output_type);
+        builder = builder.vertex(&output_id, &output_kind, None)?;
+        builder = builder.edge(vertex_id, &output_id, "prop", Some("output"))?;
+        if output_type == "object" {
+            builder = parse_object_def(builder, &output_id, output_schema, lexicon_id)?;
+        } else {
+            builder = parse_constraints(builder, &output_id, output_schema);
         }
     }
 
     // Parse message (used by subscriptions).
-    if let Some(message) = def.get("message") {
-        if let Some(msg_schema) = message.get("schema") {
-            let msg_id = format!("{vertex_id}:message");
-            let msg_type = msg_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("object");
-            let msg_kind = lexicon_type_to_kind(msg_type);
-            builder = builder.vertex(&msg_id, &msg_kind, None)?;
-            builder = builder.edge(vertex_id, &msg_id, "prop", Some("message"))?;
-            builder = match msg_type {
-                "object" => parse_object_def(builder, &msg_id, msg_schema, lexicon_id)?,
-                "union" => parse_union_def(builder, &msg_id, msg_schema, lexicon_id)?,
-                _ => parse_constraints(builder, &msg_id, msg_schema),
-            };
-        }
+    if let Some(message) = def.get("message")
+        && let Some(msg_schema) = message.get("schema")
+    {
+        let msg_id = format!("{vertex_id}:message");
+        let msg_type = msg_schema
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+        let msg_kind = lexicon_type_to_kind(msg_type);
+        builder = builder.vertex(&msg_id, &msg_kind, None)?;
+        builder = builder.edge(vertex_id, &msg_id, "prop", Some("message"))?;
+        builder = match msg_type {
+            "object" => parse_object_def(builder, &msg_id, msg_schema, lexicon_id)?,
+            "union" => parse_union_def(builder, &msg_id, msg_schema, lexicon_id)?,
+            _ => parse_constraints(builder, &msg_id, msg_schema),
+        };
     }
 
     Ok(builder)
@@ -1637,7 +1637,12 @@ mod tests {
             );
             for index in 0..2 {
                 let variant = format!("{union}:variant{index}");
-                assert!(schema.outgoing_edges(&variant).iter().any(|edge| edge.kind == "ref"));
+                assert!(
+                    schema
+                        .outgoing_edges(&variant)
+                        .iter()
+                        .any(|edge| edge.kind == "ref")
+                );
             }
         }
         Ok(())

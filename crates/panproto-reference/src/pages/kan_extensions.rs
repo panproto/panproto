@@ -6245,10 +6245,10 @@ pub mod rel {
                     .iter()
                     .position(|(c2, along2)| c2 == c && *along2 == composite)?;
                 let image = *classes.get(&d)?.get(&(k2, x))?;
-                if let Some(previous) = result.legs.insert((leg.clone(), class), image) {
-                    if previous != image {
-                        return None;
-                    }
+                if let Some(previous) = result.legs.insert((leg.clone(), class), image)
+                    && previous != image
+                {
+                    return None;
                 }
             }
         }

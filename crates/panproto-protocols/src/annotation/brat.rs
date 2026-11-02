@@ -262,10 +262,10 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     }
                 }
                 let type_children = children_by_edge(schema, &root.id, "has-type");
-                if let Some((edge, _child)) = type_children.first() {
-                    if let Some(name) = &edge.name {
-                        obj.insert("type".into(), serde_json::json!(name));
-                    }
+                if let Some((edge, _child)) = type_children.first()
+                    && let Some(name) = &edge.name
+                {
+                    obj.insert("type".into(), serde_json::json!(name));
                 }
                 textbounds.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }

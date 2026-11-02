@@ -70,36 +70,34 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
     for edge in schema.edges.keys() {
         if let Some(rule) = protocol.find_edge_rule(&edge.kind) {
             // Check source kind.
-            if let Some(src_vertex) = schema.vertices.get(&edge.src) {
-                if !rule.src_kinds.is_empty()
-                    && !rule.src_kinds.iter().any(|k| k == src_vertex.kind.as_ref())
-                {
-                    errors.push(ValidationError::InvalidEdge {
-                        src: edge.src.to_string(),
-                        tgt: edge.tgt.to_string(),
-                        kind: edge.kind.to_string(),
-                        reason: format!(
-                            "source kind '{}' not in permitted: {:?}",
-                            src_vertex.kind, rule.src_kinds
-                        ),
-                    });
-                }
+            if let Some(src_vertex) = schema.vertices.get(&edge.src)
+                && !rule.src_kinds.is_empty()
+                && !rule.src_kinds.iter().any(|k| k == src_vertex.kind.as_ref())
+            {
+                errors.push(ValidationError::InvalidEdge {
+                    src: edge.src.to_string(),
+                    tgt: edge.tgt.to_string(),
+                    kind: edge.kind.to_string(),
+                    reason: format!(
+                        "source kind '{}' not in permitted: {:?}",
+                        src_vertex.kind, rule.src_kinds
+                    ),
+                });
             }
             // Check target kind.
-            if let Some(tgt_vertex) = schema.vertices.get(&edge.tgt) {
-                if !rule.tgt_kinds.is_empty()
-                    && !rule.tgt_kinds.iter().any(|k| k == tgt_vertex.kind.as_ref())
-                {
-                    errors.push(ValidationError::InvalidEdge {
-                        src: edge.src.to_string(),
-                        tgt: edge.tgt.to_string(),
-                        kind: edge.kind.to_string(),
-                        reason: format!(
-                            "target kind '{}' not in permitted: {:?}",
-                            tgt_vertex.kind, rule.tgt_kinds
-                        ),
-                    });
-                }
+            if let Some(tgt_vertex) = schema.vertices.get(&edge.tgt)
+                && !rule.tgt_kinds.is_empty()
+                && !rule.tgt_kinds.iter().any(|k| k == tgt_vertex.kind.as_ref())
+            {
+                errors.push(ValidationError::InvalidEdge {
+                    src: edge.src.to_string(),
+                    tgt: edge.tgt.to_string(),
+                    kind: edge.kind.to_string(),
+                    reason: format!(
+                        "target kind '{}' not in permitted: {:?}",
+                        tgt_vertex.kind, rule.tgt_kinds
+                    ),
+                });
             }
         } else if !protocol.edge_rules.is_empty() {
             errors.push(ValidationError::InvalidEdge {
@@ -373,7 +371,7 @@ fn target_set_errors(schema: &Schema, errors: &mut Vec<KeyRefError>) {
 /// empty key, so none of them needs a declared key. A named target key, a
 /// target set, a variable's binder and an inline identity do; a non-empty
 /// key-value source without one is checked against the empty key's arity.
-fn resolves_without_a_key(reference: &Reference, targets_set: bool) -> bool {
+const fn resolves_without_a_key(reference: &Reference, targets_set: bool) -> bool {
     !targets_set
         && reference.target_key.is_none()
         && match &reference.source {

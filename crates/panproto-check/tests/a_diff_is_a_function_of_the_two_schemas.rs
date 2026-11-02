@@ -71,7 +71,7 @@ fn schema(side: usize) -> Schema {
 fn add_graph(s: &mut Schema, side: usize, i: usize) -> Entry {
     // Vertices: shared ones whose kind flips, and ones only this side has.
     let shared = format!("v{i}");
-    let kind = if i % 2 == 0 {
+    let kind = if i.is_multiple_of(2) {
         "object"
     } else {
         ["string", "integer"][side]

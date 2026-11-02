@@ -60,12 +60,12 @@ fn apply_rules(steps: &[SymbolicStep]) -> Vec<SymbolicStep> {
 
     while i < steps.len() {
         // Try pairwise rules when a next step exists.
-        if i + 1 < steps.len() {
-            if let Some(replacement) = try_pairwise_rule(&steps[i], &steps[i + 1]) {
-                result.extend(replacement);
-                i += 2;
-                continue;
-            }
+        if i + 1 < steps.len()
+            && let Some(replacement) = try_pairwise_rule(&steps[i], &steps[i + 1])
+        {
+            result.extend(replacement);
+            i += 2;
+            continue;
         }
         result.push(steps[i].clone());
         i += 1;

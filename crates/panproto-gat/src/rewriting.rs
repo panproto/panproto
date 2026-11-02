@@ -613,7 +613,7 @@ impl ConfluenceReport {
 impl TerminationReport {
     /// Returns `true` if every rule passed the LPO check.
     #[must_use]
-    pub fn is_lpo_terminating(&self) -> bool {
+    pub const fn is_lpo_terminating(&self) -> bool {
         self.violations.is_empty()
     }
 }

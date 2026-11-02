@@ -342,23 +342,23 @@ fn permute(message: [u32; 16]) -> [u32; 16] {
 
 fn bytes_to_words_8(bytes: &[u8; OUT_LEN]) -> [u32; 8] {
     let mut words = [0; 8];
-    for (word, bytes) in words.iter_mut().zip(bytes.chunks_exact(4)) {
-        *word = u32::from_le_bytes(bytes.try_into().unwrap_or_else(|_| unreachable!()));
+    for (word, bytes) in words.iter_mut().zip(bytes.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*bytes);
     }
     words
 }
 
 fn bytes_to_words_16(bytes: &[u8; BLOCK_LEN]) -> [u32; 16] {
     let mut words = [0; 16];
-    for (word, bytes) in words.iter_mut().zip(bytes.chunks_exact(4)) {
-        *word = u32::from_le_bytes(bytes.try_into().unwrap_or_else(|_| unreachable!()));
+    for (word, bytes) in words.iter_mut().zip(bytes.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*bytes);
     }
     words
 }
 
 fn words_8_to_bytes(words: [u32; 8]) -> [u8; OUT_LEN] {
     let mut bytes = [0; OUT_LEN];
-    for (word, output) in words.into_iter().zip(bytes.chunks_exact_mut(4)) {
+    for (word, output) in words.into_iter().zip(bytes.as_chunks_mut::<4>().0) {
         output.copy_from_slice(&word.to_le_bytes());
     }
     bytes
@@ -714,7 +714,7 @@ mod tests {
     fn decode_digest(hex: &str) -> [u8; 32] {
         assert_eq!(hex.len(), 64, "a digest must contain 64 hexadecimal digits");
         let mut digest = [0; 32];
-        for (index, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+        for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             digest[index] = (hex_nibble(pair[0]) << 4) | hex_nibble(pair[1]);
         }
         digest

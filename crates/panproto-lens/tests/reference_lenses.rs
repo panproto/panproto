@@ -8876,7 +8876,7 @@ impl ExpectedPathLawCases {
             let ordinal = self.unit_ordinal;
             self.unit_ordinal += 1;
             let word = self.words[ordinal / 2].clone();
-            return Some(if ordinal % 2 == 0 {
+            return Some(if ordinal.is_multiple_of(2) {
                 PathLawCase::LeftIdentity { word }
             } else {
                 PathLawCase::RightIdentity { word }
@@ -10795,7 +10795,7 @@ fn declared_transform_absence_composition_matches_independent_union() {
         present.compose(&left),
         Err(LensError::ComplementConflict { .. })
     ));
-    let mut malformed = left.clone();
+    let mut malformed = left;
     malformed.original_cells = present.original_cells;
     assert!(matches!(
         malformed.compose(&TableComplement::empty()),
@@ -13889,7 +13889,7 @@ enum PreparedCommonBasis {
 }
 
 impl PreparedCommonBasis {
-    fn len(&self) -> Option<usize> {
+    const fn len(&self) -> Option<usize> {
         match self {
             Self::None => None,
             Self::Graph(candidates) => Some(candidates.len()),

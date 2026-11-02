@@ -90,10 +90,11 @@ fn rule_symbol_closure<'g>(
             Production::Symbol { name } => {
                 out.insert(name.as_str());
                 let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
-                if expand && visited.insert(name.as_str()) {
-                    if let Some(r) = grammar.rules.get(name) {
-                        walk(grammar, r, out, visited);
-                    }
+                if expand
+                    && visited.insert(name.as_str())
+                    && let Some(r) = grammar.rules.get(name)
+                {
+                    walk(grammar, r, out, visited);
                 }
             }
             Production::Alias {
@@ -485,27 +486,27 @@ pub(crate) fn emit_vertex(
     // self-consistent (the completeness check), it is byte-faithful exactly
     // where the role table already was — it can only ever FIX a boundary the
     // role table got wrong, never corrupt one it got right.
-    if vertex_has_byte_span(schema, vertex_id) {
-        if let Some(bytes) = reconstruct_subtree_bytes(schema, vertex_id) {
-            // A RELOCATED subtree (grafted under a parent that does not contain
-            // its recorded span) lost the separators that, in its original
-            // source, lived in the surrounding parent's interstitials. Restore a
-            // line break on each edge so the byte-faithful body cannot glue onto
-            // an adjacent sibling (issue #202: a grafted Python `class` running
-            // into the next `def`). Line breaks are idempotent at a line start,
-            // so a body that already ends in a newline gains none; and a freshly
-            // parsed schema (every child's span nested in its parent's) is never
-            // relocated, so this leaves the canonical replay byte-identical.
-            let relocated = !byte_span_consistent_with_parent(schema, vertex_id);
-            if relocated {
-                out.newline();
-            }
-            out.verbatim(&bytes);
-            if relocated {
-                out.newline();
-            }
-            return Ok(());
+    if vertex_has_byte_span(schema, vertex_id)
+        && let Some(bytes) = reconstruct_subtree_bytes(schema, vertex_id)
+    {
+        // A RELOCATED subtree (grafted under a parent that does not contain
+        // its recorded span) lost the separators that, in its original
+        // source, lived in the surrounding parent's interstitials. Restore a
+        // line break on each edge so the byte-faithful body cannot glue onto
+        // an adjacent sibling (issue #202: a grafted Python `class` running
+        // into the next `def`). Line breaks are idempotent at a line start,
+        // so a body that already ends in a newline gains none; and a freshly
+        // parsed schema (every child's span nested in its parent's) is never
+        // relocated, so this leaves the canonical replay byte-identical.
+        let relocated = !byte_span_consistent_with_parent(schema, vertex_id);
+        if relocated {
+            out.newline();
         }
+        out.verbatim(&bytes);
+        if relocated {
+            out.newline();
+        }
+        return Ok(());
     }
 
     // IMMEDIATE_TOKEN at the rule head: emit a tightness marker
@@ -514,10 +515,10 @@ pub(crate) fn emit_vertex(
     // preceding whitespace" property attaches; downstream layout reads
     // the NoSpace marker without re-inspecting the production tree.
     let kind_head = vertex.kind.as_ref();
-    if let Some(rule) = grammar.rules.get(kind_head) {
-        if is_immediate_token(rule) {
-            out.no_space();
-        }
+    if let Some(rule) = grammar.rules.get(kind_head)
+        && is_immediate_token(rule)
+    {
+        out.no_space();
     }
 
     // Leaf shortcut: a vertex carrying a `literal-value` constraint
@@ -525,112 +526,109 @@ pub(crate) fn emit_vertex(
     // captured value directly. This handles identifiers, numeric
     // literals, and string literals that the parser stored as
     // `literal-value` even on by-construction schemas.
-    if let Some(literal) = literal_value(schema, vertex_id) {
-        if children_for(schema, vertex_id).is_empty() {
-            // Skip leaf shortcut for an EMPTY bracket-pair literal (`()`,
-            // `[]`, `{}`) when the vertex has an alias-resolved rule: the
-            // rule-based path emits the pair as separate BracketOpen/Close
-            // tokens with proper spacing, and there is no content to lose.
-            // A NON-empty bracket-pair literal (a token tree captured whole,
-            // rust `(clippy::module_inception)`) carries text the rule walk
-            // cannot reproduce from a childless vertex — the walk would emit
-            // bare `()` and drop the run, including any anonymous punctuation
-            // (`::`) that has no CST vertex. Such a literal must take the leaf
-            // shortcut and emit verbatim, so by-construction schemas can
-            // encode an opaque token tree as a single literal-value leaf.
-            let is_bracket_pair = literal.len() >= 2
-                && matches!(
-                    (literal.as_bytes().first(), literal.as_bytes().last()),
-                    (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
-                );
-            let is_empty_bracket_pair = is_bracket_pair && literal.len() == 2;
-            let vkind = vertex.kind.as_ref();
-            let has_alias_rule = grammar
-                .named_alias_map
-                .get(vkind)
-                .is_some_and(|src| grammar.rules.contains_key(src));
-            if !(is_empty_bracket_pair && has_alias_rule) {
-                // An empty bracket-pair literal (`()`, `[]`, `{}` captured
-                // as one token, e.g. empty parameters) hugs its callee on
-                // the left (`f()`) but still spaces after a keyword
-                // (`return ()`). That is exactly the BracketClose role
-                // (tight inner/left edge, keyword-spaced). Other leaves
-                // keep their delimiter-or-terminal role.
-                // A verbatim string-region leaf (HTML `text`, ruby/regex
-                // `string_content`, a literal-quoted string's content /
-                // escape run, C#'s interpolation braces): emit it tight on
-                // both sides with no layout side effects, so the captured
-                // text neither grows a sibling-separation space nor (for a
-                // literal `{`/`;`) triggers a spurious block newline. See
-                // [`is_tight_content_kind`].
-                if is_tight_content_kind(grammar, out.cassette, vkind) {
-                    out.no_space();
-                    out.tight_token(literal);
-                    out.no_space();
-                    return Ok(());
-                }
-                let role = if is_bracket_pair {
-                    TokenRole::BracketClose
-                } else {
-                    leaf_terminal_role(grammar, vkind)
-                };
-                // A terminal whose regex absorbs leading whitespace and whose
-                // captured text *already starts with* whitespace carries its
-                // own separator: an additional layout space would fold into
-                // the text on re-parse and accrete one space per emit. Suppress
-                // the layout space so the captured whitespace is the only
-                // separator (stable). When the literal does not start with
-                // whitespace, the layout space is the genuine separator and
-                // must be kept (e.g. Org's `* Heading`).
-                if grammar.leading_space_terminals.contains(vkind)
-                    && literal.starts_with([' ', '\t'])
-                {
-                    out.no_space();
-                }
-                // An immediate-token alias (`character` in a `char_literal`)
-                // is lexed only with no preceding whitespace, so hug it to
-                // its predecessor: `'hey'` stays tight rather than re-spacing
-                // to `' h e y'` (whose spaces re-parse as extra `character`s).
-                if grammar.immediate_token_alias_kinds.contains(vkind) {
-                    out.no_space();
-                }
-                out.token_with_role(literal, Some(role));
-                // Symmetric to the leading-space suppression above: a terminal
-                // whose regex absorbs whitespace and whose captured text *ends*
-                // with whitespace carries its own trailing separator. An
-                // additional layout space after it would fold into the text on
-                // re-parse and accrete one space per emit. Suppress the
-                // following layout space so the captured trailing whitespace is
-                // the only separator (angular `icu_category = [^{}]+` captures
-                // `=0 `; without this the layout adds a space → `=0  {`, which
-                // re-parses with the extra space swallowed back into
-                // `icu_category`, breaking the case boundary).
-                if grammar.leading_space_terminals.contains(vkind) && literal.ends_with([' ', '\t'])
-                {
-                    out.no_space();
-                }
-                // This leaf's rule may be a greedy unbounded negated class
-                // (`[^...]+`, HTML's unquoted `attribute_value`). Such a
-                // terminal keeps consuming admitted characters, so guard the
-                // boundary: a following literal whose first char it admits
-                // must stay separate (`value=Ok` then ` />`, not `Ok/>`).
-                if let Some(negated) = grammar.rules.get(vkind).and_then(|r| match r {
-                    Production::Pattern { value } => unbounded_negated_class(value),
-                    _ => None,
-                }) {
-                    out.tokens.push(Token::AbsorberGuard(negated.to_owned()));
-                }
-                // A rest-of-line terminal (`hash_bang_line = #!.*`) absorbs
-                // any following text on the same line, so the next sibling
-                // must start on a fresh line (the same fact as a line
-                // comment, keyed on kind rather than a text prefix). If the
-                // captured text already ends in a newline, `token_with_role`
-                // emitted the LineBreak; only add one when it did not.
-                if grammar.line_rest_kinds.contains(vkind) && !literal.ends_with(['\n', '\r']) {
-                    out.newline();
-                }
+    if let Some(literal) = literal_value(schema, vertex_id)
+        && children_for(schema, vertex_id).is_empty()
+    {
+        // Skip leaf shortcut for an EMPTY bracket-pair literal (`()`,
+        // `[]`, `{}`) when the vertex has an alias-resolved rule: the
+        // rule-based path emits the pair as separate BracketOpen/Close
+        // tokens with proper spacing, and there is no content to lose.
+        // A NON-empty bracket-pair literal (a token tree captured whole,
+        // rust `(clippy::module_inception)`) carries text the rule walk
+        // cannot reproduce from a childless vertex — the walk would emit
+        // bare `()` and drop the run, including any anonymous punctuation
+        // (`::`) that has no CST vertex. Such a literal must take the leaf
+        // shortcut and emit verbatim, so by-construction schemas can
+        // encode an opaque token tree as a single literal-value leaf.
+        let is_bracket_pair = literal.len() >= 2
+            && matches!(
+                (literal.as_bytes().first(), literal.as_bytes().last()),
+                (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
+            );
+        let is_empty_bracket_pair = is_bracket_pair && literal.len() == 2;
+        let vkind = vertex.kind.as_ref();
+        let has_alias_rule = grammar
+            .named_alias_map
+            .get(vkind)
+            .is_some_and(|src| grammar.rules.contains_key(src));
+        if !(is_empty_bracket_pair && has_alias_rule) {
+            // An empty bracket-pair literal (`()`, `[]`, `{}` captured
+            // as one token, e.g. empty parameters) hugs its callee on
+            // the left (`f()`) but still spaces after a keyword
+            // (`return ()`). That is exactly the BracketClose role
+            // (tight inner/left edge, keyword-spaced). Other leaves
+            // keep their delimiter-or-terminal role.
+            // A verbatim string-region leaf (HTML `text`, ruby/regex
+            // `string_content`, a literal-quoted string's content /
+            // escape run, C#'s interpolation braces): emit it tight on
+            // both sides with no layout side effects, so the captured
+            // text neither grows a sibling-separation space nor (for a
+            // literal `{`/`;`) triggers a spurious block newline. See
+            // [`is_tight_content_kind`].
+            if is_tight_content_kind(grammar, out.cassette, vkind) {
+                out.no_space();
+                out.tight_token(literal);
+                out.no_space();
                 return Ok(());
             }
+            let role = if is_bracket_pair {
+                TokenRole::BracketClose
+            } else {
+                leaf_terminal_role(grammar, vkind)
+            };
+            // A terminal whose regex absorbs leading whitespace and whose
+            // captured text *already starts with* whitespace carries its
+            // own separator: an additional layout space would fold into
+            // the text on re-parse and accrete one space per emit. Suppress
+            // the layout space so the captured whitespace is the only
+            // separator (stable). When the literal does not start with
+            // whitespace, the layout space is the genuine separator and
+            // must be kept (e.g. Org's `* Heading`).
+            if grammar.leading_space_terminals.contains(vkind) && literal.starts_with([' ', '\t']) {
+                out.no_space();
+            }
+            // An immediate-token alias (`character` in a `char_literal`)
+            // is lexed only with no preceding whitespace, so hug it to
+            // its predecessor: `'hey'` stays tight rather than re-spacing
+            // to `' h e y'` (whose spaces re-parse as extra `character`s).
+            if grammar.immediate_token_alias_kinds.contains(vkind) {
+                out.no_space();
+            }
+            out.token_with_role(literal, Some(role));
+            // Symmetric to the leading-space suppression above: a terminal
+            // whose regex absorbs whitespace and whose captured text *ends*
+            // with whitespace carries its own trailing separator. An
+            // additional layout space after it would fold into the text on
+            // re-parse and accrete one space per emit. Suppress the
+            // following layout space so the captured trailing whitespace is
+            // the only separator (angular `icu_category = [^{}]+` captures
+            // `=0 `; without this the layout adds a space → `=0  {`, which
+            // re-parses with the extra space swallowed back into
+            // `icu_category`, breaking the case boundary).
+            if grammar.leading_space_terminals.contains(vkind) && literal.ends_with([' ', '\t']) {
+                out.no_space();
+            }
+            // This leaf's rule may be a greedy unbounded negated class
+            // (`[^...]+`, HTML's unquoted `attribute_value`). Such a
+            // terminal keeps consuming admitted characters, so guard the
+            // boundary: a following literal whose first char it admits
+            // must stay separate (`value=Ok` then ` />`, not `Ok/>`).
+            if let Some(negated) = grammar.rules.get(vkind).and_then(|r| match r {
+                Production::Pattern { value } => unbounded_negated_class(value),
+                _ => None,
+            }) {
+                out.tokens.push(Token::AbsorberGuard(negated.to_owned()));
+            }
+            // A rest-of-line terminal (`hash_bang_line = #!.*`) absorbs
+            // any following text on the same line, so the next sibling
+            // must start on a fresh line (the same fact as a line
+            // comment, keyed on kind rather than a text prefix). If the
+            // captured text already ends in a newline, `token_with_role`
+            // emitted the LineBreak; only add one when it did not.
+            if grammar.line_rest_kinds.contains(vkind) && !literal.ends_with(['\n', '\r']) {
+                out.newline();
+            }
+            return Ok(());
         }
     }
 
@@ -680,16 +678,16 @@ pub(crate) fn emit_vertex(
     // `alias($.source, $.kind)`, look up the source rule and walk
     // it. This preserves bracket pairs, separators, and token roles
     // that the source rule defines.
-    if let Some(source_name) = grammar.named_alias_map.get(kind) {
-        if let Some(rule) = grammar.rules.get(source_name) {
-            let old_rule = out.current_rule.take();
-            out.current_rule = Some(source_name.to_owned());
-            let mut cursor = ChildCursor::new(&edges);
-            emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
-            drain_extras(protocol, schema, grammar, &mut cursor, out)?;
-            out.current_rule = old_rule;
-            return Ok(());
-        }
+    if let Some(source_name) = grammar.named_alias_map.get(kind)
+        && let Some(rule) = grammar.rules.get(source_name)
+    {
+        let old_rule = out.current_rule.take();
+        out.current_rule = Some(source_name.to_owned());
+        let mut cursor = ChildCursor::new(&edges);
+        emit_production(protocol, schema, grammar, vertex_id, rule, &mut cursor, out)?;
+        drain_extras(protocol, schema, grammar, &mut cursor, out)?;
+        out.current_rule = old_rule;
+        return Ok(());
     }
 
     // No rule for this kind and no named alias. The parser produced
@@ -753,10 +751,10 @@ fn compute_ptrace_budget(
     let mut budget = std::collections::HashMap::new();
     if let Some(cs) = schema.constraints.get(vertex_id) {
         for c in cs {
-            if c.sort.as_ref().starts_with("ptrace-") {
-                if let Some(lit) = c.value.strip_prefix('T') {
-                    *budget.entry(lit.to_owned()).or_insert(0) += 1;
-                }
+            if c.sort.as_ref().starts_with("ptrace-")
+                && let Some(lit) = c.value.strip_prefix('T')
+            {
+                *budget.entry(lit.to_owned()).or_insert(0) += 1;
             }
         }
     }
@@ -1311,16 +1309,17 @@ pub(crate) fn emit_production_inner(
                     .constraints
                     .get(vertex_id)
                     .is_some_and(|cs| cs.iter().any(|c| c.sort.as_ref() == field_sort));
-                if has_field_literals && name.starts_with('_') {
-                    if let Some(rule) = grammar.rules.get(name) {
-                        let old_rule = out.current_rule.take();
-                        out.current_rule = Some(name.to_owned());
-                        let result = walk_in_mu_frame(
-                            protocol, schema, grammar, vertex_id, name, rule, cursor, out,
-                        );
-                        out.current_rule = old_rule;
-                        return result;
-                    }
+                if has_field_literals
+                    && name.starts_with('_')
+                    && let Some(rule) = grammar.rules.get(name)
+                {
+                    let old_rule = out.current_rule.take();
+                    out.current_rule = Some(name.to_owned());
+                    let result = walk_in_mu_frame(
+                        protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                    );
+                    out.current_rule = old_rule;
+                    return result;
                 }
                 // Nested-FIELD re-label: a FIELD(outer, _hidden) whose hidden
                 // body re-binds the child to a *different* inner FIELD name
@@ -1340,48 +1339,44 @@ pub(crate) fn emit_production_inner(
                 // common `FIELD(x, _hidden)` pass-through (and CHOICEs whose
                 // alternatives merely happen to nest a same-named field for a
                 // different child) untouched.
-                if name.starts_with('_') && !cursor.has_field(&field) {
-                    if let Some(rule) = grammar.rules.get(name) {
-                        let mut inner_fields = std::collections::HashSet::new();
-                        let mut seen = std::collections::HashSet::new();
-                        collect_inner_field_names_expanded(
-                            rule,
-                            grammar,
-                            &mut inner_fields,
-                            &mut seen,
-                        );
-                        let parent_kind = vertex_id_kind(schema, vertex_id);
-                        let nt_fields =
-                            parent_kind.and_then(|pk| grammar.node_type_field_children.get(pk));
-                        let rebound = inner_fields.iter().any(|f| {
-                            if *f == field.as_str() {
-                                return false;
-                            }
-                            // The parser bound a child under the inner name.
-                            let Some(child_kind) = cursor
-                                .peek_field(f)
-                                .and_then(|e| schema.vertices.get(&e.tgt))
-                                .map(|v| v.kind.as_ref())
-                            else {
-                                return false;
-                            };
-                            // node-types confirms the inner field genuinely
-                            // carries this child kind: the flattened re-label,
-                            // not a coincidental same-named field nesting.
-                            nt_fields
-                                .and_then(|m| m.get(*f))
-                                .is_some_and(|ks| ks.contains(child_kind))
-                        });
-                        if rebound {
-                            let _clear = clear_field_context();
-                            let old_rule = out.current_rule.take();
-                            out.current_rule = Some(name.to_owned());
-                            let result = walk_in_mu_frame(
-                                protocol, schema, grammar, vertex_id, name, rule, cursor, out,
-                            );
-                            out.current_rule = old_rule;
-                            return result;
+                if name.starts_with('_')
+                    && !cursor.has_field(&field)
+                    && let Some(rule) = grammar.rules.get(name)
+                {
+                    let mut inner_fields = std::collections::HashSet::new();
+                    let mut seen = std::collections::HashSet::new();
+                    collect_inner_field_names_expanded(rule, grammar, &mut inner_fields, &mut seen);
+                    let parent_kind = vertex_id_kind(schema, vertex_id);
+                    let nt_fields =
+                        parent_kind.and_then(|pk| grammar.node_type_field_children.get(pk));
+                    let rebound = inner_fields.iter().any(|f| {
+                        if *f == field.as_str() {
+                            return false;
                         }
+                        // The parser bound a child under the inner name.
+                        let Some(child_kind) = cursor
+                            .peek_field(f)
+                            .and_then(|e| schema.vertices.get(&e.tgt))
+                            .map(|v| v.kind.as_ref())
+                        else {
+                            return false;
+                        };
+                        // node-types confirms the inner field genuinely
+                        // carries this child kind: the flattened re-label,
+                        // not a coincidental same-named field nesting.
+                        nt_fields
+                            .and_then(|m| m.get(*f))
+                            .is_some_and(|ks| ks.contains(child_kind))
+                    });
+                    if rebound {
+                        let _clear = clear_field_context();
+                        let old_rule = out.current_rule.take();
+                        out.current_rule = Some(name.to_owned());
+                        let result = walk_in_mu_frame(
+                            protocol, schema, grammar, vertex_id, name, rule, cursor, out,
+                        );
+                        out.current_rule = old_rule;
+                        return result;
                     }
                 }
                 if let Some(edge) = cursor.take_field(&field) {
@@ -1413,12 +1408,12 @@ pub(crate) fn emit_production_inner(
                             .get(pk)
                             .is_some_and(|fields| fields.contains_key(field.as_str()))
                 });
-                if field_absent_in_node_types {
-                    if let Some(edge) = take_symbol_match(grammar, schema, cursor, name) {
-                        return emit_in_child_context(
-                            protocol, schema, grammar, &edge.tgt, production, out,
-                        );
-                    }
+                if field_absent_in_node_types
+                    && let Some(edge) = take_symbol_match(grammar, schema, cursor, name)
+                {
+                    return emit_in_child_context(
+                        protocol, schema, grammar, &edge.tgt, production, out,
+                    );
                 }
                 // No child edge for this field. If the field's value was
                 // an anonymous token (no named child) the walker captured
@@ -1579,30 +1574,29 @@ pub(crate) fn emit_production_inner(
                     } else if let Some(default) = out
                         .cassette
                         .and_then(|c| crate::languages::cassettes::resolve_external_token(c, name))
+                        && !default.is_empty()
                     {
-                        if !default.is_empty() {
-                            match bracket_role {
-                                Some(role) => out.token_with_role(default, Some(role)),
+                        match bracket_role {
+                            Some(role) => out.token_with_role(default, Some(role)),
+                            // A connector punctuation resolved from the
+                            // cassette (the Haskell-family module-path
+                            // `_dot` -> `.`) is tight on both sides
+                            // (`Foo.Bar`); without the Connector role the
+                            // sibling-separation glues a space and the
+                            // re-parse splits the qualified name.
+                            None if is_connector_punctuation(default) => {
                                 // A connector punctuation resolved from the
-                                // cassette (the Haskell-family module-path
-                                // `_dot` -> `.`) is tight on both sides
-                                // (`Foo.Bar`); without the Connector role the
-                                // sibling-separation glues a space and the
-                                // re-parse splits the qualified name.
-                                None if is_connector_punctuation(default) => {
-                                    // A connector punctuation resolved from the
-                                    // cassette joins its neighbours into one
-                                    // lexeme and hugs both sides. NoSpace is
-                                    // authoritative in the layout fold, so it
-                                    // survives a surrounding sibling-separation
-                                    // ForceSpace (the REPEAT separator that
-                                    // would otherwise split `Foo.Bar`).
-                                    out.no_space();
-                                    out.token_with_role(default, Some(TokenRole::Connector));
-                                    out.no_space();
-                                }
-                                None => out.token(default),
+                                // cassette joins its neighbours into one
+                                // lexeme and hugs both sides. NoSpace is
+                                // authoritative in the layout fold, so it
+                                // survives a surrounding sibling-separation
+                                // ForceSpace (the REPEAT separator that
+                                // would otherwise split `Foo.Bar`).
+                                out.no_space();
+                                out.token_with_role(default, Some(TokenRole::Connector));
+                                out.no_space();
                             }
+                            None => out.token(default),
                         }
                     }
                     Ok(())
@@ -1667,26 +1661,24 @@ pub(crate) fn emit_production_inner(
             // its left operand as a real child vertex of the same kind; the
             // ordinary SYMBOL recursion walks that nested vertex correctly and
             // must not be unrolled.
-            if let Some(rule_name) = out.current_rule.clone() {
-                if rule_name.starts_with('_') {
-                    if let Some(rec_seqs) = left_recursive_alts(members, &rule_name) {
-                        if unconsumed_non_extra(schema, grammar, cursor) >= 2 {
-                            let base_alts: Vec<Production> = members
-                                .iter()
-                                .filter(|m| {
-                                    !matches!(unwrap_prec(m), Production::Seq { members: s }
-                                        if matches!(s.first(), Some(Production::Symbol { name }) if name == &rule_name))
-                                })
-                                .cloned()
-                                .collect();
-                            if !base_alts.is_empty() {
-                                return emit_left_recursive_unrolled(
-                                    protocol, schema, grammar, vertex_id, &rule_name, &rec_seqs,
-                                    base_alts, cursor, out,
-                                );
-                            }
-                        }
-                    }
+            if let Some(rule_name) = out.current_rule.clone()
+                && rule_name.starts_with('_')
+                && let Some(rec_seqs) = left_recursive_alts(members, &rule_name)
+                && unconsumed_non_extra(schema, grammar, cursor) >= 2
+            {
+                let base_alts: Vec<Production> = members
+                    .iter()
+                    .filter(|m| {
+                        !matches!(unwrap_prec(m), Production::Seq { members: s }
+                            if matches!(s.first(), Some(Production::Symbol { name }) if name == &rule_name))
+                    })
+                    .cloned()
+                    .collect();
+                if !base_alts.is_empty() {
+                    return emit_left_recursive_unrolled(
+                        protocol, schema, grammar, vertex_id, &rule_name, &rec_seqs, base_alts,
+                        cursor, out,
+                    );
                 }
             }
             if let Some(matched) = pick_choice_with_cursor(
@@ -2124,23 +2116,24 @@ pub(crate) fn emit_production_inner(
             // grammars like YAML that introduce the same kind through
             // many ALIAS sites lose the parent context the moment
             // emit_vertex is called.
-            if *named && !value.is_empty() {
-                if let Some(edge) = cursor.take_matching(|edge| {
+            if *named
+                && !value.is_empty()
+                && let Some(edge) = cursor.take_matching(|edge| {
                     schema
-                        .vertices
-                        .get(&edge.tgt)
-                        .map(|v| v.kind.as_ref() == value.as_str())
-                        .unwrap_or(false)
-                    // Only consume the kind-matching child when the alias's
-                    // content can actually emit its structure. A structural
-                    // wrapper alias (markdown `ALIAS(REPEAT(_block_not_section),
-                    // "section")`) must not steal a `section` child whose
-                    // grandchildren it cannot place; that child belongs to a
-                    // later member that walks the real rule.
-                        && aliased_content_admits_child(schema, grammar, content, &edge.tgt)
-                }) {
-                    return emit_aliased_child(protocol, schema, grammar, &edge.tgt, content, out);
-                }
+                    .vertices
+                    .get(&edge.tgt)
+                    .map(|v| v.kind.as_ref() == value.as_str())
+                    .unwrap_or(false)
+                // Only consume the kind-matching child when the alias's
+                // content can actually emit its structure. A structural
+                // wrapper alias (markdown `ALIAS(REPEAT(_block_not_section),
+                // "section")`) must not steal a `section` child whose
+                // grandchildren it cannot place; that child belongs to a
+                // later member that walks the real rule.
+                    && aliased_content_admits_child(schema, grammar, content, &edge.tgt)
+                })
+            {
+                return emit_aliased_child(protocol, schema, grammar, &edge.tgt, content, out);
             }
             // For anonymous aliases (named: false) whose content is an
             // external scanner token with no grammar rule (e.g.
@@ -2312,88 +2305,85 @@ pub(crate) fn emit_aliased_child(
     // is the byte span and replay is taken ONLY when the fibre tiles the span
     // completely, so it is canonical-only-OFF (a `forget_layout` schema has no
     // byte anchors) and can never corrupt a boundary the role table got right.
-    if vertex_has_byte_span(schema, child_id) {
-        if let Some(bytes) = reconstruct_subtree_bytes(schema, child_id) {
-            // Restore a line break on each edge of a relocated aliased subtree;
-            // see the matching guard in `emit_vertex` for the rationale.
-            let relocated = !byte_span_consistent_with_parent(schema, child_id);
-            if relocated {
-                out.newline();
-            }
-            out.verbatim(&bytes);
-            if relocated {
-                out.newline();
-            }
-            return Ok(());
+    if vertex_has_byte_span(schema, child_id)
+        && let Some(bytes) = reconstruct_subtree_bytes(schema, child_id)
+    {
+        // Restore a line break on each edge of a relocated aliased subtree;
+        // see the matching guard in `emit_vertex` for the rationale.
+        let relocated = !byte_span_consistent_with_parent(schema, child_id);
+        if relocated {
+            out.newline();
         }
+        out.verbatim(&bytes);
+        if relocated {
+            out.newline();
+        }
+        return Ok(());
     }
     // Leaf shortcut: if the child has a literal-value and no
     // structural children, emit the captured text. Skip for bracket-pair
     // literals when the production resolves to a rule with those brackets.
-    if let Some(literal) = literal_value(schema, child_id) {
-        if children_for(schema, child_id).is_empty() {
-            let kind = vertex_id_kind(schema, child_id).unwrap_or("");
-            // A verbatim string-region leaf reached as an aliased child
-            // (C#'s `interpolation_brace` / `string_content`, which the
-            // interpolation rule walks as named ALIASes rather than as
-            // standalone vertices): emit tight with no layout side effects,
-            // exactly as the `emit_vertex` leaf shortcut does. This is
-            // checked BEFORE the bracket-pair guard below, because a
-            // string's captured content may itself *look* like a bracket
-            // pair (an interpolated `$"{{nope}}"` has the verbatim escaped
-            // text `{{nope}}` as one `string_content` leaf): treating it as
-            // a `{ … }` block would drop it through the rule-walk path. A
-            // string-content kind is never a structural bracket, whatever
-            // its bytes. Without this the literal `{` of an interpolation
-            // brace also block-indents (`{\n  x }`), breaking the re-parse.
-            if is_tight_content_kind(grammar, out.cassette, kind) {
+    if let Some(literal) = literal_value(schema, child_id)
+        && children_for(schema, child_id).is_empty()
+    {
+        let kind = vertex_id_kind(schema, child_id).unwrap_or("");
+        // A verbatim string-region leaf reached as an aliased child
+        // (C#'s `interpolation_brace` / `string_content`, which the
+        // interpolation rule walks as named ALIASes rather than as
+        // standalone vertices): emit tight with no layout side effects,
+        // exactly as the `emit_vertex` leaf shortcut does. This is
+        // checked BEFORE the bracket-pair guard below, because a
+        // string's captured content may itself *look* like a bracket
+        // pair (an interpolated `$"{{nope}}"` has the verbatim escaped
+        // text `{{nope}}` as one `string_content` leaf): treating it as
+        // a `{ … }` block would drop it through the rule-walk path. A
+        // string-content kind is never a structural bracket, whatever
+        // its bytes. Without this the literal `{` of an interpolation
+        // brace also block-indents (`{\n  x }`), breaking the re-parse.
+        if is_tight_content_kind(grammar, out.cassette, kind) {
+            out.no_space();
+            out.tight_token(literal);
+            out.no_space();
+            return Ok(());
+        }
+        let is_bracket_pair = literal.len() >= 2
+            && matches!(
+                (literal.as_bytes().first(), literal.as_bytes().last()),
+                (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
+            );
+        // Only an EMPTY bracket-pair literal (`()`, `[]`, `{}`) rule-walks
+        // to recover its open/close roles. A non-empty bracket-pair literal
+        // (an opaque token tree captured whole, `(clippy::module_inception)`)
+        // carries content the childless rule walk cannot reproduce — it
+        // would emit bare `()` and drop the run — so it emits verbatim, like
+        // the matching guard in `emit_vertex`.
+        let is_empty_bracket_pair = is_bracket_pair && literal.len() == 2;
+        if !is_empty_bracket_pair {
+            // See the matching guard in `emit_vertex`: a captured leading
+            // whitespace is the separator, so suppress the redundant layout
+            // space to keep the fixed point (INI's `setting_value`); keep
+            // it when the literal carries no leading whitespace.
+            if grammar.leading_space_terminals.contains(kind) && literal.starts_with([' ', '\t']) {
                 out.no_space();
-                out.tight_token(literal);
+            }
+            if grammar.immediate_token_alias_kinds.contains(kind) {
                 out.no_space();
-                return Ok(());
             }
-            let is_bracket_pair = literal.len() >= 2
-                && matches!(
-                    (literal.as_bytes().first(), literal.as_bytes().last()),
-                    (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
-                );
-            // Only an EMPTY bracket-pair literal (`()`, `[]`, `{}`) rule-walks
-            // to recover its open/close roles. A non-empty bracket-pair literal
-            // (an opaque token tree captured whole, `(clippy::module_inception)`)
-            // carries content the childless rule walk cannot reproduce — it
-            // would emit bare `()` and drop the run — so it emits verbatim, like
-            // the matching guard in `emit_vertex`.
-            let is_empty_bracket_pair = is_bracket_pair && literal.len() == 2;
-            if !is_empty_bracket_pair {
-                // See the matching guard in `emit_vertex`: a captured leading
-                // whitespace is the separator, so suppress the redundant layout
-                // space to keep the fixed point (INI's `setting_value`); keep
-                // it when the literal carries no leading whitespace.
-                if grammar.leading_space_terminals.contains(kind)
-                    && literal.starts_with([' ', '\t'])
-                {
-                    out.no_space();
-                }
-                if grammar.immediate_token_alias_kinds.contains(kind) {
-                    out.no_space();
-                }
-                // A whole bracket pair hugs its callee on the left like a call
-                // (`allow(…)`); a plain leaf keeps its terminal role.
-                let role = if is_bracket_pair {
-                    TokenRole::BracketClose
-                } else {
-                    leaf_terminal_role(grammar, kind)
-                };
-                out.token_with_role(literal, Some(role));
-                // Symmetric trailing-space suppression (see `emit_vertex`): a
-                // captured trailing whitespace is the separator, so suppress
-                // the redundant following layout space to keep the fixed point.
-                if grammar.leading_space_terminals.contains(kind) && literal.ends_with([' ', '\t'])
-                {
-                    out.no_space();
-                }
-                return Ok(());
+            // A whole bracket pair hugs its callee on the left like a call
+            // (`allow(…)`); a plain leaf keeps its terminal role.
+            let role = if is_bracket_pair {
+                TokenRole::BracketClose
+            } else {
+                leaf_terminal_role(grammar, kind)
+            };
+            out.token_with_role(literal, Some(role));
+            // Symmetric trailing-space suppression (see `emit_vertex`): a
+            // captured trailing whitespace is the separator, so suppress
+            // the redundant following layout space to keep the fixed point.
+            if grammar.leading_space_terminals.contains(kind) && literal.ends_with([' ', '\t']) {
+                out.no_space();
             }
+            return Ok(());
         }
     }
 
@@ -2406,38 +2396,38 @@ pub(crate) fn emit_aliased_child(
 
     // Resolve `content` to a rule when it's a SYMBOL (the dominant
     // shape: `ALIAS { content: SYMBOL real_rule, value: "kind_x" }`).
-    if let Production::Symbol { name } = content {
-        if let Some(rule) = grammar.rules.get(name) {
-            let edges = children_for(schema, child_id);
-            // Several rules may alias to the same surface kind (cpp
-            // `function_definition` is the alias value of
-            // `inline_method_definition`,
-            // `constructor_or_destructor_definition`, …). The parent CHOICE
-            // picked ONE of them, but they are indistinguishable to the
-            // demand matcher at the parent (each consumes one
-            // `function_definition` child). If the picked source's rule
-            // cannot place one of THIS child's grandchildren (the desync
-            // where the chosen rule lacks `field_initializer_list`) while a
-            // sibling alias source can, walk the better source. Keyed on the
-            // child's surface kind (the alias `value`).
-            let child_kind = vertex_id_kind(schema, child_id).unwrap_or(name);
-            let (walk_name, walk_rule) =
-                select_walk_rule(schema, grammar, &edges, child_kind, rule, child_id);
-            let mut cursor = ChildCursor::new(&edges);
-            let old_rule = out.current_rule.take();
-            out.current_rule = Some(walk_name.to_owned());
-            let result = emit_production(
-                protocol,
-                schema,
-                grammar,
-                child_id,
-                walk_rule,
-                &mut cursor,
-                out,
-            );
-            out.current_rule = old_rule;
-            return result;
-        }
+    if let Production::Symbol { name } = content
+        && let Some(rule) = grammar.rules.get(name)
+    {
+        let edges = children_for(schema, child_id);
+        // Several rules may alias to the same surface kind (cpp
+        // `function_definition` is the alias value of
+        // `inline_method_definition`,
+        // `constructor_or_destructor_definition`, …). The parent CHOICE
+        // picked ONE of them, but they are indistinguishable to the
+        // demand matcher at the parent (each consumes one
+        // `function_definition` child). If the picked source's rule
+        // cannot place one of THIS child's grandchildren (the desync
+        // where the chosen rule lacks `field_initializer_list`) while a
+        // sibling alias source can, walk the better source. Keyed on the
+        // child's surface kind (the alias `value`).
+        let child_kind = vertex_id_kind(schema, child_id).unwrap_or(name);
+        let (walk_name, walk_rule) =
+            select_walk_rule(schema, grammar, &edges, child_kind, rule, child_id);
+        let mut cursor = ChildCursor::new(&edges);
+        let old_rule = out.current_rule.take();
+        out.current_rule = Some(walk_name.to_owned());
+        let result = emit_production(
+            protocol,
+            schema,
+            grammar,
+            child_id,
+            walk_rule,
+            &mut cursor,
+            out,
+        );
+        out.current_rule = old_rule;
+        return result;
     }
 
     // An ALIAS over a CHOICE of bare SYMBOL alternatives (markdown's
@@ -2451,22 +2441,22 @@ pub(crate) fn emit_aliased_child(
     // (`### …` under `## …` under `# …`) is walked through the wrong
     // `_sectionK` whose nested-section slot cannot place the next level, and
     // the remaining headings drop.
-    if let Production::Choice { members } = content {
-        if let Some(src) = pre_alias_symbol(schema, child_id) {
-            let picked = members.iter().find_map(|m| match m {
-                Production::Symbol { name } if name.as_str() == src => grammar.rules.get(name),
-                _ => None,
-            });
-            if let Some(rule) = picked {
-                let edges = children_for(schema, child_id);
-                let mut cursor = ChildCursor::new(&edges);
-                let old_rule = out.current_rule.take();
-                out.current_rule = Some(src.to_owned());
-                let result =
-                    emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
-                out.current_rule = old_rule;
-                return result;
-            }
+    if let Production::Choice { members } = content
+        && let Some(src) = pre_alias_symbol(schema, child_id)
+    {
+        let picked = members.iter().find_map(|m| match m {
+            Production::Symbol { name } if name.as_str() == src => grammar.rules.get(name),
+            _ => None,
+        });
+        if let Some(rule) = picked {
+            let edges = children_for(schema, child_id);
+            let mut cursor = ChildCursor::new(&edges);
+            let old_rule = out.current_rule.take();
+            out.current_rule = Some(src.to_owned());
+            let result =
+                emit_production(protocol, schema, grammar, child_id, rule, &mut cursor, out);
+            out.current_rule = old_rule;
+            return result;
         }
     }
 
@@ -2598,14 +2588,12 @@ fn default_choice<'a>(
         // A hidden-rule alternative resolving to a newline-like PATTERN
         // is preferred over BLANK (Julia's `_terminator`).
         for alt in alternatives {
-            if let Production::Symbol { name } = alt {
-                if name.starts_with('_') {
-                    if let Some(rule) = grammar.rules.get(name) {
-                        if contains_newline_pattern(rule) {
-                            return Some(alt);
-                        }
-                    }
-                }
+            if let Production::Symbol { name } = alt
+                && name.starts_with('_')
+                && let Some(rule) = grammar.rules.get(name)
+                && contains_newline_pattern(rule)
+            {
+                return Some(alt);
             }
         }
         return alternatives.iter().find(|a| matches!(a, Production::Blank));
@@ -3159,10 +3147,10 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         // PATTERN over STRING separators (e.g. Go source_file terminator
         // CHOICE[PATTERN("\n"), ";", "\0"] should emit newline not ";").
         for alt in alternatives {
-            if let Production::Pattern { value } = alt {
-                if is_newline_like_pattern(value) {
-                    return Some(alt);
-                }
+            if let Production::Pattern { value } = alt
+                && is_newline_like_pattern(value)
+            {
+                return Some(alt);
             }
         }
         // Unattested-terminator preference. A trailing two-way CHOICE that
@@ -3249,10 +3237,10 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         let tgt_kind = schema.vertices.get(&edge.tgt).map(|v| v.kind.as_ref());
         let tgt_lit = literal_value(schema, &edge.tgt);
         for alt in alternatives {
-            if let Production::String { value } = alt {
-                if Some(value.as_str()) == tgt_kind || tgt_lit == Some(value.as_str()) {
-                    return Some(alt);
-                }
+            if let Production::String { value } = alt
+                && (Some(value.as_str()) == tgt_kind || tgt_lit == Some(value.as_str()))
+            {
+                return Some(alt);
             }
         }
     }
@@ -3274,10 +3262,10 @@ pub(crate) fn pick_choice_with_cursor<'a>(
             visited.clear();
             ys.is_empty() || (ys.len() == 1 && ys.contains(""))
         });
-        if all_non_consuming {
-            if let Some(nl) = alternatives.iter().find(|a| is_newline_alt(grammar, a)) {
-                return Some(nl);
-            }
+        if all_non_consuming
+            && let Some(nl) = alternatives.iter().find(|a| is_newline_alt(grammar, a))
+        {
+            return Some(nl);
         }
     }
 
@@ -3377,38 +3365,38 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 tied = true;
             }
         }
-        if let Some(alt) = best_alt {
-            if !tied {
-                if any_unconsumed {
-                    if alt_accepts(alt) {
-                        return Some(alt);
-                    }
-                    // The best literal-score alt can't consume the
-                    // first unconsumed cursor edge. Three sub-cases:
-                    //  (a) No BLANK alternative: blob is the only
-                    //      signal; return best_alt.
-                    //  (b) BLANK present AND best_alt is pure-literal
-                    //      (no referenced SYMBOLs): emitting best_alt
-                    //      adds the matched literals and consumes no
-                    //      child; the unconsumed cursor edge is for a
-                    //      later SEQ position anyway. Return best_alt
-                    //      (BUGS `model_block`: CHOICE[CHOICE["model",
-                    //      "data"], BLANK] picks the literal because
-                    //      the blob recorded it).
-                    //  (c) BLANK present AND best_alt has SYMBOLs:
-                    //      emitting best_alt would walk SYMBOLs that
-                    //      can't be satisfied (they consume no edge,
-                    //      a downstream SYMBOL would silently fail).
-                    //      Fall through to final selection of BLANK
-                    //      (Java `formal_parameters` inner CHOICE
-                    //      [SEQ[receiver, ","], BLANK] with a
-                    //      formal_parameter edge: pick BLANK).
-                    if !blank_present || referenced_symbols(alt).is_empty() {
-                        return Some(alt);
-                    }
-                } else {
+        if let Some(alt) = best_alt
+            && !tied
+        {
+            if any_unconsumed {
+                if alt_accepts(alt) {
                     return Some(alt);
                 }
+                // The best literal-score alt can't consume the
+                // first unconsumed cursor edge. Three sub-cases:
+                //  (a) No BLANK alternative: blob is the only
+                //      signal; return best_alt.
+                //  (b) BLANK present AND best_alt is pure-literal
+                //      (no referenced SYMBOLs): emitting best_alt
+                //      adds the matched literals and consumes no
+                //      child; the unconsumed cursor edge is for a
+                //      later SEQ position anyway. Return best_alt
+                //      (BUGS `model_block`: CHOICE[CHOICE["model",
+                //      "data"], BLANK] picks the literal because
+                //      the blob recorded it).
+                //  (c) BLANK present AND best_alt has SYMBOLs:
+                //      emitting best_alt would walk SYMBOLs that
+                //      can't be satisfied (they consume no edge,
+                //      a downstream SYMBOL would silently fail).
+                //      Fall through to final selection of BLANK
+                //      (Java `formal_parameters` inner CHOICE
+                //      [SEQ[receiver, ","], BLANK] with a
+                //      formal_parameter edge: pick BLANK).
+                if !blank_present || referenced_symbols(alt).is_empty() {
+                    return Some(alt);
+                }
+            } else {
+                return Some(alt);
             }
         }
     }
@@ -3469,29 +3457,29 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 }
                 visited.clear();
             }
-            if match_count > 1 {
-                if let Some(idx) = indent_alt_idx {
-                    return Some(&alternatives[idx]);
-                }
+            if match_count > 1
+                && let Some(idx) = indent_alt_idx
+            {
+                return Some(&alternatives[idx]);
             }
         }
 
         // Pass 1: direct name match
         for alt in alternatives {
-            if let Production::Symbol { name } = alt {
-                if name.as_str() == target_kind {
-                    return Some(alt);
-                }
+            if let Production::Symbol { name } = alt
+                && name.as_str() == target_kind
+            {
+                return Some(alt);
             }
             if let Production::Alias {
                 named: true,
                 value,
                 content,
             } = alt
+                && value.as_str() == target_kind
+                && alias_source_ok(content, value)
             {
-                if value.as_str() == target_kind && alias_source_ok(content, value) {
-                    return Some(alt);
-                }
+                return Some(alt);
             }
         }
 
@@ -3499,23 +3487,22 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         // tells us which SYMBOL names it satisfies)
         if let Some(supers) = target_supers {
             for alt in alternatives {
-                if let Production::Symbol { name } = alt {
-                    if supers.contains(name.as_str()) && !concrete_named_absent(name) {
-                        return Some(alt);
-                    }
+                if let Production::Symbol { name } = alt
+                    && supers.contains(name.as_str())
+                    && !concrete_named_absent(name)
+                {
+                    return Some(alt);
                 }
                 if let Production::Alias {
                     named: true,
                     value,
                     content,
                 } = alt
+                    && supers.contains(value.as_str())
+                    && !concrete_named_absent(value)
+                    && alias_source_ok(content, value)
                 {
-                    if supers.contains(value.as_str())
-                        && !concrete_named_absent(value)
-                        && alias_source_ok(content, value)
-                    {
-                        return Some(alt);
-                    }
+                    return Some(alt);
                 }
             }
         }

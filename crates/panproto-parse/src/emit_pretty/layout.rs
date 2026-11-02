@@ -207,31 +207,30 @@ impl<'a> Output<'a> {
                 self.tokens.push(Token::IndentClose);
             }
             self.tokens.push(Token::Lit(trimmed.to_owned(), role));
-            if role == TokenRole::BracketOpen {
-                if let Some(ref rule) = self.current_rule {
-                    if self
-                        .grammar
-                        .indent_triggers
-                        .contains(&(rule.clone(), trimmed.to_owned()))
-                    {
-                        self.tokens.push(Token::IndentOpen);
-                    }
-                }
+            if role == TokenRole::BracketOpen
+                && let Some(ref rule) = self.current_rule
+                && self
+                    .grammar
+                    .indent_triggers
+                    .contains(&(rule.clone(), trimmed.to_owned()))
+            {
+                self.tokens.push(Token::IndentOpen);
             }
             self.tokens.push(Token::LineBreak);
             return;
         }
 
-        let mut role = explicit_role.unwrap_or_else(|| self.lookup_role(value));
         // A cassette may declare a token lexically tight in a rule (a
         // scanner fact `grammar.json` omits, e.g. bash `VAR=1`): emit it
         // with the always-tight Connector role (which the layout pass
         // honours over the sibling-separation ForceSpace).
-        if let (Some(rule), Some(cassette)) = (self.current_rule.as_ref(), self.cassette) {
-            if cassette.operator_is_tight(rule, value) {
-                role = TokenRole::Connector;
-            }
-        }
+        let role = if let (Some(rule), Some(cassette)) = (self.current_rule.as_ref(), self.cassette)
+            && cassette.operator_is_tight(rule, value)
+        {
+            TokenRole::Connector
+        } else {
+            explicit_role.unwrap_or_else(|| self.lookup_role(value))
+        };
 
         if role == TokenRole::BracketClose && self.policy.indent_close.iter().any(|t| t == value) {
             self.tokens.push(Token::IndentClose);
@@ -495,14 +494,13 @@ pub(crate) fn layout(
                 // A greedy negated-class terminal just emitted: if it would
                 // lexically swallow this Lit's first char on re-parse, the
                 // boundary needs a separator regardless of the role pair.
-                if let Some(negated) = pending_absorber.take() {
-                    if value
+                if let Some(negated) = pending_absorber.take()
+                    && value
                         .chars()
                         .next()
                         .is_some_and(|c| negated_class_admits(&negated, c))
-                    {
-                        force_next_separator = true;
-                    }
+                {
+                    force_next_separator = true;
                 }
                 // Block-opening bracket: BracketOpen followed by IndentOpen.
                 // After a Terminal/BracketClose, this should be spaced

@@ -265,10 +265,11 @@ pub(crate) fn match_demand<'g>(
                 // routed through the dispatch branch above). So if this
                 // external's name satisfies the next demand child, consume it;
                 // otherwise it contributes no node and stays zero-width.
-                if let Some(k) = demand.get(pos) {
-                    if sat(grammar, k, name) && label_ok(slot_label(labels, pos), field_ctx) {
-                        return vec![pos + 1];
-                    }
+                if let Some(k) = demand.get(pos)
+                    && sat(grammar, k, name)
+                    && label_ok(slot_label(labels, pos), field_ctx)
+                {
+                    return vec![pos + 1];
                 }
                 return vec![pos];
             }
@@ -607,13 +608,14 @@ fn analyse_field<'g>(
         // would spuriously contradict `-`.
         Production::Symbol { name } => {
             let is_dispatch = name.starts_with('_') || grammar.supertypes.contains(name);
-            if is_dispatch && !visited.contains(&name.as_str()) {
-                if let Some(rule) = grammar.rules.get(name) {
-                    visited.push(name.as_str());
-                    let fb = analyse_field(grammar, rule, target, visited);
-                    visited.pop();
-                    return fb;
-                }
+            if is_dispatch
+                && !visited.contains(&name.as_str())
+                && let Some(rule) = grammar.rules.get(name)
+            {
+                visited.push(name.as_str());
+                let fb = analyse_field(grammar, rule, target, visited);
+                visited.pop();
+                return fb;
             }
             empty()
         }
@@ -800,13 +802,14 @@ fn reenters_repeat<'g>(
             }
             // Follow hidden pass-through rules so a REPEAT of a hidden alias
             // of `self_rule` still counts.
-            if name.starts_with('_') && !visited.contains(&name.as_str()) {
-                if let Some(rule) = grammar.rules.get(name) {
-                    visited.push(name.as_str());
-                    let r = reenters_repeat(grammar, rule, self_rule, in_repeat, visited);
-                    visited.pop();
-                    return r;
-                }
+            if name.starts_with('_')
+                && !visited.contains(&name.as_str())
+                && let Some(rule) = grammar.rules.get(name)
+            {
+                visited.push(name.as_str());
+                let r = reenters_repeat(grammar, rule, self_rule, in_repeat, visited);
+                visited.pop();
+                return r;
             }
             false
         }
@@ -1085,10 +1088,11 @@ pub(crate) fn select_choice_with_trace(
                 direct_tied = true;
             }
         }
-        if best_direct > 0 && !direct_tied {
-            if let Some(i) = best_direct_alt {
-                return Some(i);
-            }
+        if best_direct > 0
+            && !direct_tied
+            && let Some(i) = best_direct_alt
+        {
+            return Some(i);
         }
     }
     // Tie among viable candidates. A bare `SYMBOL` whose name is exactly
@@ -1207,13 +1211,12 @@ pub(crate) fn select_choice_with_trace(
         let has_newline_alt = cands
             .iter()
             .any(|&i| is_newline_alt(grammar, &alternatives[i]));
-        if !has_newline_alt {
-            if let Some(b) = alternatives
+        if !has_newline_alt
+            && let Some(b) = alternatives
                 .iter()
                 .position(|a| matches!(a, Production::Blank))
-            {
-                return Some(b);
-            }
+        {
+            return Some(b);
         }
     }
     None

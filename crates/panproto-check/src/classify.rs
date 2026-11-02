@@ -1146,17 +1146,17 @@ pub fn classify_with_schemas(
     // but the new class is strictly greater (more lossy) than the old class,
     // that is a breaking change.
     for (key, new_spec) in &new_schema.coercions {
-        if let Some(old_spec) = old_schema.coercions.get(key) {
-            if new_spec.class > old_spec.class {
-                report
-                    .breaking
-                    .push(BreakingChange::CoercionClassDowngraded {
-                        from_kind: key.0.to_string(),
-                        to_kind: key.1.to_string(),
-                        old_class: format!("{:?}", old_spec.class),
-                        new_class: format!("{:?}", new_spec.class),
-                    });
-            }
+        if let Some(old_spec) = old_schema.coercions.get(key)
+            && new_spec.class > old_spec.class
+        {
+            report
+                .breaking
+                .push(BreakingChange::CoercionClassDowngraded {
+                    from_kind: key.0.to_string(),
+                    to_kind: key.1.to_string(),
+                    old_class: format!("{:?}", old_spec.class),
+                    new_class: format!("{:?}", new_spec.class),
+                });
         }
     }
 

@@ -702,10 +702,9 @@ fn emit_sem_node(schema: &Schema, node_vid: &str, sem_type: &str) -> serde_json:
         .outgoing_edges(node_vid)
         .iter()
         .find(|e| e.kind == "head")
+        && let Some(pos) = &head_edge.name
     {
-        if let Some(pos) = &head_edge.name {
-            obj.insert("head_token".into(), serde_json::json!(pos));
-        }
+        obj.insert("head_token".into(), serde_json::json!(pos));
     }
 
     // span_tokens
@@ -749,10 +748,10 @@ fn emit_sem_node(schema: &Schema, node_vid: &str, sem_type: &str) -> serde_json:
 fn emit_annotation(schema: &Schema, vertex_id: &str) -> serde_json::Value {
     let mut ann = serde_json::Map::new();
     for c in vertex_constraints(schema, vertex_id) {
-        if c.sort == "value" || c.sort == "confidence" {
-            if let Ok(f) = c.value.parse::<f64>() {
-                ann.insert(c.sort.to_string(), serde_json::json!(f));
-            }
+        if (c.sort == "value" || c.sort == "confidence")
+            && let Ok(f) = c.value.parse::<f64>()
+        {
+            ann.insert(c.sort.to_string(), serde_json::json!(f));
         }
     }
     serde_json::Value::Object(ann)

@@ -109,10 +109,10 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
         if let Some(new_he) = new.hyper_edges.get(he_id) {
             for (label, vertex_id) in &old_he.signature {
                 // Only map labels whose target vertex survives in both.
-                if vertex_map.contains_key(vertex_id) {
-                    if let Some(new_label) = find_label_for_vertex(new_he, vertex_id) {
-                        label_map.insert((he_id.clone(), label.clone()), new_label);
-                    }
+                if vertex_map.contains_key(vertex_id)
+                    && let Some(new_label) = find_label_for_vertex(new_he, vertex_id)
+                {
+                    label_map.insert((he_id.clone(), label.clone()), new_label);
                 }
             }
         }
@@ -151,10 +151,11 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
     // without one there is no way to tell a rename onto an existing name from
     // an unrelated deletion, and guessing wrong turns a truthful "this field is
     // gone" into a silent remap of its data.
-    if !diff.removed_vertices.is_empty() && !diff.added_vertices.is_empty() {
-        if let Some(enhanced) = try_hom_search_enhancement(old, new, &identity_mig) {
-            return enhanced;
-        }
+    if !diff.removed_vertices.is_empty()
+        && !diff.added_vertices.is_empty()
+        && let Some(enhanced) = try_hom_search_enhancement(old, new, &identity_mig)
+    {
+        return enhanced;
     }
 
     identity_mig

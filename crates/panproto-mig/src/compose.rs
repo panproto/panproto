@@ -102,7 +102,7 @@ pub struct ComposeReport {
 impl ComposeReport {
     /// Returns `true` when no entry was dropped during composition.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.dropped_vertices.is_empty()
             && self.dropped_edges.is_empty()
             && self.dropped_hyper_edges.is_empty()
@@ -307,13 +307,13 @@ pub fn compose_with_report(
     m1: &Migration,
     m2: &Migration,
 ) -> Result<(Migration, ComposeReport), ComposeError> {
-    if let (Some(first_codomain), Some(second_domain)) = (&m1.codomain, &m2.domain) {
-        if first_codomain != second_domain {
-            return Err(ComposeError::DomainMismatch {
-                first_codomain: first_codomain.to_string(),
-                second_domain: second_domain.to_string(),
-            });
-        }
+    if let (Some(first_codomain), Some(second_domain)) = (&m1.codomain, &m2.domain)
+        && first_codomain != second_domain
+    {
+        return Err(ComposeError::DomainMismatch {
+            first_codomain: first_codomain.to_string(),
+            second_domain: second_domain.to_string(),
+        });
     }
 
     let mut report = ComposeReport::default();

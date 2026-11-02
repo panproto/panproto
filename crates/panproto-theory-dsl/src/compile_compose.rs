@@ -147,10 +147,11 @@ pub fn compile_composition_spec_with_report<S: BuildHasher>(
     // Also resolve any theories referenced in steps but not in bases.
     for step in &spec.steps {
         for name in [&step.left, &step.right] {
-            if !registry.contains_key(name) && !name.starts_with("step_") {
-                if let Some(theory) = resolver(name) {
-                    registry.insert(name.clone(), theory);
-                }
+            if !registry.contains_key(name)
+                && !name.starts_with("step_")
+                && let Some(theory) = resolver(name)
+            {
+                registry.insert(name.clone(), theory);
             }
         }
     }

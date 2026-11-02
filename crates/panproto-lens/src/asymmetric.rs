@@ -1420,52 +1420,73 @@ fn value_violations(
                 continue;
             }
         }
-        let mut written =
-            transformed_coordinates(&transforms, &view_node.extra_fields, &again.extra_fields);
-        // The last transform writing a key decides what the key is.
-        written.reverse();
-        let mut seen = HashSet::new();
-        for (coordinate, transform) in written {
-            if !seen.insert(coordinate) {
-                continue;
-            }
-            let differs = match coordinate {
-                TransformCoordinate::OwnValue => {
-                    !presence_equiv(view_node.value.as_ref(), again.value.as_ref())
-                }
-                TransformCoordinate::Field(key) => {
-                    match (view_node.extra_fields.get(key), again.extra_fields.get(key)) {
-                        (Some(shown), Some(recomputed)) => !value_equiv(shown, recomputed),
-                        (None, Some(recomputed)) => inverse_child_output(
-                            transform,
-                            key,
-                            view.arcs.iter().filter_map(|(parent, child, edge)| {
-                                (*parent == id)
-                                    .then(|| view.nodes.get(child).map(|node| (edge, node)))
-                                    .flatten()
-                            }),
-                        )
-                        .is_none_or(|shown| !value_equiv(shown, recomputed)),
-                        (Some(_), None) => true,
-                        (None, None) => false,
-                    }
-                }
-            };
-            if !differs {
-                continue;
-            }
-            let field = coordinate.label().to_owned();
-            let elem = ViewRef::Node(id);
-            found.push(match transform {
-                panproto_inst::FieldTransform::AddField { .. }
-                | panproto_inst::FieldTransform::ComputeField { .. } => {
-                    PutDomainError::DerivedCellEdited { elem, field }
-                }
-                _ => PutDomainError::TransformNotInvertible { elem, field },
-            });
-        }
+        found.extend(replay_disagreements(
+            view,
+            id,
+            view_node,
+            again,
+            &transforms,
+        ));
     }
     in_report_order(found)
+}
+
+/// The coordinates of node `id` that a transform writes and whose shown
+/// value differs from the forward replay `again`, each refused under the
+/// last transform writing it.
+fn replay_disagreements(
+    view: &WInstance,
+    id: u32,
+    view_node: &Node,
+    again: &Node,
+    transforms: &[panproto_inst::FieldTransform],
+) -> Vec<PutDomainError> {
+    let mut found = Vec::new();
+    let mut written =
+        transformed_coordinates(transforms, &view_node.extra_fields, &again.extra_fields);
+    // The last transform writing a key decides what the key is.
+    written.reverse();
+    let mut seen = HashSet::new();
+    for (coordinate, transform) in written {
+        if !seen.insert(coordinate) {
+            continue;
+        }
+        let differs = match coordinate {
+            TransformCoordinate::OwnValue => {
+                !presence_equiv(view_node.value.as_ref(), again.value.as_ref())
+            }
+            TransformCoordinate::Field(key) => {
+                match (view_node.extra_fields.get(key), again.extra_fields.get(key)) {
+                    (Some(shown), Some(recomputed)) => !value_equiv(shown, recomputed),
+                    (None, Some(recomputed)) => inverse_child_output(
+                        transform,
+                        key,
+                        view.arcs.iter().filter_map(|(parent, child, edge)| {
+                            (*parent == id)
+                                .then(|| view.nodes.get(child).map(|node| (edge, node)))
+                                .flatten()
+                        }),
+                    )
+                    .is_none_or(|shown| !value_equiv(shown, recomputed)),
+                    (Some(_), None) => true,
+                    (None, None) => false,
+                }
+            }
+        };
+        if !differs {
+            continue;
+        }
+        let field = coordinate.label().to_owned();
+        let elem = ViewRef::Node(id);
+        found.push(match transform {
+            panproto_inst::FieldTransform::AddField { .. }
+            | panproto_inst::FieldTransform::ComputeField { .. } => {
+                PutDomainError::DerivedCellEdited { elem, field }
+            }
+            _ => PutDomainError::TransformNotInvertible { elem, field },
+        });
+    }
+    found
 }
 
 /// Every native fan violation of a restored tree under `schema`.
@@ -3319,7 +3340,7 @@ fn tree_transform_program_obstruction(lens: &Lens) -> Option<String> {
 }
 
 /// The `extra_fields` key a transform writes, when it writes one.
-fn transform_target_key(transform: &panproto_inst::FieldTransform) -> Option<&str> {
+const fn transform_target_key(transform: &panproto_inst::FieldTransform) -> Option<&str> {
     use panproto_inst::FieldTransform;
     match transform {
         FieldTransform::ApplyExpr { key, .. } | FieldTransform::AddField { key, .. } => {
@@ -4371,6 +4392,50 @@ mod tests {
             )
         }
 
+        /// An empty-path wrapper evaluates its inner transform on the node's
+        /// own fields and binds no children, so a computation reading a child
+        /// scalar is refused by get in both shapes rather than inverted.
+        fn assert_empty_path_binds_no_child(
+            transform: &FieldTransform,
+            terms: bool,
+            source: fn(&Lens) -> WInstance,
+            child: &str,
+        ) {
+            let lens = lens(
+                FieldTransform::PathTransform {
+                    path: Vec::new(),
+                    inner: Box::new(transform.clone()),
+                },
+                terms,
+            );
+            let unbound = |error: &LensError| {
+                let LensError::Restrict(error) = error else {
+                    return false;
+                };
+                // The graph engine locates the failure at its node.
+                let error = match error {
+                    panproto_inst::RestrictError::At { error, .. } => error.as_ref(),
+                    other => other,
+                };
+                matches!(
+                    error,
+                    panproto_inst::RestrictError::FieldTransformFailed {
+                        key,
+                        source: panproto_expr::ExprError::UnboundVariable(name),
+                    } if key == "f" && name == child
+                )
+            };
+            let tree = source(&lens);
+            assert!(get(&lens, &tree).as_ref().is_err_and(unbound));
+            let graph = GInstance::from_wtype(&tree).unwrap();
+            let outcome = crate::graph_lens::get(&lens, &graph);
+            assert!(
+                outcome.as_ref().is_err_and(unbound),
+                "graph get: {:?}",
+                outcome.map(|(view, _)| view)
+            );
+        }
+
         fn assert_serialized_child_inverse(lens: &Lens) {
             let source = child_source(lens);
             let (mut view, complement) = get(lens, &source).unwrap();
@@ -4420,12 +4485,9 @@ mod tests {
                 coercion_class: panproto_gat::CoercionClass::Iso,
             };
             for terms in [false, true] {
+                assert_empty_path_binds_no_child(&transform, terms, child_source, "f");
                 for program in [
                     transform.clone(),
-                    FieldTransform::PathTransform {
-                        path: Vec::new(),
-                        inner: Box::new(transform.clone()),
-                    },
                     FieldTransform::Case {
                         branches: vec![panproto_inst::CaseBranch {
                             predicate: Expr::Lit(Literal::Bool(true)),
@@ -4501,6 +4563,19 @@ mod tests {
 
             let source = distinct_child_source(lens);
             let (mut view, complement) = get(lens, &source).unwrap();
+            let shown = edit
+                .f
+                .map_or_else(|| view.nodes[&0].extra_fields["f"].clone(), Value::Int);
+            // A serialized view shows the output on `f`'s child, shadowing that
+            // child's own value, so the child takes the shown output; in memory
+            // the child keeps its source value.
+            let expected_f_child = |source_child: &Node| {
+                if edit.serialized {
+                    Some(FieldPresence::Present(shown.clone()))
+                } else {
+                    source_child.value.clone()
+                }
+            };
             let [Some(root), Some(f_child), Some(g_child)] =
                 view.nodes.get_disjoint_mut([&0, &1, &2])
             else {
@@ -4513,12 +4588,11 @@ mod tests {
                 let restored = tree_result.unwrap();
                 assert_eq!(restored_g(&restored.nodes[&2]).as_ref(), Some(expected_g));
                 assert!(node_equiv(&restored.nodes[&0], &source.nodes[&0]));
-                assert!(node_equiv(&restored.nodes[&1], &source.nodes[&1]));
-                let (again, _) = get(lens, &restored).unwrap();
-                let shown = edit.f.map_or_else(
-                    || get(lens, &source).unwrap().0.nodes[&0].extra_fields["f"].clone(),
-                    Value::Int,
+                assert_eq!(
+                    restored.nodes[&1].value,
+                    expected_f_child(&source.nodes[&1])
                 );
+                let (again, _) = get(lens, &restored).unwrap();
                 assert_eq!(again.nodes[&0].extra_fields.get("f"), Some(&shown));
             } else {
                 assert_eq!(
@@ -4555,10 +4629,12 @@ mod tests {
                     restored.node(0).unwrap(),
                     source.node(0).unwrap()
                 ));
-                assert!(node_equiv(
-                    restored.node(1).unwrap(),
-                    source.node(1).unwrap()
-                ));
+                assert_eq!(
+                    restored.node(1).unwrap().value,
+                    expected_f_child(source.node(1).unwrap())
+                );
+                let (again, _) = crate::graph_lens::get(lens, &restored).unwrap();
+                assert_eq!(again.node(0).unwrap().extra_fields.get("f"), Some(&shown));
             } else {
                 assert_eq!(
                     crate::graph_lens::check_put_domain(lens, &view, &complement),
@@ -4592,12 +4668,9 @@ mod tests {
                 coercion_class: panproto_gat::CoercionClass::Retraction,
             };
             for terms in [false, true] {
+                assert_empty_path_binds_no_child(&transform, terms, distinct_child_source, "g");
                 for program in [
                     transform.clone(),
-                    FieldTransform::PathTransform {
-                        path: Vec::new(),
-                        inner: Box::new(transform.clone()),
-                    },
                     FieldTransform::Case {
                         branches: vec![panproto_inst::CaseBranch {
                             predicate: Expr::Lit(Literal::Bool(true)),

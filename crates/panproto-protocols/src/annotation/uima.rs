@@ -197,10 +197,10 @@ pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
     // Second pass: create edges now that all vertices exist.
     for (name, def) in types {
         // Type inheritance: child → parent.
-        if let Some(parent) = def.get("extends").and_then(serde_json::Value::as_str) {
-            if types.contains_key(parent) {
-                builder = builder.edge(name, parent, "extends", None)?;
-            }
+        if let Some(parent) = def.get("extends").and_then(serde_json::Value::as_str)
+            && types.contains_key(parent)
+        {
+            builder = builder.edge(name, parent, "extends", None)?;
         }
 
         // Feature edges: type → feature-description.
@@ -213,26 +213,26 @@ pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
 
         // sofa-of: sofa → annotation-base (sofa contains its annotations).
         // The "sofa-of" key is on the *sofa* vertex and names the annotation-base it covers.
-        if let Some(ann) = def.get("sofa-of").and_then(serde_json::Value::as_str) {
-            if types.contains_key(ann) {
-                builder = builder.edge(name, ann, "sofa-of", None)?;
-            }
+        if let Some(ann) = def.get("sofa-of").and_then(serde_json::Value::as_str)
+            && types.contains_key(ann)
+        {
+            builder = builder.edge(name, ann, "sofa-of", None)?;
         }
 
         // index-of: fs-index → type-description.
-        if let Some(idx_type) = def.get("index-of").and_then(serde_json::Value::as_str) {
-            if types.contains_key(idx_type) {
-                builder = builder.edge(name, idx_type, "index-of", None)?;
-            }
+        if let Some(idx_type) = def.get("index-of").and_then(serde_json::Value::as_str)
+            && types.contains_key(idx_type)
+        {
+            builder = builder.edge(name, idx_type, "index-of", None)?;
         }
 
         // contains: cas → sofa | fs-index (CAS owns its sofas and indices).
         if let Some(children) = def.get("contains").and_then(serde_json::Value::as_array) {
             for child_val in children {
-                if let Some(child_id) = child_val.as_str() {
-                    if types.contains_key(child_id) {
-                        builder = builder.edge(name, child_id, "contains", None)?;
-                    }
+                if let Some(child_id) = child_val.as_str()
+                    && types.contains_key(child_id)
+                {
+                    builder = builder.edge(name, child_id, "contains", None)?;
                 }
             }
         }

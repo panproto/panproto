@@ -889,11 +889,11 @@ fn the_value_conversion_is_injective_on_the_scope() {
         if let Some(equal) = rv::representation(x, &to_ref(&p)) {
             assert!(equal, "the image of {p:?} changed its representation");
             represented += 1;
-            if let Some((before, before_bytes)) = &previous {
-                if let Some(equal) = rv::representation(before, x) {
-                    assert_eq!(equal, *before_bytes == bytes, "{before:?} against {x:?}");
-                    neighbours += 1;
-                }
+            if let Some((before, before_bytes)) = &previous
+                && let Some(equal) = rv::representation(before, x)
+            {
+                assert_eq!(equal, *before_bytes == bytes, "{before:?} against {x:?}");
+                neighbours += 1;
             }
             previous = Some((x, bytes));
         }

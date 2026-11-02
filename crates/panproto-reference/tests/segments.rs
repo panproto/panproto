@@ -988,8 +988,8 @@ fn table_absence_segments_preserve_legacy_bytes_and_current_residue() {
         Ok(AnyComplementSegment::Table(value.clone()))
     );
     assert!(segment::decode_legacy_table_complement_segment_bytes(&encoded).is_err());
-    let whole =
-        segment::assemble_table_complement(&[value.clone()]).test_unwrap("absence assembles");
+    let whole = segment::assemble_table_complement(std::slice::from_ref(&value))
+        .test_unwrap("absence assembles");
     assert_eq!(whole.original_absent_cells, value.original_absent_cells);
     assert!(!value.residue_is_trivial());
     assert!(!whole.residue_is_trivial());

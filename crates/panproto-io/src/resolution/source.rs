@@ -489,10 +489,10 @@ impl<'a> Source<'a> {
         };
         let mut stack = vec![root];
         while let Some(node) = stack.pop() {
-            if nodes.insert(node) {
-                if let Some(arcs) = source.out.get(&node) {
-                    stack.extend(arcs.iter().map(|&index| source.tree.arcs[index].1));
-                }
+            if nodes.insert(node)
+                && let Some(arcs) = source.out.get(&node)
+            {
+                stack.extend(arcs.iter().map(|&index| source.tree.arcs[index].1));
             }
         }
         nodes

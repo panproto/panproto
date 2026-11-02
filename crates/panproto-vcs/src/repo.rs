@@ -530,12 +530,12 @@ impl Repository {
                     });
                 }
                 // Covers type errors and equation violations.
-                if let Some(ref diag) = staged.gat_diagnostics {
-                    if diag.has_errors() {
-                        return Err(VcsError::ValidationFailed {
-                            reasons: diag.all_errors(),
-                        });
-                    }
+                if let Some(ref diag) = staged.gat_diagnostics
+                    && diag.has_errors()
+                {
+                    return Err(VcsError::ValidationFailed {
+                        reasons: diag.all_errors(),
+                    });
                 }
             }
             (staged.schema_id, staged.migration_id)

@@ -171,10 +171,11 @@ pub fn emit_pretty(
         emit_vertex(protocol, schema, grammar, root, &mut out)?;
     }
     let mut body = out.finish();
-    if let Some(span_end) = root_span_end {
-        if body.len() == span_end + 1 && body.last() == Some(&b'\n') {
-            body.pop();
-        }
+    if let Some(span_end) = root_span_end
+        && body.len() == span_end + 1
+        && body.last() == Some(&b'\n')
+    {
+        body.pop();
     }
     if doc_prefix.is_empty() {
         Ok(body)

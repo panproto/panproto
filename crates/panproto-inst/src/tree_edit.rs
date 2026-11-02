@@ -323,10 +323,10 @@ fn apply_delete_node(instance: &mut WInstance, id: u32) -> Result<(), EditError>
     // Remove arcs pointing to this node.
     instance.arcs.retain(|&(_, child, _)| child != id);
     // Remove from parent's children map.
-    if let Some(&parent_id) = instance.parent_map.get(&id) {
-        if let Some(siblings) = instance.children_map.get_mut(&parent_id) {
-            siblings.retain(|&c| c != id);
-        }
+    if let Some(&parent_id) = instance.parent_map.get(&id)
+        && let Some(siblings) = instance.children_map.get_mut(&parent_id)
+    {
+        siblings.retain(|&c| c != id);
     }
     instance.parent_map.remove(&id);
     instance.children_map.remove(&id);
@@ -469,10 +469,10 @@ fn apply_move_subtree(
     // Remove old parent arc.
     let old_parent = instance.parent_map.get(&node_id).copied();
     instance.arcs.retain(|&(_, child, _)| child != node_id);
-    if let Some(old_p) = old_parent {
-        if let Some(siblings) = instance.children_map.get_mut(&old_p) {
-            siblings.retain(|&c| c != node_id);
-        }
+    if let Some(old_p) = old_parent
+        && let Some(siblings) = instance.children_map.get_mut(&old_p)
+    {
+        siblings.retain(|&c| c != node_id);
     }
 
     // Insert new parent arc.

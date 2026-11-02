@@ -250,14 +250,14 @@ fn invert_vertex_map(
     let mut inverse: HashMap<Name, Name> = HashMap::with_capacity(domain.len());
     for src in domain {
         let tgt = map_vertex(migration, &src);
-        if let Some(existing) = inverse.insert(tgt.clone(), src.clone()) {
-            if existing != src {
-                return Err(AdjunctionError::NonInjectiveVertexMap {
-                    first: existing,
-                    second: src,
-                    target: tgt,
-                });
-            }
+        if let Some(existing) = inverse.insert(tgt.clone(), src.clone())
+            && existing != src
+        {
+            return Err(AdjunctionError::NonInjectiveVertexMap {
+                first: existing,
+                second: src,
+                target: tgt,
+            });
         }
     }
     Ok(inverse)
@@ -270,13 +270,13 @@ fn invert_edge_map(migration: &CompiledMigration) -> Result<HashMap<Edge, Edge>,
     let mut inverse: HashMap<Edge, Edge> = HashMap::with_capacity(domain.len());
     for src in domain {
         let tgt = map_edge(migration, &src);
-        if let Some(existing) = inverse.insert(tgt.clone(), src.clone()) {
-            if existing != src {
-                return Err(AdjunctionError::NonInjectiveEdgeMap {
-                    src: tgt.src,
-                    tgt: tgt.tgt,
-                });
-            }
+        if let Some(existing) = inverse.insert(tgt.clone(), src.clone())
+            && existing != src
+        {
+            return Err(AdjunctionError::NonInjectiveEdgeMap {
+                src: tgt.src,
+                tgt: tgt.tgt,
+            });
         }
     }
     Ok(inverse)
@@ -4347,29 +4347,29 @@ mod tests {
             max: usize,
         ) {
             let h12 = compose(h1, h2, a);
-            if let Ok((sa, _)) = f_sigma_restricted(a, f) {
-                if f_sigma_restricted(b, f).is_ok() && f_sigma_restricted(c, f).is_ok() {
-                    let id = f_sigma_on_hom(&FInstanceHom::identity(a), a, a, f)
-                        .unwrap_or_else(|e| panic!("{e}"));
-                    assert!(id.same_as(&FInstanceHom::identity(&sa)));
-                    let one = f_sigma_on_hom(h1, a, b, f).unwrap_or_else(|e| panic!("{e}"));
-                    let two = f_sigma_on_hom(h2, b, c, f).unwrap_or_else(|e| panic!("{e}"));
-                    let both = f_sigma_on_hom(&h12, a, c, f).unwrap_or_else(|e| panic!("{e}"));
-                    assert!(both.same_as(&compose(&one, &two, &sa)), "Sigma({h12:?})");
-                }
+            if let Ok((sa, _)) = f_sigma_restricted(a, f)
+                && f_sigma_restricted(b, f).is_ok()
+                && f_sigma_restricted(c, f).is_ok()
+            {
+                let id = f_sigma_on_hom(&FInstanceHom::identity(a), a, a, f)
+                    .unwrap_or_else(|e| panic!("{e}"));
+                assert!(id.same_as(&FInstanceHom::identity(&sa)));
+                let one = f_sigma_on_hom(h1, a, b, f).unwrap_or_else(|e| panic!("{e}"));
+                let two = f_sigma_on_hom(h2, b, c, f).unwrap_or_else(|e| panic!("{e}"));
+                let both = f_sigma_on_hom(&h12, a, c, f).unwrap_or_else(|e| panic!("{e}"));
+                assert!(both.same_as(&compose(&one, &two, &sa)), "Sigma({h12:?})");
             }
-            if let Ok((pa, _)) = functor_pi_restricted(a, f, max) {
-                if functor_pi_restricted(b, f, max).is_ok()
-                    && functor_pi_restricted(c, f, max).is_ok()
-                {
-                    let id = f_pi_on_hom(&FInstanceHom::identity(a), a, a, f, max)
-                        .unwrap_or_else(|e| panic!("{e}"));
-                    assert!(id.same_as(&FInstanceHom::identity(&pa)));
-                    let one = f_pi_on_hom(h1, a, b, f, max).unwrap_or_else(|e| panic!("{e}"));
-                    let two = f_pi_on_hom(h2, b, c, f, max).unwrap_or_else(|e| panic!("{e}"));
-                    let both = f_pi_on_hom(&h12, a, c, f, max).unwrap_or_else(|e| panic!("{e}"));
-                    assert!(both.same_as(&compose(&one, &two, &pa)), "Pi({h12:?})");
-                }
+            if let Ok((pa, _)) = functor_pi_restricted(a, f, max)
+                && functor_pi_restricted(b, f, max).is_ok()
+                && functor_pi_restricted(c, f, max).is_ok()
+            {
+                let id = f_pi_on_hom(&FInstanceHom::identity(a), a, a, f, max)
+                    .unwrap_or_else(|e| panic!("{e}"));
+                assert!(id.same_as(&FInstanceHom::identity(&pa)));
+                let one = f_pi_on_hom(h1, a, b, f, max).unwrap_or_else(|e| panic!("{e}"));
+                let two = f_pi_on_hom(h2, b, c, f, max).unwrap_or_else(|e| panic!("{e}"));
+                let both = f_pi_on_hom(&h12, a, c, f, max).unwrap_or_else(|e| panic!("{e}"));
+                assert!(both.same_as(&compose(&one, &two, &pa)), "Pi({h12:?})");
             }
         }
 
@@ -5178,10 +5178,10 @@ mod tests {
             let targets: Vec<Name> = tgt.tables.keys().cloned().collect();
             let mut tables = BTreeMap::new();
             for s in src.tables.keys() {
-                if rng.chance(85) {
-                    if let Some(d) = rng.pick(&targets) {
-                        tables.insert(s.clone(), d.clone());
-                    }
+                if rng.chance(85)
+                    && let Some(d) = rng.pick(&targets)
+                {
+                    tables.insert(s.clone(), d.clone());
                 }
             }
             let mut relations = BTreeMap::new();
@@ -5198,20 +5198,20 @@ mod tests {
                     .filter(|r| r.src == *a && r.tgt == *b)
                     .cloned()
                     .collect();
-                if rng.chance(80) {
-                    if let Some(image) = rng.pick(&candidates) {
-                        relations.insert(e.clone(), image.clone());
-                    }
+                if rng.chance(80)
+                    && let Some(image) = rng.pick(&candidates)
+                {
+                    relations.insert(e.clone(), image.clone());
                 }
             }
             let mut columns = BTreeMap::new();
             for (s, d) in &tables {
                 let image_columns: Vec<String> = tgt.tables[d].iter().cloned().collect();
                 for alpha in &src.tables[s] {
-                    if rng.chance(80) {
-                        if let Some(beta) = rng.pick(&image_columns) {
-                            columns.insert((s.clone(), alpha.clone()), beta.clone());
-                        }
+                    if rng.chance(80)
+                        && let Some(beta) = rng.pick(&image_columns)
+                    {
+                        columns.insert((s.clone(), alpha.clone()), beta.clone());
                     }
                 }
             }

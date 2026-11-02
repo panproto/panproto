@@ -249,10 +249,10 @@ pub fn log_walk_with_ids(
         }
         result.push((commit_id, commit));
 
-        if let Some(n) = limit {
-            if result.len() >= n {
-                break;
-            }
+        if let Some(n) = limit
+            && result.len() >= n
+        {
+            break;
         }
     }
 

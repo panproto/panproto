@@ -627,13 +627,12 @@ impl Reader<'_, '_> {
         };
         if let (true, panproto_inst::resolution_complement::ResolutionValueSite::Own(node)) =
             (local, site)
+            && !self.source.out_steps(node).is_empty()
         {
-            if !self.source.out_steps(node).is_empty() {
-                return Err(ResolveError::UnsupportedFeature {
-                    provider: Some(self.provider_id.clone()),
-                    feature: ResolutionFeature::Path(panproto_schema::PathSyntax::XPath),
-                });
-            }
+            return Err(ResolveError::UnsupportedFeature {
+                provider: Some(self.provider_id.clone()),
+                feature: ResolutionFeature::Path(panproto_schema::PathSyntax::XPath),
+            });
         }
         let (id, bytes, external) = if local {
             (

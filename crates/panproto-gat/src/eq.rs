@@ -923,19 +923,18 @@ fn norm_once_witness(
             branches,
         } => {
             let (new_scrut, _) = norm_once_witness(scrutinee, directed_eqs, steps, max_steps);
-            if let Term::App { op, args } = &new_scrut {
-                if let Some(branch) = branches.iter().find(|b| &b.constructor == op) {
-                    if branch.binders.len() == args.len() {
-                        let mut subst = rustc_hash::FxHashMap::default();
-                        for (binder, arg) in branch.binders.iter().zip(args.iter()) {
-                            subst.insert(Arc::clone(binder), arg.clone());
-                        }
-                        let body = branch.body.substitute(&subst);
-                        let (result, _) = norm_once_witness(&body, directed_eqs, steps, max_steps);
-                        let witness = runtime_witness(term.clone(), result.clone());
-                        return (result, witness);
-                    }
+            if let Term::App { op, args } = &new_scrut
+                && let Some(branch) = branches.iter().find(|b| &b.constructor == op)
+                && branch.binders.len() == args.len()
+            {
+                let mut subst = rustc_hash::FxHashMap::default();
+                for (binder, arg) in branch.binders.iter().zip(args.iter()) {
+                    subst.insert(Arc::clone(binder), arg.clone());
                 }
+                let body = branch.body.substitute(&subst);
+                let (result, _) = norm_once_witness(&body, directed_eqs, steps, max_steps);
+                let witness = runtime_witness(term.clone(), result.clone());
+                return (result, witness);
             }
             let new_branches = branches
                 .iter()

@@ -1020,13 +1020,13 @@ impl ProtolensChain {
 
     /// Returns `true` if the chain is empty (identity).
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.steps.is_empty()
     }
 
     /// Number of steps.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.steps.len()
     }
 
@@ -2428,16 +2428,15 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
     for src_id in &unmapped_src {
         if let Some(src_v) = src.vertices.get(*src_id) {
             for tgt_id in &unmapped_tgt {
-                if let Some(tgt_v) = tgt.vertices.get(*tgt_id) {
-                    if src_v.kind == tgt_v.kind
-                        && !vertex_remap.values().any(|v: &Name| v == *tgt_id)
-                    {
-                        // Renamed vertex survives: add TARGET name to surviving_verts
-                        // (wtype_restrict checks target_anchor against surviving_verts)
-                        surviving_verts.insert((*tgt_id).clone());
-                        vertex_remap.insert((*src_id).clone(), (*tgt_id).clone());
-                        break;
-                    }
+                if let Some(tgt_v) = tgt.vertices.get(*tgt_id)
+                    && src_v.kind == tgt_v.kind
+                    && !vertex_remap.values().any(|v: &Name| v == *tgt_id)
+                {
+                    // Renamed vertex survives: add TARGET name to surviving_verts
+                    // (wtype_restrict checks target_anchor against surviving_verts)
+                    surviving_verts.insert((*tgt_id).clone());
+                    vertex_remap.insert((*src_id).clone(), (*tgt_id).clone());
+                    break;
                 }
             }
         }
@@ -2770,10 +2769,10 @@ fn apply_theory_transform_to_schema(
             for (old, assignment) in &morphism.op_map {
                 // Renaming an operation renames its schema edge kind; a
                 // derived-term assignment is not a rename.
-                if let Some(new) = assignment.as_op() {
-                    if old != new {
-                        result = apply_rename_op_to_schema(&result, old, new);
-                    }
+                if let Some(new) = assignment.as_op()
+                    && old != new
+                {
+                    result = apply_rename_op_to_schema(&result, old, new);
                 }
             }
             Ok(result)

@@ -775,7 +775,7 @@ fn numeric_class(lexeme: &Lexeme<'_>, kind: &ScalarKind) -> Result<(), ValueFide
 }
 
 /// `true` or `false`, in any case.
-fn coerce_bool(lexeme: &Lexeme<'_>) -> Option<Value> {
+const fn coerce_bool(lexeme: &Lexeme<'_>) -> Option<Value> {
     match &lexeme.class {
         LexClass::Bool | LexClass::String => {
             if lexeme.text.eq_ignore_ascii_case("true") {
@@ -1099,7 +1099,7 @@ fn decode_base64(text: &str, alphabet: &[u8; 64], padding_required: bool) -> Opt
 
 /// Decode hexadecimal, either case, an even number of digits.
 fn decode_hex(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     text.as_bytes()

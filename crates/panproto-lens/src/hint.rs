@@ -86,10 +86,10 @@ pub fn derive_anchors(
                     }
 
                     // Check for conflict: another derivation path pointing elsewhere
-                    if let Some(existing) = result.get(child) {
-                        if existing != tgt_child {
-                            continue;
-                        }
+                    if let Some(existing) = result.get(child)
+                        && existing != tgt_child
+                    {
+                        continue;
                     }
                     result.insert(child.clone(), tgt_child.clone());
                     changed = true;
@@ -126,10 +126,10 @@ pub fn derive_anchors(
                         continue;
                     }
 
-                    if let Some(existing) = result.get(parent) {
-                        if existing != tgt_parent {
-                            continue;
-                        }
+                    if let Some(existing) = result.get(parent)
+                        && existing != tgt_parent
+                    {
+                        continue;
                     }
                     result.insert(parent.clone(), tgt_parent.clone());
                     changed = true;

@@ -194,7 +194,7 @@ impl Graph {
     /// How many vertices the graph has.
     #[inline]
     #[must_use]
-    pub fn n_vertices(&self) -> usize {
+    pub const fn n_vertices(&self) -> usize {
         self.adjacency.len()
     }
 

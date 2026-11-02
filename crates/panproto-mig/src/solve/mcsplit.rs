@@ -258,14 +258,14 @@ impl ArcDescriptor {
     /// How many arcs the pair carries.
     #[inline]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Whether the pair carries no arc at all, which is the common case.
     #[inline]
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
@@ -421,14 +421,14 @@ impl ValueIndex {
     /// How many distinct target vertices are numbered.
     #[inline]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.names.len()
     }
 
     /// Whether no variable can take any target at all.
     #[inline]
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.names.is_empty()
     }
 
@@ -1390,15 +1390,15 @@ fn requires_partner(
 fn requirement_graph(lefts: usize, functions: &[BinaryFunction<'_>]) -> Vec<Vec<u32>> {
     let mut requires = vec![Vec::new(); lefts];
     for function in functions {
-        if function.low_requires_high {
-            if let Some(list) = requires.get_mut(function.low as usize) {
-                list.push(function.high);
-            }
+        if function.low_requires_high
+            && let Some(list) = requires.get_mut(function.low as usize)
+        {
+            list.push(function.high);
         }
-        if function.high_requires_low {
-            if let Some(list) = requires.get_mut(function.high as usize) {
-                list.push(function.low);
-            }
+        if function.high_requires_low
+            && let Some(list) = requires.get_mut(function.high as usize)
+        {
+            list.push(function.low);
         }
     }
     for list in &mut requires {

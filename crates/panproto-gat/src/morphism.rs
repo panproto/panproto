@@ -412,14 +412,14 @@ impl TheoryMorphism {
         for (old_op, assignment) in &self.op_map {
             // Only operation renames induce an edge-kind rename; a
             // derived-term assignment is not a rename.
-            if let Some(new_op) = assignment.as_op() {
-                if old_op != new_op {
-                    renames.push(SiteRename::new(
-                        NameSite::EdgeKind,
-                        Arc::clone(old_op),
-                        Arc::clone(new_op),
-                    ));
-                }
+            if let Some(new_op) = assignment.as_op()
+                && old_op != new_op
+            {
+                renames.push(SiteRename::new(
+                    NameSite::EdgeKind,
+                    Arc::clone(old_op),
+                    Arc::clone(new_op),
+                ));
             }
         }
         renames

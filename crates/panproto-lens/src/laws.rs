@@ -11302,7 +11302,7 @@ mod tests {
         fn leaf_value(kind: &str, seed: &str) -> Value {
             match kind {
                 "integer" => Value::Int(i64::try_from(seed.len()).unwrap_or(0)),
-                "boolean" => Value::Bool(seed.len() % 2 == 0),
+                "boolean" => Value::Bool(seed.len().is_multiple_of(2)),
                 // "string" and anything else fall back to a string carrier.
                 _ => Value::Str(seed.to_owned()),
             }

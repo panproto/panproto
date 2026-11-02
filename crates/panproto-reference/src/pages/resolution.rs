@@ -923,17 +923,16 @@ pub mod implementation {
                     .and_then(|node| node.fields.get(last.column()))
                     .filter(|value| **value != Value::Null)
                     .cloned()
+                    && let Value::Str(text) | Value::Token(text) = &value
                 {
-                    if let Value::Str(text) | Value::Token(text) = &value {
-                        values.push(StringSite {
-                            site: ResolutionValueSite::Field {
-                                holder: source,
-                                field: last.column().to_owned(),
-                            },
-                            value: value.clone(),
-                            text: text.clone(),
-                        });
-                    }
+                    values.push(StringSite {
+                        site: ResolutionValueSite::Field {
+                            holder: source,
+                            field: last.column().to_owned(),
+                        },
+                        value: value.clone(),
+                        text: text.clone(),
+                    });
                 }
             } else {
                 values.extend(targets.into_iter().filter_map(|(_, target)| {

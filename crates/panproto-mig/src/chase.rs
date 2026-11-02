@@ -600,10 +600,10 @@ pub fn chase_with_hom(
                     for binding in match_body(body, &result) {
                         let a = resolve_term(left, &binding);
                         let b = resolve_term(right, &binding);
-                        if let (Some(a), Some(b)) = (a, b) {
-                            if !same_value(&a, &b) {
-                                equalities.push((a, b));
-                            }
+                        if let (Some(a), Some(b)) = (a, b)
+                            && !same_value(&a, &b)
+                        {
+                            equalities.push((a, b));
                         }
                     }
                     for (a, b) in equalities {

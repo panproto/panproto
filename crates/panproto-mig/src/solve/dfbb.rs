@@ -313,7 +313,7 @@ impl OpenNode {
 
     /// How many decisions reach this node.
     #[must_use]
-    pub fn depth(&self) -> usize {
+    pub const fn depth(&self) -> usize {
         self.decisions.len()
     }
 }
@@ -477,10 +477,10 @@ impl<'a> BranchAndBound<'a> {
                     if other == var {
                         continue;
                     }
-                    if let Some(list) = neighbours.get_mut(var.index()) {
-                        if !list.contains(other) {
-                            list.push(*other);
-                        }
+                    if let Some(list) = neighbours.get_mut(var.index())
+                        && !list.contains(other)
+                    {
+                        list.push(*other);
                     }
                 }
             }
@@ -809,17 +809,17 @@ impl BranchAndBound<'_> {
             self.limit_hit = Some(LimitKind::Operations);
             return true;
         }
-        if let Some(limit) = self.node_budget {
-            if self.nodes > limit {
-                self.limit_hit = Some(LimitKind::Nodes);
-                return true;
-            }
+        if let Some(limit) = self.node_budget
+            && self.nodes > limit
+        {
+            self.limit_hit = Some(LimitKind::Nodes);
+            return true;
         }
-        if let Some(deadline) = self.deadline {
-            if Instant::now() >= deadline {
-                self.limit_hit = Some(LimitKind::Time);
-                return true;
-            }
+        if let Some(deadline) = self.deadline
+            && Instant::now() >= deadline
+        {
+            self.limit_hit = Some(LimitKind::Time);
+            return true;
         }
         false
     }
@@ -828,10 +828,10 @@ impl BranchAndBound<'_> {
     fn propagate(&mut self, assigned: Option<(VarId, ValId)>) -> bool {
         self.net.reset_contributions();
         self.net.set_top(self.cub);
-        if let Some(literal) = assigned {
-            if !self.propagate_nogoods(literal) {
-                return false;
-            }
+        if let Some(literal) = assigned
+            && !self.propagate_nogoods(literal)
+        {
+            return false;
         }
         if self.net.enforce(self.level) {
             if self.filter_all_different() {
@@ -1048,10 +1048,10 @@ impl BranchAndBound<'_> {
     /// something already absent, which changes nothing and recurses forever.
     fn select_value(&mut self, variable: VarId) -> Option<ValId> {
         if self.incumbent.is_some() {
-            if let Some(saved) = self.phase.get(variable.index()).copied().flatten() {
-                if self.net.domain(variable).contains(saved) {
-                    return Some(saved);
-                }
+            if let Some(saved) = self.phase.get(variable.index()).copied().flatten()
+                && self.net.domain(variable).contains(saved)
+            {
+                return Some(saved);
             }
             return self
                 .net

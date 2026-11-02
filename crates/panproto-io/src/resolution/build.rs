@@ -510,10 +510,9 @@ impl Resolution {
         for record in classified.occurrences.values() {
             if let (ViewRef::Node(holder), Some(compiled)) =
                 (&record.holder, self.compiled.get(&record.reference))
+                && compiled.reference.mode == ResolveMode::Redirect
             {
-                if compiled.reference.mode == ResolveMode::Redirect {
-                    live_roots.insert(*holder);
-                }
+                live_roots.insert(*holder);
             }
         }
         let mut taken_nodes: BTreeSet<u32> = graph.nodes().keys().copied().collect();

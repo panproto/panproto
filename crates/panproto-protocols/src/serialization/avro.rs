@@ -434,10 +434,10 @@ fn emit_vertex(schema: &Schema, vertex_id: &str) -> Result<serde_json::Value, Pr
                     field_obj.insert("type".into(), serde_json::Value::String("string".into()));
                 }
 
-                if let Some(default) = constraint_value(schema, &field_vertex.id, "default") {
-                    if let Ok(parsed) = serde_json::from_str(default) {
-                        field_obj.insert("default".into(), parsed);
-                    }
+                if let Some(default) = constraint_value(schema, &field_vertex.id, "default")
+                    && let Ok(parsed) = serde_json::from_str(default)
+                {
+                    field_obj.insert("default".into(), parsed);
                 }
                 if let Some(doc) = constraint_value(schema, &field_vertex.id, "doc") {
                     field_obj.insert("doc".into(), serde_json::Value::String(doc.into()));

@@ -106,10 +106,10 @@ impl ReachabilityIndex {
     /// nodes. Handles the case where `child` has an alternate path to root.
     pub fn delete_edge(&mut self, parent: u32, child: u32) -> Vec<u32> {
         // Remove from adjacency
-        if let Some(kids) = self.children.get_mut(&parent) {
-            if let Some(pos) = kids.iter().position(|&k| k == child) {
-                kids.remove(pos);
-            }
+        if let Some(kids) = self.children.get_mut(&parent)
+            && let Some(pos) = kids.iter().position(|&k| k == child)
+        {
+            kids.remove(pos);
         }
 
         // Only remove from parents if this was the recorded parent

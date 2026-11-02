@@ -1622,10 +1622,8 @@ fn check_tree_route(
             panic!("{route:?} of {tree:?}: production {ours:?}, reference {theirs:?}")
         }
     };
-    if tree_domain {
-        if let Ok(out) = &output {
-            check_tree_square(functors, route, tree, &production_tree, out);
-        }
+    if tree_domain && let Ok(out) = &output {
+        check_tree_square(functors, route, tree, &production_tree, out);
     }
     outcome
 }
@@ -2758,7 +2756,7 @@ fn run_pairs(cases: &[PairCase], limit: u64) -> PairStats {
                     }
                 }
                 let pairs = done.fetch_add(1, Ordering::Relaxed) + 1;
-                if pairs % 250_000 == 0 {
+                if pairs.is_multiple_of(250_000) {
                     eprintln!(
                         "representative pairs: {pairs} after {:.1}s",
                         started.elapsed().as_secs_f64()
@@ -4878,14 +4876,14 @@ fn generated_case_agrees(seed: u64) {
         targets: Vec::new(),
     };
     check_pair(&pair_case, &source, &target);
-    if let Ok((sigma, _)) = &source.sigma {
-        if sigma.rows.len() <= 6 {
-            check_pair(
-                &pair_case,
-                &source,
-                &pair_target(&pair_case.functors, sigma.clone(), 1),
-            );
-        }
+    if let Ok((sigma, _)) = &source.sigma
+        && sigma.rows.len() <= 6
+    {
+        check_pair(
+            &pair_case,
+            &source,
+            &pair_target(&pair_case.functors, sigma.clone(), 1),
+        );
     }
     let delta = target.delta.clone();
     if delta.rows.len() <= 6 {

@@ -803,13 +803,13 @@ fn decode_json_unicode_escape(
     }
     // A surrogate. Pair it with the next escape when that one is the
     // matching low half.
-    if (0xD800..=0xDBFF).contains(&unit) {
-        if let Some(low) = take_low_surrogate(raw, chars) {
-            let combined = 0x1_0000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
-            if let Some(c) = char::from_u32(combined) {
-                out.push(c);
-                return;
-            }
+    if (0xD800..=0xDBFF).contains(&unit)
+        && let Some(low) = take_low_surrogate(raw, chars)
+    {
+        let combined = 0x1_0000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+        if let Some(c) = char::from_u32(combined) {
+            out.push(c);
+            return;
         }
     }
     let _ = write!(out, "\\u{unit:04x}");
@@ -1229,12 +1229,11 @@ fn extract_json_object(
     let mut node = Node::new(node_id, domain_vertex);
 
     // Check for $type discriminator
-    if let Some(disc_value) = find_json_pair_value(cst, cst_vertex, "$type") {
-        if cst_vertex_kind(cst, &disc_value).as_deref() == Some("string") {
-            if let Some(text) = json_string_value(cst, &disc_value) {
-                node.discriminator = Some(Name::from(text.as_str()));
-            }
-        }
+    if let Some(disc_value) = find_json_pair_value(cst, cst_vertex, "$type")
+        && cst_vertex_kind(cst, &disc_value).as_deref() == Some("string")
+        && let Some(text) = json_string_value(cst, &disc_value)
+    {
+        node.discriminator = Some(Name::from(text.as_str()));
     }
     let has_string_discriminator = node.discriminator.is_some();
 
@@ -1605,13 +1604,13 @@ fn extract_json_generic_value(
                 if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {
                     continue;
                 }
-                if let Some(key) = extract_pair_key(cst, pair_name) {
-                    if let Some(val_vertex) = cst_child_by_edge_kind(cst, pair_name, "value") {
-                        fields.insert(
-                            key,
-                            extract_json_generic_value(cst, val_vertex, domain_vertex, state)?,
-                        );
-                    }
+                if let Some(key) = extract_pair_key(cst, pair_name)
+                    && let Some(val_vertex) = cst_child_by_edge_kind(cst, pair_name, "value")
+                {
+                    fields.insert(
+                        key,
+                        extract_json_generic_value(cst, val_vertex, domain_vertex, state)?,
+                    );
                 }
             }
             Value::Unknown(fields)
@@ -1938,10 +1937,10 @@ fn update_literal_value(cst: &mut Schema, vertex: &Name, new_text: &str) {
                 // Update the interstitial only if it previously matched the
                 // old literal value exactly. This preserves punctuation and
                 // whitespace interstitials while updating text interstitials.
-                if let Some(ref old) = old_literal {
-                    if c.value == *old {
-                        c.value = new_text.to_string();
-                    }
+                if let Some(ref old) = old_literal
+                    && c.value == *old
+                {
+                    c.value = new_text.to_string();
                 }
             }
         }
@@ -2545,18 +2544,18 @@ fn extract_toml_entry(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
-    if let [single] = values {
-        if !is_toml_table_array_element(cst, single) {
-            return extract_toml_value(
-                cst,
-                domain_schema,
-                protocol,
-                single,
-                domain_vertex,
-                node_id,
-                state,
-            );
-        }
+    if let [single] = values
+        && !is_toml_table_array_element(cst, single)
+    {
+        return extract_toml_value(
+            cst,
+            domain_schema,
+            protocol,
+            single,
+            domain_vertex,
+            node_id,
+            state,
+        );
     }
 
     state.enter()?;
@@ -2608,10 +2607,10 @@ fn extract_toml_entry_open(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
-    if let [single] = values {
-        if !is_toml_table_array_element(cst, single) {
-            return extract_toml_value_open(cst, single, anchor, node_id, state);
-        }
+    if let [single] = values
+        && !is_toml_table_array_element(cst, single)
+    {
+        return extract_toml_value_open(cst, single, anchor, node_id, state);
     }
 
     state.enter()?;
@@ -3395,24 +3394,24 @@ fn extract_xml_element(
             // to an entity, the re-parse re-splits the run into
             // `CharData EntityRef CharData`, and this branch folds it back to
             // exactly one node.
-            if let Some(text) = xml_text_run_value(cst, &text_children)? {
-                if !xsi_nil {
-                    node.value = Some(coerce_cst_scalar(
-                        cst,
-                        content,
-                        domain_schema,
-                        protocol,
-                        domain_vertex,
-                        &Lexeme::new(&text, LexClass::String),
-                        state,
-                    ));
-                    // The whole source-ordered run is the editable carrier.
-                    // Injection first checks semantic equality, preserving an
-                    // unchanged entity spelling byte-for-byte; after an edit,
-                    // it writes escaped text into the first span and empties
-                    // the remaining spans.
-                    state.node_to_cst_value.insert(node_id, text_children);
-                }
+            if let Some(text) = xml_text_run_value(cst, &text_children)?
+                && !xsi_nil
+            {
+                node.value = Some(coerce_cst_scalar(
+                    cst,
+                    content,
+                    domain_schema,
+                    protocol,
+                    domain_vertex,
+                    &Lexeme::new(&text, LexClass::String),
+                    state,
+                ));
+                // The whole source-ordered run is the editable carrier.
+                // Injection first checks semantic equality, preserving an
+                // unchanged entity spelling byte-for-byte; after an edit,
+                // it writes escaped text into the first span and empties
+                // the remaining spans.
+                state.node_to_cst_value.insert(node_id, text_children);
             }
         } else if has_text || has_opaque {
             // Mixed content: walk content in source order. Consecutive
@@ -3646,22 +3645,22 @@ fn extract_xml_attributes(
 ) -> Result<(), CstCodecError> {
     let mut seen = HashSet::new();
     for edge in cst.outgoing_edges(stag_vertex) {
-        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("Attribute") {
-            if let (Some(attr_name), Some(attr_value)) = (
+        if cst_vertex_kind(cst, &edge.tgt).as_deref() == Some("Attribute")
+            && let (Some(attr_name), Some(attr_value)) = (
                 extract_xml_attr_name(cst, &edge.tgt),
                 extract_xml_attr_value(cst, &edge.tgt)?,
-            ) {
-                if !seen.insert(attr_name.clone()) {
-                    return Err(CstCodecError::Structure(format!(
-                        "duplicate XML attribute at {}",
-                        cst_byte_offset(cst, &edge.tgt).map_or_else(
-                            || "unknown byte".to_owned(),
-                            |offset| format!("byte {offset}"),
-                        )
-                    )));
-                }
-                node.extra_fields.insert(attr_name, Value::Str(attr_value));
+            )
+        {
+            if !seen.insert(attr_name.clone()) {
+                return Err(CstCodecError::Structure(format!(
+                    "duplicate XML attribute at {}",
+                    cst_byte_offset(cst, &edge.tgt).map_or_else(
+                        || "unknown byte".to_owned(),
+                        |offset| format!("byte {offset}"),
+                    )
+                )));
             }
+            node.extra_fields.insert(attr_name, Value::Str(attr_value));
         }
     }
     Ok(())
@@ -4242,31 +4241,31 @@ fn inject_xml_attributes(
 
     for attr_vertex in &attr_edges {
         let attr_name = extract_xml_attr_name(cst, attr_vertex);
-        if let Some(ref name) = attr_name {
-            if let Some(text) = rendered.get(name.as_str()) {
-                // When the attribute value is unchanged, leave the original
-                // AttValue token untouched: it carries lexical details the
-                // re-serialization discards (single- vs double-quote style,
-                // and entity-encoded characters such as `&lt;`/`&amp;`).
-                if extract_xml_attr_value(cst, attr_vertex)
-                    .ok()
-                    .flatten()
-                    .as_deref()
-                    == Some(text.as_str())
-                {
-                    continue;
-                }
-                // Find and update the AttValue child
-                let attvalue_vertex = cst
-                    .outgoing_edges(attr_vertex)
-                    .iter()
-                    .find(|e| cst.vertex(&e.tgt).is_some_and(|v| *v.kind == *"AttValue"))
-                    .map(|e| e.tgt.clone());
-                if let Some(av) = attvalue_vertex {
-                    // The AttValue literal includes quotes; update the inner text
-                    let quoted = format!("\"{}\"", escape_xml_edit_text(text, true));
-                    set_toml_token_text(&mut *cst, &av, &quoted);
-                }
+        if let Some(ref name) = attr_name
+            && let Some(text) = rendered.get(name.as_str())
+        {
+            // When the attribute value is unchanged, leave the original
+            // AttValue token untouched: it carries lexical details the
+            // re-serialization discards (single- vs double-quote style,
+            // and entity-encoded characters such as `&lt;`/`&amp;`).
+            if extract_xml_attr_value(cst, attr_vertex)
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some(text.as_str())
+            {
+                continue;
+            }
+            // Find and update the AttValue child
+            let attvalue_vertex = cst
+                .outgoing_edges(attr_vertex)
+                .iter()
+                .find(|e| cst.vertex(&e.tgt).is_some_and(|v| *v.kind == *"AttValue"))
+                .map(|e| e.tgt.clone());
+            if let Some(av) = attvalue_vertex {
+                // The AttValue literal includes quotes; update the inner text
+                let quoted = format!("\"{}\"", escape_xml_edit_text(text, true));
+                set_toml_token_text(&mut *cst, &av, &quoted);
             }
         }
     }

@@ -133,7 +133,7 @@ fn graph_put_error(error: LensError) -> SquareError {
     }
 }
 
-fn is_graph_put_domain_refusal(error: &SquareError) -> bool {
+const fn is_graph_put_domain_refusal(error: &SquareError) -> bool {
     match error {
         SquareError::PutDomain(_) => true,
         SquareError::PutDomainReport(errors) => !errors.is_empty(),

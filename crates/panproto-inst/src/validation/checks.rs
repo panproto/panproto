@@ -1640,10 +1640,10 @@ fn discover_global(
     let view = ctx.view;
     match (key.kind, subject) {
         (CheckKind::KeyUnique, None) => {
-            if let Compiled::KeyUnique { vertex, key } = compiled {
-                if !(matches!(view, InstanceView::Table(_)) && has_position_part(key).is_some()) {
-                    let _ = ctx.key_index(vertex, key, true);
-                }
+            if let Compiled::KeyUnique { vertex, key } = compiled
+                && !(matches!(view, InstanceView::Table(_)) && has_position_part(key).is_some())
+            {
+                let _ = ctx.key_index(vertex, key, true);
             }
         }
         (CheckKind::ReferenceResolves, Some(holder)) => {

@@ -172,11 +172,11 @@ pub fn parse_amr_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
                     }
                     serde_json::Value::Array(arr) => {
                         for (i, item) in arr.iter().enumerate() {
-                            if let Some(tgt) = item.as_str() {
-                                if types.contains_key(tgt) {
-                                    let label = format!("{edge_kind}.{i}");
-                                    builder = builder.edge(name, tgt, edge_kind, Some(&label))?;
-                                }
+                            if let Some(tgt) = item.as_str()
+                                && types.contains_key(tgt)
+                            {
+                                let label = format!("{edge_kind}.{i}");
+                                builder = builder.edge(name, tgt, edge_kind, Some(&label))?;
                             }
                         }
                     }

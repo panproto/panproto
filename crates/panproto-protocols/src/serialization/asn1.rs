@@ -230,10 +230,9 @@ fn parse_type_assignment(
 
                     // Check for DEFAULT.
                     if let Some(pos) = parts.iter().position(|p| p.eq_ignore_ascii_case("DEFAULT"))
+                        && let Some(val) = parts.get(pos + 1)
                     {
-                        if let Some(val) = parts.get(pos + 1) {
-                            b = b.constraint(&field_id, "default", val);
-                        }
+                        b = b.constraint(&field_id, "default", val);
                     }
 
                     if !builtin {

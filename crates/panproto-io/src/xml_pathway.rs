@@ -123,7 +123,7 @@ fn decode_utf16_source(
     little_endian: bool,
     protocol: &str,
 ) -> Result<DecodedXmlSource, ParseInstanceError> {
-    if input.len() % 2 != 0 {
+    if !input.len().is_multiple_of(2) {
         return Err(invalid_xml_encoding(protocol, input.len() - 1));
     }
     let mut text = String::new();
@@ -1993,48 +1993,47 @@ fn flush_text(
     before_child: bool,
     text_byte_offset: &mut Option<u64>,
 ) -> Result<(), ParseInstanceError> {
-    if !text_buf.is_empty() {
-        if let Some(current) = element_stack.last() {
-            let has_child_element = state.arcs.iter().any(|(parent, _, _)| *parent == current.0);
-            let is_null = state
-                .nodes
-                .get(&current.0)
-                .is_some_and(|node| matches!(node.value, Some(FieldPresence::Null)));
-            if is_null {
-                return Err(ParseInstanceError::Parse {
-                    protocol: protocol.name.clone(),
-                    message: "an xsi:nil element cannot contain character data".into(),
-                });
-            }
-            if before_child || has_child_element {
-                let segment_anchor = format!("{}:text", current.1);
-                let segment_id = state.alloc_id();
-                let mut segment = Node::new(segment_id, segment_anchor.as_str());
-                segment.value = Some(FieldPresence::Present(Value::Str(text_buf.clone())));
-                segment.shape = NodeShape::XmlTextSegment;
-                state.nodes.insert(segment_id, segment);
-                state.arcs.push((
-                    current.0,
-                    segment_id,
-                    Edge {
-                        src: current.1.as_str().into(),
-                        tgt: segment_anchor.as_str().into(),
-                        kind: "prop".into(),
-                        name: Some("$xml_text".into()),
-                    },
-                ));
-            } else if let Some(node) = state.nodes.get_mut(&current.0) {
-                let spec = xml_value_spec(schema, protocol, &node.anchor);
-                match crate::json_pathway::coerce_exact_lexeme(
-                    &Lexeme::new(text_buf, LexClass::String),
-                    &spec,
-                ) {
-                    Ok(Value::Null) => node.value = Some(FieldPresence::Null),
-                    Ok(value) => node.value = Some(FieldPresence::Present(value)),
-                    Err(error) => {
-                        fidelity
-                            .push(error.at(ValueSite::new(node.anchor.clone(), *text_byte_offset)));
-                    }
+    if !text_buf.is_empty()
+        && let Some(current) = element_stack.last()
+    {
+        let has_child_element = state.arcs.iter().any(|(parent, _, _)| *parent == current.0);
+        let is_null = state
+            .nodes
+            .get(&current.0)
+            .is_some_and(|node| matches!(node.value, Some(FieldPresence::Null)));
+        if is_null {
+            return Err(ParseInstanceError::Parse {
+                protocol: protocol.name.clone(),
+                message: "an xsi:nil element cannot contain character data".into(),
+            });
+        }
+        if before_child || has_child_element {
+            let segment_anchor = format!("{}:text", current.1);
+            let segment_id = state.alloc_id();
+            let mut segment = Node::new(segment_id, segment_anchor.as_str());
+            segment.value = Some(FieldPresence::Present(Value::Str(text_buf.clone())));
+            segment.shape = NodeShape::XmlTextSegment;
+            state.nodes.insert(segment_id, segment);
+            state.arcs.push((
+                current.0,
+                segment_id,
+                Edge {
+                    src: current.1.as_str().into(),
+                    tgt: segment_anchor.as_str().into(),
+                    kind: "prop".into(),
+                    name: Some("$xml_text".into()),
+                },
+            ));
+        } else if let Some(node) = state.nodes.get_mut(&current.0) {
+            let spec = xml_value_spec(schema, protocol, &node.anchor);
+            match crate::json_pathway::coerce_exact_lexeme(
+                &Lexeme::new(text_buf, LexClass::String),
+                &spec,
+            ) {
+                Ok(Value::Null) => node.value = Some(FieldPresence::Null),
+                Ok(value) => node.value = Some(FieldPresence::Present(value)),
+                Err(error) => {
+                    fidelity.push(error.at(ValueSite::new(node.anchor.clone(), *text_byte_offset)));
                 }
             }
         }
@@ -3313,10 +3312,10 @@ fn find_child_vertex(
     }
     // Then try matching target vertex kind.
     for edge in schema.outgoing_edges(parent_vertex) {
-        if let Some(v) = schema.vertices.get(&edge.tgt) {
-            if expanded_tag.is_some_and(|expanded| v.kind == expanded) || v.kind == tag {
-                return Some(edge.tgt.to_string());
-            }
+        if let Some(v) = schema.vertices.get(&edge.tgt)
+            && (expanded_tag.is_some_and(|expanded| v.kind == expanded) || v.kind == tag)
+        {
+            return Some(edge.tgt.to_string());
         }
     }
     None

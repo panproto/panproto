@@ -357,29 +357,27 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             }
 
             // Bounding boxes nested inside the annotation's bounding-box sequence
-            if let Some(bbseq) = ann.get("boundingBoxSequence") {
-                if let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array) {
-                    for (bi, bb) in boxes.iter().enumerate() {
-                        let bb_id = format!("{ann_id}.bbox_{bi}");
-                        add_vertex!(&bb_id, "bounding-box");
-                        if let Some(fn_val) =
-                            bb.get("frameNumber").and_then(serde_json::Value::as_i64)
-                        {
-                            builder =
-                                builder.constraint(&bb_id, "frame-number", &fn_val.to_string());
-                        }
-                        if let Some(x) = bb.get("x").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "x", &x.to_string());
-                        }
-                        if let Some(y) = bb.get("y").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "y", &y.to_string());
-                        }
-                        if let Some(w) = bb.get("width").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "width", &w.to_string());
-                        }
-                        if let Some(h) = bb.get("height").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "height", &h.to_string());
-                        }
+            if let Some(bbseq) = ann.get("boundingBoxSequence")
+                && let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array)
+            {
+                for (bi, bb) in boxes.iter().enumerate() {
+                    let bb_id = format!("{ann_id}.bbox_{bi}");
+                    add_vertex!(&bb_id, "bounding-box");
+                    if let Some(fn_val) = bb.get("frameNumber").and_then(serde_json::Value::as_i64)
+                    {
+                        builder = builder.constraint(&bb_id, "frame-number", &fn_val.to_string());
+                    }
+                    if let Some(x) = bb.get("x").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "x", &x.to_string());
+                    }
+                    if let Some(y) = bb.get("y").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "y", &y.to_string());
+                    }
+                    if let Some(w) = bb.get("width").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "width", &w.to_string());
+                    }
+                    if let Some(h) = bb.get("height").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "height", &h.to_string());
                     }
                 }
             }
@@ -626,13 +624,13 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 }
             }
 
-            if let Some(bbseq) = ann.get("boundingBoxSequence") {
-                if let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array) {
-                    for (bi, _bb) in boxes.iter().enumerate() {
-                        let bb_id = format!("{ann_id}.bbox_{bi}");
-                        let bi_str = bi.to_string();
-                        add_edge!(ann_id, &bb_id, "has-bbox", Some(bi_str.as_str()));
-                    }
+            if let Some(bbseq) = ann.get("boundingBoxSequence")
+                && let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array)
+            {
+                for (bi, _bb) in boxes.iter().enumerate() {
+                    let bb_id = format!("{ann_id}.bbox_{bi}");
+                    let bi_str = bi.to_string();
+                    add_edge!(ann_id, &bb_id, "has-bbox", Some(bi_str.as_str()));
                 }
             }
         }

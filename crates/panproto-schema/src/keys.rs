@@ -966,7 +966,7 @@ pub struct DeclarationReport {
 impl DeclarationReport {
     /// Returns `true` iff nothing was dropped.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.dropped_keys.is_empty()
             && self.dropped_references.is_empty()
             && self.dropped_target_set_members.is_empty()

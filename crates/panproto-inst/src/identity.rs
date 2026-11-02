@@ -341,7 +341,7 @@ impl FromStr for Digest {
             }
         };
         let mut out = [0u8; 32];
-        for (slot, pair) in out.iter_mut().zip(bytes.chunks_exact(2)) {
+        for (slot, pair) in out.iter_mut().zip(bytes.as_chunks::<2>().0) {
             let (Some(hi), Some(lo)) = (nibble(pair[0]), nibble(pair[1])) else {
                 return Err(DigestParseError(s.to_owned()));
             };
@@ -1997,14 +1997,11 @@ fn siphash13_zero_key(message: &[u8]) -> u64 {
         0x6c79_6765_6e65_7261,
         0x7465_6462_7974_6573,
     ]);
-    let mut chunks = message.chunks_exact(8);
-    for chunk in &mut chunks {
-        let mut word = [0u8; 8];
-        word.copy_from_slice(chunk);
-        state.absorb(u64::from_le_bytes(word));
+    let (chunks, rest) = message.as_chunks::<8>();
+    for chunk in chunks {
+        state.absorb(u64::from_le_bytes(*chunk));
     }
     let mut tail = [0u8; 8];
-    let rest = chunks.remainder();
     tail[..rest.len()].copy_from_slice(rest);
     // The message length modulo 256 in the top byte, as SipHash specifies.
     let length_byte = u64::from(u8::try_from(message.len() & 0xFF).unwrap_or(0));

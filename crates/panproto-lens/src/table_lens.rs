@@ -19,9 +19,7 @@ use panproto_inst::{
 };
 use panproto_schema::{ConstraintValue, Edge, Protocol, Schema};
 
-use crate::asymmetric::{
-    ComplementCompose, apply_inverse_transforms, propagate_view_edits_through_inverse, value_equiv,
-};
+use crate::asymmetric::{ComplementCompose, propagate_view_edits_through_inverse, value_equiv};
 use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::graph_lens::{GraphComposite, SequentialGraphLens};
 use crate::{Lens, LensError};
@@ -1411,7 +1409,7 @@ fn restore_with_plan(
     let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells) else {
         return Err(Vec::new());
     };
-    let (mut source, mut errors) = restore_rows(lens, view, complement, functor, cells);
+    let (mut source, mut errors) = restore_rows(view, complement, functor);
 
     restore_view_pairs(view, complement, plan, functor, &mut source, &mut errors);
     restore_dropped_pairs(complement, &mut source);
@@ -1429,7 +1427,6 @@ fn restore_with_plan(
         Err(error) => return Err(refusal_from_restrict(error)),
     };
     errors.extend(pull_changed_rows(
-        lens,
         view,
         &baseline_view,
         functor,
@@ -1445,11 +1442,9 @@ fn restore_with_plan(
 }
 
 fn restore_rows(
-    lens: &Lens,
     view: &FInstance,
     complement: &TableComplement,
     functor: &panproto_inst::EntityFunctor,
-    cells: &panproto_inst::CellPlan,
 ) -> (FInstance, Vec<PutDomainError>) {
     let mut source = FInstance::new();
     let mut errors = Vec::new();
@@ -1499,32 +1494,6 @@ fn restore_rows(
                 row.insert(column.clone(), value.clone());
             }
         }
-        let recorded = complement.dropped_cells.keys().any(|(row, _)| *row == id)
-            || complement.original_cells.keys().any(|(row, _)| *row == id)
-            || complement
-                .original_absent_cells
-                .iter()
-                .any(|(row, _)| *row == id)
-            || complement.original_tables.contains_key(&id);
-        if !(recorded || id.0 < complement.id_floor) {
-            let source_columns = columns.keys().cloned().collect();
-            pull_row_edits(
-                lens,
-                &source_table,
-                view_row,
-                &mut row,
-                &source_columns,
-                cells
-                    .fates
-                    .get(&source_table)
-                    .map_or(&[][..], Vec::as_slice),
-                PullRowOptions {
-                    removed_targets: &[],
-                    has_snapshot: false,
-                    trace: None,
-                },
-            );
-        }
         if source.insert_row(source_table, id, row).is_err() {
             errors.push(PutDomainError::IdCollision {
                 elem: ViewRef::Row(id),
@@ -1546,7 +1515,6 @@ fn restore_rows(
 }
 
 fn pull_changed_rows(
-    lens: &Lens,
     view: &FInstance,
     baseline_view: &FInstance,
     functor: &panproto_inst::EntityFunctor,
@@ -1590,7 +1558,6 @@ fn pull_changed_rows(
             .collect();
         if let Some(row) = source.row_mut(id) {
             pull_row_edits(
-                lens,
                 &source_table,
                 view_row,
                 row,
@@ -1598,8 +1565,7 @@ fn pull_changed_rows(
                 fates,
                 PullRowOptions {
                     removed_targets: &removed,
-                    has_snapshot: true,
-                    trace: Some(traces.get(&id).map_or(&[], Vec::as_slice)),
+                    trace: traces.get(&id).map_or(&[], Vec::as_slice),
                 },
             );
         }
@@ -1610,12 +1576,10 @@ fn pull_changed_rows(
 #[derive(Clone, Copy)]
 struct PullRowOptions<'a> {
     removed_targets: &'a [String],
-    has_snapshot: bool,
-    trace: Option<&'a [FieldTransform]>,
+    trace: &'a [FieldTransform],
 }
 
 fn pull_row_edits(
-    lens: &Lens,
     source_table: &Name,
     view_row: &Row,
     source_row: &mut Row,
@@ -1627,9 +1591,7 @@ fn pull_row_edits(
     for target in options.removed_targets {
         if let Some(writer) = cell_writer(fates, target) {
             post_transform.remove(&writer);
-            if options.has_snapshot {
-                source_row.remove(&writer);
-            }
+            source_row.remove(&writer);
         }
     }
     for (target, value) in view_row {
@@ -1637,30 +1599,17 @@ fn pull_row_edits(
             post_transform.insert(writer, value.clone());
         }
     }
-    let declared;
-    let transforms = if let Some(trace) = options.trace {
-        trace
-    } else {
-        declared = lens.compiled.value_transforms(source_table);
-        &declared
-    };
+    let transforms = options.trace;
     let outputs = transform_outputs(transforms);
-    if options.has_snapshot {
-        for (key, value) in &post_transform {
-            if columns.contains(key) && !outputs.contains(key) {
-                source_row.insert(key.clone(), value.clone());
-            }
+    for (key, value) in &post_transform {
+        if columns.contains(key) && !outputs.contains(key) {
+            source_row.insert(key.clone(), value.clone());
         }
-        let mut node = panproto_inst::Node::new(0, source_table.clone());
-        node.extra_fields = std::mem::take(source_row);
-        propagate_view_edits_through_inverse(&mut node, &post_transform, transforms);
-        *source_row = node.extra_fields;
-    } else {
-        let mut node = panproto_inst::Node::new(0, source_table.clone());
-        node.extra_fields = post_transform;
-        apply_inverse_transforms(&mut node, transforms);
-        *source_row = node.extra_fields;
     }
+    let mut node = panproto_inst::Node::new(0, source_table.clone());
+    node.extra_fields = std::mem::take(source_row);
+    propagate_view_edits_through_inverse(&mut node, &post_transform, transforms);
+    *source_row = node.extra_fields;
     source_row.retain(|key, _| columns.contains(key));
 }
 
@@ -1833,9 +1782,9 @@ fn forward_stability(
     };
     let mut found = Vec::new();
     let mut traces = if let Some(boundary) = &plan.boundary
-        && let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells)
+        && let (Some(functor), Some(_)) = (&boundary.table, &boundary.cells)
     {
-        let (mut baseline, mut errors) = restore_rows(lens, view, complement, functor, cells);
+        let (mut baseline, mut errors) = restore_rows(view, complement, functor);
         restore_view_pairs(view, complement, plan, functor, &mut baseline, &mut errors);
         restore_dropped_pairs(complement, &mut baseline);
         if !errors.is_empty() {
@@ -2581,7 +2530,22 @@ mod tests {
                 bits: 64,
                 signed: true,
             });
-            let source_schema = schema_with_columns(&protocol, &["f", "g"]);
+            // The source column `g` reads its own vertex, so it is dropped and
+            // the rename `f -> g` is injective; a shared vertex would keep the
+            // source `g` beside the rename, which the table plan refuses.
+            let source_schema = SchemaBuilder::new(&protocol)
+                .vertex("row", "record", None)
+                .test_unwrap("row schema must build")
+                .vertex("value", "value", None)
+                .test_unwrap("value schema must build")
+                .vertex("other", "value", None)
+                .test_unwrap("other value schema must build")
+                .edge("row", "value", "property", Some("f"))
+                .test_unwrap("column must build")
+                .edge("row", "other", "property", Some("g"))
+                .test_unwrap("column must build")
+                .build()
+                .test_unwrap("column schema must build");
             let target_schema = schema_with_columns(&protocol, &["g"]);
             let lens = mapped_lens(
                 &source_schema,
@@ -2621,6 +2585,7 @@ mod tests {
                 get(&lens, &instance(Row::new()), context).test_unwrap("default get");
             let key = (RowId(0), "f".to_owned());
             let mut independent = TableComplement::empty();
+            independent.identity.clone_from(&absent.identity);
             independent
                 .original_absent_cells
                 .insert((RowId(1), "g".to_owned()));
@@ -2633,6 +2598,7 @@ mod tests {
             );
             for source_map in 0..3 {
                 let mut positive = TableComplement::empty();
+                positive.identity.clone_from(&absent.identity);
                 match source_map {
                     0 => {
                         positive.dropped_cells.insert(key.clone(), Value::Int(9));
@@ -2667,7 +2633,6 @@ mod tests {
                         ..
                     })
                 ));
-                positive.identity.clone_from(&absent.identity);
                 assert!(matches!(
                     put(&lens, &view, &positive, context),
                     Err(LensError::ComplementConflict {

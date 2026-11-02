@@ -329,15 +329,15 @@ pub(crate) fn extra_fields_equiv_modulo(
         };
         // Recurse into a nested map only when a derived location sits
         // below it; otherwise the whole subtree compares structurally.
-        if fiber.has_nested_below(path, key) {
-            if let (Value::Unknown(ma), Value::Unknown(mb)) = (va, vb) {
-                let mut nested = path.to_vec();
-                nested.push(key.clone());
-                if let Some(detail) = extra_fields_equiv_modulo(ma, mb, fiber, &nested) {
-                    return Some(detail);
-                }
-                continue;
+        if fiber.has_nested_below(path, key)
+            && let (Value::Unknown(ma), Value::Unknown(mb)) = (va, vb)
+        {
+            let mut nested = path.to_vec();
+            nested.push(key.clone());
+            if let Some(detail) = extra_fields_equiv_modulo(ma, mb, fiber, &nested) {
+                return Some(detail);
             }
+            continue;
         }
         if !crate::asymmetric::value_equiv(va, vb) {
             return Some(format!(

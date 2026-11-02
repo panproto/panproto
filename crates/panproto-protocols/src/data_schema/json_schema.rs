@@ -180,12 +180,12 @@ pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, Pr
 
     for (i, json) in docs.iter().enumerate() {
         let (prefix, declared) = document_identity(json, i, docs.len());
-        if let Some(id) = declared {
-            if !seen_ids.insert(id) {
-                return Err(ProtocolError::Parse(format!(
-                    "duplicate $id in bundle: {id}"
-                )));
-            }
+        if let Some(id) = declared
+            && !seen_ids.insert(id)
+        {
+            return Err(ProtocolError::Parse(format!(
+                "duplicate $id in bundle: {id}"
+            )));
         }
 
         for defs_key in &["$defs", "definitions"] {

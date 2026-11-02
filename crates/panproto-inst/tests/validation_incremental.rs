@@ -4125,13 +4125,12 @@ fn apply_graph_op(graph: &mut GInstance, op: GraphOp) {
             }
         }
         GraphFamily::AddEdge => {
-            if let (Some(s), Some(t)) = (node(op.a), node(op.b)) {
-                if let Ok(id) =
+            if let (Some(s), Some(t)) = (node(op.a), node(op.b))
+                && let Ok(id) =
                     graph.add_edge(s, t, labels[usize::from(op.c) % labels.len()].clone())
-                {
-                    let _ =
-                        graph.set_edge_position(id, (op.c % 3 == 0).then_some(u32::from(op.c % 2)));
-                }
+            {
+                let _ = graph
+                    .set_edge_position(id, op.c.is_multiple_of(3).then_some(u32::from(op.c % 2)));
             }
         }
         GraphFamily::DelEdge => {
@@ -4186,7 +4185,8 @@ fn apply_graph_op(graph: &mut GInstance, op: GraphOp) {
         }
         GraphFamily::EdgePosition => {
             if let Some(e) = edge(op.a) {
-                let _ = graph.set_edge_position(e, (op.c % 3 != 0).then_some(u32::from(op.c % 3)));
+                let _ = graph
+                    .set_edge_position(e, (!op.c.is_multiple_of(3)).then_some(u32::from(op.c % 3)));
             }
         }
     }
@@ -4447,7 +4447,7 @@ fn tree_step(tree: &WInstance, op: TreeOp) -> Option<TreeEdit> {
                 .arcs
                 .iter()
                 .find(|(_, child, _)| *child == node_id)
-                .filter(|_| op.c % 3 == 0);
+                .filter(|_| op.c.is_multiple_of(3));
             match own {
                 Some((parent, _, edge)) => TreeEdit::MoveSubtree {
                     node_id,
@@ -4462,16 +4462,27 @@ fn tree_step(tree: &WInstance, op: TreeOp) -> Option<TreeEdit> {
             }
         }
         TreeFamily::InsertFan => {
-            let mut fan =
-                panproto_inst::Fan::new(if op.c % 4 == 0 { "nope" } else { "rel" }, pick(op.a)?)
-                    .with_child("a", pick(op.b)?);
-            if op.c % 3 == 0 {
+            let mut fan = panproto_inst::Fan::new(
+                if op.c.is_multiple_of(4) {
+                    "nope"
+                } else {
+                    "rel"
+                },
+                pick(op.a)?,
+            )
+            .with_child("a", pick(op.b)?);
+            if op.c.is_multiple_of(3) {
                 fan = fan.with_child("b", pick(op.b.wrapping_add(1))?);
             }
             TreeEdit::InsertFan { fan }
         }
         TreeFamily::DeleteFan => TreeEdit::DeleteFan {
-            hyper_edge_id: if op.c % 2 == 0 { "rel" } else { "nope" }.into(),
+            hyper_edge_id: if op.c.is_multiple_of(2) {
+                "rel"
+            } else {
+                "nope"
+            }
+            .into(),
         },
         TreeFamily::JoinFeatures => {
             let primary = pick(op.a)?;
@@ -5685,7 +5696,7 @@ fn v3_v4_hold_on_every_bounded_graph_transition() {
     for pre in &graphs {
         for post in &graphs {
             let delta = GraphDelta::diff(pre, post);
-            let budget = if checked % 2 == 0 {
+            let budget = if checked.is_multiple_of(2) {
                 ValidationBudget::default()
             } else {
                 ValidationBudget { max_reads: Some(4) }
@@ -5742,7 +5753,7 @@ fn v3_v4_hold_on_every_bounded_tree_step() {
     let mut checked = 0_usize;
     for pre in &trees {
         for step in tree_step_menu(pre) {
-            let budget = if checked % 2 == 0 {
+            let budget = if checked.is_multiple_of(2) {
                 ValidationBudget::default()
             } else {
                 ValidationBudget { max_reads: Some(4) }
@@ -5840,7 +5851,7 @@ fn bounded_step<I: Surface>(
     for require_passed in [true, false] {
         let mut next = validated.clone();
         let options = WitnessOptions {
-            digests: counts.steps % 2 == 0,
+            digests: counts.steps.is_multiple_of(2),
         };
         let admitted = v5_step(
             &mut next,

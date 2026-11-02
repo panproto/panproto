@@ -175,16 +175,15 @@ impl ProjectBuilder {
     /// Returns [`ProjectError::ParseFailed`] if parsing fails.
     pub fn add_file(&mut self, path: &Path, content: &[u8]) -> Result<(), ProjectError> {
         // Check cache first.
-        if let Some(ref mut file_cache) = self.cache {
-            if let Some(entry) = file_cache.entries.get(path) {
-                if cache::is_valid(entry, path) {
-                    self.file_schemas
-                        .insert(path.to_owned(), entry.schema.clone());
-                    self.protocol_map
-                        .insert(path.to_owned(), entry.protocol.clone());
-                    return Ok(());
-                }
-            }
+        if let Some(ref mut file_cache) = self.cache
+            && let Some(entry) = file_cache.entries.get(path)
+            && cache::is_valid(entry, path)
+        {
+            self.file_schemas
+                .insert(path.to_owned(), entry.schema.clone());
+            self.protocol_map
+                .insert(path.to_owned(), entry.protocol.clone());
+            return Ok(());
         }
 
         let path_str = path.display().to_string();

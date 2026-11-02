@@ -3001,10 +3001,10 @@ pub fn generated_spec(rng: &mut SplitMix) -> TableSpec {
     let targets: Vec<String> = tgt.tables.keys().cloned().collect();
     let mut tables = BTreeMap::new();
     for source in src.tables.keys() {
-        if rng.chance(85) {
-            if let Some(target) = rng.pick(&targets) {
-                tables.insert(source.clone(), target.clone());
-            }
+        if rng.chance(85)
+            && let Some(target) = rng.pick(&targets)
+        {
+            tables.insert(source.clone(), target.clone());
         }
     }
     let mut relations = BTreeMap::new();
@@ -3021,20 +3021,20 @@ pub fn generated_spec(rng: &mut SplitMix) -> TableSpec {
             .filter(|relation| relation.src == *a && relation.tgt == *b)
             .cloned()
             .collect();
-        if rng.chance(80) {
-            if let Some(image) = rng.pick(&candidates) {
-                relations.insert(edge.clone(), image.clone());
-            }
+        if rng.chance(80)
+            && let Some(image) = rng.pick(&candidates)
+        {
+            relations.insert(edge.clone(), image.clone());
         }
     }
     let mut columns = BTreeMap::new();
     for (source, target) in &tables {
         let image_columns: Vec<String> = tgt.tables[target].iter().cloned().collect();
         for column in &src.tables[source] {
-            if rng.chance(80) {
-                if let Some(image) = rng.pick(&image_columns) {
-                    columns.insert((source.clone(), column.clone()), image.clone());
-                }
+            if rng.chance(80)
+                && let Some(image) = rng.pick(&image_columns)
+            {
+                columns.insert((source.clone(), column.clone()), image.clone());
             }
         }
     }
@@ -4645,10 +4645,10 @@ mod tests {
     fn drop_edge(g: &Graph, id: u32, field: Option<(u32, &str)>) -> Graph {
         let mut out = g.clone();
         out.edges.remove(&id);
-        if let Some((owner, name)) = field {
-            if let Some(n) = out.nodes.get_mut(&owner) {
-                n.fields.insert(name.to_owned(), Value::Int(9));
-            }
+        if let Some((owner, name)) = field
+            && let Some(n) = out.nodes.get_mut(&owner)
+        {
+            n.fields.insert(name.to_owned(), Value::Int(9));
         }
         out
     }

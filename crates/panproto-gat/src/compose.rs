@@ -1854,17 +1854,17 @@ fn validate_edges(
             }
         })?;
         for name in &src.implicit {
-            if let Some(image) = edge.morphism.sort_map.get(name) {
-                if !tgt.has_sort_symbol(image) {
-                    return Err(CompositionError::InvalidLeg {
-                        edge: index,
-                        detail: format!(
-                            "sort map sends `{name}`, which `{}` uses without declaring, to \
-                             `{image}`, which `{}` neither declares nor uses",
-                            edge.src, edge.tgt
-                        ),
-                    });
-                }
+            if let Some(image) = edge.morphism.sort_map.get(name)
+                && !tgt.has_sort_symbol(image)
+            {
+                return Err(CompositionError::InvalidLeg {
+                    edge: index,
+                    detail: format!(
+                        "sort map sends `{name}`, which `{}` uses without declaring, to \
+                         `{image}`, which `{}` neither declares nor uses",
+                        edge.src, edge.tgt
+                    ),
+                });
             }
         }
         records.push(record(
@@ -2800,12 +2800,12 @@ impl Cocone<'_> {
                 }
             }
             for (o, image) in &edge.morphism.op_map {
-                if let (true, OpAssignment::Op(t)) = (src.theory.has_op(o), image) {
-                    if maps.ops_of(&edge.src).get(o) != maps.ops_of(&edge.tgt).get(t) {
-                        broken.get_or_insert_with(|| {
-                            format!("operation `{o}` and its image `{t}` differ")
-                        });
-                    }
+                if let (true, OpAssignment::Op(t)) = (src.theory.has_op(o), image)
+                    && maps.ops_of(&edge.src).get(o) != maps.ops_of(&edge.tgt).get(t)
+                {
+                    broken.get_or_insert_with(|| {
+                        format!("operation `{o}` and its image `{t}` differ")
+                    });
                 }
             }
             // The least name among the equations this edge generated.

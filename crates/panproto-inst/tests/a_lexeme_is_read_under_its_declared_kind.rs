@@ -1068,7 +1068,7 @@ fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
     // x = 2^15, where the gap below is half as wide.
     let half_up = 2_000_000_000_u128;
     let half_down = if k == 1 << 23 { half_up / 2 } else { half_up };
-    let even = k % 2 == 0;
+    let even = k.is_multiple_of(2);
     let reads_back = |v: u128| {
         if v >= x {
             v - x < half_up || (v - x == half_up && even)
@@ -1092,7 +1092,7 @@ fn closest_shortest_reference(k: u64) -> (u64, u32, bool) {
             [a, b] => {
                 let (da, db) = (x - a, b - x);
                 // The closer, and at a tie the even significand.
-                let pick = if da < db || (da == db && (a / step) % 2 == 0) {
+                let pick = if da < db || (da == db && (a / step).is_multiple_of(2)) {
                     a
                 } else {
                     b
@@ -1250,7 +1250,7 @@ fn closest_shortest_reference_64(i: u64) -> (u128, u32, bool) {
     // At 2^50 the gap below is half as wide.
     let half_down = if i == 0 { 5 } else { half_up };
     // The significand of x is 2^52 + i.
-    let even = i % 2 == 0;
+    let even = i.is_multiple_of(2);
     let reads_back = |v: u128| {
         if v >= x {
             v - x < half_up || (v - x == half_up && even)
@@ -1272,7 +1272,7 @@ fn closest_shortest_reference_64(i: u64) -> (u128, u32, bool) {
             [a, b] => {
                 let (da, db) = (x - a, b - x);
                 // The closer, and at a tie the even significand.
-                let pick = if da < db || (da == db && (a / step) % 2 == 0) {
+                let pick = if da < db || (da == db && (a / step).is_multiple_of(2)) {
                     a
                 } else {
                     b

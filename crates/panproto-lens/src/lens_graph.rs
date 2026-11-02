@@ -168,7 +168,7 @@ impl LensGraph {
 
     /// Number of schemas in the graph.
     #[must_use]
-    pub fn schema_count(&self) -> usize {
+    pub const fn schema_count(&self) -> usize {
         self.schemas.len()
     }
 

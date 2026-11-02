@@ -3577,7 +3577,7 @@ fn execute_representative_pairs(
                 }
                 execute_representative_pair(case, source, target, &mut stats);
                 let pairs = done.fetch_add(1, AtomicOrdering::Relaxed) + 1;
-                if pairs % O14_PROGRESS_INTERVAL == 0 {
+                if pairs.is_multiple_of(O14_PROGRESS_INTERVAL) {
                     report_o14_progress(pairs, started.elapsed());
                 }
             }

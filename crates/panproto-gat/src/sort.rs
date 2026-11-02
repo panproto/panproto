@@ -65,10 +65,10 @@ impl SortExpr {
     /// ambiguity.
     #[must_use]
     pub fn normalize(self) -> Self {
-        if let Self::App { name, args } = &self {
-            if args.is_empty() {
-                return Self::Name(Arc::clone(name));
-            }
+        if let Self::App { name, args } = &self
+            && args.is_empty()
+        {
+            return Self::Name(Arc::clone(name));
         }
         self
     }
@@ -1047,13 +1047,13 @@ impl Sort {
 
     /// Returns `true` if this sort has no parameters.
     #[must_use]
-    pub fn is_simple(&self) -> bool {
+    pub const fn is_simple(&self) -> bool {
         self.params.is_empty()
     }
 
     /// Returns the arity (number of parameters) of this sort.
     #[must_use]
-    pub fn arity(&self) -> usize {
+    pub const fn arity(&self) -> usize {
         self.params.len()
     }
 }

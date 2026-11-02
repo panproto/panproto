@@ -97,7 +97,7 @@ impl Nat {
 
     /// Whether this is zero.
     #[must_use]
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.limbs.is_empty()
     }
 
@@ -354,7 +354,7 @@ impl Nat {
         loop {
             let (q, r) = n.div_small(1 << 32);
             if q.is_zero() {
-                return bits + u64::from(u64::BITS - r.leading_zeros());
+                return bits + u64::from(r.bit_width());
             }
             bits += 32;
             n = q;
@@ -396,7 +396,7 @@ impl Nat {
     /// Whether the number is even.
     #[must_use]
     pub fn is_even(&self) -> bool {
-        self.limb(0) % 2 == 0
+        self.limb(0).is_multiple_of(2)
     }
 }
 
@@ -445,7 +445,7 @@ impl fmt::Display for Int {
 impl Int {
     /// The integer with this sign and magnitude (a negative zero is zero).
     #[must_use]
-    pub fn new(negative: bool, magnitude: Nat) -> Self {
+    pub const fn new(negative: bool, magnitude: Nat) -> Self {
         Self {
             negative: negative && !magnitude.is_zero(),
             magnitude,
@@ -492,7 +492,7 @@ impl Int {
 
     /// Whether this integer is zero.
     #[must_use]
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.magnitude.is_zero()
     }
 
@@ -643,7 +643,7 @@ impl Rat {
 
     /// Whether this is zero.
     #[must_use]
-    pub fn is_zero(&self) -> bool {
+    pub const fn is_zero(&self) -> bool {
         self.num.is_zero()
     }
 
@@ -780,10 +780,10 @@ fn pow2_wide(m: u64) -> Nat {
 /// otherwise as `(2^h)^2 * 2^r` with `m = 2h + r` and `r` in `{0, 1}`, whose
 /// `h` is below `m`.
 fn pow2_by_halving(m: u64, limit: u64) -> Nat {
-    if m <= limit {
-        if let Ok(small) = u32::try_from(m) {
-            return Nat::pow2(small);
-        }
+    if m <= limit
+        && let Ok(small) = u32::try_from(m)
+    {
+        return Nat::pow2(small);
     }
     let half = pow2_by_halving(m / 2, limit);
     let square = half.mul(&half);

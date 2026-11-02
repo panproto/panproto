@@ -635,15 +635,15 @@ impl Unread {
         if let AnyInstance::Tree(tree) = source {
             let tree_source = super::source::Source::tree(tree);
             for (holder, _) in skip {
-                if let ViewRef::Node(holder) = holder {
-                    if regotten.node(*holder).is_some() {
-                        unread.right_nodes.extend(
-                            tree_source
-                                .subtree(*holder)
-                                .into_iter()
-                                .filter(|node| regotten.node(*node).is_some()),
-                        );
-                    }
+                if let ViewRef::Node(holder) = holder
+                    && regotten.node(*holder).is_some()
+                {
+                    unread.right_nodes.extend(
+                        tree_source
+                            .subtree(*holder)
+                            .into_iter()
+                            .filter(|node| regotten.node(*node).is_some()),
+                    );
                 }
             }
             let touching = |node: u32| {
@@ -715,13 +715,13 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
     let mut index = complement.synth_index();
     let mut removed: BTreeMap<(&ViewRef, &Name), Vec<u32>> = BTreeMap::new();
     for (carrier, records) in &complement.occurrences {
-        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) {
-            if view.edge(*id).is_none() {
-                removed
-                    .entry((&record.holder, &record.reference))
-                    .or_default()
-                    .push(record.index);
-            }
+        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
+            && view.edge(*id).is_none()
+        {
+            removed
+                .entry((&record.holder, &record.reference))
+                .or_default()
+                .push(record.index);
         }
     }
     let mut shifted = BTreeSet::new();
@@ -748,10 +748,11 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
         );
     }
     for (carrier, records) in &complement.occurrences {
-        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) {
-            if view.edge(*id).is_none() && shifted.contains(&(&record.holder, &record.reference)) {
-                index.edges.remove(id);
-            }
+        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
+            && view.edge(*id).is_none()
+            && shifted.contains(&(&record.holder, &record.reference))
+        {
+            index.edges.remove(id);
         }
     }
     index
