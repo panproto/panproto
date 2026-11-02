@@ -89,7 +89,7 @@ fn edited_view_put_domain_errors() -> Vec<(PutDomainError, &'static str)> {
 }
 
 /// The errors of the variants from `DuplicateKey` through
-/// `PlanCompilation`, in declaration order, with their serde tags.
+/// `KeyRefused`, in declaration order, with their serde tags.
 fn declared_constraint_put_domain_errors() -> Vec<(PutDomainError, &'static str)> {
     vec![
         (
@@ -124,18 +124,18 @@ fn declared_constraint_put_domain_errors() -> Vec<(PutDomainError, &'static str)
             "survival_predicate_refused",
         ),
         (
+            PutDomainError::PlanCompilation {
+                detail: "incoherent edge image".into(),
+            },
+            "plan_compilation",
+        ),
+        (
             PutDomainError::KeyRefused {
                 table: "items".into(),
                 key: "by-when".into(),
                 reason: KeyRefusal::NoCanonicalBytes,
             },
             "key_refused",
-        ),
-        (
-            PutDomainError::PlanCompilation {
-                detail: "incoherent edge image".into(),
-            },
-            "plan_compilation",
         ),
     ]
 }
@@ -292,13 +292,13 @@ fn put_domain_error_serde_tags_and_order_are_fixed() {
             reason,
         });
     }
-    let (keyed, _) = &errors[12];
+    let (keyed, _) = &errors[13];
     assert_eq!(
         serde_json::to_string(keyed).unwrap(),
         r#"{"key_refused":{"table":"items","key":"by-when","reason":"no_canonical_bytes"}}"#
     );
 
-    let (plan, _) = &errors[13];
+    let (plan, _) = &errors[12];
     assert_eq!(
         serde_json::to_string(plan).unwrap(),
         r#"{"plan_compilation":{"detail":"incoherent edge image"}}"#

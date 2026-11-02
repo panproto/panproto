@@ -57,15 +57,20 @@ fn run(
 /// survival predicate (it reads an unbound name), nodes anchored at `worse`
 /// fail a transform (it reads an unbound name), and contracted pairs from
 /// `p` through dropped `m` to `q` have no target edge while those to `q2`
-/// have two.
+/// have two. The target declares the transform's output `out` as an
+/// attribute of `worse`.
 fn precedence_schemas() -> (Schema, Schema, CompiledMigration) {
     let src = schema(
         &["bad", "worse", "p", "m", "q", "q2"],
         &[&e("p", "m", "pm"), &e("m", "q", "mq"), &e("m", "q2", "mq2")],
     );
     let tgt = schema(
-        &["bad", "worse", "p", "q", "q2"],
-        &[&e("p", "q2", "a"), &e("p", "q2", "b")],
+        &["bad", "worse", "worse.out", "p", "q", "q2"],
+        &[
+            &e("worse", "worse.out", "out"),
+            &e("p", "q2", "a"),
+            &e("p", "q2", "b"),
+        ],
     );
     let mut m = keep(&["bad", "worse", "p", "q", "q2"]);
     m.add_conditional_survival("bad", Expr::Var("unbound".into()));

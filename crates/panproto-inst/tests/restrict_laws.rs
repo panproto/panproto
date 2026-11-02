@@ -121,6 +121,7 @@ proptest! {
     /// If the engine returns a view under the plan with the protocol layer,
     /// it returns one under the plan without it, and the first is the
     /// second with each surviving node's cell fates and coercions applied.
+    /// A transform writing a column the target lacks compiles under neither.
     #[test]
     fn the_protocol_layer_is_a_per_node_post_pass(
         cells in prop::collection::vec(
@@ -166,6 +167,19 @@ proptest! {
         }
         let p = protocol();
         let protocols = BoundaryProtocols { src: &p, tgt: &p };
+        if !target_columns.contains(&written) {
+            // An output the target does not declare is refused by either
+            // compilation, before any view exists.
+            let undeclared = |result: Result<RestrictPlan, RestrictError>| {
+                matches!(
+                    result,
+                    Err(RestrictError::UndeclaredTransformField { field, .. }) if field == written
+                )
+            };
+            prop_assert!(undeclared(RestrictPlan::compile(&src, &tgt, &m)));
+            prop_assert!(undeclared(RestrictPlan::compile_with_protocols(&src, &tgt, &m, protocols)));
+            return Ok(());
+        }
         let bare = RestrictPlan::compile(&src, &tgt, &m).unwrap();
         let layered = RestrictPlan::compile_with_protocols(&src, &tgt, &m, protocols).unwrap();
         prop_assert!(layered.boundary.as_ref().and_then(|b| b.cells.as_ref()).is_some());

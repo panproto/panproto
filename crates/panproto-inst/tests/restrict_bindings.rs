@@ -29,6 +29,34 @@ fn schema_with(protocol: &Protocol, vertices: &[(&str, &str)], edges: &[&Edge]) 
     builder.build().unwrap()
 }
 
+/// `schema` with the attribute `field` of kind `kind` declared on `vertex`:
+/// the target of a migration whose transform computes `field` there. A
+/// table source keeps no such column, since its rows hold no such cell.
+fn declaring(
+    schema: &Schema,
+    protocol: &Protocol,
+    vertex: &str,
+    field: &str,
+    kind: &str,
+) -> Schema {
+    let attribute = format!("{vertex}.{field}");
+    let mut builder = SchemaBuilder::new(protocol);
+    for (id, v) in &schema.vertices {
+        builder = builder.vertex(id, &v.kind, None).unwrap();
+    }
+    builder = builder.vertex(&attribute, kind, None).unwrap();
+    for e in schema.edges.keys() {
+        builder = builder
+            .edge(&e.src, &e.tgt, &e.kind, e.name.as_deref())
+            .unwrap();
+    }
+    builder
+        .edge(vertex, &attribute, "prop", Some(field))
+        .unwrap()
+        .build()
+        .unwrap()
+}
+
 fn edge(src: &str, tgt: &str, kind: &str, name: Option<&str>) -> Edge {
     Edge {
         src: src.into(),
@@ -67,13 +95,14 @@ const fn present(value: Value) -> FieldPresence {
     FieldPresence::Present(value)
 }
 
-/// `r` with two children named `x` holding 1 and 2.
+/// `r` with two children named `x` holding 1 and 2; `r` declares the
+/// computed attribute `n`.
 fn repeated_tree() -> (WInstance, Schema) {
     let x = edge("r", "v", "prop", Some("x"));
     let schema = schema_with(
         &Protocol::default(),
-        &[("r", "record"), ("v", "record")],
-        &[&x],
+        &[("r", "record"), ("v", "record"), ("r.n", "int")],
+        &[&x, &edge("r", "r.n", "prop", Some("n"))],
     );
     let nodes: HashMap<u32, Node> = [
         (0, Node::new(0, "r")),
@@ -109,15 +138,10 @@ fn repeated_table() -> (FInstance, Schema) {
     (f, schema)
 }
 
-fn table_plan(schema: &Schema, migration: &CompiledMigration) -> RestrictPlan {
+fn table_plan(src: &Schema, tgt: &Schema, migration: &CompiledMigration) -> RestrictPlan {
     let p = protocol();
-    RestrictPlan::compile_for_tables(
-        schema,
-        schema,
-        migration,
-        BoundaryProtocols { src: &p, tgt: &p },
-    )
-    .unwrap()
+    RestrictPlan::compile_for_tables(src, tgt, migration, BoundaryProtocols { src: &p, tgt: &p })
+        .unwrap()
 }
 
 #[test]
@@ -183,11 +207,12 @@ fn a_transform_naming_a_repeated_child_is_ambiguous() {
     assert!(ambiguous(&error, 0), "{error:?}");
     // Table and its graph form.
     let (table, schema) = repeated_table();
+    let target = declaring(&schema, &protocol(), "r", "n", "int");
     let mut m = identity(&schema);
     m.add_computed_field("r", "n", reads("x"));
-    let error = functor_restrict_with_plan(&table, &table_plan(&schema, &m)).unwrap_err();
+    let error = functor_restrict_with_plan(&table, &table_plan(&schema, &target, &m)).unwrap_err();
     assert!(ambiguous(&error, 0), "{error:?}");
-    let plan = RestrictPlan::compile(&schema, &schema, &m).unwrap();
+    let plan = RestrictPlan::compile(&schema, &target, &m).unwrap();
     let error =
         graph_restrict_with_plan(&GInstance::from_finstance(&table).unwrap().0, &plan).unwrap_err();
     assert!(ambiguous(&error, 0), "{error:?}");
@@ -222,8 +247,13 @@ fn a_repeated_name_with_an_absent_child_and_an_unnamed_repeated_edge_are_repeate
     let unnamed = edge("r", "w", "prop", None);
     let schema = schema_with(
         &Protocol::default(),
-        &[("r", "record"), ("v", "record"), ("w", "record")],
-        &[&x, &unnamed],
+        &[
+            ("r", "record"),
+            ("v", "record"),
+            ("w", "record"),
+            ("r.n", "int"),
+        ],
+        &[&x, &unnamed, &edge("r", "r.n", "prop", Some("n"))],
     );
     let nodes: HashMap<u32, Node> = [
         (0, Node::new(0, "r")),
@@ -263,14 +293,20 @@ fn a_repeated_name_with_an_absent_child_and_an_unnamed_repeated_edge_are_repeate
     }
 }
 
-/// `r -items-> arr`, `arr -item-> rec` twice, records holding `x`.
+/// `r -items-> arr`, `arr -item-> rec` twice, records holding `x`; `r`
+/// declares the computed attribute `count`.
 fn structural_tree() -> (WInstance, Schema) {
     let items = edge("r", "arr", "prop", Some("items"));
     let item = edge("arr", "rec", "item", None);
     let schema = schema_with(
         &Protocol::default(),
-        &[("r", "record"), ("arr", "record"), ("rec", "record")],
-        &[&items, &item],
+        &[
+            ("r", "record"),
+            ("arr", "record"),
+            ("rec", "record"),
+            ("r.count", "int"),
+        ],
+        &[&items, &item, &edge("r", "r.count", "prop", Some("count"))],
     );
     let nodes: HashMap<u32, Node> = [
         (0, Node::new(0, "r")),
@@ -327,6 +363,7 @@ fn a_structural_child_aggregate_agrees_in_every_shape() {
         ],
         &[&items, &item, &x],
     );
+    let table_target = declaring(&table_schema, &protocol(), "r", "count", "int");
     let table = FInstance::new()
         .with_rows("r", [(RowId(0), HashMap::new())])
         .and_then(|f| f.with_rows("arr", [(RowId(1), HashMap::new())]))
@@ -345,7 +382,7 @@ fn a_structural_child_aggregate_agrees_in_every_shape() {
     let mut tm = identity(&table_schema);
     tm.add_computed_field("r", "count", reads("items"));
     let (table_view, _) =
-        functor_restrict_with_plan(&table, &table_plan(&table_schema, &tm)).unwrap();
+        functor_restrict_with_plan(&table, &table_plan(&table_schema, &table_target, &tm)).unwrap();
     assert_eq!(
         table_view.row(RowId(0)).unwrap().get("count"),
         Some(&Value::Int(2))
@@ -381,8 +418,8 @@ fn a_transform_evaluates_alike_in_every_shape() {
     let v = edge("r", "v", "prop", Some("v"));
     let schema = schema_with(
         &Protocol::default(),
-        &[("r", "record"), ("v", "record")],
-        &[&v],
+        &[("r", "record"), ("v", "record"), ("r.s", "int")],
+        &[&v, &edge("r", "r.s", "prop", Some("s"))],
     );
     let nodes: HashMap<u32, Node> = [
         (0, Node::new(0, "r").with_extra_field("a", Value::Int(5))),
@@ -408,6 +445,7 @@ fn a_transform_evaluates_alike_in_every_shape() {
     // A table row reads its cells.
     let a = edge("t", "t.a", "prop", Some("a"));
     let table_schema = schema_with(&protocol(), &[("t", "record"), ("t.a", "int")], &[&a]);
+    let table_target = declaring(&table_schema, &protocol(), "t", "s", "int");
     let table = FInstance::new()
         .with_rows(
             "t",
@@ -424,8 +462,8 @@ fn a_transform_evaluates_alike_in_every_shape() {
         ),
     );
     let (table_view, _) =
-        functor_restrict_with_plan(&table, &table_plan(&table_schema, &tm)).unwrap();
-    let plan = RestrictPlan::compile(&table_schema, &table_schema, &tm).unwrap();
+        functor_restrict_with_plan(&table, &table_plan(&table_schema, &table_target, &tm)).unwrap();
+    let plan = RestrictPlan::compile(&table_schema, &table_target, &tm).unwrap();
     let (graph_view, _) =
         graph_restrict_with_plan(&GInstance::from_finstance(&table).unwrap().0, &plan).unwrap();
     assert_eq!(
@@ -440,7 +478,11 @@ fn a_transform_evaluates_alike_in_every_shape() {
 
 #[test]
 fn an_unexpressible_referenced_value_is_a_typed_error() {
-    let schema = schema_with(&Protocol::default(), &[("r", "record")], &[]);
+    let schema = schema_with(
+        &Protocol::default(),
+        &[("r", "record"), ("r.copy", "int")],
+        &[&edge("r", "r.copy", "prop", Some("copy"))],
+    );
     let node = Node::new(0, "r")
         .with_extra_field("t", Value::Token("red".into()))
         .with_extra_field("n", Value::Int(1));
@@ -471,7 +513,11 @@ fn an_unexpressible_referenced_value_is_a_typed_error() {
 
 #[test]
 fn integral_floats_stay_floats() {
-    let schema = schema_with(&Protocol::default(), &[("r", "record")], &[]);
+    let schema = schema_with(
+        &Protocol::default(),
+        &[("r", "record"), ("r.y", "float")],
+        &[&edge("r", "r.y", "prop", Some("y"))],
+    );
     let graph = GInstance::new().with_node(Node::new(0, "r"));
     let mut m = identity(&schema);
     m.add_computed_field("r", "y", Expr::Lit(Literal::Float(2.0)));
@@ -509,7 +555,7 @@ fn an_integral_float_output_becomes_an_int_cell() {
     let (schema, table) = people();
     let mut m = identity(&schema);
     m.add_computed_field("person", "age", Expr::Lit(Literal::Float(2.0)));
-    let (view, _) = functor_restrict_with_plan(&table, &table_plan(&schema, &m)).unwrap();
+    let (view, _) = functor_restrict_with_plan(&table, &table_plan(&schema, &schema, &m)).unwrap();
     assert_eq!(view.row(RowId(0)).unwrap().get("age"), Some(&Value::Int(2)));
     let p = protocol();
     let plan = RestrictPlan::compile_with_protocols(
@@ -540,7 +586,7 @@ fn a_lossy_transform_output_is_refused() {
     let (schema, table) = people();
     let mut m = identity(&schema);
     m.add_computed_field("person", "age", Expr::Lit(Literal::Float(2.5)));
-    let error = functor_restrict_with_plan(&table, &table_plan(&schema, &m)).unwrap_err();
+    let error = functor_restrict_with_plan(&table, &table_plan(&schema, &schema, &m)).unwrap_err();
     match &error {
         RestrictError::ValueFidelity { node: 0, error } => {
             assert_eq!(error.site.vertex, "person.age");

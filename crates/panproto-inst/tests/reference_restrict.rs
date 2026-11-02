@@ -1497,6 +1497,13 @@ fn assert_repeated_child_attributes(instances: &RepeatedChildInstances) {
 
 fn assert_repeated_child_ambiguity(instances: &RepeatedChildInstances) {
     let protocol = Protocol {
+        value_kinds: BTreeMap::from([(
+            "int".to_owned(),
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
         non_value_kinds: BTreeSet::from(["record".to_owned()]),
         ..Protocol::default()
     };
@@ -1504,6 +1511,16 @@ fn assert_repeated_child_ambiguity(instances: &RepeatedChildInstances) {
         .vertex("r", "record", None)
         .and_then(|builder| builder.vertex("v", "record", None))
         .and_then(|builder| builder.edge("r", "v", "prop", Some("x")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    // The target declares the computed attribute `n` the migration writes;
+    // the source has no such column for its rows to lack.
+    let target = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None)
+        .and_then(|builder| builder.vertex("v", "record", None))
+        .and_then(|builder| builder.vertex("r.n", "int", None))
+        .and_then(|builder| builder.edge("r", "v", "prop", Some("x")))
+        .and_then(|builder| builder.edge("r", "r.n", "prop", Some("n")))
         .and_then(SchemaBuilder::build)
         .unwrap();
     let mut migration = CompiledMigration {
@@ -1516,7 +1533,7 @@ fn assert_repeated_child_ambiguity(instances: &RepeatedChildInstances) {
         "n",
         Expr::Builtin(BuiltinOp::Length, vec![Expr::Var("x".into())]),
     );
-    let graph_plan = RestrictPlan::compile(&schema, &schema, &migration).unwrap();
+    let graph_plan = RestrictPlan::compile(&schema, &target, &migration).unwrap();
     let ambiguous = |error: &RestrictError| {
         matches!(
             error.unlocated(),
@@ -1529,7 +1546,7 @@ fn assert_repeated_child_ambiguity(instances: &RepeatedChildInstances) {
     assert!(ambiguous(&error), "{error:?}");
     let table_plan = RestrictPlan::compile_for_tables(
         &schema,
-        &schema,
+        &target,
         &migration,
         BoundaryProtocols {
             src: &protocol,
