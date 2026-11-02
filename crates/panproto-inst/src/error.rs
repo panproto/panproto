@@ -657,6 +657,27 @@ pub enum RestrictError {
         /// The undeclared output field.
         field: String,
     },
+
+    /// The view would give one node two or more arcs on a single-valued
+    /// target edge.
+    ///
+    /// A named edge is a field projection and holds one value per parent;
+    /// the item slot of an ordered collection is anonymous. When the edge
+    /// map sends arcs of two or more distinct source edges under one parent
+    /// onto one named target edge (a non-injective map on sibling fields),
+    /// the restrict refuses rather than turning the field into a list or
+    /// keeping one of its values. Arcs of one source edge keep the
+    /// multiplicity they had in the source, and arcs a contraction
+    /// synthesizes are not counted; neither is refused.
+    #[error("node {parent} would hold {count} arcs on the single-valued edge {edge:?}")]
+    MultipleArcsOnSingleValuedEdge {
+        /// The parent node, by its id in the source instance.
+        parent: u32,
+        /// The named target edge the arcs land on.
+        edge: Box<Edge>,
+        /// How many arcs land on it under `parent`.
+        count: usize,
+    },
 }
 
 /// The place of a non-conforming row's violation in its message: ` at

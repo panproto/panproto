@@ -557,3 +557,69 @@ fn a_dropped_arc_drops_its_subtree_in_a_tree_but_its_edge_alone_in_a_graph() {
         vec![EdgeId(0)]
     );
 }
+
+/// Two sibling fields `a` and `b` of `r`, both of vertex `s`, and a target
+/// whose edge from `r` to `s` is `target`; the migration sends both fields
+/// to it.
+fn merging(target: &Edge) -> (Schema, Schema, CompiledMigration, WInstance) {
+    let src = schema(&["r", "s"], &[&e("r", "s", "a"), &e("r", "s", "b")]);
+    let tgt = schema(&["r", "s"], &[target]);
+    let mut m = keep(&["r", "s"]);
+    m.edge_remap.insert(e("r", "s", "a"), target.clone());
+    m.edge_remap.insert(e("r", "s", "b"), target.clone());
+    let inst = tree(
+        &[(0, "r"), (1, "s"), (2, "s")],
+        &[(0, 1, e("r", "s", "a")), (0, 2, e("r", "s", "b"))],
+    );
+    (src, tgt, m, inst)
+}
+
+#[test]
+fn two_fields_sent_to_one_named_edge_are_refused() {
+    let (src, tgt, m, inst) = merging(&e("r", "s", "a"));
+    let error = tree_restrict(&inst, &src, &tgt, &m).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            RestrictError::MultipleArcsOnSingleValuedEdge { parent: 0, edge, count: 2 }
+                if **edge == e("r", "s", "a")
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.detail(),
+        panproto_inst::ErrorDetail::Restrict {
+            key: None,
+            kind: "multiple_arcs_on_single_valued_edge".into(),
+            message: error.to_string(),
+        }
+    );
+}
+
+#[test]
+fn two_fields_sent_to_one_anonymous_edge_become_its_items() {
+    let item = Edge {
+        src: "r".into(),
+        tgt: "s".into(),
+        kind: "items".into(),
+        name: None,
+    };
+    let (src, tgt, m, inst) = merging(&item);
+    let (view, _) = tree_restrict(&inst, &src, &tgt, &m).unwrap();
+    assert_eq!(children(&view, 0), vec![1, 2]);
+    assert!(view.arcs.iter().all(|(_, _, label)| *label == item));
+}
+
+#[test]
+fn arcs_of_one_source_edge_keep_their_multiplicity_on_a_named_edge() {
+    let src = schema(&["r", "s"], &[&e("r", "s", "a")]);
+    let tgt = schema(&["r", "s"], &[&e("r", "s", "z")]);
+    let mut m = keep(&["r", "s"]);
+    m.edge_remap.insert(e("r", "s", "a"), e("r", "s", "z"));
+    let inst = tree(
+        &[(0, "r"), (1, "s"), (2, "s")],
+        &[(0, 1, e("r", "s", "a")), (0, 2, e("r", "s", "a"))],
+    );
+    let (view, _) = tree_restrict(&inst, &src, &tgt, &m).unwrap();
+    assert_eq!(children(&view, 0), vec![1, 2]);
+}

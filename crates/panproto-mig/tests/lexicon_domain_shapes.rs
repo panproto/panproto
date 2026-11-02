@@ -157,7 +157,7 @@ struct Shape {
 
 impl Shape {
     /// How many source vertices, which is how many variables.
-    fn variables(&self) -> usize {
+    const fn variables(&self) -> usize {
         self.domains.len()
     }
 

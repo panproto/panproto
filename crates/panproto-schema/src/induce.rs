@@ -1170,9 +1170,9 @@ mod tests {
         assert!(
             apex.edges
                 .keys()
-                .chain(apex.outgoing.values().flat_map(SmallVec::as_slice))
-                .chain(apex.incoming.values().flat_map(SmallVec::as_slice))
-                .chain(apex.between.values().flat_map(SmallVec::as_slice))
+                .chain(apex.outgoing.values().flat_map(AsRef::<[Edge]>::as_ref))
+                .chain(apex.incoming.values().flat_map(AsRef::<[Edge]>::as_ref))
+                .chain(apex.between.values().flat_map(AsRef::<[Edge]>::as_ref))
                 .all(|e| apex.has_vertex(&e.src) && apex.has_vertex(&e.tgt)),
             "no edge anywhere in the apex may name a vertex the apex lacks"
         );

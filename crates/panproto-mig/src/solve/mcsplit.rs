@@ -617,7 +617,7 @@ fn restrict(index: &ValueIndex, domains: &mut Domains, bits: &[u64], words: usiz
     for var in variables {
         let position = var.index();
         // Detached, because the walk removes from the very domain it reads.
-        let block: SmallVec<u64, 2> = SmallVec::from_slice_copy(domains.block(var));
+        let block: SmallVec<u64, 2> = SmallVec::from(domains.block(var));
         for value in Domain::new(&block) {
             let Some(target) = index.global(var, value) else {
                 continue;

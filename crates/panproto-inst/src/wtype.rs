@@ -847,7 +847,7 @@ impl WInstance {
     #[inline]
     #[must_use]
     pub fn children(&self, id: u32) -> &[u32] {
-        self.children_map.get(&id).map_or(&[], SmallVec::as_slice)
+        self.children_map.get(&id).map_or(&[], AsRef::as_ref)
     }
 
     /// Get the parent of a node.
@@ -1517,6 +1517,63 @@ fn traverse(
     })
 }
 
+/// Refuse a view in which one node holds the images of two or more distinct
+/// source edges on one named target edge.
+///
+/// A named edge is a field projection, single-valued per parent; the item
+/// slot of a collection is anonymous. An edge map that sends two sibling
+/// fields to one named edge would give the parent two values for one field,
+/// so the restrict refuses. Arcs of one source edge keep the multiplicity
+/// they had in the source, and contracted arcs, which join a node to its
+/// nearest surviving ancestor rather than realize a source edge, are not
+/// counted. The first offending `(parent, edge)` in ascending order is
+/// reported, with the number of direct images landing on it.
+fn refuse_merged_fields(
+    instance: &WInstance,
+    kept: &[(usize, u32, u32, Edge)],
+    chains: &[SynthChain],
+) -> Result<(), RestrictError> {
+    let mut images: Vec<(u32, &Edge, &Edge)> = Vec::with_capacity(kept.len());
+    for (index, parent, _, edge) in kept {
+        images.push((*parent, edge, &instance.arcs[*index].2));
+    }
+    for chain in chains {
+        if let SynthChain::Expand {
+            arc,
+            parent,
+            labels,
+            ..
+        } = chain
+        {
+            let source = usize::try_from(arc.0)
+                .ok()
+                .and_then(|i| instance.arcs.get(i));
+            if let (Some(first), Some(source)) = (labels.first(), source) {
+                images.push((*parent, first, &source.2));
+            }
+        }
+    }
+    let mut landing: BTreeMap<(u32, &Edge), (usize, BTreeSet<&Edge>)> = BTreeMap::new();
+    for (parent, edge, source) in images {
+        if edge.name.is_some() {
+            let entry = landing.entry((parent, edge)).or_default();
+            entry.0 += 1;
+            entry.1.insert(source);
+        }
+    }
+    match landing
+        .into_iter()
+        .find(|(_, (_, sources))| sources.len() > 1)
+    {
+        Some(((parent, edge), (count, _))) => Err(RestrictError::MultipleArcsOnSingleValuedEdge {
+            parent,
+            edge: Box::new(edge.clone()),
+            count,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// The path joining a surviving node to its nearest surviving ancestor
 /// across dropped nodes: the plan's resolution of their anchors.
 fn contracted_chain(
@@ -1590,9 +1647,11 @@ fn contracted_chain(
 /// [`RestrictError::IncoherentEdgeImage`] for an arc whose label is no
 /// source schema edge, [`RestrictError::NoEdgeFound`] or
 /// [`RestrictError::AmbiguousEdge`] for an unresolved arc or contracted
-/// pair, in traversal order; [`RestrictError::IdsExhausted`] when the
-/// synthesized nodes do not fit below `u32::MAX`; and the errors of the
-/// transforms, in ascending node id.
+/// pair, in traversal order;
+/// [`RestrictError::MultipleArcsOnSingleValuedEdge`] when the images of two
+/// distinct source edges under one parent land on one named target edge;
+/// [`RestrictError::IdsExhausted`] when the synthesized nodes do not fit
+/// below `u32::MAX`; and the errors of the transforms, in ascending node id.
 pub fn wtype_restrict_with_plan(
     instance: &WInstance,
     plan: &crate::restrict_plan::RestrictPlan,
@@ -1618,6 +1677,7 @@ pub fn wtype_restrict_with_plan(
         mut kept,
         chains,
     } = traverse(instance, plan, &children, &failing)?;
+    refuse_merged_fields(instance, &kept, &chains)?;
 
     // Synthesized node ids, in ascending key order from the tree floor.
     let id_floor = crate::complement::tree_id_floor(instance).unwrap_or(u32::MAX);

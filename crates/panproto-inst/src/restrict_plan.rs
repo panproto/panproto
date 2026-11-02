@@ -1105,6 +1105,7 @@ impl RestrictError {
             Self::SourceDeclarations(_) => 38,
             Self::TargetDeclarations(_) => 39,
             Self::UndeclaredTransformField { .. } => 40,
+            Self::MultipleArcsOnSingleValuedEdge { .. } => 41,
         }
     }
 

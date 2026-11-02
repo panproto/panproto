@@ -618,6 +618,9 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::SourceDeclarations(_) => "source_declarations",
         RestrictError::TargetDeclarations(_) => "target_declarations",
         RestrictError::UndeclaredTransformField { .. } => "undeclared_transform_field",
+        RestrictError::MultipleArcsOnSingleValuedEdge { .. } => {
+            "multiple_arcs_on_single_valued_edge"
+        }
     }
 }
 

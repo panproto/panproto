@@ -305,13 +305,13 @@ impl Schema {
     /// Return all outgoing edges from the given vertex.
     #[must_use]
     pub fn outgoing_edges(&self, vertex_id: &str) -> &[Edge] {
-        self.outgoing.get(vertex_id).map_or(&[], SmallVec::as_slice)
+        self.outgoing.get(vertex_id).map_or(&[], AsRef::as_ref)
     }
 
     /// Return all incoming edges to the given vertex.
     #[must_use]
     pub fn incoming_edges(&self, vertex_id: &str) -> &[Edge] {
-        self.incoming.get(vertex_id).map_or(&[], SmallVec::as_slice)
+        self.incoming.get(vertex_id).map_or(&[], AsRef::as_ref)
     }
 
     /// Return edges between a specific `(src, tgt)` pair.
@@ -320,7 +320,7 @@ impl Schema {
     pub fn edges_between(&self, src: &str, tgt: &str) -> &[Edge] {
         self.between
             .get(&(Name::from(src), Name::from(tgt)))
-            .map_or(&[], SmallVec::as_slice)
+            .map_or(&[], AsRef::as_ref)
     }
 
     /// Returns `true` if the given vertex ID exists in this schema.

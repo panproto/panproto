@@ -169,9 +169,7 @@ impl ReachabilityIndex {
     /// Returns the children of `node` according to the stored adjacency.
     #[must_use]
     pub fn children_of(&self, node: u32) -> &[u32] {
-        self.children
-            .get(&node)
-            .map_or(&[], smallvec::SmallVec::as_slice)
+        self.children.get(&node).map_or(&[], AsRef::as_ref)
     }
 
     /// Check if a node can reach the root by walking up the parent chain

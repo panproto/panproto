@@ -1248,7 +1248,7 @@ pub fn detect_product(cfn: &Cfn) -> ProductVerdict {
 
     let mut effective = cfn.domains().clone();
     for var in cfn.variable_ids() {
-        let start: SmallVec<u64, 2> = SmallVec::from_slice_copy(effective.block(var));
+        let start: SmallVec<u64, 2> = SmallVec::from(effective.block(var));
         for value in Domain::new(&start) {
             if cfn.unary_cost(var, value) == Some(Cost::TOP_SENTINEL) {
                 effective.remove(var, value);

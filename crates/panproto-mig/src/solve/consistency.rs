@@ -532,7 +532,7 @@ impl Network {
     #[inline]
     #[must_use]
     fn domain_words(&self, var: VarId) -> SmallVec<u64, 2> {
-        SmallVec::from_slice_copy(self.domains.block(var))
+        SmallVec::from(self.domains.block(var))
     }
 
     /// Whether a variable has exactly one value left.

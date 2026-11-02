@@ -327,7 +327,7 @@ fn push_indices(out: &mut CanonicalWriter, schema: &Schema) {
     for ((src, tgt), bucket) in between {
         out.name(src);
         out.name(tgt);
-        push_edges(out, bucket.as_slice());
+        push_edges(out, bucket.as_ref());
     }
 }
 
@@ -802,7 +802,7 @@ fn push_vertex_index<S>(out: &mut CanonicalWriter, index: &HashMap<Name, SmallVe
     out.len(items.len());
     for (vertex_id, bucket) in items {
         out.name(vertex_id);
-        push_edges(out, bucket.as_slice());
+        push_edges(out, bucket.as_ref());
     }
 }
 
