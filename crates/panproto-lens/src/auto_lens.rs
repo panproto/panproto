@@ -1311,8 +1311,11 @@ pub fn protolens_from_alignment_mode(
 /// [`elementary::add_schema_vertex`] under its target id and kind, and every
 /// target edge outside the edge image becomes an
 /// [`elementary::add_schema_edge`] whose mapped endpoints are read back through
-/// the alignment. The instantiated target schema thus equals the requested
-/// target up to the alignment's renaming of the vertices and edges it maps.
+/// the alignment. The part of the source the alignment does not carry is
+/// dropped concretely, as [`SourceRestriction`] describes, after the
+/// factorization's kind-level drops and before its renames. The instantiated
+/// target schema thus equals the requested target up to the alignment's
+/// renaming of the vertices and edges it maps.
 fn protolens_from_alignment_mode_with_defaults(
     alignment: &FoundMorphism,
     src: &Schema,
@@ -1327,12 +1330,38 @@ fn protolens_from_alignment_mode_with_defaults(
     let factorization = factorize(&morphism, &src_theory, &tgt_theory)
         .map_err(|e| LensError::ProtolensError(format!("factorization failed: {e}")))?;
 
-    let mut steps = Vec::new();
-    for endofunctor in &factorization.steps {
-        if matches!(
+    // The factorization's kind-level drops come first, then the concrete
+    // drops of what they leave behind, while every kind still has its source
+    // name, then its renames and coercions.
+    let is_kind_drop = |endofunctor: &&TheoryEndofunctor| {
+        matches!(
             endofunctor.transform,
-            TheoryTransform::AddSort { .. } | TheoryTransform::AddOp(_)
-        ) {
+            TheoryTransform::DropSort(_) | TheoryTransform::DropOp(_)
+        )
+    };
+    let mut dropped_vertex_kinds = std::collections::HashSet::new();
+    let mut dropped_edge_kinds = std::collections::HashSet::new();
+    let mut steps = Vec::new();
+    for endofunctor in factorization.steps.iter().filter(is_kind_drop) {
+        match &endofunctor.transform {
+            TheoryTransform::DropSort(kind) => dropped_vertex_kinds.insert(Arc::clone(kind)),
+            TheoryTransform::DropOp(kind) => dropped_edge_kinds.insert(Arc::clone(kind)),
+            _ => false,
+        };
+        steps.push(endofunctor_to_protolens(endofunctor)?);
+    }
+    steps.extend(SourceRestriction::new(alignment, src).steps(
+        src,
+        &dropped_vertex_kinds,
+        &dropped_edge_kinds,
+    ));
+    for endofunctor in &factorization.steps {
+        if is_kind_drop(&endofunctor)
+            || matches!(
+                endofunctor.transform,
+                TheoryTransform::AddSort { .. } | TheoryTransform::AddOp(_)
+            )
+        {
             continue;
         }
         steps.push(endofunctor_to_protolens(endofunctor)?);
@@ -1340,6 +1369,112 @@ fn protolens_from_alignment_mode_with_defaults(
     steps.extend(target_extension_steps(alignment, src, tgt, defaults));
 
     Ok(ProtolensChain::new(steps))
+}
+
+/// The part of a source schema that survives into an auto-generated target.
+///
+/// The implicit-theory factorization speaks only about kinds, so it drops a
+/// vertex or an edge only when its whole kind leaves the target. A source
+/// vertex the alignment does not map, or an edge it does not map, whose kind
+/// survives through some other vertex or edge, would otherwise stay in the
+/// instantiated target, which is then larger than the requested one.
+///
+/// The kept vertices are, for each target vertex in the alignment's image,
+/// the least source vertex mapped to it, which is the vertex that names the
+/// target vertex in the instantiated schema. The kept edges are, for each
+/// target edge in the alignment's edge image, the least source edge mapped to
+/// it whose endpoints are both kept. Everything else in the source is dropped.
+struct SourceRestriction {
+    kept_vertices: std::collections::HashSet<Name>,
+    kept_edges: std::collections::HashSet<panproto_schema::Edge>,
+}
+
+impl SourceRestriction {
+    fn new(alignment: &FoundMorphism, src: &Schema) -> Self {
+        let mut least_preimage: HashMap<&Name, &Name> = HashMap::new();
+        for (src_id, tgt_id) in &alignment.vertex_map {
+            if !src.vertices.contains_key(src_id) {
+                continue;
+            }
+            least_preimage
+                .entry(tgt_id)
+                .and_modify(|held| {
+                    if src_id < *held {
+                        *held = src_id;
+                    }
+                })
+                .or_insert(src_id);
+        }
+        let kept_vertices: std::collections::HashSet<Name> =
+            least_preimage.into_values().cloned().collect();
+
+        let mut least_edge: HashMap<&panproto_schema::Edge, &panproto_schema::Edge> =
+            HashMap::new();
+        for (src_edge, tgt_edge) in &alignment.edge_map {
+            if !src.edges.contains_key(src_edge)
+                || !kept_vertices.contains(&src_edge.src)
+                || !kept_vertices.contains(&src_edge.tgt)
+            {
+                continue;
+            }
+            least_edge
+                .entry(tgt_edge)
+                .and_modify(|held| {
+                    if src_edge < *held {
+                        *held = src_edge;
+                    }
+                })
+                .or_insert(src_edge);
+        }
+        let kept_edges = least_edge.into_values().cloned().collect();
+        Self {
+            kept_vertices,
+            kept_edges,
+        }
+    }
+
+    /// The concrete drops of everything not kept that a kind-level drop has
+    /// not already removed: edges first, in edge order, then vertices, in id
+    /// order. A vertex of a dropped vertex kind is gone, and so is an edge of
+    /// a dropped edge kind or with an endpoint of a dropped vertex kind.
+    fn steps(
+        &self,
+        src: &Schema,
+        dropped_vertex_kinds: &std::collections::HashSet<Arc<str>>,
+        dropped_edge_kinds: &std::collections::HashSet<Arc<str>>,
+    ) -> Vec<Protolens> {
+        let vertex_gone = |id: &Name| {
+            src.vertices
+                .get(id)
+                .is_none_or(|vertex| dropped_vertex_kinds.contains(&*vertex.kind))
+        };
+        let mut dropped_edges: Vec<&panproto_schema::Edge> = src
+            .edges
+            .keys()
+            .filter(|edge| !self.kept_edges.contains(*edge))
+            .filter(|edge| {
+                !dropped_edge_kinds.contains(&*edge.kind)
+                    && !vertex_gone(&edge.src)
+                    && !vertex_gone(&edge.tgt)
+            })
+            .collect();
+        dropped_edges.sort();
+        let mut dropped_vertices: Vec<&Name> = src
+            .vertices
+            .keys()
+            .filter(|id| !self.kept_vertices.contains(*id) && !vertex_gone(id))
+            .collect();
+        dropped_vertices.sort();
+        dropped_edges
+            .into_iter()
+            .map(elementary::drop_schema_edge)
+            .chain(
+                dropped_vertices
+                    .into_iter()
+                    .map(|id| elementary::drop_schema_vertex(id.clone())),
+            )
+            .collect()
+    }
 }
 
 /// Concrete schema additions for the part of `tgt` the alignment does not
@@ -1393,8 +1528,13 @@ fn target_extension_steps(
         placed_ids.insert(&vertex.id, placed.id);
     }
 
-    let edge_image: std::collections::HashSet<&panproto_schema::Edge> =
-        alignment.edge_map.values().collect();
+    let restriction = SourceRestriction::new(alignment, src);
+    let edge_image: std::collections::HashSet<&panproto_schema::Edge> = alignment
+        .edge_map
+        .iter()
+        .filter(|(src_edge, _)| restriction.kept_edges.contains(*src_edge))
+        .map(|(_, tgt_edge)| tgt_edge)
+        .collect();
     let local = |id: &Name| {
         preimage
             .get(id)
@@ -1415,7 +1555,7 @@ fn target_extension_steps(
             kind: edge.kind.clone(),
             name: edge.name.clone(),
         };
-        if src.edges.contains_key(&placed) {
+        if restriction.kept_edges.contains(&placed) {
             continue;
         }
         steps.push(elementary::add_schema_edge(&placed));
