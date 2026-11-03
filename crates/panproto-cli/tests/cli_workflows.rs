@@ -3208,6 +3208,41 @@ fn cli_lens_apply_refuses_a_compiled_artifact_of_two_normal_form_groups() {
     );
 }
 
+/// Write to `complement.json` in `dir` the complement `get` records for
+/// `source_json` under the one-stage compiled lens `lens.json` and the
+/// schema `source.json`. `lens apply` prints only the view, so the
+/// complement comes from the same lens run in process: the artifact's one
+/// stage instantiated at the source schema, carrying the stage's field
+/// transforms.
+fn write_complement_of_one_stage_lens(dir: &Path, source_json: &serde_json::Value) {
+    let protocol = (panproto_core::protocols::registry::descriptor("atproto")
+        .unwrap()
+        .protocol)();
+    let schema: panproto_core::schema::Schema =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("source.json")).unwrap()).unwrap();
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("lens.json")).unwrap()).unwrap();
+    let stages = artifact["stages"].as_array().unwrap();
+    assert_eq!(stages.len(), 1, "a one-step document compiles to one stage");
+    let chain: panproto_core::lens::ProtolensChain =
+        serde_json::from_value(stages[0]["chain"].clone()).unwrap();
+    let mut the_lens = chain.instantiate(&schema, &protocol).unwrap();
+    if let Some(transforms) = stages[0].get("field_transforms") {
+        let transforms: HashMap<
+            panproto_core::gat::Name,
+            Vec<panproto_core::inst::FieldTransform>,
+        > = serde_json::from_value(transforms.clone()).unwrap();
+        the_lens.compiled.field_transforms.extend(transforms);
+    }
+    let source = panproto_core::inst::parse_json(&schema, &protocol, "root", source_json).unwrap();
+    let (_, complement) = panproto_core::lens::get(&the_lens, &source).unwrap();
+    std::fs::write(
+        dir.join("complement.json"),
+        serde_json::to_string(&complement).unwrap(),
+    )
+    .unwrap();
+}
+
 /// Compile the one-step lens document `step` over the record schema
 /// `root { text, shout }`, run `lens apply` forward on `{"text": "hello"}`
 /// and check the view is `expected_view`, then run it backward on that
@@ -3274,38 +3309,7 @@ fn lens_apply_forward_then_backward(
     assert_eq!(&view, expected_view);
     std::fs::write(tmp.path().join("view.json"), view.to_string()).unwrap();
 
-    // `lens apply` prints only the view, so the complement comes from the
-    // same lens run in process: the artifact's one stage instantiated at
-    // the source schema, carrying the stage's field transforms.
-    let protocol = (panproto_core::protocols::registry::descriptor("atproto")
-        .unwrap()
-        .protocol)();
-    let schema: panproto_core::schema::Schema =
-        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("source.json")).unwrap())
-            .unwrap();
-    let artifact: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("lens.json")).unwrap())
-            .unwrap();
-    let stages = artifact["stages"].as_array().unwrap();
-    assert_eq!(stages.len(), 1, "a one-step document compiles to one stage");
-    let chain: panproto_core::lens::ProtolensChain =
-        serde_json::from_value(stages[0]["chain"].clone()).unwrap();
-    let mut the_lens = chain.instantiate(&schema, &protocol).unwrap();
-    if let Some(transforms) = stages[0].get("field_transforms") {
-        let transforms: HashMap<
-            panproto_core::gat::Name,
-            Vec<panproto_core::inst::FieldTransform>,
-        > = serde_json::from_value(transforms.clone()).unwrap();
-        the_lens.compiled.field_transforms.extend(transforms);
-    }
-    let source =
-        panproto_core::inst::parse_json(&schema, &protocol, "root", &source_json).unwrap();
-    let (_, complement) = panproto_core::lens::get(&the_lens, &source).unwrap();
-    std::fs::write(
-        tmp.path().join("complement.json"),
-        serde_json::to_string(&complement).unwrap(),
-    )
-    .unwrap();
+    write_complement_of_one_stage_lens(tmp.path(), &source_json);
 
     let backward = schema_cmd()
         .args([
@@ -3373,13 +3377,7 @@ fn cli_data_convert_backward_puts_an_isomorphism_without_a_complement() {
     )
     .unwrap();
     let compiled = schema_cmd()
-        .args([
-            "lens",
-            "compile",
-            "document.json",
-            "--body-vertex",
-            "root",
-        ])
+        .args(["lens", "compile", "document.json", "--body-vertex", "root"])
         .current_dir(tmp.path())
         .assert()
         .success()

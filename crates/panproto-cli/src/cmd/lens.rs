@@ -750,8 +750,7 @@ pub fn cmd_lens_apply(
                 None => None,
             };
 
-            let restored =
-                put_json_view(&the_lens, &protocol, &data_json, complement.as_ref())?;
+            let restored = put_json_view(&the_lens, &protocol, &data_json, complement.as_ref())?;
             let output = inst::to_json(&the_lens.src_schema, &restored)
                 .into_diagnostic()
                 .wrap_err("failed to write the instance as JSON")?;

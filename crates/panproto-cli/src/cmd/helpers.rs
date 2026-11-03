@@ -296,14 +296,14 @@ pub fn put_json_view(
     let view = inst::parse_json(tgt_schema, protocol, root_vertex.as_str(), view_json)
         .into_diagnostic()
         .wrap_err("failed to parse the view under the lens target schema")?;
-    let restored = match complement {
-        Some(complement) => {
-            let view = lens::fold_computed_children_into_fields(the_lens, &view, complement);
-            lens::put(the_lens, &view, complement)
-        }
-        None => lens::put_without_complement(the_lens, &view),
-    };
-    restored
+    complement
+        .map_or_else(
+            || lens::put_without_complement(the_lens, &view),
+            |complement| {
+                let view = lens::fold_computed_children_into_fields(the_lens, &view, complement);
+                lens::put(the_lens, &view, complement)
+            },
+        )
         .into_diagnostic()
         .wrap_err("lens put (backward) failed")
 }
@@ -348,12 +348,7 @@ pub fn convert_single_file(
             .wrap_err("lens get (forward) failed")?;
         view
     } else {
-        put_json_view(
-            the_lens,
-            &schema_protocol(forward_schema),
-            &data_json,
-            None,
-        )?
+        put_json_view(the_lens, &schema_protocol(forward_schema), &data_json, None)?
     };
 
     let output = inst::to_json(backward_schema, &output_instance)
