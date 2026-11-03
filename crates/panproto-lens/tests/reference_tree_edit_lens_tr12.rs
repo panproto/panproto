@@ -898,6 +898,22 @@ fn tr12_late_sequence_refusal_is_atomic_for_reference_and_production() {
     // A production-only late refusal, raised by the restrict stage after the
     // first edit of the sequence has been staged.
     let mut state_lens = production_lens(LensKind::Projection);
+    // The transform writes `text` on `visible`, so the target declares it:
+    // a transform output is a leaf edge of its vertex.
+    state_lens.tgt_schema = SchemaBuilder::new(&Protocol::default())
+        .vertex("root", "record", None::<&str>)
+        .unwrap()
+        .vertex("visible", "scalar", None::<&str>)
+        .unwrap()
+        .vertex("visible.text", "scalar", None::<&str>)
+        .unwrap()
+        .edge("root", "visible", "prop", Some("visible"))
+        .unwrap()
+        .edge("visible", "visible.text", "prop", Some("text"))
+        .unwrap()
+        .entry("root")
+        .build()
+        .unwrap();
     state_lens.compiled.field_transforms.insert(
         panproto_gat::Name::from("visible"),
         vec![panproto_inst::FieldTransform::ApplyExpr {

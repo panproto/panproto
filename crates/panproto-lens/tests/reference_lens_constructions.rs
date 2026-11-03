@@ -885,8 +885,22 @@ fn tree_structural_witnesses() -> Vec<(&'static str, ObstructionClass, Lens)> {
     witnesses
 }
 
+/// The one-vertex schema of the value witnesses. A transform may write only
+/// a declared attribute of its vertex, a leaf edge named by the field, so
+/// `a` declares every field a witness writes.
+fn one_vertex_value_schema() -> Schema {
+    plain_schema(
+        &["a", "a.field", "a.computed", "a.new"],
+        &[
+            edge("a", "a.field", "field"),
+            edge("a", "a.computed", "computed"),
+            edge("a", "a.new", "new"),
+        ],
+    )
+}
+
 fn one_vertex_lens_with_field_transform(transform: FieldTransform) -> Lens {
-    let schema = plain_schema(&["a"], &[]);
+    let schema = one_vertex_value_schema();
     let mut lens = identity_lens(&schema);
     lens.compiled
         .field_transforms
@@ -895,7 +909,7 @@ fn one_vertex_lens_with_field_transform(transform: FieldTransform) -> Lens {
 }
 
 fn one_vertex_lens_with_term_assignment(assignment: TermAssignment) -> Lens {
-    let schema = plain_schema(&["a"], &[]);
+    let schema = one_vertex_value_schema();
     let mut lens = identity_lens(&schema);
     lens.compiled
         .op_term_assignments
@@ -988,7 +1002,9 @@ fn tree_value_witnesses() -> Vec<(&'static str, Lens)> {
 }
 
 fn nonidentity_open_field_rename_witness() -> (Lens, WInstance) {
-    let schema = plain_schema(&["a"], &[]);
+    // The rename writes `new`, so `a` declares it: a transform output is a
+    // leaf edge of its vertex.
+    let schema = plain_schema(&["a", "new"], &[edge("a", "new", "new")]);
     let mut lens = identity_lens(&schema);
     lens.compiled.field_transforms.insert(
         "a".into(),
@@ -1273,10 +1289,15 @@ fn unit_complement_classifiers_reject_scalar_and_target_only_coordinates() -> us
     let child_graph = GInstance::from_wtype(&child_source).expect("two-node graph");
     let (_, graph_complement) =
         graph_lens::get(&child_scalar, &child_graph).expect("child-scalar graph get");
-    let (_, tree_complement) =
+    let (tree_view, tree_complement) =
         panproto_lens::get(&child_scalar, &child_source).expect("child-scalar tree get");
     assert!(!graph_complement.residue_is_trivial());
-    assert!(!tree_complement.residue_is_trivial());
+    // The tree engine writes a read of a child-held attribute back onto
+    // the child, so the identity read leaves the child's value in place,
+    // adds no field to the element, and records no residue.
+    assert!(tree_view.nodes[&0].extra_fields.is_empty());
+    assert_eq!(tree_view.nodes[&1].value, child_source.nodes[&1].value);
+    assert!(tree_complement.residue_is_trivial());
     assert!(!graph_lens::is_isomorphism(&child_scalar));
     assert!(!child_scalar.is_isomorphism());
     scenarios += 1;
