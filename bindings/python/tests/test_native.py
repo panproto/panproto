@@ -682,6 +682,10 @@ class TestProtolensChain:
         builder.vertex("r:body", "object")
         builder.vertex("r:body.count", "integer")
         builder.edge("r:body", "r:body.count", "prop", "count")
+        # A value transform writes only an attribute its vertex declares, so
+        # the schema declares `derived`, the field the compute step writes.
+        builder.vertex("r:body.derived", "integer")
+        builder.edge("r:body", "r:body.derived", "prop", "derived")
         schema = builder.build()
         instance = panproto.Instance.from_json(schema, "r:body", '{"count": 5}')
         return proto, schema, instance
