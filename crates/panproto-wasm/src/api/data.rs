@@ -15,7 +15,7 @@ use crate::slab::{self, Resource};
 use super::helpers::{decode_complements, infer_root_vertex};
 
 // ---------------------------------------------------------------------------
-// Phase 7: Data versioning operations
+// Data versioning operations
 // ---------------------------------------------------------------------------
 
 /// Store a data set from JSON bytes, binding it to a schema.

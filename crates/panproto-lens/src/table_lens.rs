@@ -2933,8 +2933,8 @@ mod tests {
     }
 
     /// Fuses `first ; second`, where `second` keeps a row only when its
-    /// Boolean `f` holds, and checks it against the two atomic stages. Since
-    /// owner amendment 24 the finite-row lens feeds no typed placeholder to a
+    /// Boolean `f` holds, and checks it against the two atomic stages. The
+    /// finite-row lens feeds no typed placeholder to a
     /// second-stage predicate, so a genuinely absent `f` is refused by both
     /// executions with the same unbound-variable refusal, and a present `f`
     /// gives both the same view and the same put.

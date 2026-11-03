@@ -907,7 +907,7 @@ pub fn present(n: &Node) -> Option<&Value> {
     }
 }
 
-/// Whether a lens lies on the Delta fragment of L.4: a subschema
+/// Whether a lens lies on the Delta fragment of L-lenses-4: a subschema
 /// restriction with monic deletions and no contraction, expansion, fan
 /// retargeting, survival predicate or transform.
 ///
@@ -995,7 +995,7 @@ pub fn subinstances(source: &Graph) -> Vec<Graph> {
 /// For a lens on [`on_delta_fragment`] and a source `s`, the candidates are
 /// the endpoint-closed subinstances of `s` whose reference get view equals
 /// `edited`. The result is the candidate that contains every other
-/// candidate, which is the cartesian reading of the L.4 cascade for
+/// candidate, which is the cartesian reading of the L-lenses-4 cascade for
 /// deletion-only view edits.
 ///
 /// `None` when the lens is off the fragment, when a candidate's get refuses,
@@ -1025,7 +1025,7 @@ pub fn largest_exact_preimage(
         .cloned()
 }
 
-/// Definition: the universal property of the L.4 cascade on the Delta
+/// Definition: the universal property of the L-lenses-4 cascade on the Delta
 /// fragment.
 ///
 /// `result` is a subinstance of `source`, and every endpoint-closed

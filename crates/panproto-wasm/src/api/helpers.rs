@@ -494,8 +494,8 @@ pub(super) fn build_theory_registry(
     protocol_name: &str,
 ) -> Result<HashMap<String, Theory>, String> {
     // Every protocol the dispatch accepts has theories, and the
-    // descriptor carries the registrar, so this no longer repeats a
-    // hand-written match that listed five of the fifty-four.
+    // descriptor carries the registrar, so no hand-written match is
+    // needed.
     let Some(descriptor) = protocols::registry::descriptor(protocol_name) else {
         return Err(format!(
             "unknown protocol: {protocol_name:?}. Supported: {}",

@@ -1,17 +1,17 @@
 //! Complete reference operations assigned to `lenses`.
 
-// The graph/domain lane owns shared put-domain machinery and graph restoration.
+// Shared put-domain machinery and graph restoration.
 mod domain;
 mod graph;
 // The stable public graph-lens facade preserves every existing item path.
 pub mod lens;
-// The path/laws lane owns path composition and stable free-function operations.
+// Path composition and stable free-function operations.
 mod laws;
 pub mod path;
-// The tree/square/protolens lane owns the representation bridges and observables.
+// Representation bridges and observables.
 mod protolens;
 mod squares;
-// The table lane owns table planning, complements, get, and put.
+// Table planning, complements, get, and put.
 pub mod table;
 mod tree;
 

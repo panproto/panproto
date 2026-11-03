@@ -5,7 +5,7 @@
 //! deliberately naive: the runner checks and glues the complete value, then
 //! independently repartitions and seals it. This is an executable definition,
 //! not a streaming implementation. The finite-scope module records the
-//! parameters that still prevent a full C10 carrier claim.
+//! parameters that still prevent a full segment carrier claim.
 
 pub mod segment {
     //! Segmented execution as whole-state execution on the checked glued state.

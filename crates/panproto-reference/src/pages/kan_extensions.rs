@@ -1,6 +1,6 @@
 //! Complete reference operations assigned to `kan-extensions`.
 //!
-//! # Hom-profile certificate (O14)
+//! # Hom-profile certificate (exhaustive Kan)
 //!
 //! The bounded checker quotients labelled table instances only by the group
 //! `G = (product_t S_rows(t)) x S_nulls`: rows may be permuted independently

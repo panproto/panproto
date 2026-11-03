@@ -866,7 +866,7 @@ mod tests {
         assert_eq!(tags[2], "gamma");
     }
 
-    // ── Tests for issue #27: generic list detection + Value::List ──────
+    // ── Generic list detection and Value::List ──────────────────────
 
     /// Build a minimal schema with an object vertex that carries a
     /// list-vertex as a property, where the list-vertex is distinguished
@@ -1066,13 +1066,13 @@ mod tests {
 
     #[test]
     fn to_json_record_with_anonymous_edges_emits_extra_fields_not_empty_array() {
-        // Regression for issues #54 and #55: a hand-built schema whose
+        // Regression guard: a hand-built schema whose
         // record vertex happens to have only anonymous outgoing edges
         // (e.g. a Python caller using SchemaBuilder.edge(..., name=None))
-        // was being classified as a list by the schema heuristic. The
-        // parser correctly preserves unhandled JSON keys in
-        // `extra_fields`, but the emitter then dropped them and rendered
-        // the node as `[]`. Object-only signals on the node (extra_fields
+        // must not be classified as a list by the schema heuristic. The
+        // parser preserves unhandled JSON keys in `extra_fields`, and the
+        // emitter must keep them rather than render the node as `[]`.
+        // Object-only signals on the node (extra_fields
         // populated, or a discriminator) must veto the schema heuristic.
         let proto = Protocol {
             name: "test".into(),

@@ -898,16 +898,16 @@ export interface WasmExports {
   check_put_get(migration: number, instance: Uint8Array): Uint8Array;
   invert_migration(mapping: Uint8Array, src: number, tgt: number): Uint8Array;
   compose_lenses(l1: number, l2: number): number;
-  // Phase 4: Protocol registry
+  // Protocol registry
   list_builtin_protocols(): Uint8Array;
   list_bundle_parser_protocols(): Uint8Array;
   get_builtin_protocol(name: Uint8Array): Uint8Array;
-  // Phase 5: GAT operations
+  // GAT operations
   create_theory(spec: Uint8Array): number;
   colimit_theories(t1: number, t2: number, shared: number): number;
   check_morphism(morphism: Uint8Array, domain: number, codomain: number): Uint8Array;
   migrate_model(model: Uint8Array, morphism: Uint8Array): Uint8Array;
-  // Phase 6: VCS operations
+  // VCS operations
   vcs_init(protocol_name: Uint8Array): number;
   vcs_add(repo: number, schema: number): Uint8Array;
   vcs_commit(repo: number, message: Uint8Array, author: Uint8Array): Uint8Array;
@@ -920,7 +920,7 @@ export interface WasmExports {
   vcs_stash(repo: number): Uint8Array;
   vcs_stash_pop(repo: number): Uint8Array;
   vcs_blame(repo: number, vertex: Uint8Array): Uint8Array;
-  // Phase 7: Data versioning operations
+  // Data versioning operations
   store_dataset(schema_handle: number, data_json: Uint8Array): number;
   get_dataset(dataset_handle: number): Uint8Array;
   migrate_dataset_forward(dataset_handle: number, src_schema: number, tgt_schema: number): Uint8Array;
@@ -929,7 +929,7 @@ export interface WasmExports {
   store_protocol_definition(protocol_bytes: Uint8Array): number;
   get_protocol_definition(handle: number): Uint8Array;
   get_migration_complement(complement_bytes: Uint8Array): Uint8Array;
-  // Phase 10: Protolens operations
+  // Protolens operations
   auto_generate_protolens(schema1: number, schema2: number, stringency?: string): number;
   /**
    * Auto-generate up to `top_n` ranked candidate lenses. The returned
@@ -961,14 +961,14 @@ export interface WasmExports {
   symmetric_lens_sync(lens: number, view: Uint8Array, complement: Uint8Array, direction: number): Uint8Array;
   factorize_morphism(morphism: Uint8Array, domain: number, codomain: number): Uint8Array;
   apply_protolens_step(step: Uint8Array, schema: number, instance: Uint8Array): Uint8Array;
-  // Phase 11: Extended protolens operations
+  // Extended protolens operations
   protolens_fuse(chain: number): number;
   protolens_lift(chain: number, morphism: Uint8Array): number;
   protolens_check_applicability(chain: number, schema: number): Uint8Array;
   protolens_fleet(chain: number, schema_handles: Uint32Array): Uint8Array;
   protolens_from_json(json: Uint8Array): number;
   compile_lens_document(source: Uint8Array, format: string, body_vertex: string): number;
-  // Phase 11b: Pipeline combinators and morphism hints
+  // Pipeline combinators and morphism hints
   protolens_pipeline(steps_bytes: Uint8Array): number;
   auto_generate_protolens_with_hints(
     schema1: number,
@@ -998,7 +998,7 @@ export interface WasmExports {
     instance_bytes: Uint8Array,
     schema_handle: number,
   ): Uint8Array;
-  // Phase 12: Fiber, hom, and graph operations
+  // Fiber, hom, and graph operations
   fiber_at(instance_bytes: Uint8Array, migration_bytes: Uint8Array, target_anchor: string): Uint8Array;
   fiber_decomposition_wasm(instance_bytes: Uint8Array, migration_bytes: Uint8Array): Uint8Array;
   poly_hom(source_schema_bytes: Uint8Array, target_schema_bytes: Uint8Array): Uint8Array;

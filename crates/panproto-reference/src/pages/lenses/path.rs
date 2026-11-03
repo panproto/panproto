@@ -68,7 +68,7 @@ pub struct PathStage<L> {
     envelope: Vec<u8>,
 }
 
-/// One condition of the L.6 fusion predicate.
+/// One condition of the L-lenses-6 fusion predicate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FusionCondition {
     /// Neither input nor the composite contracts a path.
@@ -369,7 +369,7 @@ impl<L: Clone> FusionCandidate<L> {
     ///
     /// # Errors
     ///
-    /// The first failed L.6 condition.
+    /// The first failed L-lenses-6 condition.
     pub fn derive(
         left: &NormalGroup<L>,
         right: &NormalGroup<L>,

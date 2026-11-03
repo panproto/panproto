@@ -1,4 +1,4 @@
-//! Regression test for issue #240.
+//! Regression test: a lexicon tree parses to a per-file project schema.
 //!
 //! An `ATProto` lexicon set must be reachable as the per-file project tree
 //! `panproto-vcs` is built around: `parse_schema_bundle_project` parses

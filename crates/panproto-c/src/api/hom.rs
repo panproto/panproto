@@ -942,7 +942,7 @@ mod tests {
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
     }
 
-    /// `max_results = 0` no longer means "the whole hom-set".
+    /// `max_results = 0` does not mean "the whole hom-set".
     ///
     /// This pair admits several total morphisms and exactly one optimum, so
     /// an unlimited request answers with one element. The

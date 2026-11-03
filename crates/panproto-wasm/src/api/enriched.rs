@@ -19,7 +19,7 @@ use super::graph::simplify_chain;
 use super::helpers::{classify_optic_kind, eval_term_recursive, extract_migration_owned};
 
 // ---------------------------------------------------------------------------
-// Phase 8: Enriched theories (expressions, schema enrichment, analysis)
+// Enriched theories (expressions, schema enrichment, analysis)
 // ---------------------------------------------------------------------------
 
 /// Evaluate a GAT term with a variable environment and a theory.

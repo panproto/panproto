@@ -174,7 +174,7 @@ pub fn refine_scoped_optic(edge_kind: &str, inner_kind: OpticKind) -> OpticKind 
 /// - **Traversal**: Lens-level round-trip applied to a multi-foci
 ///   view — `put` restores all foci consistently, `get` recovers each
 ///   focus pointwise. Modify-distributivity across composition is
-///   inherited from `Lens` composition (verified by §5 chain tests).
+///   inherited from `Lens` composition (verified by the chain tests).
 ///
 /// # Errors
 ///

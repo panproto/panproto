@@ -1,10 +1,10 @@
-//! Finite validation carriers whose alphabets are fixed by the contract.
+//! Finite validation carriers whose alphabets are fixed.
 //!
-//! C9 fixes the element and structural-schema bounds, but it does not fix a
+//! The validation scope fixes the element and structural-schema bounds, but it does not fix a
 //! finite alphabet for every declaration constructor. This module therefore
 //! enumerates the complete settled structural carrier and exposes the missing
 //! declaration parameters as data instead of presenting a smaller carrier as
-//! the complete C9 universe.
+//! the complete validation universe.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,7 +13,7 @@ use crate::pages::validation::Semantics;
 use crate::schema::{Key, KeyPart, KeyRole, KeyScope, Schema};
 use crate::value::Value;
 
-/// The largest number of vertices in the settled C9 structural schema scope.
+/// The largest number of vertices in the settled structural schema scope of validation.
 pub const MAX_VERTICES: usize = 3;
 /// The largest number of schema edges in the settled structural scope.
 pub const MAX_SCHEMA_EDGES: usize = 2;
@@ -43,7 +43,7 @@ fn id(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
-/// A declaration family required by V1--V11/C9.
+/// A declaration family required by the validation laws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DeclarationFamily {
     /// Required edge.
@@ -86,7 +86,7 @@ pub enum DeclarationFamily {
     Registered,
 }
 
-/// A finite C9 parameter absent from the binding contract.
+/// A finite validation-scope parameter the scope does not yet fix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MissingFiniteParameter {
     /// Vertex-kind alphabet.
@@ -158,13 +158,13 @@ pub struct ScopeCertificate {
     pub boundary_cases: u64,
     /// Present scalar values; absence is the third cell/node choice.
     pub values: Vec<Value>,
-    /// Declaration families the eventual complete C9 alphabet must span.
+    /// Declaration families the eventual complete validation alphabet must span.
     pub declaration_families: Vec<DeclarationFamily>,
-    /// Parameters that prevent a truthful complete-C9 count.
+    /// Parameters that prevent a truthful count of the complete validation scope.
     pub missing: Vec<MissingFiniteParameter>,
 }
 
-/// The exact settled-scope certificate and the explicit C9 incompleteness.
+/// The exact settled-scope certificate and the explicit gaps of the validation scope.
 #[must_use]
 pub fn scope_certificate() -> ScopeCertificate {
     ScopeCertificate {

@@ -1,14 +1,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The backward direction agrees with the round trip.
 //!
-//! Two things a `put` has to get right that the round-trip laws did not
-//! previously see. Array order: the children of a collection node are its
+//! Two things a `put` has to get right that a set-based round-trip law
+//! cannot see. Array order: the children of a collection node are its
 //! elements in sequence, so a reconstruction that permutes them returns a
 //! different record while every node and arc is still present. And an
 //! invertible computation whose result crossed the JSON boundary: the
 //! forward pass leaves it in `extra_fields` shadowing the child it read,
 //! but serializing and re-parsing moves it onto the child, where the
-//! backward pass used not to look.
+//! backward pass must also look.
 
 use std::collections::HashMap;
 use std::sync::Arc;

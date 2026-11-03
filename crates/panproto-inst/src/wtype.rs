@@ -5473,7 +5473,7 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn compute_field_builds_a_nested_record_list() {
-        // The regroup shape the report is blocked on: build a list of
+        // The regroup shape: build a list of
         // records from a list of records, nesting some of the source
         // fields one level deeper. Exercises structure preservation in
         // BOTH directions in a single transform.
@@ -5609,7 +5609,7 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn failed_transform_reports_instead_of_silently_skipping() {
-        // The diagnosability half of the fix: an expression that cannot
+        // Diagnosability: an expression that cannot
         // evaluate surfaces an error naming the field, rather than
         // leaving the field untouched and returning success.
         let mut node = Node::new(0, "rec");

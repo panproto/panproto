@@ -213,7 +213,7 @@ fn merge_synthesized_keys(
 
 /// Compose two normalized tree complements.
 ///
-/// This is the dependency-free reference definition of L.6. Composition is
+/// This is the dependency-free reference definition of L-lenses-6. Composition is
 /// set union on the two unordered coordinates, agreement union on every
 /// keyed coordinate, maximum on the allocation floor, and agreement with an
 /// empty unit on the global arc sequence. Synthesis keys must be injective in

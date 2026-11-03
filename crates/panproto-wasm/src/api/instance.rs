@@ -12,7 +12,7 @@ use crate::error::WasmError;
 use crate::slab::{self, Resource};
 
 // ---------------------------------------------------------------------------
-// Phase 2: Instance operations and I/O
+// Instance operations and I/O
 // ---------------------------------------------------------------------------
 
 /// Create an I/O protocol registry with all built-in protocol codecs.

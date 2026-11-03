@@ -1,8 +1,8 @@
 //! Finite scopes for the segmentation page.
 //!
 //! The graph/partition carrier below is exact on its stated alphabet. It is
-//! deliberately not called the complete C10 carrier: the contract has not yet
-//! fixed finite alphabets for schemas, edge multiplicities, values, node
+//! deliberately not called the complete segment carrier: its finite alphabets
+//! are not yet fixed for schemas, edge multiplicities, values, node
 //! shapes, positions, allocation ranges, or full table/tree carriers. Small
 //! graph, table and tree witnesses exercise the common implementation.
 
@@ -24,27 +24,27 @@ pub struct GraphPartitionCase {
     pub partition: Partition,
 }
 
-/// Dimensions still required before the segment scope can claim full C10
+/// Dimensions still required before the segment scope can claim full
 /// coverage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ScopeGap {
-    /// The finite schema anchor/label alphabet has not been fixed for C10.
+    /// The finite schema anchor/label alphabet has not been fixed for the segment scope.
     SchemaAlphabet,
-    /// The exact graph-node bound (the current witness uses two; C10 names
+    /// The exact graph-node bound (the current witness uses two; the segment scope names
     /// four) has not been reconciled with the remaining alphabets.
     GraphNodeBound,
-    /// The finite parallel-edge multiplicity bound has not been fixed for C10.
+    /// The finite parallel-edge multiplicity bound has not been fixed for the segment scope.
     EdgeMultiplicity,
-    /// The finite node-value alphabet has not been fixed for C10.
+    /// The finite node-value alphabet has not been fixed for the segment scope.
     NodeValues,
-    /// The finite node-shape and fan alphabet has not been fixed for C10.
+    /// The finite node-shape and fan alphabet has not been fixed for the segment scope.
     NodeShapesAndFans,
     /// Discriminators, extra fields, node positions, and annotations have no
-    /// finite C10 alphabet yet.
+    /// finite segment alphabet yet.
     NodeMetadataAlphabet,
-    /// The finite edge-position alphabet has not been fixed for C10.
+    /// The finite edge-position alphabet has not been fixed for the segment scope.
     EdgePositions,
-    /// Allocation-range bounds have not been fixed for C10.
+    /// Allocation-range bounds have not been fixed for the segment scope.
     AllocationRanges,
     /// Canonical state ids and general multi-range partition shapes need an
     /// exact carrier or a proved renaming quotient.
@@ -57,7 +57,7 @@ pub enum ScopeGap {
     ExecutionCarrierBounds,
 }
 
-/// The unresolved dimensions of the full C10/SG.11 carrier.
+/// The unresolved dimensions of the full segment and segment-execution carrier.
 pub const FULL_SCOPE_GAPS: [ScopeGap; 12] = [
     ScopeGap::SchemaAlphabet,
     ScopeGap::GraphNodeBound,
@@ -108,7 +108,7 @@ pub fn graph_count() -> u64 {
 /// labelled segments, represented by singleton ranges.
 ///
 /// Empty segments are retained, so this has exactly `k^n` members for an
-/// `n`-node graph.  Allocation ranges are absent because their finite C10
+/// `n`-node graph.  Allocation ranges are absent because their finite segment
 /// alphabet is one of [`FULL_SCOPE_GAPS`].
 #[must_use]
 fn partitions(graph: &Graph, k: u32) -> Vec<Partition> {

@@ -141,10 +141,10 @@ fn test_protocol() -> Protocol {
 ///
 /// This goes through `combinators::rename_field(..).instantiate(..)` rather
 /// than assembling a `CompiledMigration` by hand. The distinction is the
-/// whole of #251: hand-assembling one lets a test set `edge_remap` directly,
-/// while instantiation has to derive it, and for a long time did not. A
-/// hand-built fixture exercises the conjugation but not the path any caller
-/// reaches it by, so it passed while the combinator path stayed broken.
+/// whole point: hand-assembling one lets a test set `edge_remap` directly,
+/// while instantiation has to derive it. A hand-built fixture exercises the
+/// conjugation but not the path any caller reaches it by, so it can pass
+/// while the combinator path is broken.
 fn rename_edge_lens(src: &Schema, parent: &str, field: &str, old: &str, new: &str) -> Lens {
     combinators::rename_field(
         Name::from(parent),
@@ -250,8 +250,8 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
 }
 
 /// The unsound direction: an expression naming a field that does *not*
-/// exist in `m2`'s input schema was the one the composite used to accept,
-/// because the un-conjugated name happened to match `m1`'s source frame.
+/// exist in `m2`'s input schema is one a composite could wrongly accept,
+/// because the un-conjugated name happens to match `m1`'s source frame.
 /// It has to be rejected when the composed path executes its second stage.
 #[test]
 fn composite_rejects_an_expression_written_against_the_wrong_frame() {
@@ -286,9 +286,9 @@ fn composite_rejects_an_expression_written_against_the_wrong_frame() {
 /// An `extra_fields` rename reaches the value layer by a different route
 /// than an edge rename: `RenameField` rewrites the key in place, and
 /// `m1`'s entries run ahead of `m2`'s in the merged batch, so `m2`'s
-/// expression already sees the new name. Composition was correct here
-/// before the fix and must stay correct after it, since conjugating this route
-/// as well would rewrite a sound reference into a dangling one.
+/// expression already sees the new name. Composition must stay correct
+/// here, since conjugating this route as well would rewrite a sound
+/// reference into a dangling one.
 #[test]
 fn composite_agrees_with_sequential_across_an_extra_field_rename() {
     let schema = user_schema_declaring("name", &["userHandle", "slug"]);

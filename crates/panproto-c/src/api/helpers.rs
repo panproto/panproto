@@ -350,8 +350,8 @@ pub fn compose_compiled(c1: &CompiledMigration, c2: &CompiledMigration) -> Compi
 /// recognized.
 pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theory>, FfiError> {
     // Every protocol the dispatch accepts has theories, and the
-    // descriptor carries the registrar, so this no longer repeats a
-    // hand-written match that listed five of the fifty-four.
+    // descriptor carries the registrar, so no hand-written match is
+    // needed.
     let Some(descriptor) = protocols::registry::descriptor(protocol_name) else {
         return Err(FfiError::Operation(format!(
             "unknown protocol: {protocol_name:?}. Supported: {}",

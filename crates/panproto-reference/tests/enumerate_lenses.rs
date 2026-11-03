@@ -345,7 +345,7 @@ fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
     assert_eq!(counts.stage_tree_states, 2_548);
     assert_eq!(
         C11_DYNAMIC_VERIFICATION_HOLD,
-        "HOLD: build the amended C11 census and reproduce its independent counts before execution"
+        "dynamic execution waits until the reference and production tests reproduce the independent count certificate"
     );
 }
 

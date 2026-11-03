@@ -2557,8 +2557,8 @@ fn compute_migration_between(
     // A renamed edge survives; it just answers to a different name. Record
     // both spellings, mirroring how a renamed *vertex* is entered into
     // `surviving_verts` under its source and target ids. Leaving the source
-    // edge out would say the field was dropped, which is what previously
-    // hid a rename from every consumer that reasons about survival.
+    // edge out would say the field was dropped and hide the rename from
+    // every consumer that reasons about survival.
     for (src_edge, tgt_edge) in &edge_remap {
         surviving_edges.insert(src_edge.clone());
         surviving_edges.insert(tgt_edge.clone());
@@ -5021,7 +5021,7 @@ mod tests {
             "expansion should route through the new intermediate"
         );
 
-        // Forward eval: this is the exact call site that failed before the fix.
+        // Forward eval: the call site a nest_field chain exercises.
         let (view, complement) = asymmetric::get(&lens, &instance)
             .expect("forward eval should succeed on a nest_field chain");
 
@@ -5458,7 +5458,7 @@ mod tests {
 /// the dependency graph, so it cannot import the `Step` enum or
 /// `compile_steps` directly; the DSL-front-end test
 /// (`panproto-lens-dsl/tests/step_laws.rs`, which compiles real
-/// `LensDocument`s) is a follow-up for the lane that owns that crate.
+/// `LensDocument`s) lives in that crate.
 ///
 /// This module instead instantiates each step's *compile target* against
 /// a fixture and runs [`crate::laws::check_get_put`], so every construct

@@ -592,7 +592,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Issue #29: child-value predicate tests
+    // Child-value predicate tests
     // -----------------------------------------------------------------------
 
     fn make_tree_instance_with_child_values() -> WInstance {

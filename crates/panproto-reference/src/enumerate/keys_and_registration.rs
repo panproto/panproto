@@ -7,7 +7,7 @@ use crate::num::Nat;
 use crate::schema::{Key, KeyPart, KeyRole, KeyScope, Schema};
 use crate::value::Value;
 
-/// Every O17 structural graph, grouped implicitly by its vertex count.
+/// Every structural graph of the key scope, grouped implicitly by its vertex count.
 ///
 /// For `n = 0, 1, 2, 3`, this enumerates every labelled graph on `v0..vn`
 /// with the sole vertex kind `k`, the sole edge kind/name `prop:e`, and at
@@ -17,13 +17,13 @@ pub fn schemas() -> Vec<Schema> {
     (0..=3).flat_map(structural_schemas).collect()
 }
 
-/// The O17 structural graphs at one vertex count.
+/// The structural graphs of the key scope at one vertex count.
 #[must_use]
 pub fn structural_schemas(vertices: usize) -> Vec<Schema> {
     super::schemas(vertices, &["k"], &["e"], 3)
 }
 
-/// The two graph-independent O17 key-part atoms.
+/// The two graph-independent key-part atoms of the key scope.
 ///
 /// `Path([])` precedes the one-edge self path under the reference carrier's
 /// derived order. Neither atom depends on whether the structural context
@@ -91,7 +91,7 @@ pub fn schema_with_keys(mut graph: Schema, slots: [Option<&KeyDescriptor>; 2]) -
     graph
 }
 
-/// Every O17 owner/key descriptor for an `n`-vertex context.
+/// Every owner/key descriptor of the key scope for an `n`-vertex context.
 ///
 /// The product has `n * 6 * 5 * (n + 2) = 30n(n+2)` elements: `n` owners,
 /// six part words, five roles, and the document, global, and `n` within
@@ -128,7 +128,7 @@ pub fn key_descriptors(vertices: usize) -> Vec<KeyDescriptor> {
     descriptors
 }
 
-/// The changed axis of one directed O17 classification case.
+/// The changed axis of one directed key classification case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChangeAxis {
     /// `None -> Some(key)`.
@@ -154,7 +154,7 @@ pub struct AxisTransition {
     pub after: Option<KeyDescriptor>,
 }
 
-/// Every directed O17 one-axis transition for an `n`-vertex context.
+/// Every directed one-axis key transition for an `n`-vertex context.
 ///
 /// Each descriptor contributes one add, one remove, four role changes,
 /// `n+1` scope changes, and five part changes. The resulting exact count is
@@ -240,7 +240,7 @@ pub enum OtherKeyClass {
     DifferentOwner,
 }
 
-/// One row of the O17 context-factorization certificate.
+/// One row of the key classification's context-factorization certificate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FactorClass {
     /// Number of labelled vertices.
@@ -261,7 +261,7 @@ pub struct FactorClass {
     pub multiplicity: u64,
 }
 
-/// The complete context map and multiplicities for O17 classification.
+/// The complete context map and multiplicities for key classification.
 ///
 /// Rows split by vertex count, changed slot, changed axis, and whether the
 /// untouched key is absent, has the same owner, or has a different owner.
@@ -378,7 +378,7 @@ pub fn subsets<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
     super::subsets(items, 2)
 }
 
-/// The exact 37-value B10/O17 equality carrier, in contract order.
+/// The exact 37-value key-equality carrier, in the book's order.
 #[must_use]
 pub fn equality_values() -> Vec<Value> {
     let mut values = vec![
@@ -441,11 +441,11 @@ pub fn equality_values() -> Vec<Value> {
     values
 }
 
-/// The twelve computable B10/O17 equality contexts.
+/// The twelve computable key-equality contexts.
 ///
 /// `within-int` and `within-decimal` deliberately carry the same public
 /// `Decimal` primitive: XSD places both declarations in one numeric
-/// primitive, while O17 retains the two declaration contexts in its census.
+/// primitive, while the key scope retains the two declaration contexts in its census.
 #[must_use]
 pub fn equality_configurations() -> Vec<(&'static str, KeyEquality)> {
     vec![

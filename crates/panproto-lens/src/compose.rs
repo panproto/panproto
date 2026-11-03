@@ -1334,10 +1334,10 @@ mod tests {
         let protocol = panproto_schema::Protocol::default();
         let Ok(builder) = panproto_schema::SchemaBuilder::new(&protocol).vertex("a", "obj", None)
         else {
-            panic!("the C11 vertex is valid");
+            panic!("the bounded lens vertex is valid");
         };
         let Ok(schema) = builder.build() else {
-            panic!("the C11 schema is valid");
+            panic!("the bounded lens schema is valid");
         };
         let anchor = panproto_gat::Name::from("a");
         let mut first = identity_lens(&schema);

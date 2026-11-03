@@ -555,11 +555,10 @@ mod tests {
     ///
     /// A total morphism maps every source vertex, so a request for one that
     /// also asks to omit part of its domain has no answer, and
-    /// `find_morphisms_constrained` says so by returning empty. That is the
-    /// honest reading, and it used to be answered with a partial map called a
-    /// morphism. `find_span_constrained` is the entry point for the question
-    /// actually being asked, and it returns the sub-schema the exclusion
-    /// leaves.
+    /// `find_morphisms_constrained` says so by returning empty rather than
+    /// answering with a partial map called a morphism.
+    /// `find_span_constrained` is the entry point for the question actually
+    /// being asked, and it returns the sub-schema the exclusion leaves.
     #[test]
     fn an_excluded_source_is_answered_by_the_span() {
         use panproto_mig::{SearchOptions, find_morphisms_constrained, find_span_constrained};

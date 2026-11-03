@@ -9,7 +9,7 @@ use crate::error::WasmError;
 use super::helpers::{builtin_protocol_names, lookup_builtin_protocol};
 
 // ---------------------------------------------------------------------------
-// Phase 4: Full protocol registry
+// Full protocol registry
 // ---------------------------------------------------------------------------
 
 /// List all built-in protocol names.

@@ -143,7 +143,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
     }
 }
 
-/// Schema with an AT-URI formatted string field (reproduces #13).
+/// Schema with an AT-URI formatted string field.
 fn at_uri_schema() -> Schema {
     let edge_repo = Edge {
         src: "body".into(),
@@ -234,7 +234,7 @@ fn compute_field_survives_restrict() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: AT-URI decomposition (exact scenario from issue #13)
+// Test: AT-URI decomposition
 // ---------------------------------------------------------------------------
 
 #[test]

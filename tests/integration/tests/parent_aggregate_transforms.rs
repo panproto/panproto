@@ -270,9 +270,8 @@ fn temporal_span(view: &WInstance) -> Option<Value> {
         .cloned()
 }
 
-/// The reported case: an aggregate at the parent vertex over an
-/// array-of-objects child, which previously failed with
-/// "unbound variable: keyframes".
+/// An aggregate at the parent vertex over an array-of-objects child,
+/// which must not fail with "unbound variable: keyframes".
 #[test]
 fn parent_aggregate_over_child_object_array() {
     let schema = keyframe_schema();

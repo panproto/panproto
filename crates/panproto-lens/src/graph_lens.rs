@@ -222,8 +222,8 @@ pub fn check_laws_exhaustive(
 /// so it is contained in this result. The same argument proves the universal
 /// form: the union of all source subinstances whose restriction is contained
 /// in the edit still has restriction contained in it and equals the cascade.
-/// This proof was checked against the independent exhaustive oracle recorded
-/// for O9 (14) (e).
+/// This proof was checked against the independent exhaustive oracle of
+/// [L-lenses-4](https://panproto.dev/book/correctness/lenses.html#L-lenses-4).
 ///
 /// Its correspondence to the propagatable delete (cartesian lift) of
 /// `johnsonrosebrugh2007fibrations` is inferred. The mono-restricted lift is

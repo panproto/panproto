@@ -1,2 +1,1 @@
-//! Zero-law module: the authoritative manifest leaves this page pending.
-//! Its owning hand-off will add the first implementation and finite scope.
+//! No laws are stated for this page yet, so the module has no implementation or finite scope.

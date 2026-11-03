@@ -74,7 +74,7 @@ pub const PARTIAL_LENS_COMPLEMENTS: usize = 3;
 /// Exact alphabet of one partial-put cell: undefined, source zero, source one.
 pub const PARTIAL_PUT_ALPHABET: [Option<usize>; 3] = [None, Some(0), Some(1)];
 
-/// One finite partial lens used by the C11 law census.
+/// One finite partial lens used by the bounded lens law census.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PartialLens {
     get: [(usize, usize); PARTIAL_LENS_SOURCES],
@@ -162,7 +162,7 @@ fn decode_partial_put(mut code: usize) -> [Option<usize>; 6] {
     put
 }
 
-/// Stream all ordered-injective-get/partial-put lenses of the C11 carrier.
+/// Stream all ordered-injective-get/partial-put lenses of the bounded lens carrier.
 pub fn for_each_partial_lens(mut visit: impl FnMut(PartialLens)) {
     let get_cells = PARTIAL_LENS_VIEWS * PARTIAL_LENS_COMPLEMENTS;
     for first in 0..get_cells {
@@ -227,7 +227,7 @@ pub const fn partial_lens_count_certificate() -> usize {
         )
 }
 
-/// Exact law histogram of the C11 partial-lens carrier.
+/// Exact law histogram of the bounded lens partial-lens carrier.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PartialLensHistogram {
     /// Every lens.
@@ -455,7 +455,7 @@ pub fn partial_lens_law_report(
     crate::lens::check_laws_report::<PartialLensShape, PartialLens>(lens, &source, &())
 }
 
-/// Largest column and canonical-row cardinalities of the C11 table carrier.
+/// Largest column and canonical-row cardinalities of the bounded lens table carrier.
 pub const TABLE_FIXTURE_BOUND: usize = 2;
 
 /// Exact table-cell alphabet: absence, Null, F, T, Int(0), Int(1), Str("").
@@ -1242,7 +1242,7 @@ pub const fn table_get_refusal_count_certificate() -> usize {
     TableGetRefusalCase::ALL.len()
 }
 
-/// Stream every expressible table fixture in the exact C11 alphabet.
+/// Stream every expressible table fixture in the exact bounded lens alphabet.
 pub fn for_each_table_fixture(mut visit: impl FnMut(TableFixture)) {
     for columns in 0..=TABLE_FIXTURE_BOUND {
         for retained in 0..power(2, columns) {
@@ -2206,7 +2206,7 @@ impl PathContractKind {
 
 /// Independently computed premise results for one proposed scalar fusion.
 ///
-/// This is deliberately not a complete L.6 certificate. The scalar carrier
+/// This is deliberately not a complete L-lenses-6 certificate. The scalar carrier
 /// exercises migration/value compatibility nonvacuously; five structural
 /// premises have empty alphabets and the context premise is supplied by the
 /// caller. [`path_contract_fusion_coverage`] records that limitation.
@@ -2217,7 +2217,7 @@ pub struct PathContractFusionPremises {
 }
 
 impl PathContractFusionPremises {
-    /// Result for the premise at its L.6 contract ordinal.
+    /// Result for the premise at its L-lenses-6 contract ordinal.
     ///
     /// Ordinals are contraction, migration, edge image, empty plans, value
     /// layer, resolver, keep/drop compilation, and context.
@@ -2253,7 +2253,7 @@ impl PathContractFusionCoverage {
 /// The operation check exhausts both source states and both possible edited
 /// views. Structural premises evaluate true only because this explicitly
 /// scalar carrier has no graph paths, edges, restrict plans, or fan resolvers;
-/// they are not counted as witnesses for the full C11/L.6 claim.
+/// they are not counted as witnesses for the full L-lenses-6 claim.
 #[must_use]
 pub fn path_contract_fusion_premises(
     first: PathContractKind,
@@ -2302,7 +2302,7 @@ pub fn path_contract_fusion_premises(
 /// Exact nonvacuity ledger for [`path_contract_fusion_premises`].
 ///
 /// Only migration composition and value-layer compatibility are exercised on
-/// nonempty alphabets. Thus this subcarrier cannot discharge the full C11
+/// nonempty alphabets. Thus this subcarrier cannot discharge the full bounded lens
 /// fusion obligation by itself.
 #[must_use]
 pub const fn path_contract_fusion_coverage() -> PathContractFusionCoverage {
@@ -2585,42 +2585,41 @@ pub const fn path_contract_law_count_certificate() -> PathContractLawCounts {
     }
 }
 
-/// Every finite C11 alphabet now has a binding owner ruling.
+/// Every finite alphabet of the bounded lens carrier is fixed.
 pub const C11_SCOPE_COMPLETE: bool = true;
 
-/// Dynamic execution remains on hold until the amended reference and
-/// production tests build and reproduce the independent count certificate.
-pub const C11_DYNAMIC_VERIFICATION_HOLD: &str =
-    "HOLD: build the amended C11 census and reproduce its independent counts before execution";
+/// Dynamic execution waits until the reference and production tests
+/// reproduce the independent count certificate.
+pub const C11_DYNAMIC_VERIFICATION_HOLD: &str = "dynamic execution waits until the reference and production tests reproduce the independent count certificate";
 
-/// Vertex names of the C11 schema alphabet.
+/// Vertex names of the bounded lens schema alphabet.
 pub const C11_VERTICES: [&str; 2] = ["a", "b"];
-/// Kind of every C11 schema vertex.
+/// Kind of every bounded lens schema vertex.
 pub const C11_VERTEX_KIND: &str = "obj";
-/// Kind of every C11 schema edge.
+/// Kind of every bounded lens schema edge.
 pub const C11_EDGE_KIND: &str = "prop";
-/// Name of every C11 schema edge.
+/// Name of every bounded lens schema edge.
 pub const C11_EDGE_NAME: &str = "e";
-/// Most edges of a C11 schema.
+/// Most edges of a bounded lens schema.
 pub const C11_MAX_SCHEMA_EDGES: usize = 2;
-/// Most nodes of a C11 state.
+/// Most nodes of a bounded lens state.
 pub const C11_MAX_NODES: usize = 3;
-/// Most edges of a C11 graph state.
+/// Most edges of a bounded lens graph state.
 pub const C11_MAX_EDGES: usize = 3;
-/// Most edges of a C11 fan state.
+/// Most edges of a bounded lens fan state.
 pub const C11_MAX_FAN_EDGES: usize = 2;
-/// The one value a C11 node may hold (or hold none).
+/// The one value a bounded lens node may hold (or hold none).
 pub const C11_VALUE: Value = Value::Int(0);
-/// The one field key of the C11 edit alphabet.
+/// The one field key of the bounded lens edit alphabet.
 pub const C11_FIELD: &str = "f";
 
-/// The C11 schema edge from `src` to `tgt`.
+/// The bounded lens schema edge from `src` to `tgt`.
 #[must_use]
 pub fn c11_edge(src: &str, tgt: &str) -> SEdge {
     SEdge::new(src, tgt, C11_EDGE_KIND, Some(C11_EDGE_NAME))
 }
 
-/// The C11 schema on `vertices` with `edges` given as vertex pairs.
+/// The bounded lens schema on `vertices` with `edges` given as vertex pairs.
 #[must_use]
 pub fn c11_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema {
     let mut schema = Schema::default();
@@ -2633,7 +2632,7 @@ pub fn c11_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema {
     schema
 }
 
-/// Every schema of the C11 alphabet: each subset of `{a, b}` as vertices,
+/// Every schema of the bounded lens alphabet: each subset of `{a, b}` as vertices,
 /// with each set of at most two of its ordered vertex pairs as edges, in
 /// ascending vertex-subset mask and then edge-subset order.
 #[must_use]
@@ -2698,7 +2697,7 @@ fn typed_candidates(schema: &Schema, anchors: &[&str]) -> Vec<(usize, usize, SEd
     out
 }
 
-/// Every C11 graph state over `schema`.
+/// Every bounded lens graph state over `schema`.
 ///
 /// The states have nodes `0..n-1` (`n <= 3`) anchored
 /// at the schema's vertices, each with no value or [`C11_VALUE`], and edges
@@ -2779,7 +2778,7 @@ pub fn c11_graph_state_count(schema: &Schema) -> usize {
     total
 }
 
-/// Every C11 table state over `schema`.
+/// Every bounded lens table state over `schema`.
 ///
 /// The states have rows `0..n-1` (`n <= 3`) assigned to schema vertices,
 /// each with either no cells or the single cell `f = 0`, and at most three
@@ -2903,7 +2902,7 @@ fn multinomial(total: usize, split: &[usize]) -> usize {
         .fold(factorial(total), |acc, part| acc / factorial(*part))
 }
 
-/// Every C11 tree state over `schema`.
+/// Every bounded lens tree state over `schema`.
 ///
 /// The states are the ordered rooted trees on nodes
 /// `0..n-1` (`1 <= n <= 3`) with every root, every sibling order, every
@@ -3119,7 +3118,7 @@ pub fn c11_fan_labels() -> [SEdge; 2] {
     ]
 }
 
-/// Every C11 fan state.
+/// Every bounded lens fan state.
 ///
 /// The states have nodes `0..n-1` (`n <= 3`) anchored at `a`, `b` or
 /// `h` (an `h` node has the hyper-edge shape), no values, and edges
@@ -3186,7 +3185,7 @@ pub const fn c11_fan_state_count() -> usize {
     total
 }
 
-/// The value layer of a C11 stage.
+/// The value layer of a bounded lens stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum C11Layer {
     /// No survival predicate and no transform.
@@ -3203,7 +3202,7 @@ pub enum C11Layer {
     OpTerm,
 }
 
-/// One atomic stage of the C11 stage alphabet.
+/// One atomic stage of the bounded lens stage alphabet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct C11Stage {
     /// Stable stage name.
@@ -3242,7 +3241,7 @@ fn stage(
     }
 }
 
-/// The 31 atomic stages of the C11 stage alphabet.
+/// The 31 atomic stages of the bounded lens stage alphabet.
 ///
 /// These are the identity on every schema of [`sigma2_schemas`] (16) and on
 /// [`c11_fan_schema`], then `P`, `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`,
@@ -3465,7 +3464,7 @@ pub const fn declared_transform_count_certificate() -> DeclaredTransformCounts {
     }
 }
 
-/// One schema-level case in the L.19 protolens certificate.
+/// One schema-level case in the L-lenses-19 protolens certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProtolensSchemaCase {
     /// One of the four elementary protolenses at one of the sixteen
@@ -3482,7 +3481,7 @@ pub enum ProtolensSchemaCase {
     ExpansionTooLong,
 }
 
-/// Stream the 66 schema-level cases of the L.19 protolens certificate.
+/// Stream the 66 schema-level cases of the L-lenses-19 protolens certificate.
 pub fn for_each_protolens_schema_case(mut visit: impl FnMut(ProtolensSchemaCase)) {
     for protolens in 0..4 {
         for schema in 0..sigma2_count() {
@@ -3499,7 +3498,7 @@ pub const fn protolens_schema_case_count_certificate() -> usize {
     4 * 16 + 2
 }
 
-/// One graph-instance case in the L.20 protolens certificate.
+/// One graph-instance case in the L-lenses-20 protolens certificate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProtolensInstanceCase {
     /// One of the four elementary protolenses at one of the sixteen
@@ -3520,7 +3519,7 @@ pub enum ProtolensInstanceCase {
     MalformedFan,
 }
 
-/// Stream the bounded graph product and named refusals of the L.20
+/// Stream the bounded graph product and named refusals of the L-lenses-20
 /// protolens-instance certificate.
 pub fn for_each_protolens_instance_case(mut visit: impl FnMut(ProtolensInstanceCase)) {
     for (schema, descriptor) in sigma2_schemas().iter().enumerate() {
@@ -3556,7 +3555,7 @@ pub struct ProtolensInstanceCountCertificate {
     pub total: usize,
 }
 
-/// Count the L.20 carrier from the closed-form graph-state count, without
+/// Count the L-lenses-20 carrier from the closed-form graph-state count, without
 /// materializing either the graph states or the cases.
 #[must_use]
 pub fn protolens_instance_count_certificate() -> ProtolensInstanceCountCertificate {
@@ -3941,7 +3940,7 @@ pub enum GraphPutContractCase {
     },
 }
 
-/// Stream all named identity, isomorphism, plan-compilation and fresh-id cases for L.3.
+/// Stream all named identity, isomorphism, plan-compilation and fresh-id cases for L-lenses-3.
 pub fn for_each_graph_put_contract_case(mut visit: impl FnMut(GraphPutContractCase)) {
     visit(GraphPutContractCase::PlanCompilation);
     visit(GraphPutContractCase::EnvelopeMismatchPrecedesDomain);
@@ -4050,12 +4049,12 @@ impl GraphPutDomainFamily {
     }
 }
 
-/// One case in the full L.4 domain-and-cascade carrier.
+/// One case in the full L-lenses-4 domain-and-cascade carrier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphPutCascadeLawCase {
     /// One named put-domain family whose operational witness must be observed.
     Domain(GraphPutDomainFamily),
-    /// One bounded C11 graph base, expanded by the exact test to its complete
+    /// One bounded bounded lens graph base, expanded by the exact test to its complete
     /// Single-Step Basis.
     Carrier {
         /// Index in [`c11_stages`].
@@ -4075,7 +4074,7 @@ pub enum GraphPutCascadeLawCase {
 }
 
 /// Stream every named domain family, every bounded graph base and every
-/// Delta-fragment cascade case used by L.4.
+/// Delta-fragment cascade case used by L-lenses-4.
 pub fn for_each_graph_put_cascade_law_case(mut visit: impl FnMut(GraphPutCascadeLawCase)) {
     for family in GraphPutDomainFamily::ALL {
         visit(GraphPutCascadeLawCase::Domain(family));
@@ -4094,7 +4093,7 @@ pub fn for_each_graph_put_cascade_law_case(mut visit: impl FnMut(GraphPutCascade
     });
 }
 
-/// Independent pinned base-case count of the L.4 umbrella carrier.
+/// Independent pinned base-case count of the L-lenses-4 umbrella carrier.
 #[must_use]
 pub fn graph_put_cascade_law_case_count_certificate() -> usize {
     GraphPutDomainFamily::ALL.len()
@@ -4134,7 +4133,7 @@ pub enum TreeValidationCase {
     },
 }
 
-/// Stream every independent validation witness for L.5 and L.9.
+/// Stream every independent validation witness for L-lenses-5 and L-lenses-9.
 pub fn for_each_tree_validation_case(mut visit: impl FnMut(TreeValidationCase)) {
     visit(TreeValidationCase::RequiredDeletion {
         elem: 0,
@@ -4159,10 +4158,10 @@ pub const fn tree_validation_case_count_certificate() -> usize {
     3
 }
 
-/// Exact heterogeneous scope of the L.10 construction certificate.
+/// Exact heterogeneous scope of the L-lenses-10 construction certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LensConstructionCountCertificate {
-    /// Atomic C11 stages classified by both graph and tree classifiers.
+    /// Atomic bounded lens stages classified by both graph and tree classifiers.
     pub stage_classifications: usize,
     /// Graph stages classified as complement-free isomorphisms.
     pub graph_positive_stages: usize,
@@ -4202,7 +4201,7 @@ pub struct LensConstructionCountCertificate {
     pub table_validation_witnesses: usize,
 }
 
-/// Independently pinned arithmetic metadata for the L.10 executable umbrella.
+/// Independently pinned arithmetic metadata for the L-lenses-10 executable umbrella.
 #[must_use]
 pub const fn lens_construction_count_certificate() -> LensConstructionCountCertificate {
     LensConstructionCountCertificate {
@@ -4228,17 +4227,17 @@ pub const fn lens_construction_count_certificate() -> LensConstructionCountCerti
     }
 }
 
-/// One heterogeneous family consumed by the exact L.10 construction test.
+/// One heterogeneous family consumed by the exact L-lenses-10 construction test.
 ///
 /// Large finite carriers are represented by one bundle case. The consumer
 /// must expand the complete bundle and compare its observation count with
 /// [`lens_construction_count_certificate`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LensConstructionCase {
-    /// Every C11 graph classification, full admitted-state restoration and
+    /// Every bounded lens graph classification, full admitted-state restoration and
     /// focused graph structural obstruction witness.
     GraphClassificationsAndRestorations,
-    /// Every C11 tree classification, full admitted-state restoration and
+    /// Every bounded lens tree classification, full admitted-state restoration and
     /// focused tree structural and value-layer obstruction witness.
     TreeClassificationsAndRestorations,
     /// Scalar, target-only and identity unit-complement boundaries.
@@ -4264,9 +4263,9 @@ pub enum LensConstructionCase {
 pub struct LensConstructionCaseCensus {
     /// Total heterogeneous cases.
     pub total: usize,
-    /// C11 graph/restoration bundles.
+    /// bounded lens graph/restoration bundles.
     pub graph_bundles: usize,
-    /// C11 tree/restoration bundles.
+    /// bounded lens tree/restoration bundles.
     pub tree_bundles: usize,
     /// Unit-complement boundary bundles.
     pub unit_complement_bundles: usize,
@@ -4284,7 +4283,7 @@ pub struct LensConstructionCaseCensus {
     pub table_validation_bundles: usize,
 }
 
-/// Stream every heterogeneous family in the exact L.10 construction test.
+/// Stream every heterogeneous family in the exact L-lenses-10 construction test.
 pub fn for_each_lens_construction_case(mut visit: impl FnMut(LensConstructionCase)) {
     visit(LensConstructionCase::GraphClassificationsAndRestorations);
     visit(LensConstructionCase::TreeClassificationsAndRestorations);
@@ -4318,14 +4317,14 @@ pub const fn lens_construction_case_census_certificate() -> LensConstructionCase
 /// One base case in the cross-shape law-equivalence certificate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LensEquivalenceCase {
-    /// One C11 stage applied to one bounded graph source.
+    /// One bounded lens stage applied to one bounded graph source.
     Graph {
         /// Index in [`c11_stages`].
         stage: usize,
         /// Bounded graph over the stage's source schema.
         source: Graph,
     },
-    /// One nonfan C11 stage applied to one bounded tree source.
+    /// One nonfan bounded lens stage applied to one bounded tree source.
     Tree {
         /// Index in [`c11_stages`].
         stage: usize,
@@ -4358,12 +4357,12 @@ pub fn for_each_lens_equivalence_case(mut visit: impl FnMut(LensEquivalenceCase)
     for_each_table_fixture(|fixture| visit(LensEquivalenceCase::Table(fixture)));
 }
 
-/// One case in the complete L.3 graph put-contract carrier.
+/// One case in the complete L-lenses-3 graph put-contract carrier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphPutLawCase {
     /// A named identity, isomorphism, plan-compilation or finite-id boundary.
     Contract(GraphPutContractCase),
-    /// One bounded C11 graph stage and source.
+    /// One bounded bounded lens graph stage and source.
     Carrier {
         /// Index in [`c11_stages`].
         stage: usize,
@@ -4372,7 +4371,7 @@ pub enum GraphPutLawCase {
     },
 }
 
-/// Stream the L.3 boundary cases and the complete bounded graph carrier.
+/// Stream the L-lenses-3 boundary cases and the complete bounded graph carrier.
 pub fn for_each_graph_put_law_case(mut visit: impl FnMut(GraphPutLawCase)) {
     for_each_graph_put_contract_case(|case| visit(GraphPutLawCase::Contract(case)));
     for_each_lens_equivalence_case(|case| {
@@ -4388,12 +4387,12 @@ pub const fn graph_put_law_case_count_certificate() -> usize {
     21 + 144_397
 }
 
-/// One case in the complete L.5 tree get/put carrier.
+/// One case in the complete L-lenses-5 tree get/put carrier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TreePutLawCase {
     /// A required-cell, duplicate-key or malformed-fan boundary.
     Validation(TreeValidationCase),
-    /// One bounded common-domain C11 tree stage and source.
+    /// One bounded common-domain bounded lens tree stage and source.
     Carrier {
         /// Index in [`c11_stages`].
         stage: usize,
@@ -4418,7 +4417,7 @@ pub const fn tree_put_law_case_count_certificate() -> usize {
     3 + 2_548
 }
 
-/// One case in the heterogeneous L.8 law-report carrier.
+/// One case in the heterogeneous L-lenses-8 law-report carrier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LensLawCertificateCase {
     /// A finite partial lens evaluated at one source.
@@ -4432,7 +4431,7 @@ pub enum LensLawCertificateCase {
     Concrete(LensEquivalenceCase),
 }
 
-/// Stream every partial-lens/source pair and every concrete lens case for L.8.
+/// Stream every partial-lens/source pair and every concrete lens case for L-lenses-8.
 pub fn for_each_lens_law_case(mut visit: impl FnMut(LensLawCertificateCase)) {
     for_each_partial_lens(|lens| {
         for source in 0..2_u8 {
@@ -4832,7 +4831,7 @@ impl crate::restrict::ValueLayer for C11OpTerm {
     }
 }
 
-/// Independent cardinalities of the C11 stage and path carrier.
+/// Independent cardinalities of the bounded lens stage and path carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct C11PathCounts {
     /// Atomic stages.
@@ -4855,7 +4854,7 @@ pub struct C11PathCounts {
     pub table_word_states_by_length: [usize; 3],
 }
 
-/// Independently pinned cardinalities of the L.17 graph/tree square carrier.
+/// Independently pinned cardinalities of the L-lenses-17 graph/tree square carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct C11TreeSquareCounts {
     /// Atomic-stage tree sources on which both routes are attempted.
@@ -4866,7 +4865,7 @@ pub struct C11TreeSquareCounts {
     pub observations: usize,
 }
 
-/// Exact finite bound of the L.17 graph/tree square certificate.
+/// Exact finite bound of the L-lenses-17 graph/tree square certificate.
 ///
 /// The base count is independently derived by [`c11_path_count_certificate`].
 /// The edited-view count is the frozen Single-Step Basis census over those
@@ -4880,8 +4879,8 @@ pub const fn c11_tree_square_count_certificate() -> C11TreeSquareCounts {
     }
 }
 
-/// One base input whose complete tree Single-Step Basis is checked by L.9
-/// and L.17.
+/// One base input whose complete tree Single-Step Basis is checked by L-lenses-9
+/// and L-lenses-17.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct C11TreeSquareCase {
     /// Index in [`c11_stages`].
@@ -4890,7 +4889,7 @@ pub struct C11TreeSquareCase {
     pub source: Tree,
 }
 
-/// Stream every bounded nonfan C11 stage/tree base.
+/// Stream every bounded nonfan bounded lens stage/tree base.
 ///
 /// The consuming exhaustive test checks the base observation and expands its
 /// complete reference Single-Step Basis. The independent expanded census is
@@ -4903,10 +4902,10 @@ pub fn for_each_c11_tree_square_case(mut visit: impl FnMut(C11TreeSquareCase)) {
     });
 }
 
-/// One case in the complete L.9 graph/tree-route carrier.
+/// One case in the complete L-lenses-9 graph/tree-route carrier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphTreeRouteLawCase {
-    /// One C11 tree base whose complete Single-Step Basis is expanded.
+    /// One bounded lens tree base whose complete Single-Step Basis is expanded.
     Square(C11TreeSquareCase),
     /// One nonfan required-cell or duplicate-key boundary.
     Validation(TreeValidationCase),
@@ -4922,7 +4921,7 @@ pub fn for_each_graph_tree_route_law_case(mut visit: impl FnMut(GraphTreeRouteLa
     });
 }
 
-/// Independent pinned base-case count of the L.9 umbrella carrier.
+/// Independent pinned base-case count of the L-lenses-9 umbrella carrier.
 #[must_use]
 pub const fn graph_tree_route_law_case_count_certificate() -> usize {
     2_548 + 2
@@ -5009,7 +5008,7 @@ pub enum TreeFusionBoundaryWitness {
 /// One case in the combined path-category and fusion certificate.
 ///
 /// Words and source states are represented by their stable indices in the
-/// C11 enumeration. This keeps the carrier streaming: enumerating two million
+/// bounded lens enumeration. This keeps the carrier streaming: enumerating two million
 /// cases does not clone their graph, tree and table payloads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PathLawCase {
@@ -5074,13 +5073,13 @@ fn c11_composable_words(stages: &[C11Stage]) -> Vec<Vec<usize>> {
     words
 }
 
-/// Stream the combined finite carrier for L.13 through L.16.
+/// Stream the combined finite carrier for L-lenses-13 through L-lenses-16.
 ///
 /// The categorical component contains every boundary-matched word for each
 /// unit law and every ordered triple for associativity. The operational
 /// component contains the sequential, left-unit and right-unit graph paths,
 /// plus the common-domain tree and table fusion paths. Four named witnesses
-/// cover table-fusion boundaries that the column-free C11 tables cannot
+/// cover table-fusion boundaries that the column-free bounded lens tables cannot
 /// express, three named witnesses cover the exact shared-schema quotient, and
 /// eight named witnesses cover the positive and refusing tree-fusion
 /// boundaries. The target-only table witness bundles its table, relation and
@@ -5225,7 +5224,7 @@ impl C11PathCounts {
     }
 }
 
-/// Compute the C11 path counts from endpoint products and the independent
+/// Compute the bounded lens path counts from endpoint products and the independent
 /// graph/tree state formulae. This does not enumerate words.
 #[must_use]
 pub fn c11_path_count_certificate() -> C11PathCounts {
@@ -5313,7 +5312,7 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
     }
 }
 
-/// One one-step edit of a C11 view: its family and the edited view.
+/// One one-step edit of a bounded lens view: its family and the edited view.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct C11Edit {
     /// The Single-Step Basis family.
@@ -5330,7 +5329,7 @@ fn fresh_id<'a>(taken: impl Iterator<Item = &'a u32>, floor: u32) -> u32 {
         .map_or(floor, |largest| floor.max(largest.saturating_add(1)))
 }
 
-/// Every one-step edit of a C11 graph view.
+/// Every one-step edit of a bounded lens graph view.
 ///
 /// The edits of `view` over `target`, against `complement`, are, in
 /// Single-Step Basis family order: value

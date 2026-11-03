@@ -77,7 +77,7 @@ fn alloc_directional_compiled_lens(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3: Lens & migration enhancements
+// Lens & migration enhancements
 // ---------------------------------------------------------------------------
 
 /// Auto-generate up to `top_n` ranked candidate lenses with per-step
@@ -531,7 +531,7 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 9: Protolens operations
+// Protolens operations
 // ---------------------------------------------------------------------------
 
 /// Instantiate a protolens chain at a specific schema.

@@ -504,7 +504,7 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
     }
 }
 
-/// The production lens of a C11 stage: the structural migration, plus the
+/// The production lens of a bounded lens stage: the structural migration, plus the
 /// production value layer its tag names.
 fn production_stage(stage: &C11Stage) -> Lens {
     let mut structural = stage.migration.clone();
@@ -1368,7 +1368,7 @@ impl Pair {
         }
     }
 
-    /// A C11 stage on both sides. The value layer is built on each side
+    /// A bounded lens stage on both sides. The value layer is built on each side
     /// from the stage's layer tag: the production expression or transform,
     /// and the reference's caller-supplied layer.
     fn from_stage(stage: &C11Stage) -> Self {
@@ -1749,7 +1749,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// GF5: the Delta-fragment cascade (L.4) on its exact finite scope
+// GF5: the Delta-fragment cascade (L-lenses-4) on its exact finite scope
 // ---------------------------------------------------------------------------
 
 use panproto_reference::enumerate::lenses::{
@@ -2109,7 +2109,7 @@ fn prod_key(key: &panproto_reference::schema::Key) -> Key {
     }
 }
 
-/// An identity lens over the C11 schema on `vertices` and `edges` whose
+/// An identity lens over the bounded lens schema on `vertices` and `edges` whose
 /// vertex `a` declares `keys`, built on both sides.
 fn keyed_graph_pair(
     vertices: &[&str],
@@ -2471,7 +2471,7 @@ fn assert_graph_put_domain_family(family: GraphPutDomainFamily) -> u16 {
             let (_, stage, source, edited) = c11_graph_domain_witnesses()
                 .iter()
                 .find(|(candidate, _, _, _)| *candidate == family)
-                .unwrap_or_else(|| panic!("the C11 carrier has no {family:?} witness"));
+                .unwrap_or_else(|| panic!("the bounded lens carrier has no {family:?} witness"));
             let pair = Pair::from_stage(&stages[*stage]);
             assert_graph_put_domain_outcome(&pair, source, edited, family)
         }
@@ -2639,7 +2639,7 @@ fn graph_get_agrees_with_the_reference_on_the_gf5_sources() {
 }
 
 // ---------------------------------------------------------------------------
-// Tables (T.4): get, strict put and refusals on the L.8 fixture scope, and
+// Tables (T.4): get, strict put and refusals on the L-lenses-8 fixture scope, and
 // the last-writer rule on the writer carrier
 // ---------------------------------------------------------------------------
 
@@ -4066,14 +4066,14 @@ fn table_get_put_law_certificate() {
 }
 
 // ---------------------------------------------------------------------------
-// The five law gates (L.8): production checker against the reference checker
+// The five law gates (L-lenses-8): production checker against the reference checker
 // ---------------------------------------------------------------------------
 
 use panproto_lens::LawViolation;
 use panproto_reference::lens::{LawGateStatus, LawReport as RefLawReport};
 
 /// The comparable part of a native five-gate report: the first gate that does
-/// not pass, or `None` when every gate passes. L.8 retains this own-basis
+/// not pass, or `None` when every gate passes. L-lenses-8 retains this own-basis
 /// comparison and separately reruns both checkers on one family-labelled
 /// union of their independently generated candidates.
 #[derive(Debug, PartialEq, Eq)]
@@ -4330,7 +4330,7 @@ fn partial_lens_laws_agree_with_the_reference_on_every_lens_and_source() {
 }
 
 // ---------------------------------------------------------------------------
-// The C11 state scope: every stage, every state over its source schema and
+// The bounded lens state scope: every stage, every state over its source schema and
 // every one-step edit of its view
 // ---------------------------------------------------------------------------
 
@@ -4351,7 +4351,7 @@ fn c11_sources(stage: &C11Stage) -> Vec<RefGraph> {
     }
 }
 
-/// One case of the C11 graph scope: the get of a stage on a state, or the
+/// One case of the bounded lens graph scope: the get of a stage on a state, or the
 /// put of one view (unedited or one-step edited) against that get's
 /// complement. States are named by their index among the stage's sources.
 #[derive(Debug)]
@@ -4429,7 +4429,7 @@ fn graph_lens_agrees_with_the_reference_on_cases(units: &[(usize, RefGraph)]) ->
     assert_eq!(stages.len(), certificate.stages);
     assert_eq!(units.len(), certificate.single_stage_states);
     let bound = format!(
-        "C11 graph scope: schemas={}, stages={}, states={}",
+        "bounded lens graph scope: schemas={}, stages={}, states={}",
         schemas.len(),
         stages.len(),
         units.len(),
@@ -4494,7 +4494,7 @@ fn graph_lens_agrees_with_the_reference_on_cases(units: &[(usize, RefGraph)]) ->
     let (views, edits) = (views.into_inner(), edits.into_inner());
     let total = units.len() + views + edits;
     println!(
-        "C11 graph cases: gets={}, unedited views={views}, one-step edits={edits}, cases={total}",
+        "bounded lens graph cases: gets={}, unedited views={views}, one-step edits={edits}, cases={total}",
         units.len()
     );
     assert_eq!(compared, u64::try_from(total).unwrap());
@@ -4502,7 +4502,7 @@ fn graph_lens_agrees_with_the_reference_on_cases(units: &[(usize, RefGraph)]) ->
 }
 
 // ---------------------------------------------------------------------------
-// Trees: get, GetPut and the five-gate reports on the C11 tree states
+// Trees: get, GetPut and the five-gate reports on the bounded lens tree states
 // ---------------------------------------------------------------------------
 
 use panproto_inst::{Fan, WInstance};
@@ -5116,7 +5116,7 @@ fn tree_lens_agrees_with_the_reference_on_cases(cases: &[(usize, RefTree)]) {
     let certificate = c11_path_count_certificate();
     assert_eq!(cases.len(), certificate.stage_tree_states);
     let bound = format!(
-        "C11 tree scope: stages={}, trees of at most 3 nodes over each stage's source schema, (stage, tree) cases={}",
+        "bounded lens tree scope: stages={}, trees of at most 3 nodes over each stage's source schema, (stage, tree) cases={}",
         certificate.tree_stages,
         cases.len()
     );
@@ -5643,7 +5643,7 @@ fn c11_stage_index(stages: &[C11Stage], name: &str) -> usize {
     stages
         .iter()
         .position(|stage| stage.name == name)
-        .unwrap_or_else(|| panic!("missing C11 stage {name}"))
+        .unwrap_or_else(|| panic!("missing bounded lens stage {name}"))
 }
 
 fn c11_identity_index(stages: &[C11Stage], schema: &RefSchema) -> usize {
@@ -5652,7 +5652,7 @@ fn c11_identity_index(stages: &[C11Stage], schema: &RefSchema) -> usize {
         .position(|stage| {
             stage.name.starts_with("Id") && stage.source == *schema && stage.target == *schema
         })
-        .unwrap_or_else(|| panic!("missing C11 identity at {schema:?}"))
+        .unwrap_or_else(|| panic!("missing bounded lens identity at {schema:?}"))
 }
 
 fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
@@ -5716,7 +5716,7 @@ fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
             stages[second].name
         );
         println!(
-            "C11 fusion condition {condition} ({label}): {} then {}, fused={fused}",
+            "bounded lens fusion condition {condition} ({label}): {} then {}, fused={fused}",
             stages[first].name, stages[second].name
         );
     }
@@ -5791,7 +5791,7 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
         })
         .collect();
     let bound = format!(
-        "C11 paths: stages={}, words by length={:?}, words={}, composable by length={:?}, composable={}, with both identity composites={}, word-state pairs={}, evaluated path-state cases={}",
+        "bounded lens paths: stages={}, words by length={:?}, words={}, composable by length={:?}, composable={}, with both identity composites={}, word-state pairs={}, evaluated path-state cases={}",
         stages.len(),
         certificate.words_by_length,
         all.len(),
@@ -5837,7 +5837,7 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
     let edits = edits.into_inner();
     assert_eq!(edit_families.total(), edits);
     println!(
-        "C11 paths final SSB: edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
+        "bounded lens paths final SSB: edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}",
         edit_families.admitted_positive.named(),
         edit_families.refused_positive.named(),
         edit_families.designated_negative.named()
@@ -5845,7 +5845,7 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
     assert_eq!(compared, u64::try_from(units.len()).unwrap());
 }
 
-/// The anchor no C11 schema declares.
+/// The anchor no bounded lens schema declares.
 const UNDECLARED_ANCHOR: &str = "\u{1}undeclared";
 
 /// `source` with one more node, at an anchor its schema does not declare,
@@ -5940,7 +5940,7 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
         .map(|&index| sources[composable_words[index / 3][0]].len())
         .sum();
     let bound = format!(
-        "C11 undeclared sources: fused composites={}, source states={source_states}, undeclared-anchor sources={anchors}, undeclared-label sources={labels}, cases={}",
+        "bounded lens undeclared sources: fused composites={}, source states={source_states}, undeclared-anchor sources={anchors}, undeclared-label sources={labels}, cases={}",
         fused.len(),
         units.len()
     );
@@ -6320,7 +6320,7 @@ fn projection_table_path_partitions_positive_and_negative_basis_cases() {
     let projection = c11_stage_index(&stages, "P");
     assert_eq!(
         projection, 17,
-        "P remains path stage 17 in the C11 alphabet"
+        "P remains path stage 17 in the bounded lens alphabet"
     );
     let pairs: Vec<_> = stages.iter().map(TablePair::from_stage).collect();
     let source = RefTable {
@@ -6756,7 +6756,7 @@ fn independent_fresh_table_row_id(view: &RefTable, complement: &RefTableCompleme
 }
 
 /// Independently construct the complete positive table basis, followed by
-/// the intentional C11-field extension. Each candidate carries the observed
+/// the intentional bounded lens-field extension. Each candidate carries the observed
 /// dynamic-domain classification, so equality below is extensional rather
 /// than merely an equality of per-family counts.
 fn independent_table_positive_basis(
@@ -6969,7 +6969,7 @@ fn reference_table_final_edits(
             !designated_negatives
                 .iter()
                 .any(|(_, negative)| negative == &candidate),
-            "manual C11-field positive collides with a designated negative for path {word:?}"
+            "manual bounded lens-field positive collides with a designated negative for path {word:?}"
         );
         if positive_basis
             .iter()
@@ -7377,7 +7377,7 @@ fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
         }
     }
     println!(
-        "C11 path category: stages={}, identity schemas={}, unit checks={identities}, triples={triples}",
+        "bounded lens path category: stages={}, identity schemas={}, unit checks={identities}, triples={triples}",
         stages.len(),
         schemas.len()
     );
@@ -8499,7 +8499,7 @@ fn table_fusion_protocol_drift_witness() {
         .expect("the admitted drift row is distinct");
     assert_admitted_table_fusion_behavior(&first, &second, &protocols, &present);
 
-    // Owner amendment 24: a genuinely absent cell reaches the predicate as
+    // A genuinely absent cell reaches the predicate as
     // absent in both executions, so both refuse with the same typed error.
     let mut absent = FInstance::new();
     absent
@@ -8764,7 +8764,7 @@ fn assert_tree_fusion_boundary_witness(witness: TreeFusionBoundaryWitness) {
                         && stage.source == stages[predicate].source
                         && stage.target == stages[predicate].source
                 })
-                .expect("the C11 alphabet contains Id_a");
+                .expect("the bounded lens alphabet contains Id_a");
             let word = [identity, predicate];
             let path = production_word(&stages, &word).expect("Id_a then Q composes");
             let groups = path.tree_normal_form();
@@ -9989,7 +9989,7 @@ fn assert_graph_square_census(
     let certificate = c11_tree_square_count_certificate();
     assert_eq!(edit_families.total(), edits);
     println!(
-        "C11 graph/tree square: bases={bases}, edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}, total={}",
+        "bounded lens graph/tree square: bases={bases}, edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}, total={}",
         edit_families.admitted_positive.named(),
         edit_families.refused_positive.named(),
         edit_families.designated_negative.named(),
@@ -10018,7 +10018,7 @@ fn assert_graph_square_census(
 }
 
 fn graph_square_bound() -> String {
-    let bound = "C11 graph/tree square: every one-step tree SSB view".to_owned();
+    let bound = "bounded lens graph/tree square: every one-step tree SSB view".to_owned();
     println!("{bound}");
     bound
 }
@@ -10418,7 +10418,7 @@ impl panproto_lens::enrichment_registry::LayoutEnricher for CountingRejectingEnr
         Err(LensError::EnrichmentSynthesisFailed {
             kind: panproto_gat::EnrichmentKind::Layout,
             enricher: self.name.to_owned(),
-            detail: "the L.19 precedence witness must not evaluate this transform".to_owned(),
+            detail: "the L-lenses-19 precedence witness must not evaluate this transform".to_owned(),
         })
     }
 }
@@ -10443,7 +10443,7 @@ impl panproto_lens::enrichment_registry::LayoutEnricher for OneShotSchemaEnriche
             .ok_or_else(|| LensError::EnrichmentSynthesisFailed {
                 kind: panproto_gat::EnrichmentKind::Layout,
                 enricher: "l19-overlong-expansion".to_owned(),
-                detail: "the one-shot L.19 schema driver was invoked twice".to_owned(),
+                detail: "the one-shot L-lenses-19 schema driver was invoked twice".to_owned(),
             })
     }
 }
@@ -10499,7 +10499,7 @@ fn l19_overlong_expansion_target() -> Schema {
         .expect("the overlong expansion target is a valid schema")
 }
 
-/// The elementary protolens alphabet over the C11 schemas: drop and rename
+/// The elementary protolens alphabet over the bounded lens schemas: drop and rename
 /// the one vertex kind, and drop and rename one concrete edge name.
 fn protolens_alphabet() -> Vec<panproto_lens::Protolens> {
     vec![
@@ -10530,7 +10530,7 @@ fn reference_carrier_migration(target: &RefSchema) -> RefMigration {
     }
 }
 
-/// The four C11 protolenses constructed without consulting production's
+/// The four bounded lens protolenses constructed without consulting production's
 /// applicability verdict, target schema, compiled migration or plan.
 fn reference_protolens(index: usize, schema: &RefSchema) -> RefProtolens {
     match index {
@@ -12276,7 +12276,7 @@ fn assert_overlong_protolens_expansion_refusal() {
     assert_eq!(production_reason, "ExpansionTooLong a b 65537");
     assert_eq!(production_reason, reference_reason);
         println!(
-            "L.19 refusals: candidates=2, false-precondition clauses=2, transform calls before false-precondition refusal=0, plan refusals=1, expansion intermediates=65536, expansion hops=65537"
+            "L-lenses-19 refusals: candidates=2, false-precondition clauses=2, transform calls before false-precondition refusal=0, plan refusals=1, expansion intermediates=65536, expansion hops=65537"
         );
     });
 }
@@ -12449,7 +12449,7 @@ fn protolens_instance_bound(
     refusal_witnesses: usize,
 ) -> String {
     let bound = format!(
-        "C11 protolens instances: protolenses={protolenses}, schemas={schemas}, elementary cases={elementary_cases}, named application refusals={refusal_witnesses}, total={}",
+        "bounded lens protolens instances: protolenses={protolenses}, schemas={schemas}, elementary cases={elementary_cases}, named application refusals={refusal_witnesses}, total={}",
         elementary_cases + refusal_witnesses,
     );
     println!("{bound}");
@@ -12813,7 +12813,7 @@ fn outside_the_tree_domain() -> LawOutcome {
     }
 }
 
-/// The per-thread context of the L.8 differential: the C11 lens pairs, the
+/// The per-thread context of the L-lenses-8 differential: the bounded lens lens pairs, the
 /// table lens pairs and the partial-lens carrier.
 type LawContext = (Vec<Pair>, Vec<Vec<TablePair>>, Lens);
 
@@ -14176,7 +14176,7 @@ impl Default for AdmissionTally {
     }
 }
 
-/// The law-report case families of the L.8 scope.
+/// The law-report case families of the L-lenses-8 scope.
 #[derive(Debug)]
 enum LawCase {
     Partial(PartialLens, u8),
@@ -14311,7 +14311,7 @@ fn common_basis_evidence(
             (census, laws)
         }
         (LawCase::Partial(_, _) | LawCase::Tree(_, _), PreparedCommonBasis::None) => (None, None),
-        _ => panic!("prepared L.8 case and common-basis carrier disagree"),
+        _ => panic!("prepared L-lenses-8 case and common-basis carrier disagree"),
     };
     if let (Some(candidate_count), Some(census)) = (prepared.common.len(), &evidence.0) {
         assert_eq!(
@@ -14461,7 +14461,7 @@ fn id_h_empty_basis_refusal_witnesses() -> [RefGraph; 2] {
 fn empty_common_basis_refusals_normalize_identically() {
     let stages = c11_stages();
     let stage = c11_stage_index(&stages, "Id_h");
-    assert_eq!(stage, 16, "Id_h remains the seventeenth C11 stage");
+    assert_eq!(stage, 16, "Id_h remains the seventeenth bounded lens stage");
     let pair = Pair::from_stage(&stages[stage]);
 
     for source in id_h_empty_basis_refusal_witnesses() {
@@ -14580,7 +14580,7 @@ fn stage_c_three_node_common_basis_witnesses() -> [RefGraph; 2] {
 fn stage_c_three_node_common_basis_laws_agree() {
     let stages = c11_stages();
     let stage = c11_stage_index(&stages, "C");
-    assert_eq!(stage, 21, "C remains the twenty-second C11 stage");
+    assert_eq!(stage, 21, "C remains the twenty-second bounded lens stage");
     let pair = Pair::from_stage(&stages[stage]);
     let expected_counts = [2, 4, 1, 2, 0, 0, 0, 0, 0, 2, 0, 0, 2, 2, 4, 0, 0];
 
@@ -14785,7 +14785,7 @@ fn reference_graph_put_get_trace(
 fn stage_c_common_basis_put_get_traces_agree() {
     let stages = c11_stages();
     let stage = c11_stage_index(&stages, "C");
-    assert_eq!(stage, 21, "C remains the twenty-second C11 stage");
+    assert_eq!(stage, 21, "C remains the twenty-second bounded lens stage");
     let pair = Pair::from_stage(&stages[stage]);
 
     for source in stage_c_cycle_witnesses() {
@@ -14960,7 +14960,7 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
     assert_eq!(partial, 2 * partial_lens_count_certificate());
     assert_eq!(tables, table_fixture_count_certificate().total);
     let bound = format!(
-        "L.8 law reports: partial lens/source cases={partial}, table fixtures={tables}, C11 graph and tree (stage, state) cases={}, total={}",
+        "L-lenses-8 law reports: partial lens/source cases={partial}, table fixtures={tables}, bounded lens graph and tree (stage, state) cases={}, total={}",
         cases.len() - partial - tables,
         cases.len()
     );
@@ -14989,12 +14989,12 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         |production, reference| production == reference,
     ));
     println!(
-        "L.8 admission census (graph, tree and table families): candidates={}, admitted positive reference-basis candidates={}",
+        "L-lenses-8 admission census (graph, tree and table families): candidates={}, admitted positive reference-basis candidates={}",
         tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
         tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
     );
     let common_counts = common_tally.snapshot();
-    println!("L.8 common five-gate basis by mutation family: {common_counts:?}");
+    println!("L-lenses-8 common five-gate basis by mutation family: {common_counts:?}");
     assert!(
         common_counts.iter().all(|count| *count > 0),
         "every mutation family must occur in the independently formed common basis"
@@ -15006,7 +15006,7 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
 // The property differential: random cases from every exhaustive family
 // ---------------------------------------------------------------------------
 
-/// The amended C11 census has passed its independent count and dynamic gates.
+/// The amended bounded lens census has passed its independent count and dynamic gates.
 const C11_ACCEPTED: bool = true;
 
 fn gf5_cases() -> &'static [(Gf5Fixture, RefGraph, RefGraph)] {
@@ -15160,7 +15160,7 @@ fn c11_graph_domain_witnesses() -> &'static [GraphDomainWitness] {
         }
         assert_eq!(
             found, wanted,
-            "the C11 carrier lacks a reusable domain witness"
+            "the bounded lens carrier lacks a reusable domain witness"
         );
         witnesses
     })
@@ -15238,7 +15238,7 @@ fn graph_property_case(index: usize, edit: usize) -> Result<(), String> {
     let (stage, source) = &graphs[index % graphs.len()];
     let pair = Pair::from_stage(&stages[*stage]);
     property_differ(
-        "C11 graph law report",
+        "bounded lens graph law report",
         format!(
             "{:?}",
             production_law_outcome(&graph_lens::check_laws(
@@ -15249,7 +15249,7 @@ fn graph_property_case(index: usize, edit: usize) -> Result<(), String> {
         format!("{:?}", reference_graph_law_case(&pair, source)),
     )?;
     property_differ(
-        "C11 get",
+        "bounded lens get",
         format!("{:?}", production_get(&pair, source)),
         format!("{:?}", reference_get(&pair, source)),
     )?;
@@ -15264,7 +15264,7 @@ fn graph_property_case(index: usize, edit: usize) -> Result<(), String> {
     );
     let edited = &views[edit % views.len()];
     property_differ(
-        "C11 put",
+        "bounded lens put",
         format!("{:?}", production_put(&pair, source, edited)),
         format!("{:?}", reference_strict_put(&pair, source, edited)),
     )
@@ -15301,12 +15301,12 @@ fn tree_property_case(index: usize) -> Result<(), String> {
             })
         });
     property_differ(
-        "C11 tree law report",
+        "bounded lens tree law report",
         format!("{production_laws:?}"),
         format!("{reference_laws:?}"),
     )?;
     property_differ(
-        "C11 tree",
+        "bounded lens tree",
         format!(
             "{:?}",
             production_tree_case(&pair, tree, reference.is_some())
@@ -15643,7 +15643,7 @@ proptest! {
                 index.rotate_left(u32::try_from(offset * 7).unwrap()),
                 edit.rotate_right(u32::try_from(offset * 5).unwrap()),
             ) {
-                prop_assert!(false, "L.8 family {family}: {message}");
+                prop_assert!(false, "L-lenses-8 family {family}: {message}");
             }
         }
         let family = [0_u8, 5, 6, 7, 8][usize::from(additional_family)];
@@ -15653,7 +15653,7 @@ proptest! {
     }
 }
 
-/// The stage-C slice of the exhaustive law comparison on trees: on every C11
+/// The stage-C slice of the exhaustive law comparison on trees: on every bounded lens
 /// tree case of the contraction stage, both sides report the same five-gate
 /// outcome over the common basis. The chain `a -> b -> a` contracts to one
 /// view arc with a synthesized identity; removing the arc's child from the

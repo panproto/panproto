@@ -1,13 +1,13 @@
-//! Regression test for issue #237.
+//! Regression test: `ref` and `record-schema` edges are transparent to the instance parser.
 //!
 //! A `ref` / `record-schema` edge is a transparent type indirection, so
 //! a record whose field type is a named definition must parse to the
 //! *same* instance graph as the structurally-equivalent schema that
-//! inlines the definition with `prop` edges. Before the fix, a protocol
-//! that models nesting with `ref` edges parsed to a shallow one-node
-//! instance (the referenced object landing in `extra_fields` as an
-//! opaque `Unknown`), while the inlined protocol parsed deep — the same
-//! data, two different graphs.
+//! inlines the definition with `prop` edges. Without that transparency, a
+//! protocol that models nesting with `ref` edges would parse to a shallow
+//! one-node instance (the referenced object landing in `extra_fields` as an
+//! opaque `Unknown`), while the inlined protocol parsed deep: the same data,
+//! two different graphs.
 
 use std::error::Error;
 

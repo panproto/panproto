@@ -1,9 +1,9 @@
 //! Complete finite scopes for the Kan-extension page.
 //!
 //! There are two named scopes. [`family`] is the ten-case table-Kan family
-//! from O4: nine structural cases over integers and labelled nulls, plus the
+//! of the structural Kan laws: nine structural cases over integers and labelled nulls, plus the
 //! column-merge case over exact binary64 bit patterns. [`encoding_graphs`]
-//! is O7's graph-encoding family. Both enumerate labelled objects. Row, node
+//! is the graph-encoding family. Both enumerate labelled objects. Row, node
 //! and edge identifiers are therefore part of an object; no object is removed
 //! merely because an identifier permutation makes it isomorphic to another.
 
@@ -14,7 +14,7 @@ use crate::model::{GEdge, Graph, Node, NodeShape, SEdge, Table, Tree};
 use crate::schema::Schema;
 use crate::value::{Presence, Value};
 
-/// The small product bound and the larger product bound required by P2-O205.
+/// The small product bound and the larger product bound required by the Kan object scope.
 pub const PRODUCT_BOUNDS: [usize; 2] = [4, 81];
 
 /// Which side of a Kan-family case an object inhabits.
@@ -290,9 +290,9 @@ pub fn family() -> Vec<Case> {
             pi: true,
         },
     ];
-    // O14 names this duplicate structural case `8′`, immediately before
-    // case 9. Keep that order observable so printed certificates can be
-    // compared line-for-line with the contract table.
+    // The exhaustive Kan scope names this duplicate structural case `8′`,
+    // immediately before case 9. Keep that order observable so printed
+    // certificates can be compared line-for-line with the scope's table.
     let mut cases = cases;
     let float = float_variant(&cases[7]);
     cases.insert(8, float);
@@ -505,8 +505,8 @@ fn instance_count(side: &Side, max_per_table: usize, max_total: usize, cell_coun
     )
 }
 
-/// Independent `(source, target)` object counts for every O14 case, in
-/// contract order `1..8, 8′, 9`.
+/// Independent `(source, target)` object counts for every exhaustive Kan case, in
+/// table order `1..8, 8′, 9`.
 #[must_use]
 pub fn case_object_counts(max_per_table: usize, max_total: usize) -> Vec<(u64, u64)> {
     family()
@@ -1009,7 +1009,7 @@ fn certificate_row_maps(
 
 /// Compute a profile multiplicity without using the object generator,
 /// canonicalizer, stored relabelling, or canonical table bytes. This is the
-/// executable orbit–stabilizer proof for O14's weighted total.
+/// executable orbit–stabilizer proof for the exhaustive Kan scope's weighted total.
 #[must_use]
 pub fn profile_multiplicity_certificate(
     case_index: usize,
@@ -1284,7 +1284,7 @@ pub fn object_pairs_count(max_per_table: usize, max_total: usize) -> u64 {
         .sum()
 }
 
-/// The P2-O205 object scope: at most three rows per table and six in total.
+/// The Kan object scope: at most three rows per table and six in total.
 #[must_use]
 pub fn tables() -> Vec<Table> {
     objects(3, 6)
@@ -1337,7 +1337,7 @@ pub fn table_row_maps_count(a: &Table, b: &Table) -> u64 {
         .product()
 }
 
-/// A graph cell presentation in the O7 encoding scope.
+/// A graph cell presentation in the graph-encoding scope.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CellForm {
     /// A leaf holding one presence value.
@@ -1348,7 +1348,7 @@ pub enum CellForm {
     List(Vec<(&'static str, &'static str, Value)>),
 }
 
-/// O7's graph-encoding schema: `a(x)`, `b`, relation `a -f-> b`, and two
+/// The graph-encoding schema: `a(x)`, `b`, relation `a -f-> b`, and two
 /// possible inner edges below `x`.
 #[must_use]
 pub fn encoding_schema() -> Schema {
@@ -1364,7 +1364,7 @@ pub fn encoding_schema() -> Schema {
         .edge("a.x", "a.x.item", "inner", Some("item"))
 }
 
-/// The seven O7 cell forms: a constant, explicit null, value null, record,
+/// The seven graph-encoding cell forms: a constant, explicit null, value null, record,
 /// graph list, leaf list, and labelled null.
 #[must_use]
 pub fn encoding_forms() -> Vec<CellForm> {
@@ -1436,7 +1436,7 @@ fn add_cell(
     Some(())
 }
 
-/// Every labelled graph of O7's encoding family with at most four table nodes.
+/// Every labelled graph of the graph-encoding family with at most four table nodes.
 ///
 /// Table-node ids run in table order, cell presentations range over
 /// [`encoding_forms`], and every relation-pair subset is present.
@@ -1569,7 +1569,7 @@ fn decorate_graph(graph: &Graph) -> Graph {
     out
 }
 
-/// O7's complete labelled presentation scope.
+/// The complete labelled presentation scope of the graph encoding.
 ///
 /// It contains every canonical base, the same graph with reversed/spread node
 /// and edge identifiers, and decorated forms of both. Identifier renamings
@@ -1652,7 +1652,7 @@ pub fn carrier_graphs_count() -> u64 {
 }
 
 // ---------------------------------------------------------------------------
-// O7's graph-Kan scopes: hand-written relational specs, their labelled
+// The graph-encoding graph-Kan scopes: hand-written relational specs, their labelled
 // graphs, the adjunction family with the relation-merge cases, the hom
 // families and the encoding refusals.
 // ---------------------------------------------------------------------------
@@ -2070,7 +2070,7 @@ pub fn decorate_spec_graph(graph: &Graph, spec: &GraphSpec) -> Graph {
     out
 }
 
-/// O7's encoding spec: a table `a` with one structured column `x` (kind
+/// The graph-encoding spec: a table `a` with one structured column `x` (kind
 /// `value`), a table `b` without columns and a relation `f: a -> b`, with
 /// inner edges `x -k-> a.x.k` and `x -item-> a.x.item`.
 #[must_use]
@@ -2270,7 +2270,7 @@ pub fn unnamed_inner_forms() -> Vec<CellForm> {
     ]
 }
 
-/// One migration of O7's adjunction family.
+/// One migration of the graph-encoding adjunction family.
 ///
 /// The whole source `S`, its kept
 /// part `S'` and the target `T`, the maps of `F: S' -> T` on tables,
@@ -2395,7 +2395,7 @@ const fn graph_spec(
     }
 }
 
-/// O7's adjunction family.
+/// The graph-encoding adjunction family.
 ///
 /// Four merges (a shared column over constants and
 /// over a constant and a labelled null, tables carrying two relations to

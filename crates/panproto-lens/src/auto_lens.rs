@@ -2086,7 +2086,7 @@ fn alignment_to_theory_morphism(
 /// `factorize` emits `DropSort(s)` for every source sort with no image
 /// in `C` and `DropOp(op)` for every source op likewise, and emits
 /// `AddSort`/`AddOp` for the right-leg extensions into `B`. This is
-/// the span-search behavior plan §3 describes.
+/// the span search's partial-morphism behavior.
 fn alignment_to_theory_morphism_mode(
     found: &FoundMorphism,
     src: &Schema,
