@@ -2469,12 +2469,11 @@ fn assert_graph_put_domain_family(family: GraphPutDomainFamily) -> u16 {
         | GraphPutDomainFamily::MissingRequiredCell
         | GraphPutDomainFamily::MalformedFan => assert_graph_validation_domain_families(),
         _ => {
-            let stages = bounded_lens_stages();
             let (_, stage, source, edited) = bounded_lens_graph_domain_witnesses()
                 .iter()
                 .find(|(candidate, _, _, _)| *candidate == family)
-                .unwrap_or_else(|| panic!("the bounded lens carrier has no {family:?} witness"));
-            let pair = Pair::from_stage(&stages[*stage]);
+                .unwrap_or_else(|| panic!("the witness search records no {family:?} witness"));
+            let pair = Pair::from_stage(stage);
             assert_graph_put_domain_outcome(&pair, source, edited, family)
         }
     };
@@ -15139,13 +15138,22 @@ fn delta_fragment_property_case(index: usize) -> Result<(), String> {
     )
 }
 
-type GraphDomainWitness = (GraphPutDomainFamily, usize, RefGraph, RefGraph);
+type GraphDomainWitness = (GraphPutDomainFamily, BoundedLensStage, RefGraph, RefGraph);
 
+/// One reusable witness of each put-domain family that has no dedicated
+/// construction, found once per test process.
+///
+/// The structural families come from the bounded lens carrier, in stage,
+/// state and edit order. `DerivedCellEdited` comes from the declared-attribute
+/// transform carrier: the bounded carrier's value-layer stages write an
+/// undeclared field and refuse at compilation, so their edits never reach a
+/// derived cell. The search result is cached even when a family has no
+/// witness, so the missing family is reported at once by every caller
+/// instead of being searched for again.
 fn bounded_lens_graph_domain_witnesses() -> &'static [GraphDomainWitness] {
-    static WITNESSES: std::sync::OnceLock<Vec<GraphDomainWitness>> = std::sync::OnceLock::new();
-    WITNESSES.get_or_init(|| {
-        let stages = bounded_lens_stages();
-        let pairs = stages.iter().map(Pair::from_stage).collect::<Vec<_>>();
+    static WITNESSES: std::sync::OnceLock<Result<Vec<GraphDomainWitness>, String>> =
+        std::sync::OnceLock::new();
+    let found = WITNESSES.get_or_init(|| {
         let focused = [
             GraphPutDomainFamily::SurvivalPredicateFails,
             GraphPutDomainFamily::SurvivalPredicateRefused,
@@ -15158,54 +15166,96 @@ fn bounded_lens_graph_domain_witnesses() -> &'static [GraphDomainWitness] {
         .fold(0_u16, |bits, family| {
             bits | graph_put_domain_family_bit(family.name())
         });
-        let wanted = GraphPutDomainFamily::ALL
+        let declared = graph_put_domain_family_bit(GraphPutDomainFamily::DerivedCellEdited.name());
+        let structural = GraphPutDomainFamily::ALL
             .into_iter()
             .fold(0_u16, |bits, family| {
                 bits | graph_put_domain_family_bit(family.name())
             })
-            & !focused;
-        let mut found = 0_u16;
+            & !focused
+            & !declared;
         let mut witnesses = Vec::new();
-        'stages: for (stage, descriptor) in stages.iter().enumerate() {
-            for source in bounded_lens_sources(descriptor) {
-                let Ok((view, complement)) = reference_get(&pairs[stage], &source) else {
+        let mut found = graph_domain_witnesses_on(
+            &bounded_lens_stages(),
+            bounded_lens_sources,
+            structural,
+            &mut witnesses,
+        );
+        found |= graph_domain_witnesses_on(
+            &panproto_reference::enumerate::lenses::declared_transform_stages(),
+            |_| panproto_reference::enumerate::lenses::declared_transform_graphs(),
+            declared,
+            &mut witnesses,
+        );
+        let wanted = structural | declared;
+        if found == wanted {
+            Ok(witnesses)
+        } else {
+            let missing = GraphPutDomainFamily::ALL
+                .into_iter()
+                .filter(|family| {
+                    let bit = graph_put_domain_family_bit(family.name());
+                    wanted & bit != 0 && found & bit == 0
+                })
+                .map(GraphPutDomainFamily::name)
+                .collect::<Vec<_>>();
+            Err(format!(
+                "no reusable graph put-domain witness for {missing:?}: no one-step edit of a carrier view is refused with that family"
+            ))
+        }
+    });
+    match found {
+        Ok(witnesses) => witnesses,
+        Err(message) => panic!("{message}"),
+    }
+}
+
+/// Push onto `witnesses` the first reference strict-put witness, over
+/// `stages`, the states `sources` gives each stage and every one-step edit
+/// of their views, of each family in `wanted`; return the families found.
+fn graph_domain_witnesses_on(
+    stages: &[BoundedLensStage],
+    sources: impl Fn(&BoundedLensStage) -> Vec<RefGraph>,
+    wanted: u16,
+    witnesses: &mut Vec<GraphDomainWitness>,
+) -> u16 {
+    let mut found = 0_u16;
+    for stage in stages {
+        let pair = Pair::from_stage(stage);
+        for source in sources(stage) {
+            let Ok((view, complement)) = reference_get(&pair, &source) else {
+                continue;
+            };
+            for edited in bounded_lens_graph_edits(&view, &stage.target, &complement)
+                .into_iter()
+                .map(|case| case.view)
+            {
+                let Some(PutOutcome {
+                    domain: Err(reasons),
+                    ..
+                }) = reference_strict_put(&pair, &source, &edited)
+                else {
                     continue;
                 };
-                for edited in bounded_lens_graph_edits(&view, &descriptor.target, &complement)
-                    .into_iter()
-                    .map(|case| case.view)
-                {
-                    let Some(PutOutcome {
-                        domain: Err(reasons),
-                        ..
-                    }) = reference_strict_put(&pairs[stage], &source, &edited)
-                    else {
-                        continue;
-                    };
-                    for family in GraphPutDomainFamily::ALL {
-                        let bit = graph_put_domain_family_bit(family.name());
-                        if wanted & bit != 0
-                            && found & bit == 0
-                            && reasons
-                                .iter()
-                                .any(|reason| reason.starts_with(family.name()))
-                        {
-                            found |= bit;
-                            witnesses.push((family, stage, source.clone(), edited.clone()));
-                        }
+                for family in GraphPutDomainFamily::ALL {
+                    let bit = graph_put_domain_family_bit(family.name());
+                    if wanted & bit != 0
+                        && found & bit == 0
+                        && reasons
+                            .iter()
+                            .any(|reason| reason.starts_with(family.name()))
+                    {
+                        found |= bit;
+                        witnesses.push((family, stage.clone(), source.clone(), edited.clone()));
                     }
-                    if found == wanted {
-                        break 'stages;
-                    }
+                }
+                if found == wanted {
+                    return found;
                 }
             }
         }
-        assert_eq!(
-            found, wanted,
-            "the bounded lens carrier lacks a reusable domain witness"
-        );
-        witnesses
-    })
+    }
+    found
 }
 
 fn table_property_case(index: usize, edit: usize) -> Result<(), String> {
