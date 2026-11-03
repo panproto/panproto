@@ -2,7 +2,7 @@
 //!
 //! Provides a zero-copy pull-parser pathway that reads XML events and
 //! builds `WInstance` trees guided by a schema. Used by ~14 protocols
-//! (NAF, FoLiA, TEI, TimeML, ELAN, XSD instances, RSS/Atom, DOCX, ODF, etc.).
+//! (NAF, `FoLiA`, TEI, `TimeML`, ELAN, XSD instances, RSS/Atom, DOCX, ODF, etc.).
 //!
 //! The parser maps XML elements to schema vertices and XML attributes/text
 //! content to node values. Element nesting follows schema edges.

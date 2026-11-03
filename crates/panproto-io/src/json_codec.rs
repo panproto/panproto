@@ -2,8 +2,8 @@
 //!
 //! Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
 //!
-//! Many protocols (GraphQL responses, OpenAPI payloads, JSON Schema instances,
-//! ATProto records, etc.) use JSON as their instance encoding. This module
+//! Many protocols (`GraphQL` responses, `OpenAPI` payloads, JSON Schema instances,
+//! `ATProto` records, etc.) use JSON as their instance encoding. This module
 //! provides a reusable `JsonCodec` that implements `InstanceParser` and
 //! `InstanceEmitter` by delegating to the `json_pathway` module.
 //!

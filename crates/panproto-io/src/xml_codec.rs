@@ -2,7 +2,7 @@
 //!
 //! Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
 //!
-//! Used by NAF, FoLiA, TEI, TimeML, ELAN, ISO-Space, XSD instances,
+//! Used by NAF, `FoLiA`, TEI, `TimeML`, ELAN, ISO-Space, XSD instances,
 //! RSS/Atom, PAULA, LAF/GrAF, DOCX (inner XML), ODF (inner XML).
 //!
 //! ## Prop1 waiver list

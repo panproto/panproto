@@ -1,7 +1,7 @@
 //! Instance codecs for linguistic annotation protocols.
 //!
-//! - JSON-based: brat, decomp, ucca, fovea, bead, web_annotation, concrete, nif
-//! - XML-based: naf, uima, folia, tei, timeml, elan, iso_space, paula, laf_graf
+//! - JSON-based: brat, decomp, ucca, fovea, bead, `web_annotation`, concrete, nif
+//! - XML-based: naf, uima, folia, tei, timeml, elan, `iso_space`, paula, `laf_graf`
 //! - Tab-delimited: conllu
 //! - Line-based: amr
 
