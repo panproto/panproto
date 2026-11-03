@@ -370,6 +370,11 @@ fn fast_tree_state(lens: &GraphLens<'_>, source: &Tree) -> Result<FastTreeState,
                 "the tree route prunes the distinguished root",
             ));
         }
+        Err(RestrictError::MultipleArcsOnSingleValuedEdge { .. }) => {
+            return Err(SquareError::OutsideExactDomain(
+                "the tree route would put two values on a single-valued edge",
+            ));
+        }
         Err(error) => return Err(SquareError::Restrict(error)),
         Ok(state) => state,
     };

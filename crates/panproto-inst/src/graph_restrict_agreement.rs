@@ -531,7 +531,8 @@ fn the_tree_leg_maps_kept_contracted_and_expanded_arcs_back() -> TestResult {
     use PairFate::{Expand, Keep};
     let mut fates = vec![Keep; 16];
     fates[1] = Expand; // e01 expands through w01.
-    // v2 is dropped; v0 -> v2 -> v3 contracts to the kept e03.
+    // v2 is dropped; v0 -> v2 -> v3 contracts to the kept e03, and v1 keeps
+    // its own e13, so no field of v0 receives two values.
     let (src, tgt, m) = schemas(&fates, &[true, true, false, true])?;
     let plan = RestrictPlan::compile(&src, &tgt, &m)?;
     let mut g = GInstance::new()
@@ -544,7 +545,7 @@ fn the_tree_leg_maps_kept_contracted_and_expanded_arcs_back() -> TestResult {
     g.add_edge(0, 7, pool(0, 2))?;
     g.add_edge(7, 9, pool(2, 3))?;
     g.add_edge(0, 5, pool(0, 1))?;
-    g.add_edge(0, 11, pool(0, 3))?;
+    g.add_edge(5, 11, pool(1, 3))?;
     g.remove_edge(gap)?;
     let fast = tree_leg(&g, &plan).ok_or("the tree leg declines")?;
     let (engine, complement) = graph_restrict_with_plan(&g, &plan)?;
@@ -554,6 +555,45 @@ fn the_tree_leg_maps_kept_contracted_and_expanded_arcs_back() -> TestResult {
     for id in engine.nodes().keys() {
         assert_eq!(fast.ordered_out_edges(*id), engine.ordered_out_edges(*id));
     }
+    Ok(())
+}
+
+#[test]
+fn a_field_flattened_beside_its_direct_value_is_outside_the_tree_square() -> TestResult {
+    // v2 is dropped: v0 -> v2 -> v3 contracts onto e03, which v0 already
+    // holds directly to node 11. The tree engine refuses two values on the
+    // single-valued e03, so the tree leg declines; the graph engine keeps
+    // both as parallel e03 edges.
+    let (src, tgt, m) = schemas(&[PairFate::Keep; 16], &[true, true, false, true])?;
+    let plan = RestrictPlan::compile(&src, &tgt, &m)?;
+    let mut g = GInstance::new()
+        .with_node(Node::new(0, "v0"))
+        .with_node(Node::new(7, "v2"))
+        .with_node(Node::new(9, "v3"))
+        .with_node(Node::new(11, "v3"));
+    g.add_edge(0, 7, pool(0, 2))?;
+    g.add_edge(7, 9, pool(2, 3))?;
+    g.add_edge(0, 11, pool(0, 3))?;
+    assert!(tree_leg(&g, &plan).is_none());
+    let (tree, _) = g.to_wtype_embedded(plan.source())?;
+    let refused = crate::wtype::wtype_restrict_with_plan(&tree, &plan);
+    assert!(
+        matches!(
+            &refused,
+            Err(RestrictError::MultipleArcsOnSingleValuedEdge { parent: 0, edge, count: 2 })
+                if **edge == pool(0, 3)
+        ),
+        "{refused:?}"
+    );
+    let (view, _) = graph_restrict_with_plan(&g, &plan)?;
+    let mut on_field: Vec<u32> = view
+        .edges()
+        .values()
+        .filter(|edge| edge.src == 0 && edge.edge == pool(0, 3))
+        .map(|edge| edge.tgt)
+        .collect();
+    on_field.sort_unstable();
+    assert_eq!(on_field, vec![9, 11]);
     Ok(())
 }
 

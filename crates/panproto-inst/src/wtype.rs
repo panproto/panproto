@@ -1522,35 +1522,54 @@ fn traverse(
 ///
 /// A named edge is a field projection, single-valued per parent; the item
 /// slot of a collection is anonymous. An edge map that sends two sibling
-/// fields to one named edge would give the parent two values for one field,
-/// so the restrict refuses. Arcs of one source edge keep the multiplicity
-/// they had in the source, and contracted arcs, which join a node to its
-/// nearest surviving ancestor rather than realize a source edge, are not
-/// counted. The first offending `(parent, edge)` in ascending order is
-/// reported, with the number of direct images landing on it.
+/// fields to one named edge, or a contraction that joins a flattened nested
+/// field to a parent already holding that field directly, would give the
+/// parent two values for one field, so the restrict refuses. Every arc of
+/// the view leaving a surviving node is counted under the source edge it
+/// comes from: a kept arc or the first hop of an expansion under the
+/// source edge it realizes, and a contracted arc (or the first hop of a
+/// contracted path) under the source edge entering the contracted child.
+/// Arcs of one source edge keep the multiplicity they had in the source. The
+/// first offending `(parent, edge)` in ascending order is reported, with the
+/// number of arcs landing on it.
 fn refuse_merged_fields(
     instance: &WInstance,
     kept: &[(usize, u32, u32, Edge)],
     chains: &[SynthChain],
 ) -> Result<(), RestrictError> {
-    let mut images: Vec<(u32, &Edge, &Edge)> = Vec::with_capacity(kept.len());
+    let entering: HashMap<u32, &Edge> = instance
+        .arcs
+        .iter()
+        .map(|(_, child, edge)| (*child, edge))
+        .collect();
+    let mut images: Vec<(u32, &Edge, &Edge)> = Vec::with_capacity(kept.len() + chains.len());
     for (index, parent, _, edge) in kept {
         images.push((*parent, edge, &instance.arcs[*index].2));
     }
     for chain in chains {
-        if let SynthChain::Expand {
-            arc,
-            parent,
-            labels,
-            ..
-        } = chain
-        {
-            let source = usize::try_from(arc.0)
-                .ok()
-                .and_then(|i| instance.arcs.get(i));
-            if let (Some(first), Some(source)) = (labels.first(), source) {
-                images.push((*parent, first, &source.2));
+        let (parent, first, source) = match chain {
+            SynthChain::Expand {
+                arc,
+                parent,
+                labels,
+                ..
+            } => (
+                *parent,
+                labels.first(),
+                usize::try_from(arc.0)
+                    .ok()
+                    .and_then(|i| instance.arcs.get(i))
+                    .map(|arc| &arc.2),
+            ),
+            SynthChain::Contract { src, tgt, edge } => {
+                (*src, Some(edge), entering.get(tgt).copied())
             }
+            SynthChain::ContractExpand {
+                src, tgt, labels, ..
+            } => (*src, labels.first(), entering.get(tgt).copied()),
+        };
+        if let (Some(first), Some(source)) = (first, source) {
+            images.push((parent, first, source));
         }
     }
     let mut landing: BTreeMap<(u32, &Edge), (usize, BTreeSet<&Edge>)> = BTreeMap::new();
@@ -1571,6 +1590,55 @@ fn refuse_merged_fields(
             count,
         }),
         None => Ok(()),
+    }
+}
+
+/// Take off `node` the values its transforms rewrote from a child scalar
+/// (`on_child`, the keys [`RestrictPlan::transform`] reports), each with the
+/// id of the one child of `parent` whose column the key names and whose
+/// value is a present scalar. Such an attribute lives on that child, not in
+/// the parent's fields, so the computed value is written there
+/// ([`write_back_to_children`]) and the node keeps no second value for it.
+/// A key whose child holds no scalar stays a field of the node.
+///
+/// [`RestrictPlan::transform`]: crate::restrict_plan::RestrictPlan
+fn take_child_writes(
+    node: &mut Node,
+    children: &TreeChildren<'_>,
+    parent: u32,
+    on_child: BTreeSet<String>,
+) -> Vec<(u32, Value)> {
+    if on_child.is_empty() {
+        return Vec::new();
+    }
+    let candidates = children.children_of(parent);
+    let mut writes = Vec::with_capacity(on_child.len());
+    for key in on_child {
+        let mut named = candidates.iter().filter(|child| child.column() == key);
+        let (Some(child), None) = (named.next(), named.next()) else {
+            continue;
+        };
+        if !matches!(
+            children.presence(child.target),
+            Some(crate::value::FieldPresence::Present(_))
+        ) {
+            continue;
+        }
+        if let Some(value) = node.extra_fields.remove(&key) {
+            writes.push((child.target, value));
+        }
+    }
+    writes
+}
+
+/// Write each computed attribute value onto its child, when that child is
+/// in the view. A child the restrict dropped takes nothing: its value is
+/// gone from the view with it.
+fn write_back_to_children(nodes: &mut HashMap<u32, Node>, writes: Vec<(u32, Value)>) {
+    for (child, value) in writes {
+        if let Some(node) = nodes.get_mut(&child) {
+            node.value = Some(crate::value::FieldPresence::Present(value));
+        }
     }
 }
 
@@ -1648,8 +1716,9 @@ fn contracted_chain(
 /// source schema edge, [`RestrictError::NoEdgeFound`] or
 /// [`RestrictError::AmbiguousEdge`] for an unresolved arc or contracted
 /// pair, in traversal order;
-/// [`RestrictError::MultipleArcsOnSingleValuedEdge`] when the images of two
-/// distinct source edges under one parent land on one named target edge;
+/// [`RestrictError::MultipleArcsOnSingleValuedEdge`] when arcs from two
+/// distinct source edges, kept, expanded or contracted, land under one
+/// parent on one named target edge;
 /// [`RestrictError::IdsExhausted`] when the synthesized nodes do not fit
 /// below `u32::MAX`; and the errors of the transforms, in ascending node id.
 pub fn wtype_restrict_with_plan(
@@ -1693,6 +1762,7 @@ pub fn wtype_restrict_with_plan(
 
     // The surviving nodes, re-anchored and transformed, in ascending id.
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(surviving.len());
+    let mut child_writes = Vec::new();
     for &id in &surviving {
         let source = &instance.nodes[&id];
         let mut node = source.clone();
@@ -1704,10 +1774,12 @@ pub fn wtype_restrict_with_plan(
                 InstanceRef::Tree(instance, id),
                 &plan.demand(&source.anchor),
             );
-            plan.transform(&mut node, &source.anchor, &ctx, false)?;
+            let on_child = plan.transform(&mut node, &source.anchor, &ctx, false)?;
+            child_writes.extend(take_child_writes(&mut node, &children, id, on_child));
         }
         new_nodes.insert(id, node);
     }
+    write_back_to_children(&mut new_nodes, child_writes);
     let mut synthesized_keys = BTreeMap::new();
     for (key, anchor) in &synthesized_anchors {
         let id = synthesized_ids[key];
@@ -1979,6 +2051,11 @@ pub fn apply_field_transforms_traced(
 pub(crate) struct KeyTrack {
     /// The keys a transform wrote.
     pub(crate) written: BTreeSet<String>,
+    /// The written keys whose value an `ApplyExpr` read from a child the
+    /// key names, not from the node's own fields: the attribute lives on
+    /// that child, so the engine writes the result back there rather than
+    /// leave it as a second value for the field on the node.
+    pub(crate) on_child: BTreeSet<String>,
 }
 
 /// A key's state taken off a [`KeyTrack`] when its value moves: whether a
@@ -1992,6 +2069,7 @@ impl KeyTrack {
     /// Take the state of `key`, whose value is leaving it: afterwards the
     /// key is unwritten.
     pub(crate) fn take(&mut self, key: &str) -> KeyState {
+        self.on_child.remove(key);
         KeyState {
             written: self.written.remove(key),
         }
@@ -2000,6 +2078,7 @@ impl KeyTrack {
     /// Put a taken state on `to`, whose value is now the one the state was
     /// taken with, replacing what `to` held.
     pub(crate) fn put(&mut self, to: &str, state: KeyState) {
+        self.on_child.remove(to);
         if state.written {
             self.written.insert(to.to_owned());
         } else {
@@ -2016,16 +2095,30 @@ impl KeyTrack {
     /// The key was removed.
     pub(crate) fn removed(&mut self, key: &str) {
         self.written.remove(key);
+        self.on_child.remove(key);
     }
 
-    /// The key was written: with a fresh value, or changed in place.
+    /// The key was written: with a fresh value, or changed in place. The
+    /// value is the node's own field from here on.
     fn wrote(&mut self, key: &str) {
         self.written.insert(key.to_owned());
+        self.on_child.remove(key);
+    }
+
+    /// The key was rewritten in place by an expression over its own value,
+    /// which `from_child` says was read from the child the key names. A
+    /// key already living on its child stays there.
+    fn rewrote(&mut self, key: &str, from_child: bool) {
+        self.written.insert(key.to_owned());
+        if from_child {
+            self.on_child.insert(key.to_owned());
+        }
     }
 
     /// Only the keys in `keys` were kept.
     fn kept(&mut self, keys: &HashSet<&str>) {
         self.written.retain(|k| keys.contains(k.as_str()));
+        self.on_child.retain(|k| keys.contains(k.as_str()));
     }
 }
 
@@ -2082,9 +2175,9 @@ fn apply_transforms_observed(
             FieldTransform::ApplyExpr { key, expr, .. } => {
                 executed = key == "__value__"
                     && matches!(node.value, Some(crate::value::FieldPresence::Present(_)));
-                if apply_expr_transform(node, key, expr, ctx)? {
+                if let Some(read) = apply_expr_transform(node, key, expr, ctx)? {
                     executed = true;
-                    written_keys.wrote(key);
+                    written_keys.rewrote(key, read == ExprRead::Child);
                 }
             }
             FieldTransform::ComputeField {
@@ -2176,9 +2269,18 @@ fn apply_case_observed(
     Ok(())
 }
 
+/// Where an `ApplyExpr` read the value it rewrote.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExprRead {
+    /// The node's own field.
+    Field,
+    /// The child the key names, the node having no field of that name.
+    Child,
+}
+
 /// Apply an `ApplyExpr` transform: evaluate `expr` over the value bound at
-/// `key` and store the result. Returns whether an `extra_fields` key was
-/// written.
+/// `key` and store the result. Returns where the rewritten `extra_fields`
+/// key was read from, or `None` when no key was written.
 ///
 /// The key `"__value__"` targets the node's own leaf value rather than an
 /// `extra_fields` entry, which is how a coercion (a kind change) is
@@ -2188,16 +2290,18 @@ fn apply_case_observed(
 /// rewritten by an earlier transform in the same sequence is the one read,
 /// and in the children second; a child the key names is refused as an
 /// expression reading it would be (a repeated child, or a structural child
-/// that is no tree). The result is written to `extra_fields` whichever side
-/// it came from: `to_json` serializes `extra_fields` after children, so the
-/// transform's output stays authoritative over the original child vertex
-/// value.
+/// that is no tree). The result is held in `extra_fields` for the rest of
+/// the sequence whichever side it came from, so a later transform reads
+/// the rewritten value. A value read from a child is reported as
+/// [`ExprRead::Child`]: the attribute lives on that child, and the tree
+/// engines move the result back onto it, so the view never carries the
+/// field both on the node and on its child.
 fn apply_expr_transform(
     node: &mut Node,
     key: &str,
     expr: &panproto_expr::Expr,
     ctx: &TransformContext<'_>,
-) -> Result<bool, RestrictError> {
+) -> Result<Option<ExprRead>, RestrictError> {
     let config = panproto_expr::EvalConfig::default();
     let failed = |source| RestrictError::FieldTransformFailed {
         key: key.to_string(),
@@ -2220,23 +2324,23 @@ fn apply_expr_transform(
                 &result,
             )));
         }
-        return Ok(false);
+        return Ok(None);
     }
 
     ctx.refuse_unreadable([key], false, &node.extra_fields)?;
-    if let Some(val) = node
-        .extra_fields
-        .get(key)
-        .or_else(|| ctx.child_values.get(key))
-    {
-        let input = value_to_expr_literal(val).map_err(|e| unexpressible(key, e))?;
-        let env = panproto_expr::Env::new().extend(std::sync::Arc::from(key), input);
-        let result = ctx.eval(expr, &env, &config).map_err(failed)?;
-        node.extra_fields
-            .insert(key.to_string(), expr_literal_to_value(&result));
-        return Ok(true);
-    }
-    Ok(false)
+    let (val, read) = match node.extra_fields.get(key) {
+        Some(val) => (val, ExprRead::Field),
+        None => match ctx.child_values.get(key) {
+            Some(val) => (val, ExprRead::Child),
+            None => return Ok(None),
+        },
+    };
+    let input = value_to_expr_literal(val).map_err(|e| unexpressible(key, e))?;
+    let env = panproto_expr::Env::new().extend(std::sync::Arc::from(key), input);
+    let result = ctx.eval(expr, &env, &config).map_err(failed)?;
+    node.extra_fields
+        .insert(key.to_string(), expr_literal_to_value(&result));
+    Ok(Some(read))
 }
 
 /// Navigate into nested `Value::Unknown` maps along `path` and apply the
@@ -2450,6 +2554,13 @@ pub(crate) trait ChildSource {
     fn has_discriminator(&self, id: u32) -> bool;
     /// The element's anchor.
     fn anchor(&self, id: u32) -> Option<&Name>;
+    /// Whether a named, unordered outgoing schema edge holds one value per
+    /// element in this shape. It does for tree and graph nodes, whose named
+    /// edges are field projections; a table's foreign key is a relation, so
+    /// a row may reach several rows along one.
+    fn fields_are_single_valued(&self) -> bool {
+        true
+    }
 }
 
 /// One child of an element: the edge's label and the target element.
@@ -2591,6 +2702,9 @@ impl ChildSource for crate::functor::FInstance {
     fn anchor(&self, id: u32) -> Option<&Name> {
         self.table_of(crate::view_ref::RowId(id))
     }
+    fn fields_are_single_valued(&self) -> bool {
+        false
+    }
 }
 
 /// The value of an element's subtree, materialized as `node_to_value`
@@ -2682,6 +2796,16 @@ fn materialize_tree<S: ChildSource + ?Sized>(
 /// list annotation, or two or more children under one label, which no object
 /// can have) is what decides, and object-only evidence on the element
 /// (fields of its own, or a discriminator) vetoes the schema heuristic.
+///
+/// As in `to_json`, the same-label signal never overrides the schema in a
+/// tree or a graph: two or more children on a single-valued field of the
+/// element's anchor (a named outgoing schema edge that
+/// [`Schema::orderings`] does not order) are two values for one field, not
+/// the items of a list. Such an element is a record; `to_json` refuses it, and its materialization binds the
+/// field to the list of those values, as [`bind_children`] does for a
+/// repeated name. A table row's children along one foreign key are the
+/// rows of a relation, so there the same-label signal still makes a
+/// collection.
 fn is_collection<S: ChildSource + ?Sized>(
     schema: Option<&Schema>,
     source: &S,
@@ -2691,22 +2815,30 @@ fn is_collection<S: ChildSource + ?Sized>(
     if source.is_list(id) {
         return true;
     }
-    if let Some(first) = children.first()
-        && children.len() >= 2
-        && children
-            .iter()
-            .all(|c| c.label.kind == first.label.kind && c.label.name == first.label.name)
-    {
-        return true;
-    }
-    let (Some(schema), Some(anchor)) = (schema, source.anchor(id)) else {
-        return false;
-    };
-    let outgoing = schema.outgoing_edges(anchor);
-    let via_schema = !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none());
+    let anchored = schema.zip(source.anchor(id));
     let object_only =
         source.fields(id).is_some_and(|f| !f.is_empty()) || source.has_discriminator(id);
-    via_schema && !object_only
+    if let Some((schema, anchor)) = anchored {
+        let outgoing = schema.outgoing_edges(anchor);
+        let via_schema = !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none());
+        if via_schema && !object_only {
+            return true;
+        }
+    }
+    let Some(first) = children.first() else {
+        return false;
+    };
+    let same_label = children.len() >= 2
+        && children
+            .iter()
+            .all(|c| c.label.kind == first.label.kind && c.label.name == first.label.name);
+    let single_valued = source.fields_are_single_valued()
+        && anchored.is_some_and(|(schema, anchor)| {
+            first.label.name.is_some()
+                && !schema.orderings.contains_key(first.label)
+                && schema.outgoing_edges(anchor).contains(first.label)
+        });
+    same_label && !single_valued
 }
 
 /// The children an element binds, by column name, under `demand`.
@@ -3243,10 +3375,15 @@ pub fn collect_child_values(
 /// under a structural child is what serialization would emit for it: a
 /// present leaf is its value, a null or absent one is [`Value::Null`], an
 /// ordered collection is a [`Value::List`] of its children in arc order,
-/// and anything else is a [`Value::Unknown`] of its children (a name two or
-/// more arcs carry binding the list of them, in arc order) and
+/// and anything else is a [`Value::Unknown`] of its children and
 /// `extra_fields`, with `extra_fields` taking precedence on a key collision
-/// exactly as in `to_json`.
+/// exactly as in `to_json`. Two or more children under one label make a
+/// collection only when that label is not a single-valued field of the
+/// node's anchor (a named outgoing schema edge the schema does not order);
+/// on such a field `to_json` refuses the node with
+/// [`ParseError::MultipleValuesOnField`](crate::ParseError), while this
+/// function, which cannot refuse, keeps the node a record and binds the
+/// field to the list of its values, in arc order.
 #[must_use]
 pub fn node_to_value(schema: Option<&Schema>, instance: &WInstance, node_id: u32) -> Value {
     if !instance.nodes.contains_key(&node_id) {
@@ -3838,6 +3975,7 @@ fn wtype_extend_inner(
 
     let children = TreeChildren::new(instance);
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(instance.nodes.len());
+    let mut child_writes = Vec::new();
     let mut ids: Vec<u32> = instance.nodes.keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
@@ -3865,9 +4003,11 @@ fn wtype_extend_inner(
                 &transform_demand(&transforms),
             )
         };
-        plan.transform(&mut new_node, &node.anchor, &ctx, true)?;
+        let on_child = plan.transform(&mut new_node, &node.anchor, &ctx, true)?;
+        child_writes.extend(take_child_writes(&mut new_node, &children, id, on_child));
         new_nodes.insert(id, new_node);
     }
+    write_back_to_children(&mut new_nodes, child_writes);
 
     let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::with_capacity(instance.arcs.len());
     for &(parent, child, ref edge) in &instance.arcs {
@@ -5938,6 +6078,64 @@ mod tests {
         let instance = WInstance::new(nodes, arcs, vec![], 0, "body".into());
         let scalars = collect_scalar_child_values(&instance, 0);
         (instance, scalars)
+    }
+
+    /// Two children of `r` on the named field `tag`, holding 1 and 2.
+    fn two_values_on_one_field() -> Result<(Schema, WInstance, Edge), panproto_schema::SchemaError>
+    {
+        let protocol = panproto_schema::Protocol::default();
+        let schema = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None)
+            .and_then(|b| b.vertex("s", "integer", None))
+            .and_then(|b| b.edge("r", "s", "prop", Some("tag")))
+            .and_then(panproto_schema::SchemaBuilder::build)?;
+        let tag = Edge {
+            src: "r".into(),
+            tgt: "s".into(),
+            kind: "prop".into(),
+            name: Some("tag".into()),
+        };
+        let nodes = HashMap::from([
+            (0, Node::new(0, "r")),
+            (
+                1,
+                Node::new(1, "s").with_value(FieldPresence::Present(Value::Int(1))),
+            ),
+            (
+                2,
+                Node::new(2, "s").with_value(FieldPresence::Present(Value::Int(2))),
+            ),
+        ]);
+        let arcs = vec![(0, 1, tag.clone()), (0, 2, tag.clone())];
+        Ok((
+            schema,
+            WInstance::new(nodes, arcs, vec![], 0, "r".into()),
+            tag,
+        ))
+    }
+
+    #[test]
+    fn repeated_children_on_a_single_valued_field_stay_a_record()
+    -> Result<(), panproto_schema::SchemaError> {
+        let (mut schema, instance, tag) = two_values_on_one_field()?;
+        let both = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        // A single-valued field: the node is a record, the field binds both.
+        assert_eq!(
+            node_to_value(Some(&schema), &instance, 0),
+            Value::Unknown(HashMap::from([("tag".to_owned(), both.clone())]))
+        );
+        assert!(crate::to_json(&schema, &instance).is_err());
+        // Without a schema, or on an ordered edge, the children are items.
+        assert_eq!(node_to_value(None, &instance, 0), both);
+        schema.orderings.insert(tag, 0);
+        assert_eq!(node_to_value(Some(&schema), &instance, 0), both);
+        // A node marked as a list is a collection whatever its edges.
+        let (schema, mut instance, _) = two_values_on_one_field()?;
+        if let Some(root) = instance.nodes.get_mut(&0) {
+            root.shape = crate::metadata::NodeShape::List;
+        }
+        assert_eq!(node_to_value(Some(&schema), &instance, 0), both);
+        Ok(())
     }
 
     #[test]

@@ -879,6 +879,14 @@ fn restrict_reason(error: &RestrictError) -> String {
         }
         // The production refusal names no root: a tree has exactly one.
         RestrictError::RootPruned => "RootPruned".to_owned(),
+        RestrictError::MultipleArcsOnSingleValuedEdge {
+            parent,
+            edge,
+            count,
+        } => format!(
+            "MultipleArcsOnSingleValuedEdge {parent} {:?} {count}",
+            ref_edge(edge)
+        ),
         RestrictError::MalformedFan { node, reason } => {
             format!("MalformedFan {node} {}", fan_reason(reason))
         }
@@ -1032,6 +1040,11 @@ fn ref_restrict_reason(error: &RefRestrictError) -> String {
             format!("ExpansionTooLong {src} {tgt} {hops}")
         }
         RefRestrictError::RootPruned { .. } => "RootPruned".to_owned(),
+        RefRestrictError::MultipleArcsOnSingleValuedEdge {
+            parent,
+            edge,
+            count,
+        } => format!("MultipleArcsOnSingleValuedEdge {parent} {edge:?} {count}"),
         RefRestrictError::MalformedFan { node, reason } => {
             format!("MalformedFan {node} {}", ref_fan_reason(reason))
         }
@@ -10833,6 +10846,195 @@ fn declared_transform_absence_composition_matches_independent_union() {
         TableComplement::empty().compose(&malformed),
         Err(LensError::ComplementConflict { .. })
     ));
+}
+
+/// The declared-field carrier's root with its attribute `f` held by the
+/// child `value` rather than by the root's own fields.
+fn declared_attribute_on_child(value: i64) -> RefTree {
+    let mut child = RefNode::new(1, "value");
+    child.value = Some(RefPresence::Present(RefValue::Int(value)));
+    RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, child)]),
+        arcs: vec![(0, 1, RefSEdge::new("a", "value", "prop", Some(C11_FIELD)))],
+        fans: Vec::new(),
+        root: 0,
+    }
+}
+
+#[test]
+fn declared_read_of_a_child_attribute_writes_it_back_to_the_child() {
+    let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
+    let pair = Pair::from_stage(&stages[c11_stage_index(&stages, "DeclaredRead")]);
+    for value in [0, 1] {
+        let source = declared_attribute_on_child(value);
+        let production = production_tree_case(&pair, &source, true);
+        assert_eq!(
+            production,
+            reference_tree_case(&pair, &source),
+            "f = {value}"
+        );
+        let Some(Ok((view, _, restored))) = production else {
+            panic!("the read admits the child attribute f = {value}");
+        };
+        // The attribute stays where it lives: the child holds the read
+        // value and the root gains no second value for `f`.
+        assert!(view.nodes[&0].fields.is_empty(), "{view:?}");
+        assert_eq!(view, source);
+        assert_eq!(restored, Ok(source.clone()));
+        // A view showing the child attribute edited is put back onto the
+        // child, and get of that put shows the edit.
+        let edited = declared_attribute_on_child(1 - value);
+        let put = production_tree_put(&pair, &source, &edited);
+        assert_eq!(put, reference_tree_put(&pair, &source, &edited));
+        let restored = put
+            .and_then(|outcome| outcome.put.ok())
+            .unwrap_or_else(|| panic!("put of the edited child attribute f = {value}"));
+        assert_eq!(restored, edited);
+    }
+}
+
+/// A source `r` with sibling fields `a` and `b` of vertex `s`, the target
+/// keeping only `a`; the edge map sends `b` to `a` as well.
+fn sibling_merge_pair() -> Pair {
+    let source = RefSchema::default()
+        .vertex("r", "record")
+        .vertex("s", "record")
+        .edge("r", "s", "prop", Some("a"))
+        .edge("r", "s", "prop", Some("b"));
+    let target = RefSchema::default()
+        .vertex("r", "record")
+        .vertex("s", "record")
+        .edge("r", "s", "prop", Some("a"));
+    let mut migration = RefMigration {
+        surviving_verts: ["r", "s"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    migration.edge_remap.insert(
+        RefSEdge::new("r", "s", "prop", Some("b")),
+        RefSEdge::new("r", "s", "prop", Some("a")),
+    );
+    Pair::new(source, target, migration)
+}
+
+/// A source `r` holding `leaf` directly and through the dropped wrapper `m`,
+/// the target keeping `r -leaf-> leaf` alone: contraction flattens the
+/// nested `leaf` onto the edge the direct one keeps.
+fn flattened_field_pair() -> Pair {
+    let source = RefSchema::default()
+        .vertex("r", "record")
+        .vertex("m", "record")
+        .vertex("leaf", "record")
+        .edge("r", "m", "prop", Some("m"))
+        .edge("m", "leaf", "prop", Some("leaf"))
+        .edge("r", "leaf", "prop", Some("leaf"));
+    let target = RefSchema::default()
+        .vertex("r", "record")
+        .vertex("leaf", "record")
+        .edge("r", "leaf", "prop", Some("leaf"));
+    let migration = RefMigration {
+        surviving_verts: ["r", "leaf"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    Pair::new(source, target, migration)
+}
+
+fn ref_tree_of(nodes: &[(u32, &str)], arcs: &[(u32, u32, RefSEdge)]) -> RefTree {
+    RefTree {
+        nodes: nodes
+            .iter()
+            .map(|(id, anchor)| (*id, RefNode::new(*id, anchor)))
+            .collect(),
+        arcs: arcs.to_vec(),
+        fans: Vec::new(),
+        root: 0,
+    }
+}
+
+#[test]
+fn two_values_on_a_single_valued_edge_are_refused_on_both_sides() {
+    let field = |src: &str, tgt: &str, name: &str| RefSEdge::new(src, tgt, "prop", Some(name));
+    let refused = |parent: u32, edge: &RefSEdge, count: usize| {
+        Some(Err(Reason::Restrict(format!(
+            "MultipleArcsOnSingleValuedEdge {parent} {edge:?} {count}"
+        ))))
+    };
+
+    // Sibling fields merged by the edge map.
+    let merge = sibling_merge_pair();
+    let siblings = ref_tree_of(
+        &[(0, "r"), (1, "s"), (2, "s")],
+        &[(0, 1, field("r", "s", "a")), (0, 2, field("r", "s", "b"))],
+    );
+    let expected = refused(0, &field("r", "s", "a"), 2);
+    assert_eq!(production_tree_case(&merge, &siblings, true), expected);
+    assert_eq!(reference_tree_case(&merge, &siblings), expected);
+    // Arcs of the one source edge `a` keep their multiplicity.
+    let repeated = ref_tree_of(
+        &[(0, "r"), (1, "s"), (2, "s")],
+        &[(0, 1, field("r", "s", "a")), (0, 2, field("r", "s", "a"))],
+    );
+    let production = production_tree_case(&merge, &repeated, true);
+    assert!(matches!(production, Some(Ok(_))), "{production:?}");
+    assert_eq!(production, reference_tree_case(&merge, &repeated));
+
+    // A direct field and a flattened nested field joined by contraction.
+    let flatten = flattened_field_pair();
+    let joined = ref_tree_of(
+        &[(0, "r"), (1, "leaf"), (2, "m"), (3, "leaf")],
+        &[
+            (0, 1, field("r", "leaf", "leaf")),
+            (0, 2, field("r", "m", "m")),
+            (2, 3, field("m", "leaf", "leaf")),
+        ],
+    );
+    let expected = refused(0, &field("r", "leaf", "leaf"), 2);
+    assert_eq!(production_tree_case(&flatten, &joined, true), expected);
+    assert_eq!(reference_tree_case(&flatten, &joined), expected);
+    // The nested field alone flattens onto the edge.
+    let nested = ref_tree_of(
+        &[(0, "r"), (2, "m"), (3, "leaf")],
+        &[
+            (0, 2, field("r", "m", "m")),
+            (2, 3, field("m", "leaf", "leaf")),
+        ],
+    );
+    let production = production_tree_case(&flatten, &nested, true);
+    assert!(matches!(production, Some(Ok(_))), "{production:?}");
+    assert_eq!(production, reference_tree_case(&flatten, &nested));
+
+    // The graph route holds the same arcs as parallel edges on both sides.
+    let graph = RefGraph {
+        nodes: siblings.nodes.clone(),
+        edges: siblings
+            .arcs
+            .iter()
+            .zip(0_u32..)
+            .map(|((src, tgt, label), id)| {
+                (
+                    id,
+                    RefGEdge {
+                        src: *src,
+                        tgt: *tgt,
+                        label: label.clone(),
+                        position: None,
+                    },
+                )
+            })
+            .collect(),
+    };
+    let production = production_get(&merge, &graph);
+    assert_eq!(production, reference_get(&merge, &graph));
+    let Ok((view, _)) = production else {
+        panic!("the graph route refuses parallel edges: {production:?}");
+    };
+    let label = field("r", "s", "a");
+    assert_eq!(
+        view.edges
+            .values()
+            .filter(|edge| edge.src == 0 && edge.label == label)
+            .count(),
+        2
+    );
 }
 
 #[test]

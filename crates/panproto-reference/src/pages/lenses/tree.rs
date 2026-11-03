@@ -958,7 +958,61 @@ fn native_tree_get(lens: &GraphLens<'_>, source: &Tree) -> NativeTreeGet {
         return Some(Err(error));
     }
     native_record_originals(lens, &mut state);
+    if let Err(error) = native_single_valued_edges(&state) {
+        return Some(Err(error));
+    }
     Some(native_finish_get(lens, state))
+}
+
+/// Refuse a tree view in which one node holds arcs from two or more distinct
+/// source edges on one named target edge.
+///
+/// Every non-fan view edge is attributed to a source edge: a kept edge to
+/// itself, an expanded hop to the edge it expands, and a contracted edge or
+/// hop to the source arc entering the contracted child. A named edge is
+/// single-valued, so a `(parent, label)` with two distinct source edges is
+/// refused; arcs of one source edge keep their multiplicity.
+fn native_single_valued_edges(state: &NativeGetState<'_>) -> Result<(), RestrictError> {
+    let entering: BTreeMap<u32, &SEdge> = state
+        .source
+        .arcs
+        .iter()
+        .map(|(_, child, label)| (*child, label))
+        .collect();
+    let mut landing: BTreeMap<(u32, &SEdge), (usize, BTreeSet<&SEdge>)> = BTreeMap::new();
+    for (id, edge) in &state.view_graph.edges {
+        if edge.label.name.is_none() || is_fan_kind(&edge.label.kind) {
+            continue;
+        }
+        let source = match state.complement.synthesized_edges.get(id) {
+            None => state.source_graph.edges.get(id).map(|source| &source.label),
+            Some(SynthKey::Expand { source_edge, .. }) => state
+                .source_graph
+                .edges
+                .get(source_edge)
+                .map(|source| &source.label),
+            Some(SynthKey::Contract { tgt, .. } | SynthKey::ContractExpand { tgt, .. }) => {
+                entering.get(tgt).copied()
+            }
+        };
+        let Some(source) = source else {
+            continue;
+        };
+        let entry = landing.entry((edge.src, &edge.label)).or_default();
+        entry.0 += 1;
+        entry.1.insert(source);
+    }
+    match landing
+        .into_iter()
+        .find(|(_, (_, sources))| sources.len() > 1)
+    {
+        Some(((parent, edge), (count, _))) => Err(RestrictError::MultipleArcsOnSingleValuedEdge {
+            parent,
+            edge: Box::new(edge.clone()),
+            count,
+        }),
+        None => Ok(()),
+    }
 }
 
 /// Definition: The tree lens on the domain where the tree and graph engines agree.

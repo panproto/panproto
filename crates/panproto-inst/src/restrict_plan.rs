@@ -925,7 +925,15 @@ impl RestrictPlan {
     /// vertex's value transforms (over the children bound in `ctx`), then,
     /// when `cells` is set and the plan has a cell layer, the cell fates of
     /// its source table, then the coercion of every key a transform wrote
-    /// that is a column of its target table to that column's spec.
+    /// that is a column of its target table to that column's spec. A key
+    /// the transforms left holding the element's own source value at that
+    /// key (an identity read, say) is not coerced: it carries the source
+    /// cell unchanged, as it would under no transform.
+    ///
+    /// Returns the keys an `ApplyExpr` rewrote from the value of the child
+    /// the key names, the element having no field of that name: the result
+    /// is left in `node.extra_fields` and the attribute lives on the child,
+    /// so a tree engine moves it back there.
     ///
     /// # Errors
     ///
@@ -938,7 +946,7 @@ impl RestrictPlan {
         source_anchor: &Name,
         ctx: &TransformContext<'_>,
         cells: bool,
-    ) -> Result<(), RestrictError> {
+    ) -> Result<BTreeSet<String>, RestrictError> {
         let transforms = self.migration.value_transforms(source_anchor);
         let layer = self.cells();
         let fates = layer
@@ -946,14 +954,23 @@ impl RestrictPlan {
             .and_then(|layer| layer.fates.get(source_anchor));
         if transforms.is_empty() && fates.is_none() {
             // Nothing moves, writes or drops a key, so nothing is coerced.
-            return Ok(());
+            return Ok(BTreeSet::new());
         }
         let mut track = KeyTrack::default();
         if !transforms.is_empty() {
+            let before = layer.map(|_| node.extra_fields.clone());
             apply_transforms_tracked(node, &transforms, ctx, &mut track)?;
+            if let Some(before) = before {
+                track
+                    .written
+                    .retain(|key| match (before.get(key), node.extra_fields.get(key)) {
+                        (Some(was), Some(now)) => !was.canonical_cmp(now).is_eq(),
+                        _ => true,
+                    });
+            }
         }
         let Some(layer) = layer else {
-            return Ok(());
+            return Ok(track.on_child);
         };
         if let Some(fates) = fates {
             apply_cell_fates(&mut node.extra_fields, fates, &mut track);
@@ -973,7 +990,7 @@ impl RestrictPlan {
                 })?;
             node.extra_fields.insert(key, coerced);
         }
-        Ok(())
+        Ok(track.on_child)
     }
 
     /// The value vertex of `column` of the target table `table`.

@@ -2569,27 +2569,30 @@ fn rebuild_source_arcs(
 /// Undo an invertible computation whose result sits on a child node
 /// rather than in the parent's `extra_fields`.
 ///
-/// The forward pass writes a computed value into `extra_fields`, where
-/// serialization lets it shadow the child that supplied it. That is fine
-/// while the view stays in memory, but crossing the JSON boundary
-/// (serialize the view, parse it back, then `put`, which is exactly what
-/// the WASM `put_json` does) moves the value onto the child node: the
-/// parent's `extra_fields` comes back empty and the child holds the
-/// *computed* number. `propagate_view_edits_through_inverse` looks only at
-/// `extra_fields`, so it finds nothing to invert and the computed value
-/// survives into the reconstruction.
+/// The result reaches the child in two ways. A field-level `ApplyExpr`
+/// whose key names a child scalar, the node having no field of that name,
+/// writes its result onto that child in the forward pass: the attribute
+/// lives there, and the view holds one value for it. A `ComputeField`
+/// writes into `extra_fields`, where serialization lets it shadow the child
+/// that supplied it; crossing the JSON boundary (serialize the view, parse
+/// it back, then `put`, which is exactly what the WASM `put_json` does)
+/// moves the value onto the child node, so the parent's `extra_fields`
+/// comes back empty and the child holds the *computed* value. Either way
+/// `propagate_view_edits_through_inverse` looks only at `extra_fields`,
+/// finds nothing to invert, and the computed value would survive into the
+/// reconstruction.
 ///
-/// This pass covers that shape. For each `ComputeField` carrying an
-/// inverse whose target names a child scalar and whose expression reads
-/// only that same coordinate, it evaluates the inverse against the view's
-/// own child values and writes the result back to that child. A computation
-/// reading a distinct child leaves that child as the view shows it.
+/// This pass covers that shape. For each `ComputeField` or field-level
+/// `ApplyExpr` carrying an inverse whose output names a child scalar and
+/// whose expression reads only that same coordinate, it evaluates the
+/// inverse against the view's own child values and writes the result back
+/// to that child. A computation reading a distinct child leaves that child
+/// as the view shows it.
 fn invert_computations_on_child_scalars(
     view: &WInstance,
     traces: &HashMap<u32, Vec<panproto_inst::FieldTransform>>,
     nodes: &mut HashMap<u32, Node>,
 ) {
-    use panproto_inst::FieldTransform;
     use panproto_inst::value::{FieldPresence, Value};
 
     for (&parent_id, parent) in &view.nodes {
@@ -2620,23 +2623,17 @@ fn invert_computations_on_child_scalars(
             .collect();
 
         for transform in transforms {
-            let FieldTransform::ComputeField {
-                target_key,
-                expr,
-                inverse: Some(inv_expr),
-                ..
-            } = transform
-            else {
+            let Some((target_key, expr, inv_expr)) = invertible_field_output(transform) else {
                 continue;
             };
             // Only when the computed value actually landed on the child.
             //
-            // While the view is in memory the computed value sits in the
-            // parent's `extra_fields`, shadowing a child that still holds
-            // the *source* value; the snapshot path restores that correctly
-            // and inverting here as well would apply the inverse twice.
-            // Its absence from `extra_fields` is what says the value moved
-            // onto the child, which is the case this pass exists for.
+            // A computed field held in the parent's `extra_fields` shadows
+            // a child that still holds the *source* value; the snapshot
+            // path restores that correctly and inverting here as well
+            // would apply the inverse twice. Its absence from
+            // `extra_fields` is what says the value sits on the child,
+            // which is the case this pass exists for.
             if parent.extra_fields.contains_key(target_key) || !child_of.contains_key(target_key) {
                 continue;
             }
@@ -2646,7 +2643,7 @@ fn invert_computations_on_child_scalars(
             // A distinct source shown in the view stays authoritative, as
             // for a field source: forward replay checks the shown output
             // against it, so only a self-reading computation is inverted.
-            if source_key != *target_key {
+            if source_key != target_key {
                 continue;
             }
             let Some(&(target_child, _)) = child_of.get(&source_key) else {
@@ -2666,7 +2663,29 @@ fn invert_computations_on_child_scalars(
     }
 }
 
-/// A serialized invertible computed field can return on its scalar child
+/// The output key and forward expression of a field transform with an
+/// inverse: a `ComputeField` or a field-level `ApplyExpr`.
+fn invertible_field_output(
+    transform: &panproto_inst::FieldTransform,
+) -> Option<(&str, &panproto_expr::Expr, &panproto_expr::Expr)> {
+    match transform {
+        panproto_inst::FieldTransform::ComputeField {
+            target_key,
+            expr,
+            inverse: Some(inverse),
+            ..
+        } => Some((target_key, expr, inverse)),
+        panproto_inst::FieldTransform::ApplyExpr {
+            key,
+            expr,
+            inverse: Some(inverse),
+            ..
+        } if key != "__value__" => Some((key, expr, inverse)),
+        _ => None,
+    }
+}
+
+/// A serialized invertible field output can return on its scalar child
 /// instead of the parent's field map. Require unique target and source
 /// children, matching the inverse's single source coordinate, before using
 /// that presentation in the forward comparison.
@@ -2675,15 +2694,7 @@ pub(crate) fn inverse_child_output<'a>(
     field: &str,
     children: impl Iterator<Item = (&'a Edge, &'a Node)>,
 ) -> Option<&'a panproto_inst::value::Value> {
-    let panproto_inst::FieldTransform::ComputeField {
-        target_key,
-        expr,
-        inverse: Some(_),
-        ..
-    } = transform
-    else {
-        return None;
-    };
+    let (target_key, expr, _) = invertible_field_output(transform)?;
     if target_key != field {
         return None;
     }

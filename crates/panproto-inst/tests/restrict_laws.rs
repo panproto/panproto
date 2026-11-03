@@ -247,8 +247,13 @@ fn contraction_schemas() -> (Schema, Schema, CompiledMigration) {
     (src, tgt, m)
 }
 
-/// A random tree under that schema: each new node is an `m` or a `leaf`
-/// under an earlier `r` or `m`.
+/// A random tree under that schema: each new node is an `m` under an
+/// earlier `r` or `m`, or a `leaf` under an earlier `m`.
+///
+/// No `leaf` sits directly under `r`: contraction flattens every nested
+/// `leaf` onto `r -leaf-> leaf`, and a direct `leaf` beside a flattened one
+/// would give `r` two values on that single-valued edge, which the tree
+/// engine refuses (`two_values_flattened_onto_one_field_are_refused`).
 fn arb_contraction_tree() -> impl Strategy<Value = WInstance> {
     prop::collection::vec((any::<prop::sample::Index>(), any::<bool>()), 0..10).prop_map(|spec| {
         let mut nodes: HashMap<u32, Node> = HashMap::from([(0, Node::new(0, "r"))]);
@@ -257,21 +262,65 @@ fn arb_contraction_tree() -> impl Strategy<Value = WInstance> {
         for (i, (parent, is_leaf)) in spec.iter().enumerate() {
             let id = u32::try_from(i + 1).unwrap();
             let (parent_id, parent_anchor) = parents[parent.index(parents.len())];
-            let anchor = if *is_leaf { "leaf" } else { "m" };
+            let anchor = if *is_leaf && parent_anchor == "m" {
+                "leaf"
+            } else {
+                "m"
+            };
             let label = match (parent_anchor, anchor) {
-                ("r", "m") => e("r", "m", "m"),
+                ("r", _) => e("r", "m", "m"),
                 ("m", "m") => e("m", "m", "mm"),
-                ("m", "leaf") => e("m", "leaf", "leaf"),
-                _ => e("r", "leaf", "leaf"),
+                _ => e("m", "leaf", "leaf"),
             };
             nodes.insert(id, Node::new(id, anchor));
             arcs.push((parent_id, id, label));
-            if !*is_leaf {
+            if anchor == "m" {
                 parents.push((id, "m"));
             }
         }
         WInstance::new(nodes, arcs, vec![], 0, "r".into())
     })
+}
+
+/// A `leaf` held by `r` directly and a `leaf` flattened onto `r` from under
+/// the dropped `m` land on the one single-valued edge `r -leaf-> leaf`: the
+/// tree engine refuses, so the input is outside the tree square. The graph
+/// engine, whose instances may hold parallel edges, keeps both arcs as two
+/// edges with that label.
+#[test]
+fn two_values_flattened_onto_one_field_are_refused() {
+    let (src, tgt, m) = contraction_schemas();
+    let plan = RestrictPlan::compile(&src, &tgt, &m).unwrap();
+    let nodes = HashMap::from([
+        (0, Node::new(0, "r")),
+        (1, Node::new(1, "leaf")),
+        (2, Node::new(2, "m")),
+        (3, Node::new(3, "leaf")),
+    ]);
+    let arcs = vec![
+        (0, 1, e("r", "leaf", "leaf")),
+        (0, 2, e("r", "m", "m")),
+        (2, 3, e("m", "leaf", "leaf")),
+    ];
+    let tree = WInstance::new(nodes, arcs, vec![], 0, "r".into());
+    let error = wtype_restrict_with_plan(&tree, &plan).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            RestrictError::MultipleArcsOnSingleValuedEdge { parent: 0, edge, count: 2 }
+                if **edge == e("r", "leaf", "leaf")
+        ),
+        "{error:?}"
+    );
+    let graph = GInstance::from_wtype(&tree).unwrap();
+    let (graph_view, _) = graph_restrict_with_plan(&graph, &plan).unwrap();
+    let on_field: BTreeSet<u32> = graph_view
+        .edges()
+        .values()
+        .filter(|edge| edge.src == 0 && edge.edge == e("r", "leaf", "leaf"))
+        .map(|edge| edge.tgt)
+        .collect();
+    assert_eq!(on_field, BTreeSet::from([1, 3]));
 }
 
 proptest! {

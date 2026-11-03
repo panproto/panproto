@@ -1302,6 +1302,24 @@ pub mod restrict {
             /// Its first violation.
             reason: crate::fan::FanViolation,
         },
+        /// Tree execution would give one node two or more arcs on a
+        /// single-valued (named) target edge, the arcs coming from two or
+        /// more distinct source edges: sibling fields an edge map merges,
+        /// or a direct field and a flattened nested field a contraction
+        /// joins. A kept or expanded arc comes from the source edge it
+        /// realizes, a contracted arc from the source edge entering its
+        /// child. Arcs of one source edge keep their multiplicity. Graph
+        /// restriction holds such arcs as parallel edges and never
+        /// produces this variant.
+        MultipleArcsOnSingleValuedEdge {
+            /// The parent node, by its source id.
+            parent: u32,
+            /// The named target edge, the least such under the least
+            /// parent.
+            edge: Box<SEdge>,
+            /// How many arcs land on it under `parent`.
+            count: usize,
+        },
     }
 
     /// The complement of a graph get.
