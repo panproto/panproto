@@ -3151,12 +3151,21 @@ fn cli_lens_compile_retains_value_transforms_and_stage_order() {
 fn cli_lens_apply_refuses_a_compiled_artifact_of_two_normal_form_groups() {
     let tmp = tempfile::tempdir().unwrap();
     write_ordered_lens_document(tmp.path(), "ordered.json");
+    // The schema declares `derived`, the attribute the document's
+    // `compute_field` writes, so the apply reaches the group refusal.
     write_schema_with_edges(
         tmp.path(),
         "source.json",
         "atproto",
-        &[("root", "object"), ("root.text", "string")],
-        &[("root", "root.text", "prop", "text")],
+        &[
+            ("root", "object"),
+            ("root.text", "string"),
+            ("root.derived", "string"),
+        ],
+        &[
+            ("root", "root.text", "prop", "text"),
+            ("root", "root.derived", "prop", "derived"),
+        ],
     );
     std::fs::write(tmp.path().join("data.json"), r#"{"text":"hello"}"#).unwrap();
 

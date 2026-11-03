@@ -73,7 +73,14 @@ fn edge(src: &str, tgt: &str, kind: &str, label: &str) -> Edge {
 /// Fixture schema: `doc` object with a `title` string child and a nested
 /// `meta` object carrying an `author` string grandchild.
 fn nested_schema() -> Schema {
-    SchemaBuilder::new(&step_protocol())
+    nested_schema_declaring(&[], &[])
+}
+
+/// [`nested_schema`] with extra `(name, kind)` attributes declared on `doc`
+/// and on `doc.meta`. A value transform may write only a declared attribute
+/// of its vertex, a leaf edge labelled with the field name.
+fn nested_schema_declaring(doc_fields: &[(&str, &str)], meta_fields: &[(&str, &str)]) -> Schema {
+    let mut builder = SchemaBuilder::new(&step_protocol())
         .entry("doc")
         .vertex("doc", "object", None)
         .unwrap()
@@ -88,9 +95,18 @@ fn nested_schema() -> Schema {
         .edge("doc", "doc.meta", "prop", Some("meta"))
         .unwrap()
         .edge("doc.meta", "doc.meta.author", "prop", Some("author"))
-        .unwrap()
-        .build()
-        .unwrap()
+        .unwrap();
+    for (parent, fields) in [("doc", doc_fields), ("doc.meta", meta_fields)] {
+        for (name, kind) in fields {
+            let vertex = format!("{parent}.{name}");
+            builder = builder
+                .vertex(&vertex, kind, None)
+                .unwrap()
+                .edge(parent, &vertex, "prop", Some(name))
+                .unwrap();
+        }
+    }
+    builder.build().unwrap()
 }
 
 /// Instance matching [`nested_schema`].
@@ -215,7 +231,11 @@ fn ordered_stages_compute_in_the_post_rename_field_frame() {
         .unwrap()
         .vertex("doc.count", "integer", None)
         .unwrap()
+        .vertex("doc.derived", "integer", None)
+        .unwrap()
         .edge("doc", "doc.count", "prop", Some("count"))
+        .unwrap()
+        .edge("doc", "doc.derived", "prop", Some("derived"))
         .unwrap()
         .build()
         .unwrap();
@@ -368,7 +388,7 @@ fn step_law_apply_expr() {
                  "field": "count", "expr": "add count 1",
                  "inverse": "sub count 1", "coercion": "iso" } }] }"#,
     );
-    let schema = nested_schema();
+    let schema = nested_schema_declaring(&[("count", "integer")], &[]);
     let lens = value_lens(&compiled, &schema);
     let instance = valued_instance("count", Value::Int(5));
     let result = check_get_put(&lens, &instance);
@@ -385,7 +405,7 @@ fn step_law_compute_field() {
              "steps": [{ "compute_field": {
                  "target": "derived", "expr": "count", "coercion": "projection" } }] }"#,
     );
-    let schema = nested_schema();
+    let schema = nested_schema_declaring(&[("derived", "integer")], &[]);
     let lens = value_lens(&compiled, &schema);
     let instance = valued_instance("count", Value::Int(7));
     let result = check_get_put(&lens, &instance);
@@ -449,7 +469,10 @@ fn scoped_transform_only_pipeline_does_not_require_a_structural_chain() {
     assert_eq!(compiled.stages.len(), 1);
     assert!(compiled.stages[0].chain.steps.is_empty());
     let lens = compiled
-        .instantiate(&nested_schema(), &step_protocol())
+        .instantiate(
+            &nested_schema_declaring(&[], &[("derived", "string")]),
+            &step_protocol(),
+        )
         .expect("transform-only scoped document instantiates");
     let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
     let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
@@ -477,7 +500,10 @@ fn scoped_pipeline_preserves_inner_rename_then_compute_order() {
 
     assert_eq!(compiled.stages.len(), 2);
     let lens = compiled
-        .instantiate(&nested_schema(), &step_protocol())
+        .instantiate(
+            &nested_schema_declaring(&[], &[("derived", "string")]),
+            &step_protocol(),
+        )
         .expect("ordered scoped document instantiates");
     let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
     let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();

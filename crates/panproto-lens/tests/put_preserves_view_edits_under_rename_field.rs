@@ -1,10 +1,12 @@
 //! A flat user record's fields live on the record node itself as
-//! `extra_fields` (no per-field schema vertices). The forward lens
-//! renames `name -> displayName`. The user edits the view's
-//! `displayName` to a new value and calls `put`. The restored source
-//! must carry the edit back to `name` with the other three original
-//! fields intact. A prior put path clobbered the view's edit with the
-//! pre-get snapshot whenever the anchor had any `field_transforms`.
+//! `extra_fields` (no per-field source schema vertices). The forward lens
+//! renames `name -> displayName`, and the target declares `displayName`
+//! as an attribute of `user`, as every transform output must be. The
+//! user edits the view's `displayName` to a new value and calls `put`.
+//! The restored source must carry the edit back to `name` with the
+//! other three original fields intact. A prior put path clobbered the
+//! view's edit with the pre-get snapshot whenever the anchor had any
+//! `field_transforms`.
 
 #![allow(
     clippy::unwrap_used,
@@ -51,9 +53,18 @@ fn put_preserves_view_edit_on_renamed_record_field() {
         .unwrap()
         .build()
         .unwrap();
-    // Target schema is structurally identical at the graph level; the
-    // rename happens at the FieldTransform layer (not edge labels).
-    let tgt_schema = src_schema.clone();
+    // The rename happens at the FieldTransform layer (not edge labels), so
+    // the target keeps the bare `user` record and declares only the
+    // attribute the rename writes: a leaf edge labelled `displayName`.
+    let tgt_schema = SchemaBuilder::new(&protocol)
+        .vertex("user", "record", None::<&str>)
+        .unwrap()
+        .vertex("user.displayName", "string", None::<&str>)
+        .unwrap()
+        .edge("user", "user.displayName", "prop", Some("displayName"))
+        .unwrap()
+        .build()
+        .unwrap();
 
     // Parse source JSON.
     let source_json = serde_json::json!({
