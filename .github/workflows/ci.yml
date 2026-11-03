@@ -89,8 +89,8 @@ jobs:
           #
           # The MSRV leg is the tight one, and the margin is thin
           # rather than the budget wrong, so both halves are attacked:
-          # trimming more here, and shrinking what cargo writes (see
-          # CARGO_PROFILE_DEV_DEBUG below). The job reports its
+          # trimming more here, and shrinking what cargo writes (the
+          # `ci-test` profile keeps only line tables). The job reports its
           # remaining headroom afterwards, because a run that passes
           # with nothing left is one that fails on the next grammar
           # added and nothing else would say so.
@@ -141,7 +141,7 @@ jobs:
             local expected="${package}::${binary} ${test_name}"
 
             selected="$(cargo nextest list --locked -p "${package}" --test "${binary}" \
-              --profile ci -E "test(=${test_name})" -T oneline --color never \
+              --cargo-profile ci-test --profile ci -E "test(=${test_name})" -T oneline --color never \
               --cargo-quiet --cargo-quiet)"
             if [[ -n "${selected}" ]]; then
               echo "${expected} entered the ordinary CI profile" >&2
@@ -149,7 +149,7 @@ jobs:
             fi
 
             available="$(cargo nextest list --locked -p "${package}" --test "${binary}" \
-              --profile ci --ignore-default-filter -E "test(=${test_name})" \
+              --cargo-profile ci-test --profile ci --ignore-default-filter -E "test(=${test_name})" \
               -T oneline --color never --cargo-quiet --cargo-quiet)"
             if [[ "${available}" != "${expected}" ]]; then
               echo "${expected} is missing or no longer explicitly selectable" >&2
@@ -161,18 +161,18 @@ jobs:
           check_gate panproto-reference kan exhaustive_kan_every_labelled_member_has_checked_operation_transports
           check_gate panproto-inst reference_kan exhaustive_kan_hom_profile_pairs_agree_with_the_reference
       #
-      # Full DWARF is the bulk of what a debug build writes, and 250
-      # vendored grammars make that enormous. `line-tables-only` keeps
-      # what a failing test actually needs, the file and line in a
-      # backtrace, and drops the rest; it is what lets this job finish
-      # on a 14 GB runner with room to spare rather than by a margin
-      # that has twice been too thin.
-      - run: cargo nextest run --workspace --profile ci
-        env:
-          CARGO_PROFILE_DEV_DEBUG: line-tables-only
-      - run: cargo test --doc --workspace
-        env:
-          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      # Every build of this job uses the `ci-test` cargo profile of the
+      # workspace `Cargo.toml`, so the gate listings above, the suite, the
+      # doctests and the feature-gated run below share one build. It is
+      # `dev` with optimisation: debug assertions and overflow checks stay
+      # live, and the reference differentials and law certificates finish
+      # inside the nextest `ci` profile's per-test bound, which several of
+      # them cannot do unoptimised. It writes line tables only, the file
+      # and line a failing test's backtrace needs, rather than full DWARF,
+      # which 250 vendored grammars make enormous; that is what lets this
+      # job finish on a 14 GB runner with room to spare.
+      - run: cargo nextest run --workspace --cargo-profile ci-test --profile ci
+      - run: cargo test --doc --workspace --profile ci-test
       # A build that turns on serde_json's `preserve_order` hands document
       # parsers each object's members in written order rather than sorted.
       # The default build above cannot tell the two apart, so the member
@@ -180,9 +180,8 @@ jobs:
       - name: Schema identity under preserve_order
         run: >-
           cargo nextest run -p panproto-protocols --features serde_json/preserve_order
-          --no-tests=fail -E 'binary(a_schema_does_not_depend_on_member_order) or test(/key_order::/)'
-        env:
-          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+          --cargo-profile ci-test --no-tests=fail
+          -E 'binary(a_schema_does_not_depend_on_member_order) or test(/key_order::/)'
       - name: Report disk headroom
         # A run that passes with almost nothing left is a run that will
         # fail on the next grammar added, and nothing else would say so.

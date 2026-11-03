@@ -184,3 +184,19 @@ inherits = "release"
 [profile.release-wasm]
 inherits = "release"
 opt-level = 3
+
+# The CI test profile. It inherits `dev`, so `debug_assert!` and overflow
+# checks stay live and a test checks exactly what it checks in a local debug
+# run, but compiles with optimisation: the reference differentials, law
+# certificates and randomized sweeps spend nearly all their time in code an
+# unoptimised build runs many times slower, and under `dev` several of them
+# cannot finish inside the nextest `ci` profile's per-test bound.
+# `line-tables-only` keeps file and line in a backtrace while writing a
+# fraction of full DWARF, which the runner's disk needs, and leaving LTO off
+# keeps link time near that of `dev`. Select it with
+# `cargo nextest run --cargo-profile ci-test`.
+[profile.ci-test]
+inherits = "dev"
+opt-level = 2
+debug = "line-tables-only"
+incremental = false
