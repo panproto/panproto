@@ -318,9 +318,9 @@ impl Default for AutoLensConfig {
 ///
 /// Covers a proposal whose witness is absent from the library, and a
 /// proposal whose witness is present but whose `source_kind` has no
-/// registered samples. Both paths used to default asymmetrically
-/// (unknown witness dropped, missing samples kept); this knob makes
-/// the treatment explicit and uniform.
+/// registered samples. This knob makes the treatment of both paths
+/// explicit and uniform, rather than dropping an unknown witness while
+/// keeping a proposal with missing samples.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UnknownSamplesPolicy {
     /// Keep unverifiable proposals (sound when the caller still
@@ -710,13 +710,12 @@ fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>
 /// vertices recovers its whole kind-compatible domain and the search can
 /// reach an assignment the pinned attempt had ruled out.
 ///
-/// This used to demote strategy anchors to a preference ordering under a node
-/// budget. Preferences are gone, and so is the budget: a preference could only
-/// change which optimum was reached first, while the search now returns an
-/// optimum of the whole objective, so there is no ordering left to express.
-/// Releasing the pins is the part that mattered, since it is the domain
-/// collapse rather than the ordering that turns a jointly infeasible anchor set
-/// into "no morphism found".
+/// Strategy anchors are released rather than demoted to a preference
+/// ordering: a preference could only change which optimum is reached first,
+/// while the search returns an optimum of the whole objective, so there is
+/// no ordering to express. It is the domain collapse rather than any
+/// ordering that turns a jointly infeasible anchor set into "no morphism
+/// found", so releasing the pins is what matters.
 fn release_strategy_pins(
     opts: &SearchOptions,
     caller_anchors: &HashMap<Name, Name>,
@@ -2740,11 +2739,10 @@ mod tests {
     /// no total morphism exists. That is the ordinary case on real schemas, and
     /// it is the case a span tier exists to answer.
     ///
-    /// The candidate entry points used to route every tier through
-    /// [`find_morphisms`], which returns the total morphisms attaining the
-    /// optimum and is therefore empty here. A span tier must read the span
-    /// search instead, as [`run_search`] does for the single-result entry
-    /// points.
+    /// Routing every tier through [`find_morphisms`], which returns the total
+    /// morphisms attaining the optimum, would give nothing here. A span tier
+    /// must read the span search instead, as [`run_search`] does for the
+    /// single-result entry points.
     #[test]
     fn a_span_tier_returns_candidates_where_no_total_morphism_exists() {
         let protocol = test_protocol();
@@ -3038,11 +3036,11 @@ mod tests {
 
     /// The span search decides what to drop, and nothing pre-empts it.
     ///
-    /// A local feasibility scan used to pre-populate `excluded_sources` before
-    /// the search ran. It excluded any source vertex that had no target it
+    /// A local feasibility scan that pre-populated `excluded_sources` before
+    /// the search ran would exclude any source vertex that had no target it
     /// could map to *with all of its outgoing edges preserved*, which on the
     /// fixture below excludes the root as well as the orphan leaf, because the
-    /// root's only edge leads to that leaf. Both excluded leaves an empty
+    /// root's only edge leads to that leaf. Excluding both leaves an empty
     /// apex and reports "no morphism found" on a pair whose answer is
     /// obviously `{r ↦ r}`.
     ///

@@ -1242,7 +1242,7 @@ pub mod implementation {
     fn unit_boundary(text: &str, offset: u64, unit: OffsetUnit) -> Option<u64> {
         let requested = usize::try_from(offset).ok()?;
         let byte = match unit {
-            // O9 (20) (a): a byte offset names any byte of the exact text.
+            // A byte offset names any byte of the exact text.
             OffsetUnit::Byte => (requested <= text.len()).then_some(requested)?,
             OffsetUnit::Utf8Char => text
                 .char_indices()
@@ -3120,7 +3120,7 @@ pub mod implementation {
     /// a half-open byte span.
     ///
     /// [`standoff_form`] gives the declared offsets, and each converts to the
-    /// byte offset it names (O9 (20) (a)). `None`
+    /// byte offset it names. `None`
     /// when the form is refused or an offset lies past the text or inside a
     /// unit.
     ///

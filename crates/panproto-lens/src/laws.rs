@@ -1675,7 +1675,7 @@ fn classify<S: LawShape>(
 /// alternate per coordinate; it is not t-way coverage for any t of two or
 /// more, and it is not a proof over all instances. The basis covers only the
 /// single-edit neighbourhood of the supplied source. Multi-step behaviour is
-/// exercised separately by `PutTwice`, the `PutPut` classifications and E.6.
+/// exercised separately by `PutTwice`, the `PutPut` classifications and the edit-lens laws.
 ///
 /// Raw `PutTwice` follows from `GetPut` at the once-put source and exact `PutGet`:
 /// if `s' = put(v, c)` and `get(s') = (v, c')`, then `GetPut` at `s'` gives
@@ -1729,7 +1729,7 @@ pub(crate) fn check_laws_report_exhaustive<S: LawShape>(
 /// a proof over all tree instances or payloads. The enumeration does not prune
 /// labelled isomorphs. At each enumerated source the Single-Step Basis covers
 /// only its single-edit neighbourhood; `PutTwice`, the `PutPut` classifications and
-/// E.6 exercise multi-step behaviour separately.
+/// the edit-lens laws exercise multi-step behaviour separately.
 ///
 /// # Errors
 ///

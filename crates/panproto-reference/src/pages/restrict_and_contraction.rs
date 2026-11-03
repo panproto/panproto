@@ -2105,7 +2105,7 @@ pub mod restrict {
 /// children are leaves. Each leaf carries its parent, visibility class, and
 /// payload, so a projection lens can keep visible leaves and retain hidden
 /// leaves in its complement. The carrier is small, but its delta algebra has
-/// the full replacement distinction required by DESIGN E.1: insertion then
+/// the full replacement distinction required by L-edits-7: insertion then
 /// deletion cancels, whereas deletion then insertion is a replacement even
 /// when the two payloads agree.
 pub mod tree_edit_lens {

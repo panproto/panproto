@@ -2,7 +2,7 @@
 
 use crate::value_io::{Presence, Route};
 
-/// Every route and presence-state pair in the VF8 default-route table.
+/// Every route and presence-state pair in the default-route table of L-value-io-3.
 #[must_use]
 pub const fn presences() -> [(Route, Presence); 12] {
     [

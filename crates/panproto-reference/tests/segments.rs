@@ -1,4 +1,4 @@
-//! Independent SG.1--SG.3, SG.6--SG.7, SG.9, S10 and S10a witnesses.
+//! Independent witnesses for the segment laws L-segments-1 through L-segments-8.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -2368,13 +2368,13 @@ fn produced_lens_failures() -> (SegmentError, SegmentError) {
         panic!("unstamped residue must refuse")
     };
     let identity =
-        segment::adapt_lens_error(&identity_error).test_unwrap("identity error projects into SG.9");
+        segment::adapt_lens_error(&identity_error).test_unwrap("identity error projects into the segment refusal carrier");
     complement.identity = Some(*lens.identity());
     view.nodes.insert(1, Node::new(1, "a"));
     let Err(put_error) = lens.put(&view, &complement) else {
         panic!("reusing a dropped id must refuse")
     };
-    let put = segment::adapt_lens_error(&put_error).test_unwrap("put error projects into SG.9");
+    let put = segment::adapt_lens_error(&put_error).test_unwrap("put error projects into the segment refusal carrier");
     assert_eq!(
         identity,
         SegmentError::Identity(IdentityError("UnboundComplement".to_owned()))

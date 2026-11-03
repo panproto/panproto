@@ -1,7 +1,9 @@
 //! Reference operations assigned to `segments`.
 //!
-//! This module follows SG.1--SG.3, SG.6, the SG.7 storage vocabulary,
-//! SG.9, S10 and S10a for graph, table and tree instances. The algorithms are
+//! This module follows the segment laws L-segments-1 through L-segments-8
+//! (ownership, boundaries, assembly, canonical artifacts, the storage
+//! vocabulary, refusals, the local validation view and its capacity
+//! preflight) for graph, table and tree instances. The algorithms are
 //! deliberately naive: the runner checks and glues the complete value, then
 //! independently repartitions and seals it. This is an executable definition,
 //! not a streaming implementation. The finite-scope module records the
@@ -255,7 +257,7 @@ pub mod segment {
         }
     }
 
-    /// Project an element-local restriction failure into the SG.9 carrier.
+    /// Project an element-local restriction failure into the segment refusal carrier.
     ///
     /// This adapter deliberately accepts the concrete restriction engine
     /// types. Plan and root failures have no element-local [`ErrorAt`] and are
@@ -280,13 +282,13 @@ pub mod segment {
         }
     }
 
-    /// Project a concrete graph-lens refusal into the SG.9 carrier without
+    /// Project a concrete graph-lens refusal into the segment refusal carrier without
     /// extending its exact 26-variant vocabulary.
     ///
     /// # Errors
     ///
-    /// A tree-carrier operational error, which lies outside SG.9's
-    /// mathematical put-domain carrier.
+    /// A tree-carrier operational error, which lies outside the mathematical
+    /// put-domain carrier of segment refusals.
     pub fn adapt_lens_error(
         error: &crate::lens::LensError,
     ) -> Result<SegmentError, crate::lens::TreeOperationalError> {
@@ -309,7 +311,7 @@ pub mod segment {
         }
     }
 
-    /// Project a concrete graph-edit application refusal into the SG.9
+    /// Project a concrete graph-edit application refusal into the segment refusal
     /// carrier at its owning segment.
     #[must_use]
     pub fn adapt_edit_error(segment: SegmentId, error: &crate::edit::ApplyError) -> SegmentError {
@@ -355,7 +357,7 @@ pub mod segment {
         Seal,
     }
 
-    /// The 26 SG.9 error variants, in contract order.
+    /// The 26 segment refusal variants, in the book's order.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum SegmentError {
         /// An inverted range.
@@ -527,7 +529,7 @@ pub mod segment {
     }
 
     impl SegmentError {
-        /// Stable zero-based position in the SG.9 carrier.
+        /// Stable zero-based position in the segment refusal carrier.
         #[must_use]
         pub const fn variant_index(&self) -> u8 {
             match self {
@@ -595,7 +597,7 @@ pub mod segment {
     }
 
     impl Partition {
-        /// Check all SG.1 partition invariants.
+        /// Check all ownership partition invariants.
         ///
         /// # Errors
         ///
@@ -2523,7 +2525,7 @@ pub mod segment {
         out
     }
 
-    /// S10a preflight without allocating the `2^32` carrier.
+    /// validation-view capacity preflight without allocating the `2^32` carrier.
     ///
     /// # Errors
     ///
@@ -2542,7 +2544,7 @@ pub mod segment {
         }
     }
 
-    /// Check one segment's local SG.2 contract and S10a preflight.
+    /// Check one segment's local boundary contract and validation-view capacity preflight.
     ///
     /// # Errors
     ///
@@ -2914,7 +2916,7 @@ pub mod segment {
         fresh(range, source, used).ok_or(SegmentError::AllocationExhausted { segment, kind })
     }
 
-    /// Check the SG.8 admission rule for a newly added edge id. Replacements
+    /// Check the append-only allocation rule for a newly added edge id. Replacements
     /// retain their id; every other addition must lie in the source owner's
     /// edge-allocation range.
     ///
@@ -4129,7 +4131,7 @@ pub mod segment {
 
     /// Decode canonical segment bytes and return the segment with its schema
     /// digest. The decoder refuses noncanonical ordering, malformed headers,
-    /// trailing bytes, and every local SG.2 contract defect.
+    /// trailing bytes, and every local boundary contract defect.
     ///
     /// # Errors
     ///

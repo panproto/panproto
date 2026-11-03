@@ -278,7 +278,7 @@ pub fn column_fate_cases() -> Vec<[ColumnState; 2]> {
         .collect()
 }
 
-/// One ordered child-binding slot in the bounded TR8 carrier.
+/// One ordered child-binding slot in the bounded ordered-child carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChildBindingSlot {
     /// A self-loop labelled `x`.

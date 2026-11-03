@@ -256,7 +256,7 @@ pub fn check_locality(
 /// against every other admitted member of the fixed six-value alphabet. A
 /// pass means "no counterexample found" in `scope`; it is not a proof outside
 /// that finite universe. At each table the Single-Step Basis covers only its
-/// single-edit neighbourhood; `PutTwice`, the `PutPut` classifications and E.6
+/// single-edit neighbourhood; `PutTwice`, the `PutPut` classifications and the edit-lens laws
 /// exercise multi-step behaviour separately.
 ///
 /// # Errors

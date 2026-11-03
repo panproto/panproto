@@ -819,7 +819,7 @@ pub mod edit {
             hyper_edge: Name,
         },
         /// Merge nodes into `primary`, preserving joined order and child-arc
-        /// order as required by TR14.
+        /// order as required by L-edits-6.
         JoinFeatures {
             /// Surviving node.
             primary: u32,
@@ -1677,7 +1677,7 @@ pub mod edit {
     /// one side and a tree node on the other is a replacement. A step that
     /// gives a tree node the id of a fan node relocates that fan node, which
     /// deletes the fan node and adds the tree node under its id, and an id in
-    /// both parts of a delta is a replacement (E.1).
+    /// both parts of a delta is a replacement (L-edits-1).
     fn tree_step_delta(before: &Graph, after: &Graph) -> GraphDelta {
         let mut delta = diff(before, after);
         for (id, old) in &before.nodes {
@@ -1736,7 +1736,7 @@ pub mod edit {
     /// both graphs hold whose identity breaks during the run: some step
     /// leaves it out (a tree node deleted and inserted again) or moves it
     /// between a fan node and a tree node (a fan relocated from under a new
-    /// tree node). By the E.1 case table such an id composes to a
+    /// tree node). By the L-edits-1 case table such an id composes to a
     /// replacement (`Del` then `Add`, or a step replacement, followed by any
     /// actions, is `Repl` from the first payload to the last), every other
     /// id held by both graphs to the attribute changes the differ reports,
@@ -1798,9 +1798,9 @@ pub mod edit {
     /// Each step lowers to the change of the graph form it makes (the
     /// differ, with a node id that changes between a fan node and a tree
     /// node read as a replacement), and a sequence to the left-to-right
-    /// composite of its steps (E.3: Sequence lowers to compose). So deleting
+    /// composite of its steps (L-edits-3: Sequence lowers to compose). So deleting
     /// a node and inserting a node under its id is a replacement of that
-    /// node (E.1, identity policy (ii)). Applying the result gives the graph
+    /// node (L-edits-1, identity policy (ii)). Applying the result gives the graph
     /// of the edited tree under the updated durable embedding. Fresh ids are
     /// drawn from the embedding floors in tree-apply order.
     ///
@@ -1937,7 +1937,7 @@ pub mod edit {
             // An unkept fan sharing its name with a kept one cannot be
             // deleted by name. Deleting a node it names and inserting the
             // node again would remove it, but that is a replacement of the
-            // node (E.1), which only a delta that replaces the node reads
+            // node (L-edits-1), which only a delta that replaces the node reads
             // as, and those nodes are already gone: the reconstruction
             // deletes every replaced node first.
             if kept_fans
@@ -2858,12 +2858,12 @@ pub mod edit {
     ///   d allocates (edge ids at or above `E.next_edge`, fan node ids at or
     ///   above `E.next_node`), where P is empty or relocates the fans of E
     ///   from one of them on (a leaf inserted under the root over that fan's
-    ///   node id, then deleted; E.3 lets a reading keep such fans).
-    /// - Totality (Arbiter ruling A9 (1) (a)): if d is `lower_N(s)` from
+    ///   node id, then deleted; L-edits-3 lets a reading keep such fans).
+    /// - Totality: if d is `lower_N(s)` from
     ///   `N(E)` for some edit s, the reader returns some `Ok(e)`.
-    /// - Effect (A9 (1) (b)): then `apply_N(e)` and `apply_N(s)` from `N(E)`
+    /// - Effect: then `apply_N(e)` and `apply_N(s)` from `N(E)`
     ///   give the same tree.
-    /// - Exactness (A9 (1) (c)): when s has at most one step, `lower_N(e)`
+    /// - Exactness: when s has at most one step, `lower_N(e)`
     ///   from `N(E)` is d itself, and the embedding e reaches has the
     ///   carriers of the one s reaches: the same arcs (so the same tree
     ///   nodes) and the same fans with their node and edge ids. The floors
@@ -2931,7 +2931,7 @@ pub mod edit {
             .map(|(_, edge)| edge.tgt)
             .collect();
         // A tree node other than the root in both parts of the delta is a
-        // replacement: a node deleted and inserted again under its id (E.1,
+        // replacement: a node deleted and inserted again under its id (L-edits-1,
         // identity policy (ii)), which the reconstruction deletes and
         // re-inserts. No tree edit deletes the root, so a root replacement
         // is left to the fixed-carrier comparison, which refuses it.
@@ -3291,7 +3291,7 @@ pub mod edit {
     /// state differ cannot see such a replacement, and a replacement is a
     /// new element under a reused id, never an unchanged one (identity
     /// policy (ii)), so a translation that composes with the translations
-    /// of a delete and a later add (E.6 (6)) carries it.
+    /// of a delete and a later add (edit-lens functoriality) carries it.
     ///
     /// Book anchors: `L-edits-8`.
     #[must_use]
@@ -3532,7 +3532,7 @@ pub mod edit {
     ///
     /// # Errors
     ///
-    /// Returns the first stale table, cell, or incidence witness in the E.2
+    /// Returns the first stale table, cell, or incidence witness in the L-edits-2
     /// precedence order, or [`TableApplyError::RowNotFound`] when `row` is
     /// absent.
     ///
@@ -3583,7 +3583,7 @@ pub mod edit {
         Ok(delta)
     }
 
-    /// A surface table edit (T.5): an invertible compare-and-set request
+    /// A surface table edit (L-edits-5): an invertible compare-and-set request
     /// that lowers to a [`TableDelta`].
     #[derive(Clone, Debug, PartialEq)]
     pub enum TableEdit {
@@ -3656,7 +3656,7 @@ pub mod edit {
     }
 
     /// Definition: The canonical delta of a surface table edit, read
-    /// without a state (T.5, E.2).
+    /// without a state (L-edits-5, L-edits-2).
     ///
     /// `InsertRow` adds the row; `DeleteRow`
     /// deletes the row with its stated payload and every listed pair;
@@ -3757,7 +3757,7 @@ pub mod edit {
 
     /// Definition: Apply one surface table step.
     ///
-    /// The step is checked against the table as T.5's compare-and-set surface
+    /// The step is checked against the table as L-edits-5's compare-and-set surface
     /// requires, then its lowering ([`table_edit_delta`]) is applied with
     /// [`apply_table`]. The surface checks are: an inserted id is free
     /// (`DuplicateRow`); a deleted, updated or moved row exists

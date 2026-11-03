@@ -82,7 +82,7 @@ pub mod implementation {
         Fidelity(FidelityReason),
     }
 
-    /// The two non-value states whose distinction VF8 requires routes to
+    /// The two non-value states whose distinction L-value-io-3 requires routes to
     /// retain.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Presence {
@@ -723,7 +723,7 @@ pub mod implementation {
         )
     }
 
-    /// Definition: Canonical/default handling of null and absence under VF8.
+    /// Definition: Canonical/default handling of null and absence under L-value-io-3.
     ///
     /// Book anchors: `L-value-io-3`.
     #[must_use]

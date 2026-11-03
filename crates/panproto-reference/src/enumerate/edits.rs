@@ -1302,7 +1302,7 @@ pub const fn edit_translation_cases_count_certificate() -> u64 {
     5 + 3
 }
 
-/// One named `JoinFeatures` case of the TR14 carrier.
+/// One named `JoinFeatures` case of the tree-join carrier.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinCase {
     /// Stable diagnostic name for the case.
@@ -1350,7 +1350,7 @@ fn join(primary: u32, joined: Vec<u32>, anchor: &str, id: u32) -> crate::edit::T
     }
 }
 
-/// The TR14 join carrier.
+/// The tree-join carrier.
 ///
 /// Two joins apply. The first joins one node with one child on the probe
 /// tree `r(0) -> a(1) -> c(3), r -> a(2)`. The second joins nodes 3 and 2,

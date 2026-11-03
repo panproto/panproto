@@ -487,7 +487,7 @@ fn tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_referen
             let (steps, steps_complement, steps_view) =
                 translated_get(kind, &source, &view, &view_embedding, &plan, true);
 
-            // Get consistency, E.6 law (1): the translated edit applied to
+            // Get consistency: the translated edit applied to
             // the view is the view of the edited source, with the residue of
             // the edited source. Reference first, then production.
             let mut expected_view = ref_view.clone();
