@@ -519,6 +519,20 @@ describe('compileLensDocument', () => {
       .edge('rec:body', 'rec:body.text', 'prop', { name: 'text' })
       .build();
 
+  // A value transform writes only an attribute its vertex declares, so a
+  // lens computing `g` runs over a schema that declares `g` on `rec:body`.
+  const buildComputedSchema = (proto: ReturnType<typeof buildCustomProto>) =>
+    proto
+      .schema()
+      .vertex('rec', 'rec')
+      .vertex('rec:body', 'rec:body')
+      .vertex('rec:body.text', 'rec:body.text')
+      .vertex('rec:body.g', 'object')
+      .edge('rec', 'rec:body', 'record-schema')
+      .edge('rec:body', 'rec:body.text', 'prop', { name: 'text' })
+      .edge('rec:body', 'rec:body.g', 'prop', { name: 'g' })
+      .build();
+
   it('compiles a JSON DSL object and produces an applicable chain', () => {
     const proto = buildCustomProto();
     const schema = buildCustomSchema(proto);
@@ -605,7 +619,7 @@ describe('compileLensDocument', () => {
   // record, so the lens can be the mapper and not only a verified spec.
   it('getJson returns the transformed view as a record', () => {
     const proto = buildCustomProto();
-    const schema = buildCustomSchema(proto);
+    const schema = buildComputedSchema(proto);
 
     const chain = pp.compileLensDocument(
       {
@@ -667,7 +681,7 @@ describe('compileLensDocument', () => {
 
   it('putJsonWithoutComplement refuses a lens that is not an isomorphism', () => {
     const proto = buildCustomProto();
-    const schema = buildCustomSchema(proto);
+    const schema = buildComputedSchema(proto);
 
     // A computed field with no inverse is not injective, so distinct
     // sources share a view and no reconstruction exists.
@@ -719,7 +733,7 @@ describe('compileLensDocument', () => {
 
   it('putJson restores the source record from a view and complement', () => {
     const proto = buildCustomProto();
-    const schema = buildCustomSchema(proto);
+    const schema = buildComputedSchema(proto);
 
     const chain = pp.compileLensDocument(
       {
