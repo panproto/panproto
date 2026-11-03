@@ -535,7 +535,7 @@ impl<'a> Bound<'a> {
 /// `PutTwice`, Congruence; or [`LawViolation::Error`] for an operational
 /// failure.
 pub fn check_laws(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation> {
-    check_laws_report::<TreeShape>(lens, instance, &()).map(|_| ())
+    check_gates::<TreeShape>(lens, instance, &())
 }
 
 /// Check if two instances are structurally equivalent.
@@ -1697,11 +1697,7 @@ pub fn check_laws_report<S: LawShape>(
     source: &S::Instance,
     ctx: &S::Context,
 ) -> Result<LawReport, LawViolation> {
-    check_get_put_for_shape::<S>(lens, source, ctx)?;
-    check_put_get_for_shape::<S>(lens, source, ctx)?;
-    check_totality_for_shape::<S>(lens, source, ctx)?;
-    check_put_twice_for_shape::<S>(lens, source, ctx)?;
-    check_congruence_for_shape::<S>(lens, source, ctx)?;
+    check_gates::<S>(lens, source, ctx)?;
     let (view, complement) = S::get(lens, source, ctx).map_err(LawViolation::Error)?;
     let (ran, skipped) = report_families::<S>(lens, source, &view, &complement, ctx);
     let classification = classify::<S>(lens, source, &view, &complement, ctx);
@@ -1710,6 +1706,25 @@ pub fn check_laws_report<S: LawShape>(
         skipped,
         classification,
     })
+}
+
+/// Run the five gating laws in gate order, without the family counts and
+/// non-gating classifications that [`check_laws_report`] adds.
+///
+/// # Errors
+///
+/// Returns the first gate violation in the order `GetPut`, `PutGet`,
+/// `Totality`, `PutTwice`, `Congruence`.
+fn check_gates<S: LawShape>(
+    lens: &Lens,
+    source: &S::Instance,
+    ctx: &S::Context,
+) -> Result<(), LawViolation> {
+    check_get_put_for_shape::<S>(lens, source, ctx)?;
+    check_put_get_for_shape::<S>(lens, source, ctx)?;
+    check_totality_for_shape::<S>(lens, source, ctx)?;
+    check_put_twice_for_shape::<S>(lens, source, ctx)?;
+    check_congruence_for_shape::<S>(lens, source, ctx)
 }
 
 pub(crate) fn check_laws_report_exhaustive<S: LawShape>(
