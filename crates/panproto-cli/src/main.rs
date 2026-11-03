@@ -1335,17 +1335,15 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
                     optic_kind,
                 },
             );
-            if lens {
-                if let (Some(old_path), Some(new_path)) = (old.as_deref(), new.as_deref()) {
-                    // Generate a protolens chain between the two schemas/refs
-                    // Reuse cmd_lens_diff for VCS refs, or generate directly for files
-                    let range = format!(
-                        "{old}..{new}",
-                        old = old_path.display(),
-                        new = new_path.display(),
-                    );
-                    cmd::lens::cmd_lens_diff(&range, true, save.as_deref(), verbose)?;
-                }
+            if lens && let (Some(old_path), Some(new_path)) = (old.as_deref(), new.as_deref()) {
+                // Generate a protolens chain between the two schemas/refs
+                // Reuse cmd_lens_diff for VCS refs, or generate directly for files
+                let range = format!(
+                    "{old}..{new}",
+                    old = old_path.display(),
+                    new = new_path.display(),
+                );
+                cmd::lens::cmd_lens_diff(&range, true, save.as_deref(), verbose)?;
             }
             result
         }

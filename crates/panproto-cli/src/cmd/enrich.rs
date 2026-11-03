@@ -229,13 +229,11 @@ pub fn cmd_enrich_remove(name: &str, verbose: bool) -> Result<()> {
     }
 
     // Also try removing by vertex name + sort combo.
-    if !removed {
-        if let Some(constraints) = new_schema.constraints.get_mut(&Name::from(name)) {
-            let before_len = constraints.len();
-            constraints.retain(|c| !enrichment_sorts.contains(&c.sort.as_ref()));
-            if constraints.len() < before_len {
-                removed = true;
-            }
+    if !removed && let Some(constraints) = new_schema.constraints.get_mut(&Name::from(name)) {
+        let before_len = constraints.len();
+        constraints.retain(|c| !enrichment_sorts.contains(&c.sort.as_ref()));
+        if constraints.len() < before_len {
+            removed = true;
         }
     }
 

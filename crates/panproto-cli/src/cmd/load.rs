@@ -227,10 +227,8 @@ impl LoadedInput {
             SchemaInput::Project(project) => project.build_schema()?,
         };
         let bundled = matches!(kind, InputKind::ManifestBundle | InputKind::ProtocolBundle);
-        if bundled {
-            if let Some(ref name) = protocol {
-                schema.protocol.clone_from(name);
-            }
+        if bundled && let Some(ref name) = protocol {
+            schema.protocol.clone_from(name);
         }
         Ok(LoadedSchema {
             schema,

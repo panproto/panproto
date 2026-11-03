@@ -71,7 +71,7 @@ impl PyComplement {
 
     /// Number of dropped arcs.
     #[getter]
-    fn dropped_arc_count(&self) -> usize {
+    const fn dropped_arc_count(&self) -> usize {
         self.inner.dropped_arcs.len()
     }
 

@@ -1557,18 +1557,16 @@ fn show_commit(
     );
     println!("\n    {}", c.message);
 
-    if stat {
-        if let Some(parent_id) = c.parents.first() {
-            let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
-            if let vcs::Object::Commit(parent_commit) = parent_obj {
-                let proto = vcs::tree::project_coproduct_protocol();
-                if let (Ok(old_s), Ok(new_s)) = (
-                    vcs::tree::assemble_schema_dyn(repo.store(), &parent_commit.schema_id, &proto),
-                    vcs::tree::assemble_schema_dyn(repo.store(), &c.schema_id, &proto),
-                ) {
-                    let d = panproto_core::check::diff::diff(&old_s, &new_s);
-                    println!("\n {}", format::format_diff_stat(&d));
-                }
+    if stat && let Some(parent_id) = c.parents.first() {
+        let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
+        if let vcs::Object::Commit(parent_commit) = parent_obj {
+            let proto = vcs::tree::project_coproduct_protocol();
+            if let (Ok(old_s), Ok(new_s)) = (
+                vcs::tree::assemble_schema_dyn(repo.store(), &parent_commit.schema_id, &proto),
+                vcs::tree::assemble_schema_dyn(repo.store(), &c.schema_id, &proto),
+            ) {
+                let d = panproto_core::check::diff::diff(&old_s, &new_s);
+                println!("\n {}", format::format_diff_stat(&d));
             }
         }
     }

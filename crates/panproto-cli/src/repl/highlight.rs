@@ -301,7 +301,7 @@ const fn is_ident_cont(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'\''
 }
 
-fn next_char_boundary(s: &str, mut i: usize) -> usize {
+const fn next_char_boundary(s: &str, mut i: usize) -> usize {
     i += 1;
     while !s.is_char_boundary(i) && i < s.len() {
         i += 1;

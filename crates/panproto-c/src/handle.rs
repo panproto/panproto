@@ -511,11 +511,11 @@ impl Slab {
     fn alloc(&self, resource: Resource) -> u32 {
         let slot: Slot = Arc::new(Mutex::new(resource));
         let mut table = self.lock_table();
-        if let Some(handle) = table.free.pop() {
-            if let Some(entry) = table.slots.get_mut(handle as usize) {
-                *entry = Some(slot);
-                return handle;
-            }
+        if let Some(handle) = table.free.pop()
+            && let Some(entry) = table.slots.get_mut(handle as usize)
+        {
+            *entry = Some(slot);
+            return handle;
         }
         match u32::try_from(table.slots.len()) {
             Ok(handle) if handle < u32::MAX => {

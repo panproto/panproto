@@ -117,10 +117,10 @@ fn store_edit_log(
                     field: panproto_core::gat::Name::from("__synced"),
                     value: inst::Value::Bool(true),
                 };
-                if let Ok(translated) = edit_lens.get_edit(edit) {
-                    if !translated.is_identity() {
-                        all_edits.push(translated);
-                    }
+                if let Ok(translated) = edit_lens.get_edit(edit)
+                    && !translated.is_identity()
+                {
+                    all_edits.push(translated);
                 }
             }
         }

@@ -83,9 +83,12 @@ fn build_final_lens(src_schema: &panproto_schema::Schema, protocol: &Protocol) -
             Name::from("name"),
             Name::from("displayName"),
         ),
-        combinators::add_field(
+        // The added field is labelled `bio`, so the target `user` declares
+        // the attribute the side-channel `AddField { key: "bio" }` writes.
+        combinators::add_field_with_label(
             Name::from("user"),
             Name::from("user.bio"),
+            Name::from("bio"),
             Name::from("string"),
             Value::Str(String::new()),
         ),
@@ -324,8 +327,21 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         },
         other => panic!("expected the user.bio arc to be refused, got {other:?}"),
     }
+    // The view holds `bio` as a derived cell of `user`; move the value the
+    // reparse put on the child back there, unedited.
     let mut nodes = remapped.nodes.clone();
-    nodes.remove(&bio_id);
+    let bio = nodes.remove(&bio_id).expect("the user.bio node");
+    let Some(panproto_inst::value::FieldPresence::Present(bio_value)) = bio.value else {
+        panic!(
+            "the reparsed user.bio node holds a value, got {:?}",
+            bio.value
+        );
+    };
+    nodes
+        .get_mut(&remapped.root)
+        .expect("the root node")
+        .extra_fields
+        .insert("bio".into(), bio_value);
     let arcs = remapped
         .arcs
         .iter()

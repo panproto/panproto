@@ -299,10 +299,10 @@ pub fn cmd_lens_generate(
 
         // Hint-file stringency overrides the CLI flag only when the
         // CLI did not pin one explicitly.
-        if stringency_arg.is_none() {
-            if let Some(s) = hint_spec.stringency {
-                config.stringency = hint_stringency_to_engine(s);
-            }
+        if stringency_arg.is_none()
+            && let Some(s) = hint_spec.stringency
+        {
+            config.stringency = hint_stringency_to_engine(s);
         }
         // Merge user-supplied alias clusters into the engine's dictionary.
         for cluster in &hint_spec.alias_clusters {

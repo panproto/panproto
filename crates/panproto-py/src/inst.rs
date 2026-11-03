@@ -171,7 +171,7 @@ impl PyInstance {
 
     /// Number of arcs in the instance.
     #[getter]
-    fn arc_count(&self) -> usize {
+    const fn arc_count(&self) -> usize {
         self.inner.arcs.len()
     }
 
@@ -185,7 +185,7 @@ impl PyInstance {
     ///
     /// Raises
     /// ------
-    /// IoError
+    /// `IoError`
     ///     If a node that is not a list holds two or more values on a
     ///     single-valued field, which a JSON object can write only once.
     fn to_json(&self) -> PyResult<String> {
