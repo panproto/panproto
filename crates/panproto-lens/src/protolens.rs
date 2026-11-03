@@ -452,6 +452,28 @@ fn attach_exact_vertex_kind_coercions(
     }
 }
 
+/// The composite of `transforms` in order, as a `Compose` tree split at
+/// the middle of each run.
+///
+/// Composition is associative, so the tree's shape does not change what it
+/// does; balancing it keeps its depth logarithmic in the number of steps,
+/// which bounds the recursion of every walk over it. A left-nested fold
+/// grows one level per step, and a chain generated between two large
+/// schemas has hundreds.
+fn compose_balanced(transforms: &[&TheoryTransform]) -> TheoryTransform {
+    match transforms {
+        [] => TheoryTransform::Identity,
+        [only] => (*only).clone(),
+        _ => {
+            let (left, right) = transforms.split_at(transforms.len() / 2);
+            TheoryTransform::Compose(
+                Box::new(compose_balanced(left)),
+                Box::new(compose_balanced(right)),
+            )
+        }
+    }
+}
+
 impl ProtolensChain {
     /// Serialize to JSON.
     ///
@@ -1112,14 +1134,11 @@ impl ProtolensChain {
 
         let source = self.steps[0].source.clone();
 
-        // Compose all target transforms into a single Compose tree
-        let mut combined_transform = self.steps[0].target.transform.clone();
-        for step in &self.steps[1..] {
-            combined_transform = TheoryTransform::Compose(
-                Box::new(combined_transform),
-                Box::new(step.target.transform.clone()),
-            );
-        }
+        // Compose all target transforms into a single balanced Compose
+        // tree, so a long chain does not nest as deep as it is long.
+        let transforms: Vec<&TheoryTransform> =
+            self.steps.iter().map(|s| &s.target.transform).collect();
+        let combined_transform = compose_balanced(&transforms);
 
         let target = TheoryEndofunctor {
             name: Arc::from(
