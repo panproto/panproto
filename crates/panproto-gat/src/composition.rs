@@ -246,10 +246,9 @@ pub fn recompose<S: ::std::hash::BuildHasher>(
 
 /// Replay one binary colimit step.
 ///
-/// The span's nodes are labelled by role, not by the sides' names: a side
-/// may be a registry name that is not a valid node label, and a theory
-/// composed with itself names both sides alike. The labels name only the
-/// span's nodes and legs, never a symbol of the result.
+/// The span's interface is labelled `<step>_interface` and its two sides by
+/// their registry names, so a refusal of the composition names each side's
+/// symbols by the theory they came from.
 fn replay_colimit(
     intermediates: &HashMap<String, Theory>,
     (left, right): (&String, &String),
@@ -297,8 +296,8 @@ fn replay_colimit(
 
     let diagram = TheoryDiagram::by_name(
         (format!("{step_name}_interface"), shared),
-        ("left", left_theory.clone()),
-        ("right", right_theory.clone()),
+        (left.as_str(), left_theory.clone()),
+        (right.as_str(), right_theory.clone()),
     )?;
     let opts = ComposeOptions {
         mode,
