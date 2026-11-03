@@ -2367,14 +2367,15 @@ fn produced_lens_failures() -> (SegmentError, SegmentError) {
     let Err(identity_error) = lens.put(&view, &complement) else {
         panic!("unstamped residue must refuse")
     };
-    let identity =
-        segment::adapt_lens_error(&identity_error).test_unwrap("identity error projects into the segment refusal carrier");
+    let identity = segment::adapt_lens_error(&identity_error)
+        .test_unwrap("identity error projects into the segment refusal carrier");
     complement.identity = Some(*lens.identity());
     view.nodes.insert(1, Node::new(1, "a"));
     let Err(put_error) = lens.put(&view, &complement) else {
         panic!("reusing a dropped id must refuse")
     };
-    let put = segment::adapt_lens_error(&put_error).test_unwrap("put error projects into the segment refusal carrier");
+    let put = segment::adapt_lens_error(&put_error)
+        .test_unwrap("put error projects into the segment refusal carrier");
     assert_eq!(
         identity,
         SegmentError::Identity(IdentityError("UnboundComplement".to_owned()))

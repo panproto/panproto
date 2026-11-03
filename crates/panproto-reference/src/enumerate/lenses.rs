@@ -2644,9 +2644,11 @@ pub fn bounded_lens_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema 
     schema
 }
 
-/// Every schema of the bounded lens alphabet: each subset of `{a, b}` as vertices,
-/// with each set of at most two of its ordered vertex pairs as edges, in
-/// ascending vertex-subset mask and then edge-subset order.
+/// Every schema of the bounded lens alphabet.
+///
+/// Each subset of `{a, b}` is taken as vertices, with each set of at most
+/// two of its ordered vertex pairs as edges, in ascending vertex-subset mask
+/// and then edge-subset order.
 #[must_use]
 pub fn sigma2_schemas() -> Vec<Schema> {
     let mut out = Vec::new();
@@ -3298,54 +3300,7 @@ pub fn bounded_lens_stages() -> Vec<BoundedLensStage> {
         retarget,
         BoundedLensLayer::None,
     ));
-    let mut predicate = identity_migration(&a);
-    predicate.conditional.insert("a".to_owned());
-    out.push(stage(
-        "Q",
-        a.clone(),
-        a.clone(),
-        predicate,
-        BoundedLensLayer::SurvivalFalse,
-    ));
-    let mut transform = identity_migration(&a);
-    transform.transformed.insert("a".to_owned());
-    transform
-        .output_fields
-        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
-    out.push(stage(
-        "T",
-        a.clone(),
-        a.clone(),
-        transform,
-        BoundedLensLayer::AddField,
-    ));
-    let mut drop_field = identity_migration(&a);
-    drop_field.transformed.insert("a".to_owned());
-    out.push(stage(
-        "DropF",
-        a.clone(),
-        a.clone(),
-        drop_field,
-        BoundedLensLayer::DropField,
-    ));
-    let mut read_field = identity_migration(&a);
-    read_field.transformed.insert("a".to_owned());
-    read_field
-        .output_fields
-        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
-    out.push(stage(
-        "ReadF",
-        a.clone(),
-        a.clone(),
-        read_field,
-        BoundedLensLayer::ReadField,
-    ));
-    let mut op_term = identity_migration(&a);
-    op_term.transformed.insert("a".to_owned());
-    op_term
-        .output_fields
-        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
-    out.push(stage("Op", a.clone(), a, op_term, BoundedLensLayer::OpTerm));
+    out.extend(value_layer_stages(&a));
     let bare_identity = identity_migration(&bare);
     out.push(stage(
         "Ext",
@@ -3364,6 +3319,67 @@ pub fn bounded_lens_stages() -> Vec<BoundedLensStage> {
         ab,
         incoherent,
         BoundedLensLayer::None,
+    ));
+    out
+}
+
+/// The five value-layer stages on the one-vertex schema `a`: `Q`, `T`,
+/// `DropF`, `ReadF` and `Op`, in that order.
+fn value_layer_stages(a: &Schema) -> Vec<BoundedLensStage> {
+    let mut out = Vec::new();
+    let mut predicate = identity_migration(a);
+    predicate.conditional.insert("a".to_owned());
+    out.push(stage(
+        "Q",
+        a.clone(),
+        a.clone(),
+        predicate,
+        BoundedLensLayer::SurvivalFalse,
+    ));
+    let mut transform = identity_migration(a);
+    transform.transformed.insert("a".to_owned());
+    transform
+        .output_fields
+        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
+    out.push(stage(
+        "T",
+        a.clone(),
+        a.clone(),
+        transform,
+        BoundedLensLayer::AddField,
+    ));
+    let mut drop_field = identity_migration(a);
+    drop_field.transformed.insert("a".to_owned());
+    out.push(stage(
+        "DropF",
+        a.clone(),
+        a.clone(),
+        drop_field,
+        BoundedLensLayer::DropField,
+    ));
+    let mut read_field = identity_migration(a);
+    read_field.transformed.insert("a".to_owned());
+    read_field
+        .output_fields
+        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
+    out.push(stage(
+        "ReadF",
+        a.clone(),
+        a.clone(),
+        read_field,
+        BoundedLensLayer::ReadField,
+    ));
+    let mut op_term = identity_migration(a);
+    op_term.transformed.insert("a".to_owned());
+    op_term
+        .output_fields
+        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
+    out.push(stage(
+        "Op",
+        a.clone(),
+        a.clone(),
+        op_term,
+        BoundedLensLayer::OpTerm,
     ));
     out
 }

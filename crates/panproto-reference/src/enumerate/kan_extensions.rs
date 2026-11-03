@@ -1007,9 +1007,11 @@ fn certificate_row_maps(
     }
 }
 
-/// Compute a profile multiplicity without using the object generator,
-/// canonicalizer, stored relabelling, or canonical table bytes. This is the
-/// executable orbit–stabilizer proof for the exhaustive Kan scope's weighted total.
+/// Compute a profile multiplicity without the object generator.
+///
+/// The computation also avoids the canonicalizer, stored relabelling and
+/// canonical table bytes. This is the executable orbit–stabilizer proof for
+/// the exhaustive Kan scope's weighted total.
 #[must_use]
 pub fn profile_multiplicity_certificate(
     case_index: usize,
