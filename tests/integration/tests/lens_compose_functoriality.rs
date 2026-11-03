@@ -102,7 +102,10 @@ fn user_schema_declaring(field: &str, attributes: &[&str]) -> Schema {
             name: Some(Name::from(*attribute)),
         });
     }
-    let verts: Vec<(&str, &str)> = verts.iter().map(|(id, kind)| (id.as_str(), *kind)).collect();
+    let verts: Vec<(&str, &str)> = verts
+        .iter()
+        .map(|(id, kind)| (id.as_str(), *kind))
+        .collect();
     make_schema(&verts, &edges)
 }
 

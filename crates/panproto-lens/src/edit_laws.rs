@@ -361,7 +361,9 @@ mod tests {
         // The declared `tag` is a string leaf like `post:body.text` itself.
         let mut tag_vertex = lens.tgt_schema.vertices[&edge.src].clone();
         tag_vertex.id = edge.tgt.clone();
-        lens.tgt_schema.vertices.insert(edge.tgt.clone(), tag_vertex);
+        lens.tgt_schema
+            .vertices
+            .insert(edge.tgt.clone(), tag_vertex);
         lens.tgt_schema
             .edges
             .insert(edge.clone(), edge.kind.clone());
