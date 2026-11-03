@@ -32,10 +32,11 @@
 //! Allocation is not measured here at all: no bench in this file
 //! installs [`divan::AllocProfiler`], because the per-allocation accounting it
 //! adds would eat the headroom `span_post_to_profile` holds against its
-//! sub-millisecond target. The byte figures quoted below are the prior
-//! measurements, and nothing in this repository regresses on them.
+//! sub-millisecond target. The byte figure quoted below was measured under
+//! exhaustive hom-set enumeration, and nothing in this repository regresses on
+//! it.
 //!
-//! What the search costs is no longer the size of the hom-set. The network is
+//! What the search costs is not the size of the hom-set. The network is
 //! one variable per source vertex and the objective is minimised exactly, so
 //! cost tracks the induced width of the primal graph rather than the number of
 //! complete assignments. The synthetic benchmarks at the end vary width
@@ -186,9 +187,9 @@ fn bench_pair(bencher: Bencher, tier_name: &str, src_text: &str, tgt_text: &str)
 
 /// 39 vertices and 39 edges against 15 and 15.
 ///
-/// 397 ms at Lenient and 7.8 ms at Exploratory before the rewrite, allocating
-/// 36.6 MB. It is here at all four tiers because the claim is not only that it
-/// got faster but that the tier no longer decides how long it takes.
+/// Under exhaustive hom-set enumeration, 397 ms at Lenient and 7.8 ms at
+/// Exploratory, allocating 36.6 MB. It runs at all four tiers because the tier
+/// should not decide how long the search takes.
 #[divan::bench(args = TIERS)]
 fn span_post_to_profile(bencher: Bencher, tier: &str) {
     bench_pair(bencher, tier, FEED_POST, ACTOR_PROFILE);
@@ -196,8 +197,8 @@ fn span_post_to_profile(bencher: Bencher, tier: &str) {
 
 /// 39 vertices and 39 edges against 35 and 40.
 ///
-/// The worst measured pair that terminated: 24.1 seconds at Exploratory over
-/// 48 427 560 search nodes, 2.64 seconds at Lenient.
+/// Under exhaustive hom-set enumeration, the worst pair that terminated: 24.1
+/// seconds at Exploratory over 48 427 560 search nodes, 2.64 seconds at Lenient.
 #[divan::bench(args = TIERS)]
 fn span_post_to_verify_coercion_laws(bencher: Bencher, tier: &str) {
     bench_pair(bencher, tier, FEED_POST, VERIFY_COERCION_LAWS);
@@ -205,7 +206,7 @@ fn span_post_to_verify_coercion_laws(bencher: Bencher, tier: &str) {
 
 /// 32 vertices and 31 edges against 34 and 34.
 ///
-/// 5.39 seconds and 4.55 seconds before the rewrite.
+/// Under exhaustive hom-set enumeration, 5.39 seconds and 4.55 seconds.
 #[divan::bench(args = TIERS)]
 fn span_commit_to_protocol(bencher: Bencher, tier: &str) {
     bench_pair(bencher, tier, VCS_COMMIT, SCHEMA_PROTOCOL);
@@ -213,7 +214,8 @@ fn span_commit_to_protocol(bencher: Bencher, tier: &str) {
 
 /// 35 vertices and 40 edges against 13 and 12.
 ///
-/// The pair that never answered: killed after 900 seconds.
+/// Under exhaustive hom-set enumeration, a pair with no answer after 900
+/// seconds.
 #[divan::bench(args = TIERS)]
 fn span_verify_coercion_to_schema_tree(bencher: Bencher, tier: &str) {
     bench_pair(bencher, tier, VERIFY_COERCION_LAWS, VCS_SCHEMA_TREE);
@@ -456,9 +458,7 @@ fn narrowed_schema(protocol: &Protocol, prefix: &str, n: usize) -> Schema {
 ///
 /// Every link is one kind and every leaf is one kind, so a chain of `n` links
 /// gives each link `n` candidates: the network grows in both `n` and `d` at
-/// once, which is what the benchmark is for. It used to alternate two link
-/// kinds and two leaf kinds, to halve each domain and keep 40 links inside a
-/// 64-value ceiling that no longer exists.
+/// once, which is what the benchmark is for.
 fn chain_schema(protocol: &Protocol, prefix: &str, n: usize) -> Schema {
     let mut b = SchemaBuilder::new(protocol)
         .vertex(&format!("{prefix}root"), "record", None)

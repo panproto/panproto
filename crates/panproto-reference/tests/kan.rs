@@ -3480,7 +3480,7 @@ fn report_o14_progress(pairs: u64, elapsed: std::time::Duration) {
     let millis = elapsed.as_millis().max(1);
     let rate = u128::from(pairs) * 1_000 / millis;
     eprintln!(
-        "O14 progress: pairs={pairs}, elapsed={}.{:03}s, pairs/s={rate}",
+        "exhaustive Kan progress: pairs={pairs}, elapsed={}.{:03}s, pairs/s={rate}",
         elapsed.as_secs(),
         elapsed.subsec_millis(),
     );
@@ -3604,7 +3604,7 @@ fn execute_representative_pairs(
     };
 
     println!(
-        "O14 representative executor: threads={threads}, pairs={}, weighted={}, Sigma homs={}, Sigma refusals={}, Pi(4) homs={}, Pi(81) homs={}, Pi naturality refusals={}, Pi outside-image={}, Pi over-bound={}, elapsed={:?}",
+        "exhaustive Kan representative executor: threads={threads}, pairs={}, weighted={}, Sigma homs={}, Sigma refusals={}, Pi(4) homs={}, Pi(81) homs={}, Pi naturality refusals={}, Pi outside-image={}, Pi over-bound={}, elapsed={:?}",
         stats.pairs,
         stats.weighted_pairs,
         stats.sigma_homs,
@@ -3648,7 +3648,7 @@ fn pilot_pair_limit(default: u64) -> u64 {
 }
 
 #[test]
-#[ignore = "development-only throughput pilot; O14 acceptance is the unlimited test"]
+#[ignore = "development-only throughput pilot; the unlimited test is the acceptance gate"]
 fn o14_representative_profile_pair_throughput_pilot() {
     let limit = pilot_pair_limit(10_000);
     let cases = representative_cases();
@@ -4115,7 +4115,7 @@ fn assert_member_stats(stats: &MemberStats) {
         }
     }
     println!(
-        "O14 labelled-member certificate: members={}, Sigma transports={}, Sigma refusals={}, Delta transports={}, Pi transports={}, Pi refusals={}, adapter comparisons={} ({} success/{} refusal), tree comparisons={} ({} success/{} refusal)",
+        "exhaustive Kan labelled-member certificate: members={}, Sigma transports={}, Sigma refusals={}, Delta transports={}, Pi transports={}, Pi refusals={}, adapter comparisons={} ({} success/{} refusal), tree comparisons={} ({} success/{} refusal)",
         stats.members,
         stats.sigma_transports,
         stats.sigma_refusals,

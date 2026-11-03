@@ -73,9 +73,9 @@ fn schema(ids: &[&str]) -> Schema {
 /// search finds its identity.
 ///
 /// Every one of the two hundred string vertices sees all two hundred string
-/// targets, so this is the shape that used to be refused: a single-word domain
-/// held sixty-three real values, and the sixty-fourth field made the network
-/// unbuildable. Nothing about the width shows through now.
+/// targets, so a domain bounded by a single machine word (sixty-three real
+/// values) could not hold it: the sixty-fourth field would make the network
+/// unbuildable. Nothing about the width shows through.
 #[test]
 fn a_record_of_two_hundred_same_kind_fields_finds_its_identity() {
     let wide = record(200);

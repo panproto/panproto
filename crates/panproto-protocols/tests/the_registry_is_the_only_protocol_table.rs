@@ -1,10 +1,9 @@
 //! One record of what each protocol supports, and everything derives
 //! from it.
 //!
-//! Capabilities used to be described independently in the parser
-//! dispatches, the CLI, the C API, the WASM API and the book, and those
-//! registries had already diverged. What follows are the properties
-//! that keep them from diverging again: a name a caller can read back
+//! Capabilities described independently in the parser dispatches, the
+//! CLI, the C API, the WASM API and the book drift apart. What follows
+//! are the properties that keep them from diverging: a name a caller can read back
 //! is a name the dispatch accepts, an alias resolves, and the listings
 //! are exactly the descriptors that claim the capability.
 

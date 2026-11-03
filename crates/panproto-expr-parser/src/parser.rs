@@ -948,9 +948,9 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn an_open_ended_range_is_rejected() {
-        // There are no lazy lists to lower `[1..]` to. It previously
-        // parsed to the one-element list `[1]`, which is a wrong answer
-        // rather than a missing feature.
+        // There are no lazy lists to lower `[1..]` to. Parsing it to the
+        // one-element list `[1]` would be a wrong answer rather than a
+        // missing feature.
         let tokens = tokenize("[1..]").unwrap_or_else(|e| panic!("lex failed: {e}"));
         let errs = parse(&tokens).expect_err("an open-ended range must not parse");
         let rendered = errs

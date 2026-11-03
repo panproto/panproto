@@ -693,8 +693,8 @@ struct LensTests {
         // The middle schema is the apex of a span, and the span search
         // minimises a cost function rather than matching names: pairing two
         // kind-compatible vertices beats dropping both, so a pair sharing no
-        // vertex name still spans. Post against profile is that pair, and it
-        // used to be refused here because the overlap was discovered by name.
+        // vertex name still spans. Post against profile is that pair; an
+        // overlap discovered by name would refuse it.
         //
         // Refusal survives, but it takes two schemas sharing no *kind*, which
         // no committed lexicon fixture pair does. `panproto-lens`'s

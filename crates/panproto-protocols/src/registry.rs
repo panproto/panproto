@@ -1,12 +1,10 @@
 //! The one place a protocol's capabilities are written down.
 //!
-//! Protocol capabilities used to be described independently in several
-//! places: the parser dispatches in this crate, protocol and theory
-//! resolution in the CLI, hand-written lists and theory matches in the C
-//! API, parallel hand-written lists in the WASM API, and tables in the
-//! book. Those registries had already diverged: several lists advertised
-//! underscore spellings rather than canonical names, and aliases were not
-//! represented consistently.
+//! Capabilities described independently in several places (the parser
+//! dispatches in this crate, protocol and theory resolution in the CLI,
+//! the C and WASM APIs, and tables in the book) drift apart: lists come to
+//! advertise underscore spellings rather than canonical names, and aliases
+//! are represented inconsistently.
 //!
 //! A descriptor is the single record of what a protocol can do, and the
 //! listings and the dispatch both derive from it, so a protocol added

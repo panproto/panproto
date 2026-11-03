@@ -263,7 +263,7 @@ fn prod_schema(schema: &RefSchema) -> Schema {
             && schema.keys.is_empty()
             && schema.references.is_empty()
             && schema.target_sets.is_empty(),
-        "declarations outside the C11 carrier"
+        "declarations outside the bounded lens carrier"
     );
     builder.build().expect("reference schema builds")
 }
@@ -1421,13 +1421,13 @@ fn graph_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
                 .edges
                 .keys()
                 .next()
-                .expect("C11 X has one source edge");
+                .expect("X has one source edge");
             assert!(!lens.compiled.expansion_path.is_empty());
             assert!(
                 lens.tgt_schema
                     .edges
                     .contains_key(&mapped_edge(&lens, source_edge)),
-                "C11 X has a direct carried target edge before its redundant path"
+                "X has a direct carried target edge before its redundant path"
             );
             assert_eq!(obstruction, Some(ObstructionClass::TargetOnlyEdge));
             assert!(!graph_lens::is_isomorphism(&lens));
@@ -1436,13 +1436,13 @@ fn graph_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
         assert_eq!(
             graph_lens::is_isomorphism(&lens),
             obstruction.is_none(),
-            "C11 graph stage {}",
+            "graph stage {}",
             stage.name
         );
         assert_eq!(
             graph_lens::obstruction_to_isomorphism(&lens).is_none(),
             obstruction.is_none(),
-            "C11 graph stage {}",
+            "graph stage {}",
             stage.name
         );
 
@@ -1468,7 +1468,7 @@ fn graph_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
             };
             assert!(
                 complement.residue_is_trivial(),
-                "positive C11 graph stage {} left residue",
+                "positive graph stage {} left residue",
                 stage.name
             );
             admitted += 1;
@@ -1476,7 +1476,7 @@ fn graph_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
                 .expect("the independent graph oracle classified the lens as lossless");
             assert!(GInstance::identical(&source, &roundtrip));
         }
-        assert!(admitted > 0, "positive C11 graph stage {}", stage.name);
+        assert!(admitted > 0, "positive graph stage {}", stage.name);
         restored += admitted;
     }
 
@@ -1542,13 +1542,13 @@ fn tree_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
         assert_eq!(
             lens.is_isomorphism(),
             obstruction.is_none(),
-            "C11 tree stage {}",
+            "tree stage {}",
             stage.name
         );
         assert_eq!(
             lens.obstruction_to_isomorphism().is_none(),
             obstruction.is_none(),
-            "C11 tree stage {}",
+            "tree stage {}",
             stage.name
         );
 
@@ -1575,7 +1575,7 @@ fn tree_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
             };
             assert!(
                 complement.residue_is_trivial(),
-                "positive C11 tree stage {} left residue",
+                "positive tree stage {} left residue",
                 stage.name
             );
             admitted += 1;
@@ -1583,7 +1583,7 @@ fn tree_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
                 .expect("the independent tree oracle classified the lens as lossless");
             assert_eq!(ref_tree(&roundtrip), ref_tree(&source));
         }
-        assert_eq!(admitted, expected, "positive C11 tree stage {}", stage.name);
+        assert_eq!(admitted, expected, "positive tree stage {}", stage.name);
         state_bearing_positive_stages += usize::from(admitted > 0);
         restored += admitted;
     }

@@ -211,7 +211,7 @@ fn kinds(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
 }
 
-/// The kind partition of the O14 family: `value` values, `record` tables.
+/// The kind partition of the exhaustive Kan family: `value` values, `record` tables.
 fn family_kinds() -> (BTreeSet<String>, BTreeSet<String>) {
     (kinds(&["value"]), kinds(&["record"]))
 }
@@ -2894,7 +2894,7 @@ fn o14_hom_profile_pairs_agree_with_the_reference() {
 }
 
 // ---------------------------------------------------------------------------
-// O7's graph scopes: the encoding, its refusals and homomorphisms.
+// Graph scopes of the relational encoding: the encoding, its refusals and homomorphisms.
 // ---------------------------------------------------------------------------
 
 /// A graph spec's reference and production relation-ified schemas.
@@ -2971,7 +2971,7 @@ const fn not_encodable_name(reason: &encode::NotEncodable) -> &'static str {
     }
 }
 
-/// The labelled counts of O7's enumerators against their closed formulas
+/// The labelled counts of the graph-encoding enumerators against their closed formulas
 /// and a sum written out by hand.
 #[test]
 fn o7_enumerators_give_their_labelled_counts() {
@@ -3010,13 +3010,13 @@ fn o7_enumerators_give_their_labelled_counts() {
         }
     }
     println!(
-        "O7 enumerators: 6627 encoding graphs (by hand {by_hand}), {} presentations, 51 \
+        "graph-encoding enumerators: 6627 encoding graphs (by hand {by_hand}), {} presentations, 51 \
          relation graphs, 129 shared-column graphs",
         scope::o7_encoding_presentations_count(4)
     );
 }
 
-/// The encoding and decoding of every presentation of O7's encoding spec
+/// The encoding and decoding of every presentation of the graph encoding spec
 /// with at most four table nodes (plain and decorated, with plain and
 /// spread ids) against the reference: equal tables, equal layouts, and the
 /// decoding of each encoding the input itself on both sides.
@@ -3034,7 +3034,7 @@ fn o7_encoding_agrees_with_the_reference() {
         usize::from(encodings_agree(graph, &side, &production).is_ok())
     });
     println!(
-        "O7 encoding: at most 4 table nodes, {} presentations (independent count {}), {accepted} \
+        "graph encoding: at most 4 table nodes, {} presentations (independent count {}), {accepted} \
          encoded",
         graphs.len(),
         scope::o7_encoding_presentations_count(4)
@@ -3127,7 +3127,7 @@ fn o7_decoding_agrees_with_the_reference_on_every_table_and_layout() {
         })
     });
     println!(
-        "O7 decoding: {} tables (independent count {table_count}) x {} layouts; {:?}",
+        "graph decoding: {} tables (independent count {table_count}) x {} layouts; {:?}",
         tables.len(),
         layouts.len(),
         census.0
@@ -3164,7 +3164,7 @@ fn o7_encoding_refusals_agree_with_the_reference() {
     });
     let mutated = bases.len() * usize::from(scope::ENCODING_MUTATIONS) * 8;
     println!(
-        "O7 encoding refusals: {} presentations x 18 kinds x 8 picks = {mutated}; {:?}",
+        "graph encoding refusals: {} presentations x 18 kinds x 8 picks = {mutated}; {:?}",
         bases.len(),
         census.0
     );
@@ -3407,7 +3407,7 @@ fn o7_graph_kan_homs_agree_with_the_reference() {
 }
 
 // ---------------------------------------------------------------------------
-// O7's adjunction family: the graph Kan functors, their units, counits and
+// The graph adjunction family: the graph Kan functors, their units, counits and
 // transposes, the kept-part restriction and the separated reflection.
 // ---------------------------------------------------------------------------
 
@@ -3725,7 +3725,7 @@ fn graph_adjunctions_at_target(case: &GraphCase, h: &model::Graph) -> Census {
     Census::one("targets")
 }
 
-/// Both graph adjunctions on every graph of O7's adjunction family (the
+/// Both graph adjunctions on every graph of the graph adjunction family (the
 /// four merges and the three column cases, at most four table nodes, kept
 /// sources against every target) against the reference.
 #[test]

@@ -1,12 +1,13 @@
 //! What happens past the budget, which must not be nothing.
 //!
 //! Refusing exact inference is a decision the dispatcher takes on a measured
-//! number, and the search it takes instead used to be unbounded in every way
-//! that matters: its ceiling was ten million nodes, a node of a large network
-//! costs what a whole small network costs, and reaching a node on the frontier
-//! replays the decisions that reach it. On an eight hundred leaf star that came
-//! to over nine minutes of processor time with no answer, which is worse than a
-//! refusal, because a caller cannot tell a slow answer from no answer.
+//! number, and the search it takes instead is unbounded in every way that
+//! matters unless something bounds it: a node ceiling in the millions is no
+//! bound, since a node of a large network costs what a whole small network
+//! costs, and reaching a node on the frontier replays the decisions that reach
+//! it. On an eight hundred leaf star that comes to minutes of processor time
+//! with no answer, which is worse than a refusal, because a caller cannot tell
+//! a slow answer from no answer.
 //!
 //! So the operation budget binds both paths. It prices exact inference before
 //! anything is allocated, and it is charged against the search that replaces
@@ -226,7 +227,7 @@ fn the_same_network_stops_in_the_same_place() {
     assert_eq!(first.limit_hit, Some(LimitKind::Operations));
 }
 
-/// The star, forced past the budget: the shape that used to run for minutes.
+/// The star, forced past the budget: the shape that would otherwise run for minutes.
 ///
 /// Its exact price is *below* what one filtering pass of the search costs, so
 /// pushing this network onto the fallback takes a budget small enough to stop

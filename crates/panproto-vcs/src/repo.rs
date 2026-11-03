@@ -1436,10 +1436,9 @@ fn candidate_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
 /// reported with what went wrong at each, since which entry was meant
 /// is exactly what is in question.
 ///
-/// This replaces the byte-counting the staging path used to do. That
-/// counted a file which is not JSON at all as holding one record, which
-/// is wrong under any policy, and it is wrong for the same reason the
-/// missing validation was: nothing had read the bytes.
+/// Counting bytes instead would report a file which is not JSON at all
+/// as holding one record, which is wrong under any policy: nothing would
+/// have read the bytes.
 fn lift_records(
     data: &[u8],
     path: &Path,
@@ -2190,7 +2189,7 @@ mod tests {
         );
         assert_eq!(log[0].data_ids.len(), 1);
 
-        // The committed data reads back with its key (issue #198 path).
+        // The committed data reads back with its key.
         let datasets = repo.data_at("HEAD")?;
         assert_eq!(datasets.len(), 1);
         assert_eq!(datasets[0].record_count, 2);

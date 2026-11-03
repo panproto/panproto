@@ -328,8 +328,8 @@ pub fn cmd_gc(dry_run: bool) -> Result<()> {
 use panproto_xrpc::NodeClient;
 
 pub fn cmd_remote(_action: RemoteAction) -> Result<()> {
-    // Remote management (add/remove/list) stores URL mappings in .panproto/config.
-    // For Phase 0, remotes are specified directly via panproto:// URLs.
+    // Stored remotes (add/remove/list) are not implemented; remotes are
+    // specified directly via panproto:// URLs.
     miette::bail!(
         "remote add/remove/list not yet implemented. Use panproto:// URLs directly with push/pull."
     );

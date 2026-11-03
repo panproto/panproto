@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
-//! Direct O16 witnesses for key, resolution, theory, and representation paths.
+//! Direct witnesses for key, resolution, theory, and representation paths.
 
 use std::collections::BTreeMap;
 

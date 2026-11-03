@@ -1,18 +1,13 @@
 """Regression guards for the top-level `panproto` package surface.
 
-A downstream user (didactic) reported that on the 0.40.0 PyPI wheel,
-`import panproto` produced an empty namespace; `dir(panproto)` returned
-`[]`, and every public symbol had to be reached via
-`panproto._native.X`. The leading underscore signalled a private API,
-which contradicted the fact that those symbols *were* the public API.
+`import panproto` must expose the public API directly: `dir(panproto)`
+lists every public symbol, and no caller has to reach through
+`panproto._native.X`, whose leading underscore signals a private module.
 
-The fix landed in `bindings/python/src/panproto/__init__.py`: it re-exports
-the public symbols and reads `__version__` from package metadata. These
-tests exist so a future packaging regression (e.g. a maturin config
-change that drops the pure-Python source from the wheel) fails CI
-loudly rather than silently.
-
-See GitHub issue #62 for the original report.
+`bindings/python/src/panproto/__init__.py` re-exports the public symbols
+and reads `__version__` from package metadata. These tests make a
+packaging regression (e.g. a maturin config change that drops the
+pure-Python source from the wheel) fail CI loudly rather than silently.
 """
 
 from __future__ import annotations
@@ -171,10 +166,9 @@ def test_all_lists_at_least_the_core_symbols() -> None:
 
 
 def test_version_is_defined_and_well_formed() -> None:
-    """Regression guard for the second 0.40.0 bug: `__version__` was
-    hardcoded as `"0.14.0"` (six minor versions stale). The fix reads
-    from `importlib.metadata.version("panproto")`, so it tracks the
-    workspace version on every release. The fallback `"0.0.0+unknown"`
+    """`__version__` is read from `importlib.metadata.version("panproto")`,
+    so it tracks the workspace version on every release rather than a
+    hardcoded string. The fallback `"0.0.0+unknown"`
     fires only when the distribution metadata is missing (e.g.
     importing directly from a source checkout); even that is a valid
     PEP 440 version."""
@@ -187,11 +181,9 @@ def test_version_is_defined_and_well_formed() -> None:
 
 
 def test_native_module_is_still_reachable() -> None:
-    """We did not remove `panproto._native`; we only re-exported its
-    public surface. Existing callers that wrote `panproto._native.X`
-    (e.g. didactic's `from panproto import _native as panproto`
-    workaround) still work, so the fix is backwards-compatible. This
-    test guards the back-compat shim."""
+    """`panproto._native` stays importable beside the re-exported
+    surface, so callers that write `panproto._native.X` (e.g.
+    `from panproto import _native as panproto`) keep working."""
     from panproto import _native
 
     assert hasattr(_native, "Repository")
@@ -231,8 +223,7 @@ def test_panproto_error_is_re_exported_under_both_names() -> None:
 
 
 def test_protocol_from_theories_bridges_user_theories() -> None:
-    """Regression guard for GitHub issue #63: there was no documented
-    bridge from a user-built `Theory` to a `Schema`. Now there is —
+    """A user-built `Theory` bridges to a `Schema`:
     `Protocol.from_theories(...)` constructs a `Protocol` whose
     `schema_theory` is the given Theory's name, and `Protocol.schema()`
     returns a builder for that Protocol. End-to-end this enables the

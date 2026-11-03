@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
-//! Exact C11 finite-carrier counts and alphabets.
+//! Exact finite lens-carrier counts and alphabets.
 
 use std::collections::BTreeSet;
 
@@ -98,7 +98,7 @@ fn c11_partial_lenses_have_the_exact_carrier_and_law_histogram() {
     assert_eq!(last.unwrap().get_table(), &[(1, 2), (1, 1)]);
     assert_eq!(last.unwrap().put_table(), &[Some(1); 6]);
     println!(
-        "C11 partial lenses: sources=2 views=2 complements=3; get=P(6,2)=30; \
+        "partial lenses: sources=2 views=2 complements=3; get=P(6,2)=30; \
          put=3^6=729; total=21870; GP=2430 WeakPG=5388 exactPG=1476 \
          PutTwice=3942 GP+Weak=1104 GP+Weak-not-Twice=312 GP+exact-not-Twice=0; \
          put alphabet=[undefined,s0,s1]"
@@ -181,7 +181,7 @@ fn c11_table_fixtures_have_the_exact_per_cell_counts_and_alphabet() {
         }
     }
     println!(
-        "C11 table fixtures: columns=0..2 rows=0..2 canonical; \
+        "table fixtures: columns=0..2 rows=0..2 canonical; \
          alphabet=[absent,Null,F,T,Int0,Int1,Str(\"\")]; \
          sources(c,r)=[[1,1,1],[1,7,49],[1,49,2401]]; lenses(c)=[1,2,4]; \
          cases(c,r)=[[1,1,1],[2,14,98],[4,196,9604]]; \

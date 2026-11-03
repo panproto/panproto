@@ -1,4 +1,4 @@
-//! Property tests for the VCS double category (FND-07).
+//! Property tests for the VCS double category.
 //!
 //! Objects pair a schema with its data sets; commits are the horizontal arrows
 //! and data migrations the vertical arrows. A square commutes when a data set

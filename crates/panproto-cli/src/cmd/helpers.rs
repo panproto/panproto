@@ -23,10 +23,9 @@ pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 /// Resolve a protocol by name from built-in definitions.
 ///
 /// Every protocol in the descriptor registry resolves, by canonical
-/// name or alias. This used to accept `atproto` alone, while the C and
-/// WASM surfaces accepted five and the parser dispatch accepted
-/// fifty-four, so a schema the CLI could parse was one it then could
-/// not validate.
+/// name or alias, the same set the C and WASM surfaces and the parser
+/// dispatch accept, so a schema the CLI can parse is one it can also
+/// validate.
 ///
 /// # Errors
 ///

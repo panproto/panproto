@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-//! Identity, applicability, and nonvacuity witnesses for the O16 lens paths.
+//! Identity, applicability, and nonvacuity witnesses for the lens paths.
 
 use std::collections::{BTreeMap, BTreeSet};
 

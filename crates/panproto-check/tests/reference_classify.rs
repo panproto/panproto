@@ -1,4 +1,4 @@
-//! O17 factorized and bounded non-key differentials for change classification.
+//! Factorized and bounded non-key differentials for change classification.
 
 #![allow(clippy::expect_used)]
 
@@ -563,6 +563,6 @@ fn every_o17_key_change_classifies_through_the_factorization_certificate() {
     assert_eq!(represented, 816_223_680);
 
     println!(
-        "O17 classification certificate: 148 structural graphs; every directed descriptor-axis change; 816,223,680 full-carrier classifications"
+        "classification certificate: 148 structural graphs; every directed descriptor-axis change; 816,223,680 full-carrier classifications"
     );
 }

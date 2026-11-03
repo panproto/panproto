@@ -468,9 +468,9 @@ mod tests {
 
     #[test]
     fn unary_minus_after_value_is_subtraction() {
-        // BUG REGRESSION GUARD: `1-2` previously tokenised as `1` +
-        // `-2` (two numbers). Correct behaviour is `1` + `-` + `2`
-        // because the `-` follows a value-yielding token.
+        // Regression guard: `1-2` must not tokenise as `1` + `-2` (two
+        // numbers). Correct behaviour is `1` + `-` + `2` because the `-`
+        // follows a value-yielding token.
         let toks = tokens("1-2", &[]);
         assert_eq!(toks.len(), 3);
         assert_eq!(toks[0], (TokenKind::Number, "1".to_owned()));
@@ -506,9 +506,9 @@ mod tests {
 
     #[test]
     fn double_dot_after_number_does_not_consume_dot() {
-        // BUG REGRESSION GUARD: `1..2` previously consumed the first
-        // dot into the number, producing `1.` + `.` + `2`. Correct
-        // behaviour is `1` + `..` + `2`.
+        // Regression guard: `1..2` must not consume the first dot into
+        // the number, producing `1.` + `.` + `2`. Correct behaviour is
+        // `1` + `..` + `2`.
         let toks = tokens("1..2", &[]);
         assert_eq!(toks.len(), 3);
         assert_eq!(toks[0], (TokenKind::Number, "1".to_owned()));

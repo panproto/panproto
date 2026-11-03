@@ -184,9 +184,8 @@ fn a_default_commit_refuses_pending_data() {
     assert!(what.contains("d.json"), "the error names what is pending");
 }
 
-/// The same for a schema, which is the case #269 reports: `add
-/// --skip-verify` alone was enough to get unverified material into an
-/// ordinary commit.
+/// The same for a schema: `add --skip-verify` alone must not be enough to
+/// get unverified material into an ordinary commit.
 #[test]
 fn a_default_commit_refuses_a_pending_schema() {
     let (_dir, mut repo) = repo_with_schema();

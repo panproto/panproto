@@ -1,4 +1,4 @@
-//! Independent normalization-oracle evidence for L.7.
+//! Independent normalization-oracle evidence for L-lenses-7.
 
 #![allow(clippy::expect_used)]
 

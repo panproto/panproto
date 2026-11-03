@@ -68,7 +68,7 @@ fn production_value(value: &ReferenceValue) -> Result<Value, io::Error> {
         ReferenceValue::Temporal(value) => Value::Temporal(production_ill_formed_temporal(value)?),
         other => {
             return Err(invalid(format!(
-                "value outside the O17 equality carrier: {other:?}"
+                "value outside the key-equality carrier: {other:?}"
             )));
         }
     })
@@ -982,7 +982,7 @@ fn equality_carrier_executes_all_pairs_and_triples() -> Result<(), Box<dyn Error
     }
     assert_eq!(pair_count, 16_428);
     assert_eq!(triple_count, 607_836);
-    println!("O17 equality carrier: pairs={pair_count}, triples={triple_count}");
+    println!("key-equality carrier: pairs={pair_count}, triples={triple_count}");
     Ok(())
 }
 
@@ -993,7 +993,7 @@ fn named_collation_has_the_exact_typed_refusal_boundary() -> Result<(), Box<dyn 
         pad: reference_keys::SqlPad::NoPad,
     };
     let production_equality = production_equality(&reference_equality);
-    // The O17 carrier and the two non-numeric, non-text values a named
+    // The key-equality carrier and the two non-numeric, non-text values a named
     // collation meets beside text.
     let mut values = enumerate::equality_values();
     values.extend([ReferenceValue::Null, ReferenceValue::Bool(true)]);

@@ -1,4 +1,4 @@
-//! Reusable L.5/L.9 tree-validation assertions.
+//! Reusable L-lenses-5 and L-lenses-9 tree-validation assertions.
 
 #![allow(clippy::expect_used)]
 
@@ -303,7 +303,7 @@ fn malformed_fan(
     );
 }
 
-/// Assert one independently enumerated L.5/L.9 validation boundary.
+/// Assert one independently enumerated L-lenses-5 and L-lenses-9 validation boundary.
 pub fn assert_tree_validation_case(case: TreeValidationCase) {
     match case {
         TreeValidationCase::RequiredDeletion { elem, field } => {
@@ -332,7 +332,7 @@ pub fn assert_tree_validation_case(case: TreeValidationCase) {
     }
 }
 
-/// Assert one generated case from every L.5/L.9 validation family.
+/// Assert one generated case from every L-lenses-5 and L-lenses-9 validation family.
 pub fn assert_randomized_tree_validation(
     left: i64,
     right: i64,

@@ -350,9 +350,9 @@ mod tests {
 
     #[test]
     fn token_similarity_punctuation_only_disjoint_is_zero() {
-        // Upstream of the fix above: token_similarity on disjoint
-        // punctuation-only inputs must no longer return 1.0 via the
-        // cosine branch.
+        // The same guard one level up: token_similarity on disjoint
+        // punctuation-only inputs must not return 1.0 via the cosine
+        // branch.
         let score = token_similarity("!!!", "???");
         assert!(
             score < 0.5,

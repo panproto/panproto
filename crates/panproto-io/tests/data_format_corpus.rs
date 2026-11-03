@@ -7,13 +7,12 @@
 //! syntaxes (JSON/XML/YAML/TOML/CSV/TSV) via `UnifiedCodec`'s preserving
 //! path, or a delimited line-oriented codec.
 //!
-//! The mandate (handoff §6 "ALL data-model formats") is that every format
-//! round-trips losslessly: `emit(parse(bytes)) == bytes`. The macro tests in
+//! Every data-model format must round-trip losslessly: `emit(parse(bytes)) == bytes`. The macro tests in
 //! `roundtrip.rs` only assert *structural* (`node_count`) stability; this
 //! file asserts the stricter byte-identity property over every fixture.
 //!
-//! The five formats that used to lack a byte-faithful path
-//! (`amr`/`conllu`/`redis`/`edi_x12`/`swift_mt`) now route through:
+//! Five formats take a dedicated path
+//! (`amr`/`conllu`/`redis`/`edi_x12`/`swift_mt`):
 //!
 //! - `amr` (TSV): `UnifiedCodec::parse_functor_preserving` /
 //!   `emit_functor_preserving` (the tree-sitter CST-complement path, the same
@@ -418,7 +417,7 @@ fn xml_mixed_content_round_trips_byte_faithfully() {
     // comments, processing instructions, and entity references with text and
     // elements. They exercise the structural extraction path
     // (`emit_mixed_content`) and the single-`CharData`-leaf splice guard:
-    // entity-split text runs (`Aaron &amp; Blaine`) must replay verbatim, not
+    // entity-split text runs (`Ada &amp; Grace`) must replay verbatim, not
     // collapse the entity into a dropped fragment.
     let schema = generic_schema();
     for name in [
@@ -463,7 +462,7 @@ fn xml_entity_text_canonical_emit_is_node_count_idempotent() {
     let codec = UnifiedCodec::xml("fixture").expect("codec");
     // Entity-only mixed content: a leaf run and an element-interleaved run,
     // each carrying an `&amp;`/`&apos;`.
-    let input = b"<doc><name>Aaron &amp; Blaine</name><p>the team&apos;s <em>first</em> release &amp; more</p></doc>";
+    let input = b"<doc><name>Ada &amp; Grace</name><p>the team&apos;s <em>first</em> release &amp; more</p></doc>";
     let inst = codec.parse_wtype(&schema, input).expect("parse");
     let emitted = codec.emit_wtype(&schema, &inst).expect("emit");
     let inst2 = codec.parse_wtype(&schema, &emitted).expect("reparse");

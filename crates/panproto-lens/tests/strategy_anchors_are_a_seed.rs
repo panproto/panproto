@@ -8,8 +8,7 @@
 //! optimum drops it. The span comes back optimal, `proven_optimal` is true, and
 //! the field is simply missing from the generated lens.
 //!
-//! That is why the retry cannot be conditioned on the search erroring, which is
-//! what it used to be. At a tier that allows spans the search answers `⊥`
+//! That is why the retry cannot be conditioned on the search erroring. At a tier that allows spans the search answers `⊥`
 //! rather than refusing, so the error arm never runs.
 //!
 //! Coverage is not the whole of it either. Releasing a pin only ever adds

@@ -63,8 +63,8 @@ fn every_codec_resolves_by_each_spelling_of_its_protocol() {
     }
 }
 
-/// The nine protocols whose codecs used to be registered under underscore
-/// names answer to their canonical names.
+/// The nine protocols whose canonical names are hyphenated resolve and are
+/// listed under those names.
 #[test]
 fn the_canonical_names_of_the_underscore_registrations_resolve() {
     let registry = default_registry();

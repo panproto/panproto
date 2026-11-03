@@ -1451,9 +1451,9 @@ pub fn parse_xml_bytes(
                 )?;
             }
             Ok(Event::CData(ref e)) => {
-                // CDATA is character data too, and was previously
-                // dropped by the catch-all arm, so `<![CDATA[x]]>` read
-                // back as an element with no value at all.
+                // CDATA is character data too. Left to the catch-all arm
+                // it would be dropped, so `<![CDATA[x]]>` would read back
+                // as an element with no value at all.
                 if text_buf.is_empty() {
                     text_byte_offset = event_offset;
                 }

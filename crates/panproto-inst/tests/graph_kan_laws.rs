@@ -1299,7 +1299,8 @@ fn graph_sigma_moves_list_elements_along_the_migrations_edge_map() {
     }
 }
 
-/// P1-O706's exact agreement domain includes both spellings of a list
+/// The exact domain on which graph Sigma agrees with total graph extension
+/// includes both spellings of a list
 /// element edge and, in particular, the element-vertex swap with no table
 /// rename. These six fixtures are injective, column-covered and
 /// transform-free; their two realized list edges also have distinct image
@@ -1309,7 +1310,7 @@ fn graph_sigma_moves_list_elements_along_the_migrations_edge_map() {
 #[test]
 fn graph_sigma_agrees_with_total_graph_extend_on_its_exact_domain() {
     let fixtures = bijective_list_columns();
-    assert_eq!(fixtures.len(), 6, "finite P1-O706 fixture count");
+    assert_eq!(fixtures.len(), 6, "finite fixture count");
     for (case, fixture) in fixtures {
         let sigma = list_sigma(&fixture);
         let extend = graph_extend(
@@ -1329,7 +1330,7 @@ fn graph_sigma_agrees_with_total_graph_extend_on_its_exact_domain() {
         );
     }
     println!(
-        "P1-O706 finite bound: 6 list cases = 2 edge spellings x 3 rename/image classes; all compared"
+        "finite bound: 6 list cases = 2 edge spellings x 3 rename/image classes; all compared"
     );
 }
 

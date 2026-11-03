@@ -765,7 +765,7 @@ fn yaml_presence_matches_reference(tree_schema: &Schema) {
     }
 }
 
-/// Laws 10 and 13 over the XML encodings required by C55. Each admitted
+/// Laws 10 and 13 over every XML encoding the XML route admits. Each admitted
 /// source is decoded through the public canonical route, then normalized to
 /// UTF-8 without a byte-order mark or a foreign encoding declaration. The
 /// refusal cases independently derive their first offending source byte.

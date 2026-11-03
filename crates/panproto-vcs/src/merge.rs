@@ -1721,10 +1721,9 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     // and a reader that takes a slice position rather than a value then answers
     // differently run to run about one unchanged merge.
     //
-    // This is defence in depth rather than the fix. `edge_image` is the reader
-    // that made the divergence observable and it now chooses by value, so the
-    // span is a function of the pair whether or not this loop sorts. What the
-    // sort buys is that the next positional reader is not bitten.
+    // This is defence in depth. `edge_image` chooses by value, so the span is
+    // a function of the pair whether or not this loop sorts. What the sort
+    // buys is that a positional reader added later is not bitten.
     //
     // It does not make the stored bytes a function of the schema, and nothing
     // here could. `Schema` keeps `vertices`, `edges`, `outgoing`, `incoming` and
@@ -4253,7 +4252,7 @@ mod tests {
     }
 
     // =======================================================================
-    // Exhaustive conflict resolution (COL-05)
+    // Exhaustive conflict resolution
     // =======================================================================
 
     #[test]
@@ -4526,7 +4525,7 @@ mod tests {
     }
 
     // =======================================================================
-    // Pullback failure surfacing (COL-11)
+    // Pullback failure surfacing
     // =======================================================================
 
     #[test]

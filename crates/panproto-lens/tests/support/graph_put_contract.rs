@@ -1,4 +1,4 @@
-//! Reusable L.3 identity, isomorphism, plan-compilation and fresh-id assertions.
+//! Reusable L-lenses-3 identity, isomorphism, plan-compilation and fresh-id assertions.
 
 #![allow(clippy::expect_used)]
 
@@ -262,7 +262,7 @@ fn assert_complement_held_id(kind: GraphPutComplementIdKind, floor: u32, taken: 
     }
 }
 
-/// Assert one independently enumerated L.3 contract boundary.
+/// Assert one independently enumerated L-lenses-3 contract boundary.
 pub fn assert_graph_put_contract_case(case: GraphPutContractCase) {
     let (floor, taken, expected) = match case {
         GraphPutContractCase::PlanCompilation => {
@@ -315,7 +315,7 @@ pub fn assert_graph_put_contract_case(case: GraphPutContractCase) {
     }
 }
 
-/// Assert a generated L.3 case together with every named contract family.
+/// Assert a generated L-lenses-3 case together with every named contract family.
 #[allow(clippy::too_many_arguments)]
 pub fn assert_randomized_graph_put_contract(
     floor: u32,

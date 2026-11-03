@@ -12,17 +12,16 @@ use crate::hom_search::{SearchOptions, find_span};
 
 /// The largest shared sub-schema of two schemas, as an overlap.
 ///
-/// # What this used to do, and why it was wrong
+/// # Why a span search
 ///
-/// It used to run two total-morphism searches, one in each direction, and take
-/// whichever embedded more. A total morphism from one schema into the other
-/// exists only when the first embeds *wholly* in the second, and on the measured
-/// schema corpus that holds for a small minority of real pairs. For every other
-/// pair both searches returned nothing and this returned an empty overlap, so
-/// two schemas sharing most of their structure merged as though they shared
-/// none.
+/// Two total-morphism searches, one in each direction, would not do. A total
+/// morphism from one schema into the other exists only when the first embeds
+/// *wholly* in the second, and on the measured schema corpus that holds for a
+/// small minority of real pairs. For every other pair both searches return
+/// nothing, so two schemas sharing most of their structure would merge as
+/// though they shared none.
 ///
-/// It is now one span search on the iso path. The apex is the maximum common
+/// The overlap is therefore one span search on the iso path. The apex is the maximum common
 /// induced sub-schema, which always exists. The iso path is the right one
 /// because a merge needs the right leg to be a mono: the pushout of a span
 /// whose right leg collapses two apex vertices onto one is not a

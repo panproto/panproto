@@ -3,8 +3,7 @@
 //! Finding a schema morphism is a valued constraint satisfaction problem, and
 //! [`solve`](crate::solve) owns the model and the algorithms. This module is the
 //! surface over it: the options a caller sets, the shapes a caller gets back,
-//! and the four historical entry points, now backed by an exact optimiser rather
-//! than by enumerate-then-sort.
+//! and the four entry points, all backed by an exact optimiser.
 //!
 //! # The span is the primary result
 //!
@@ -23,24 +22,22 @@
 //! about a pair whose identity is perfect has no way to tell. There is still no
 //! second search.
 //!
-//! # What changed, and what a caller has to do about it
+//! # What a caller gets
 //!
-//! [`find_morphisms`] **no longer enumerates the hom-set.** It returns morphisms
-//! attaining the optimum, capped by [`SearchOptions::max_results`]. A caller
-//! that relied on getting every morphism, ranked, gets the optimal ones instead.
-//! The doc on that function states the new contract in full.
+//! [`find_morphisms`] does not enumerate the hom-set. It returns morphisms
+//! attaining the optimum, capped by [`SearchOptions::max_results`]; a caller
+//! wanting every morphism, ranked, gets the optimal ones. The doc on that
+//! function states the contract in full.
 //!
-//! Three settings were removed rather than reimplemented. Preferred vertex
-//! mappings are gone: their job, soft evidence, is now a unary cost, which is
-//! strictly stronger, since a preference can only change which optimum is found
-//! first while a cost changes which assignment is optimal. The edge-name domain
-//! pruner is gone: it was a soft heuristic used as a hard filter, and edge-name
-//! agreement already enters the objective. The name-similarity threshold is
-//! gone: it cut a soft signal at a hard edge over full path-like identifiers.
-//! Callers wanting a hard restriction use
-//! [`DomainConstraints::restricted_domains`], and the node budget now lives on
-//! [`SearchBudget`] where exhausting it is reported rather
-//! than silently absorbed.
+//! Soft evidence about which vertex should map where enters as a unary cost,
+//! which is stronger than a preference: a preference can only change which
+//! optimum is found first, while a cost changes which assignment is optimal.
+//! Edge-name agreement and name similarity also enter the objective rather
+//! than filtering domains, since cutting a soft signal at a hard edge discards
+//! good answers. Callers wanting a hard restriction use
+//! [`DomainConstraints::restricted_domains`], and the node budget lives on
+//! [`SearchBudget`], where exhausting it is reported rather than silently
+//! absorbed.
 
 use std::collections::{HashMap, HashSet};
 
@@ -169,8 +166,8 @@ pub struct DomainConstraints {
     /// Override the objective's component weights.
     ///
     /// Checked at construction: negative, non-finite and all-zero weight vectors
-    /// are rejected by [`CostWeights::new`], so a weight can no longer push the
-    /// reported quality outside `[0, 1]` and a `NaN` weight can no longer order
+    /// are rejected by [`CostWeights::new`], so a weight cannot push the
+    /// reported quality outside `[0, 1]` and a `NaN` weight cannot order
     /// results by its payload.
     pub scoring_weights: Option<CostWeights>,
 }
@@ -331,19 +328,17 @@ pub fn find_span_constrained(
 
 /// Optimal total schema morphisms from `src` to `tgt`.
 ///
-/// # This is not what it used to be
+/// # What it returns
 ///
-/// It used to enumerate the whole hom-set, score every member, sort, and
-/// truncate. It now returns **morphisms attaining the optimum**, and nothing
-/// else. Precisely:
+/// It returns **morphisms attaining the optimum**, and nothing else; it does
+/// not enumerate the hom-set. Precisely:
 ///
 /// 1. Every returned morphism has the same quality, which is the maximum over
 ///    all total morphisms. The list is therefore in non-increasing quality
-///    order trivially, and a caller reading `results[0]` gets what it always
-///    got.
+///    order trivially, and `results[0]` is an optimal morphism.
 /// 2. `opts.max_results` caps the count. Zero means every optimum the search
-///    enumerates, up to [`DEFAULT_OPTIMA_CAP`]; it no longer means "the whole
-///    hom-set", because the whole hom-set is no longer computed.
+///    enumerates, up to [`DEFAULT_OPTIMA_CAP`]; it does not mean "the whole
+///    hom-set", because the whole hom-set is never computed.
 /// 3. A caller wanting a suboptimal alternative will not find one here. There is
 ///    no k-best over distinct quality levels.
 ///

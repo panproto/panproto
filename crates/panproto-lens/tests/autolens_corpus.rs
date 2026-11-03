@@ -107,7 +107,8 @@ const TIERS: [Stringency; 4] = [
 
 /// What the optimal span for a case at a tier must look like.
 ///
-/// There is no failure variant. §4.3's corollary is that a span always exists,
+/// There is no failure variant. A span always exists (the assignment leaving
+/// every vertex out is feasible; see `panproto_mig::span`),
 /// so the question is never whether one was found but how much of the source it
 /// covers and how well the covered part matches.
 #[derive(Clone, Copy, Debug)]
@@ -740,10 +741,9 @@ fn assert_tier_expectations(tier: Stringency) {
 /// across tiers whose optimal quality cost is equal; here every comparison is
 /// such a tier pair (see below), so the apex check holds without exception.
 ///
-/// There used to be four per-case tolerances here, three of them non-zero, and
-/// they existed because ranking was done by enumerating the hom-set under a
-/// node budget: a tier with more anchors could exhaust the budget sooner and
-/// return the best found rather than the best there is. The search is now an
+/// No per-case tolerance applies. A budgeted enumeration of the hom-set would
+/// need one, since a tier with more anchors could exhaust the budget sooner and
+/// return the best found rather than the best there is. The search is an
 /// exact optimiser over a cost function network, and the anchor pool reaches it
 /// only through a reward-only unary term, so the optimum cannot fall as the
 /// pool grows. A tolerance would be a place for that guarantee to quietly stop

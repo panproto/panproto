@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
-//! Exact O16 witness ledger for the eight relational adjunction maps.
+//! Exact witness ledger for the eight relational adjunction maps.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -961,7 +961,7 @@ fn o16_has_an_exact_six_witness_ledger_for_each_adjoint_map() {
     assert_eq!(expected.len(), 48);
     assert_eq!(
         ledger, expected,
-        "the O16 ledger is exactly 8 paths x 6 witnesses"
+        "the witness ledger is exactly 8 paths x 6 witnesses"
     );
 }
 

@@ -1,4 +1,4 @@
-//! Exact O17 declaration-carrier differential for schema canonical bytes.
+//! Exact declaration-carrier differential for schema canonical bytes.
 
 #![allow(clippy::expect_used)]
 
@@ -1776,7 +1776,7 @@ fn canonical_declaration_factorization_reconciles_the_exact_carrier() {
     assert_eq!(represented, 816_223_680);
 
     println!(
-        "O17 keys certificate: 148 structural graphs; descriptors [90, 240, 450]; 27,329,908 schemas; 816,223,680 directed classifications"
+        "keys certificate: 148 structural graphs; descriptors [90, 240, 450]; 27,329,908 schemas; 816,223,680 directed classifications"
     );
 }
 

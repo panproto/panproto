@@ -1,4 +1,4 @@
-//! Focused validation witnesses for the native tree put domain (L.5/L.9).
+//! Focused validation witnesses for the native tree put domain (L-lenses-5 and L-lenses-9).
 
 #![allow(clippy::expect_used)]
 

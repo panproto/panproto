@@ -1519,8 +1519,7 @@ class TestGat:
 
     def test_theory_from_json_supports_dependent_sorts(self) -> None:
         # The fixture under crates/panproto-theory-dsl/tests/fixtures/stlc.json
-        # is the canonical dependent-sort example referenced in the
-        # original feature request (#73). Using the public API
+        # is the canonical dependent-sort example. Using the public API
         # exclusively here so we can ship the same expectation in
         # downstream Python projects.
         src = json.dumps(
@@ -2333,7 +2332,7 @@ class TestRepositoryDataAccess:
         repo.add_data(str(data_file), key="at://rec/1")
         assert repo.has_staged() is True
 
-        # Previously raised VcsError("nothing staged"); now succeeds.
+        # A data-only stage commits; it does not raise VcsError("nothing staged").
         repo.commit("data only", "alice <a@example.com>")
 
         datasets = repo.data_at("HEAD")
@@ -2445,8 +2444,8 @@ class TestEmitPrettyGraft:
         )
         parsed = reg.parse_with_protocol("python", src, "src.py")
 
-        # Standalone round-trip is valid Python (the consistent case the fix
-        # must not disturb).
+        # Standalone round-trip is valid Python (the consistent case the
+        # relocation handling must not disturb).
         ast.parse(reg.emit_pretty("python", parsed).decode())
 
         # Collect the class_definition subtree.
@@ -2493,7 +2492,7 @@ class TestEmitPrettyGraft:
 
         out = reg.emit_pretty("python", sb.build()).decode()
 
-        # The grafted class no longer runs straight into the following def,
+        # The grafted class does not run straight into the following def,
         # and the whole module is valid Python.
         assert ")def" not in out, out
         ast.parse(out)

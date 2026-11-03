@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
-//! Deterministic schema-v2 path and amendment-law audits.
+//! Deterministic audits of the schema-v2 manifest paths and the laws of the version-two value, key and byte layers.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -411,7 +411,7 @@ fn latin1_and_base64_laws_hold_on_the_fast_exhaustive_scope() {
 }
 
 #[test]
-#[ignore = "full O12 A6 audit: all 16,843,009 byte strings through length three"]
+#[ignore = "full padded-base64 audit: all 16,843,009 byte strings through length three"]
 fn padded_base64_laws_hold_on_the_contract_scope() {
     for bytes in panproto_reference::enumerate::byte_strings(3).unwrap() {
         assert!(bytes::padded_bytes_decode_encode(&bytes));

@@ -9,11 +9,11 @@
 //! `Y(b)`. Tier 2 adds the equation `a = b` (as `S.c = R.b`), and the class
 //! `{S.h, L.f, R.g}` asks `Y(class of a)` and `Y(class of b)` to agree.
 //!
-//! The complete fibre-span family now lives in
+//! The complete fibre-span family lives in
 //! `panproto_reference::enumerate::theories::fibre_spans` and is compared
 //! through the public production and reference `compose` functions by the
-//! `reference_theories` adapter. This file retains the contract pin whose
-//! body is fixed by P5-O909.
+//! `reference_theories` adapter. This file keeps one fixed pin of that
+//! family.
 //!
 //! It also holds deadline guards: each runs a fixpoint computation
 //! (class naming in `compose`, the free model's quotient, `quotient`'s

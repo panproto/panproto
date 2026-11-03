@@ -1,4 +1,4 @@
-//! Focused identity, isomorphism, plan-compilation and fresh-id evidence for L.3.
+//! Focused identity, isomorphism, plan-compilation and fresh-id evidence for L-lenses-3.
 
 #![allow(clippy::expect_used)]
 
