@@ -1336,8 +1336,12 @@ fn empty_exact_and_named_equalities_cross_the_build_boundary() {
     );
 }
 
+/// The table plan builds the entity functor before it compiles the
+/// restrict plan, as production does, so a functor refusal is reported
+/// over ill-formed declarations; with a functor that builds, the
+/// declarations are refused, wrapped as plan errors, source side first.
 #[test]
-fn table_plan_wraps_declaration_refusals_before_functor_refusals() {
+fn table_plan_reports_functor_refusals_before_wrapped_declaration_refusals() {
     let source = equality_schema(vec![equality_key(
         "source_bad",
         vec![KeyEquality::Representation],
@@ -1353,32 +1357,30 @@ fn table_plan_wraps_declaration_refusals_before_functor_refusals() {
         ..rel::RelSchema::default()
     };
     let bad_target_rel = rel::RelSchema::default();
-    assert!(matches!(
-        table::compile_for_tables(&valid, &valid, &bad_source_rel, &bad_target_rel, &migration),
-        Err(TablePlanError::Functor(_))
-    ));
-    let source_error = schema::validate_declarations(&source).unwrap_err();
-    let target_error = schema::validate_declarations(&target).unwrap_err();
+    let functor_refusal =
+        table::compile_for_tables(&valid, &valid, &bad_source_rel, &bad_target_rel, &migration);
+    assert!(matches!(functor_refusal, Err(TablePlanError::Functor(_))));
     assert_eq!(
         table::compile_for_tables(
             &source,
-            &valid,
+            &target,
             &bad_source_rel,
             &bad_target_rel,
-            &migration,
+            &migration
         ),
+        functor_refusal
+    );
+    let empty_rel = rel::RelSchema::default();
+    let source_error = schema::validate_declarations(&source).unwrap_err();
+    let target_error = schema::validate_declarations(&target).unwrap_err();
+    assert_eq!(
+        table::compile_for_tables(&source, &target, &empty_rel, &empty_rel, &migration),
         Err(TablePlanError::Plan(Box::new(
             PlanError::SourceDeclarations(source_error)
         )))
     );
     assert_eq!(
-        table::compile_for_tables(
-            &valid,
-            &target,
-            &bad_source_rel,
-            &bad_target_rel,
-            &migration,
-        ),
+        table::compile_for_tables(&valid, &target, &empty_rel, &empty_rel, &migration),
         Err(TablePlanError::Plan(Box::new(
             PlanError::TargetDeclarations(target_error)
         )))

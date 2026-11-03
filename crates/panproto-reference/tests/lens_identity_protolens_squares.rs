@@ -1290,18 +1290,21 @@ fn tree_put_domain_accepts_cross_parent_synthesized_arc_interleavings() {
 
 #[test]
 fn tree_put_domain_rejects_a_synthesized_arc_before_a_kept_sibling() {
-    let direct = SEdge::new("r", "leaf", "child", Some("leaf"));
+    // The direct edge is unnamed, so it is multi-valued: a named edge holds
+    // one value per parent, and contracting `m` onto `r` would put a second
+    // source edge's arc on it, which tree restriction refuses.
+    let direct = SEdge::new("r", "leaf", "child", None);
     let source_schema = Schema::default()
         .vertex("r", "obj")
         .vertex("m", "obj")
         .vertex("leaf", "obj")
-        .edge("r", "leaf", "child", Some("leaf"))
+        .edge("r", "leaf", "child", None)
         .edge("r", "m", "child", Some("m"))
         .edge("m", "leaf", "child", Some("leaf"));
     let target_schema = Schema::default()
         .vertex("r", "obj")
         .vertex("leaf", "obj")
-        .edge("r", "leaf", "child", Some("leaf"));
+        .edge("r", "leaf", "child", None);
     let migration = Migration {
         surviving_verts: ["r".to_owned(), "leaf".to_owned()].into(),
         surviving_edges: [direct.clone()].into(),

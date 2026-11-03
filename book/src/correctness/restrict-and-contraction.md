@@ -173,12 +173,12 @@ After compilation has checked declarations and output fields, `get_with_plan` va
 
 - Law ID: `restrict.c3`
 - Reference: `panproto_reference::restrict::compile`
-- Regression differential test: `undeclared_transform_stages_keep_every_original_source_as_a_refusal; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_attribute_edges_agree_with_the_reference; binary: panproto-lens::reference_lenses`
-- Independent reference test: `transform_outputs_follow_target_attribute_declarations; binary: panproto-reference::transform_declarations`
-- Independent reference test: `transform_output_refusals_keep_anchor_and_write_order; binary: panproto-reference::transform_declarations`
-- Independent reference test: `structural_plan_refusals_precede_transform_outputs; binary: panproto-reference::transform_declarations`
-- Independent reference test: `declaration_refusals_precede_structural_and_output_checks; binary: panproto-reference::transform_declarations`
+- Regression differential test: `undeclared_transform_stages_keep_every_original_source_as_a_refusal; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=undeclared_transform_stages_keep_every_original_source_as_a_refusal)'`
+- Regression differential test: `declared_transform_attribute_edges_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_attribute_edges_agree_with_the_reference)'`
+- Independent reference test: `transform_outputs_follow_target_attribute_declarations; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=transform_outputs_follow_target_attribute_declarations)'`
+- Independent reference test: `transform_output_refusals_keep_anchor_and_write_order; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=transform_output_refusals_keep_anchor_and_write_order)'`
+- Independent reference test: `structural_plan_refusals_precede_transform_outputs; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=structural_plan_refusals_precede_transform_outputs)'`
+- Independent reference test: `declaration_refusals_precede_structural_and_output_checks; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=declaration_refusals_precede_structural_and_output_checks)'`
 - Reference: `panproto_reference::restrict::get`
 - Reference: `panproto_reference::restrict::edge_image`
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
@@ -419,9 +419,9 @@ The *restored node* is the source candidate obtained from the view node plus rec
 ### Executable counterpart
 
 - Law ID: `restrict.tr10`
-- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_conditional_defaults_track_actual_writes)'`
+- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_atomic_laws_agree_with_the_reference)'`
+- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_wrappers_preserve_their_active_field_domain)'`
 - Reference: `panproto_reference::lens::TreeShape::check_put_domain`
 - Reference: `panproto_reference::lens::tree_put`
 - Exhaustive differential tests: `graph_square_agrees_with_the_reference_exhaustively` and `tree_put_law_certificate` in `crates/panproto-lens/tests/reference_lenses.rs`
@@ -469,7 +469,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 ### Executable counterpart
 
 - Law ID: `restrict.tr11`
-- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_atomic_laws_agree_with_the_reference)'`
 - Reference: `panproto_reference::lens::check_tree_laws`
 - Reference: `panproto_reference::lens::TreeShape::single_step_basis`
 - Exhaustive differential tests: `lens_laws_agree_with_the_reference_exhaustively` and `graph_square_agrees_with_the_reference_exhaustively`

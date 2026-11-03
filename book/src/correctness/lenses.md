@@ -240,9 +240,9 @@ Lens, put domain, report order, subinstance, endpoint closed and the Delta fragm
 ### Executable counterpart
 
 - Law ID: `lenses.l4`
-- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_attribute_edges_agree_with_the_reference; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_conditional_defaults_track_actual_writes)'`
+- Regression differential test: `declared_transform_attribute_edges_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_attribute_edges_agree_with_the_reference)'`
+- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_wrappers_preserve_their_active_field_domain)'`
 - Reference: `panproto_reference::lens::GraphLens::check_put_domain`
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
@@ -304,8 +304,8 @@ Lens, put domain and report order are defined at the head of this page; the clau
 ### Executable counterpart
 
 - Law ID: `lenses.l5`
-- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_conditional_defaults_track_actual_writes)'`
+- Regression differential test: `declared_transform_wrappers_preserve_their_active_field_domain; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_wrappers_preserve_their_active_field_domain)'`
 - Reference: `panproto_reference::lens::GraphLens::check_put_domain`
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
@@ -489,8 +489,8 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 - Law ID: `lenses.l8`
 - Reference: `panproto_reference::lens::check_graph_laws`
 - Reference: `panproto_reference::lens::check_laws_report`
-- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; binary: panproto-lens::reference_lenses`
-- Independent reference test: `a_refused_positive_candidate_is_out_of_the_domain; binary: panproto-reference::enumerate_lenses`
+- Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_atomic_laws_agree_with_the_reference)'`
+- Independent reference test: `a_refused_positive_candidate_is_out_of_the_domain; command: cargo nextest run --release -p panproto-reference --test enumerate_lenses --no-tests=fail -E 'test(=a_refused_positive_candidate_is_out_of_the_domain)'`
 - Reference: `panproto_reference::lens::GraphLens::check_put_domain`
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
@@ -723,14 +723,14 @@ The table complement is that of [L-lenses-11](#L-lenses-11). The last writer of 
 ### Executable counterpart
 
 - Law ID: `lenses.t4`
-- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_conditional_absent_cells_agree_at_table_get; binary: panproto-lens::reference_lenses`
-- Regression differential test: `undeclared_transform_stages_keep_every_original_source_as_a_refusal; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_table_functor_refusal_precedes_output_refusal; binary: panproto-lens::reference_lenses`
-- Independent reference test: `table_interpretations_declare_structured_transform_outputs; binary: panproto-reference::transform_declarations`
-- Independent reference test: `table_functor_refusals_precede_transform_outputs; binary: panproto-reference::transform_declarations`
-- Independent reference test: `transformed_cells_recompute_the_baseline_and_use_only_valid_inverses; binary: panproto-reference::lens_table_contract`
-- Independent reference test: `schema_and_forward_stability_violations_are_accumulated_before_sorting; binary: panproto-reference::lens_table_contract`
+- Regression differential test: `declared_transform_conditional_defaults_track_actual_writes; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_conditional_defaults_track_actual_writes)'`
+- Regression differential test: `declared_transform_conditional_absent_cells_agree_at_table_get; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_conditional_absent_cells_agree_at_table_get)'`
+- Regression differential test: `undeclared_transform_stages_keep_every_original_source_as_a_refusal; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=undeclared_transform_stages_keep_every_original_source_as_a_refusal)'`
+- Regression differential test: `declared_transform_table_functor_refusal_precedes_output_refusal; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_table_functor_refusal_precedes_output_refusal)'`
+- Independent reference test: `table_interpretations_declare_structured_transform_outputs; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=table_interpretations_declare_structured_transform_outputs)'`
+- Independent reference test: `table_functor_refusals_precede_transform_outputs; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=table_functor_refusals_precede_transform_outputs)'`
+- Independent reference test: `transformed_cells_recompute_the_baseline_and_use_only_valid_inverses; command: cargo nextest run --release -p panproto-reference --test lens_table_contract --no-tests=fail -E 'test(=transformed_cells_recompute_the_baseline_and_use_only_valid_inverses)'`
+- Independent reference test: `schema_and_forward_stability_violations_are_accumulated_before_sorting; command: cargo nextest run --release -p panproto-reference --test lens_table_contract --no-tests=fail -E 'test(=schema_and_forward_stability_violations_are_accumulated_before_sorting)'`
 - Reference: `panproto_reference::table::TablePlan::writer`
 - Reference: `panproto_reference::table::compile_for_tables`
 - Reference: `panproto_reference::table::get`
@@ -956,8 +956,8 @@ A graph source is **declared** by a schema when every node has a declared anchor
 ### Executable counterpart
 
 - Law ID: `lenses.fusion-soundness`
-- Regression differential test: `declared_transform_fusion_boundaries_preserve_atomic_behavior; binary: panproto-lens::reference_lenses`
-- Regression differential test: `declared_transform_paths_agree_with_the_reference; binary: panproto-lens::reference_lenses`
+- Regression differential test: `declared_transform_fusion_boundaries_preserve_atomic_behavior; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_fusion_boundaries_preserve_atomic_behavior)'`
+- Regression differential test: `declared_transform_paths_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_paths_agree_with_the_reference)'`
 - Reference: `panproto_reference::path::get_path`
 - Reference: `panproto_reference::path::put_path`
 - Reference: `panproto_reference::lens::TreeShape::get`

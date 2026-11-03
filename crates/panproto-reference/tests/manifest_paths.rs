@@ -59,7 +59,7 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        369
+        372
     );
 
     let value_io_l21 = manifest.pages["value-io"]
@@ -106,9 +106,9 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        67,
+        69,
     );
-    assert_eq!(partial_paths.len(), 26);
+    assert_eq!(partial_paths.len(), 28);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -118,8 +118,8 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 240);
-    assert_eq!(documented.len(), 240);
+    assert_eq!(expected.len(), 243);
+    assert_eq!(documented.len(), 243);
     assert_eq!(documented, expected);
 }
 
@@ -210,14 +210,14 @@ fn lenses_law_to_public_path_incidences_are_exact() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        67,
+        69,
     );
     let unique_paths = page
         .laws
         .iter()
         .flat_map(|law| &law.references)
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(unique_paths.len(), 26);
+    assert_eq!(unique_paths.len(), 28);
 }
 
 /// The validation page's laws and their reference paths, in manifest order.

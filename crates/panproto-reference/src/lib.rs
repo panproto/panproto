@@ -35,6 +35,7 @@
 //! | The edge image | [`restrict::edge_image`] | `restrict-and-contraction.md` |
 //! | Pair resolution | [`restrict::resolve_pair`] | `restrict-and-contraction.md` |
 //! | The contraction plan | [`restrict::contraction_plan`] | `restrict-and-contraction.md` |
+//! | Restriction plan compilation | [`restrict::compile`] | `restrict-and-contraction.md` |
 //! | Restrict (Delta, then contraction, then fans) | [`restrict::get`] | `restrict-and-contraction.md` |
 //! | Restrict reachability by explicit walks | [`restrict::realized_pairs_by_walks`] | `restrict-and-contraction.md` |
 //! | Relational-column and ordered-child restriction observables | [`restrict::column_fates`], [`restrict::scalar_child_bindings`] | `restrict-and-contraction.md` |
@@ -43,6 +44,7 @@
 //! | The fan domain | [`fan::violations_at`] | `representation.md` |
 //! | Get and put of the graph lens | [`restrict::get`], [`lens::GraphLens::put`] | `lenses.md` |
 //! | The graph put domain | [`lens::GraphLens::check_put_domain`] | `lenses.md` |
+//! | Graph lens law reports | [`lens::check_graph_laws`], [`lens::check_laws_report`] | `lenses.md` |
 //! | Complement composition | [`lens::compose_complement`] | `lenses.md` |
 //! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`] | `lenses.md` |
 //! | The table plan and cell writers | [`table::compile_for_tables`], [`table::TablePlan::writer`] | `lenses.md` |

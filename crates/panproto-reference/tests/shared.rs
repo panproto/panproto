@@ -340,7 +340,7 @@ fn fixture_schema_v3_manifest_loads_and_every_owned_file_exists() {
             .values()
             .filter(|page| page.inventory_status == manifest::InventoryStatus::Complete)
             .count(),
-        9
+        11
     );
     assert_eq!(
         loaded
@@ -348,7 +348,7 @@ fn fixture_schema_v3_manifest_loads_and_every_owned_file_exists() {
             .values()
             .filter(|page| page.inventory_status == manifest::InventoryStatus::Partial)
             .count(),
-        3
+        1
     );
     assert_eq!(
         loaded

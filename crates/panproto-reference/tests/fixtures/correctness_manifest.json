@@ -5664,6 +5664,18 @@
               "role": "differential",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
+              "test": "graph_put_refuses_key_values_without_canonical_bytes_like_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_put_key_clause_agrees_with_the_reference_on_declared_semantics"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
               "test": "declared_transform_attribute_edges_agree_with_the_reference"
             },
             {
