@@ -2349,8 +2349,9 @@ pub mod combinators {
         let parent_to_intermediate = parent_to_intermediate.into();
         let intermediate_to_child = intermediate_to_child.into();
         ProtolensChain::new(vec![
-            // 1. Add the new intermediate vertex.
-            elementary::add_sort(new_intermediate.clone(), intermediate_kind, Value::Null),
+            // 1. Add the new intermediate vertex. It is structural (step 3
+            //    gives it an outgoing edge), so it carries no attribute default.
+            elementary::add_sort_without_default(new_intermediate.clone(), intermediate_kind),
             // 2. parent --(parent_to_intermediate, kind=edge_kind)--> new_intermediate
             elementary::add_edge(
                 parent.clone(),
@@ -5078,6 +5079,74 @@ mod tests {
         assert!(
             has_direct_text_arc,
             "put should restore the original direct `text` arc"
+        );
+    }
+
+    #[test]
+    fn nest_field_intermediate_is_never_an_attribute_default() {
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = super::combinators::nest_field(
+            "post:body",
+            "post:body.text",
+            "post:body.profile",
+            "object",
+            "prop",
+            Some(GatName::from("text")),
+            "profile",
+            "text",
+        );
+        for step in &chain.steps {
+            assert!(
+                crate::default_synthesis::constructor_defaults(&step.complement_constructor)
+                    .unwrap()
+                    .is_empty(),
+                "step `{}` must not retain a default for the structural intermediate",
+                step.name
+            );
+        }
+        let lens = chain.instantiate(&schema, &protocol).unwrap();
+        let writes_profile = lens.compiled.field_transforms.values().flatten().any(|t| {
+            matches!(t, panproto_inst::FieldTransform::AddField { key, .. } if key == "profile")
+        });
+        assert!(
+            !writes_profile,
+            "nesting must not write the intermediate as an attribute: {:?}",
+            lens.compiled.field_transforms
+        );
+    }
+
+    #[test]
+    fn an_added_vertex_with_children_never_takes_an_attribute_default() {
+        // The same shape as `nest_field`, built by hand with an explicit
+        // default on the intermediate: the default must not compile to an
+        // attribute write on the parent, and asking for it outright refuses.
+        let schema = three_node_schema();
+        let protocol = test_protocol();
+        let chain = ProtolensChain::new(vec![
+            elementary::add_sort("post:body.profile", "object", Value::Null),
+            elementary::add_edge("post:body", "post:body.profile", "profile", "prop"),
+            elementary::add_edge("post:body.profile", "post:body.text", "text", "prop"),
+            elementary::drop_edge("post:body", "post:body.text", Some(GatName::from("text"))),
+        ]);
+        let mut lens = chain.instantiate(&schema, &protocol).unwrap();
+        let writes_profile = lens.compiled.field_transforms.values().flatten().any(|t| {
+            matches!(t, panproto_inst::FieldTransform::AddField { key, .. } if key == "profile")
+        });
+        assert!(
+            !writes_profile,
+            "a structural vertex is not a leaf attribute: {:?}",
+            lens.compiled.field_transforms
+        );
+
+        let target = lens.tgt_schema.clone();
+        let defaults =
+            std::collections::HashMap::from([(GatName::from("post:body.profile"), Value::Null)]);
+        let err = crate::default_synthesis::attach_defaults(&mut lens, &target, &defaults, true)
+            .expect_err("a required default on a structural vertex must refuse");
+        assert!(
+            err.to_string().contains("not a leaf attribute"),
+            "unexpected refusal: {err}"
         );
     }
 

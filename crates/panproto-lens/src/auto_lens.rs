@@ -184,8 +184,8 @@ impl Stringency {
     ///
     /// When enabled, source sorts/ops with no matched counterpart
     /// surface as explicit `DropSort`/`DropOp` endofunctors in the
-    /// factorization, and target extensions surface as
-    /// `AddSort`/`AddOp`. The resulting lens is genuinely partial on
+    /// factorization, and target extensions surface as concrete schema
+    /// vertex and edge additions. The resulting lens is genuinely partial on
     /// the source side — round-trip laws hold on `C`, not on `A`.
     #[must_use]
     pub const fn allow_spans(self) -> bool {
@@ -1115,7 +1115,13 @@ fn run_search(
     let mut lens = chain.instantiate(src, protocol)?;
     let field_transforms = derive_field_transforms(&chain, src, tgt);
     lens.compiled.field_transforms = field_transforms;
-    crate::default_synthesis::attach_defaults(&mut lens, tgt, &config.defaults, true)?;
+    let instantiated_target = lens.tgt_schema.clone();
+    crate::default_synthesis::attach_defaults(
+        &mut lens,
+        &instantiated_target,
+        &config.defaults,
+        true,
+    )?;
 
     Ok(SearchResult {
         chain,
@@ -1271,9 +1277,9 @@ pub fn protolens_from_alignment(
 ///
 /// When `emit_spans` is `true`, source sorts/ops that the alignment
 /// did not witness are left out of the theory morphism; [`factorize`]
-/// then emits `DropSort`/`DropOp` endofunctors for them, and
-/// `AddSort`/`AddOp` for the target extensions. This realizes the span
-/// `A ←f− C −g→ B` described in the plan.
+/// then emits `DropSort`/`DropOp` endofunctors for them. The target
+/// extension is added as concrete schema vertices and edges in either mode.
+/// This realizes the span `A ←f− C −g→ B`.
 ///
 /// When `emit_spans` is `false`, unmapped source sorts/ops are
 /// identity-filled and no drops are emitted; behaviour matches the
@@ -1292,8 +1298,21 @@ pub fn protolens_from_alignment_mode(
     protolens_from_alignment_mode_with_defaults(alignment, src, tgt, emit_spans, &HashMap::new())
 }
 
-/// Internal alignment-to-chain path that attaches caller defaults to
-/// factorized `AddSort` steps.
+/// Internal alignment-to-chain path that attaches caller defaults to the
+/// target vertices the alignment adds.
+///
+/// The implicit theories have one sort per vertex kind and one operation per
+/// edge kind, so the factorization speaks only about kinds. Its `AddSort` and
+/// `AddOp` steps record that a kind or an edge kind is new; they cannot say
+/// which vertex of that kind the target adds, under which id, or which labelled
+/// edge places it. Those steps are therefore not instantiated. The target's
+/// extension is realized instead as concrete schema additions: every target
+/// vertex outside the alignment's vertex image becomes an
+/// [`elementary::add_schema_vertex`] under its target id and kind, and every
+/// target edge outside the edge image becomes an
+/// [`elementary::add_schema_edge`] whose mapped endpoints are read back through
+/// the alignment. The instantiated target schema thus equals the requested
+/// target up to the alignment's renaming of the vertices and edges it maps.
 fn protolens_from_alignment_mode_with_defaults(
     alignment: &FoundMorphism,
     src: &Schema,
@@ -1310,11 +1329,98 @@ fn protolens_from_alignment_mode_with_defaults(
 
     let mut steps = Vec::new();
     for endofunctor in &factorization.steps {
-        let protolens = endofunctor_to_protolens_with_defaults(endofunctor, defaults)?;
-        steps.push(protolens);
+        if matches!(
+            endofunctor.transform,
+            TheoryTransform::AddSort { .. } | TheoryTransform::AddOp(_)
+        ) {
+            continue;
+        }
+        steps.push(endofunctor_to_protolens(endofunctor)?);
     }
+    steps.extend(target_extension_steps(alignment, src, tgt, defaults));
 
     Ok(ProtolensChain::new(steps))
+}
+
+/// Concrete schema additions for the part of `tgt` the alignment does not
+/// cover: unmapped target vertices first, in id order, then unmapped target
+/// edges, in edge order.
+///
+/// A mapped target vertex is named in the instantiated schema by its source
+/// preimage (the least one, when the alignment is not injective); an added
+/// vertex keeps its target id. When a source vertex already holds that id
+/// (the alignment sent it elsewhere or dropped it), the added vertex takes the
+/// target id with the least `~n` suffix that no source or target vertex holds,
+/// so the instantiated target stays equal to the requested one up to an
+/// injective renaming of vertices.
+fn target_extension_steps(
+    alignment: &FoundMorphism,
+    src: &Schema,
+    tgt: &Schema,
+    defaults: &HashMap<Name, Value>,
+) -> Vec<Protolens> {
+    let mut vertex_pairs: Vec<(&Name, &Name)> = alignment.vertex_map.iter().collect();
+    vertex_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    let mut preimage: HashMap<&Name, &Name> = HashMap::new();
+    for (src_id, tgt_id) in vertex_pairs {
+        preimage.entry(tgt_id).or_insert(src_id);
+    }
+
+    let mut added_vertices: Vec<_> = tgt
+        .vertices
+        .values()
+        .filter(|vertex| !preimage.contains_key(&vertex.id))
+        .collect();
+    added_vertices.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+
+    let mut steps = Vec::new();
+    let mut placed_ids: HashMap<&Name, Name> = HashMap::new();
+    for vertex in added_vertices {
+        let mut placed = vertex.clone();
+        let mut suffix = 1_u32;
+        while src.vertices.contains_key(&placed.id)
+            || (placed.id != vertex.id && tgt.vertices.contains_key(&placed.id))
+        {
+            placed.id = Name::from(format!("{}~{suffix}", vertex.id));
+            suffix += 1;
+        }
+        let default = crate::default_synthesis::added_vertex_default(tgt, vertex, defaults);
+        steps.push(elementary::add_schema_vertex(
+            &placed,
+            tgt.entries.contains(&vertex.id),
+            default,
+        ));
+        placed_ids.insert(&vertex.id, placed.id);
+    }
+
+    let edge_image: std::collections::HashSet<&panproto_schema::Edge> =
+        alignment.edge_map.values().collect();
+    let local = |id: &Name| {
+        preimage
+            .get(id)
+            .map(|&src_id| src_id.clone())
+            .or_else(|| placed_ids.get(id).cloned())
+            .unwrap_or_else(|| id.clone())
+    };
+    let mut added_edges: Vec<_> = tgt
+        .edges
+        .keys()
+        .filter(|edge| !edge_image.contains(edge))
+        .collect();
+    added_edges.sort();
+    for edge in added_edges {
+        let placed = panproto_schema::Edge {
+            src: local(&edge.src),
+            tgt: local(&edge.tgt),
+            kind: edge.kind.clone(),
+            name: edge.name.clone(),
+        };
+        if src.edges.contains_key(&placed) {
+            continue;
+        }
+        steps.push(elementary::add_schema_edge(&placed));
+    }
+    steps
 }
 
 /// Derive value-level field transforms from a protolens chain.
@@ -1789,7 +1895,8 @@ fn candidate_from_morphism(
         protolens_from_alignment_mode_with_defaults(morphism, src, tgt, emit_spans, defaults)?;
     let mut lens = chain.instantiate(src, protocol)?;
     lens.compiled.field_transforms = derive_field_transforms(&chain, src, tgt);
-    crate::default_synthesis::attach_defaults(&mut lens, tgt, defaults, true)?;
+    let instantiated_target = lens.tgt_schema.clone();
+    crate::default_synthesis::attach_defaults(&mut lens, &instantiated_target, defaults, true)?;
 
     let coverage = crate::candidate::coverage_ratio(
         src,
@@ -1910,18 +2017,10 @@ fn alignment_to_theory_morphism_mode(
 /// Each elementary endofunctor maps directly to one of the elementary
 /// protolens constructors. `Identity` and `Compose` transforms are
 /// rejected since they should not appear in a factorized sequence.
-#[cfg(test)]
 fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens, LensError> {
-    endofunctor_to_protolens_with_defaults(endofunctor, &HashMap::new())
-}
-
-fn endofunctor_to_protolens_with_defaults(
-    endofunctor: &TheoryEndofunctor,
-    defaults: &HashMap<Name, Value>,
-) -> Result<Protolens, LensError> {
     match &endofunctor.transform {
         TheoryTransform::AddSort { sort, vertex_kind } => {
-            Ok(add_sort_protolens(sort, vertex_kind.as_ref(), defaults))
+            Ok(add_sort_protolens(sort, vertex_kind.as_ref()))
         }
         TheoryTransform::AddSortWithDefault {
             sort,
@@ -2028,18 +2127,9 @@ fn endofunctor_to_protolens_with_defaults(
     }
 }
 
-fn add_sort_protolens(
-    sort: &panproto_gat::Sort,
-    vertex_kind: Option<&Arc<str>>,
-    defaults: &HashMap<Name, Value>,
-) -> Protolens {
+fn add_sort_protolens(sort: &panproto_gat::Sort, vertex_kind: Option<&Arc<str>>) -> Protolens {
     let kind = vertex_kind.map_or_else(|| sort.default_vertex_kind(), Arc::clone);
-    let sort_name = Name::from(&*sort.name);
-    if let Some(default) = defaults.get(&sort_name).cloned() {
-        elementary::add_sort(sort_name, Name::from(&*kind), default)
-    } else {
-        elementary::add_sort_without_default(sort_name, Name::from(&*kind))
-    }
+    elementary::add_sort_without_default(Name::from(&*sort.name), Name::from(&*kind))
 }
 
 #[cfg(test)]
@@ -2186,6 +2276,125 @@ mod tests {
             panproto_inst::to_json(&tgt, &view).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "auto_generate must compile caller defaults into the public get path"
+        );
+    }
+
+    #[test]
+    fn auto_generate_target_schema_keeps_added_vertex_and_its_edge() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .vertex("root.active", "boolean", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .edge("root", "root.active", "prop", Some("active"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            defaults: HashMap::from([(Name::from("root.active"), Value::Bool(true))]),
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+
+        let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let instantiated = &generated.lens.tgt_schema;
+        let added = instantiated
+            .vertices
+            .get("root.active")
+            .expect("the added target vertex keeps its id");
+        assert_eq!(added.kind.as_str(), "boolean");
+        let active = panproto_schema::Edge {
+            src: Name::from("root"),
+            tgt: Name::from("root.active"),
+            kind: Name::from("prop"),
+            name: Some(Name::from("active")),
+        };
+        assert!(
+            instantiated.edges.contains_key(&active),
+            "the added vertex keeps its labelled edge; edges: {:?}",
+            instantiated.edges.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !instantiated.vertices.contains_key("boolean"),
+            "a new kind must not appear as a vertex named after the kind"
+        );
+        let mut instantiated_vertices: Vec<_> = instantiated.vertices.keys().collect();
+        let mut requested_vertices: Vec<_> = tgt.vertices.keys().collect();
+        instantiated_vertices.sort();
+        requested_vertices.sort();
+        assert_eq!(instantiated_vertices, requested_vertices);
+        let mut instantiated_edges: Vec<_> = instantiated.edges.keys().collect();
+        let mut requested_edges: Vec<_> = tgt.edges.keys().collect();
+        instantiated_edges.sort();
+        requested_edges.sort();
+        assert_eq!(instantiated_edges, requested_edges);
+    }
+
+    #[test]
+    fn auto_generate_places_an_added_field_under_a_renamed_parent() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("message", "record", None::<&str>)
+            .unwrap()
+            .vertex("message.text", "string", None::<&str>)
+            .unwrap()
+            .vertex("message.flag", "boolean", None::<&str>)
+            .unwrap()
+            .edge("message", "message.text", "prop", Some("text"))
+            .unwrap()
+            .edge("message", "message.flag", "prop", Some("flag"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            defaults: HashMap::from([(Name::from("message.flag"), Value::Bool(false))]),
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let source =
+            panproto_inst::parse_json(&src, &protocol, "post", &serde_json::json!({"text": "hi"}))
+                .unwrap();
+
+        let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let mapped_parent = generated
+            .lens
+            .tgt_schema
+            .incoming_edges("message.flag")
+            .iter()
+            .map(|edge| (edge.src.to_string(), edge.name.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            mapped_parent,
+            vec![("post".to_owned(), Some(Name::from("flag")))],
+            "the added edge hangs off the source preimage of its target parent"
+        );
+        let (view, _) = crate::get(&generated.lens, &source).unwrap();
+        assert_eq!(
+            panproto_inst::to_json(&generated.lens.tgt_schema, &view).unwrap(),
+            serde_json::json!({"flag": false, "text": "hi"}),
         );
     }
 

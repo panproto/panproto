@@ -163,16 +163,7 @@ fn diff_to_protolens_with_defaults(
                 "diff adds vertex `{vertex_id}`, but the new schema does not contain it"
             ))
         })?;
-        let edge_defaults: Vec<_> = new_schema
-            .incoming_edges(vertex_id)
-            .iter()
-            .filter_map(|edge| edge.name.as_ref().and_then(|name| defaults.get(name)))
-            .collect();
-        let default = defaults
-            .get(vertex_id.as_str())
-            .or_else(|| (edge_defaults.len() == 1).then(|| edge_defaults[0]))
-            .or_else(|| defaults.get(&vertex.kind))
-            .cloned();
+        let default = crate::default_synthesis::added_vertex_default(new_schema, vertex, defaults);
         steps.push(elementary::add_schema_vertex(
             vertex,
             new_schema.entries.contains(&vertex.id),

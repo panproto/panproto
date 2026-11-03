@@ -1029,9 +1029,11 @@ fn lenient_orphan_source_sort_emits_drop_sort() {
 }
 
 #[test]
-fn lenient_orphan_target_sort_emits_add_sort() {
-    // Mirror: target has a kind the source lacks; factorize must emit
-    // `AddSort(boolean)`.
+fn lenient_orphan_target_kind_adds_its_vertex_and_edge() {
+    // Mirror: the target has a kind the source lacks. The kind-level
+    // factorization only knows that `boolean` is new; the chain must add the
+    // concrete vertex `r.flag` of that kind and the `flag` edge placing it,
+    // not a vertex named after the kind.
     let src = build(
         &[("r", "record"), ("r.keep", "string")],
         &[("r", "r.keep", "prop", "keep")],
@@ -1054,24 +1056,33 @@ fn lenient_orphan_target_sort_emits_add_sort() {
         },
     )
     .expect("Lenient should find a span");
-    let has_add_sort_boolean = result
+    let step_names: Vec<String> = result
         .chain
         .steps
         .iter()
-        .any(|step| match &step.target.transform {
-            TheoryTransform::AddSort { sort, .. }
-            | TheoryTransform::AddSortWithDefault { sort, .. } => &*sort.name == "boolean",
-            _ => false,
-        });
+        .map(|s| s.name.to_string())
+        .collect();
+    let adds_flag = result.chain.steps.iter().any(|step| {
+        matches!(
+            &step.target.transform,
+            TheoryTransform::AddSchemaVertex { vertex_id, vertex_kind, .. }
+                if &**vertex_id == "r.flag" && &**vertex_kind == "boolean"
+        )
+    });
+    let adds_flag_edge = result.chain.steps.iter().any(|step| {
+        matches!(
+            &step.target.transform,
+            TheoryTransform::AddEdge { src_sort, tgt_sort, edge_name: Some(name), .. }
+                if &**src_sort == "r" && &**tgt_sort == "r.flag" && &**name == "flag"
+        )
+    });
     assert!(
-        has_add_sort_boolean,
-        "Lenient span must emit AddSort(boolean); chain: {:?}",
-        result
-            .chain
-            .steps
-            .iter()
-            .map(|s| s.name.to_string())
-            .collect::<Vec<_>>()
+        adds_flag && adds_flag_edge,
+        "Lenient span must add `r.flag` and `r --flag--> r.flag`; chain: {step_names:?}"
+    );
+    assert!(
+        !result.lens.tgt_schema.vertices.contains_key("boolean"),
+        "no vertex may be named after the new kind; chain: {step_names:?}"
     );
 }
 

@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use panproto_gat::Name;
 use panproto_inst::FieldTransform;
 use panproto_inst::value::Value;
-use panproto_schema::{Edge, Schema};
+use panproto_schema::{Edge, Schema, Vertex};
 
 use crate::Lens;
 use crate::error::LensError;
@@ -18,8 +18,9 @@ use crate::protolens::ComplementConstructor;
 /// its full vertex id, the label of an eligible incoming edge, then its
 /// vertex kind. The target schema supplies the placement information that a
 /// bare sort default lacks. A default is executable only when the added
-/// vertex has one named incoming edge from a vertex represented in the
-/// source instance.
+/// vertex is a leaf (it has no outgoing edge, so it is an attribute rather
+/// than a structural vertex) and has one named incoming edge from a vertex
+/// represented in the source instance.
 #[allow(
     clippy::too_many_lines,
     reason = "the ordered default-resolution policy is clearer as one linear pass"
@@ -125,6 +126,19 @@ pub fn attach_defaults(
             continue;
         };
 
+        // A default compiles to an attribute write, and an attribute is a
+        // leaf: an added vertex with outgoing edges is a structural vertex
+        // whose content is its children, not a value.
+        if !target_schema.outgoing_edges(vertex_id).is_empty() {
+            if !require_all {
+                continue;
+            }
+            return Err(default_error(&format!(
+                "default `{default_key}` for added vertex `{vertex_id}` cannot be placed: \
+                 the vertex has outgoing edges, so it is not a leaf attribute"
+            )));
+        }
+
         if !panproto_inst::attributes::kind_accepts(&vertex.kind, value) {
             return Err(default_error(&format!(
                 "default `{default_key}` for added vertex `{vertex_id}` has value kind `{}`, \
@@ -222,6 +236,30 @@ pub fn attach_defaults(
     }
 
     Ok(())
+}
+
+/// Resolve the caller default that an added target vertex carries.
+///
+/// The keys are tried in the order [`attach_defaults`] uses: the full vertex
+/// id, the label of the vertex's one incoming edge that names a supplied
+/// default, then the vertex kind. A vertex whose incoming labels name more
+/// than one default takes none by label; [`attach_defaults`] reports that
+/// ambiguity when it places the field.
+pub fn added_vertex_default(
+    target_schema: &Schema,
+    vertex: &Vertex,
+    defaults: &HashMap<Name, Value>,
+) -> Option<Value> {
+    let edge_defaults: Vec<_> = target_schema
+        .incoming_edges(&vertex.id)
+        .iter()
+        .filter_map(|edge| edge.name.as_ref().and_then(|name| defaults.get(name)))
+        .collect();
+    defaults
+        .get(&vertex.id)
+        .or_else(|| (edge_defaults.len() == 1).then(|| edge_defaults[0]))
+        .or_else(|| defaults.get(&vertex.kind))
+        .cloned()
 }
 
 /// Collect literal defaults retained by a protolens complement constructor.
