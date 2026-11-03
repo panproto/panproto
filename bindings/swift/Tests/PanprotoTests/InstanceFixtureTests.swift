@@ -102,7 +102,7 @@ struct GetRecordFixtureTests {
         let envelope = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes)
         let complement = try envelope.complement()
 
-        #expect(complement.sourceFingerprint == 17_951_849_436_321_526_888)
+        #expect(complement.sourceFingerprint == 3_962_274_085_966_312_888)
         #expect(complement.droppedNodes.isEmpty)
         #expect(complement.droppedArcs.isEmpty)
         #expect(complement.droppedFans.isEmpty)
@@ -170,9 +170,9 @@ struct ComplementSpecFixtureTests {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
 
         #expect(spec.kind == .mixed)
-        #expect(spec.forwardDefaults.count == 1)
+        #expect(spec.forwardDefaults.count == 12)
         #expect(spec.capturedData.count == 3)
-        #expect(spec.summary == "1 default(s) required, 3 field(s) captured in complement.")
+        #expect(spec.summary == "12 default(s) required, 3 field(s) captured in complement.")
     }
 
     @Test("an unavailable suggested default is absent")
@@ -180,7 +180,7 @@ struct ComplementSpecFixtureTests {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
         let requirement = try #require(spec.forwardDefaults.first)
 
-        #expect(requirement.elementName == "blob")
+        #expect(requirement.elementName == "app.bsky.actor.profile:body.avatar")
         #expect(requirement.elementKind == "blob")
         #expect(requirement.suggestedDefault == nil)
     }

@@ -365,6 +365,13 @@ public enum ElementaryStep: String, Codable, Hashable, Sendable, CaseIterable {
     case sortCoerce = "sort_coerce"
     /// Apply an inner step within the sub-schema a focus vertex reaches.
     case scoped
+    /// Add one concrete schema vertex under its own id and kind, which a
+    /// chain generated between two schemas uses for a vertex only the
+    /// target has.
+    case addSchemaVertex = "add_schema_vertex"
+    /// Add one concrete schema edge, label included, between two schema
+    /// vertices.
+    case addSchemaEdge = "add_schema_edge"
 
     /// The label a dropped edge takes in its step name where the edge
     /// carries none.
@@ -411,7 +418,7 @@ public enum ElementaryStep: String, Codable, Hashable, Sendable, CaseIterable {
         case .scoped: nil
         case .addSort, .addSortWithDefault, .dropSort, .addOp, .dropOp, .addEdge, .dropEdge,
             .addEquation, .dropEquation, .pullback, .directedEquation, .dropDirectedEquation,
-            .sortCoerce:
+            .sortCoerce, .addSchemaVertex, .addSchemaEdge:
             .lens
         }
     }
@@ -427,7 +434,8 @@ public enum ElementaryStep: String, Codable, Hashable, Sendable, CaseIterable {
         case .renameSort, .renameOp, .renameEdgeName, .addEquation, .dropEquation, .pullback,
             .dropDirectedEquation:
             true
-        case .addSort, .addSortWithDefault, .dropSort, .addOp, .dropOp, .addEdge, .dropEdge:
+        case .addSort, .addSortWithDefault, .dropSort, .addOp, .dropOp, .addEdge, .dropEdge,
+            .addSchemaVertex, .addSchemaEdge:
             false
         case .directedEquation, .sortCoerce, .scoped: nil
         }

@@ -302,7 +302,7 @@ struct LensTests {
             return (try chain.stepSummaries().count, try composed.stepSummaries().count)
         }
 
-        #expect(counts.0 == 4)
+        #expect(counts.0 == 15)
         #expect(counts.1 == counts.0 * 2)
     }
 

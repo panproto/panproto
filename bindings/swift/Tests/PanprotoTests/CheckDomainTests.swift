@@ -68,8 +68,8 @@ struct CheckDomainTests {
             return (try post.structuralDiff(to: profile), try post.diff(to: profile))
         }
 
-        #expect(structural.addedVertices.count == 13)
-        #expect(structural.removedVertices.count == 37)
+        #expect(structural.addedVertices.count == 14)
+        #expect(structural.removedVertices.count == 39)
         #expect(structural.addedEdges.count == 15)
         #expect(structural.removedEdges.count == 39)
         #expect(structural.kindChanges.isEmpty)
@@ -174,8 +174,8 @@ struct CheckDomainTests {
 
         #expect(text.hasPrefix("INCOMPATIBLE: Breaking changes detected.\n"))
         #expect(text.contains("Classification: breaking"))
-        #expect(text.contains("Breaking changes (78):"))
-        #expect(text.contains("Non-breaking changes (29):"))
+        #expect(text.contains("Breaking changes (90):"))
+        #expect(text.contains("Non-breaking changes (30):"))
         #expect(text.contains("Removed vertex: app.bsky.feed.post"))
     }
 

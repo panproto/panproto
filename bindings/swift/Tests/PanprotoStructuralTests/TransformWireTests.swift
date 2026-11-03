@@ -850,6 +850,10 @@ struct ElementaryStepTests {
         #expect(ElementaryStep(stepName: "sort_coerce_score_to_int") == .sortCoerce)
         #expect(ElementaryStep(stepName: "pullback_incl") == .pullback)
         #expect(ElementaryStep(stepName: "scoped_body_drop_sort_a") == .scoped)
+        #expect(ElementaryStep(stepName: "add_schema_vertex_post.title") == .addSchemaVertex)
+        #expect(
+            ElementaryStep(stepName: "add_schema_edge_post_post.title_prop_title") == .addSchemaEdge
+        )
         #expect(ElementaryStep(stepName: "something_else") == nil)
     }
 

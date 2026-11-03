@@ -80,15 +80,15 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-vcard-ical.cbor` | `Raw.registryGetBuiltin(name:)` | 1455 | name `vcard-ical` |
 | `protocol-web-annotation.cbor` | `Raw.registryGetBuiltin(name:)` | 3631 | name `web-annotation` |
 | `protocol-yaml.cbor` | `Raw.registryGetBuiltin(name:)` | 1218 | name `yaml` |
-| `schema-bsky-post.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 25098 | `fixtures/atproto/lexicons/app.bsky.feed.post.json` |
-| `schema-bsky-profile.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 10521 | `fixtures/atproto/lexicons/app.bsky.actor.profile.json` |
-| `schema-metadata-post.cbor` | `Raw.schemaMetadata(schemaHandle:)` | 5843 | the `app.bsky.feed.post` schema |
+| `schema-bsky-post.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 26235 | `fixtures/atproto/lexicons/app.bsky.feed.post.json` |
+| `schema-bsky-profile.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 10898 | `fixtures/atproto/lexicons/app.bsky.actor.profile.json` |
+| `schema-metadata-post.cbor` | `Raw.schemaMetadata(schemaHandle:)` | 5944 | the `app.bsky.feed.post` schema |
 | `instance-post-0.cbor` | `Raw.instJsonToInstance(schemaHandle:json:rootVertex:)` | 1323 | `fixtures/atproto/records/post-0.json` at root vertex `app.bsky.feed.post` |
-| `diff-simple-post-profile.cbor` | `Raw.checkDiffSimple(s1:s2:)` | 7006 | post schema against profile schema |
-| `diff-full-post-profile.cbor` | `Raw.checkDiffFull(s1:s2:)` | 8453 | post schema against profile schema |
-| `compat-report.cbor` | `Raw.checkClassify(proto:diff:)` | 9506 | the full diff against the `atproto` protocol |
-| `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 415 | the chain auto-generated at stringency `lenient` |
-| `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 573 | the same chain at the post schema |
+| `diff-simple-post-profile.cbor` | `Raw.checkDiffSimple(s1:s2:)` | 7120 | post schema against profile schema |
+| `diff-full-post-profile.cbor` | `Raw.checkDiffFull(s1:s2:)` | 9703 | post schema against profile schema |
+| `compat-report.cbor` | `Raw.checkClassify(proto:diff:)` | 10794 | the full diff against the `atproto` protocol |
+| `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 2639 | the chain auto-generated at stringency `lenient` |
+| `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 2197 | the same chain at the post schema |
 | `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1814 | the post instance through the post schema's chain against itself |
 | `vcs-add.cbor` | `Raw.vcsAdd(repo:schema:)` | 119 | the post schema staged into a fresh repository |
 | `vcs-commit.cbor` | `Raw.vcsCommit(repo:message:author:)` | 163 | the commit that records the staged post schema |
