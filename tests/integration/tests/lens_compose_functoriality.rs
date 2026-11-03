@@ -539,12 +539,12 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
             .into_iter()
             .collect();
         for (parent, child, edge) in &view.arcs {
-            if *parent == view.root && edge.name.as_deref() == Some(key) {
-                if let Some(panproto_inst::value::FieldPresence::Present(value)) =
+            if *parent == view.root
+                && edge.name.as_deref() == Some(key)
+                && let Some(panproto_inst::value::FieldPresence::Present(value)) =
                     view.nodes.get(child).and_then(|n| n.value.clone())
-                {
-                    out.push(value);
-                }
+            {
+                out.push(value);
             }
         }
         out

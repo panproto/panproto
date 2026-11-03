@@ -1094,7 +1094,7 @@ mod tests {
                 ("post.embed", "union"),
                 ("post.embed:open", "unknown"),
             ],
-            &[embed.clone()],
+            std::slice::from_ref(&embed),
         );
         schema.entries = vec![Name::from("post")];
         schema.variants.insert(

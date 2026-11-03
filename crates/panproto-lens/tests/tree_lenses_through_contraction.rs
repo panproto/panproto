@@ -759,7 +759,7 @@ mod residue {
             &[("r", "r"), ("a", "a")],
             vec![
                 (prop("r", "a", "x"), merged.clone()),
-                (prop("r", "a", "y"), merged.clone()),
+                (prop("r", "a", "y"), merged),
             ],
             vec![],
         );

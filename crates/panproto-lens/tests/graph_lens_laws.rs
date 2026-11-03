@@ -1442,6 +1442,46 @@ fn assert_cross_shape_agreement(case: &str, lens: &Lens, tree: &WInstance, graph
     );
 }
 
+/// Two source arcs merged onto one named target edge under one parent put
+/// two values on a single-valued field, which the tree domain refuses.
+#[test]
+fn merging_two_arcs_onto_a_named_edge_is_outside_the_tree_domain() {
+    let sx = edge("a", "b", "x");
+    let sy = edge("a", "b", "y");
+    let named = edge("a", "b", "x");
+    let named_merge = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: ["a".into(), "b".into()].into_iter().collect(),
+            surviving_edges: std::iter::once(named.clone()).collect(),
+            edge_remap: HashMap::from([(sx.clone(), named.clone()), (sy.clone(), named.clone())]),
+            ..CompiledMigration::default()
+        },
+        src_schema: built_schema(&["a", "b"], &[sx.clone(), sy.clone()]),
+        tgt_schema: built_schema(&["a", "b"], std::slice::from_ref(&named)),
+    };
+    let merge_tree = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "a")),
+            (1, Node::new(1, "b")),
+            (2, Node::new(2, "b")),
+        ]),
+        vec![(0, 1, sx), (0, 2, sy)],
+        vec![],
+        0,
+        "a".into(),
+    );
+    assert!(matches!(
+        panproto_lens::get(&named_merge, &merge_tree),
+        Err(LensError::Restrict(
+            panproto_inst::RestrictError::MultipleArcsOnSingleValuedEdge {
+                parent: 0,
+                count: 2,
+                ..
+            }
+        ))
+    ));
+}
+
 #[test]
 fn residue_classification_agrees_across_shapes() {
     // (a) Contraction bookkeeping is derivable, while the dropped interior
@@ -1503,7 +1543,8 @@ fn residue_classification_agrees_across_shapes() {
     // each edge and therefore is not complement-free in either shape. The
     // merged target edge is unnamed: a named edge is a single-valued field,
     // and two source fields merged onto one under a parent are outside the
-    // tree domain, which the named variant below pins.
+    // tree domain, which
+    // `merging_two_arcs_onto_a_named_edge_is_outside_the_tree_domain` pins.
     let sx = edge("a", "b", "x");
     let sy = edge("a", "b", "y");
     let tx = Edge {
@@ -1534,30 +1575,6 @@ fn residue_classification_agrees_across_shapes() {
     let merge_graph =
         GInstance::from_wtype_with_schema(&merge_tree, &merge.src_schema).expect("graph form");
     assert_cross_shape_agreement("c", &merge, &merge_tree, &merge_graph);
-    let named = edge("a", "b", "x");
-    let named_merge = Lens {
-        compiled: CompiledMigration {
-            surviving_edges: std::iter::once(named.clone()).collect(),
-            edge_remap: HashMap::from([
-                (edge("a", "b", "x"), named.clone()),
-                (edge("a", "b", "y"), named.clone()),
-            ]),
-            ..merge.compiled.clone()
-        },
-        src_schema: merge.src_schema.clone(),
-        tgt_schema: built_schema(&["a", "b"], std::slice::from_ref(&named)),
-    };
-    assert!(matches!(
-        panproto_lens::get(&named_merge, &merge_tree),
-        Err(LensError::Restrict(
-            panproto_inst::RestrictError::MultipleArcsOnSingleValuedEdge {
-                parent: 0,
-                count: 2,
-                ..
-            }
-        ))
-    ));
-
     // (d) A fan relabel is recorded residue in both shapes.
     let (fan_schema, fan_graph) = fanned_fixture();
     let fan_tree = fan_graph.try_to_wtype(&fan_schema).expect("tree form");
