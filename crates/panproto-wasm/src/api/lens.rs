@@ -1860,8 +1860,10 @@ mod tests {
     /// after `g` in the target schema's edge order, so `put_json` reads the
     /// computed child `g` with the id the source child `text` holds in the
     /// complement; the fold still recognizes it as the computed field.
-    #[test]
-    fn json_round_trip_restores_a_renamed_field_beside_a_computed_field() {
+    /// Register the protocol `demo-rename-compute` and build over it the
+    /// body schema `rec:body { text, g }` with string leaves; return the
+    /// protocol and schema handles.
+    fn rename_compute_schema() -> (u32, u32) {
         let protocol = panproto_core::schema::Protocol {
             name: "demo-rename-compute".into(),
             schema_theory: "ThConstrainedGraph".into(),
@@ -1898,6 +1900,12 @@ mod tests {
             &rmp_serde::to_vec_named(&ops).expect("ops encode"),
         )
         .expect("schema builds");
+        (protocol_handle, schema_handle)
+    }
+
+    #[test]
+    fn json_round_trip_restores_a_renamed_field_beside_a_computed_field() {
+        let (protocol_handle, schema_handle) = rename_compute_schema();
         let document = |steps: serde_json::Value| {
             serde_json::json!({ "id": "demo", "source": "v1", "target": "v2", "steps": steps })
                 .to_string()
