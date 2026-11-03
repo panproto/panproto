@@ -613,9 +613,9 @@ describe('compileLensDocument', () => {
     ).toThrow(/compile_lens_document|yaml|parse/i);
   });
 
-  // A chain-instantiated lens used to have no JSON emit path: `get` left
-  // its output materialized inside the instance graph, and reading it back
-  // meant walking nodes and arcs by hand. `getJson` hands it back as a
+  // A chain-instantiated lens needs a JSON emit path: `get` leaves its
+  // output materialized inside the instance graph, and reading it back
+  // would mean walking nodes and arcs by hand. `getJson` hands it back as a
   // record, so the lens can be the mapper and not only a verified spec.
   it('getJson returns the transformed view as a record', () => {
     const proto = buildCustomProto();
@@ -1050,8 +1050,8 @@ describe('bundle validation against the resolved protocol', () => {
 //
 // A lens document's value-level steps (compute_field, apply_expr,
 // hoist_field, nest_field) compile to field transforms rather than to
-// structural chain steps. They used to be dropped at the boundary, which
-// left a value-transform lens unreachable from JS.
+// structural chain steps. They must not be dropped at the boundary, or a
+// value-transform lens is unreachable from JS.
 // ---------------------------------------------------------------------------
 
 describe('ProtolensChainHandle.fieldTransforms', () => {
