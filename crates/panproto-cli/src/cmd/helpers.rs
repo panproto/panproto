@@ -270,6 +270,44 @@ pub fn load_schema_from_store(store: &dyn vcs::Store, id: vcs::ObjectId) -> Resu
         .wrap_err_with(|| format!("failed to resolve schema at {}", id.short()))
 }
 
+/// Put a JSON view back through `the_lens`.
+///
+/// The view is read under the lens's target schema, the schema `get` wrote
+/// it in, with `protocol`. With a complement, `parse_json` reads a computed
+/// field that `to_json` wrote as a child on the edge it names, so
+/// [`fold_computed_children_into_fields`](lens::fold_computed_children_into_fields)
+/// moves each such child back among its node's fields, where `get` wrote it
+/// and where `put` reads it. Without one, the view is put through
+/// [`put_without_complement`](lens::put_without_complement), which succeeds
+/// exactly for the lenses it certifies as isomorphisms.
+///
+/// # Errors
+///
+/// Returns an error if the view does not parse under the target schema or
+/// the put refuses it.
+pub fn put_json_view(
+    the_lens: &lens::Lens,
+    protocol: &Protocol,
+    view_json: &serde_json::Value,
+    complement: Option<&lens::Complement>,
+) -> Result<inst::WInstance> {
+    let tgt_schema = &the_lens.tgt_schema;
+    let root_vertex = infer_root_vertex(tgt_schema)?;
+    let view = inst::parse_json(tgt_schema, protocol, root_vertex.as_str(), view_json)
+        .into_diagnostic()
+        .wrap_err("failed to parse the view under the lens target schema")?;
+    let restored = match complement {
+        Some(complement) => {
+            let view = lens::fold_computed_children_into_fields(the_lens, &view, complement);
+            lens::put(the_lens, &view, complement)
+        }
+        None => lens::put_without_complement(the_lens, &view),
+    };
+    restored
+        .into_diagnostic()
+        .wrap_err("lens put (backward) failed")
+}
+
 /// Read all *.json files from a directory, sorted by filename.
 pub fn read_json_dir(dir: &Path) -> Result<Vec<std::fs::DirEntry>> {
     let mut entries: Vec<_> = std::fs::read_dir(dir)
@@ -295,26 +333,27 @@ pub fn convert_single_file(
     let forward_schema = if is_forward { src_schema } else { tgt_schema };
     let backward_schema = if is_forward { tgt_schema } else { src_schema };
 
-    let root_vertex = infer_root_vertex(forward_schema)?;
-    let instance = inst::parse_json(
-        forward_schema,
-        &schema_protocol(forward_schema),
-        root_vertex.as_str(),
-        &data_json,
-    )
-    .into_diagnostic()
-    .wrap_err("failed to parse data as W-type instance")?;
-
     let output_instance = if is_forward {
+        let root_vertex = infer_root_vertex(forward_schema)?;
+        let instance = inst::parse_json(
+            forward_schema,
+            &schema_protocol(forward_schema),
+            root_vertex.as_str(),
+            &data_json,
+        )
+        .into_diagnostic()
+        .wrap_err("failed to parse data as W-type instance")?;
         let (view, _complement) = lens::get(the_lens, &instance)
             .into_diagnostic()
             .wrap_err("lens get (forward) failed")?;
         view
     } else {
-        let complement = lens::Complement::empty();
-        lens::put(the_lens, &instance, &complement)
-            .into_diagnostic()
-            .wrap_err("lens put (backward) failed")?
+        put_json_view(
+            the_lens,
+            &schema_protocol(forward_schema),
+            &data_json,
+            None,
+        )?
     };
 
     let output = inst::to_json(backward_schema, &output_instance)

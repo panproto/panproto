@@ -243,7 +243,7 @@ const fn hint_stringency_to_engine(s: HintStringency) -> Stringency {
 
 use super::helpers::{
     auto_lens_result_to_json, chain_to_json, infer_root_vertex, load_json, open_repo,
-    parse_defaults, resolve_protocol,
+    parse_defaults, put_json_view, resolve_protocol,
 };
 
 /// Generate a lens between two schemas.
@@ -719,13 +719,13 @@ pub fn cmd_lens_apply(
     };
 
     let data_json: serde_json::Value = load_json(data_path)?;
-    let root_vertex = infer_root_vertex(&schema)?;
-    let instance = inst::parse_json(&schema, &protocol, root_vertex.as_str(), &data_json)
-        .into_diagnostic()
-        .wrap_err("failed to parse data as W-type instance")?;
 
     match direction {
         "forward" => {
+            let root_vertex = infer_root_vertex(&schema)?;
+            let instance = inst::parse_json(&schema, &protocol, root_vertex.as_str(), &data_json)
+                .into_diagnostic()
+                .wrap_err("failed to parse data as W-type instance")?;
             let (view, _complement) = lens::get(&the_lens, &instance)
                 .into_diagnostic()
                 .wrap_err("lens get (forward) failed")?;
@@ -738,18 +738,20 @@ pub fn cmd_lens_apply(
             println!("{pretty}");
         }
         "backward" => {
-            let complement = if let Some(cp) = complement_path {
-                let comp_json: serde_json::Value = load_json(cp)?;
-                serde_json::from_value(comp_json)
-                    .into_diagnostic()
-                    .wrap_err("failed to parse complement data")?
-            } else {
-                lens::Complement::empty()
+            let complement: Option<lens::Complement> = match complement_path {
+                Some(cp) => {
+                    let comp_json: serde_json::Value = load_json(cp)?;
+                    Some(
+                        serde_json::from_value(comp_json)
+                            .into_diagnostic()
+                            .wrap_err("failed to parse complement data")?,
+                    )
+                }
+                None => None,
             };
 
-            let restored = lens::put(&the_lens, &instance, &complement)
-                .into_diagnostic()
-                .wrap_err("lens put (backward) failed")?;
+            let restored =
+                put_json_view(&the_lens, &protocol, &data_json, complement.as_ref())?;
             let output = inst::to_json(&the_lens.src_schema, &restored)
                 .into_diagnostic()
                 .wrap_err("failed to write the instance as JSON")?;

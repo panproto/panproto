@@ -3208,6 +3208,226 @@ fn cli_lens_apply_refuses_a_compiled_artifact_of_two_normal_form_groups() {
     );
 }
 
+/// Compile the one-step lens document `step` over the record schema
+/// `root { text, shout }`, run `lens apply` forward on `{"text": "hello"}`
+/// and check the view is `expected_view`, then run it backward on that
+/// view with the complement `get` recorded and return what it restores.
+fn lens_apply_forward_then_backward(
+    step: &serde_json::Value,
+    expected_view: &serde_json::Value,
+) -> serde_json::Value {
+    let tmp = tempfile::tempdir().unwrap();
+    let document = serde_json::json!({
+        "id": "dev.test.round_trip",
+        "source": "s",
+        "target": "t",
+        "steps": [step],
+    });
+    std::fs::write(tmp.path().join("document.json"), document.to_string()).unwrap();
+    schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            "document.json",
+            "--body-vertex",
+            "root",
+            "--out",
+            "lens.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[
+            ("root", "object"),
+            ("root.text", "string"),
+            ("root.shout", "string"),
+        ],
+        &[
+            ("root", "root.text", "prop", "text"),
+            ("root", "root.shout", "prop", "shout"),
+        ],
+    );
+    let source_json = serde_json::json!({ "text": "hello" });
+    std::fs::write(tmp.path().join("data.json"), source_json.to_string()).unwrap();
+
+    let forward = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "lens.json",
+            "data.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let view: serde_json::Value = serde_json::from_slice(&forward.stdout).unwrap();
+    assert_eq!(&view, expected_view);
+    std::fs::write(tmp.path().join("view.json"), view.to_string()).unwrap();
+
+    // `lens apply` prints only the view, so the complement comes from the
+    // same lens run in process: the artifact's one stage instantiated at
+    // the source schema, carrying the stage's field transforms.
+    let protocol = (panproto_core::protocols::registry::descriptor("atproto")
+        .unwrap()
+        .protocol)();
+    let schema: panproto_core::schema::Schema =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("source.json")).unwrap())
+            .unwrap();
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("lens.json")).unwrap())
+            .unwrap();
+    let stages = artifact["stages"].as_array().unwrap();
+    assert_eq!(stages.len(), 1, "a one-step document compiles to one stage");
+    let chain: panproto_core::lens::ProtolensChain =
+        serde_json::from_value(stages[0]["chain"].clone()).unwrap();
+    let mut the_lens = chain.instantiate(&schema, &protocol).unwrap();
+    if let Some(transforms) = stages[0].get("field_transforms") {
+        let transforms: HashMap<
+            panproto_core::gat::Name,
+            Vec<panproto_core::inst::FieldTransform>,
+        > = serde_json::from_value(transforms.clone()).unwrap();
+        the_lens.compiled.field_transforms.extend(transforms);
+    }
+    let source =
+        panproto_core::inst::parse_json(&schema, &protocol, "root", &source_json).unwrap();
+    let (_, complement) = panproto_core::lens::get(&the_lens, &source).unwrap();
+    std::fs::write(
+        tmp.path().join("complement.json"),
+        serde_json::to_string(&complement).unwrap(),
+    )
+    .unwrap();
+
+    let backward = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "lens.json",
+            "view.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+            "--direction",
+            "backward",
+            "--complement",
+            "complement.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    serde_json::from_slice(&backward.stdout).unwrap()
+}
+
+/// `lens apply --direction backward` reads its data as a view under the
+/// lens's target schema: the renamed field `amount` is the source field
+/// `text`, so forward then backward restores the source.
+#[test]
+fn cli_lens_apply_backward_reads_a_renamed_field_under_the_target_schema() {
+    let restored = lens_apply_forward_then_backward(
+        &serde_json::json!({ "rename_field": { "old": "text", "new": "amount" } }),
+        &serde_json::json!({ "amount": "hello" }),
+    );
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
+/// `lens apply --direction backward` folds the computed field `to_json`
+/// wrote as a child back into its node's fields before `put`, so forward
+/// then backward restores the source.
+#[test]
+fn cli_lens_apply_backward_folds_a_computed_field_before_put() {
+    let restored = lens_apply_forward_then_backward(
+        &serde_json::json!({ "compute_field": { "target": "shout", "expr": "text ++ \"!\"" } }),
+        &serde_json::json!({ "text": "hello", "shout": "hello!" }),
+    );
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
+/// `data convert --direction backward` has no complement, so it puts the
+/// view through `put_without_complement`: a renaming chain is an
+/// isomorphism, and the view under the target schema converts back to the
+/// source record.
+#[test]
+fn cli_data_convert_backward_puts_an_isomorphism_without_a_complement() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("document.json"),
+        serde_json::json!({
+            "id": "dev.test.rename",
+            "source": "s",
+            "target": "t",
+            "steps": [{ "rename_field": { "old": "text", "new": "amount" } }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let compiled = schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            "document.json",
+            "--body-vertex",
+            "root",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let artifact: serde_json::Value = serde_json::from_slice(&compiled.stdout).unwrap();
+    std::fs::write(tmp.path().join("chain.json"), artifact["chain"].to_string()).unwrap();
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[("root", "object"), ("root.text", "string")],
+        &[("root", "root.text", "prop", "text")],
+    );
+    write_schema_with_edges(
+        tmp.path(),
+        "target.json",
+        "atproto",
+        &[("root", "object"), ("root.text", "string")],
+        &[("root", "root.text", "prop", "amount")],
+    );
+    std::fs::write(tmp.path().join("view.json"), r#"{"amount":"hello"}"#).unwrap();
+
+    let output = schema_cmd()
+        .args([
+            "data",
+            "convert",
+            "view.json",
+            "--from",
+            "source.json",
+            "--to",
+            "target.json",
+            "--protocol",
+            "atproto",
+            "--chain",
+            "chain.json",
+            "--direction",
+            "backward",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let restored: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
 /// `schema lens compile` on an `auto` body without schema context must
 /// exit non-zero: auto-generation needs source/target schemas, which the
 /// pure DSL compile path does not have.

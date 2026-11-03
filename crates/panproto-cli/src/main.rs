@@ -1043,7 +1043,8 @@ enum LensAction {
     Apply {
         /// Path to the compiled artifact, raw chain, or target-schema JSON.
         chain: PathBuf,
-        /// Path to the data file.
+        /// Path to the data file: a source record forward, or a view
+        /// under the lens's target schema backward.
         data: PathBuf,
         /// Protocol name.
         #[arg(long)]
@@ -1051,7 +1052,8 @@ enum LensAction {
         /// Direction: "forward" or "backward".
         #[arg(long, default_value = "forward")]
         direction: String,
-        /// Complement data for backward apply.
+        /// Complement data for backward apply. Without one, backward
+        /// apply succeeds only for a lens that is an isomorphism.
         #[arg(long)]
         complement: Option<PathBuf>,
         /// Schema for chain instantiation.

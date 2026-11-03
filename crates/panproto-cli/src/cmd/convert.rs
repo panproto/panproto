@@ -3,7 +3,9 @@ use std::path::Path;
 use miette::{Context, IntoDiagnostic, Result};
 use panproto_core::{inst, lens, schema::Schema};
 
-use super::helpers::{infer_root_vertex, load_json, parse_defaults, resolve_protocol};
+use super::helpers::{
+    infer_root_vertex, load_json, parse_defaults, put_json_view, resolve_protocol,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub fn cmd_convert(
@@ -76,29 +78,24 @@ pub fn cmd_convert(
 
     // Helper closure to convert a single record.
     let convert_one = |data_json: &serde_json::Value| -> Result<String> {
-        let root_vertex = infer_root_vertex(forward_schema)?;
-        let instance = inst::parse_json(
-            forward_schema,
-            &super::helpers::schema_protocol(forward_schema),
-            root_vertex.as_str(),
-            data_json,
-        )
-        .into_diagnostic()
-        .wrap_err("failed to parse data as W-type instance")?;
-
+        let data_protocol = super::helpers::schema_protocol(forward_schema);
         let output_instance = match direction {
             "forward" => {
+                let root_vertex = infer_root_vertex(forward_schema)?;
+                let instance = inst::parse_json(
+                    forward_schema,
+                    &data_protocol,
+                    root_vertex.as_str(),
+                    data_json,
+                )
+                .into_diagnostic()
+                .wrap_err("failed to parse data as W-type instance")?;
                 let (view, _complement) = lens::get(&the_lens, &instance)
                     .into_diagnostic()
                     .wrap_err("lens get (forward) failed")?;
                 view
             }
-            "backward" => {
-                let complement = lens::Complement::empty();
-                lens::put(&the_lens, &instance, &complement)
-                    .into_diagnostic()
-                    .wrap_err("lens put (backward) failed")?
-            }
+            "backward" => put_json_view(&the_lens, &data_protocol, data_json, None)?,
             _ => unreachable!(),
         };
 
