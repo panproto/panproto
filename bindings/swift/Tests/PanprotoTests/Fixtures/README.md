@@ -87,9 +87,9 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `diff-simple-post-profile.cbor` | `Raw.checkDiffSimple(s1:s2:)` | 7120 | post schema against profile schema |
 | `diff-full-post-profile.cbor` | `Raw.checkDiffFull(s1:s2:)` | 9703 | post schema against profile schema |
 | `compat-report.cbor` | `Raw.checkClassify(proto:diff:)` | 10794 | the full diff against the `atproto` protocol |
-| `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 2639 | the chain auto-generated at stringency `lenient` |
-| `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 2197 | the same chain at the post schema |
-| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1814 | the post instance through the post schema's chain against itself |
+| `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 12705 | the chain auto-generated at stringency `lenient` |
+| `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 12793 | the same chain at the post schema |
+| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1797 | the post instance through the instantiated post to profile chain |
 | `vcs-add.cbor` | `Raw.vcsAdd(repo:schema:)` | 119 | the post schema staged into a fresh repository |
 | `vcs-commit.cbor` | `Raw.vcsCommit(repo:message:author:)` | 163 | the commit that records the staged post schema |
 | `vcs-branches.cbor` | `Raw.vcsListBranches(repo:)` | 211 | the listing after `Raw.vcsBranch(repo:name:)` created `post-fixture` |
@@ -105,8 +105,6 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 The `vcs-*` payloads carry commit ids and timestamps from the run that produced them, so regenerating them changes their bytes even when the engine has not changed.
 
 The post and profile schemas align at exactly one stringency tier. `Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)` answers `operation` with "no morphism found between schemas" at `strict`, at `balanced`, and at `exploratory`, and succeeds at `lenient`, which is the tier `chain-post-profile.json` is captured at. The failure at `exploratory` is an engine defect, not a property of these two schemas. `panproto_lens::Stringency` documents that higher tiers form a superset of lower ones, and the same four-tier sweep run directly against `lens::auto_generate` in Rust reproduces the same result, so nothing about this binding is involved. Capture at `lenient` until it is fixed, then re-run and let the tier rise.
-
-`Raw.lensGetRecord(migration:record:)` cannot carry the post record through the post to profile chain. The chain generates and the instantiation succeeds; the get then answers code 7 and leaves the envelope "operation: operation error: get: restrict error: no edge found between app.bsky.feed.post:body and app.bsky.feed.post:body.langs:items in target schema". Every post record in `fixtures/atproto/records` carries `langs`, so no choice of record avoids that edge. `get-record.cbor` is therefore captured through the chain the post schema generates against itself, which is the widest get the engine completes on this input.
 
 `Raw.gatSerializeTheory(theory:)` cannot be reached from a built-in protocol. A protocol payload names its theories (`schema_theory`, `instance_theory`, and the `schema_composition` steps) as strings, and the C ABI exposes no lookup from such a name to a `Theory` handle: `pp_gat_create_theory` takes a full CBOR theory and `pp_gat_colimit` takes handles. The `theory-*` rows in the table above are therefore captured from theories handed to the engine, which is the route the ABI leaves open.
 

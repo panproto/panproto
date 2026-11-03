@@ -89,8 +89,10 @@ struct GetRecordFixtureTests {
         let view = try envelope.view()
 
         #expect(view.schemaRoot == "app.bsky.feed.post:body")
-        #expect(view.nodeCount == 5)
-        #expect(view.arcs.count == 4)
+        // The post to profile chain keeps the body and its `createdAt`,
+        // the one field the profile shares.
+        #expect(view.nodeCount == 2)
+        #expect(view.arcs.count == 1)
         #expect(
             try CBORDecoder().decode(Instance.self, from: try CBOREncoder().encode(view))
                 == view)
@@ -103,11 +105,13 @@ struct GetRecordFixtureTests {
         let complement = try envelope.complement()
 
         #expect(complement.sourceFingerprint == 3_962_274_085_966_312_888)
-        #expect(complement.droppedNodes.isEmpty)
-        #expect(complement.droppedArcs.isEmpty)
+        // `langs`, its item, and `text` leave the view, with the arcs
+        // reaching them.
+        #expect(complement.droppedNodes.keys.sorted() == [2, 3, 4])
+        #expect(complement.droppedArcs.count == 3)
         #expect(complement.droppedFans.isEmpty)
         #expect(complement.contractionChoices.isEmpty)
-        #expect(complement.originalParent == [1: 0, 2: 0, 3: 2, 4: 0])
+        #expect(complement.originalParent == [1: 0])
         // The post schema determines the edge behind every arc, so the
         // complement records none of them.
         #expect(complement.arcEdges.isEmpty)
@@ -170,9 +174,9 @@ struct ComplementSpecFixtureTests {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
 
         #expect(spec.kind == .mixed)
-        #expect(spec.forwardDefaults.count == 12)
-        #expect(spec.capturedData.count == 3)
-        #expect(spec.summary == "12 default(s) required, 3 field(s) captured in complement.")
+        #expect(spec.forwardDefaults.count == 16)
+        #expect(spec.capturedData.count == 52)
+        #expect(spec.summary == "16 default(s) required, 52 field(s) captured in complement.")
     }
 
     @Test("an unavailable suggested default is absent")
@@ -189,7 +193,12 @@ struct ComplementSpecFixtureTests {
     func capturedFieldKinds() throws {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
 
-        #expect(spec.capturedData.map(\.elementName) == ["items", "integer", "array"])
-        #expect(spec.capturedData.map(\.elementKind) == ["op", "sort", "sort"])
+        // The kind-level drops come first, then the 25 edges and 24
+        // vertices the chain drops by exact id.
+        #expect(spec.capturedData.prefix(3).map(\.elementName) == ["items", "integer", "array"])
+        let kinds = spec.capturedData.map(\.elementKind)
+        #expect(Array(kinds.prefix(3)) == ["op", "sort", "sort"])
+        #expect(Array(kinds.dropFirst(3).prefix(25)) == Array(repeating: "edge", count: 25))
+        #expect(Array(kinds.dropFirst(28)) == Array(repeating: "sort", count: 24))
     }
 }

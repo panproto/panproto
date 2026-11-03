@@ -207,7 +207,7 @@ struct ProtolensStepInfoFixtureTests {
         let reencoded = try JSONEncoder().encode(steps)
         #expect(try JSONDecoder().decode([ProtolensStepInfo].self, from: reencoded) == steps)
 
-        #expect(steps.count == 15)
+        #expect(steps.count == 68)
         #expect(steps.allSatisfy { $0.sourceEndofunctor == "id" })
         #expect(steps.allSatisfy { !$0.lossless })
     }
@@ -217,11 +217,12 @@ struct ProtolensStepInfoFixtureTests {
         let bytes = try fixtureBytes("chain-post-profile", extension: "json")
         let steps = try JSONDecoder().decode([ProtolensStepInfo].self, from: bytes)
 
-        #expect(
-            steps.map { ElementaryStep(stepName: $0.name) }
-                == [.dropOp, .dropSort, .dropSort]
-                + Array(repeating: .addSchemaVertex, count: 5)
-                + Array(repeating: .addSchemaEdge, count: 7))
+        var expected: [ElementaryStep?] = [.dropOp, .dropSort, .dropSort]
+        expected += Array(repeating: .dropSchemaEdge, count: 25)
+        expected += Array(repeating: .dropSchemaVertex, count: 24)
+        expected += Array(repeating: .addSchemaVertex, count: 5)
+        expected += Array(repeating: .addSchemaEdge, count: 11)
+        #expect(steps.map { ElementaryStep(stepName: $0.name) } == expected)
         #expect(steps.allSatisfy { ElementaryStep(stepName: $0.name)?.isLossless == false })
         #expect(steps.allSatisfy { ElementaryStep(stepName: $0.name)?.opticKind == .lens })
     }

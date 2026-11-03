@@ -55,13 +55,14 @@ private struct LensFixtures {
         try ProtolensChainHandle.autoGenerate(from: post, to: profile, stringency: .lenient)
     }
 
+    /// The post to profile chain, instantiated at the post schema.
+    func postToProfileLens() throws(PanprotoError) -> CompiledMigrationHandle {
+        try postToProfileChain().instantiate(at: post)
+    }
+
     /// The lens the post schema generates against itself, instantiated
-    /// at the post schema.
-    ///
-    /// This is the widest lens the engine runs a whole post record
-    /// through: the post to profile chain instantiates but its `get`
-    /// cannot carry a record that has `langs`, which every committed
-    /// record does.
+    /// at the post schema, which carries a whole post record into a view
+    /// of the same shape.
     func selfLens() throws(PanprotoError) -> CompiledMigrationHandle {
         let chain = try ProtolensChainHandle.autoGenerate(
             from: post,
@@ -302,7 +303,7 @@ struct LensTests {
             return (try chain.stepSummaries().count, try composed.stepSummaries().count)
         }
 
-        #expect(counts.0 == 15)
+        #expect(counts.0 == 68)
         #expect(counts.1 == counts.0 * 2)
     }
 
@@ -356,7 +357,7 @@ struct LensTests {
 
         let projection = try await PanprotoEngine.run { () throws -> LensProjection in
             let fixtures = try LensFixtures()
-            let lens = try fixtures.selfLens()
+            let lens = try fixtures.postToProfileLens()
             return try lens.get(fixtures.record)
         }
 
@@ -547,11 +548,10 @@ struct LensTests {
         }
 
         // The builder gives a diff-derived step a stable name that identifies
-        // the removed schema vertex rather than one of the hand-written DSL
-        // step names.
+        // the removed schema vertex by its exact id.
         #expect(summary.count == 1)
         #expect(summary[0].name == "drop_schema_vertex_post.subtitle")
-        #expect(ElementaryStep(stepName: summary[0].name) == nil)
+        #expect(ElementaryStep(stepName: summary[0].name) == .dropSchemaVertex)
         #expect(summary[0].lossless == false)
     }
 

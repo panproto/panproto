@@ -348,11 +348,11 @@ final class FixtureGenerator {
     /// for the post record.
     ///
     /// The post to profile chain is tried first, since that is the chain
-    /// the rest of this directory is built around. Its restrict step
-    /// cannot carry the post record, so the capture falls back to the
-    /// chain the post schema generates against itself and records what
-    /// the engine said, which keeps the payload shape pinned and keeps
-    /// the reason for the fallback in the README.
+    /// the rest of this directory is built around. Should its get refuse
+    /// the post record, the capture falls back to the chain the post
+    /// schema generates against itself and records what the engine said,
+    /// which keeps the payload shape pinned and keeps the reason for the
+    /// fallback in the README.
     private func captureView(post: UInt32, chain: UInt32, instance: Data) {
         let migration = allocateHandle(
             step: "get-record.cbor",
