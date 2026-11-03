@@ -59,7 +59,7 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 
 ### Mutation equivalences
 
-Static review identified four omissions that the bounded matrix is designed to kill: dropping target sets from the structural diff, ignoring key equality, ignoring the five extended reference fields, and ignoring entry order. Production now carries each axis. The dynamic mutation closure is pending.
+The bounded matrix is designed to kill four omissions: dropping target sets from the structural diff, ignoring key equality, ignoring the five extended reference fields, and ignoring entry order. Production carries each axis. The dynamic mutation closure is pending.
 
 ### Audit record
 
@@ -616,7 +616,7 @@ The *signature* of a member key is its part count and effective equality vector.
 
 ### Mutation equivalences
 
-The first production counterpart was a public helper called only by this test, so it did not establish agreement with declaration admission. That helper has been removed. The differential now projects `EmptyTargetSet` and `TargetSetMemberMismatch` from the real schema validator. Dynamic mutation closure is pending.
+The differential projects `EmptyTargetSet` and `TargetSetMemberMismatch` from the real schema validator, so it compares the reference with declaration admission itself. Dynamic mutation closure is pending.
 
 ### Audit record
 

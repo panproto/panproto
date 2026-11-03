@@ -60,7 +60,7 @@ None. Equality is exact on the source; graph isomorphism and presentation equiva
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -111,7 +111,7 @@ None. Raw id equality is too strong, while unconstrained graph isomorphism is to
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -122,7 +122,7 @@ None. Raw id equality is too strong, while unconstrained graph isomorphism is to
 
 ### Statement
 
-For every successful state $(v,c)$ of the S8 carrier and every candidate $v'$ in its single-step basis, if the put-domain predicate admits $v'$, then `put(R,v',c)` succeeds. On the bounded state model the predicate is `check_put_domain(view,index)`, which reports every carrier whose id now names a different stable key (`SynthesizedEdited`) and every stable key named twice (`RepeatedTarget`). Production `check_put_domain` reports its complete ordered violation list, which covers carrier placement, writable occurrence uniqueness, key and path write sites, tree reconstruction, standoff boundaries and contexts, inline conflicts, and id exhaustion; on this carrier it admits exactly the candidates the model admits. On the declared tree-to-graph carrier, whose holders keep their key sequences visible, a candidate is admitted exactly when each holder's visible sequence lists the targets of its resolution edges in occurrence order.
+For every successful state $(v,c)$ of the bounded resolution carrier and every candidate $v'$ in its single-step basis, if the put-domain predicate admits $v'$, then `put(R,v',c)` succeeds. On the bounded state model the predicate is `check_put_domain(view,index)`, which reports every carrier whose id now names a different stable key (`SynthesizedEdited`) and every stable key named twice (`RepeatedTarget`). Production `check_put_domain` reports its complete ordered violation list, which covers carrier placement, writable occurrence uniqueness, key and path write sites, tree reconstruction, standoff boundaries and contexts, inline conflicts, and id exhaustion; on this carrier it admits exactly the candidates the model admits. On the declared tree-to-graph carrier, whose holders keep their key sequences visible, a candidate is admitted exactly when each holder's visible sequence lists the targets of its resolution edges in occurrence order.
 
 ### Outside the domain
 
@@ -155,7 +155,7 @@ None. Defining the domain as “put succeeds” would make the law circular and 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -202,7 +202,7 @@ None. Omitting one id-bearing complement coordinate is observable after put.
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -254,7 +254,7 @@ None. Raw PutTwice is known to be stronger than the registered gated law.
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -296,7 +296,7 @@ None. Reading a following directive, stopping the fold at an undefined step, or 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -338,7 +338,7 @@ None. Collapsing repeated slashes or normalizing case and percent escapes exceed
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -380,7 +380,7 @@ None. Including the value merges identity with mutable content; omitting the fie
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -422,7 +422,7 @@ None. Numeric equality cannot replace representation equality, and duplicate gua
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -465,7 +465,7 @@ None. Saturating arithmetic or acceptance of reversed spans would change the dom
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -512,7 +512,7 @@ None. The absolute-end and length forms are distinct encodings even when they de
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -554,7 +554,7 @@ None. Resolving through an index, or refusing only under the `Error` policy, der
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -596,7 +596,7 @@ None. Taking only the nearest present base, or stopping the fold at an undefined
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -640,7 +640,7 @@ None. Representation fallback for numeric, SQL, or XML declarations changes cand
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -683,7 +683,7 @@ None. Nearest in tree depth, first in storage order, and nearest following are d
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -725,7 +725,7 @@ None. Deduplicating equal choices or reordering factors changes preserved route 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: reference resolution documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000

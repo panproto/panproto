@@ -806,7 +806,7 @@ The *source lexeme* is the exact stored `Str`, `Token`, or `CidLink` text. The *
 - Law ID: `validation.lexical-space-advisory`
 - Reference: `panproto_reference::validation::classify_selector`
 - Reference: `panproto_reference::validation::lexical_space`
-- Evidence scope: `23 literals over seven covered XSD datatypes, one unsuitable XSD datatype and one unknown datatype, including every amendment case (abc as integer, 2026-02-30, a leap second, 01999, inf, 24:00:00, INF, 1., .5); schema selector multiplicities=0,1,2; runtime subjects=6`
+- Evidence scope: `23 literals over seven covered XSD datatypes, one unsuitable XSD datatype and one unknown datatype, including every boundary case (abc as integer, 2026-02-30, a leap second, 01999, inf, 24:00:00, INF, 1., .5); schema selector multiplicities=0,1,2; runtime subjects=6`
 - Production certificate: `lexical_space_reports_exactly_the_ill_typed_literals; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=lexical_space_reports_exactly_the_ill_typed_literals)'`
 - Boundary test: `lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory)'`
 - Boundary test: `lexical_space_unknown_tag_is_advisory_and_preserves_passed_status; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_unknown_tag_is_advisory_and_preserves_passed_status)'`

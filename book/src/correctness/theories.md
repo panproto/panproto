@@ -60,7 +60,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -114,7 +114,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -172,7 +172,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -253,7 +253,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -304,7 +304,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -353,7 +353,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -412,7 +412,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb
@@ -463,7 +463,7 @@ None.
 
 ### Audit record
 
-- Author: lane author
+- Author: theories documentation author
 - Auditor: independent verifier
 - Date: 2026-10-21
 - Commit: 788489cb

@@ -4,7 +4,7 @@ The representation boundary relates the tree, graph, and table carriers without 
 
 A graph has nodes and edges indexed by `u32`. Fresh-id allocation reserves `u32::MAX` as its exhausted-id sentinel, though an input may already hold that id. A tree has nodes, ordered arcs, a root, and an ordered list of fans. A fan names one parent and a finite map from child labels to nodes. A table has rows indexed by `u32` and a set of labelled relation pairs. Maps and sets below use their ascending stored order.
 
-The final bounded production/reference suite passed all eight law consumers in nextest run `d8a5dcc0-c2fa-475a-b164-3ae14bd738b8`. The 42 affected reference tests passed in run `0e864e92-d9cc-4729-91d1-8179545c5db9`, and strict Clippy passed for the production differential and the affected reference targets. These results include the mixed refusal-precedence and schema-relative table witnesses. The audit records retain the separate requirement for an independent verifier.
+The bounded production/reference suite covers all eight law consumers, and the reference tests and production differential build under strict Clippy. The suite includes the mixed refusal-precedence and schema-relative table witnesses. The audit records retain the separate requirement for an independent verifier.
 
 ## Every admissible tree has the specified graph form or one typed refusal {#L-representation-1}
 

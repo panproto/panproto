@@ -64,7 +64,7 @@ A failed audit returns the block to its author, and the block is audited again o
 
 ## Status
 
-The table lists each page represented in the `graph-core` scope, the number of
+The table lists each correctness page, the number of
 that page's laws included in the 191-law scope, and the commit at which those
 included blocks were last audited.
 

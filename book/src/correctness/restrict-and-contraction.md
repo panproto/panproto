@@ -12,7 +12,7 @@ Cross-shape statements quantify only over the validated common conversion image.
 
 The reference operations live in [`panproto_reference::restrict`](https://docs.rs/panproto-reference/latest/panproto_reference/restrict/) and [`panproto_reference::lens`](https://docs.rs/panproto-reference/latest/panproto_reference/lens/). The release carrier contains 57 schemas crossed with 27 survival classifications, 375 pair-resolution cases, 12,366 graph cases (each run bare and with decorated node payloads), 585 ordered child-binding words, nine column-fate cases, 70 tree cases, 16 `Keep`/`Drop`-between-survivors tree cases, and one fan-plus-expansion tree case. The tree-edit carrier adds 38 get words, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal.
 
-The final seven-test production/reference suite passed in nextest run `1fd27c71-e5b1-4f57-ad12-1cb8333d5bc6`, and the four tree-edit tests passed in run `f1d891d1-cdea-41a5-a0dc-c344231a4a8f`. The two lens-level tree-complement conversion tests passed in run `780bbc32-545b-469b-bc55-8f0304c32815`, and the 42 affected reference tests passed in run `0e864e92-d9cc-4729-91d1-8179545c5db9`. Strict Clippy passed for both production differentials, the lens differential, and the affected reference targets. The audit records retain the separate requirement for an independent verifier.
+The executable evidence for this page is a seven-test production/reference suite, four tree-edit tests, two lens-level tree-complement conversion tests and the reference tests they depend on. Both production differentials, the lens differential and the reference targets build under strict Clippy. The audit records retain the separate requirement for an independent verifier.
 
 ## The edge image is total and endpoint coherent {#L-restrict-and-contraction-1}
 
@@ -40,7 +40,7 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - Enumerator: `panproto_reference::enumerate::restrict_and_contraction::release_schemas` and `survival_classifications`; exact carrier: 1,539 schema/classification cases, plus 6 explicit nonidentity branch witnesses
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers` in `crates/panproto-inst/tests/reference_restrict.rs`
 - Boundary pins: production `restrict_plan_compile` and reference `lenses` accept 65,536 hops and refuse 65,537
-- Dynamic result: the final 7/7 suite passed in nextest run `1fd27c71-e5b1-4f57-ad12-1cb8333d5bc6`
+- Dynamic result: all seven tests of the production/reference suite pass
 - Evidence scope: `1,539 schema/classification cases, six nonidentity branch witnesses, and the 65,536/65,537-hop boundary`
 - Production certificate: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
@@ -54,7 +54,7 @@ None. Mutating direct-image precedence, endpoint coherence, unresolved-hop reten
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -99,7 +99,7 @@ None. In particular, replacing the walk region by an endpoint-induced subgraph, 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -144,7 +144,7 @@ None. Resolver-first selection, unique-edge fallback, and the prohibition on rec
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -200,7 +200,7 @@ None. The stage order, id retention, set semantics for realized pairs, and separ
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -251,7 +251,7 @@ None. Recomputing a tree-only fate is forbidden even when it agrees on current f
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -297,7 +297,7 @@ None. Instance-level label matching is not equivalent to consuming the compiled 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -344,7 +344,7 @@ None. Last-wins, first-wins, set-valued, and self-loop-inclusive collection are 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -375,7 +375,7 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - Reference: `panproto_reference::lens::tree_get`
 - Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases plus 5 structural-key observations and one fan-plus-expansion case
 - Exhaustive differential tests: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`, `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier`, and `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors`; census: 43 successes and 27 typed exhaustion refusals on the enumerated carrier, plus 5 successful structural-key observations
-- Dynamic result: the two lens-level conversion tests passed in nextest run `780bbc32-545b-469b-bc55-8f0304c32815`
+- Dynamic result: both lens-level conversion tests pass
 - Evidence scope: `70 route/floor cases, five successful structural-key observations, and one fan-plus-expansion case in tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`
 - Production certificate: `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier)'`
 - Independent reference anchor: `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors)'`
@@ -391,7 +391,7 @@ None. Renumbering by traversal order is not equivalent, since synthesis ids and 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -441,7 +441,7 @@ None. Checking predicates during restoration is not equivalent to checking the c
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -474,7 +474,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - Reference: `panproto_reference::lens::TreeShape::single_step_basis`
 - Exhaustive differential tests: `lens_laws_agree_with_the_reference_exhaustively` and `graph_square_agrees_with_the_reference_exhaustively`
 - Exact observations: 200,606 heterogeneous law cases, plus the 31,422-observation graph square
-- Dynamic result: 3/3 focused tests passed in nextest run `0bb2dd47-9b02-43a8-9c51-f84c32977dc9`
+- Dynamic result: all three focused tests pass
 - Evidence scope: `200,606 heterogeneous law cases and the 31,422-observation graph square`
 - Production certificate: `lens_laws_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_laws_agree_with_the_reference_exhaustively)'`
 - Independent reference anchor: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
@@ -490,7 +490,7 @@ None. A graph-only gate is not an observational substitute for a tree gate.
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -514,7 +514,7 @@ An edit rejected by the source editor, the target editor, or the lens put domain
 
 ### Definitions used
 
-Replacement semantics and edit-lens functoriality are part of the registered edits contract. An edit is *admitted* when its application succeeds and the resulting view lies in the put domain.
+Replacement semantics is the one [L-edits-7](edits.md#L-edits-7) fixes: a delete followed by an add of the same id replaces it. An edit is *admitted* when its application succeeds and the resulting view lies in the put domain.
 
 ### Proof
 
@@ -539,7 +539,7 @@ The differential checks the production edit lens against the oracle. On each of 
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
 - Exact carrier: 38 get words, each also checked for get consistency, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal
 - Exhaustive differential tests: all four `tr12_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens_tr12.rs`
-- Dynamic result: 4/4 tests passed in nextest run `f1d891d1-cdea-41a5-a0dc-c344231a4a8f`
+- Dynamic result: all four tests pass
 - Evidence scope: `38 get words with get consistency, 27 put words, two typed lowering refusals, one common late refusal through both source editors and both get_edit implementations, and one production-only atomic late refusal`
 - Production certificate: `tr12_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_get_functoriality_replacement_and_minimality_match_the_reference)'`
 - Independent reference anchor: `tr12_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_put_functoriality_minimality_and_source_undo_match_the_reference)'`
@@ -554,7 +554,7 @@ None. Reusing residue after delete-then-add is a semantic mutation, even if the 
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -601,7 +601,7 @@ None. Equal unordered graph carriers do not witness equality of ordered trees.
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
@@ -647,7 +647,7 @@ None. Admitting fan nodes as interior nodes or omitting any realized pair change
 
 ### Audit record
 
-- Author: graph-core documentation lane
+- Author: restriction and contraction documentation author
 - Auditor: pending independent verifier
 - Date: 2026-10-26
 - Commit: 0000000
