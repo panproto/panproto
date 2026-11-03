@@ -2,7 +2,7 @@
   "_id": { "$oid": "65f2a1b3c4e5d6a7b8c9d0e1" },
   "title": "Predicate Decomposition in Semantic Parsing",
   "authors": [
-    { "name": "Aaron Steven White", "affiliation": "University of Rochester" },
+    { "name": "Morgan Reyes", "affiliation": "Example State University" },
     { "name": "Jun Chen", "affiliation": "Johns Hopkins University" }
   ],
   "year": { "$numberInt": "2026" },
