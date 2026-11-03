@@ -919,7 +919,8 @@ mod tests {
     use super::build_minimal_schema;
 
     #[test]
-    fn a_schema_resolves_to_the_protocol_it_was_built_with() {
+    fn a_schema_resolves_to_the_protocol_it_was_built_with()
+    -> Result<(), Box<dyn std::error::Error>> {
         let protocol = panproto_core::schema::Protocol {
             name: "c-built-protocol-resolution".into(),
             obj_kinds: vec!["object".into()],
@@ -931,8 +932,7 @@ mod tests {
         };
         let unrecorded = panproto_core::schema::SchemaBuilder::new(&protocol)
             .vertex("r", "object", None)
-            .and_then(panproto_core::schema::SchemaBuilder::build)
-            .expect("schema builds");
+            .and_then(panproto_core::schema::SchemaBuilder::build)?;
         assert_eq!(
             super::protocol_for_schema(&unrecorded).value_kinds,
             std::collections::BTreeMap::default()
@@ -944,9 +944,9 @@ mod tests {
                 kind: "object".into(),
                 nsid: None,
             }],
-        )
-        .expect("schema builds");
+        )?;
         assert_eq!(super::protocol_for_schema(&schema), protocol);
+        Ok(())
     }
 
     /// Twenty-four labelled edges out of one vertex, so the order of its

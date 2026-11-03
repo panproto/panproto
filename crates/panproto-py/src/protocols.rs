@@ -164,7 +164,8 @@ mod tests {
     }
 
     #[test]
-    fn a_schema_resolves_to_the_protocol_it_was_built_with() {
+    fn a_schema_resolves_to_the_protocol_it_was_built_with()
+    -> Result<(), Box<dyn std::error::Error>> {
         let protocol = Protocol {
             name: "py-built-protocol-resolution".into(),
             obj_kinds: vec!["object".into()],
@@ -176,13 +177,13 @@ mod tests {
         };
         let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
             .vertex("r", "object", None)
-            .and_then(panproto_core::schema::SchemaBuilder::build)
-            .expect("schema builds");
+            .and_then(panproto_core::schema::SchemaBuilder::build)?;
         assert_eq!(
             protocol_for_schema(&schema).value_kinds,
             std::collections::BTreeMap::default()
         );
         record_built_protocol(&protocol);
         assert_eq!(protocol_for_schema(&schema), protocol);
+        Ok(())
     }
 }
