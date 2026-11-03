@@ -742,13 +742,168 @@ pub(crate) fn put_with_identity(
     if matches!(status, IdentityStatus::Unbound) {
         unbound_provenance(view, complement)?;
     }
-    if let Err(found) = check_put_domain(lens, view, complement)
+    let view = derived_cells_on_fields(lens, view, complement);
+    if let Err(found) = check_put_domain(lens, &view, complement)
         && let Some(first) = found.into_iter().next()
     {
         return Err(LensError::PutDomain(Box::new(first)));
     }
-    let source = reassemble(lens, view, complement)?;
+    let source = reassemble(lens, &view, complement)?;
     Ok((source, status))
+}
+
+/// `view` with every derived cell that it presents as a child held among
+/// its node's own fields again, where `get` wrote it.
+///
+/// A computed field (`ComputeField`) or a default (`AddField`) is written
+/// into the fields of the node it computes for. Serialization writes such a
+/// field and a child attribute of the same name alike, and a reader of the
+/// serialized view, which knows the target schema but not the lens, reads
+/// the attribute back as a scalar child on the edge the field names. That
+/// child is a presentation of the derived cell, not a structural insertion:
+/// the source held no child there, and the view holds no field of that name.
+///
+/// A child is folded back into its parent's field `key` exactly when the
+/// node's forward transforms derive `key`, the node holds no field `key`,
+/// and the child is the only one under an edge named `key`, has no children
+/// of its own, takes part in no fan, and is not a source child of the node
+/// (the complement records no source arc between them). The child presents
+/// a scalar or null as its own value with no fields, and a record as its
+/// fields with no value of its own (see [`presented_cell`]). The
+/// derived cell is then checked and restored as any field: an unedited one
+/// is put back to the source it was computed from, and an edited one is
+/// refused as an edit of a derived cell.
+fn derived_cells_on_fields<'v>(
+    lens: &Lens,
+    view: &'v WInstance,
+    complement: &Complement,
+) -> std::borrow::Cow<'v, WInstance> {
+    if lens.compiled.field_transforms.is_empty() && lens.compiled.op_term_assignments.is_empty()
+    {
+        return std::borrow::Cow::Borrowed(view);
+    }
+    let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let source_arcs: HashSet<(u32, u32)> = complement.arc_order.iter().copied().collect();
+    let mut children: HashMap<u32, Vec<(u32, &Edge)>> = HashMap::new();
+    for (parent, child, edge) in &view.arcs {
+        children.entry(*parent).or_default().push((*child, edge));
+    }
+    let fanned: HashSet<u32> = view
+        .fans
+        .iter()
+        .flat_map(|fan| std::iter::once(fan.parent).chain(fan.children.values().copied()))
+        .collect();
+
+    let mut ids: Vec<u32> = view.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    let mut folds: Vec<(u32, String, u32, panproto_inst::value::Value)> = Vec::new();
+    for id in ids {
+        if complement.synthesized_nodes.contains(&id) {
+            continue;
+        }
+        let node = &view.nodes[&id];
+        let anchor = match complement.original_anchors.get(&id) {
+            Some(anchor) => anchor,
+            None => match reverse_anchors.source_anchor(&node.anchor) {
+                Ok(anchor) => anchor,
+                Err(_) => continue,
+            },
+        };
+        let mut keys = BTreeSet::new();
+        derived_cell_keys(&lens.compiled.value_transforms(anchor), &mut keys);
+        for key in keys {
+            if node.extra_fields.contains_key(&key) {
+                continue;
+            }
+            let mut named = children.get(&id).into_iter().flatten().filter(|(_, edge)| {
+                edge.name.as_deref().unwrap_or_else(|| edge.tgt.as_str()) == key
+            });
+            let (Some(&(child, _)), None) = (named.next(), named.next()) else {
+                continue;
+            };
+            let Some(child_node) = view.nodes.get(&child) else {
+                continue;
+            };
+            let folds_here = !children.contains_key(&child)
+                && !fanned.contains(&child)
+                && !source_arcs.contains(&(id, child))
+                && !complement.synthesized_nodes.contains(&child);
+            if folds_here && let Some(value) = presented_cell(child_node) {
+                folds.push((id, key, child, value));
+            }
+        }
+    }
+    if folds.is_empty() {
+        return std::borrow::Cow::Borrowed(view);
+    }
+
+    let mut nodes = view.nodes.clone();
+    let mut folded = HashSet::new();
+    for (parent, key, child, value) in folds {
+        nodes.remove(&child);
+        if let Some(parent) = nodes.get_mut(&parent) {
+            parent.extra_fields.insert(key, value);
+        }
+        folded.insert(child);
+    }
+    let arcs = view
+        .arcs
+        .iter()
+        .filter(|(_, child, _)| !folded.contains(child))
+        .cloned()
+        .collect();
+    std::borrow::Cow::Owned(WInstance::new(
+        nodes,
+        arcs,
+        view.fans.clone(),
+        view.root,
+        view.schema_root.clone(),
+    ))
+}
+
+/// The cell value a leaf child presents: its own scalar, or null, when it
+/// holds no fields; the record of its fields when it holds no value of its
+/// own. A serialized record read back at a vertex whose protocol classifies
+/// no value kind lands as such fields. `None` for a child holding both, or
+/// an absent value with no fields.
+fn presented_cell(child: &Node) -> Option<panproto_inst::value::Value> {
+    use panproto_inst::value::{FieldPresence, Value};
+
+    match &child.value {
+        Some(FieldPresence::Present(value)) if child.extra_fields.is_empty() => {
+            Some(value.clone())
+        }
+        Some(FieldPresence::Null) if child.extra_fields.is_empty() => Some(Value::Null),
+        None if !child.extra_fields.is_empty() => Some(Value::Unknown(child.extra_fields.clone())),
+        _ => None,
+    }
+}
+
+/// The fields `transforms` derive at the node they run on: the targets of
+/// computed fields and defaults, in every case branch and under an empty
+/// path.
+fn derived_cell_keys(transforms: &[panproto_inst::FieldTransform], keys: &mut BTreeSet<String>) {
+    use panproto_inst::FieldTransform;
+
+    for transform in transforms {
+        match transform {
+            FieldTransform::ComputeField { target_key, .. } => {
+                keys.insert(target_key.clone());
+            }
+            FieldTransform::AddField { key, .. } => {
+                keys.insert(key.clone());
+            }
+            FieldTransform::PathTransform { path, inner } if path.is_empty() => {
+                derived_cell_keys(std::slice::from_ref(inner), keys);
+            }
+            FieldTransform::Case { branches } => {
+                for branch in branches {
+                    derived_cell_keys(&branch.transforms, keys);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The domain predicate of tree [`put`]: every reason `view` cannot be
@@ -813,6 +968,11 @@ pub(crate) fn put_with_identity(
 /// view subtree below it, since `put` has nothing to restore it as. Put is
 /// total on views for which this returns `Ok`.
 ///
+/// A computed field or default that the view presents as a scalar child of
+/// its node, as a serialized view read back under the target schema does, is
+/// checked as the field `get` wrote: an unedited one is accepted and an
+/// edited one is refused with [`PutDomainError::DerivedCellEdited`].
+///
 /// # Errors
 ///
 /// Returns every violation found, in that order.
@@ -828,6 +988,8 @@ pub fn check_put_domain(
             detail: error.to_string(),
         }]);
     }
+    let canonical = derived_cells_on_fields(lens, view, complement);
+    let view = &*canonical;
     let mut found = structural_violations(lens, view, complement);
     let restorable = if found.is_empty() {
         None
