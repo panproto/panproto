@@ -38,7 +38,7 @@
 //! `dom/wdeg` raises a cost function's weight when propagating it empties a
 //! domain. In a branch and bound with a maintained bound most nodes die from
 //! the bound rather than from an empty domain, so plain `dom/wdeg` sees almost
-//! no failures and decays into `dom`. The fix is to attribute a bound failure
+//! no failures and decays into `dom`. The remedy is to attribute a bound failure
 //! too: the cost functions that moved the most cost into `c_∅` at that node are
 //! the ones that did the pruning, and they are the ones whose weight rises.
 //! Ties go to the variable with the most already-assigned neighbours in the

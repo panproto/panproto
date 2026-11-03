@@ -4208,7 +4208,7 @@ proptest! {
         prop_assert_eq!(census.get("compared") + census.get("refused"), 6);
     }
 
-    /// The five-pass encoding domain, both halves: a presentation of O7's
+    /// The five-pass encoding domain, both halves: a presentation of the graph
     /// encoding spec with at most three table nodes, changed by up to three
     /// mutations (most of which leave the domain), is encoded by production
     /// exactly as by the reference: the same table and layout, or the same
