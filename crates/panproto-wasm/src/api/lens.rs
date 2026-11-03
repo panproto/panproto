@@ -1854,4 +1854,125 @@ mod tests {
             slab::free(handle);
         }
     }
+
+    /// A lens that renames `text` to `amount` and computes `g` in one stage
+    /// round-trips through the JSON entry points. The rename moves `amount`
+    /// after `g` in the target schema's edge order, so `put_json` reads the
+    /// computed child `g` with the id the source child `text` holds in the
+    /// complement; the fold still recognizes it as the computed field.
+    #[test]
+    fn json_round_trip_restores_a_renamed_field_beside_a_computed_field() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "demo-rename-compute".into(),
+            schema_theory: "ThConstrainedGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: ["record-schema", "prop"]
+                .into_iter()
+                .map(|kind| panproto_core::schema::EdgeRule {
+                    edge_kind: kind.into(),
+                    src_kinds: vec![],
+                    tgt_kinds: vec![],
+                })
+                .collect(),
+            obj_kinds: ["rec", "rec:body", "string"]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            ..Default::default()
+        };
+        let protocol_handle = super::super::schema::define_protocol(
+            &rmp_serde::to_vec_named(&protocol).expect("protocol encodes"),
+        )
+        .expect("protocol registers");
+        let ops = serde_json::json!([
+            { "op": "vertex", "id": "rec", "kind": "rec", "nsid": null },
+            { "op": "vertex", "id": "rec:body", "kind": "rec:body", "nsid": null },
+            { "op": "vertex", "id": "rec:body.text", "kind": "string", "nsid": null },
+            { "op": "vertex", "id": "rec:body.g", "kind": "string", "nsid": null },
+            { "op": "edge", "src": "rec", "tgt": "rec:body", "kind": "record-schema", "name": null },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.text", "kind": "prop", "name": "text" },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.g", "kind": "prop", "name": "g" },
+        ]);
+        let schema_handle = super::super::schema::build_schema(
+            protocol_handle,
+            &rmp_serde::to_vec_named(&ops).expect("ops encode"),
+        )
+        .expect("schema builds");
+        let document = |steps: serde_json::Value| {
+            serde_json::json!({ "id": "demo", "source": "v1", "target": "v2", "steps": steps })
+                .to_string()
+        };
+        let rename = compile_lens_document_engine(
+            document(serde_json::json!([
+                { "rename_field": { "old": "text", "new": "amount" } }
+            ]))
+            .as_bytes(),
+            "json",
+            "rec:body",
+        )
+        .expect("the rename compiles");
+        let compute = compile_lens_document_engine(
+            document(serde_json::json!([
+                { "compute_field": { "target": "g", "expr": "text ++ \"!\"" } }
+            ]))
+            .as_bytes(),
+            "json",
+            "rec:body",
+        )
+        .expect("the computed field compiles");
+        let (chain, field_transforms) = slab::try_get_two(rename, compute, |r1, r2| {
+            Ok((
+                slab::as_protolens_chain(r1)?.clone(),
+                slab::as_field_transforms(r2)?,
+            ))
+        })
+        .expect("both documents are lens documents");
+        let one_stage = slab::alloc(compiled_lens_doc_resource(
+            chain.clone(),
+            field_transforms.clone(),
+            vec![panproto_core::lens_dsl::steps::CompiledStage {
+                chain,
+                field_transforms,
+            }],
+        ));
+        let lens_handle =
+            instantiate_protolens_engine(one_stage, schema_handle).expect("lens instantiates");
+
+        let got =
+            super::super::schema::get_json_engine(lens_handle, br#"{"text":"hello"}"#, "rec:body")
+                .expect("get succeeds");
+        let got: serde_json::Value = rmp_serde::from_slice(&got).expect("get result decodes");
+        assert_eq!(
+            got["view"],
+            serde_json::json!({ "amount": "hello", "g": "hello!" })
+        );
+        let complement: Vec<u8> = got["complement"]
+            .as_array()
+            .expect("complement is bytes")
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64().expect("byte")).expect("byte fits"))
+            .collect();
+
+        let restored = super::super::schema::put_json_engine(
+            lens_handle,
+            &serde_json::to_vec(&got["view"]).expect("view encodes"),
+            &complement,
+            "rec:body",
+        )
+        .expect("putting back the unedited view succeeds");
+        let restored: serde_json::Value =
+            serde_json::from_slice(&restored).expect("restored record decodes");
+        assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+
+        for handle in [
+            lens_handle,
+            one_stage,
+            compute,
+            rename,
+            schema_handle,
+            protocol_handle,
+        ] {
+            slab::free(handle);
+        }
+    }
 }

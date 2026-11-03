@@ -3243,12 +3243,17 @@ fn write_complement_of_one_stage_lens(dir: &Path, source_json: &serde_json::Valu
     .unwrap();
 }
 
-/// Compile the one-step lens document `step` over the record schema
-/// `root { text, shout }`, run `lens apply` forward on `{"text": "hello"}`
-/// and check the view is `expected_view`, then run it backward on that
-/// view with the complement `get` recorded and return what it restores.
+/// Compile the lens document of `steps` over the record schema
+/// `root { text, shout }` as one stage, run `lens apply` forward on
+/// `{"text": "hello"}` and check the view is `expected_view`, then run it
+/// backward on that view with the complement `get` recorded and return what
+/// it restores.
+///
+/// The compiler puts a structural step and a value step in separate stages;
+/// their chains and field transforms are merged into the one stage that
+/// `lens apply` instantiates as a single lens.
 fn lens_apply_forward_then_backward(
-    step: &serde_json::Value,
+    steps: &[serde_json::Value],
     expected_view: &serde_json::Value,
 ) -> serde_json::Value {
     let tmp = tempfile::tempdir().unwrap();
@@ -3256,7 +3261,7 @@ fn lens_apply_forward_then_backward(
         "id": "dev.test.round_trip",
         "source": "s",
         "target": "t",
-        "steps": [step],
+        "steps": steps,
     });
     std::fs::write(tmp.path().join("document.json"), document.to_string()).unwrap();
     schema_cmd()
@@ -3272,6 +3277,15 @@ fn lens_apply_forward_then_backward(
         .current_dir(tmp.path())
         .assert()
         .success();
+    let mut artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("lens.json")).unwrap())
+            .unwrap();
+    let merged = serde_json::json!([{
+        "chain": artifact["chain"].clone(),
+        "field_transforms": artifact["field_transforms"].clone(),
+    }]);
+    artifact["stages"] = merged;
+    std::fs::write(tmp.path().join("lens.json"), artifact.to_string()).unwrap();
     write_schema_with_edges(
         tmp.path(),
         "source.json",
@@ -3340,7 +3354,7 @@ fn lens_apply_forward_then_backward(
 #[test]
 fn cli_lens_apply_backward_reads_a_renamed_field_under_the_target_schema() {
     let restored = lens_apply_forward_then_backward(
-        &serde_json::json!({ "rename_field": { "old": "text", "new": "amount" } }),
+        &[serde_json::json!({ "rename_field": { "old": "text", "new": "amount" } })],
         &serde_json::json!({ "amount": "hello" }),
     );
     assert_eq!(restored, serde_json::json!({ "text": "hello" }));
@@ -3352,8 +3366,24 @@ fn cli_lens_apply_backward_reads_a_renamed_field_under_the_target_schema() {
 #[test]
 fn cli_lens_apply_backward_folds_a_computed_field_before_put() {
     let restored = lens_apply_forward_then_backward(
-        &serde_json::json!({ "compute_field": { "target": "shout", "expr": "text ++ \"!\"" } }),
+        &[serde_json::json!({ "compute_field": { "target": "shout", "expr": "text ++ \"!\"" } })],
         &serde_json::json!({ "text": "hello", "shout": "hello!" }),
+    );
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
+/// `lens apply --direction backward` folds a computed field back into its
+/// node even when a rename in the same lens moves the renamed edge after it,
+/// so that `parse_json` gives the computed child the id of the renamed
+/// source child: forward then backward restores the source.
+#[test]
+fn cli_lens_apply_backward_restores_the_source_of_a_rename_and_computed_field() {
+    let restored = lens_apply_forward_then_backward(
+        &[
+            serde_json::json!({ "rename_field": { "old": "text", "new": "amount" } }),
+            serde_json::json!({ "compute_field": { "target": "shout", "expr": "text ++ \"!\"" } }),
+        ],
+        &serde_json::json!({ "amount": "hello", "shout": "hello!" }),
     );
     assert_eq!(restored, serde_json::json!({ "text": "hello" }));
 }

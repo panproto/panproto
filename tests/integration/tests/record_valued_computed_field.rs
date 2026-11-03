@@ -86,6 +86,34 @@ fn lens(protocol: &Protocol, g_kind: &str, expr: &str) -> Lens {
         .unwrap()
 }
 
+/// The lens that renames `text` to `amount` and computes `g` from `text` by
+/// `expr` in one stage, over the schema of [`lens`].
+///
+/// The rename moves the `amount` edge after `g` in the target schema's edge
+/// order, so `parse_json` gives the computed child `g` the id the source
+/// child `text` holds in the complement.
+fn renaming_lens(protocol: &Protocol, expr: &str) -> Lens {
+    let base = lens(protocol, "string", expr);
+    let rename = panproto_lens_dsl::eval::eval_json(
+        &serde_json::json!({
+            "id": "demo.rename-and-compute",
+            "source": "v1",
+            "target": "v2",
+            "steps": [{ "rename_field": { "old": "text", "new": "amount" } }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut renaming = panproto_lens_dsl::compile(&rename, "rec:body", &|_| None)
+        .unwrap()
+        .instantiate(&base.src_schema, protocol)
+        .unwrap()
+        .into_single()
+        .unwrap();
+    renaming.compiled.field_transforms = base.compiled.field_transforms;
+    renaming
+}
+
 /// Get, write the view to JSON, check it is `expected_view`, then read
 /// back `shown` (the view as a client returns it), check that core `put`
 /// refuses it as read, and put it after folding its computed field back
@@ -202,5 +230,33 @@ fn an_edited_source_with_its_recomputed_field_puts_back() {
     assert_eq!(
         round_trip(&protocol, &lens, &view, &edited).unwrap(),
         serde_json::json!({ "text": "bye" })
+    );
+}
+
+#[test]
+fn an_unedited_view_with_a_renamed_field_and_a_computed_field_puts_back() {
+    let protocol = protocol();
+    let lens = renaming_lens(&protocol, "upper text");
+    let view = serde_json::json!({ "amount": "hello", "g": "HELLO" });
+    assert_eq!(
+        round_trip(&protocol, &lens, &view, &view).unwrap(),
+        serde_json::json!({ "text": "hello" })
+    );
+}
+
+#[test]
+fn an_edited_computed_field_beside_a_renamed_field_is_refused() {
+    let protocol = protocol();
+    let lens = renaming_lens(&protocol, "upper text");
+    let view = serde_json::json!({ "amount": "hello", "g": "HELLO" });
+    let edited = serde_json::json!({ "amount": "hello", "g": "BYE" });
+    let refused = round_trip(&protocol, &lens, &view, &edited).unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            LensError::PutDomain(error)
+                if matches!(&**error, PutDomainError::DerivedCellEdited { field, .. } if field == "g")
+        ),
+        "{refused:?}"
     );
 }

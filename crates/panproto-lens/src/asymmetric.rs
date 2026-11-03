@@ -774,10 +774,22 @@ pub(crate) fn put_with_identity(
 /// * `n` holds no field `key`;
 /// * the child is the only child of `n` on an edge named `key`, has no
 ///   children of its own, and takes part in no fan;
-/// * the complement records no source arc from `n` to the child, and neither
-///   node was synthesized by `get`; and
+/// * neither node was synthesized by `get`; and
 /// * the child presents a cell value: a scalar or null as its own value with
 ///   no fields, or a record as its fields with no value of its own.
+///
+/// The test is structural: it reads the child's edge and shape, never its
+/// node id. `parse_json` numbers the nodes of a view afresh in the target
+/// schema's edge order, so the id a computed child receives may be the id of
+/// some source child in the complement; a rename that moves an edge later in
+/// that order is enough. An id therefore says nothing about whether the
+/// child was a source child. `get` writes a computed field among its node's
+/// fields on every node it computes for, so a node of a view `get` returned
+/// holds field `key` and is left alone; a view without it whose child on
+/// edge `key` matches the shape above is the serialized form of that field.
+/// JSON writes a field and a child of the same name under one key, so a node
+/// whose source also held a child on edge `key` cannot present both, and
+/// the fold reads the key as the computed field.
 ///
 /// Every other child is left as it is. Neither [`get`] nor [`put`] calls
 /// this.
@@ -791,7 +803,6 @@ pub fn fold_computed_children_into_fields(
         return view.clone();
     }
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
-    let source_arcs: HashSet<(u32, u32)> = complement.arc_order.iter().copied().collect();
     let mut children: HashMap<u32, Vec<(u32, &Edge)>> = HashMap::new();
     for (parent, child, edge) in &view.arcs {
         children.entry(*parent).or_default().push((*child, edge));
@@ -834,7 +845,6 @@ pub fn fold_computed_children_into_fields(
             };
             let folds_here = !children.contains_key(&child)
                 && !fanned.contains(&child)
-                && !source_arcs.contains(&(id, child))
                 && !complement.synthesized_nodes.contains(&child);
             if folds_here && let Some(value) = presented_cell(child_node) {
                 folds.push((id, key, child, value));
