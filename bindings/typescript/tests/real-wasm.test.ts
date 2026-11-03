@@ -747,9 +747,13 @@ describe('compileLensDocument', () => {
     const lens = chain.instantiate(schema);
 
     const { view, complement } = lens.getJson({ text: 'hello' }, 'rec:body');
+    expect(view).toEqual({ text: 'hello', g: { a: 'hello' } });
     const restored = lens.putJson(view, complement, 'rec:body') as Record<string, unknown>;
 
-    expect(restored.text).toBe('hello');
+    expect(restored).toEqual({ text: 'hello' });
+    expect(() =>
+      lens.putJson({ text: 'hello', g: { a: 'bye' } }, complement, 'rec:body'),
+    ).toThrow(/derived field g/);
 
     lens[Symbol.dispose]();
     chain[Symbol.dispose]();

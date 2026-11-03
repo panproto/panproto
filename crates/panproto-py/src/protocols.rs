@@ -35,11 +35,35 @@ fn lookup(name: &str) -> Option<Protocol> {
     protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
-/// The protocol a schema names: the built-in or grammar protocol of that
-/// name, or, for a name neither recognizes, a protocol that classifies no
-/// vertex kind.
+/// The protocols schemas were built with through `SchemaBuilder.build()`,
+/// keyed by protocol name; the latest build under a name wins.
+static BUILT_PROTOCOLS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Protocol>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Record `protocol` as the protocol a schema was built with, so every
+/// later operation on a schema naming it reads values under it.
+pub fn record_built_protocol(protocol: &Protocol) {
+    BUILT_PROTOCOLS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(protocol.name.clone(), protocol.clone());
+}
+
+/// The protocol a schema names: the one a schema naming it was last built
+/// with, else the built-in or grammar protocol of that name, or, for a name
+/// none of these recognizes, a protocol that classifies no vertex kind.
+///
+/// Records are parsed and serialized under this one protocol, so a value
+/// kind the protocol classifies (an `object` vertex holding a record value,
+/// say) reads back as the value a lens wrote rather than as structure.
 pub fn protocol_for_schema(schema: &panproto_core::schema::Schema) -> Protocol {
-    lookup(&schema.protocol)
+    BUILT_PROTOCOLS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&schema.protocol)
+        .cloned()
+        .or_else(|| lookup(&schema.protocol))
         .or_else(|| grammar_protocol(&schema.protocol))
         .unwrap_or_else(|| Protocol {
             name: schema.protocol.clone(),
@@ -137,5 +161,28 @@ mod tests {
             listed.iter().collect::<HashSet<_>>().len(),
             "semantic protocols and appended grammars must not duplicate names"
         );
+    }
+
+    #[test]
+    fn a_schema_resolves_to_the_protocol_it_was_built_with() {
+        let protocol = Protocol {
+            name: "py-built-protocol-resolution".into(),
+            obj_kinds: vec!["object".into()],
+            value_kinds: std::collections::BTreeMap::from([(
+                "object".to_owned(),
+                panproto_core::schema::ScalarKind::Any,
+            )]),
+            ..Protocol::default()
+        };
+        let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
+            .vertex("r", "object", None)
+            .and_then(panproto_core::schema::SchemaBuilder::build)
+            .expect("schema builds");
+        assert_eq!(
+            protocol_for_schema(&schema).value_kinds,
+            std::collections::BTreeMap::default()
+        );
+        record_built_protocol(&protocol);
+        assert_eq!(protocol_for_schema(&schema), protocol);
     }
 }

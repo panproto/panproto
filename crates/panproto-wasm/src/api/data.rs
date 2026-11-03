@@ -12,9 +12,7 @@ use wasm_bindgen::prelude::*;
 use crate::error::WasmError;
 use crate::slab::{self, Resource};
 
-use super::helpers::{
-    decode_complements, default_protocol, infer_root_vertex, lookup_builtin_protocol,
-};
+use super::helpers::{decode_complements, infer_root_vertex};
 
 // ---------------------------------------------------------------------------
 // Phase 7: Data versioning operations
@@ -154,8 +152,7 @@ fn migrate_dataset_forward_inner(
     })?;
 
     // Look up or construct protocol
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     // Deserialize instances
     let instances: Vec<WInstance> =
@@ -286,8 +283,7 @@ fn migrate_dataset_backward_inner(
         Ok((s1.clone(), s2.clone()))
     })?;
 
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let instances: Vec<WInstance> =
         rmp_serde::from_slice(&ds.data).map_err(|e| WasmError::DeserializationFailed {

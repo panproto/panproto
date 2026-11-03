@@ -455,7 +455,8 @@ impl PyProtocol {
 pub struct PySchemaBuilder {
     /// `Option` so we can `take()` on `build()`.
     builder: Option<SchemaBuilder>,
-    #[allow(dead_code)]
+    /// The protocol the schema is built under, recorded at `build()` as the
+    /// one schemas naming it resolve to.
     protocol: Protocol,
 }
 
@@ -576,6 +577,7 @@ impl PySchemaBuilder {
     fn build(&mut self) -> PyResult<PySchema> {
         let builder = self.take_builder()?;
         let schema = builder.build().map_py_err()?;
+        crate::protocols::record_built_protocol(&self.protocol);
         Ok(PySchema {
             inner: Arc::new(schema),
         })

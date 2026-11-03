@@ -16,10 +16,7 @@ use crate::error::WasmError;
 use crate::slab::{self, Resource};
 
 use super::graph::simplify_chain;
-use super::helpers::{
-    classify_optic_kind, default_protocol, eval_term_recursive, extract_migration_owned,
-    lookup_builtin_protocol,
-};
+use super::helpers::{classify_optic_kind, eval_term_recursive, extract_migration_owned};
 
 // ---------------------------------------------------------------------------
 // Phase 8: Enriched theories (expressions, schema enrichment, analysis)
@@ -274,8 +271,7 @@ pub fn schema_add_default(
             default_value,
         );
 
-        let protocol = lookup_builtin_protocol(&schema.protocol)
-            .unwrap_or_else(|| default_protocol(&schema.protocol));
+        let protocol = super::helpers::protocol_of(&schema);
 
         let lens_obj = protolens
             .instantiate(&schema, &protocol)

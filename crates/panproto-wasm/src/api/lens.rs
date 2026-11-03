@@ -16,7 +16,7 @@ use crate::slab::{self, Resource};
 
 use super::helpers::{
     FactorizationStepInfo, LawCheckResult, ProtolensStepInfo, ProtolensStepSpec,
-    build_chain_from_step_spec, default_protocol, extract_migration_owned, lookup_builtin_protocol,
+    build_chain_from_step_spec, extract_migration_owned,
 };
 
 /// Map a JS-side stringency string into the engine [`Stringency`].
@@ -104,8 +104,7 @@ pub fn auto_generate_candidates(
 ) -> Result<Vec<u8>, JsError> {
     let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let mut config = lens::AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency.as_deref())? {
@@ -204,8 +203,7 @@ pub fn auto_generate_protolens(
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
 
     // Extract protocol from schema name and look it up
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let mut config = lens::AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency.as_deref())? {
@@ -279,8 +277,7 @@ pub fn auto_generate_span(
 
     let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let opts = mig::hom_search::SearchOptions {
         hard_pins: hints
@@ -565,8 +562,7 @@ fn instantiate_protolens_engine(chain: u32, schema: u32) -> Result<u32, WasmErro
     })?;
     let schema_val = slab::try_get(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
 
-    let protocol = lookup_builtin_protocol(&schema_val.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+    let protocol = super::helpers::protocol_of(&schema_val);
 
     let lens_obj = if let Some(compiled) = compiled_doc {
         compiled
@@ -609,8 +605,7 @@ pub fn protolens_complement_spec(chain: u32, schema: u32) -> Result<Vec<u8>, JsE
         Ok((chain_val, schema_val))
     })?;
 
-    let protocol = lookup_builtin_protocol(&schema_val.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+    let protocol = super::helpers::protocol_of(&schema_val);
 
     let result = lens::chain_complement_spec(&chain_val, &schema_val, &protocol);
 
@@ -841,8 +836,7 @@ pub fn symmetric_lens_from_schemas(schema1: u32, schema2: u32) -> Result<u32, Js
         Ok((s1.clone(), s2.clone()))
     })?;
 
-    let protocol =
-        lookup_builtin_protocol(&left.protocol).unwrap_or_else(|| default_protocol(&left.protocol));
+    let protocol = super::helpers::protocol_of(&left);
     let config = lens::AutoLensConfig::default();
 
     let sym =
@@ -934,8 +928,7 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
     };
 
     let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol = lookup_builtin_protocol(&schema_val.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+    let protocol = super::helpers::protocol_of(&schema_val);
 
     let lens_obj = chain.instantiate(&schema_val, &protocol).map_err(|e| {
         WasmError::LensConstructionFailed {
@@ -1188,8 +1181,7 @@ pub fn protolens_lift(chain: u32, morphism_bytes: &[u8]) -> Result<u32, JsError>
 pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>, JsError> {
     let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
     let schema_obj = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol = lookup_builtin_protocol(&schema_obj.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_obj.protocol));
+    let protocol = super::helpers::protocol_of(&schema_obj);
     let result = chain_obj.check_applicability_with(&schema_obj, &protocol);
     let response = match result {
         Ok(()) => serde_json::json!({ "applicable": true, "reasons": Vec::<String>::new() }),
@@ -1233,8 +1225,7 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
 
     // Determine protocol from first schema.
     let protocol = if let Some((_, first)) = schemas.first() {
-        lookup_builtin_protocol(&first.protocol)
-            .unwrap_or_else(|| default_protocol(&first.protocol))
+        super::helpers::protocol_of(first)
     } else {
         return rmp_serde::to_vec_named(&serde_json::json!({
             "applied": Vec::<String>::new(),
@@ -1316,8 +1307,7 @@ pub fn auto_generate_protolens_with_hints(
 
     let s1 = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let s2 = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
+    let protocol = super::helpers::protocol_of(&s1);
 
     let mut hard_pins = std::collections::HashMap::new();
     for (src, tgt) in &hints {
@@ -1367,8 +1357,7 @@ pub fn auto_generate_protolens_with_hint_spec(
 
     let s1 = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let s2 = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
+    let protocol = super::helpers::protocol_of(&s1);
 
     let parts = lens::hint::HintParts {
         anchors: hint_spec.anchors.clone(),
@@ -1417,6 +1406,7 @@ pub fn auto_generate_protolens_with_hint_spec(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::api::helpers::default_protocol;
 
     #[test]
     fn parse_stringency_accepts_tiers_case_insensitive() {
@@ -1765,5 +1755,103 @@ mod tests {
 
         slab::free(chain_handle);
         slab::free(schema_handle);
+    }
+
+    /// A computed field whose value is a record round-trips through the
+    /// JSON entry points: the view `get_json` writes is read back by
+    /// `put_json` under the protocol its schema was built with, which
+    /// classifies the field's `object` vertex as holding a value, so the
+    /// record is the field's value rather than a subtree the lens never
+    /// wrote.
+    #[test]
+    fn json_round_trip_keeps_a_record_valued_computed_field_a_value() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "demo-record-value".into(),
+            schema_theory: "ThConstrainedGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: ["record-schema", "prop"]
+                .into_iter()
+                .map(|kind| panproto_core::schema::EdgeRule {
+                    edge_kind: kind.into(),
+                    src_kinds: vec![],
+                    tgt_kinds: vec![],
+                })
+                .collect(),
+            obj_kinds: [
+                "rec",
+                "rec:body",
+                "rec:body.text",
+                "string",
+                "record",
+                "object",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+            value_kinds: std::collections::BTreeMap::from([(
+                "object".to_owned(),
+                panproto_core::schema::ScalarKind::Any,
+            )]),
+            ..Default::default()
+        };
+        let protocol_handle = super::super::schema::define_protocol(
+            &rmp_serde::to_vec_named(&protocol).expect("protocol encodes"),
+        )
+        .expect("protocol registers");
+        let ops = serde_json::json!([
+            { "op": "vertex", "id": "rec", "kind": "rec", "nsid": null },
+            { "op": "vertex", "id": "rec:body", "kind": "rec:body", "nsid": null },
+            { "op": "vertex", "id": "rec:body.text", "kind": "rec:body.text", "nsid": null },
+            { "op": "vertex", "id": "rec:body.g", "kind": "object", "nsid": null },
+            { "op": "edge", "src": "rec", "tgt": "rec:body", "kind": "record-schema", "name": null },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.text", "kind": "prop", "name": "text" },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.g", "kind": "prop", "name": "g" },
+        ]);
+        let schema_handle = super::super::schema::build_schema(
+            protocol_handle,
+            &rmp_serde::to_vec_named(&ops).expect("ops encode"),
+        )
+        .expect("schema builds");
+        let document = serde_json::json!({
+            "id": "demo.compute-roundtrip",
+            "source": "v1",
+            "target": "v2",
+            "steps": [{ "compute_field": { "target": "g", "expr": "{ a = text }" } }],
+        })
+        .to_string();
+        let chain_handle = compile_lens_document_engine(document.as_bytes(), "json", "rec:body")
+            .expect("document compiles");
+        let lens_handle =
+            instantiate_protolens_engine(chain_handle, schema_handle).expect("lens instantiates");
+
+        let got =
+            super::super::schema::get_json_engine(lens_handle, br#"{"text":"hello"}"#, "rec:body")
+                .expect("get succeeds");
+        let got: serde_json::Value = rmp_serde::from_slice(&got).expect("get result decodes");
+        assert_eq!(
+            got["view"],
+            serde_json::json!({ "text": "hello", "g": { "a": "hello" } })
+        );
+        let complement: Vec<u8> = got["complement"]
+            .as_array()
+            .expect("complement is bytes")
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64().expect("byte")).expect("byte fits"))
+            .collect();
+
+        let restored = super::super::schema::put_json_engine(
+            lens_handle,
+            &serde_json::to_vec(&got["view"]).expect("view encodes"),
+            &complement,
+            "rec:body",
+        )
+        .expect("putting back the unedited view succeeds");
+        let restored: serde_json::Value =
+            serde_json::from_slice(&restored).expect("restored record decodes");
+        assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+
+        for handle in [lens_handle, chain_handle, schema_handle, protocol_handle] {
+            slab::free(handle);
+        }
     }
 }

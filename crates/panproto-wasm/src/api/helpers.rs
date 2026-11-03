@@ -656,10 +656,40 @@ pub(super) fn compose_compiled(
     }
 }
 
-/// The protocol `schema` names: a built-in one when the name is recognized,
-/// else a default spec carrying the name.
+thread_local! {
+    /// The protocols schemas were built with through [`build_schema`],
+    /// keyed by protocol name; the latest build under a name wins.
+    ///
+    /// [`build_schema`]: super::schema::build_schema
+    static BUILT_PROTOCOLS: std::cell::RefCell<HashMap<String, panproto_core::schema::Protocol>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Record `protocol` as the protocol a schema was built with, so every
+/// later operation on a schema naming it reads values under it.
+pub(super) fn record_built_protocol(protocol: &panproto_core::schema::Protocol) {
+    BUILT_PROTOCOLS.with_borrow_mut(|built| {
+        built.insert(protocol.name.clone(), protocol.clone());
+    });
+}
+
+/// The protocol named `name`: the one a schema was last built with under
+/// that name, else the built-in one, else a default spec carrying the name.
+///
+/// A lens is instantiated, and its records parsed and serialized, under
+/// this one protocol, so a value kind the protocol classifies (an `object`
+/// vertex holding a record value, say) reads back as the value the lens
+/// wrote rather than as structure.
+pub(super) fn protocol_named(name: &str) -> panproto_core::schema::Protocol {
+    BUILT_PROTOCOLS
+        .with_borrow(|built| built.get(name).cloned())
+        .or_else(|| lookup_builtin_protocol(name))
+        .unwrap_or_else(|| default_protocol(name))
+}
+
+/// The protocol `schema` names, as [`protocol_named`] resolves it.
 pub(super) fn protocol_of(schema: &Schema) -> panproto_core::schema::Protocol {
-    lookup_builtin_protocol(&schema.protocol).unwrap_or_else(|| default_protocol(&schema.protocol))
+    protocol_named(&schema.protocol)
 }
 
 /// Build a default protocol spec with the given name.

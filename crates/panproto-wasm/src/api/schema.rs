@@ -57,6 +57,7 @@ pub fn build_schema(proto: u32, ops: &[u8]) -> Result<u32, JsError> {
         })?;
 
     let mut builder = SchemaBuilder::new(&protocol);
+    super::helpers::record_built_protocol(&protocol);
 
     for op in operations {
         match op {
@@ -655,6 +656,15 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
 /// Returns `JsError` if parsing, get, or serialization fails.
 #[wasm_bindgen]
 pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError> {
+    get_json_engine(migration, json_bytes, root_vertex).map_err(Into::into)
+}
+
+/// Host-testable implementation of [`get_json`].
+pub(super) fn get_json_engine(
+    migration: u32,
+    json_bytes: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, WasmError> {
     #[derive(Serialize)]
     struct GetJsonResult {
         view: serde_json::Value,
@@ -666,8 +676,7 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
             reason: e.to_string(),
         })?;
 
-    let (compiled, src_schema, tgt_schema) =
-        slab::with_resource(migration, extract_migration_owned)?;
+    let (compiled, src_schema, tgt_schema) = slab::try_get(migration, extract_migration_owned)?;
 
     let src_root = find_root(root_vertex, &src_schema)?;
     let instance = inst::parse_json(
@@ -705,11 +714,8 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
         complement: complement_bytes,
     };
 
-    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
-        WasmError::SerializationFailed {
-            reason: e.to_string(),
-        }
-        .into()
+    rmp_serde::to_vec_named(&result).map_err(|e| WasmError::SerializationFailed {
+        reason: e.to_string(),
     })
 }
 
@@ -725,6 +731,16 @@ pub fn put_json(
     complement: &[u8],
     root_vertex: &str,
 ) -> Result<Vec<u8>, JsError> {
+    put_json_engine(migration, view_json_bytes, complement, root_vertex).map_err(Into::into)
+}
+
+/// Host-testable implementation of [`put_json`].
+pub(super) fn put_json_engine(
+    migration: u32,
+    view_json_bytes: &[u8],
+    complement: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, WasmError> {
     let view_json: serde_json::Value =
         serde_json::from_slice(view_json_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: e.to_string(),
@@ -732,7 +748,7 @@ pub fn put_json(
 
     let comp = super::helpers::decode_complement(complement, "complement")?;
 
-    let result = slab::with_resource(migration, |r| {
+    let result = slab::try_get(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
@@ -762,11 +778,8 @@ pub fn put_json(
         })
     })?;
 
-    serde_json::to_vec(&result).map_err(|e| -> JsError {
-        WasmError::SerializationFailed {
-            reason: e.to_string(),
-        }
-        .into()
+    serde_json::to_vec(&result).map_err(|e| WasmError::SerializationFailed {
+        reason: e.to_string(),
     })
 }
 

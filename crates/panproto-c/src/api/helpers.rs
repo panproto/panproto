@@ -90,7 +90,9 @@ pub enum BuildOp {
     },
 }
 
-/// Apply a sequence of [`BuildOp`]s to a [`SchemaBuilder`] over `protocol`.
+/// Apply a sequence of [`BuildOp`]s to a [`SchemaBuilder`] over `protocol`,
+/// recording `protocol` as the one schemas naming it resolve to (see
+/// [`protocol_for_schema`]).
 ///
 /// # Errors
 ///
@@ -140,9 +142,11 @@ pub fn build_schema_from_ops(
             }
         }
     }
-    builder
+    let built = builder
         .build()
-        .map_err(|e| FfiError::Operation(format!("schema build: {e}")))
+        .map_err(|e| FfiError::Operation(format!("schema build: {e}")))?;
+    record_built_protocol(protocol);
+    Ok(built)
 }
 
 // ---------------------------------------------------------------------------
@@ -403,11 +407,38 @@ pub fn default_protocol(name: &str) -> schema::Protocol {
     }
 }
 
-/// Resolve the protocol for a schema: a built-in if recognized,
-/// otherwise a default spec carrying the schema's protocol name.
+/// The protocols schemas were built with through
+/// [`build_schema_from_ops`], keyed by protocol name; the latest build
+/// under a name wins.
+static BUILT_PROTOCOLS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, schema::Protocol>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+/// Record `protocol` as the protocol a schema was built with, so every
+/// later operation on a schema naming it reads values under it.
+fn record_built_protocol(protocol: &schema::Protocol) {
+    BUILT_PROTOCOLS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(protocol.name.clone(), protocol.clone());
+}
+
+/// Resolve the protocol for a schema: the one a schema naming it was last
+/// built with, else the built-in one, else a default spec carrying the
+/// schema's protocol name.
+///
+/// A lens is instantiated, and its records parsed and serialized, under
+/// this one protocol, so a value kind the protocol classifies (an `object`
+/// vertex holding a record value, say) reads back as the value the lens
+/// wrote rather than as structure.
 #[must_use]
 pub fn protocol_for_schema(schema: &Schema) -> schema::Protocol {
-    lookup_builtin_protocol(&schema.protocol).unwrap_or_else(|| default_protocol(&schema.protocol))
+    BUILT_PROTOCOLS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&schema.protocol)
+        .cloned()
+        .or_else(|| lookup_builtin_protocol(&schema.protocol))
+        .unwrap_or_else(|| default_protocol(&schema.protocol))
 }
 
 /// Infer a suitable root vertex from a schema for JSON parsing.
@@ -886,6 +917,37 @@ mod tests {
     use panproto_core::schema::{Edge, canonical_bytes};
 
     use super::build_minimal_schema;
+
+    #[test]
+    fn a_schema_resolves_to_the_protocol_it_was_built_with() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "c-built-protocol-resolution".into(),
+            obj_kinds: vec!["object".into()],
+            value_kinds: std::collections::BTreeMap::from([(
+                "object".to_owned(),
+                panproto_core::schema::ScalarKind::Any,
+            )]),
+            ..Default::default()
+        };
+        let unrecorded = panproto_core::schema::SchemaBuilder::new(&protocol)
+            .vertex("r", "object", None)
+            .and_then(panproto_core::schema::SchemaBuilder::build)
+            .expect("schema builds");
+        assert_eq!(
+            super::protocol_for_schema(&unrecorded).value_kinds,
+            std::collections::BTreeMap::default()
+        );
+        let schema = super::build_schema_from_ops(
+            &protocol,
+            vec![super::BuildOp::Vertex {
+                id: "r".into(),
+                kind: "object".into(),
+                nsid: None,
+            }],
+        )
+        .expect("schema builds");
+        assert_eq!(super::protocol_for_schema(&schema), protocol);
+    }
 
     /// Twenty-four labelled edges out of one vertex, so the order of its
     /// adjacency bucket is the order the edges are visited in.

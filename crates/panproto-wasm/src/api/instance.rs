@@ -314,8 +314,7 @@ pub fn validate_instance(schema_handle: u32, instance_bytes: &[u8]) -> Result<Ve
             reason: e.to_string(),
         })?;
 
-    let protocol = super::helpers::lookup_builtin_protocol(&schema.protocol)
-        .unwrap_or_else(|| super::helpers::default_protocol(&schema.protocol));
+    let protocol = super::helpers::protocol_of(&schema);
     let report = inst::validate_wtype(&instance, &schema, &protocol);
     // The entries that decide the status: none when it passed, otherwise
     // every required diagnostic in report order, then every required check

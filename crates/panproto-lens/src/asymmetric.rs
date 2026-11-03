@@ -778,8 +778,7 @@ fn derived_cells_on_fields<'v>(
     view: &'v WInstance,
     complement: &Complement,
 ) -> std::borrow::Cow<'v, WInstance> {
-    if lens.compiled.field_transforms.is_empty() && lens.compiled.op_term_assignments.is_empty()
-    {
+    if lens.compiled.field_transforms.is_empty() && lens.compiled.op_term_assignments.is_empty() {
         return std::borrow::Cow::Borrowed(view);
     }
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
@@ -870,9 +869,7 @@ fn presented_cell(child: &Node) -> Option<panproto_inst::value::Value> {
     use panproto_inst::value::{FieldPresence, Value};
 
     match &child.value {
-        Some(FieldPresence::Present(value)) if child.extra_fields.is_empty() => {
-            Some(value.clone())
-        }
+        Some(FieldPresence::Present(value)) if child.extra_fields.is_empty() => Some(value.clone()),
         Some(FieldPresence::Null) if child.extra_fields.is_empty() => Some(Value::Null),
         None if !child.extra_fields.is_empty() => Some(Value::Unknown(child.extra_fields.clone())),
         _ => None,
