@@ -1874,13 +1874,21 @@ fn forward_stability(
         let fates = source_table
             .and_then(|table| plan.boundary.as_ref()?.cells.as_ref()?.fates.get(table))
             .map_or(&[][..], Vec::as_slice);
+        let source_columns = source_table.and_then(|table| {
+            let functor = plan.boundary.as_ref()?.table.as_ref()?;
+            Some(functor.source().columns(table))
+        });
         for field in differing_fields(expected, actual) {
             let writer = cell_writer(fates, &field);
+            let writes_a_source_column = writer.as_ref().is_some_and(|writer| {
+                source_columns.is_some_and(|columns| columns.contains_key(writer))
+            });
             found.push(classify_cell_edit(
                 traces.get(&id).map_or(&[], Vec::as_slice),
                 id,
                 field,
                 writer.as_deref(),
+                writes_a_source_column,
             ));
         }
     }
@@ -1936,11 +1944,17 @@ fn table_transform_traces(
     Ok(traces)
 }
 
+/// The refusal for a view cell that the regenerated view does not
+/// reproduce. The last transform the row's trace applies to the cell's
+/// writer decides; with none, an edit that reaches a source column but does
+/// not survive the forward transforms is `TransformNotInvertible`, and any
+/// other is `DerivedCellEdited`.
 fn classify_cell_edit(
     transforms: &[FieldTransform],
     id: RowId,
     target: String,
     writer: Option<&str>,
+    writes_a_source_column: bool,
 ) -> PutDomainError {
     let key = writer.unwrap_or(&target);
     for transform in transforms.iter().rev() {
@@ -1990,9 +2004,16 @@ fn classify_cell_edit(
             _ => {}
         }
     }
-    PutDomainError::DerivedCellEdited {
-        elem: ViewRef::Row(id),
-        field: target,
+    if writes_a_source_column {
+        PutDomainError::TransformNotInvertible {
+            elem: ViewRef::Row(id),
+            field: target,
+        }
+    } else {
+        PutDomainError::DerivedCellEdited {
+            elem: ViewRef::Row(id),
+            field: target,
+        }
     }
 }
 

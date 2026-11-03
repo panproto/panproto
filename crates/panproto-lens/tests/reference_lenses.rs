@@ -10893,6 +10893,81 @@ fn declared_read_of_a_child_attribute_writes_it_back_to_the_child() {
     }
 }
 
+/// A default or computed field presented as a child on the edge it names,
+/// the way `parse_json` reads a serialized view, is a child the source never
+/// held: tree put refuses it in production exactly as in the reference.
+/// Folding the child back into its node's field recovers the view `get`
+/// wrote, which both engines put back to the source.
+#[test]
+fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
+    let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
+    for name in ["DeclaredDefault", "DeclaredCompute"] {
+        let pair = Pair::from_stage(&stages[c11_stage_index(&stages, name)]);
+        let source = RefTree {
+            nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
+            arcs: Vec::new(),
+            fans: Vec::new(),
+            root: 0,
+        };
+        let production = production_tree_case(&pair, &source, true);
+        assert_eq!(production, reference_tree_case(&pair, &source), "{name}");
+        let Some(Ok((view, _, restored))) = production else {
+            panic!("{name}: get admits the bare root");
+        };
+        assert_eq!(restored, Ok(source.clone()), "{name}");
+        let value = view.nodes[&0]
+            .fields
+            .get(C11_FIELD)
+            .unwrap_or_else(|| panic!("{name}: get writes `{C11_FIELD}` on the root"))
+            .clone();
+
+        let mut child_form = view.clone();
+        child_form
+            .nodes
+            .get_mut(&0)
+            .expect("root")
+            .fields
+            .remove(C11_FIELD);
+        let mut child = RefNode::new(1, "value");
+        child.value = Some(RefPresence::Present(value));
+        child_form.nodes.insert(1, child);
+        child_form
+            .arcs
+            .push((0, 1, RefSEdge::new("a", "value", "prop", Some(C11_FIELD))));
+
+        let production = production_tree_put(&pair, &source, &child_form).expect("production get");
+        let reference = reference_tree_put(&pair, &source, &child_form).expect("reference get");
+        let refusal = format!("DerivedCellEdited Node(0) {C11_FIELD}");
+        assert_eq!(
+            reference.put,
+            Err(Reason::PutDomain(refusal.clone())),
+            "{name}"
+        );
+        assert_eq!(reference.domain, Err(vec![refusal]), "{name}");
+        assert_eq!(production, reference, "{name}");
+
+        let (_, complement) =
+            panproto_lens::get(&pair.production, &prod_tree(&source)).expect("production get");
+        let folded = panproto_lens::fold_computed_children_into_fields(
+            &pair.production,
+            &prod_tree(&child_form),
+            &complement,
+        );
+        assert_eq!(ref_tree(&folded), view, "{name}: the fold recovers the view");
+        let production = production_tree_put(&pair, &source, &ref_tree(&folded));
+        assert_eq!(
+            production,
+            reference_tree_put(&pair, &source, &view),
+            "{name}"
+        );
+        assert_eq!(
+            production.and_then(|outcome| outcome.put.ok()),
+            Some(source.clone()),
+            "{name}"
+        );
+    }
+}
+
 /// A source `r` with sibling fields `a` and `b` of vertex `s`, the target
 /// keeping only `a`; the edge map sends `b` to `a` as well.
 fn sibling_merge_pair() -> Pair {
@@ -16138,11 +16213,15 @@ mod transformed_tables {
             agreed_put(&pair, &source, &one_row(&[("b", 2)])).put,
             Ok(source.clone())
         );
-        // Both engines refuse an edit of the output column `b`, which the
-        // rename also writes.
+        // Both engines refuse an edit of the output column `b` alike: the
+        // rename writes it back to the source column `a`, and the computed
+        // `b` of the restored source does not reproduce it.
         let edited = one_row(&[("b", 5)]);
-        assert!(production_table_put(&pair, &source, &edited).put.is_err());
-        assert!(reference_table_put(&pair, &source, &edited).put.is_err());
+        let refusal = "TransformNotInvertible Row(0) b".to_owned();
+        let reference = reference_table_put(&pair, &source, &edited);
+        assert_eq!(reference.domain, Err(vec![refusal.clone()]));
+        assert_eq!(reference.put, Err(Reason::PutDomain(refusal)));
+        assert_eq!(production_table_put(&pair, &source, &edited), reference);
     }
 
     /// The graph engine applies no cell fates to a node's fields: under the

@@ -742,44 +742,53 @@ pub(crate) fn put_with_identity(
     if matches!(status, IdentityStatus::Unbound) {
         unbound_provenance(view, complement)?;
     }
-    let view = derived_cells_on_fields(lens, view, complement);
-    if let Err(found) = check_put_domain(lens, &view, complement)
+    if let Err(found) = check_put_domain(lens, view, complement)
         && let Some(first) = found.into_iter().next()
     {
         return Err(LensError::PutDomain(Box::new(first)));
     }
-    let source = reassemble(lens, &view, complement)?;
+    let source = reassemble(lens, view, complement)?;
     Ok((source, status))
 }
 
-/// `view` with every derived cell that it presents as a child held among
-/// its node's own fields again, where `get` wrote it.
+/// `view` with every computed field that it presents as a child of its node
+/// moved back among that node's own fields, where `get` wrote it.
 ///
-/// A computed field (`ComputeField`) or a default (`AddField`) is written
-/// into the fields of the node it computes for. Serialization writes such a
-/// field and a child attribute of the same name alike, and a reader of the
-/// serialized view, which knows the target schema but not the lens, reads
-/// the attribute back as a scalar child on the edge the field names. That
-/// child is a presentation of the derived cell, not a structural insertion:
-/// the source held no child there, and the view holds no field of that name.
+/// This is the inverse of how [`panproto_inst::to_json`] and
+/// [`panproto_inst::parse_json`] present a computed field. `get` writes a
+/// computed field (`ComputeField`) or a default (`AddField`) among the fields
+/// of the node it computes for. `to_json` writes such a field and a child of
+/// the same name alike, and `parse_json`, which reads under the target schema
+/// and knows nothing of the lens, reads it back as a child on the edge the
+/// field names. Tree [`put`] and [`check_put_domain`] refuse that child, as
+/// the reference lens does, since the source held no child there. A caller
+/// that reads a view from JSON calls this before `put` to recover the view
+/// `get` returned.
 ///
-/// A child is folded back into its parent's field `key` exactly when the
-/// node's forward transforms derive `key`, the node holds no field `key`,
-/// and the child is the only one under an edge named `key`, has no children
-/// of its own, takes part in no fan, and is not a source child of the node
-/// (the complement records no source arc between them). The child presents
-/// a scalar or null as its own value with no fields, and a record as its
-/// fields with no value of its own (see [`presented_cell`]). The
-/// derived cell is then checked and restored as any field: an unedited one
-/// is put back to the source it was computed from, and an edited one is
-/// refused as an edit of a derived cell.
-fn derived_cells_on_fields<'v>(
+/// A child of node `n` on an edge named `key` is moved into the field `key`
+/// of `n` exactly when
+///
+/// * the forward transforms of `n`'s source anchor derive `key`, as the
+///   target of a `ComputeField` or an `AddField`, in any case branch or under
+///   an empty path;
+/// * `n` holds no field `key`;
+/// * the child is the only child of `n` on an edge named `key`, has no
+///   children of its own, and takes part in no fan;
+/// * the complement records no source arc from `n` to the child, and neither
+///   node was synthesized by `get`; and
+/// * the child presents a cell value: a scalar or null as its own value with
+///   no fields, or a record as its fields with no value of its own.
+///
+/// Every other child is left as it is. Neither [`get`] nor [`put`] calls
+/// this.
+#[must_use]
+pub fn fold_computed_children_into_fields(
     lens: &Lens,
-    view: &'v WInstance,
+    view: &WInstance,
     complement: &Complement,
-) -> std::borrow::Cow<'v, WInstance> {
+) -> WInstance {
     if lens.compiled.field_transforms.is_empty() && lens.compiled.op_term_assignments.is_empty() {
-        return std::borrow::Cow::Borrowed(view);
+        return view.clone();
     }
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
     let source_arcs: HashSet<(u32, u32)> = complement.arc_order.iter().copied().collect();
@@ -833,7 +842,7 @@ fn derived_cells_on_fields<'v>(
         }
     }
     if folds.is_empty() {
-        return std::borrow::Cow::Borrowed(view);
+        return view.clone();
     }
 
     let mut nodes = view.nodes.clone();
@@ -851,13 +860,13 @@ fn derived_cells_on_fields<'v>(
         .filter(|(_, child, _)| !folded.contains(child))
         .cloned()
         .collect();
-    std::borrow::Cow::Owned(WInstance::new(
+    WInstance::new(
         nodes,
         arcs,
         view.fans.clone(),
         view.root,
         view.schema_root.clone(),
-    ))
+    )
 }
 
 /// The cell value a leaf child presents: its own scalar, or null, when it
@@ -965,10 +974,12 @@ fn derived_cell_keys(transforms: &[panproto_inst::FieldTransform], keys: &mut BT
 /// view subtree below it, since `put` has nothing to restore it as. Put is
 /// total on views for which this returns `Ok`.
 ///
-/// A computed field or default that the view presents as a scalar child of
-/// its node, as a serialized view read back under the target schema does, is
-/// checked as the field `get` wrote: an unedited one is accepted and an
-/// edited one is refused with [`PutDomainError::DerivedCellEdited`].
+/// A computed field or default is checked only where `get` wrote it, among
+/// its node's own fields. A view that presents one as a child of its node,
+/// as a serialized view read back with `parse_json` does, holds a child the
+/// source never had and is refused like any other inserted child;
+/// [`fold_computed_children_into_fields`] moves such a child back into its
+/// field first.
 ///
 /// # Errors
 ///
@@ -985,8 +996,6 @@ pub fn check_put_domain(
             detail: error.to_string(),
         }]);
     }
-    let canonical = derived_cells_on_fields(lens, view, complement);
-    let view = &*canonical;
     let mut found = structural_violations(lens, view, complement);
     let restorable = if found.is_empty() {
         None

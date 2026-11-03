@@ -2,13 +2,16 @@
 //! A computed field survives a JSON round trip of its view.
 //!
 //! This is the path a binding takes: `get` on a parsed record, the view
-//! written to JSON, the JSON read back under the target schema, and `put`
-//! with the complement from `get`. Putting back the unedited view must
-//! restore the source, and putting back a view whose computed field was
-//! edited must be refused, whether the field holds a record or a string.
+//! written to JSON, the JSON read back under the target schema, the computed
+//! field that `parse_json` reads as a child folded back into its node's
+//! fields, and `put` with the complement from `get`. Putting back the
+//! unedited view must restore the source, and putting back a view whose
+//! computed field was edited must be refused, whether the field holds a
+//! record or a string. Core `put` itself refuses the view as `parse_json`
+//! reads it, before the fold, as the reference lens does.
 
 use panproto_inst::{parse_json, to_json};
-use panproto_lens::{Lens, LensError, PutDomainError};
+use panproto_lens::{Lens, LensError, PutDomainError, fold_computed_children_into_fields};
 use panproto_schema::{EdgeRule, Protocol, SchemaBuilder};
 
 /// A protocol that classifies no value kind, as a binding falls back to
@@ -84,7 +87,9 @@ fn lens(protocol: &Protocol, g_kind: &str, expr: &str) -> Lens {
 }
 
 /// Get, write the view to JSON, check it is `expected_view`, then read
-/// back `shown` (the view as a client returns it) and put it.
+/// back `shown` (the view as a client returns it), check that core `put`
+/// refuses it as read, and put it after folding its computed field back
+/// into its node's fields.
 fn round_trip(
     protocol: &Protocol,
     lens: &Lens,
@@ -101,7 +106,14 @@ fn round_trip(
     let (view, complement) = panproto_lens::get(lens, &source).unwrap();
     assert_eq!(&to_json(&lens.tgt_schema, &view).unwrap(), expected_view);
     let reparsed = parse_json(&lens.tgt_schema, protocol, "rec:body", shown).unwrap();
-    panproto_lens::put(lens, &reparsed, &complement)
+    let direct = panproto_lens::put(lens, &reparsed, &complement);
+    assert!(
+        matches!(&direct, Err(LensError::PutDomain(_))),
+        "core put refuses the computed field read back as a child: {direct:?}"
+    );
+    let folded = fold_computed_children_into_fields(lens, &reparsed, &complement);
+    assert!(folded.nodes.len() < reparsed.nodes.len(), "the fold moves `g` into a field");
+    panproto_lens::put(lens, &folded, &complement)
         .map(|restored| to_json(&lens.src_schema, &restored).unwrap())
 }
 

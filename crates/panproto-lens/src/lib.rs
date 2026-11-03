@@ -68,7 +68,8 @@ pub mod table_symmetric;
 
 // Re-exports for convenience.
 pub use asymmetric::{
-    Complement, ComplementCompose, get, put, put_checked, put_without_complement,
+    Complement, ComplementCompose, fold_computed_children_into_fields, get, put, put_checked,
+    put_without_complement,
 };
 pub use auto_lens::{
     AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_candidates,

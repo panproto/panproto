@@ -721,6 +721,11 @@ pub(super) fn get_json_engine(
 
 /// Bidirectional put: restore from a JSON view + complement.
 ///
+/// The view is read under the target schema and passed through
+/// [`fold_computed_children_into_fields`](lens::fold_computed_children_into_fields)
+/// before `put`, so a computed field that [`get_json`] wrote is read back as
+/// that field.
+///
 /// # Errors
 ///
 /// Returns `JsError` if parsing, put, or serialization fails.
@@ -768,6 +773,11 @@ pub(super) fn put_json_engine(
             tgt_schema,
         };
 
+        // `parse_json` reads a computed field `to_json` wrote as a child on
+        // the edge it names; move it back among its node's fields, where
+        // `get` wrote it and where `put` reads it.
+        let view_instance =
+            lens::fold_computed_children_into_fields(&lens_obj, &view_instance, &comp);
         let restored =
             lens::put(&lens_obj, &view_instance, &comp).map_err(|e| WasmError::PutFailed {
                 reason: e.to_string(),
