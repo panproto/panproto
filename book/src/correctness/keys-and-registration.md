@@ -6,22 +6,20 @@ A key has an id, an ordered sequence of parts, a role, a scope, and either an em
 
 **Focused verification status.**
 
-The listed focused tests for laws 1--4 and 7--15 have passed, but verification
-on the repaired tree is still pending. The release
-commands passed 1 canonical-theory test, 5 schema-declaration tests, 11
-instance-key tests, 2 change-classification tests, and 2 VCS identity tests.
+The focused tests for laws 1--4 and 7--15 comprise 1 canonical-theory test,
+5 schema-declaration tests, 11 instance-key tests, 2 change-classification
+tests, and 2 VCS identity tests.
 The finite certificates cover 37 declaration encodings, 194 decoded
 extension-marker combinations, 30 declaration admission fixtures, 12
 target-set declaration fixtures, 8 of them projected to the local predicate,
 all 5 target-set member roles, 37 values under 12 equality
 configurations, 16,428 equality pairs, 607,836 transitivity triples, 341 XML
 strings, 116,281 XML pairs, 28 additional classification cases, 148 structural
-graphs, 27,329,908 schemas, and 816,223,680 directed classifications. Strict
-Clippy with `-D warnings` has not yet been rerun on the repaired tree.
+graphs, 27,329,908 schemas, and 816,223,680 directed classifications.
 
-These checks establish the focused executable counterparts. They do not close
-the independent audit, mutation, frozen-candidate, or global release gates;
-the audit verdicts below thus remain pending.
+These checks establish the focused executable counterparts. They do not
+replace the independent audit or the mutation run, so the audit verdicts
+below remain pending.
 
 ## Key parts read the declared value or return NULL {#L-keys-and-registration-1}
 
