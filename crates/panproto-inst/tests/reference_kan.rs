@@ -2842,10 +2842,10 @@ fn profile_members_are_isomorphic() -> u64 {
 /// from the orbit-stabilizer certificate and their weighted sum must be the
 /// labelled pair count.
 #[test]
-fn o14_hom_profile_pairs_agree_with_the_reference() {
+fn exhaustive_kan_hom_profile_pairs_agree_with_the_reference() {
     assert!(
         std::env::var_os("PANPROTO_KAN_PAIR_LIMIT").is_none(),
-        "o14_hom_profile_pairs_agree_with_the_reference is the full release certificate; \
+        "exhaustive_kan_hom_profile_pairs_agree_with_the_reference is the full release certificate; \
          PANPROTO_KAN_PAIR_LIMIT would truncate it; unset the variable"
     );
     let cases = pair_cases();
@@ -2974,9 +2974,9 @@ const fn not_encodable_name(reason: &encode::NotEncodable) -> &'static str {
 /// The labelled counts of the graph-encoding enumerators against their closed formulas
 /// and a sum written out by hand.
 #[test]
-fn o7_enumerators_give_their_labelled_counts() {
-    let spec = scope::o7_encoding_spec();
-    let count = scope::spec_graphs(&spec, &|_, _| scope::o7_encoding_forms(), 4).len() as u64;
+fn graph_encoding_enumerators_give_their_labelled_counts() {
+    let spec = scope::graph_encoding_spec();
+    let count = scope::spec_graphs(&spec, &|_, _| scope::graph_encoding_forms(), 4).len() as u64;
     let by_hand: u64 = (0..=4u32)
         .flat_map(|k| (0..=4 - k).map(move |m| (k, m)))
         .map(|(k, m)| 7u64.pow(k) << (k * m))
@@ -2984,8 +2984,8 @@ fn o7_enumerators_give_their_labelled_counts() {
     assert_eq!(count, scope::spec_graphs_count(&spec, &|_, _| 7, 4));
     assert_eq!((count, by_hand), (6_627, 6_627));
     assert_eq!(
-        scope::o7_encoding_presentations(4).len() as u64,
-        scope::o7_encoding_presentations_count(4)
+        scope::graph_encoding_presentations(4).len() as u64,
+        scope::graph_encoding_presentations_count(4)
     );
     for (spec, cells, expected) in [
         (scope::relation_spec(), 1usize, 51u64),
@@ -3012,7 +3012,7 @@ fn o7_enumerators_give_their_labelled_counts() {
     println!(
         "graph-encoding enumerators: 6627 encoding graphs (by hand {by_hand}), {} presentations, 51 \
          relation graphs, 129 shared-column graphs",
-        scope::o7_encoding_presentations_count(4)
+        scope::graph_encoding_presentations_count(4)
     );
 }
 
@@ -3021,14 +3021,14 @@ fn o7_enumerators_give_their_labelled_counts() {
 /// spread ids) against the reference: equal tables, equal layouts, and the
 /// decoding of each encoding the input itself on both sides.
 #[test]
-fn o7_encoding_agrees_with_the_reference() {
-    let spec = scope::o7_encoding_spec();
+fn graph_encoding_agrees_with_the_reference() {
+    let spec = scope::graph_encoding_spec();
     let (reference, production) = spec_rel(&spec);
     let side = encode::GraphSide::whole(&reference);
-    let graphs = scope::o7_encoding_presentations(4);
+    let graphs = scope::graph_encoding_presentations(4);
     assert_eq!(
         graphs.len() as u64,
-        scope::o7_encoding_presentations_count(4)
+        scope::graph_encoding_presentations_count(4)
     );
     let accepted = par_sum(&graphs, |graph| {
         usize::from(encodings_agree(graph, &side, &production).is_ok())
@@ -3037,7 +3037,7 @@ fn o7_encoding_agrees_with_the_reference() {
         "graph encoding: at most 4 table nodes, {} presentations (independent count {}), {accepted} \
          encoded",
         graphs.len(),
-        scope::o7_encoding_presentations_count(4)
+        scope::graph_encoding_presentations_count(4)
     );
     assert_eq!(accepted, graphs.len());
 }
@@ -3045,9 +3045,9 @@ fn o7_encoding_agrees_with_the_reference() {
 /// The layouts the decoding law is run with: the record-free layout and the
 /// reference layout of every presentation with at most two table nodes that
 /// is decorated with spread ids or plain with plain ids.
-fn o7_layouts(side: &encode::GraphSide) -> Vec<encode::GraphLayout> {
+fn graph_encoding_layouts(side: &encode::GraphSide) -> Vec<encode::GraphLayout> {
     let mut layouts = vec![encode::GraphLayout::default()];
-    for (index, graph) in scope::o7_encoding_presentations(2).iter().enumerate() {
+    for (index, graph) in scope::graph_encoding_presentations(2).iter().enumerate() {
         if index % 4 == 1 || index % 4 == 2 {
             layouts.push(encode::encode_graph(graph, side).unwrap().1);
         }
@@ -3058,9 +3058,9 @@ fn o7_layouts(side: &encode::GraphSide) -> Vec<encode::GraphLayout> {
 /// The tables of the decoding law: every conforming table of the encoding
 /// spec with at most four rows, its cell a constant, `Null`, a record, a
 /// list or a labelled null.
-fn o7_tables(side: &encode::GraphSide) -> Vec<model::Table> {
-    let spec = scope::o7_encoding_spec();
-    scope::spec_graphs(&spec, &|_, _| scope::o7_table_cells(), 4)
+fn graph_encoding_tables(side: &encode::GraphSide) -> Vec<model::Table> {
+    let spec = scope::graph_encoding_spec();
+    scope::spec_graphs(&spec, &|_, _| scope::graph_encoding_table_cells(), 4)
         .iter()
         .map(|graph| encode::encode_graph(graph, side).unwrap().0)
         .collect()
@@ -3072,12 +3072,12 @@ fn o7_tables(side: &encode::GraphSide) -> Vec<model::Table> {
 /// identity on table nodes checks as a graph Kan homomorphism on both sides,
 /// so graphs that differ only in layout are isomorphic.
 #[test]
-fn o7_decoding_agrees_with_the_reference_on_every_table_and_layout() {
-    let spec = scope::o7_encoding_spec();
+fn graph_decoding_agrees_with_the_reference_on_every_table_and_layout() {
+    let spec = scope::graph_encoding_spec();
     let (reference, production) = spec_rel(&spec);
     let side = encode::GraphSide::whole(&reference);
-    let tables = o7_tables(&side);
-    let layouts = o7_layouts(&side);
+    let tables = graph_encoding_tables(&side);
+    let layouts = graph_encoding_layouts(&side);
     let table_count = scope::spec_graphs_count(&spec, &|_, _| 5, 4);
     assert_eq!(tables.len() as u64, table_count);
     assert_eq!(layouts.len(), 1 + 2 * 73);
@@ -3140,14 +3140,14 @@ fn o7_decoding_agrees_with_the_reference_on_every_table_and_layout() {
 /// two table nodes is encoded by production exactly as by the reference,
 /// refusals with their payloads; every production refusal reason is reached.
 #[test]
-fn o7_encoding_refusals_agree_with_the_reference() {
-    let spec = scope::o7_encoding_spec();
+fn graph_encoding_refusals_agree_with_the_reference() {
+    let spec = scope::graph_encoding_spec();
     let (reference, production) = spec_rel(&spec);
     let side = encode::GraphSide::whole(&reference);
-    let bases = scope::o7_encoding_presentations(2);
+    let bases = scope::graph_encoding_presentations(2);
     assert_eq!(
         bases.len() as u64,
-        scope::o7_encoding_presentations_count(2)
+        scope::graph_encoding_presentations_count(2)
     );
     let census = par_sum(&bases, |graph| {
         let mut census = Census::default();
@@ -3192,7 +3192,7 @@ fn o7_encoding_refusals_agree_with_the_reference() {
 /// The unnamed-edge spec with at most two table nodes: a record's inner
 /// edges are named by their target vertex, on both sides.
 #[test]
-fn o7_unnamed_inner_edges_encode_as_the_reference_does() {
+fn graph_encoding_unnamed_inner_edges_encode_as_the_reference_does() {
     let spec = scope::unnamed_inner_spec();
     let (reference, production) = spec_rel(&spec);
     let side = encode::GraphSide::whole(&reference);
@@ -3333,7 +3333,7 @@ fn graph_kan_composites_agree(
 /// with at most three table nodes every composite of two homomorphisms is
 /// the reference composite.
 #[test]
-fn o7_graph_kan_homs_agree_with_the_reference() {
+fn graph_encoding_graph_kan_homs_agree_with_the_reference() {
     let mut total = Census::default();
     for (name, spec, forms) in scope::hom_families() {
         let (reference, production) = spec_rel(&spec);
@@ -3729,8 +3729,8 @@ fn graph_adjunctions_at_target(case: &GraphCase, h: &model::Graph) -> Census {
 /// four merges and the three column cases, at most four table nodes, kept
 /// sources against every target) against the reference.
 #[test]
-fn o7_graph_adjunctions_agree_with_the_reference() {
-    for case in scope::o7_adjunction_family() {
+fn graph_encoding_graph_adjunctions_agree_with_the_reference() {
+    for case in scope::graph_encoding_adjunction_family() {
         let case = GraphCase::new(case);
         let sources = case.case.graphs(&case.case.kept);
         let targets = case.case.graphs(&case.case.target);
@@ -4219,12 +4219,12 @@ proptest! {
         mutations in proptest::collection::vec((0..scope::ENCODING_MUTATIONS, 0usize..16), 0..=3),
     ) {
         static BASES: std::sync::OnceLock<Vec<model::Graph>> = std::sync::OnceLock::new();
-        let bases = BASES.get_or_init(|| scope::o7_encoding_presentations(3));
+        let bases = BASES.get_or_init(|| scope::graph_encoding_presentations(3));
         let mut graph = bases[base.index(bases.len())].clone();
         for (kind, pick) in mutations {
             graph = scope::encoding_mutation(&graph, kind, pick);
         }
-        let spec = scope::o7_encoding_spec();
+        let spec = scope::graph_encoding_spec();
         let (reference, production) = spec_rel(&spec);
         let side = encode::GraphSide::whole(&reference);
         let _ = encodings_agree(&graph, &side, &production);
@@ -4237,7 +4237,7 @@ proptest! {
 /// `(0, 3)`, each with `x = 0`, on both sides.
 #[test]
 fn graph_pi_keeps_the_agreeing_pairs_of_a_merge() {
-    let case = scope::o7_adjunction_family()
+    let case = scope::graph_encoding_adjunction_family()
         .into_iter()
         .find(|case| case.name == "a merge with a shared column")
         .unwrap();

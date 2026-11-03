@@ -266,13 +266,18 @@ fn table_functor_refusals_precede_transform_outputs() {
 #[test]
 fn declared_transform_layers_preserve_other_source_anchors() {
     use panproto_reference::enumerate::lenses::{
-        C11AddField, C11DropField, C11OpTerm, C11ReadField,
+        BoundedLensAddField, BoundedLensDropField, BoundedLensOpTerm, BoundedLensReadField,
     };
     use panproto_reference::model::{Graph, Node};
     use panproto_reference::restrict::ValueLayer;
     use panproto_reference::value::Value;
 
-    let layers: [&dyn ValueLayer; 4] = [&C11AddField, &C11DropField, &C11ReadField, &C11OpTerm];
+    let layers: [&dyn ValueLayer; 4] = [
+        &BoundedLensAddField,
+        &BoundedLensDropField,
+        &BoundedLensReadField,
+        &BoundedLensOpTerm,
+    ];
     let old_fields = BTreeMap::from([("old".to_owned(), Value::Int(9))]);
     for fields in [
         BTreeMap::new(),
@@ -298,17 +303,17 @@ fn declared_transform_layers_preserve_other_source_anchors() {
 #[test]
 fn declared_transform_layers_restore_only_their_field_coordinate() {
     use panproto_reference::enumerate::lenses::{
-        C11AddField, C11DropField, C11OpTerm, C11ReadField,
+        BoundedLensAddField, BoundedLensDropField, BoundedLensOpTerm, BoundedLensReadField,
     };
     use panproto_reference::model::Node;
     use panproto_reference::restrict::ValueLayer;
     use panproto_reference::value::{Presence, Value};
 
     for (layer, original_f, view_f, expected_f) in [
-        (&C11AddField as &dyn ValueLayer, None, Some(0), None),
-        (&C11DropField, Some(1), None, Some(1)),
-        (&C11ReadField, Some(1), Some(2), Some(2)),
-        (&C11OpTerm, Some(1), Some(0), Some(1)),
+        (&BoundedLensAddField as &dyn ValueLayer, None, Some(0), None),
+        (&BoundedLensDropField, Some(1), None, Some(1)),
+        (&BoundedLensReadField, Some(1), Some(2), Some(2)),
+        (&BoundedLensOpTerm, Some(1), Some(0), Some(1)),
     ] {
         let mut original = BTreeMap::from([("other".to_owned(), Value::Int(1))]);
         if let Some(value) = original_f {
@@ -337,7 +342,7 @@ fn declared_transform_layers_restore_only_their_field_coordinate() {
 
 #[test]
 fn drop_layer_refuses_reinsertion_of_its_erased_field() {
-    use panproto_reference::enumerate::lenses::C11DropField;
+    use panproto_reference::enumerate::lenses::BoundedLensDropField;
     use panproto_reference::model::Node;
     use panproto_reference::restrict::{PutFieldRefusal, ValueLayer};
     use panproto_reference::value::Value;
@@ -347,7 +352,7 @@ fn drop_layer_refuses_reinsertion_of_its_erased_field() {
     let original = BTreeMap::from([("f".to_owned(), Value::Int(1))]);
     for recorded in [None, Some(&original)] {
         assert_eq!(
-            C11DropField.restore(&view, recorded, None),
+            BoundedLensDropField.restore(&view, recorded, None),
             Err(PutFieldRefusal::TransformNotInvertible {
                 field: "f".to_owned(),
             })
@@ -358,11 +363,11 @@ fn drop_layer_refuses_reinsertion_of_its_erased_field() {
 #[test]
 fn declared_transform_carrier_has_separate_exact_counts() {
     use panproto_reference::enumerate::lenses::{
-        c11_stages, declared_transform_count_certificate, declared_transform_graphs,
+        bounded_lens_stages, declared_transform_count_certificate, declared_transform_graphs,
         declared_transform_stages, declared_transform_tables, declared_transform_trees,
     };
     let certificate = declared_transform_count_certificate();
-    assert_eq!(c11_stages().len(), 31);
+    assert_eq!(bounded_lens_stages().len(), 31);
     assert_eq!(declared_transform_stages().len(), certificate.stages);
     assert_eq!(
         [
@@ -380,10 +385,11 @@ fn declared_transform_carrier_has_separate_exact_counts() {
 #[test]
 fn undeclared_transform_original_word_scope_remains_fixed() {
     use panproto_reference::enumerate::lenses::{
-        c11_fan_schema, c11_graph_state_count, c11_path_count_certificate, c11_stages,
-        c11_table_state_count, c11_tree_state_count,
+        bounded_lens_fan_schema, bounded_lens_graph_state_count,
+        bounded_lens_path_count_certificate, bounded_lens_stages, bounded_lens_table_state_count,
+        bounded_lens_tree_state_count,
     };
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     let mut layer: Vec<Vec<usize>> = vec![Vec::new()];
     let mut all = [0; 3];
     let mut composable = [0; 3];
@@ -417,15 +423,15 @@ fn undeclared_transform_original_word_scope_remains_fixed() {
             }
             affected_words[length] += 1;
             let source = &stages[word[0]].source;
-            assert_ne!(source, &c11_fan_schema());
+            assert_ne!(source, &bounded_lens_fan_schema());
             affected_sources[length] = [
-                affected_sources[length][0] + c11_graph_state_count(source),
-                affected_sources[length][1] + c11_tree_state_count(source),
-                affected_sources[length][2] + c11_table_state_count(source),
+                affected_sources[length][0] + bounded_lens_graph_state_count(source),
+                affected_sources[length][1] + bounded_lens_tree_state_count(source),
+                affected_sources[length][2] + bounded_lens_table_state_count(source),
             ];
         }
     }
-    let certificate = c11_path_count_certificate();
+    let certificate = bounded_lens_path_count_certificate();
     assert_eq!(all, certificate.words_by_length);
     assert_eq!(composable, certificate.composable_by_length);
     assert_eq!(affected_words[0], 3);

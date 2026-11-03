@@ -22,7 +22,7 @@ fn documented_table_functions() -> std::collections::BTreeSet<String> {
 }
 
 #[test]
-fn the_a13_table_is_exactly_the_manifest_reference_population() {
+fn the_crate_table_is_exactly_the_manifest_reference_population() {
     let manifest_text = std::fs::read_to_string(correctness_manifest_path()).unwrap();
     let manifest = panproto_reference::manifest::load(&manifest_text).unwrap();
     let status_counts = manifest
@@ -62,13 +62,13 @@ fn the_a13_table_is_exactly_the_manifest_reference_population() {
         372
     );
 
-    let value_io_l21 = manifest.pages["value-io"]
+    let value_io_cst_presentation = manifest.pages["value-io"]
         .laws
         .iter()
         .find(|law| law.id == "value-io.vf8-presentation-preservation-cst")
         .unwrap();
     assert_eq!(
-        value_io_l21.references,
+        value_io_cst_presentation.references,
         vec![
             "panproto_reference::value_io::preserve".to_owned(),
             "panproto_reference::value_io::preserve_cst".to_owned(),

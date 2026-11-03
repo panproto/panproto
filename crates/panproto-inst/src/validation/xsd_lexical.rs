@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn the_datatype_amendment_cases_fall_on_the_stated_sides() {
+    fn the_datatype_boundary_cases_fall_on_the_stated_sides() {
         for (datatype, text, inside) in [
             ("integer", "abc", false),
             ("date", "2026-02-30", false),

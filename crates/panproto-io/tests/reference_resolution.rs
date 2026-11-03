@@ -1849,7 +1849,7 @@ fn first_add_edge_requires_a_coherent_visible_sequence() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope() {
+fn declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope() {
     let (production_resolution, production_picked) = tree_picks();
     let mut candidate_count = 0usize;
     let mut congruence_cases = 0usize;
@@ -2116,7 +2116,7 @@ struct Counts {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn all_five_resolution_laws_agree_on_the_exact_s8_scope() {
+fn all_five_resolution_laws_agree_on_the_exact_resolution_scope() {
     let (resolution, picked) = picks();
     let mut reference_counts = Counts::default();
     let mut production_counts = Counts::default();

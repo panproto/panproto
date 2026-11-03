@@ -5,13 +5,14 @@ use std::collections::BTreeSet;
 
 use panproto_reference::canonical;
 use panproto_reference::enumerate::lenses::{
-    C11_DYNAMIC_VERIFICATION_HOLD, C11_SCOPE_COMPLETE, Gf5Counts, Gf5Fixture,
-    PARTIAL_LENS_COMPLEMENTS, PARTIAL_LENS_SOURCES, PARTIAL_LENS_VIEWS, PARTIAL_PUT_ALPHABET,
-    PartialLensHistogram, TABLE_FIXTURE_BOUND, c11_path_count_certificate,
-    for_each_gf5_deletion_edit, for_each_gf5_source, for_each_gf5_source_subinstance_probe,
-    for_each_partial_lens, for_each_table_fixture, gf5_count_certificate,
-    partial_lens_count_certificate, partial_lens_histogram, table_cell_alphabet,
-    table_fixture_count_certificate,
+    BOUNDED_LENS_DYNAMIC_VERIFICATION_STATUS, BOUNDED_LENS_SCOPE_COMPLETE, DeltaFragmentCounts,
+    DeltaFragmentFixture, PARTIAL_LENS_COMPLEMENTS, PARTIAL_LENS_SOURCES, PARTIAL_LENS_VIEWS,
+    PARTIAL_PUT_ALPHABET, PartialLensHistogram, TABLE_FIXTURE_BOUND,
+    bounded_lens_path_count_certificate, delta_fragment_count_certificate,
+    for_each_delta_fragment_deletion_edit, for_each_delta_fragment_source,
+    for_each_delta_fragment_source_subinstance_probe, for_each_partial_lens,
+    for_each_table_fixture, partial_lens_count_certificate, partial_lens_histogram,
+    table_cell_alphabet, table_fixture_count_certificate,
 };
 use panproto_reference::migration::Migration;
 use panproto_reference::model::Graph;
@@ -22,7 +23,7 @@ type CanonicalTableCases = [[BTreeSet<(usize, Vec<u8>)>; 3]; 3];
 type CanonicalGraphTriples = [BTreeSet<(Vec<u8>, Vec<u8>, Vec<u8>)>; 2];
 
 #[test]
-fn c11_partial_lenses_have_the_exact_carrier_and_law_histogram() {
+fn bounded_lens_partial_lenses_have_the_exact_carrier_and_law_histogram() {
     assert_eq!((PARTIAL_LENS_SOURCES, PARTIAL_LENS_VIEWS), (2, 2));
     assert_eq!(PARTIAL_LENS_COMPLEMENTS, 3);
     assert_eq!(PARTIAL_PUT_ALPHABET, [None, Some(0), Some(1)]);
@@ -106,7 +107,7 @@ fn c11_partial_lenses_have_the_exact_carrier_and_law_histogram() {
 }
 
 #[test]
-fn c11_table_fixtures_have_the_exact_per_cell_counts_and_alphabet() {
+fn bounded_lens_table_fixtures_have_the_exact_per_cell_counts_and_alphabet() {
     assert_eq!(TABLE_FIXTURE_BOUND, 2);
     assert_eq!(
         table_cell_alphabet(),
@@ -189,10 +190,10 @@ fn c11_table_fixtures_have_the_exact_per_cell_counts_and_alphabet() {
     );
 }
 
-const fn fixture_index(fixture: Gf5Fixture) -> usize {
+const fn fixture_index(fixture: DeltaFragmentFixture) -> usize {
     match fixture {
-        Gf5Fixture::DropTarget => 0,
-        Gf5Fixture::VisibleThenHidden => 1,
+        DeltaFragmentFixture::DropTarget => 0,
+        DeltaFragmentFixture::VisibleThenHidden => 1,
     }
 }
 
@@ -207,8 +208,8 @@ fn is_subinstance(candidate: &Graph, source: &Graph) -> bool {
             .all(|(id, edge)| source.edges.get(id) == Some(edge))
 }
 
-fn assert_gf5_fixture_definitions() {
-    let first = Gf5Fixture::DropTarget;
+fn assert_delta_fragment_fixture_definitions() {
+    let first = DeltaFragmentFixture::DropTarget;
     let first_source = Schema::default()
         .vertex("a", "record")
         .vertex("b", "record")
@@ -225,7 +226,7 @@ fn assert_gf5_fixture_definitions() {
         }
     );
 
-    let second = Gf5Fixture::VisibleThenHidden;
+    let second = DeltaFragmentFixture::VisibleThenHidden;
     let second_source = Schema::default()
         .vertex("a", "record")
         .vertex("b", "record")
@@ -249,12 +250,12 @@ fn assert_gf5_fixture_definitions() {
 }
 
 #[test]
-fn gf5_exact_fixtures_have_the_three_certified_counts() {
-    assert_gf5_fixture_definitions();
+fn delta_fragment_exact_fixtures_have_the_three_certified_counts() {
+    assert_delta_fragment_fixture_definitions();
 
     let mut sources = [0; 2];
     let mut canonical_sources: [BTreeSet<Vec<u8>>; 2] = Default::default();
-    for_each_gf5_source(|fixture, source| {
+    for_each_delta_fragment_source(|fixture, source| {
         let index = fixture_index(fixture);
         sources[index] += 1;
         assert!(
@@ -276,7 +277,7 @@ fn gf5_exact_fixtures_have_the_three_certified_counts() {
     });
     let mut edits = [0; 2];
     let mut canonical_edits: [BTreeSet<(Vec<u8>, Vec<u8>)>; 2] = Default::default();
-    for_each_gf5_deletion_edit(|fixture, source, edited_view| {
+    for_each_delta_fragment_deletion_edit(|fixture, source, edited_view| {
         let fixture_index = fixture_index(fixture);
         edits[fixture_index] += 1;
         assert!(canonical_edits[fixture_index].insert((
@@ -293,7 +294,7 @@ fn gf5_exact_fixtures_have_the_three_certified_counts() {
     });
     let mut probes = [0; 2];
     let mut canonical_probes: CanonicalGraphTriples = Default::default();
-    for_each_gf5_source_subinstance_probe(|fixture, source, edited_view, candidate| {
+    for_each_delta_fragment_source_subinstance_probe(|fixture, source, edited_view, candidate| {
         let fixture = fixture_index(fixture);
         probes[fixture] += 1;
         assert!(canonical_probes[fixture].insert((
@@ -305,12 +306,12 @@ fn gf5_exact_fixtures_have_the_three_certified_counts() {
         assert!(is_subinstance(candidate, source));
     });
 
-    let expected = Gf5Counts {
+    let expected = DeltaFragmentCounts {
         sources: [35, 98],
         deletion_edits: [98, 506],
         source_subinstance_probes: [873, 4_919],
     };
-    assert_eq!(gf5_count_certificate(), expected);
+    assert_eq!(delta_fragment_count_certificate(), expected);
     assert_eq!(sources, expected.sources);
     assert_eq!(edits, expected.deletion_edits);
     assert_eq!(probes, expected.source_subinstance_probes);
@@ -327,15 +328,15 @@ fn gf5_exact_fixtures_have_the_three_certified_counts() {
     assert_eq!(edits.iter().sum::<usize>(), 604);
     assert_eq!(probes.iter().sum::<usize>(), 5_792);
     println!(
-        "GF5 exact fixtures: nodes<=3 edges<=3; sources=35+98=133; \
+        "Delta-fragment exact fixtures: nodes<=3 edges<=3; sources=35+98=133; \
          deletion-edits=98+506=604; source-subinstance-probes=873+4919=5792"
     );
 }
 
 #[test]
-fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
-    const { assert!(C11_SCOPE_COMPLETE) }
-    let counts = c11_path_count_certificate();
+fn the_bounded_lens_scope_is_defined_but_awaits_dynamic_verification() {
+    const { assert!(BOUNDED_LENS_SCOPE_COMPLETE) }
+    let counts = bounded_lens_path_count_certificate();
     assert_eq!(counts.stages, 31);
     assert_eq!(counts.words_by_length, [31, 961, 29_791]);
     assert_eq!(counts.composable_by_length, [31, 93, 413]);
@@ -344,7 +345,7 @@ fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
     assert_eq!(counts.tree_stages, 29);
     assert_eq!(counts.stage_tree_states, 2_548);
     assert_eq!(
-        C11_DYNAMIC_VERIFICATION_HOLD,
+        BOUNDED_LENS_DYNAMIC_VERIFICATION_STATUS,
         "dynamic execution waits until the reference and production tests reproduce the independent count certificate"
     );
 }
@@ -357,12 +358,12 @@ fn the_amended_c11_scope_is_defined_but_awaits_dynamic_verification() {
 #[test]
 fn a_refused_positive_candidate_is_out_of_the_domain() {
     use panproto_reference::enumerate::lenses::{
-        C11AddField, c11_stages, declared_transform_stages,
+        BoundedLensAddField, bounded_lens_stages, declared_transform_stages,
     };
     use panproto_reference::lens::{GraphLens, LawGateStatus, check_graph_laws};
     use panproto_reference::model::Node;
 
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     let stage = stages.iter().find(|stage| stage.name == "T").unwrap();
     assert_eq!(
         panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration),
@@ -388,7 +389,7 @@ fn a_refused_positive_candidate_is_out_of_the_domain() {
         &stage.migration,
         &plan,
         &std::collections::BTreeMap::new(),
-        &C11AddField,
+        &BoundedLensAddField,
     )
     .unwrap();
     let mut source = Graph::default();
@@ -410,13 +411,13 @@ fn a_refused_positive_candidate_is_out_of_the_domain() {
 /// the put domain.
 #[test]
 fn a_fan_child_edge_maps_back_by_name_and_target() {
-    use panproto_reference::enumerate::lenses::{c11_fan_labels, c11_stages};
+    use panproto_reference::enumerate::lenses::{bounded_lens_fan_labels, bounded_lens_stages};
     use panproto_reference::lens::ViewRef;
     use panproto_reference::lens::{GraphLens, PutDomainError};
     use panproto_reference::model::{GEdge, Node, NodeShape};
     use panproto_reference::restrict::NoValueLayer;
 
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     let stage = stages.iter().find(|stage| stage.name == "Id_h").unwrap();
     let plan =
         panproto_reference::restrict::compile(&stage.source, &stage.target, &stage.migration)
@@ -430,7 +431,7 @@ fn a_fan_child_edge_maps_back_by_name_and_target() {
         &NoValueLayer,
     )
     .unwrap();
-    let [parent, label] = c11_fan_labels();
+    let [parent, label] = bounded_lens_fan_labels();
     let mut source = Graph::default();
     let mut fan = Node::new(0, "h");
     fan.shape = NodeShape::HyperEdge;

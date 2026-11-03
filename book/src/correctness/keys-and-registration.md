@@ -193,7 +193,7 @@ The five roles make different uniqueness, identity, ordering, and resolution pro
 - Law ID: `keys.change-classification`
 - Reference: `panproto_reference::schema::classify_change`
 - Evidence scope: `816,223,680 key classifications and 28 additional non-key cases`
-- Production certificate: `every_o17_key_change_classifies_through_the_factorization_certificate; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=every_o17_key_change_classifies_through_the_factorization_certificate)'`
+- Production certificate: `every_key_change_classifies_through_the_factorization_certificate; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=every_key_change_classifies_through_the_factorization_certificate)'`
 - Independent reference anchor: `non_key_classification_axes_match_the_reference; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=non_key_classification_axes_match_the_reference)'`
 - File: `crates/panproto-check/src/diff.rs`
 - File: `crates/panproto-check/src/classify.rs`
@@ -651,8 +651,8 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 - Law ID: `keys.xml-noncdata-equivalence`
 - Reference: `panproto_reference::keys::xml_noncdata`
 - Evidence scope: `the 341 strings of length at most four over {a, b, U+0020, U+0009}, all 116,281 ordered pairs, 184 normalization classes and 1,171 equivalent ordered pairs (counted independently), with LF, CR, TAB and token-order units`
-- Production certificate: `xml_kernel_executes_the_exact_o17_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_o17_carrier)'`
-- Independent reference anchor: `xml_kernel_executes_the_exact_o17_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_o17_carrier)'`
+- Production certificate: `xml_kernel_executes_the_exact_key_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_key_carrier)'`
+- Independent reference anchor: `xml_kernel_executes_the_exact_key_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_key_carrier)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`

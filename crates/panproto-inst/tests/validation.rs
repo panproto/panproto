@@ -2173,7 +2173,7 @@ fn annotation_and_value_parameter_compile_to_no_check() {
 }
 
 #[test]
-fn schema_well_formed_reports_p4_key_defects() {
+fn schema_well_formed_reports_key_defects() {
     // A key whose path does not start at the keyed vertex.
     let schema = S::default()
         .vertex("a", "object")

@@ -2389,7 +2389,7 @@ fn produced_lens_failures() -> (SegmentError, SegmentError) {
 }
 
 #[test]
-fn tree_operational_errors_remain_outside_the_exact_sg9_vocabulary() {
+fn tree_operational_errors_remain_outside_the_exact_report_vocabulary() {
     let errors = [
         TreeOperationalError::RestoredNotATree {
             reason: panproto_reference::encode::NotATree::MissingRoot,
@@ -2585,7 +2585,7 @@ fn restriction_error_keys_order_by_element_before_kind_and_encode_in_field_order
 }
 
 #[test]
-fn unresolved_full_c10_parameters_remain_explicit() {
+fn unresolved_full_segment_parameters_remain_explicit() {
     use bounded::ScopeGap::{
         AllocationRanges, EdgeMultiplicity, EdgePositions, ExecutionCarrierBounds, GraphNodeBound,
         NodeMetadataAlphabet, NodeShapesAndFans, NodeValues, SchemaAlphabet,

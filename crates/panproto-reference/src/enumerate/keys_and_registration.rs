@@ -537,7 +537,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn o17_factorization_reconciles_both_binding_totals() {
+    fn key_factorization_reconciles_both_totals() {
         let graph_counts: Vec<_> = (0..=3)
             .map(|vertices| structural_schemas(vertices).len())
             .collect();

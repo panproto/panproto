@@ -598,8 +598,8 @@ fn every_delta_family_tag_names_its_constructor() {
 }
 
 #[test]
-fn c8_scope_is_complete_with_its_fixed_parameters() {
-    let carrier::C8ScopeStatus::Complete(scope) = carrier::c8_scope_status();
+fn coverage_scope_is_complete_with_its_fixed_parameters() {
+    let carrier::CoverageScopeStatus::Complete(scope) = carrier::coverage_scope_status();
     assert_eq!(scope.vertex_names, ["a", "b"]);
     assert_eq!(scope.edge_kind, "e");
     assert_eq!(scope.column, "f");
@@ -612,10 +612,10 @@ fn c8_scope_is_complete_with_its_fixed_parameters() {
     assert_eq!(scope.table_pairs, 2);
     assert_eq!(scope.tree_nodes, 3);
     assert_eq!(scope.sequence_len, 3);
-    let schemas = carrier::c8_schemas();
+    let schemas = carrier::coverage_schemas();
     assert_eq!(
         u64::try_from(schemas.len()).unwrap(),
-        carrier::c8_schemas_count_certificate()
+        carrier::coverage_schemas_count_certificate()
     );
     let distinct: BTreeSet<_> = schemas
         .iter()
@@ -625,28 +625,28 @@ fn c8_scope_is_complete_with_its_fixed_parameters() {
 }
 
 #[test]
-fn c8_initial_states_match_their_independent_counts() {
-    let schemas = carrier::c8_schemas();
-    let count = |states: &dyn Fn(&carrier::C8Schema) -> usize| -> u64 {
+fn coverage_initial_states_match_their_independent_counts() {
+    let schemas = carrier::coverage_schemas();
+    let count = |states: &dyn Fn(&carrier::CoverageSchema) -> usize| -> u64 {
         schemas
             .iter()
             .map(|schema| u64::try_from(states(schema)).unwrap())
             .sum()
     };
     assert_eq!(
-        count(&|schema| carrier::c8_graphs(schema).len()),
-        carrier::c8_graph_counts_certificate().states
+        count(&|schema| carrier::coverage_graphs(schema).len()),
+        carrier::coverage_graph_counts_certificate().states
     );
     assert_eq!(
-        count(&|schema| carrier::c8_tables(schema).len()),
-        carrier::c8_table_counts_certificate().states
+        count(&|schema| carrier::coverage_tables(schema).len()),
+        carrier::coverage_table_counts_certificate().states
     );
     assert_eq!(
-        count(&|schema| carrier::c8_trees(schema).len()),
-        carrier::c8_tree_counts_certificate().states
+        count(&|schema| carrier::coverage_trees(schema).len()),
+        carrier::coverage_tree_counts_certificate().states
     );
     for schema in &schemas {
-        for graph in carrier::c8_graphs(schema) {
+        for graph in carrier::coverage_graphs(schema) {
             assert!(graph.well_formed());
             assert!(graph.edges.values().all(|edge| {
                 schema.edge(
@@ -655,10 +655,10 @@ fn c8_initial_states_match_their_independent_counts() {
                 ) == Some(&edge.label)
             }));
         }
-        for table in carrier::c8_tables(schema) {
+        for table in carrier::coverage_tables(schema) {
             assert!(table.well_formed() && table.pairs.len() <= 2);
         }
-        for tree in carrier::c8_trees(schema) {
+        for tree in carrier::coverage_trees(schema) {
             assert!(panproto_reference::encode::tree_to_graph(&tree, None).is_ok());
         }
     }
@@ -2401,7 +2401,7 @@ fn composite_tree_reading_does_not_allocate_for_unchanged_fans() {
 }
 
 #[test]
-fn tree_join_preserves_tr14_order_updates_embedding_floors_and_roundtrips_lowering() {
+fn tree_join_preserves_order_updates_embedding_floors_and_roundtrips_lowering() {
     let tree = join_tree();
     let (graph, embedding) = panproto_reference::encode::tree_to_graph(&tree, None).unwrap();
     let start_embedding = embedding.clone();
@@ -6520,7 +6520,7 @@ fn join_embedding_with_fans(
 }
 
 #[test]
-fn tr14_identity_refuses_every_literal_embedding_corruption_without_mutation() {
+fn tree_identity_refuses_every_literal_embedding_corruption_without_mutation() {
     let tree = join_tree();
     let valid = literal_join_embedding();
     assert_valid_tree_embedding(&tree, valid.clone());
@@ -6622,7 +6622,7 @@ fn tr14_identity_refuses_every_literal_embedding_corruption_without_mutation() {
 }
 
 #[test]
-fn tr14_identity_refuses_every_two_fan_embedding_corruption_without_mutation() {
+fn tree_identity_refuses_every_two_fan_embedding_corruption_without_mutation() {
     let (two_fans, two_fan_embedding) = two_fan_tree_and_embedding();
     assert_valid_tree_embedding(&two_fans, two_fan_embedding.clone());
     let two_fan_with = |fans: Vec<(u32, u32, BTreeMap<String, u32>)>| TreeEmbedding {

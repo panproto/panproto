@@ -1,4 +1,5 @@
-//! Differential closure for DESIGN TR12 and E.6 laws (6), (10), and (11).
+//! Differential closure for the tree edit lens laws: get and put
+//! functoriality, replacement, minimality and source undo.
 //!
 //! The oracle is the independent finite leaf-tree carrier in
 //! `panproto-reference`. Production `TreeEdit` words are lowered through
@@ -446,7 +447,7 @@ fn translated_put(
 }
 
 #[test]
-fn tr12_get_functoriality_replacement_and_minimality_match_the_reference() {
+fn tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference() {
     let ref_source = reference_source();
     let source = production_source();
     let source_embedding = initial_embedding(&source);
@@ -585,7 +586,7 @@ fn tr12_get_functoriality_replacement_and_minimality_match_the_reference() {
 }
 
 #[test]
-fn tr12_put_functoriality_minimality_and_source_undo_match_the_reference() {
+fn tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference() {
     let ref_source = reference_source();
     let source = production_source();
     let source_embedding = initial_embedding(&source);
@@ -777,7 +778,7 @@ fn production_refusal(error: &EditError) -> RefusalKind {
 }
 
 #[test]
-fn tr12_state_reading_lowering_has_the_same_typed_refusals() {
+fn tree_edit_lens_state_reading_lowering_has_the_same_typed_refusals() {
     let ref_source = reference_source();
     let source = production_source();
     let embedding = initial_embedding(&source);
@@ -816,7 +817,7 @@ fn tr12_state_reading_lowering_has_the_same_typed_refusals() {
 }
 
 #[test]
-fn tr12_late_sequence_refusal_is_atomic_for_reference_and_production() {
+fn tree_edit_lens_late_sequence_refusal_is_atomic_for_reference_and_production() {
     let ref_source = reference_source();
     let ref_lens = reference::Lens::Projection;
     let (_, mut ref_complement) = ref_lens.initialize(&ref_source);

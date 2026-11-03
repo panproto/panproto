@@ -3,8 +3,8 @@
 //! [`graphs`], [`graph_delta_cases`] and [`graph_delta_sequences`] are one
 //! completely enumerated labelled graph witness carrier over fixed
 //! alphabets. The coverage scope of the edit algebra is enumerated
-//! separately: [`c8_scope_status`] records its parameters as data, and
-//! [`c8_schemas`], [`c8_graphs`], [`c8_tables`] and [`c8_trees`] with their
+//! separately: [`coverage_scope_status`] records its parameters as data, and
+//! [`coverage_schemas`], [`coverage_graphs`], [`coverage_tables`] and [`coverage_trees`] with their
 //! state-regenerated alphabets and word walkers enumerate it exactly.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -116,7 +116,7 @@ impl GraphDeltaFamilyCounts {
 /// it is generated from. The alphabet is regenerated at each state a word
 /// reaches, and a letter that refuses ends its word with that refusal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct C8Scope {
+pub struct CoverageScope {
     /// The vertex names schemas are built from.
     pub vertex_names: [&'static str; 2],
     /// The one schema edge kind.
@@ -145,12 +145,12 @@ pub struct C8Scope {
 
 /// The executable status of the coverage scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum C8ScopeStatus {
+pub enum CoverageScopeStatus {
     /// Every parameter is fixed and the carrier is finite and exact.
-    Complete(C8Scope),
+    Complete(CoverageScope),
 }
 
-const C8: C8Scope = C8Scope {
+const COVERAGE_SCOPE: CoverageScope = CoverageScope {
     vertex_names: ["a", "b"],
     edge_kind: "e",
     column: "f",
@@ -167,21 +167,21 @@ const C8: C8Scope = C8Scope {
 
 /// The coverage scope's parameters.
 #[must_use]
-pub const fn c8_scope_status() -> C8ScopeStatus {
-    C8ScopeStatus::Complete(C8)
+pub const fn coverage_scope_status() -> CoverageScopeStatus {
+    CoverageScopeStatus::Complete(COVERAGE_SCOPE)
 }
 
 /// A schema of the coverage scope: its vertices and its edges, each edge of
 /// the one kind and without a name.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct C8Schema {
+pub struct CoverageSchema {
     /// Vertices, ascending.
     pub vertices: Vec<String>,
     /// Edges, ascending.
     pub edges: Vec<SEdge>,
 }
 
-impl C8Schema {
+impl CoverageSchema {
     /// The edge from `src` to `tgt`, when the schema has it.
     #[must_use]
     pub fn edge(&self, src: &str, tgt: &str) -> Option<&SEdge> {
@@ -194,25 +194,25 @@ impl C8Schema {
 /// Every schema of the coverage scope: each set of at most two vertices of
 /// `{a, b}`, with each set of at most two edges between them.
 #[must_use]
-pub fn c8_schemas() -> Vec<C8Schema> {
-    let names: Vec<String> = C8
+pub fn coverage_schemas() -> Vec<CoverageSchema> {
+    let names: Vec<String> = COVERAGE_SCOPE
         .vertex_names
         .iter()
         .map(|name| (*name).to_owned())
         .collect();
     let mut out = Vec::new();
-    for vertices in super::subsets(&names, usize::from(C8.schema_vertices)) {
+    for vertices in super::subsets(&names, usize::from(COVERAGE_SCOPE.schema_vertices)) {
         let candidates: Vec<SEdge> = vertices
             .iter()
             .flat_map(|src| {
                 vertices
                     .iter()
-                    .map(move |tgt| SEdge::new(src, tgt, C8.edge_kind, None))
+                    .map(move |tgt| SEdge::new(src, tgt, COVERAGE_SCOPE.edge_kind, None))
             })
             .collect();
-        for mut edges in super::subsets(&candidates, usize::from(C8.schema_edges)) {
+        for mut edges in super::subsets(&candidates, usize::from(COVERAGE_SCOPE.schema_edges)) {
             edges.sort();
-            out.push(C8Schema {
+            out.push(CoverageSchema {
                 vertices: vertices.clone(),
                 edges,
             });
@@ -223,34 +223,35 @@ pub fn c8_schemas() -> Vec<C8Schema> {
 
 /// The value alphabet as values: absent, `0` and `1`.
 #[must_use]
-pub fn c8_values() -> Vec<Option<Value>> {
-    C8.values
+pub fn coverage_values() -> Vec<Option<Value>> {
+    COVERAGE_SCOPE
+        .values
         .iter()
         .map(|value| value.map(Value::Int))
         .collect()
 }
 
-fn c8_fresh(ids: impl Iterator<Item = u32>) -> u32 {
+fn coverage_fresh(ids: impl Iterator<Item = u32>) -> u32 {
     ids.max().map_or(0, |id| id.saturating_add(1))
 }
 
 /// The allocation floors a word carries: one above the largest node (or
 /// row) id and edge id present at any point of the word so far.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct C8Floors {
+pub struct CoverageFloors {
     /// The node or row floor.
     pub node: u32,
     /// The edge floor (unused for tables and trees).
     pub edge: u32,
 }
 
-impl C8Floors {
+impl CoverageFloors {
     /// The floors of a graph at the start of a word.
     #[must_use]
     pub fn of_graph(graph: &Graph) -> Self {
         Self {
-            node: c8_fresh(graph.nodes.keys().copied()),
-            edge: c8_fresh(graph.edges.keys().copied()),
+            node: coverage_fresh(graph.nodes.keys().copied()),
+            edge: coverage_fresh(graph.edges.keys().copied()),
         }
     }
 
@@ -268,7 +269,7 @@ impl C8Floors {
     #[must_use]
     pub fn of_table(table: &crate::model::Table) -> Self {
         Self {
-            node: c8_fresh(table.rows.keys().copied()),
+            node: coverage_fresh(table.rows.keys().copied()),
             edge: 0,
         }
     }
@@ -286,7 +287,7 @@ impl C8Floors {
     #[must_use]
     pub fn of_tree(tree: &crate::model::Tree) -> Self {
         Self {
-            node: c8_fresh(tree.nodes.keys().copied()),
+            node: coverage_fresh(tree.nodes.keys().copied()),
             edge: 0,
         }
     }
@@ -303,14 +304,14 @@ impl C8Floors {
 
 /// The ids an addition draws: the fresh id and the floor, ascending and
 /// without repetition.
-fn c8_addition_ids(fresh: u32, floor: u32) -> Vec<u32> {
+fn coverage_addition_ids(fresh: u32, floor: u32) -> Vec<u32> {
     let mut ids = vec![fresh, floor];
     ids.sort_unstable();
     ids.dedup();
     ids
 }
 
-fn c8_id(index: usize) -> u32 {
+fn coverage_id(index: usize) -> u32 {
     u32::try_from(index).unwrap_or(u32::MAX)
 }
 
@@ -321,24 +322,24 @@ fn c8_id(index: usize) -> u32 {
 /// between any two nodes and labelled by the schema edge between their
 /// anchors, which must exist. Parallel edges and self-loops are included.
 #[must_use]
-pub fn c8_graphs(schema: &C8Schema) -> Vec<Graph> {
-    let values = c8_values();
+pub fn coverage_graphs(schema: &CoverageSchema) -> Vec<Graph> {
+    let values = coverage_values();
     let payloads: Vec<(&str, &Option<Value>)> = schema
         .vertices
         .iter()
         .flat_map(|vertex| values.iter().map(move |value| (vertex.as_str(), value)))
         .collect();
     let mut out = Vec::new();
-    for n in 0..=usize::from(C8.graph_nodes) {
+    for n in 0..=usize::from(COVERAGE_SCOPE.graph_nodes) {
         for choice in super::mixed(&vec![payloads.len(); n]) {
             let mut base = Graph::default();
             for (index, payload) in choice.iter().enumerate() {
                 let (anchor, value) = payloads[*payload];
-                let mut node = Node::new(c8_id(index), anchor);
+                let mut node = Node::new(coverage_id(index), anchor);
                 if let Some(value) = value {
                     node = node.with_value(value.clone());
                 }
-                base.nodes.insert(c8_id(index), node);
+                base.nodes.insert(coverage_id(index), node);
             }
             let ends: Vec<(u32, u32, SEdge)> = base
                 .nodes
@@ -351,13 +352,13 @@ pub fn c8_graphs(schema: &C8Schema) -> Vec<Graph> {
                     })
                 })
                 .collect();
-            for m in 0..=usize::from(C8.graph_edges) {
+            for m in 0..=usize::from(COVERAGE_SCOPE.graph_edges) {
                 for choice in super::mixed(&vec![ends.len(); m]) {
                     let mut graph = base.clone();
                     for (index, end) in choice.iter().enumerate() {
                         let (src, tgt, label) = ends[*end].clone();
                         graph.edges.insert(
-                            c8_id(index),
+                            coverage_id(index),
                             GEdge {
                                 src,
                                 tgt,
@@ -384,11 +385,15 @@ pub fn c8_graphs(schema: &C8Schema) -> Vec<Graph> {
 /// each edge deletion with its payload. A node deletion refuses when the
 /// node has an incident edge; every other letter applies.
 #[must_use]
-pub fn c8_graph_letters(schema: &C8Schema, graph: &Graph, floors: C8Floors) -> Vec<GraphDelta> {
-    let values = c8_values();
+pub fn coverage_graph_letters(
+    schema: &CoverageSchema,
+    graph: &Graph,
+    floors: CoverageFloors,
+) -> Vec<GraphDelta> {
+    let values = coverage_values();
     let presence = |value: &Option<Value>| value.clone().map(Presence::Present);
     let mut out = Vec::new();
-    for id in c8_addition_ids(c8_fresh(graph.nodes.keys().copied()), floors.node) {
+    for id in coverage_addition_ids(coverage_fresh(graph.nodes.keys().copied()), floors.node) {
         for vertex in &schema.vertices {
             for value in &values {
                 let mut node = Node::new(id, vertex);
@@ -422,7 +427,7 @@ pub fn c8_graph_letters(schema: &C8Schema, graph: &Graph, floors: C8Floors) -> V
             }
         }
     }
-    for id in c8_addition_ids(c8_fresh(graph.edges.keys().copied()), floors.edge) {
+    for id in coverage_addition_ids(coverage_fresh(graph.edges.keys().copied()), floors.edge) {
         for src in graph.nodes.values() {
             for tgt in graph.nodes.values() {
                 if let Some(label) = schema.edge(&src.anchor, &tgt.anchor) {
@@ -453,7 +458,7 @@ pub fn c8_graph_letters(schema: &C8Schema, graph: &Graph, floors: C8Floors) -> V
 
 /// One word of the coverage scope and its reference outcome.
 #[derive(Clone, Copy, Debug)]
-pub struct C8Word<'a, L, S, E> {
+pub struct CoverageWord<'a, L, S, E> {
     /// The letters, in order.
     pub letters: &'a [L],
     /// The state the whole word reaches, or the refusal of its last
@@ -461,25 +466,25 @@ pub struct C8Word<'a, L, S, E> {
     pub outcome: &'a Result<S, E>,
 }
 
-fn c8_walk_graph(
-    schema: &C8Schema,
+fn coverage_walk_graph(
+    schema: &CoverageSchema,
     state: &Graph,
-    floors: C8Floors,
+    floors: CoverageFloors,
     prefix: &mut Vec<GraphDelta>,
-    visit: &mut dyn FnMut(C8Word<'_, GraphDelta, Graph, crate::edit::ApplyError>),
+    visit: &mut dyn FnMut(CoverageWord<'_, GraphDelta, Graph, crate::edit::ApplyError>),
 ) {
-    if prefix.len() == usize::from(C8.sequence_len) {
+    if prefix.len() == usize::from(COVERAGE_SCOPE.sequence_len) {
         return;
     }
-    for letter in c8_graph_letters(schema, state, floors) {
+    for letter in coverage_graph_letters(schema, state, floors) {
         let outcome = crate::edit::apply(&letter, state);
         prefix.push(letter);
-        visit(C8Word {
+        visit(CoverageWord {
             letters: prefix.as_slice(),
             outcome: &outcome,
         });
         if let Ok(next) = &outcome {
-            c8_walk_graph(schema, next, floors.after_graph(next), prefix, visit);
+            coverage_walk_graph(schema, next, floors.after_graph(next), prefix, visit);
         }
         prefix.pop();
     }
@@ -488,23 +493,23 @@ fn c8_walk_graph(
 /// Visit every graph word of the coverage scope from `graph`, the empty
 /// word first, with its reference outcome.
 ///
-/// Each letter is drawn from [`c8_graph_letters`] at the state its prefix
+/// Each letter is drawn from [`coverage_graph_letters`] at the state its prefix
 /// reaches, with the floors that prefix carries; a refused letter ends its
 /// word.
-pub fn c8_graph_words(
-    schema: &C8Schema,
+pub fn coverage_graph_words(
+    schema: &CoverageSchema,
     graph: &Graph,
-    visit: &mut dyn FnMut(C8Word<'_, GraphDelta, Graph, crate::edit::ApplyError>),
+    visit: &mut dyn FnMut(CoverageWord<'_, GraphDelta, Graph, crate::edit::ApplyError>),
 ) {
     let start = Ok(graph.clone());
-    visit(C8Word {
+    visit(CoverageWord {
         letters: &[],
         outcome: &start,
     });
-    c8_walk_graph(
+    coverage_walk_graph(
         schema,
         graph,
-        C8Floors::of_graph(graph),
+        CoverageFloors::of_graph(graph),
         &mut Vec::new(),
         visit,
     );
@@ -517,15 +522,15 @@ pub fn c8_graph_words(
 /// most two foreign-key pairs, each under a schema edge between rows of its
 /// source and target tables.
 #[must_use]
-pub fn c8_tables(schema: &C8Schema) -> Vec<crate::model::Table> {
-    let values = c8_values();
+pub fn coverage_tables(schema: &CoverageSchema) -> Vec<crate::model::Table> {
+    let values = coverage_values();
     let payloads: Vec<(&str, &Option<Value>)> = schema
         .vertices
         .iter()
         .flat_map(|vertex| values.iter().map(move |value| (vertex.as_str(), value)))
         .collect();
     let mut out = Vec::new();
-    for n in 0..=usize::from(C8.table_rows) {
+    for n in 0..=usize::from(COVERAGE_SCOPE.table_rows) {
         for choice in super::mixed(&vec![payloads.len(); n]) {
             let rows: BTreeMap<u32, (String, BTreeMap<String, Value>)> = choice
                 .iter()
@@ -534,13 +539,13 @@ pub fn c8_tables(schema: &C8Schema) -> Vec<crate::model::Table> {
                     let (table, value) = payloads[*payload];
                     let cells = value
                         .iter()
-                        .map(|value| (C8.column.to_owned(), value.clone()))
+                        .map(|value| (COVERAGE_SCOPE.column.to_owned(), value.clone()))
                         .collect();
-                    (c8_id(index), (table.to_owned(), cells))
+                    (coverage_id(index), (table.to_owned(), cells))
                 })
                 .collect();
-            let possible = c8_table_pairs(schema, &rows);
-            for pairs in super::subsets(&possible, usize::from(C8.table_pairs)) {
+            let possible = coverage_table_pairs(schema, &rows);
+            for pairs in super::subsets(&possible, usize::from(COVERAGE_SCOPE.table_pairs)) {
                 out.push(crate::model::Table {
                     rows: rows.clone(),
                     pairs: pairs.into_iter().collect(),
@@ -551,8 +556,8 @@ pub fn c8_tables(schema: &C8Schema) -> Vec<crate::model::Table> {
     out
 }
 
-fn c8_table_pairs(
-    schema: &C8Schema,
+fn coverage_table_pairs(
+    schema: &CoverageSchema,
     rows: &BTreeMap<u32, (String, BTreeMap<String, Value>)>,
 ) -> Vec<(SEdge, u32, u32)> {
     let mut out = Vec::new();
@@ -579,22 +584,22 @@ fn c8_table_pairs(
 /// and each removal of a present pair. Adding a pair that is present
 /// refuses; every other letter applies.
 #[must_use]
-pub fn c8_table_letters(
-    schema: &C8Schema,
+pub fn coverage_table_letters(
+    schema: &CoverageSchema,
     table: &crate::model::Table,
-    floors: C8Floors,
+    floors: CoverageFloors,
 ) -> Vec<crate::edit::TableEdit> {
     use crate::edit::TableEdit;
 
-    let values = c8_values();
+    let values = coverage_values();
     let cells = |value: &Option<Value>| -> BTreeMap<String, Value> {
         value
             .iter()
-            .map(|value| (C8.column.to_owned(), value.clone()))
+            .map(|value| (COVERAGE_SCOPE.column.to_owned(), value.clone()))
             .collect()
     };
     let mut out = Vec::new();
-    for id in c8_addition_ids(c8_fresh(table.rows.keys().copied()), floors.node) {
+    for id in coverage_addition_ids(coverage_fresh(table.rows.keys().copied()), floors.node) {
         for vertex in &schema.vertices {
             for value in &values {
                 out.push(TableEdit::InsertRow {
@@ -619,20 +624,20 @@ pub fn c8_table_letters(
         });
     }
     for (id, (name, row)) in &table.rows {
-        let old = row.get(C8.column).cloned();
+        let old = row.get(COVERAGE_SCOPE.column).cloned();
         for value in &values {
             if *value != old {
                 out.push(TableEdit::UpdateCell {
                     table: name.clone(),
                     id: *id,
-                    column: C8.column.to_owned(),
+                    column: COVERAGE_SCOPE.column.to_owned(),
                     old: old.clone(),
                     new: value.clone(),
                 });
             }
         }
     }
-    for (edge, src, tgt) in c8_table_pairs(schema, &table.rows) {
+    for (edge, src, tgt) in coverage_table_pairs(schema, &table.rows) {
         out.push(TableEdit::AddForeignKey { edge, src, tgt });
     }
     for (edge, src, tgt) in &table.pairs {
@@ -645,27 +650,27 @@ pub fn c8_table_letters(
     out
 }
 
-fn c8_walk_table(
-    schema: &C8Schema,
+fn coverage_walk_table(
+    schema: &CoverageSchema,
     state: &crate::model::Table,
-    floors: C8Floors,
+    floors: CoverageFloors,
     prefix: &mut Vec<crate::edit::TableEdit>,
     visit: &mut dyn FnMut(
-        C8Word<'_, crate::edit::TableEdit, crate::model::Table, crate::edit::TableApplyError>,
+        CoverageWord<'_, crate::edit::TableEdit, crate::model::Table, crate::edit::TableApplyError>,
     ),
 ) {
-    if prefix.len() == usize::from(C8.sequence_len) {
+    if prefix.len() == usize::from(COVERAGE_SCOPE.sequence_len) {
         return;
     }
-    for letter in c8_table_letters(schema, state, floors) {
+    for letter in coverage_table_letters(schema, state, floors) {
         let outcome = crate::edit::apply_table_step(&letter, state);
         prefix.push(letter);
-        visit(C8Word {
+        visit(CoverageWord {
             letters: prefix.as_slice(),
             outcome: &outcome,
         });
         if let Ok(next) = &outcome {
-            c8_walk_table(schema, next, floors.after_table(next), prefix, visit);
+            coverage_walk_table(schema, next, floors.after_table(next), prefix, visit);
         }
         prefix.pop();
     }
@@ -674,22 +679,22 @@ fn c8_walk_table(
 /// Visit every table word of the coverage scope from `table`, the empty
 /// word first, with its reference outcome under
 /// [`crate::edit::apply_table_step`].
-pub fn c8_table_words(
-    schema: &C8Schema,
+pub fn coverage_table_words(
+    schema: &CoverageSchema,
     table: &crate::model::Table,
     visit: &mut dyn FnMut(
-        C8Word<'_, crate::edit::TableEdit, crate::model::Table, crate::edit::TableApplyError>,
+        CoverageWord<'_, crate::edit::TableEdit, crate::model::Table, crate::edit::TableApplyError>,
     ),
 ) {
     let start = Ok(table.clone());
-    visit(C8Word {
+    visit(CoverageWord {
         letters: &[],
         outcome: &start,
     });
-    c8_walk_table(
+    coverage_walk_table(
         schema,
         table,
-        C8Floors::of_table(table),
+        CoverageFloors::of_table(table),
         &mut Vec::new(),
         visit,
     );
@@ -704,10 +709,10 @@ pub fn c8_table_words(
 /// parent's anchor to its child's, which must exist. Trees carry no fans:
 /// the scope's schemas declare no hyper-edges.
 #[must_use]
-pub fn c8_trees(schema: &C8Schema) -> Vec<crate::model::Tree> {
-    let values = c8_values();
+pub fn coverage_trees(schema: &CoverageSchema) -> Vec<crate::model::Tree> {
+    let values = coverage_values();
     let mut out = Vec::new();
-    for n in 1..=usize::from(C8.tree_nodes) {
+    for n in 1..=usize::from(COVERAGE_SCOPE.tree_nodes) {
         for parents in super::functions(n - 1, n) {
             let parent = |child: usize| parents[child - 1];
             let reaches = (1..n).all(|child| {
@@ -736,17 +741,21 @@ pub fn c8_trees(schema: &C8Schema) -> Vec<crate::model::Tree> {
                         .iter()
                         .map(|index| {
                             let child = index + 1;
-                            (c8_id(parent(child)), c8_id(child), labels[*index].clone())
+                            (
+                                coverage_id(parent(child)),
+                                coverage_id(child),
+                                labels[*index].clone(),
+                            )
                         })
                         .collect();
                     for fields in super::mixed(&vec![values.len(); n]) {
                         let nodes = (0..n)
                             .map(|index| {
-                                let mut node = Node::new(c8_id(index), anchor(index));
+                                let mut node = Node::new(coverage_id(index), anchor(index));
                                 if let Some(value) = &values[fields[index]] {
-                                    node = node.with_field(C8.column, value.clone());
+                                    node = node.with_field(COVERAGE_SCOPE.column, value.clone());
                                 }
-                                (c8_id(index), node)
+                                (coverage_id(index), node)
                             })
                             .collect();
                         out.push(crate::model::Tree {
@@ -777,16 +786,16 @@ pub fn c8_trees(schema: &C8Schema) -> Vec<crate::model::Tree> {
 /// and moving a node under itself or a descendant refuse; every other
 /// letter applies.
 #[must_use]
-pub fn c8_tree_letters(
-    schema: &C8Schema,
+pub fn coverage_tree_letters(
+    schema: &CoverageSchema,
     tree: &crate::model::Tree,
-    floors: C8Floors,
+    floors: CoverageFloors,
 ) -> Vec<crate::edit::TreeEdit> {
     use crate::edit::TreeEdit;
 
-    let values = c8_values();
+    let values = coverage_values();
     let mut out = Vec::new();
-    let ids = c8_addition_ids(c8_fresh(tree.nodes.keys().copied()), floors.node);
+    let ids = coverage_addition_ids(coverage_fresh(tree.nodes.keys().copied()), floors.node);
     for parent in tree.nodes.values() {
         for id in &ids {
             for vertex in &schema.vertices {
@@ -796,7 +805,7 @@ pub fn c8_tree_letters(
                 for value in &values {
                     let mut node = Node::new(*id, vertex);
                     if let Some(value) = value {
-                        node = node.with_field(C8.column, value.clone());
+                        node = node.with_field(COVERAGE_SCOPE.column, value.clone());
                     }
                     out.push(TreeEdit::InsertNode {
                         parent: parent.id,
@@ -812,7 +821,7 @@ pub fn c8_tree_letters(
         out.push(TreeEdit::DeleteNode { id: *id });
     }
     for (id, node) in &tree.nodes {
-        let old = node.fields.get(C8.column).cloned();
+        let old = node.fields.get(COVERAGE_SCOPE.column).cloned();
         for value in &values {
             if *value == old {
                 continue;
@@ -820,11 +829,11 @@ pub fn c8_tree_letters(
             out.push(value.as_ref().map_or_else(
                 || TreeEdit::RemoveField {
                     node_id: *id,
-                    field: C8.column.to_owned(),
+                    field: COVERAGE_SCOPE.column.to_owned(),
                 },
                 |value| TreeEdit::SetField {
                     node_id: *id,
-                    field: C8.column.to_owned(),
+                    field: COVERAGE_SCOPE.column.to_owned(),
                     value: value.clone(),
                 },
             ));
@@ -861,29 +870,29 @@ pub fn c8_tree_letters(
     out
 }
 
-fn c8_walk_tree(
-    schema: &C8Schema,
+fn coverage_walk_tree(
+    schema: &CoverageSchema,
     state: &crate::model::Tree,
     embedding: &crate::encode::TreeEmbedding,
-    floors: C8Floors,
+    floors: CoverageFloors,
     prefix: &mut Vec<crate::edit::TreeEdit>,
     visit: &mut dyn FnMut(
-        C8Word<'_, crate::edit::TreeEdit, crate::model::Tree, crate::edit::TreeApplyError>,
+        CoverageWord<'_, crate::edit::TreeEdit, crate::model::Tree, crate::edit::TreeApplyError>,
     ),
 ) {
-    if prefix.len() == usize::from(C8.sequence_len) {
+    if prefix.len() == usize::from(COVERAGE_SCOPE.sequence_len) {
         return;
     }
-    for letter in c8_tree_letters(schema, state, floors) {
+    for letter in coverage_tree_letters(schema, state, floors) {
         let mut next_embedding = embedding.clone();
         let outcome = crate::edit::apply_tree(&letter, state, &mut next_embedding);
         prefix.push(letter);
-        visit(C8Word {
+        visit(CoverageWord {
             letters: prefix.as_slice(),
             outcome: &outcome,
         });
         if let Ok(next) = &outcome {
-            c8_walk_tree(
+            coverage_walk_tree(
                 schema,
                 next,
                 &next_embedding,
@@ -903,25 +912,25 @@ fn c8_walk_tree(
 /// # Errors
 ///
 /// The tree's encoding refusal when it has no graph form; no tree of
-/// [`c8_trees`] has one.
-pub fn c8_tree_words(
-    schema: &C8Schema,
+/// [`coverage_trees`] has one.
+pub fn coverage_tree_words(
+    schema: &CoverageSchema,
     tree: &crate::model::Tree,
     visit: &mut dyn FnMut(
-        C8Word<'_, crate::edit::TreeEdit, crate::model::Tree, crate::edit::TreeApplyError>,
+        CoverageWord<'_, crate::edit::TreeEdit, crate::model::Tree, crate::edit::TreeApplyError>,
     ),
 ) -> Result<(), crate::encode::TreeEncodeError> {
     let (_, embedding) = crate::encode::tree_to_graph(tree, None)?;
     let start = Ok(tree.clone());
-    visit(C8Word {
+    visit(CoverageWord {
         letters: &[],
         outcome: &start,
     });
-    c8_walk_tree(
+    coverage_walk_tree(
         schema,
         tree,
         &embedding,
-        C8Floors::of_tree(tree),
+        CoverageFloors::of_tree(tree),
         &mut Vec::new(),
         visit,
     );
@@ -939,14 +948,14 @@ pub fn c8_tree_words(
 /// included at length zero and refused words included at the length of
 /// their refused letter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct C8Counts {
+pub struct CoverageCounts {
     /// Initial states.
     pub states: u64,
     /// Words by exact length.
     pub words: [u64; 4],
 }
 
-impl C8Counts {
+impl CoverageCounts {
     /// Words of every length.
     #[must_use]
     pub const fn total_words(self) -> u64 {
@@ -954,18 +963,18 @@ impl C8Counts {
     }
 }
 
-/// Number of schemas in [`c8_schemas`]: the empty schema, one vertex with
+/// Number of schemas in [`coverage_schemas`]: the empty schema, one vertex with
 /// no edge or its loop (two each for `a` and `b`), and both vertices with
 /// at most two of their four edges (`1 + 4 + 6 = 11`).
 #[must_use]
-pub const fn c8_schemas_count_certificate() -> u64 {
+pub const fn coverage_schemas_count_certificate() -> u64 {
     1 + 2 + 2 + 11
 }
 
 /// The labelled graph witness carrier: at most three nodes and one edge.
 ///
 /// Three is the coverage scope's node bound; the scope itself, with its
-/// two-edge bound, is enumerated by [`c8_graphs`].
+/// two-edge bound, is enumerated by [`coverage_graphs`].
 #[must_use]
 pub fn graphs() -> Vec<Graph> {
     let labels = [SEdge::new("a", "a", "e", None)];
@@ -1074,7 +1083,7 @@ pub const fn graph_delta_count_certificate() -> GraphDeltaFamilyCounts {
 /// Every word of at most three deltas from [`graph_delta_cases`].
 ///
 /// This is the fixed-alphabet witness carrier; the coverage scope, whose
-/// alphabets are regenerated at each state, is walked by [`c8_graph_words`].
+/// alphabets are regenerated at each state, is walked by [`coverage_graph_words`].
 #[must_use]
 pub fn graph_delta_sequences() -> Vec<Vec<GraphDeltaCase>> {
     super::sequences(&graph_delta_cases(), 3)
@@ -1424,31 +1433,31 @@ pub const fn join_cases_count_certificate() -> u64 {
     2 + 7
 }
 
-/// Independent count of [`c8_graphs`] over [`c8_schemas`] and of the words
-/// [`c8_graph_words`] visits from them.
+/// Independent count of [`coverage_graphs`] over [`coverage_schemas`] and of the words
+/// [`coverage_graph_words`] visits from them.
 #[must_use]
-pub const fn c8_graph_counts_certificate() -> C8Counts {
-    C8Counts {
+pub const fn coverage_graph_counts_certificate() -> CoverageCounts {
+    CoverageCounts {
         states: 61_066,
         words: [61_066, 1_381_020, 31_675_362, 814_704_552],
     }
 }
 
-/// Independent count of [`c8_tables`] over [`c8_schemas`] and of the words
-/// [`c8_table_words`] visits from them.
+/// Independent count of [`coverage_tables`] over [`coverage_schemas`] and of the words
+/// [`coverage_table_words`] visits from them.
 #[must_use]
-pub const fn c8_table_counts_certificate() -> C8Counts {
-    C8Counts {
+pub const fn coverage_table_counts_certificate() -> CoverageCounts {
+    CoverageCounts {
         states: 32_038,
         words: [32_038, 711_888, 15_862_728, 386_747_526],
     }
 }
 
-/// Independent count of [`c8_trees`] over [`c8_schemas`] and of the words
-/// [`c8_tree_words`] visits from them.
+/// Independent count of [`coverage_trees`] over [`coverage_schemas`] and of the words
+/// [`coverage_tree_words`] visits from them.
 #[must_use]
-pub const fn c8_tree_counts_certificate() -> C8Counts {
-    C8Counts {
+pub const fn coverage_tree_counts_certificate() -> CoverageCounts {
+    CoverageCounts {
         states: 3_156,
         words: [3_156, 81_726, 2_050_824, 63_736_260],
     }

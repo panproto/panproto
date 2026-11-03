@@ -245,7 +245,7 @@ fn a_table_round_trips_through_its_graph_and_its_encoding() {
 }
 
 #[test]
-fn every_o7_labelled_graph_presentation_decodes_after_encoding_exactly() {
+fn every_labelled_graph_presentation_decodes_after_encoding_exactly() {
     let schema = bounded::encoding_schema();
     let classified = rel::classify(
         &schema,

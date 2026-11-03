@@ -538,11 +538,11 @@ The differential checks the production edit lens against the oracle. On each of 
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::apply`
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
 - Exact carrier: 38 get words, each also checked for get consistency, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal
-- Exhaustive differential tests: all four `tr12_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens_tr12.rs`
+- Exhaustive differential tests: all four `tree_edit_lens_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
 - Dynamic result: all four tests pass
 - Evidence scope: `38 get words with get consistency, 27 put words, two typed lowering refusals, one common late refusal through both source editors and both get_edit implementations, and one production-only atomic late refusal`
-- Production certificate: `tr12_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_get_functoriality_replacement_and_minimality_match_the_reference)'`
-- Independent reference anchor: `tr12_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens_tr12 --no-tests=fail -E 'test(=tr12_put_functoriality_minimality_and_source_undo_match_the_reference)'`
+- Production certificate: `tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference)'`
+- Independent reference anchor: `tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-lens/src/edit_lens.rs`

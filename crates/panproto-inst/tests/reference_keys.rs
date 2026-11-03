@@ -1138,7 +1138,7 @@ fn sort_preorder_and_adjacent_descent_match_the_reference() -> Result<(), Box<dy
 }
 
 #[test]
-fn xml_kernel_executes_the_exact_o17_carrier() {
+fn xml_kernel_executes_the_exact_key_carrier() {
     let strings = enumerate::xml_strings();
     assert_eq!(strings.len(), 1 + 4 + 16 + 64 + 256);
     assert_eq!(

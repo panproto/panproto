@@ -1685,7 +1685,7 @@ fn table_translation_refuses_malformed_embeddings_and_non_table_graph_content_at
 }
 
 #[test]
-fn e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive() {
+fn tree_lowering_and_application_match_reference_for_every_primitive() {
     let cases = tree_release_cases();
     assert_eq!(cases.len(), 14);
     for (name, tree, edit) in cases {
@@ -2121,7 +2121,7 @@ fn production_join_refusal(error: &EditError) -> JoinRefusalObs {
 }
 
 #[test]
-fn tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged() {
+fn tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged() {
     let cases = carrier::join_cases();
     assert_eq!(
         u64::try_from(cases.len()).unwrap(),
@@ -2508,7 +2508,7 @@ fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
 /// Words checked, by exact length, with the initial states they start from
 /// and the outcome census of their last letters.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct C8Tally {
+struct CoverageTally {
     states: u64,
     words: [u64; 4],
     refusals: BTreeMap<String, u64>,
@@ -2516,7 +2516,7 @@ struct C8Tally {
     commuting: u64,
 }
 
-impl C8Tally {
+impl CoverageTally {
     fn absorb(&mut self, other: Self) {
         self.states += other.states;
         for (total, part) in self.words.iter_mut().zip(other.words) {
@@ -2542,18 +2542,18 @@ impl C8Tally {
 
 /// Run `work` over every `(schema, state)` job on at most four workers and
 /// sum their tallies.
-fn c8_parallel<S: Sync>(
+fn coverage_parallel<S: Sync>(
     jobs: &[(usize, S)],
-    work: impl Fn(&carrier::C8Schema, &S, &mut C8Tally) + Sync,
-) -> C8Tally {
-    let schemas = carrier::c8_schemas();
+    work: impl Fn(&carrier::CoverageSchema, &S, &mut CoverageTally) + Sync,
+) -> CoverageTally {
+    let schemas = carrier::coverage_schemas();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let workers = std::thread::available_parallelism().map_or(1, |n| usize::from(n).min(4));
     std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 threads.spawn(|| {
-                    let mut tally = C8Tally::default();
+                    let mut tally = CoverageTally::default();
                     loop {
                         let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some((schema, state)) = jobs.get(index) else {
@@ -2566,7 +2566,7 @@ fn c8_parallel<S: Sync>(
                 })
             })
             .collect();
-        let mut total = C8Tally::default();
+        let mut total = CoverageTally::default();
         for handle in handles {
             total.absorb(handle.join().expect("worker completes"));
         }
@@ -2574,15 +2574,15 @@ fn c8_parallel<S: Sync>(
     })
 }
 
-fn c8_jobs<S>(states: impl Fn(&carrier::C8Schema) -> Vec<S>) -> Vec<(usize, S)> {
-    carrier::c8_schemas()
+fn coverage_jobs<S>(states: impl Fn(&carrier::CoverageSchema) -> Vec<S>) -> Vec<(usize, S)> {
+    carrier::coverage_schemas()
         .iter()
         .enumerate()
         .flat_map(|(index, schema)| states(schema).into_iter().map(move |state| (index, state)))
         .collect()
 }
 
-fn assert_c8_counts(tally: &C8Tally, certificate: carrier::C8Counts) {
+fn assert_coverage_counts(tally: &CoverageTally, certificate: carrier::CoverageCounts) {
     assert_eq!(tally.states, certificate.states, "initial states");
     assert_eq!(tally.words, certificate.words, "words by exact length");
     assert_eq!(tally.words[0], tally.states);
@@ -2606,7 +2606,7 @@ fn check_graph_composite(
     production_letter: &GraphDelta,
     letters: &[reference::GraphDelta],
     production_state: &GInstance,
-    tally: &mut C8Tally,
+    tally: &mut CoverageTally,
 ) -> (reference::GraphDelta, GraphDelta) {
     let before = &prefixes[letters.len() - 1];
     let composite = reference::Delta::compose(&before.composite, letter)
@@ -2656,11 +2656,11 @@ fn check_graph_composite(
 }
 
 #[test]
-fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
-    let jobs = c8_jobs(carrier::c8_graphs);
-    let tally = c8_parallel(&jobs, |schema, graph, tally| {
+fn graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
+    let jobs = coverage_jobs(carrier::coverage_graphs);
+    let tally = coverage_parallel(&jobs, |schema, graph, tally| {
         let mut prefixes: Vec<GraphPrefix> = Vec::with_capacity(4);
-        carrier::c8_graph_words(schema, graph, &mut |word| {
+        carrier::coverage_graph_words(schema, graph, &mut |word| {
             let length = word.letters.len();
             tally.words[length] += 1;
             let Some(letter) = word.letters.last() else {
@@ -2719,16 +2719,20 @@ fn c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope()
         });
     });
     println!("graph scope: {tally:?}");
-    assert_c8_counts(&tally, carrier::c8_graph_counts_certificate());
+    assert_coverage_counts(&tally, carrier::coverage_graph_counts_certificate());
     assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
     assert!(tally.replacements > 0);
 }
 
 #[test]
-fn c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope() {
-    let jobs = c8_jobs(carrier::c8_graphs);
-    let tally = c8_parallel(&jobs, |schema, graph, tally| {
-        let letters = carrier::c8_graph_letters(schema, graph, carrier::C8Floors::of_graph(graph));
+fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope() {
+    let jobs = coverage_jobs(carrier::coverage_graphs);
+    let tally = coverage_parallel(&jobs, |schema, graph, tally| {
+        let letters = carrier::coverage_graph_letters(
+            schema,
+            graph,
+            carrier::CoverageFloors::of_graph(graph),
+        );
         let production_graph = graph_to_production(graph);
         let production: Vec<GraphDelta> = letters.iter().map(delta_to_production).collect();
         let applied: Vec<Option<GInstance>> = production
@@ -2797,7 +2801,10 @@ fn c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_c
         }
     });
     println!("graph pairs: {tally:?}");
-    assert_eq!(tally.states, carrier::c8_graph_counts_certificate().states);
+    assert_eq!(
+        tally.states,
+        carrier::coverage_graph_counts_certificate().states
+    );
     assert!(tally.commuting > 0 && !tally.refusals.is_empty());
 }
 
@@ -2819,7 +2826,7 @@ fn check_table_composite(
     production_lowered: &TableDelta,
     letters: &[reference::TableEdit],
     after: &reference_model::Table,
-    tally: &mut C8Tally,
+    tally: &mut CoverageTally,
 ) -> (reference::TableDelta, TableDelta) {
     let before = &prefixes[letters.len() - 1];
     let composite =
@@ -2865,11 +2872,11 @@ fn check_table_composite(
 }
 
 #[test]
-fn c8_table_edits_match_reference_on_every_word_of_the_coverage_scope() {
-    let jobs = c8_jobs(carrier::c8_tables);
-    let tally = c8_parallel(&jobs, |schema, table, tally| {
+fn table_edits_match_reference_on_every_word_of_the_coverage_scope() {
+    let jobs = coverage_jobs(carrier::coverage_tables);
+    let tally = coverage_parallel(&jobs, |schema, table, tally| {
         let mut prefixes: Vec<TablePrefix> = Vec::with_capacity(4);
-        carrier::c8_table_words(schema, table, &mut |word| {
+        carrier::coverage_table_words(schema, table, &mut |word| {
             let length = word.letters.len();
             tally.words[length] += 1;
             let Some(letter) = word.letters.last() else {
@@ -2935,7 +2942,7 @@ fn c8_table_edits_match_reference_on_every_word_of_the_coverage_scope() {
         });
     });
     println!("table scope: {tally:?}");
-    assert_c8_counts(&tally, carrier::c8_table_counts_certificate());
+    assert_coverage_counts(&tally, carrier::coverage_table_counts_certificate());
     assert_eq!(
         tally.refusals.keys().collect::<Vec<_>>(),
         ["DuplicateForeignKey"]
@@ -3089,9 +3096,9 @@ impl TreeWordLowering {
 }
 
 #[test]
-fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope() {
-    let jobs = c8_jobs(carrier::c8_trees);
-    let tally = c8_parallel(&jobs, |schema, tree, tally| {
+fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope() {
+    let jobs = coverage_jobs(carrier::coverage_trees);
+    let tally = coverage_parallel(&jobs, |schema, tree, tally| {
         let (start_graph, start_embedding) = panproto_reference::encode::tree_to_graph(tree, None)
             .expect("a scope tree has a graph form");
         let production_tree = tree_to_production(tree);
@@ -3110,7 +3117,7 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
             production_graph: production_start_graph,
         };
         let mut prefixes: Vec<WInstance> = Vec::with_capacity(4);
-        carrier::c8_tree_words(schema, tree, &mut |word| {
+        carrier::coverage_tree_words(schema, tree, &mut |word| {
             let length = word.letters.len();
             tally.words[length] += 1;
             let Some(letter) = word.letters.last() else {
@@ -3152,7 +3159,7 @@ fn c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scop
         .expect("a scope tree has a graph form");
     });
     println!("tree scope: {tally:?}");
-    assert_c8_counts(&tally, carrier::c8_tree_counts_certificate());
+    assert_coverage_counts(&tally, carrier::coverage_tree_counts_certificate());
     assert_eq!(
         tally.refusals.keys().collect::<Vec<_>>(),
         ["Cycle", "NotLeaf", "RootOperation"]

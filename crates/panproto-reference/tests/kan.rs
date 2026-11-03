@@ -3134,7 +3134,7 @@ fn table_adjunction_transposes_biject_the_complete_one_row_family() {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct O14PairStats {
+struct ExhaustiveKanPairStats {
     pairs: u64,
     weighted_pairs: u64,
     sigma_homs: u64,
@@ -3146,7 +3146,7 @@ struct O14PairStats {
     pi_over_bound: u64,
 }
 
-impl O14PairStats {
+impl ExhaustiveKanPairStats {
     /// Add every counter of `other` to this one.
     const fn absorb(&mut self, other: &Self) {
         let Self {
@@ -3439,7 +3439,7 @@ fn execute_representative_pair(
     case: &RepresentativeCase,
     source: &RepresentativeSource,
     target: &RepresentativeTarget,
-    stats: &mut O14PairStats,
+    stats: &mut ExhaustiveKanPairStats,
 ) {
     stats.pairs += 1;
     stats.weighted_pairs += source.weight * target.weight;
@@ -3473,10 +3473,10 @@ fn execute_representative_pair(
 }
 
 /// Pairs between two progress lines of the representative-pair executor.
-const O14_PROGRESS_INTERVAL: u64 = 250_000;
+const EXHAUSTIVE_KAN_PROGRESS_INTERVAL: u64 = 250_000;
 
 /// Print pairs done, elapsed seconds and integer pairs per second to stderr.
-fn report_o14_progress(pairs: u64, elapsed: std::time::Duration) {
+fn report_exhaustive_kan_progress(pairs: u64, elapsed: std::time::Duration) {
     let millis = elapsed.as_millis().max(1);
     let rate = u128::from(pairs) * 1_000 / millis;
     eprintln!(
@@ -3559,7 +3559,7 @@ fn execute_representative_pairs(
     cases: &[RepresentativeCase],
     limit: u64,
     threads: usize,
-) -> O14PairStats {
+) -> ExhaustiveKanPairStats {
     let units = pair_units(cases, limit);
     let threads = threads.clamp(1, units.len().max(1));
     let started = std::time::Instant::now();
@@ -3567,7 +3567,7 @@ fn execute_representative_pairs(
     let stop = AtomicBool::new(false);
     let run_share = |share: usize| {
         let _stop_on_panic = StopOnPanic(&stop);
-        let mut stats = O14PairStats::default();
+        let mut stats = ExhaustiveKanPairStats::default();
         for unit in units.iter().skip(share).step_by(threads) {
             let case = &cases[unit.case];
             let source = &case.sources[unit.source];
@@ -3577,8 +3577,8 @@ fn execute_representative_pairs(
                 }
                 execute_representative_pair(case, source, target, &mut stats);
                 let pairs = done.fetch_add(1, AtomicOrdering::Relaxed) + 1;
-                if pairs.is_multiple_of(O14_PROGRESS_INTERVAL) {
-                    report_o14_progress(pairs, started.elapsed());
+                if pairs.is_multiple_of(EXHAUSTIVE_KAN_PROGRESS_INTERVAL) {
+                    report_exhaustive_kan_progress(pairs, started.elapsed());
                 }
             }
         }
@@ -3592,7 +3592,7 @@ fn execute_representative_pairs(
             let workers: Vec<_> = (0..threads)
                 .map(|share| scope.spawn(move || run_share(share)))
                 .collect();
-            let mut stats = O14PairStats::default();
+            let mut stats = ExhaustiveKanPairStats::default();
             for worker in workers {
                 match worker.join() {
                     Ok(share) => stats.absorb(&share),
@@ -3623,7 +3623,7 @@ fn execute_representative_pairs(
 const REPRESENTATIVE_PAIRS: u64 = 19_120_495;
 
 #[test]
-fn o14_executes_every_representative_profile_pair() {
+fn exhaustive_kan_executes_every_representative_profile_pair() {
     let cases = representative_cases();
     let stats = execute_representative_pairs(&cases, u64::MAX, pair_threads());
     assert_eq!(stats.pairs, REPRESENTATIVE_PAIRS);
@@ -3649,7 +3649,7 @@ fn pilot_pair_limit(default: u64) -> u64 {
 
 #[test]
 #[ignore = "development-only throughput pilot; the unlimited test is the acceptance gate"]
-fn o14_representative_profile_pair_throughput_pilot() {
+fn exhaustive_kan_representative_profile_pair_throughput_pilot() {
     let limit = pilot_pair_limit(10_000);
     let cases = representative_cases();
     let stats = execute_representative_pairs(&cases, limit, pair_threads());
@@ -4132,7 +4132,7 @@ fn assert_member_stats(stats: &MemberStats) {
 }
 
 #[test]
-fn o14_every_labelled_member_has_checked_operation_transports() {
+fn exhaustive_kan_every_labelled_member_has_checked_operation_transports() {
     let family = bounded::family();
     let value_kinds = BTreeSet::from(["value".to_owned()]);
     let non_value_kinds = BTreeSet::from(["record".to_owned()]);

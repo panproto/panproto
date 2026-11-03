@@ -157,9 +157,9 @@ jobs:
             fi
           }
 
-          check_gate panproto-reference kan o14_executes_every_representative_profile_pair
-          check_gate panproto-reference kan o14_every_labelled_member_has_checked_operation_transports
-          check_gate panproto-inst reference_kan o14_hom_profile_pairs_agree_with_the_reference
+          check_gate panproto-reference kan exhaustive_kan_executes_every_representative_profile_pair
+          check_gate panproto-reference kan exhaustive_kan_every_labelled_member_has_checked_operation_transports
+          check_gate panproto-inst reference_kan exhaustive_kan_hom_profile_pairs_agree_with_the_reference
       #
       # Full DWARF is the bulk of what a debug build writes, and 250
       # vendored grammars make that enormous. `line-tables-only` keeps

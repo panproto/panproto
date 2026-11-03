@@ -13,7 +13,7 @@ use panproto_reference::schema::Schema;
 use panproto_reference::value::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum O16Path {
+enum AdjunctionPath {
     SigmaUnit,
     SigmaCounit,
     SigmaTransposeForward,
@@ -25,7 +25,7 @@ enum O16Path {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum O16Witness {
+enum AdjunctionWitness {
     Nonidentity,
     LabelledNull,
     Multifibre,
@@ -292,9 +292,9 @@ fn sigma_rich() -> SigmaRich {
 }
 
 fn record_success_cells(
-    ledger: &mut BTreeSet<(O16Path, O16Witness)>,
-    paths: &[O16Path],
-    witnesses: &[O16Witness],
+    ledger: &mut BTreeSet<(AdjunctionPath, AdjunctionWitness)>,
+    paths: &[AdjunctionPath],
+    witnesses: &[AdjunctionWitness],
 ) {
     for path in paths {
         for witness in witnesses {
@@ -333,7 +333,7 @@ fn assert_sigma_fixture_scope(fixture: &SigmaRich) {
     );
 }
 
-fn record_sigma_successes(ledger: &mut BTreeSet<(O16Path, O16Witness)>) {
+fn record_sigma_successes(ledger: &mut BTreeSet<(AdjunctionPath, AdjunctionWitness)>) {
     let fixture = sigma_rich();
     assert_sigma_fixture_scope(&fixture);
 
@@ -408,17 +408,17 @@ fn record_sigma_successes(ledger: &mut BTreeSet<(O16Path, O16Witness)>) {
     record_success_cells(
         ledger,
         &[
-            O16Path::SigmaUnit,
-            O16Path::SigmaCounit,
-            O16Path::SigmaTransposeForward,
-            O16Path::SigmaTransposeInverse,
+            AdjunctionPath::SigmaUnit,
+            AdjunctionPath::SigmaCounit,
+            AdjunctionPath::SigmaTransposeForward,
+            AdjunctionPath::SigmaTransposeInverse,
         ],
         &[
-            O16Witness::Nonidentity,
-            O16Witness::LabelledNull,
-            O16Witness::Multifibre,
-            O16Witness::OutsideImage,
-            O16Witness::Relation,
+            AdjunctionWitness::Nonidentity,
+            AdjunctionWitness::LabelledNull,
+            AdjunctionWitness::Multifibre,
+            AdjunctionWitness::OutsideImage,
+            AdjunctionWitness::Relation,
         ],
     );
 }
@@ -489,7 +489,7 @@ fn nonconforming(reason: &rel::NonConforming) -> Result<Hom, TransposeError> {
     )))
 }
 
-fn record_sigma_refusals(ledger: &mut BTreeSet<(O16Path, O16Witness)>) {
+fn record_sigma_refusals(ledger: &mut BTreeSet<(AdjunctionPath, AdjunctionWitness)>) {
     let fixture = incoherent_pair_fixture();
     assert_eq!(
         rel::conform(&fixture.bad_source, &fixture.functor.src.side()),
@@ -531,12 +531,12 @@ fn record_sigma_refusals(ledger: &mut BTreeSet<(O16Path, O16Witness)>) {
     );
 
     for path in [
-        O16Path::SigmaUnit,
-        O16Path::SigmaCounit,
-        O16Path::SigmaTransposeForward,
-        O16Path::SigmaTransposeInverse,
+        AdjunctionPath::SigmaUnit,
+        AdjunctionPath::SigmaCounit,
+        AdjunctionPath::SigmaTransposeForward,
+        AdjunctionPath::SigmaTransposeInverse,
     ] {
-        assert!(ledger.insert((path, O16Witness::TypedRefusal)));
+        assert!(ledger.insert((path, AdjunctionWitness::TypedRefusal)));
     }
 }
 
@@ -627,7 +627,7 @@ fn pi_rich() -> PiRich {
     }
 }
 
-fn record_pi_successes(ledger: &mut BTreeSet<(O16Path, O16Witness)>) {
+fn record_pi_successes(ledger: &mut BTreeSet<(AdjunctionPath, AdjunctionWitness)>) {
     let fixture = pi_rich();
     assert_eq!(
         rel::conform(&fixture.input, &fixture.functor.src.side()),
@@ -715,16 +715,16 @@ fn record_pi_successes(ledger: &mut BTreeSet<(O16Path, O16Witness)>) {
     record_success_cells(
         ledger,
         &[
-            O16Path::PiUnit,
-            O16Path::PiCounit,
-            O16Path::PiTransposeForward,
-            O16Path::PiTransposeInverse,
+            AdjunctionPath::PiUnit,
+            AdjunctionPath::PiCounit,
+            AdjunctionPath::PiTransposeForward,
+            AdjunctionPath::PiTransposeInverse,
         ],
         &[
-            O16Witness::Nonidentity,
-            O16Witness::LabelledNull,
-            O16Witness::Multifibre,
-            O16Witness::Relation,
+            AdjunctionWitness::Nonidentity,
+            AdjunctionWitness::LabelledNull,
+            AdjunctionWitness::Multifibre,
+            AdjunctionWitness::Relation,
         ],
     );
 }
@@ -914,24 +914,24 @@ fn assert_pi_over_bound_refusals() {
     );
 }
 
-fn expected_ledger() -> BTreeSet<(O16Path, O16Witness)> {
+fn expected_ledger() -> BTreeSet<(AdjunctionPath, AdjunctionWitness)> {
     let paths = [
-        O16Path::SigmaUnit,
-        O16Path::SigmaCounit,
-        O16Path::SigmaTransposeForward,
-        O16Path::SigmaTransposeInverse,
-        O16Path::PiUnit,
-        O16Path::PiCounit,
-        O16Path::PiTransposeForward,
-        O16Path::PiTransposeInverse,
+        AdjunctionPath::SigmaUnit,
+        AdjunctionPath::SigmaCounit,
+        AdjunctionPath::SigmaTransposeForward,
+        AdjunctionPath::SigmaTransposeInverse,
+        AdjunctionPath::PiUnit,
+        AdjunctionPath::PiCounit,
+        AdjunctionPath::PiTransposeForward,
+        AdjunctionPath::PiTransposeInverse,
     ];
     let witnesses = [
-        O16Witness::Nonidentity,
-        O16Witness::LabelledNull,
-        O16Witness::Multifibre,
-        O16Witness::OutsideImage,
-        O16Witness::Relation,
-        O16Witness::TypedRefusal,
+        AdjunctionWitness::Nonidentity,
+        AdjunctionWitness::LabelledNull,
+        AdjunctionWitness::Multifibre,
+        AdjunctionWitness::OutsideImage,
+        AdjunctionWitness::Relation,
+        AdjunctionWitness::TypedRefusal,
     ];
     paths
         .into_iter()
@@ -940,7 +940,7 @@ fn expected_ledger() -> BTreeSet<(O16Path, O16Witness)> {
 }
 
 #[test]
-fn o16_has_an_exact_six_witness_ledger_for_each_adjoint_map() {
+fn every_adjoint_map_has_an_exact_six_witness_ledger() {
     let mut ledger = BTreeSet::new();
     record_sigma_successes(&mut ledger);
     record_sigma_refusals(&mut ledger);
@@ -948,13 +948,13 @@ fn o16_has_an_exact_six_witness_ledger_for_each_adjoint_map() {
     assert_pi_outside_image_refusals();
     assert_pi_over_bound_refusals();
     for path in [
-        O16Path::PiUnit,
-        O16Path::PiCounit,
-        O16Path::PiTransposeForward,
-        O16Path::PiTransposeInverse,
+        AdjunctionPath::PiUnit,
+        AdjunctionPath::PiCounit,
+        AdjunctionPath::PiTransposeForward,
+        AdjunctionPath::PiTransposeInverse,
     ] {
-        assert!(ledger.insert((path, O16Witness::OutsideImage)));
-        assert!(ledger.insert((path, O16Witness::TypedRefusal)));
+        assert!(ledger.insert((path, AdjunctionWitness::OutsideImage)));
+        assert!(ledger.insert((path, AdjunctionWitness::TypedRefusal)));
     }
 
     let expected = expected_ledger();

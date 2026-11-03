@@ -1735,16 +1735,16 @@ pub const fn table_get_put_law_count_certificate() -> usize {
         + table_put_refusal_count_certificate()
 }
 
-/// One of the two exact finite Delta-fragment fixtures of GF5.
+/// One of the two exact finite Delta-fragment fixtures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Gf5Fixture {
+pub enum DeltaFragmentFixture {
     /// `a -> b`, with only `a` visible.
     DropTarget,
     /// `a -visible-> c -hidden-> b`, with `a`, `c` and `visible` visible.
     VisibleThenHidden,
 }
 
-impl Gf5Fixture {
+impl DeltaFragmentFixture {
     /// The source schema of this exact fixture.
     #[must_use]
     pub fn source_schema(self) -> Schema {
@@ -1788,53 +1788,55 @@ impl Gf5Fixture {
 }
 
 #[derive(Clone, Copy)]
-struct Gf5Edge {
+struct DeltaFragmentEdge {
     src: usize,
     tgt: usize,
     name: &'static str,
 }
 
 const DROP_TARGET_ANCHORS: [&str; 2] = ["a", "b"];
-const DROP_TARGET_EDGES: [Gf5Edge; 1] = [Gf5Edge {
+const DROP_TARGET_EDGES: [DeltaFragmentEdge; 1] = [DeltaFragmentEdge {
     src: 0,
     tgt: 1,
     name: "b",
 }];
 const VISIBLE_HIDDEN_ANCHORS: [&str; 3] = ["a", "b", "c"];
-const VISIBLE_HIDDEN_EDGES: [Gf5Edge; 2] = [
-    Gf5Edge {
+const VISIBLE_HIDDEN_EDGES: [DeltaFragmentEdge; 2] = [
+    DeltaFragmentEdge {
         src: 0,
         tgt: 2,
         name: "visible",
     },
-    Gf5Edge {
+    DeltaFragmentEdge {
         src: 2,
         tgt: 1,
         name: "hidden",
     },
 ];
 
-const fn gf5_carrier(fixture: Gf5Fixture) -> (&'static [&'static str], &'static [Gf5Edge]) {
+const fn delta_fragment_carrier(
+    fixture: DeltaFragmentFixture,
+) -> (&'static [&'static str], &'static [DeltaFragmentEdge]) {
     match fixture {
-        Gf5Fixture::DropTarget => (&DROP_TARGET_ANCHORS, &DROP_TARGET_EDGES),
-        Gf5Fixture::VisibleThenHidden => (&VISIBLE_HIDDEN_ANCHORS, &VISIBLE_HIDDEN_EDGES),
+        DeltaFragmentFixture::DropTarget => (&DROP_TARGET_ANCHORS, &DROP_TARGET_EDGES),
+        DeltaFragmentFixture::VisibleThenHidden => (&VISIBLE_HIDDEN_ANCHORS, &VISIBLE_HIDDEN_EDGES),
     }
 }
 
-fn gf5_keeps_anchor(fixture: Gf5Fixture, anchor: &str) -> bool {
+fn delta_fragment_keeps_anchor(fixture: DeltaFragmentFixture, anchor: &str) -> bool {
     match fixture {
-        Gf5Fixture::DropTarget => anchor == "a",
-        Gf5Fixture::VisibleThenHidden => matches!(anchor, "a" | "c"),
+        DeltaFragmentFixture::DropTarget => anchor == "a",
+        DeltaFragmentFixture::VisibleThenHidden => matches!(anchor, "a" | "c"),
     }
 }
 
-fn gf5_keeps_edge(fixture: Gf5Fixture, edge: &SEdge) -> bool {
-    fixture == Gf5Fixture::VisibleThenHidden
+fn delta_fragment_keeps_edge(fixture: DeltaFragmentFixture, edge: &SEdge) -> bool {
+    fixture == DeltaFragmentFixture::VisibleThenHidden
         && *edge == SEdge::new("a", "c", "rel", Some("visible"))
 }
 
-fn for_each_gf5_source_of(fixture: Gf5Fixture, mut visit: impl FnMut(&Graph)) {
-    let (anchors, edges) = gf5_carrier(fixture);
+fn for_each_delta_fragment_source_of(fixture: DeltaFragmentFixture, mut visit: impl FnMut(&Graph)) {
+    let (anchors, edges) = delta_fragment_carrier(fixture);
     for nodes in 0..=3 {
         for mut assignment in 0..power(anchors.len(), nodes) {
             let mut source = Graph::default();
@@ -1889,17 +1891,17 @@ fn for_each_gf5_source_of(fixture: Gf5Fixture, mut visit: impl FnMut(&Graph)) {
     }
 }
 
-fn gf5_restrict(fixture: Gf5Fixture, source: &Graph) -> Graph {
+fn delta_fragment_restrict(fixture: DeltaFragmentFixture, source: &Graph) -> Graph {
     let mut view = Graph::default();
     for (id, node) in &source.nodes {
-        if gf5_keeps_anchor(fixture, &node.anchor) {
+        if delta_fragment_keeps_anchor(fixture, &node.anchor) {
             view.nodes.insert(*id, node.clone());
         }
     }
     for (id, edge) in &source.edges {
         if view.nodes.contains_key(&edge.src)
             && view.nodes.contains_key(&edge.tgt)
-            && gf5_keeps_edge(fixture, &edge.label)
+            && delta_fragment_keeps_edge(fixture, &edge.label)
         {
             view.edges.insert(*id, edge.clone());
         }
@@ -1935,35 +1937,40 @@ fn for_each_subinstance(graph: &Graph, mut visit: impl FnMut(&Graph)) {
     }
 }
 
-/// Stream the exact 133 GF5 source graphs.
-pub fn for_each_gf5_source(mut visit: impl FnMut(Gf5Fixture, &Graph)) {
-    for fixture in [Gf5Fixture::DropTarget, Gf5Fixture::VisibleThenHidden] {
-        for_each_gf5_source_of(fixture, |source| visit(fixture, source));
+/// Stream the exact 133 Delta-fragment source graphs.
+pub fn for_each_delta_fragment_source(mut visit: impl FnMut(DeltaFragmentFixture, &Graph)) {
+    for fixture in [
+        DeltaFragmentFixture::DropTarget,
+        DeltaFragmentFixture::VisibleThenHidden,
+    ] {
+        for_each_delta_fragment_source_of(fixture, |source| visit(fixture, source));
     }
 }
 
-/// Stream every source and deletion-only edited view of the GF5 carrier.
-pub fn for_each_gf5_deletion_edit(mut visit: impl FnMut(Gf5Fixture, &Graph, &Graph)) {
-    for_each_gf5_source(|fixture, source| {
-        let view = gf5_restrict(fixture, source);
+/// Stream every source and deletion-only edited view of the Delta-fragment carrier.
+pub fn for_each_delta_fragment_deletion_edit(
+    mut visit: impl FnMut(DeltaFragmentFixture, &Graph, &Graph),
+) {
+    for_each_delta_fragment_source(|fixture, source| {
+        let view = delta_fragment_restrict(fixture, source);
         for_each_subinstance(&view, |edited_view| visit(fixture, source, edited_view));
     });
 }
 
-/// Stream every GF5 source/deletion-edit/source-subinstance probe.
-pub fn for_each_gf5_source_subinstance_probe(
-    mut visit: impl FnMut(Gf5Fixture, &Graph, &Graph, &Graph),
+/// Stream every Delta-fragment source/deletion-edit/source-subinstance probe.
+pub fn for_each_delta_fragment_source_subinstance_probe(
+    mut visit: impl FnMut(DeltaFragmentFixture, &Graph, &Graph, &Graph),
 ) {
-    for_each_gf5_deletion_edit(|fixture, source, edited_view| {
+    for_each_delta_fragment_deletion_edit(|fixture, source, edited_view| {
         for_each_subinstance(source, |candidate| {
             visit(fixture, source, edited_view, candidate);
         });
     });
 }
 
-/// Independent counts for the two exact GF5 fixtures.
+/// Independent counts for the two exact Delta-fragment fixtures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Gf5Counts {
+pub struct DeltaFragmentCounts {
     /// Source graphs, by fixture order.
     pub sources: [usize; 2],
     /// Deletion-only edited views, by fixture order.
@@ -1972,16 +1979,16 @@ pub struct Gf5Counts {
     pub source_subinstance_probes: [usize; 2],
 }
 
-const fn certificate_anchor(fixture: Gf5Fixture, word: usize, node: usize) -> usize {
+const fn certificate_anchor(fixture: DeltaFragmentFixture, word: usize, node: usize) -> usize {
     let alphabet = match fixture {
-        Gf5Fixture::DropTarget => 2,
-        Gf5Fixture::VisibleThenHidden => 3,
+        DeltaFragmentFixture::DropTarget => 2,
+        DeltaFragmentFixture::VisibleThenHidden => 3,
     };
     (word / power(alphabet, node)) % alphabet
 }
 
 fn certificate_edge_at(
-    fixture: Gf5Fixture,
+    fixture: DeltaFragmentFixture,
     word: usize,
     nodes: usize,
     wanted: usize,
@@ -1992,8 +1999,8 @@ fn certificate_edge_at(
             let src_anchor = certificate_anchor(fixture, word, src);
             let tgt_anchor = certificate_anchor(fixture, word, tgt);
             let possibilities: &[(usize, usize, bool)] = match fixture {
-                Gf5Fixture::DropTarget => &[(0, 1, false)],
-                Gf5Fixture::VisibleThenHidden => &[(0, 2, true), (2, 1, false)],
+                DeltaFragmentFixture::DropTarget => &[(0, 1, false)],
+                DeltaFragmentFixture::VisibleThenHidden => &[(0, 2, true), (2, 1, false)],
             };
             for &(expected_src, expected_tgt, visible) in possibilities {
                 if src_anchor == expected_src && tgt_anchor == expected_tgt {
@@ -2008,7 +2015,7 @@ fn certificate_edge_at(
     None
 }
 
-fn certificate_edge_count(fixture: Gf5Fixture, word: usize, nodes: usize) -> usize {
+fn certificate_edge_count(fixture: DeltaFragmentFixture, word: usize, nodes: usize) -> usize {
     let mut count = 0;
     while certificate_edge_at(fixture, word, nodes, count).is_some() {
         count += 1;
@@ -2017,7 +2024,7 @@ fn certificate_edge_count(fixture: Gf5Fixture, word: usize, nodes: usize) -> usi
 }
 
 fn certificate_subinstance_count(
-    fixture: Gf5Fixture,
+    fixture: DeltaFragmentFixture,
     word: usize,
     nodes: usize,
     selected_edges: usize,
@@ -2047,10 +2054,10 @@ fn certificate_subinstance_count(
     count
 }
 
-fn gf5_counts_for(fixture: Gf5Fixture) -> (usize, usize, usize) {
+fn delta_fragment_counts_for(fixture: DeltaFragmentFixture) -> (usize, usize, usize) {
     let anchor_count = match fixture {
-        Gf5Fixture::DropTarget => 2,
-        Gf5Fixture::VisibleThenHidden => 3,
+        DeltaFragmentFixture::DropTarget => 2,
+        DeltaFragmentFixture::VisibleThenHidden => 3,
     };
     let mut sources = 0;
     let mut edits = 0;
@@ -2066,8 +2073,8 @@ fn gf5_counts_for(fixture: Gf5Fixture) -> (usize, usize, usize) {
                 let visible_nodes = (0..nodes).fold(0, |mask, node| {
                     let anchor = certificate_anchor(fixture, word, node);
                     let visible = match fixture {
-                        Gf5Fixture::DropTarget => anchor == 0,
-                        Gf5Fixture::VisibleThenHidden => matches!(anchor, 0 | 2),
+                        DeltaFragmentFixture::DropTarget => anchor == 0,
+                        DeltaFragmentFixture::VisibleThenHidden => matches!(anchor, 0 | 2),
                     };
                     if visible { mask | (1 << node) } else { mask }
                 });
@@ -2095,14 +2102,14 @@ fn gf5_counts_for(fixture: Gf5Fixture) -> (usize, usize, usize) {
     (sources, edits, probes)
 }
 
-/// Derive the GF5 counts from anchor assignments, edge-subset masks and the
+/// Derive the Delta-fragment counts from anchor assignments, edge-subset masks and the
 /// endpoint-closed subinstance formula, without constructing a [`Graph`] or
 /// invoking the streamed enumerators.
 #[must_use]
-pub fn gf5_count_certificate() -> Gf5Counts {
-    let first = gf5_counts_for(Gf5Fixture::DropTarget);
-    let second = gf5_counts_for(Gf5Fixture::VisibleThenHidden);
-    Gf5Counts {
+pub fn delta_fragment_count_certificate() -> DeltaFragmentCounts {
+    let first = delta_fragment_counts_for(DeltaFragmentFixture::DropTarget);
+    let second = delta_fragment_counts_for(DeltaFragmentFixture::VisibleThenHidden);
+    DeltaFragmentCounts {
         sources: [first.0, second.0],
         deletion_edits: [first.1, second.1],
         source_subinstance_probes: [first.2, second.2],
@@ -2586,48 +2593,53 @@ pub const fn path_contract_law_count_certificate() -> PathContractLawCounts {
 }
 
 /// Every finite alphabet of the bounded lens carrier is fixed.
-pub const C11_SCOPE_COMPLETE: bool = true;
+pub const BOUNDED_LENS_SCOPE_COMPLETE: bool = true;
 
 /// Dynamic execution waits until the reference and production tests
 /// reproduce the independent count certificate.
-pub const C11_DYNAMIC_VERIFICATION_HOLD: &str = "dynamic execution waits until the reference and production tests reproduce the independent count certificate";
+pub const BOUNDED_LENS_DYNAMIC_VERIFICATION_STATUS: &str = "dynamic execution waits until the reference and production tests reproduce the independent count certificate";
 
 /// Vertex names of the bounded lens schema alphabet.
-pub const C11_VERTICES: [&str; 2] = ["a", "b"];
+pub const BOUNDED_LENS_VERTICES: [&str; 2] = ["a", "b"];
 /// Kind of every bounded lens schema vertex.
-pub const C11_VERTEX_KIND: &str = "obj";
+pub const BOUNDED_LENS_VERTEX_KIND: &str = "obj";
 /// Kind of every bounded lens schema edge.
-pub const C11_EDGE_KIND: &str = "prop";
+pub const BOUNDED_LENS_EDGE_KIND: &str = "prop";
 /// Name of every bounded lens schema edge.
-pub const C11_EDGE_NAME: &str = "e";
+pub const BOUNDED_LENS_EDGE_NAME: &str = "e";
 /// Most edges of a bounded lens schema.
-pub const C11_MAX_SCHEMA_EDGES: usize = 2;
+pub const BOUNDED_LENS_MAX_SCHEMA_EDGES: usize = 2;
 /// Most nodes of a bounded lens state.
-pub const C11_MAX_NODES: usize = 3;
+pub const BOUNDED_LENS_MAX_NODES: usize = 3;
 /// Most edges of a bounded lens graph state.
-pub const C11_MAX_EDGES: usize = 3;
+pub const BOUNDED_LENS_MAX_EDGES: usize = 3;
 /// Most edges of a bounded lens fan state.
-pub const C11_MAX_FAN_EDGES: usize = 2;
+pub const BOUNDED_LENS_MAX_FAN_EDGES: usize = 2;
 /// The one value a bounded lens node may hold (or hold none).
-pub const C11_VALUE: Value = Value::Int(0);
+pub const BOUNDED_LENS_VALUE: Value = Value::Int(0);
 /// The one field key of the bounded lens edit alphabet.
-pub const C11_FIELD: &str = "f";
+pub const BOUNDED_LENS_FIELD: &str = "f";
 
 /// The bounded lens schema edge from `src` to `tgt`.
 #[must_use]
-pub fn c11_edge(src: &str, tgt: &str) -> SEdge {
-    SEdge::new(src, tgt, C11_EDGE_KIND, Some(C11_EDGE_NAME))
+pub fn bounded_lens_edge(src: &str, tgt: &str) -> SEdge {
+    SEdge::new(
+        src,
+        tgt,
+        BOUNDED_LENS_EDGE_KIND,
+        Some(BOUNDED_LENS_EDGE_NAME),
+    )
 }
 
 /// The bounded lens schema on `vertices` with `edges` given as vertex pairs.
 #[must_use]
-pub fn c11_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema {
+pub fn bounded_lens_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema {
     let mut schema = Schema::default();
     for vertex in vertices {
-        schema = schema.vertex(vertex, C11_VERTEX_KIND);
+        schema = schema.vertex(vertex, BOUNDED_LENS_VERTEX_KIND);
     }
     for (src, tgt) in edges {
-        schema.edges.insert(c11_edge(src, tgt));
+        schema.edges.insert(bounded_lens_edge(src, tgt));
     }
     schema
 }
@@ -2638,8 +2650,8 @@ pub fn c11_schema(vertices: &[&str], edges: &[(&str, &str)]) -> Schema {
 #[must_use]
 pub fn sigma2_schemas() -> Vec<Schema> {
     let mut out = Vec::new();
-    for mask in 0..power(2, C11_VERTICES.len()) {
-        let vertices: Vec<&str> = C11_VERTICES
+    for mask in 0..power(2, BOUNDED_LENS_VERTICES.len()) {
+        let vertices: Vec<&str> = BOUNDED_LENS_VERTICES
             .iter()
             .enumerate()
             .filter(|(index, _)| mask & (1 << index) != 0)
@@ -2649,8 +2661,8 @@ pub fn sigma2_schemas() -> Vec<Schema> {
             .iter()
             .flat_map(|src| vertices.iter().map(move |tgt| (*src, *tgt)))
             .collect();
-        for edges in super::subsets(&pairs, C11_MAX_SCHEMA_EDGES) {
-            out.push(c11_schema(&vertices, &edges));
+        for edges in super::subsets(&pairs, BOUNDED_LENS_MAX_SCHEMA_EDGES) {
+            out.push(bounded_lens_schema(&vertices, &edges));
         }
     }
     out
@@ -2661,7 +2673,7 @@ pub fn sigma2_schemas() -> Vec<Schema> {
 #[must_use]
 pub fn sigma2_count() -> usize {
     let mut total = 0;
-    for size in 0..=C11_VERTICES.len() {
+    for size in 0..=BOUNDED_LENS_VERTICES.len() {
         let subsets =
             usize::try_from(super::choose(2, u64::try_from(size).unwrap_or(0))).unwrap_or(0);
         let pairs = u64::try_from(size * size).unwrap_or(0);
@@ -2671,10 +2683,10 @@ pub fn sigma2_count() -> usize {
     total
 }
 
-fn c11_node(id: usize, anchor: &str, valued: bool) -> Node {
+fn bounded_lens_node(id: usize, anchor: &str, valued: bool) -> Node {
     let node = Node::new(bounded_id(id), anchor);
     if valued {
-        node.with_value(C11_VALUE)
+        node.with_value(BOUNDED_LENS_VALUE)
     } else {
         node
     }
@@ -2700,14 +2712,14 @@ fn typed_candidates(schema: &Schema, anchors: &[&str]) -> Vec<(usize, usize, SEd
 /// Every bounded lens graph state over `schema`.
 ///
 /// The states have nodes `0..n-1` (`n <= 3`) anchored
-/// at the schema's vertices, each with no value or [`C11_VALUE`], and edges
+/// at the schema's vertices, each with no value or [`BOUNDED_LENS_VALUE`], and edges
 /// `0..m-1` (`m <= 3`), each one of the typed candidates (parallel edges,
 /// self-loops and two-cycles included). Labelled and unpruned.
 #[must_use]
-pub fn c11_graph_states(schema: &Schema) -> Vec<Graph> {
+pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
     let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
     let mut out = Vec::new();
-    for nodes in 0..=C11_MAX_NODES {
+    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
         for mut anchor_code in 0..power(vertices.len(), nodes) {
             let anchors: Vec<&str> = (0..nodes)
                 .map(|_| {
@@ -2722,10 +2734,10 @@ pub fn c11_graph_states(schema: &Schema) -> Vec<Graph> {
                 for (id, anchor) in anchors.iter().enumerate() {
                     base.nodes.insert(
                         bounded_id(id),
-                        c11_node(id, anchor, values & (1 << id) != 0),
+                        bounded_lens_node(id, anchor, values & (1 << id) != 0),
                     );
                 }
-                for edges in 0..=C11_MAX_EDGES {
+                for edges in 0..=BOUNDED_LENS_MAX_EDGES {
                     for mut code in 0..power(candidates.len(), edges) {
                         let mut graph = base.clone();
                         for id in 0..edges {
@@ -2750,14 +2762,14 @@ pub fn c11_graph_states(schema: &Schema) -> Vec<Graph> {
     out
 }
 
-/// Independent count of [`c11_graph_states`] by anchor multiplicities:
+/// Independent count of [`bounded_lens_graph_states`] by anchor multiplicities:
 /// `sum_n sum_{k_a + k_b = n} n! / (k_a! k_b!) * 2^n * sum_{m <= 3} c^m`
 /// with `c = sum_{(x, y) in E} k_x k_y`.
 #[must_use]
-pub fn c11_graph_state_count(schema: &Schema) -> usize {
+pub fn bounded_lens_graph_state_count(schema: &Schema) -> usize {
     let vertices: Vec<&String> = schema.vertices.keys().collect();
     let mut total = 0;
-    for nodes in 0..=C11_MAX_NODES {
+    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
         for split in multiplicities(vertices.len(), nodes) {
             let arrangements = multinomial(nodes, &split);
             let typed: usize = schema
@@ -2771,7 +2783,7 @@ pub fn c11_graph_state_count(schema: &Schema) -> usize {
                     }
                 })
                 .sum();
-            let edge_sets: usize = (0..=C11_MAX_EDGES).map(|m| power(typed, m)).sum();
+            let edge_sets: usize = (0..=BOUNDED_LENS_MAX_EDGES).map(|m| power(typed, m)).sum();
             total += arrangements * power(2, nodes) * edge_sets;
         }
     }
@@ -2786,10 +2798,10 @@ pub fn c11_graph_state_count(schema: &Schema) -> usize {
 /// form a set, so a typed `(label, source row, target row)` occurs at most
 /// once.
 #[must_use]
-pub fn c11_table_states(schema: &Schema) -> Vec<Table> {
+pub fn bounded_lens_table_states(schema: &Schema) -> Vec<Table> {
     let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
     let mut out = Vec::new();
-    for rows in 0..=C11_MAX_NODES {
+    for rows in 0..=BOUNDED_LENS_MAX_NODES {
         for mut anchor_code in 0..power(vertices.len(), rows) {
             let anchors: Vec<&str> = (0..rows)
                 .map(|_| {
@@ -2803,14 +2815,14 @@ pub fn c11_table_states(schema: &Schema) -> Vec<Table> {
                 let mut base = Table::default();
                 for (id, anchor) in anchors.iter().enumerate() {
                     let cells = if values & (1 << id) != 0 {
-                        BTreeMap::from([(C11_FIELD.to_owned(), C11_VALUE)])
+                        BTreeMap::from([(BOUNDED_LENS_FIELD.to_owned(), BOUNDED_LENS_VALUE)])
                     } else {
                         BTreeMap::new()
                     };
                     base.rows
                         .insert(bounded_id(id), ((*anchor).to_owned(), cells));
                 }
-                for pairs in super::subsets(&candidates, C11_MAX_EDGES) {
+                for pairs in super::subsets(&candidates, BOUNDED_LENS_MAX_EDGES) {
                     let mut table = base.clone();
                     table.pairs.extend(
                         pairs
@@ -2825,16 +2837,16 @@ pub fn c11_table_states(schema: &Schema) -> Vec<Table> {
     out
 }
 
-/// Independent count of [`c11_table_states`] by row-anchor multiplicities:
+/// Independent count of [`bounded_lens_table_states`] by row-anchor multiplicities:
 ///
 /// `sum_n sum_{k_1 + ... + k_v = n} multinomial(n; k) * 2^n`, multiplied by
 /// `sum_{m <= 3} choose(c, m)`, where
 /// `c = sum_{(x,y) in E} k_x k_y` is the number of distinct typed pairs.
 #[must_use]
-pub fn c11_table_state_count(schema: &Schema) -> usize {
+pub fn bounded_lens_table_state_count(schema: &Schema) -> usize {
     let vertices: Vec<&String> = schema.vertices.keys().collect();
     let mut total = 0;
-    for rows in 0..=C11_MAX_NODES {
+    for rows in 0..=BOUNDED_LENS_MAX_NODES {
         for split in multiplicities(vertices.len(), rows) {
             let arrangements = multinomial(rows, &split);
             let typed: usize = schema
@@ -2848,7 +2860,7 @@ pub fn c11_table_state_count(schema: &Schema) -> usize {
                     }
                 })
                 .sum();
-            let pair_sets: usize = (0..=C11_MAX_EDGES.min(typed))
+            let pair_sets: usize = (0..=BOUNDED_LENS_MAX_EDGES.min(typed))
                 .map(|pairs| choose_usize(typed, pairs))
                 .sum();
             total += arrangements * power(2, rows) * pair_sets;
@@ -2910,10 +2922,10 @@ fn multinomial(total: usize, split: &[usize]) -> usize {
 /// every schema edge from the parent's anchor to the child's. Arcs are listed
 /// by ascending parent and, within one parent, in sibling order. No fans.
 #[must_use]
-pub fn c11_tree_states(schema: &Schema) -> Vec<Tree> {
+pub fn bounded_lens_tree_states(schema: &Schema) -> Vec<Tree> {
     let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
     let mut out = Vec::new();
-    for nodes in 1..=C11_MAX_NODES {
+    for nodes in 1..=BOUNDED_LENS_MAX_NODES {
         for shape in plane_trees(nodes) {
             for mut anchor_code in 0..power(vertices.len(), nodes) {
                 let anchors: Vec<&str> = (0..nodes)
@@ -2958,7 +2970,7 @@ pub fn c11_tree_states(schema: &Schema) -> Vec<Tree> {
                         for (id, anchor) in anchors.iter().enumerate() {
                             tree.nodes.insert(
                                 bounded_id(id),
-                                c11_node(id, anchor, values & (1 << id) != 0),
+                                bounded_lens_node(id, anchor, values & (1 << id) != 0),
                             );
                         }
                         out.push(tree);
@@ -3057,7 +3069,7 @@ fn permutations(items: &[usize]) -> Vec<Vec<usize>> {
     out
 }
 
-/// Independent count of [`c11_tree_states`] by tree shape.
+/// Independent count of [`bounded_lens_tree_states`] by tree shape.
 ///
 /// With `w(x, y)`
 /// the number of schema edges from `x` to `y`:
@@ -3065,7 +3077,7 @@ fn permutations(items: &[usize]) -> Vec<Vec<usize>> {
 /// (one node; root and child; a path; a root with two ordered children,
 /// over every labelling of the nodes).
 #[must_use]
-pub fn c11_tree_state_count(schema: &Schema) -> usize {
+pub fn bounded_lens_tree_state_count(schema: &Schema) -> usize {
     let vertices: Vec<&String> = schema.vertices.keys().collect();
     let w = |x: &str, y: &str| {
         schema
@@ -3092,8 +3104,8 @@ pub fn c11_tree_state_count(schema: &Schema) -> usize {
 /// The fan schema: vertices `a`, `b` and the hyper-edge `h` of kind `fan`
 /// with signature `{p -> a, l -> b}` and parent label `p`.
 #[must_use]
-pub fn c11_fan_schema() -> Schema {
-    let mut schema = c11_schema(&["a", "b"], &[]);
+pub fn bounded_lens_fan_schema() -> Schema {
+    let mut schema = bounded_lens_schema(&["a", "b"], &[]);
     schema.hyper_edges.insert(
         "h".to_owned(),
         crate::schema::HyperEdge {
@@ -3111,7 +3123,7 @@ pub fn c11_fan_schema() -> Schema {
 /// The two reserved fan labels of the fan states: the parent edge of `h`
 /// into `a`, and the child edge `l` of `h` into `b`.
 #[must_use]
-pub fn c11_fan_labels() -> [SEdge; 2] {
+pub fn bounded_lens_fan_labels() -> [SEdge; 2] {
     [
         SEdge::new("h", "a", crate::restrict::HYPER_PARENT, Some("p")),
         SEdge::new("h", "b", crate::restrict::HYPER_LABEL, Some("l")),
@@ -3125,11 +3137,11 @@ pub fn c11_fan_labels() -> [SEdge; 2] {
 /// `0..m-1` (`m <= 2`) with any endpoints and either fan label: every
 /// well-formed one-child fan and every malformed fan of the bound.
 #[must_use]
-pub fn c11_fan_states() -> Vec<Graph> {
+pub fn bounded_lens_fan_states() -> Vec<Graph> {
     let anchors = ["a", "b", "h"];
-    let labels = c11_fan_labels();
+    let labels = bounded_lens_fan_labels();
     let mut out = Vec::new();
-    for nodes in 0..=C11_MAX_NODES {
+    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
         for mut code in 0..power(anchors.len(), nodes) {
             let mut base = Graph::default();
             for id in 0..nodes {
@@ -3142,7 +3154,7 @@ pub fn c11_fan_states() -> Vec<Graph> {
                 base.nodes.insert(bounded_id(id), node);
             }
             let choices = nodes * nodes * labels.len();
-            for edges in 0..=C11_MAX_FAN_EDGES {
+            for edges in 0..=BOUNDED_LENS_MAX_FAN_EDGES {
                 for mut edge_code in 0..power(choices, edges) {
                     let mut graph = base.clone();
                     for id in 0..edges {
@@ -3166,16 +3178,16 @@ pub fn c11_fan_states() -> Vec<Graph> {
     out
 }
 
-/// Independent count of [`c11_fan_states`]:
+/// Independent count of [`bounded_lens_fan_states`]:
 /// `sum_{n <= 3} 3^n sum_{m <= 2} (2 n^2)^m`.
 #[must_use]
-pub const fn c11_fan_state_count() -> usize {
+pub const fn bounded_lens_fan_state_count() -> usize {
     let mut total = 0;
     let mut n = 0;
-    while n <= C11_MAX_NODES {
+    while n <= BOUNDED_LENS_MAX_NODES {
         let mut edge_sets = 0;
         let mut m = 0;
-        while m <= C11_MAX_FAN_EDGES {
+        while m <= BOUNDED_LENS_MAX_FAN_EDGES {
             edge_sets += power(2 * n * n, m);
             m += 1;
         }
@@ -3187,24 +3199,24 @@ pub const fn c11_fan_state_count() -> usize {
 
 /// The value layer of a bounded lens stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum C11Layer {
+pub enum BoundedLensLayer {
     /// No survival predicate and no transform.
     None,
     /// The survival predicate `false` on vertex `a`.
     SurvivalFalse,
-    /// The transform adding field [`C11_FIELD`] with [`C11_VALUE`] on `a`.
+    /// The transform adding field [`BOUNDED_LENS_FIELD`] with [`BOUNDED_LENS_VALUE`] on `a`.
     AddField,
-    /// The transform dropping field [`C11_FIELD`] on `a`.
+    /// The transform dropping field [`BOUNDED_LENS_FIELD`] on `a`.
     DropField,
-    /// The invertible transform reading [`C11_FIELD`] on `a`.
+    /// The invertible transform reading [`BOUNDED_LENS_FIELD`] on `a`.
     ReadField,
-    /// The op-term assignment computing [`C11_FIELD`] on `a`.
+    /// The op-term assignment computing [`BOUNDED_LENS_FIELD`] on `a`.
     OpTerm,
 }
 
 /// One atomic stage of the bounded lens stage alphabet.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct C11Stage {
+pub struct BoundedLensStage {
     /// Stable stage name.
     pub name: String,
     /// Source schema.
@@ -3214,7 +3226,7 @@ pub struct C11Stage {
     /// Migration.
     pub migration: Migration,
     /// Value layer.
-    pub layer: C11Layer,
+    pub layer: BoundedLensLayer,
 }
 
 fn identity_migration(schema: &Schema) -> Migration {
@@ -3230,9 +3242,9 @@ fn stage(
     source: Schema,
     target: Schema,
     migration: Migration,
-    layer: C11Layer,
-) -> C11Stage {
-    C11Stage {
+    layer: BoundedLensLayer,
+) -> BoundedLensStage {
+    BoundedLensStage {
         name: name.to_owned(),
         source,
         target,
@@ -3244,11 +3256,11 @@ fn stage(
 /// The 31 atomic stages of the bounded lens stage alphabet.
 ///
 /// These are the identity on every schema of [`sigma2_schemas`] (16) and on
-/// [`c11_fan_schema`], then `P`, `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`,
+/// [`bounded_lens_fan_schema`], then `P`, `D`, `R`, `W`, `C`, `X`, `H`, `Q`, `T`,
 /// `DropF`, `ReadF`, `Op`, `Ext` and `B`.
 #[must_use]
-pub fn c11_stages() -> Vec<C11Stage> {
-    let mut out: Vec<C11Stage> = sigma2_schemas()
+pub fn bounded_lens_stages() -> Vec<BoundedLensStage> {
+    let mut out: Vec<BoundedLensStage> = sigma2_schemas()
         .into_iter()
         .enumerate()
         .map(|(index, schema)| {
@@ -3258,28 +3270,34 @@ pub fn c11_stages() -> Vec<C11Stage> {
                 schema.clone(),
                 schema,
                 migration,
-                C11Layer::None,
+                BoundedLensLayer::None,
             )
         })
         .collect();
-    let fan = c11_fan_schema();
+    let fan = bounded_lens_fan_schema();
     out.push(stage(
         "Id_h",
         fan.clone(),
         fan.clone(),
         identity_migration(&fan),
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
-    out.extend(c11_structural_stages());
-    let ab = c11_schema(&["a", "b"], &[("a", "b")]);
-    let a = c11_schema(&["a"], &[]);
-    let bare = c11_schema(&["a", "b"], &[]);
+    out.extend(bounded_lens_structural_stages());
+    let ab = bounded_lens_schema(&["a", "b"], &[("a", "b")]);
+    let a = bounded_lens_schema(&["a"], &[]);
+    let bare = bounded_lens_schema(&["a", "b"], &[]);
     let mut retarget = identity_migration(&fan);
     retarget.hyper_resolver.insert(
         ("h".to_owned(), ["l".to_owned()].into()),
         ("h".to_owned(), [("l".to_owned(), "l".to_owned())].into()),
     );
-    out.push(stage("H", fan.clone(), fan, retarget, C11Layer::None));
+    out.push(stage(
+        "H",
+        fan.clone(),
+        fan,
+        retarget,
+        BoundedLensLayer::None,
+    ));
     let mut predicate = identity_migration(&a);
     predicate.conditional.insert("a".to_owned());
     out.push(stage(
@@ -3287,19 +3305,19 @@ pub fn c11_stages() -> Vec<C11Stage> {
         a.clone(),
         a.clone(),
         predicate,
-        C11Layer::SurvivalFalse,
+        BoundedLensLayer::SurvivalFalse,
     ));
     let mut transform = identity_migration(&a);
     transform.transformed.insert("a".to_owned());
     transform
         .output_fields
-        .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
+        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
     out.push(stage(
         "T",
         a.clone(),
         a.clone(),
         transform,
-        C11Layer::AddField,
+        BoundedLensLayer::AddField,
     ));
     let mut drop_field = identity_migration(&a);
     drop_field.transformed.insert("a".to_owned());
@@ -3308,39 +3326,45 @@ pub fn c11_stages() -> Vec<C11Stage> {
         a.clone(),
         a.clone(),
         drop_field,
-        C11Layer::DropField,
+        BoundedLensLayer::DropField,
     ));
     let mut read_field = identity_migration(&a);
     read_field.transformed.insert("a".to_owned());
     read_field
         .output_fields
-        .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
+        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
     out.push(stage(
         "ReadF",
         a.clone(),
         a.clone(),
         read_field,
-        C11Layer::ReadField,
+        BoundedLensLayer::ReadField,
     ));
     let mut op_term = identity_migration(&a);
     op_term.transformed.insert("a".to_owned());
     op_term
         .output_fields
-        .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
-    out.push(stage("Op", a.clone(), a, op_term, C11Layer::OpTerm));
+        .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
+    out.push(stage("Op", a.clone(), a, op_term, BoundedLensLayer::OpTerm));
     let bare_identity = identity_migration(&bare);
     out.push(stage(
         "Ext",
         bare,
         ab.clone(),
         bare_identity,
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
     let mut incoherent = identity_migration(&ab);
     incoherent
         .edge_remap
-        .insert(c11_edge("a", "b"), c11_edge("b", "a"));
-    out.push(stage("B", ab.clone(), ab, incoherent, C11Layer::None));
+        .insert(bounded_lens_edge("a", "b"), bounded_lens_edge("b", "a"));
+    out.push(stage(
+        "B",
+        ab.clone(),
+        ab,
+        incoherent,
+        BoundedLensLayer::None,
+    ));
     out
 }
 
@@ -3349,31 +3373,31 @@ pub fn c11_stages() -> Vec<C11Stage> {
 /// These five stages do not change the original stage alphabet: identity,
 /// default insertion, deletion, invertible read, and constant computation.
 #[must_use]
-pub fn declared_transform_stages() -> Vec<C11Stage> {
+pub fn declared_transform_stages() -> Vec<BoundedLensStage> {
     let schema = Schema::default()
         .vertex("a", "obj")
         .vertex("value", "int")
-        .edge("a", "value", "prop", Some(C11_FIELD));
+        .edge("a", "value", "prop", Some(BOUNDED_LENS_FIELD));
     [
-        ("DeclaredId", C11Layer::None),
-        ("DeclaredDefault", C11Layer::AddField),
-        ("DeclaredDrop", C11Layer::DropField),
-        ("DeclaredRead", C11Layer::ReadField),
-        ("DeclaredCompute", C11Layer::OpTerm),
+        ("DeclaredId", BoundedLensLayer::None),
+        ("DeclaredDefault", BoundedLensLayer::AddField),
+        ("DeclaredDrop", BoundedLensLayer::DropField),
+        ("DeclaredRead", BoundedLensLayer::ReadField),
+        ("DeclaredCompute", BoundedLensLayer::OpTerm),
     ]
     .into_iter()
     .map(|(name, layer)| {
         let mut migration = identity_migration(&schema);
-        if layer != C11Layer::None {
+        if layer != BoundedLensLayer::None {
             migration.transformed.insert("a".to_owned());
         }
         if matches!(
             layer,
-            C11Layer::AddField | C11Layer::ReadField | C11Layer::OpTerm
+            BoundedLensLayer::AddField | BoundedLensLayer::ReadField | BoundedLensLayer::OpTerm
         ) {
             migration
                 .output_fields
-                .insert("a".to_owned(), vec![C11_FIELD.to_owned()]);
+                .insert("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()]);
         }
         stage(name, schema.clone(), schema.clone(), migration, layer)
     })
@@ -3391,8 +3415,10 @@ pub fn declared_transform_graphs() -> Vec<Graph> {
             for id in 0..count {
                 let mut node = Node::new(u32::from(id), "a");
                 if code % 3 != 0 {
-                    node.fields
-                        .insert(C11_FIELD.to_owned(), Value::Int(i64::from(code % 3 != 1)));
+                    node.fields.insert(
+                        BOUNDED_LENS_FIELD.to_owned(),
+                        Value::Int(i64::from(code % 3 != 1)),
+                    );
                 }
                 code /= 3;
                 graph.nodes.insert(node.id, node);
@@ -3508,7 +3534,7 @@ pub enum ProtolensInstanceCase {
         protolens: usize,
         /// Index in [`sigma2_schemas`].
         schema: usize,
-        /// Index in [`c11_graph_states`] for the indexed schema.
+        /// Index in [`bounded_lens_graph_states`] for the indexed schema.
         state: usize,
     },
     /// An ordered false precondition refuses before either transform runs.
@@ -3523,7 +3549,7 @@ pub enum ProtolensInstanceCase {
 /// protolens-instance certificate.
 pub fn for_each_protolens_instance_case(mut visit: impl FnMut(ProtolensInstanceCase)) {
     for (schema, descriptor) in sigma2_schemas().iter().enumerate() {
-        for state in 0..c11_graph_state_count(descriptor) {
+        for state in 0..bounded_lens_graph_state_count(descriptor) {
             for protolens in 0..4 {
                 visit(ProtolensInstanceCase::Elementary {
                     protolens,
@@ -3563,7 +3589,7 @@ pub fn protolens_instance_count_certificate() -> ProtolensInstanceCountCertifica
     const REFUSAL_WITNESSES: usize = 3;
     let schemas = sigma2_schemas();
     let schema_count = sigma2_count();
-    let graph_states = schemas.iter().map(c11_graph_state_count).sum();
+    let graph_states = schemas.iter().map(bounded_lens_graph_state_count).sum();
     let elementary_cases = PROTOLENSES * graph_states;
     ProtolensInstanceCountCertificate {
         protolenses: PROTOLENSES,
@@ -4057,7 +4083,7 @@ pub enum GraphPutCascadeLawCase {
     /// One bounded bounded lens graph base, expanded by the exact test to its complete
     /// Single-Step Basis.
     Carrier {
-        /// Index in [`c11_stages`].
+        /// Index in [`bounded_lens_stages`].
         stage: usize,
         /// Bounded source graph.
         source: Graph,
@@ -4065,7 +4091,7 @@ pub enum GraphPutCascadeLawCase {
     /// One deletion-only Delta-fragment cascade case.
     Cascade {
         /// Delta-fragment fixture.
-        fixture: Gf5Fixture,
+        fixture: DeltaFragmentFixture,
         /// Source graph.
         source: Graph,
         /// Endpoint-closed edited view.
@@ -4084,7 +4110,7 @@ pub fn for_each_graph_put_cascade_law_case(mut visit: impl FnMut(GraphPutCascade
             visit(GraphPutCascadeLawCase::Carrier { stage, source });
         }
     });
-    for_each_gf5_deletion_edit(|fixture, source, edited| {
+    for_each_delta_fragment_deletion_edit(|fixture, source, edited| {
         visit(GraphPutCascadeLawCase::Cascade {
             fixture,
             source: source.clone(),
@@ -4098,7 +4124,10 @@ pub fn for_each_graph_put_cascade_law_case(mut visit: impl FnMut(GraphPutCascade
 pub fn graph_put_cascade_law_case_count_certificate() -> usize {
     GraphPutDomainFamily::ALL.len()
         + 144_397
-        + gf5_count_certificate().deletion_edits.iter().sum::<usize>()
+        + delta_fragment_count_certificate()
+            .deletion_edits
+            .iter()
+            .sum::<usize>()
 }
 
 /// A validation boundary in the graph/tree put-domain square.
@@ -4319,14 +4348,14 @@ pub const fn lens_construction_case_census_certificate() -> LensConstructionCase
 pub enum LensEquivalenceCase {
     /// One bounded lens stage applied to one bounded graph source.
     Graph {
-        /// Index in [`c11_stages`].
+        /// Index in [`bounded_lens_stages`].
         stage: usize,
         /// Bounded graph over the stage's source schema.
         source: Graph,
     },
     /// One nonfan bounded lens stage applied to one bounded tree source.
     Tree {
-        /// Index in [`c11_stages`].
+        /// Index in [`bounded_lens_stages`].
         stage: usize,
         /// Bounded nonfan tree over the stage's source schema.
         source: Tree,
@@ -4338,18 +4367,18 @@ pub enum LensEquivalenceCase {
 /// Stream the graph, common-domain tree, and table bases used to certify
 /// observational equivalence across all three lens shapes.
 pub fn for_each_lens_equivalence_case(mut visit: impl FnMut(LensEquivalenceCase)) {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     for (stage, descriptor) in stages.iter().enumerate() {
-        let graph_sources = if descriptor.source == c11_fan_schema() {
-            c11_fan_states()
+        let graph_sources = if descriptor.source == bounded_lens_fan_schema() {
+            bounded_lens_fan_states()
         } else {
-            c11_graph_states(&descriptor.source)
+            bounded_lens_graph_states(&descriptor.source)
         };
         for source in graph_sources {
             visit(LensEquivalenceCase::Graph { stage, source });
         }
-        if descriptor.source != c11_fan_schema() {
-            for source in c11_tree_states(&descriptor.source) {
+        if descriptor.source != bounded_lens_fan_schema() {
+            for source in bounded_lens_tree_states(&descriptor.source) {
                 visit(LensEquivalenceCase::Tree { stage, source });
             }
         }
@@ -4364,7 +4393,7 @@ pub enum GraphPutLawCase {
     Contract(GraphPutContractCase),
     /// One bounded bounded lens graph stage and source.
     Carrier {
-        /// Index in [`c11_stages`].
+        /// Index in [`bounded_lens_stages`].
         stage: usize,
         /// Bounded graph over the stage's source schema.
         source: Graph,
@@ -4394,7 +4423,7 @@ pub enum TreePutLawCase {
     Validation(TreeValidationCase),
     /// One bounded common-domain bounded lens tree stage and source.
     Carrier {
-        /// Index in [`c11_stages`].
+        /// Index in [`bounded_lens_stages`].
         stage: usize,
         /// Bounded tree over the stage's source schema.
         source: Tree,
@@ -4448,11 +4477,11 @@ pub const fn lens_law_case_count_certificate() -> usize {
 }
 
 /// The six structural stages `P`, `D`, `R`, `W`, `C` and `X` of
-/// [`c11_stages`].
-fn c11_structural_stages() -> Vec<C11Stage> {
+/// [`bounded_lens_stages`].
+fn bounded_lens_structural_stages() -> Vec<BoundedLensStage> {
     let mut stages = Vec::new();
-    let ab = c11_schema(&["a", "b"], &[("a", "b")]);
-    let a = c11_schema(&["a"], &[]);
+    let ab = bounded_lens_schema(&["a", "b"], &[("a", "b")]);
+    let a = bounded_lens_schema(&["a"], &[]);
     stages.push(stage(
         "P",
         ab.clone(),
@@ -4461,9 +4490,9 @@ fn c11_structural_stages() -> Vec<C11Stage> {
             surviving_verts: ["a".to_owned()].into(),
             ..Migration::default()
         },
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
-    let bare = c11_schema(&["a", "b"], &[]);
+    let bare = bounded_lens_schema(&["a", "b"], &[]);
     stages.push(stage(
         "D",
         ab.clone(),
@@ -4472,58 +4501,62 @@ fn c11_structural_stages() -> Vec<C11Stage> {
             surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
             ..Migration::default()
         },
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
     stages.push(stage(
         "R",
         a,
-        c11_schema(&["b"], &[]),
+        bounded_lens_schema(&["b"], &[]),
         Migration {
             surviving_verts: ["b".to_owned()].into(),
             vertex_remap: [("a".to_owned(), "b".to_owned())].into(),
             ..Migration::default()
         },
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
     stages.push(stage(
         "W",
         ab.clone(),
-        c11_schema(&["a", "b"], &[("b", "a")]),
+        bounded_lens_schema(&["a", "b"], &[("b", "a")]),
         Migration {
             surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
-            surviving_edges: [c11_edge("b", "a")].into(),
+            surviving_edges: [bounded_lens_edge("b", "a")].into(),
             vertex_remap: [
                 ("a".to_owned(), "b".to_owned()),
                 ("b".to_owned(), "a".to_owned()),
             ]
             .into(),
-            edge_remap: [(c11_edge("a", "b"), c11_edge("b", "a"))].into(),
+            edge_remap: [(bounded_lens_edge("a", "b"), bounded_lens_edge("b", "a"))].into(),
             ..Migration::default()
         },
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
     stages.push(stage(
         "C",
-        c11_schema(&["a", "b"], &[("a", "b"), ("b", "a")]),
-        c11_schema(&["a"], &[("a", "a")]),
+        bounded_lens_schema(&["a", "b"], &[("a", "b"), ("b", "a")]),
+        bounded_lens_schema(&["a"], &[("a", "a")]),
         Migration {
             surviving_verts: ["a".to_owned()].into(),
-            resolver: [(("a".to_owned(), "a".to_owned()), c11_edge("a", "a"))].into(),
+            resolver: [(
+                ("a".to_owned(), "a".to_owned()),
+                bounded_lens_edge("a", "a"),
+            )]
+            .into(),
             ..Migration::default()
         },
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
     stages.push(stage(
         "X",
         ab,
-        c11_schema(&["a", "b"], &[("a", "b"), ("b", "b")]),
+        bounded_lens_schema(&["a", "b"], &[("a", "b"), ("b", "b")]),
         Migration {
             surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
-            surviving_edges: [c11_edge("a", "b")].into(),
+            surviving_edges: [bounded_lens_edge("a", "b")].into(),
             expansion_path: [(("a".to_owned(), "b".to_owned()), vec!["b".to_owned()])].into(),
             ..Migration::default()
         },
-        C11Layer::None,
+        BoundedLensLayer::None,
     ));
     stages
 }
@@ -4531,12 +4564,12 @@ fn c11_structural_stages() -> Vec<C11Stage> {
 /// The survival-predicate value layer of stage `Q`: every node anchored at
 /// a vertex with a predicate fails it.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct C11SurvivalFalse;
+pub struct BoundedLensSurvivalFalse;
 
-impl crate::restrict::ValueLayer for C11SurvivalFalse {
+impl crate::restrict::ValueLayer for BoundedLensSurvivalFalse {
     fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
         crate::restrict::ValueLayerSemantics {
-            domain: "panproto-reference/c11-survival-false",
+            domain: "panproto-reference/bounded-lens-survival-false",
             version: 1,
             canonical_payload: Vec::new(),
         }
@@ -4579,16 +4612,16 @@ impl crate::restrict::ValueLayer for C11SurvivalFalse {
 
 /// The transform value layer of stage `T`, acting only at source anchor `a`.
 ///
-/// Get defaults an absent [`C11_FIELD`] to [`C11_VALUE`]. Put requires an inserted default to remain
+/// Get defaults an absent [`BOUNDED_LENS_FIELD`] to [`BOUNDED_LENS_VALUE`]. Put requires an inserted default to remain
 /// unedited and removes it, while a field already present in the source
 /// remains an ordinary editable coordinate.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct C11AddField;
+pub struct BoundedLensAddField;
 
-impl crate::restrict::ValueLayer for C11AddField {
+impl crate::restrict::ValueLayer for BoundedLensAddField {
     fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
         crate::restrict::ValueLayerSemantics {
-            domain: "panproto-reference/c11-add-field",
+            domain: "panproto-reference/bounded-lens-add-field",
             version: 1,
             canonical_payload: Vec::new(),
         }
@@ -4610,7 +4643,9 @@ impl crate::restrict::ValueLayer for C11AddField {
             return Ok((node.fields.clone(), node.value.clone()));
         }
         let mut fields = node.fields.clone();
-        fields.entry(C11_FIELD.to_owned()).or_insert(C11_VALUE);
+        fields
+            .entry(BOUNDED_LENS_FIELD.to_owned())
+            .or_insert(BOUNDED_LENS_VALUE);
         Ok((fields, node.value.clone()))
     }
 
@@ -4627,16 +4662,16 @@ impl crate::restrict::ValueLayer for C11AddField {
             return Ok((view.fields.clone(), view.value.clone()));
         }
         let mut fields = view.fields.clone();
-        if original_fields.is_some_and(|original| !original.contains_key(C11_FIELD)) {
-            if fields.get(C11_FIELD) != Some(&C11_VALUE) {
+        if original_fields.is_some_and(|original| !original.contains_key(BOUNDED_LENS_FIELD)) {
+            if fields.get(BOUNDED_LENS_FIELD) != Some(&BOUNDED_LENS_VALUE) {
                 return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
-                    field: C11_FIELD.to_owned(),
+                    field: BOUNDED_LENS_FIELD.to_owned(),
                 });
             }
-            fields.remove(C11_FIELD);
-        } else if !fields.contains_key(C11_FIELD) {
+            fields.remove(BOUNDED_LENS_FIELD);
+        } else if !fields.contains_key(BOUNDED_LENS_FIELD) {
             return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
-                field: C11_FIELD.to_owned(),
+                field: BOUNDED_LENS_FIELD.to_owned(),
             });
         }
         Ok((fields, view.value.clone()))
@@ -4644,19 +4679,19 @@ impl crate::restrict::ValueLayer for C11AddField {
 }
 
 /// The dropping value layer of stage `DropF`, acting only at source anchor `a`:
-/// get removes [`C11_FIELD`]
+/// get removes [`BOUNDED_LENS_FIELD`]
 /// and put restores only that field from the captured source row.
 ///
 /// Reinserting the dropped field has no inverse and is refused. Other
 /// fields and the node's own value remain as edited; without a captured
 /// original field, put keeps the remaining view fields.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct C11DropField;
+pub struct BoundedLensDropField;
 
-impl crate::restrict::ValueLayer for C11DropField {
+impl crate::restrict::ValueLayer for BoundedLensDropField {
     fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
         crate::restrict::ValueLayerSemantics {
-            domain: "panproto-reference/c11-drop-field",
+            domain: "panproto-reference/bounded-lens-drop-field",
             version: 1,
             canonical_payload: Vec::new(),
         }
@@ -4678,7 +4713,7 @@ impl crate::restrict::ValueLayer for C11DropField {
             return Ok((node.fields.clone(), node.value.clone()));
         }
         let mut fields = node.fields.clone();
-        fields.remove(C11_FIELD);
+        fields.remove(BOUNDED_LENS_FIELD);
         Ok((fields, node.value.clone()))
     }
 
@@ -4694,19 +4729,19 @@ impl crate::restrict::ValueLayer for C11DropField {
         if view.anchor != "a" {
             return Ok((view.fields.clone(), view.value.clone()));
         }
-        if view.fields.contains_key(C11_FIELD) {
+        if view.fields.contains_key(BOUNDED_LENS_FIELD) {
             return Err(crate::restrict::PutFieldRefusal::TransformNotInvertible {
-                field: C11_FIELD.to_owned(),
+                field: BOUNDED_LENS_FIELD.to_owned(),
             });
         }
         let mut fields = view.fields.clone();
         if let Some(original) = original_fields {
-            match original.get(C11_FIELD) {
+            match original.get(BOUNDED_LENS_FIELD) {
                 Some(value) => {
-                    fields.insert(C11_FIELD.to_owned(), value.clone());
+                    fields.insert(BOUNDED_LENS_FIELD.to_owned(), value.clone());
                 }
                 None => {
-                    fields.remove(C11_FIELD);
+                    fields.remove(BOUNDED_LENS_FIELD);
                 }
             }
         }
@@ -4716,14 +4751,14 @@ impl crate::restrict::ValueLayer for C11DropField {
 
 /// The invertible field-read layer of stage `ReadF`, at source anchor `a`.
 /// Its forward and inverse
-/// maps are both the identity on [`C11_FIELD`].
+/// maps are both the identity on [`BOUNDED_LENS_FIELD`].
 #[derive(Clone, Copy, Debug, Default)]
-pub struct C11ReadField;
+pub struct BoundedLensReadField;
 
-impl crate::restrict::ValueLayer for C11ReadField {
+impl crate::restrict::ValueLayer for BoundedLensReadField {
     fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
         crate::restrict::ValueLayerSemantics {
-            domain: "panproto-reference/c11-read-field",
+            domain: "panproto-reference/bounded-lens-read-field",
             version: 1,
             canonical_payload: Vec::new(),
         }
@@ -4757,19 +4792,19 @@ impl crate::restrict::ValueLayer for C11ReadField {
     }
 }
 
-/// The op-term layer of stage `Op`, at source anchor `a`: get computes [`C11_FIELD`] as
-/// [`C11_VALUE`], and put restores only that field from the captured source row.
+/// The op-term layer of stage `Op`, at source anchor `a`: get computes [`BOUNDED_LENS_FIELD`] as
+/// [`BOUNDED_LENS_VALUE`], and put restores only that field from the captured source row.
 ///
 /// This separate implementation keeps the op-term execution path distinct
 /// from `T` even though the two stages agree on the bounded carrier's forward
 /// value.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct C11OpTerm;
+pub struct BoundedLensOpTerm;
 
-impl crate::restrict::ValueLayer for C11OpTerm {
+impl crate::restrict::ValueLayer for BoundedLensOpTerm {
     fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
         crate::restrict::ValueLayerSemantics {
-            domain: "panproto-reference/c11-op-term",
+            domain: "panproto-reference/bounded-lens-op-term",
             version: 1,
             canonical_payload: Vec::new(),
         }
@@ -4791,11 +4826,11 @@ impl crate::restrict::ValueLayer for C11OpTerm {
             return Ok((node.fields.clone(), node.value.clone()));
         }
         let mut fields = node.fields.clone();
-        fields.insert(C11_FIELD.to_owned(), C11_VALUE);
+        fields.insert(BOUNDED_LENS_FIELD.to_owned(), BOUNDED_LENS_VALUE);
         Ok((fields, node.value.clone()))
     }
 
-    /// The op term computes [`C11_FIELD`] and has no inverse: a view that
+    /// The op term computes [`BOUNDED_LENS_FIELD`] and has no inverse: a view that
     /// shows another value (or none) has edited a derived field. Otherwise
     /// the source field is the recorded original, or else the view's value.
     /// Other fields and the node's own value remain as edited.
@@ -4811,19 +4846,19 @@ impl crate::restrict::ValueLayer for C11OpTerm {
         if view.anchor != "a" {
             return Ok((view.fields.clone(), view.value.clone()));
         }
-        if view.fields.get(C11_FIELD) != Some(&C11_VALUE) {
+        if view.fields.get(BOUNDED_LENS_FIELD) != Some(&BOUNDED_LENS_VALUE) {
             return Err(crate::restrict::PutFieldRefusal::DerivedCellEdited {
-                field: C11_FIELD.to_owned(),
+                field: BOUNDED_LENS_FIELD.to_owned(),
             });
         }
         let mut fields = view.fields.clone();
         if let Some(original) = original_fields {
-            match original.get(C11_FIELD) {
+            match original.get(BOUNDED_LENS_FIELD) {
                 Some(value) => {
-                    fields.insert(C11_FIELD.to_owned(), value.clone());
+                    fields.insert(BOUNDED_LENS_FIELD.to_owned(), value.clone());
                 }
                 None => {
-                    fields.remove(C11_FIELD);
+                    fields.remove(BOUNDED_LENS_FIELD);
                 }
             }
         }
@@ -4833,7 +4868,7 @@ impl crate::restrict::ValueLayer for C11OpTerm {
 
 /// Independent cardinalities of the bounded lens stage and path carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct C11PathCounts {
+pub struct BoundedLensPathCounts {
     /// Atomic stages.
     pub stages: usize,
     /// All words of lengths one, two and three.
@@ -4856,7 +4891,7 @@ pub struct C11PathCounts {
 
 /// Independently pinned cardinalities of the L-lenses-17 graph/tree square carrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct C11TreeSquareCounts {
+pub struct BoundedLensTreeSquareCounts {
     /// Atomic-stage tree sources on which both routes are attempted.
     pub bases: usize,
     /// One-step edited views generated from successful tree gets.
@@ -4867,12 +4902,12 @@ pub struct C11TreeSquareCounts {
 
 /// Exact finite bound of the L-lenses-17 graph/tree square certificate.
 ///
-/// The base count is independently derived by [`c11_path_count_certificate`].
+/// The base count is independently derived by [`bounded_lens_path_count_certificate`].
 /// The edited-view count is the frozen Single-Step Basis census over those
 /// bases; the exhaustive differential checks both coordinates separately.
 #[must_use]
-pub const fn c11_tree_square_count_certificate() -> C11TreeSquareCounts {
-    C11TreeSquareCounts {
+pub const fn bounded_lens_tree_square_count_certificate() -> BoundedLensTreeSquareCounts {
+    BoundedLensTreeSquareCounts {
         bases: 2_548,
         edited_views: 28_864,
         observations: 31_412,
@@ -4882,8 +4917,8 @@ pub const fn c11_tree_square_count_certificate() -> C11TreeSquareCounts {
 /// One base input whose complete tree Single-Step Basis is checked by L-lenses-9
 /// and L-lenses-17.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct C11TreeSquareCase {
-    /// Index in [`c11_stages`].
+pub struct BoundedLensTreeSquareCase {
+    /// Index in [`bounded_lens_stages`].
     pub stage: usize,
     /// Bounded nonfan tree over the stage's source schema.
     pub source: Tree,
@@ -4893,11 +4928,11 @@ pub struct C11TreeSquareCase {
 ///
 /// The consuming exhaustive test checks the base observation and expands its
 /// complete reference Single-Step Basis. The independent expanded census is
-/// [`c11_tree_square_count_certificate`].
-pub fn for_each_c11_tree_square_case(mut visit: impl FnMut(C11TreeSquareCase)) {
+/// [`bounded_lens_tree_square_count_certificate`].
+pub fn for_each_bounded_lens_tree_square_case(mut visit: impl FnMut(BoundedLensTreeSquareCase)) {
     for_each_lens_equivalence_case(|case| {
         if let LensEquivalenceCase::Tree { stage, source } = case {
-            visit(C11TreeSquareCase { stage, source });
+            visit(BoundedLensTreeSquareCase { stage, source });
         }
     });
 }
@@ -4906,14 +4941,14 @@ pub fn for_each_c11_tree_square_case(mut visit: impl FnMut(C11TreeSquareCase)) {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GraphTreeRouteLawCase {
     /// One bounded lens tree base whose complete Single-Step Basis is expanded.
-    Square(C11TreeSquareCase),
+    Square(BoundedLensTreeSquareCase),
     /// One nonfan required-cell or duplicate-key boundary.
     Validation(TreeValidationCase),
 }
 
 /// Stream the bounded nonfan graph/tree square and its named validation boundaries.
 pub fn for_each_graph_tree_route_law_case(mut visit: impl FnMut(GraphTreeRouteLawCase)) {
-    for_each_c11_tree_square_case(|case| visit(GraphTreeRouteLawCase::Square(case)));
+    for_each_bounded_lens_tree_square_case(|case| visit(GraphTreeRouteLawCase::Square(case)));
     for_each_tree_validation_case(|case| {
         if !matches!(case, TreeValidationCase::MalformedFan { .. }) {
             visit(GraphTreeRouteLawCase::Validation(case));
@@ -5046,7 +5081,7 @@ pub enum PathLawCase {
     TreeFusionBoundary(TreeFusionBoundaryWitness),
 }
 
-fn c11_composable_words(stages: &[C11Stage]) -> Vec<Vec<usize>> {
+fn bounded_lens_composable_words(stages: &[BoundedLensStage]) -> Vec<Vec<usize>> {
     let mut words = Vec::new();
     let mut layer: Vec<Vec<usize>> = vec![Vec::new()];
     for _ in 0..3 {
@@ -5088,8 +5123,8 @@ fn c11_composable_words(stages: &[C11Stage]) -> Vec<Vec<usize>> {
 /// cardinality stable while retaining each coordinate as an executable
 /// subcase.
 pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
-    let stages = c11_stages();
-    let words = c11_composable_words(&stages);
+    let stages = bounded_lens_stages();
+    let words = bounded_lens_composable_words(&stages);
     for word in &words {
         visit(PathLawCase::LeftIdentity { word: word.clone() });
         visit(PathLawCase::RightIdentity { word: word.clone() });
@@ -5105,10 +5140,10 @@ pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
     }
     for word in &words {
         let first = &stages[word[0]];
-        let graph_sources = if first.source == c11_fan_schema() {
-            c11_fan_state_count()
+        let graph_sources = if first.source == bounded_lens_fan_schema() {
+            bounded_lens_fan_state_count()
         } else {
-            c11_graph_state_count(&first.source)
+            bounded_lens_graph_state_count(&first.source)
         };
         for source in 0..graph_sources {
             for form in [
@@ -5124,8 +5159,8 @@ pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
                 });
             }
         }
-        if first.source != c11_fan_schema() {
-            for source in 0..c11_tree_state_count(&first.source) {
+        if first.source != bounded_lens_fan_schema() {
+            for source in 0..bounded_lens_tree_state_count(&first.source) {
                 visit(PathLawCase::Operational {
                     form: PathLawForm::Sequential,
                     carrier: PathLawCarrier::Tree,
@@ -5133,7 +5168,7 @@ pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
                     source,
                 });
             }
-            for source in 0..c11_table_state_count(&first.source) {
+            for source in 0..bounded_lens_table_state_count(&first.source) {
                 visit(PathLawCase::Operational {
                     form: PathLawForm::Sequential,
                     carrier: PathLawCarrier::Table,
@@ -5175,7 +5210,7 @@ pub fn for_each_path_law_case(mut visit: impl FnMut(PathLawCase)) {
 /// Independent arithmetic cardinality of [`for_each_path_law_case`].
 #[must_use]
 pub fn path_law_case_count_certificate() -> usize {
-    let counts = c11_path_count_certificate();
+    let counts = bounded_lens_path_count_certificate();
     2 * counts.composable()
         + counts.stages.pow(3)
         + 3 * counts.word_states()
@@ -5186,7 +5221,7 @@ pub fn path_law_case_count_certificate() -> usize {
         + 8
 }
 
-impl C11PathCounts {
+impl BoundedLensPathCounts {
     /// Total number of words.
     #[must_use]
     pub const fn words(self) -> usize {
@@ -5227,17 +5262,17 @@ impl C11PathCounts {
 /// Compute the bounded lens path counts from endpoint products and the independent
 /// graph/tree state formulae. This does not enumerate words.
 #[must_use]
-pub fn c11_path_count_certificate() -> C11PathCounts {
-    let stages = c11_stages();
+pub fn bounded_lens_path_count_certificate() -> BoundedLensPathCounts {
+    let stages = bounded_lens_stages();
     let count = stages.len();
     let mut paths = vec![1_usize; count];
     let state_weights: Vec<usize> = stages
         .iter()
         .map(|stage| {
-            if stage.source == c11_fan_schema() {
-                c11_fan_state_count()
+            if stage.source == bounded_lens_fan_schema() {
+                bounded_lens_fan_state_count()
             } else {
-                c11_graph_state_count(&stage.source)
+                bounded_lens_graph_state_count(&stage.source)
             }
         })
         .collect();
@@ -5245,20 +5280,20 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
     let tree_weights: Vec<usize> = stages
         .iter()
         .map(|stage| {
-            if stage.source == c11_fan_schema() {
+            if stage.source == bounded_lens_fan_schema() {
                 0
             } else {
-                c11_tree_state_count(&stage.source)
+                bounded_lens_tree_state_count(&stage.source)
             }
         })
         .collect();
     let table_weights: Vec<usize> = stages
         .iter()
         .map(|stage| {
-            if stage.source == c11_fan_schema() {
+            if stage.source == bounded_lens_fan_schema() {
                 0
             } else {
-                c11_table_state_count(&stage.source)
+                bounded_lens_table_state_count(&stage.source)
             }
         })
         .collect();
@@ -5292,11 +5327,11 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
         tree_weighted = next_tree_weighted;
         table_weighted = next_table_weighted;
     }
-    let tree_stages: Vec<&C11Stage> = stages
+    let tree_stages: Vec<&BoundedLensStage> = stages
         .iter()
-        .filter(|stage| stage.source != c11_fan_schema())
+        .filter(|stage| stage.source != bounded_lens_fan_schema())
         .collect();
-    C11PathCounts {
+    BoundedLensPathCounts {
         stages: count,
         words_by_length: [count, count * count, count * count * count],
         composable_by_length,
@@ -5305,7 +5340,7 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
         tree_stages: tree_stages.len(),
         stage_tree_states: tree_stages
             .iter()
-            .map(|stage| c11_tree_state_count(&stage.source))
+            .map(|stage| bounded_lens_tree_state_count(&stage.source))
             .sum(),
         tree_word_states_by_length,
         table_word_states_by_length,
@@ -5314,7 +5349,7 @@ pub fn c11_path_count_certificate() -> C11PathCounts {
 
 /// One one-step edit of a bounded lens view: its family and the edited view.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct C11Edit {
+pub struct BoundedLensEdit {
     /// The Single-Step Basis family.
     pub mutation: crate::lens::Mutation,
     /// The edited view.
@@ -5342,28 +5377,28 @@ fn fresh_id<'a>(taken: impl Iterator<Item = &'a u32>, floor: u32) -> u32 {
 /// A fresh node or edge takes the fresh-id rule's id over the view,
 /// reserved and synthesized ids and the complement's floor.
 #[must_use]
-pub fn c11_graph_edits(
+pub fn bounded_lens_graph_edits(
     view: &Graph,
     target: &Schema,
     complement: &crate::restrict::Complement,
-) -> Vec<C11Edit> {
+) -> Vec<BoundedLensEdit> {
     let mut out = Vec::new();
-    c11_node_edits(view, target, complement, &mut out);
-    c11_edge_edits(view, target, complement, &mut out);
-    c11_negative_edits(view, complement, &mut out);
+    bounded_lens_node_edits(view, target, complement, &mut out);
+    bounded_lens_edge_edits(view, target, complement, &mut out);
+    bounded_lens_negative_edits(view, complement, &mut out);
     out
 }
 
-/// The node families of [`c11_graph_edits`]: value and field toggles,
+/// The node families of [`bounded_lens_graph_edits`]: value and field toggles,
 /// fresh nodes, removals and relabels.
-fn c11_node_edits(
+fn bounded_lens_node_edits(
     view: &Graph,
     target: &Schema,
     complement: &crate::restrict::Complement,
-    out: &mut Vec<C11Edit>,
+    out: &mut Vec<BoundedLensEdit>,
 ) {
     use crate::lens::Mutation as M;
-    let mut push = |mutation: M, view: Graph| out.push(C11Edit { mutation, view });
+    let mut push = |mutation: M, view: Graph| out.push(BoundedLensEdit { mutation, view });
     let anchors: Vec<&str> = target.vertices.keys().map(String::as_str).collect();
     let synthesized = |id: &u32| complement.synthesized_nodes.contains_key(id);
     for (id, node) in &view.nodes {
@@ -5375,7 +5410,7 @@ fn c11_node_edits(
         target_node.value = if node.value.is_some() {
             None
         } else {
-            Some(crate::value::Presence::Present(C11_VALUE))
+            Some(crate::value::Presence::Present(BOUNDED_LENS_VALUE))
         };
         push(M::ValueEdit, edited);
     }
@@ -5389,10 +5424,10 @@ fn c11_node_edits(
             .get_mut(id)
             .unwrap_or_else(|| unreachable!())
             .fields;
-        if node.fields.contains_key(C11_FIELD) {
-            fields.remove(C11_FIELD);
+        if node.fields.contains_key(BOUNDED_LENS_FIELD) {
+            fields.remove(BOUNDED_LENS_FIELD);
         } else {
-            fields.insert(C11_FIELD.to_owned(), C11_VALUE);
+            fields.insert(BOUNDED_LENS_FIELD.to_owned(), BOUNDED_LENS_VALUE);
         }
         push(M::FieldEdit, edited);
     }
@@ -5442,16 +5477,16 @@ fn c11_node_edits(
     }
 }
 
-/// The edge families of [`c11_graph_edits`]: fresh edges, removals,
+/// The edge families of [`bounded_lens_graph_edits`]: fresh edges, removals,
 /// reconnections and relabels.
-fn c11_edge_edits(
+fn bounded_lens_edge_edits(
     view: &Graph,
     target: &Schema,
     complement: &crate::restrict::Complement,
-    out: &mut Vec<C11Edit>,
+    out: &mut Vec<BoundedLensEdit>,
 ) {
     use crate::lens::Mutation as M;
-    let mut push = |mutation: M, view: Graph| out.push(C11Edit { mutation, view });
+    let mut push = |mutation: M, view: Graph| out.push(BoundedLensEdit { mutation, view });
     let fresh_edge = fresh_id(
         view.edges
             .keys()
@@ -5533,14 +5568,14 @@ fn c11_edge_edits(
     }
 }
 
-/// The negative families of [`c11_graph_edits`].
-fn c11_negative_edits(
+/// The negative families of [`bounded_lens_graph_edits`].
+fn bounded_lens_negative_edits(
     view: &Graph,
     complement: &crate::restrict::Complement,
-    out: &mut Vec<C11Edit>,
+    out: &mut Vec<BoundedLensEdit>,
 ) {
     use crate::lens::Mutation as M;
-    let mut push = |mutation: M, view: Graph| out.push(C11Edit { mutation, view });
+    let mut push = |mutation: M, view: Graph| out.push(BoundedLensEdit { mutation, view });
     for id in complement.synthesized_nodes.keys() {
         if view.nodes.contains_key(id) {
             let mut removed = view.clone();
@@ -5568,7 +5603,7 @@ fn c11_negative_edits(
                 .value = if node.value.is_some() {
                 None
             } else {
-                Some(crate::value::Presence::Present(C11_VALUE))
+                Some(crate::value::Presence::Present(BOUNDED_LENS_VALUE))
             };
             push(M::EditSynthesized, edited);
         }
@@ -5594,12 +5629,12 @@ fn c11_negative_edits(
     }
 }
 
-/// Independent per-view count of [`c11_graph_edits`].
+/// Independent per-view count of [`bounded_lens_graph_edits`].
 ///
 /// The count is computed from the sizes of the view and complement: for `n` non-synthesized nodes, `t` target vertices,
 /// typed candidate count `c`, and so on, the sum of the family sizes.
 #[must_use]
-pub fn c11_graph_edit_count(
+pub fn bounded_lens_graph_edit_count(
     view: &Graph,
     target: &Schema,
     complement: &crate::restrict::Complement,
@@ -5691,9 +5726,10 @@ pub fn c11_graph_edit_count(
 #[cfg(test)]
 mod tests {
     use super::{
-        C11_FIELD, C11AddField, LensEquivalenceCase, Node, PartialLens, c11_path_count_certificate,
-        c11_stages, c11_tree_square_count_certificate, derived_writer_count_certificate,
-        for_each_c11_tree_square_case, for_each_derived_writer_fixture,
+        BOUNDED_LENS_FIELD, BoundedLensAddField, LensEquivalenceCase, Node, PartialLens,
+        bounded_lens_path_count_certificate, bounded_lens_stages,
+        bounded_lens_tree_square_count_certificate, derived_writer_count_certificate,
+        for_each_bounded_lens_tree_square_case, for_each_derived_writer_fixture,
         for_each_graph_put_law_case, for_each_graph_tree_route_law_case,
         for_each_lens_equivalence_case, for_each_lens_law_case,
         for_each_table_complement_construction, for_each_table_complement_law_case,
@@ -5772,22 +5808,22 @@ mod tests {
     fn add_field_refuses_an_inserted_node_that_omits_the_derived_field() {
         let node = Node::new(0, "a");
         assert_eq!(
-            C11AddField.restore(&node, None, None),
+            BoundedLensAddField.restore(&node, None, None),
             Err(PutFieldRefusal::DerivedCellEdited {
-                field: C11_FIELD.to_owned(),
+                field: BOUNDED_LENS_FIELD.to_owned(),
             })
         );
     }
 
     #[test]
-    fn the_amended_c11_stage_and_path_census_is_exact() {
-        let stages = c11_stages();
+    fn the_bounded_lens_stage_and_path_census_is_exact() {
+        let stages = bounded_lens_stages();
         let names: Vec<&str> = stages.iter().map(|stage| stage.name.as_str()).collect();
         assert_eq!(stages.len(), 31);
         assert_eq!(names.iter().filter(|name| **name == "DropF").count(), 1);
         assert_eq!(names.iter().filter(|name| **name == "ReadF").count(), 1);
         assert_eq!(names.iter().filter(|name| **name == "Op").count(), 1);
-        let certificate = c11_path_count_certificate();
+        let certificate = bounded_lens_path_count_certificate();
         assert_eq!(certificate.stages, 31);
         assert_eq!(certificate.words_by_length, [31, 961, 29_791]);
         assert_eq!(certificate.words(), 30_783);
@@ -5833,7 +5869,7 @@ mod tests {
         assert_eq!(law_cases, lens_law_case_count_certificate());
 
         let mut tree_square_cases = 0_usize;
-        for_each_c11_tree_square_case(|_| tree_square_cases += 1);
+        for_each_bounded_lens_tree_square_case(|_| tree_square_cases += 1);
         assert_eq!(tree_square_cases, certificate.stage_tree_states);
 
         let mut graph_tree_route_cases = 0_usize;
@@ -5844,7 +5880,7 @@ mod tests {
         );
         assert_eq!(
             graph_tree_route_law_observation_count_certificate(),
-            c11_tree_square_count_certificate().observations + 2
+            bounded_lens_tree_square_count_certificate().observations + 2
         );
     }
 }

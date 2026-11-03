@@ -523,7 +523,7 @@ fn non_key_classification_axes_match_the_reference() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn every_o17_key_change_classifies_through_the_factorization_certificate() {
+fn every_key_change_classifies_through_the_factorization_certificate() {
     assert_eq!(enumerate::classification_count(), 816_223_680);
 
     for vertices in 1..=3 {

@@ -6092,7 +6092,9 @@ mod locality_tests {
         tree_source_arcs,
     };
     use crate::encode::TreeEmbedding;
-    use crate::enumerate::lenses::{C11Layer, C11Stage, c11_edge, c11_stages};
+    use crate::enumerate::lenses::{
+        BoundedLensLayer, BoundedLensStage, bounded_lens_edge, bounded_lens_stages,
+    };
     use crate::migration::Migration;
     use crate::model::{GEdge, Node, SEdge, Tree};
     use crate::pages::lenses::graph::{GraphLens, LensError};
@@ -6151,7 +6153,10 @@ mod locality_tests {
                 (2, Node::new(2, "b")),
             ]
             .into(),
-            arcs: vec![(0, 2, c11_edge("a", "b")), (2, 1, c11_edge("b", "a"))],
+            arcs: vec![
+                (0, 2, bounded_lens_edge("a", "b")),
+                (2, 1, bounded_lens_edge("b", "a")),
+            ],
             fans: Vec::new(),
             root: 0,
         }
@@ -6160,7 +6165,7 @@ mod locality_tests {
     fn reserved_source() -> Tree {
         Tree {
             nodes: [(0, Node::new(0, "a")), (2, Node::new(2, "b"))].into(),
-            arcs: vec![(0, 2, c11_edge("a", "b"))],
+            arcs: vec![(0, 2, bounded_lens_edge("a", "b"))],
             fans: Vec::new(),
             root: 0,
         }
@@ -6378,7 +6383,7 @@ mod locality_tests {
     }
 
     fn stage_tree_basis(
-        stage: &C11Stage,
+        stage: &BoundedLensStage,
         source: &Tree,
     ) -> Vec<super::BasisCase<Tree, ReferenceLawError>> {
         let Ok(plan) = compile(&stage.source, &stage.target, &stage.migration) else {
@@ -6406,8 +6411,10 @@ mod locality_tests {
         tree_basis(&lens, &view, &complement)
     }
 
-    fn adversarial_contraction_edit_stage(include_actual_preimage: bool) -> (C11Stage, SEdge) {
-        let stages = c11_stages();
+    fn adversarial_contraction_edit_stage(
+        include_actual_preimage: bool,
+    ) -> (BoundedLensStage, SEdge) {
+        let stages = bounded_lens_stages();
         let Some(base) = stages.iter().find(|stage| stage.name == "C") else {
             panic!("the contraction stage exists");
         };
@@ -7219,7 +7226,7 @@ mod locality_tests {
 
     #[test]
     fn contracted_tree_basis_skips_direct_ambiguous_and_required_witnesses() {
-        let stages = c11_stages();
+        let stages = bounded_lens_stages();
         let Some(base) = stages.iter().find(|stage| stage.name == "C") else {
             panic!("the contraction stage exists");
         };
@@ -7231,7 +7238,7 @@ mod locality_tests {
         );
 
         let mut direct = base.clone();
-        let direct_edge = c11_edge("a", "a");
+        let direct_edge = bounded_lens_edge("a", "a");
         direct.source.edges.insert(direct_edge.clone());
         direct.migration.surviving_edges.insert(direct_edge);
         assert_eq!(
@@ -7261,7 +7268,7 @@ mod locality_tests {
         required
             .source
             .required
-            .insert("a".to_owned(), vec![c11_edge("a", "b")]);
+            .insert("a".to_owned(), vec![bounded_lens_edge("a", "b")]);
         assert_eq!(
             stage_tree_basis(&required, &source)
                 .iter()
@@ -7286,7 +7293,7 @@ mod locality_tests {
         let am = SEdge::new("a", "m", "rel", Some("am"));
         let mb = SEdge::new("m", "b", "rel", Some("mb"));
         let ab = SEdge::new("a", "b", "rel", Some("ab"));
-        let base = C11Stage {
+        let base = BoundedLensStage {
             name: "a-to-b-contraction".to_owned(),
             source: Schema::default()
                 .vertex("a", "record")
@@ -7303,7 +7310,7 @@ mod locality_tests {
                 resolver: [(("a".to_owned(), "b".to_owned()), ab)].into(),
                 ..Migration::default()
             },
-            layer: C11Layer::None,
+            layer: BoundedLensLayer::None,
         };
         let source = Tree {
             nodes: [
@@ -7457,12 +7464,12 @@ mod locality_tests {
 
     #[test]
     fn reserved_tree_basis_skips_validation_observable_anchors() {
-        let stages = c11_stages();
+        let stages = bounded_lens_stages();
         let Some(project) = stages.iter().find(|stage| stage.name == "P") else {
             panic!("the projection stage exists");
         };
         let mut base = project.clone();
-        let attachable = c11_edge("a", "a");
+        let attachable = bounded_lens_edge("a", "a");
         base.source.edges.insert(attachable.clone());
         base.target.edges.insert(attachable.clone());
         base.migration.surviving_edges.insert(attachable);
@@ -7478,7 +7485,7 @@ mod locality_tests {
         required
             .source
             .required
-            .insert("a".to_owned(), vec![c11_edge("a", "b")]);
+            .insert("a".to_owned(), vec![bounded_lens_edge("a", "b")]);
         variants.push(required);
 
         let mut keyed = base.clone();
@@ -7486,7 +7493,7 @@ mod locality_tests {
             "a".to_owned(),
             vec![Key {
                 id: "a-key".to_owned(),
-                parts: vec![KeyPart::Path(vec![c11_edge("a", "b")])],
+                parts: vec![KeyPart::Path(vec![bounded_lens_edge("a", "b")])],
                 role: KeyRole::Unique,
                 scope: KeyScope::Global,
                 equality: Vec::new(),
@@ -7528,7 +7535,7 @@ mod locality_tests {
     fn reserved_tree_a_to_b_attachment_skips_parent_side_state() {
         let attachment = SEdge::new("a", "b", "rel", Some("attach"));
         let dropped = SEdge::new("a", "d", "rel", Some("drop"));
-        let base = C11Stage {
+        let base = BoundedLensStage {
             name: "parent-state".to_owned(),
             source: Schema::default()
                 .vertex("a", "record")
@@ -7545,7 +7552,7 @@ mod locality_tests {
                 surviving_edges: [attachment].into(),
                 ..Migration::default()
             },
-            layer: C11Layer::None,
+            layer: BoundedLensLayer::None,
         };
         let source = Tree {
             nodes: [(0, Node::new(0, "a")), (2, Node::new(2, "d"))].into(),
@@ -7948,7 +7955,7 @@ mod locality_tests {
 
     #[test]
     fn contracted_tree_basis_retains_its_designated_refusal() {
-        let stages = c11_stages();
+        let stages = bounded_lens_stages();
         let Some(stage) = stages.iter().find(|stage| stage.name == "C") else {
             panic!("the contraction stage exists");
         };
@@ -7973,7 +7980,10 @@ mod locality_tests {
                 (2, Node::new(2, "b")),
             ]
             .into(),
-            arcs: vec![(0, 2, c11_edge("a", "b")), (2, 1, c11_edge("b", "a"))],
+            arcs: vec![
+                (0, 2, bounded_lens_edge("a", "b")),
+                (2, 1, bounded_lens_edge("b", "a")),
+            ],
             fans: Vec::new(),
             root: 0,
         };

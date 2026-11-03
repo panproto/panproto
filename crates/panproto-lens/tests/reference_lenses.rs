@@ -23,12 +23,13 @@ use panproto_inst::{
 };
 use panproto_lens::{Lens, LensError, graph_lens};
 use panproto_reference::enumerate::lenses::{
-    C11_FIELD, C11_VALUE, C11AddField, C11DropField, C11Layer, C11OpTerm, C11ReadField, C11Stage,
-    C11SurvivalFalse, GraphPutCascadeLawCase, GraphPutDomainFamily, GraphPutLawCase,
+    BOUNDED_LENS_FIELD, BOUNDED_LENS_VALUE, BoundedLensAddField, BoundedLensDropField,
+    BoundedLensLayer, BoundedLensOpTerm, BoundedLensReadField, BoundedLensStage,
+    BoundedLensSurvivalFalse, GraphPutCascadeLawCase, GraphPutDomainFamily, GraphPutLawCase,
     GraphTreeRouteLawCase, LensEquivalenceCase, LensLawCertificateCase, PathBoundaryWitness,
     PathLawCarrier, PathLawCase, ProtolensInstanceCase, ProtolensSchemaCase,
     TableFusionBoundaryWitness, TreeFusionBoundaryWitness, TreePutLawCase,
-    for_each_c11_tree_square_case, for_each_graph_put_cascade_law_case,
+    for_each_bounded_lens_tree_square_case, for_each_graph_put_cascade_law_case,
     for_each_graph_put_law_case, for_each_graph_tree_route_law_case,
     for_each_lens_equivalence_case, for_each_lens_law_case, for_each_path_law_case,
     for_each_protolens_instance_case, for_each_protolens_schema_case, for_each_tree_put_law_case,
@@ -506,15 +507,15 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
 
 /// The production lens of a bounded lens stage: the structural migration, plus the
 /// production value layer its tag names.
-fn production_stage(stage: &C11Stage) -> Lens {
+fn production_stage(stage: &BoundedLensStage) -> Lens {
     let mut structural = stage.migration.clone();
     structural.conditional.clear();
     structural.transformed.clear();
     structural.output_fields.clear();
     let mut compiled = prod_migration(&structural);
     match stage.layer {
-        C11Layer::None => {}
-        C11Layer::SurvivalFalse => {
+        BoundedLensLayer::None => {}
+        BoundedLensLayer::SurvivalFalse => {
             for vertex in &stage.migration.conditional {
                 compiled.conditional_survival.insert(
                     vertex.clone().into(),
@@ -522,46 +523,46 @@ fn production_stage(stage: &C11Stage) -> Lens {
                 );
             }
         }
-        C11Layer::AddField => {
+        BoundedLensLayer::AddField => {
             for vertex in &stage.migration.transformed {
                 compiled.field_transforms.insert(
                     vertex.clone().into(),
                     vec![panproto_inst::FieldTransform::AddField {
-                        key: C11_FIELD.to_owned(),
-                        value: prod_value(&C11_VALUE),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
+                        value: prod_value(&BOUNDED_LENS_VALUE),
                     }],
                 );
             }
         }
-        C11Layer::DropField => {
+        BoundedLensLayer::DropField => {
             for vertex in &stage.migration.transformed {
                 compiled.field_transforms.insert(
                     vertex.clone().into(),
                     vec![panproto_inst::FieldTransform::DropField {
-                        key: C11_FIELD.to_owned(),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
                     }],
                 );
             }
         }
-        C11Layer::ReadField => {
+        BoundedLensLayer::ReadField => {
             for vertex in &stage.migration.transformed {
                 compiled.field_transforms.insert(
                     vertex.clone().into(),
                     vec![panproto_inst::FieldTransform::ApplyExpr {
-                        key: C11_FIELD.to_owned(),
-                        expr: panproto_expr::Expr::Var(C11_FIELD.into()),
-                        inverse: Some(panproto_expr::Expr::Var(C11_FIELD.into())),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
+                        expr: panproto_expr::Expr::Var(BOUNDED_LENS_FIELD.into()),
+                        inverse: Some(panproto_expr::Expr::Var(BOUNDED_LENS_FIELD.into())),
                         coercion_class: panproto_gat::CoercionClass::Iso,
                     }],
                 );
             }
         }
-        C11Layer::OpTerm => {
+        BoundedLensLayer::OpTerm => {
             for vertex in &stage.migration.transformed {
                 compiled.op_term_assignments.insert(
                     vertex.clone().into(),
                     vec![panproto_inst::TermAssignment::Compute {
-                        target: C11_FIELD.to_owned(),
+                        target: BOUNDED_LENS_FIELD.to_owned(),
                         scope: panproto_inst::TermScope::Row,
                         term: panproto_expr::Expr::Lit(panproto_expr::Literal::Int(0)),
                         inverse: None,
@@ -1371,14 +1372,14 @@ impl Pair {
     /// A bounded lens stage on both sides. The value layer is built on each side
     /// from the stage's layer tag: the production expression or transform,
     /// and the reference's caller-supplied layer.
-    fn from_stage(stage: &C11Stage) -> Self {
+    fn from_stage(stage: &BoundedLensStage) -> Self {
         let layer: &'static dyn ValueLayer = match stage.layer {
-            C11Layer::None => &NoValueLayer,
-            C11Layer::SurvivalFalse => &C11SurvivalFalse,
-            C11Layer::AddField => &C11AddField,
-            C11Layer::DropField => &C11DropField,
-            C11Layer::ReadField => &C11ReadField,
-            C11Layer::OpTerm => &C11OpTerm,
+            BoundedLensLayer::None => &NoValueLayer,
+            BoundedLensLayer::SurvivalFalse => &BoundedLensSurvivalFalse,
+            BoundedLensLayer::AddField => &BoundedLensAddField,
+            BoundedLensLayer::DropField => &BoundedLensDropField,
+            BoundedLensLayer::ReadField => &BoundedLensReadField,
+            BoundedLensLayer::OpTerm => &BoundedLensOpTerm,
         };
         let production = production_stage(stage);
         assert_eq!(
@@ -1749,14 +1750,15 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// GF5: the Delta-fragment cascade (L-lenses-4) on its exact finite scope
+// The Delta-fragment cascade (L-lenses-4) on its exact finite scope
 // ---------------------------------------------------------------------------
 
 use panproto_reference::enumerate::lenses::{
-    Gf5Fixture, for_each_gf5_deletion_edit, for_each_gf5_source, gf5_count_certificate,
+    DeltaFragmentFixture, delta_fragment_count_certificate, for_each_delta_fragment_deletion_edit,
+    for_each_delta_fragment_source,
 };
 
-fn gf5_pair(fixture: Gf5Fixture) -> Pair {
+fn delta_fragment_pair(fixture: DeltaFragmentFixture) -> Pair {
     Pair::new(
         fixture.source_schema(),
         fixture.target_schema(),
@@ -1764,17 +1766,17 @@ fn gf5_pair(fixture: Gf5Fixture) -> Pair {
     )
 }
 
-/// The GF5 cascade law, compared on both sides: production put equals the
+/// The Delta-fragment cascade law, compared on both sides: production put equals the
 /// reference put, and both equal the reference's largest exact preimage,
 /// which satisfies the universal property.
-fn gf5_cascade_outcome(
+fn delta_fragment_cascade_outcome(
     pair: &Pair,
     source: &RefGraph,
     edited: &RefGraph,
 ) -> (Option<PutOutcome>, Option<RefGraph>, bool) {
     let production = production_put(pair, source, edited);
     let (largest, universal) = pair.with_reference(|lens| {
-        let lens = lens.expect("GF5 plans compile");
+        let lens = lens.expect("Delta-fragment plans compile");
         let largest = panproto_reference::lens::largest_exact_preimage(lens, source, edited);
         let universal = production
             .as_ref()
@@ -1811,7 +1813,7 @@ fn assert_graph_put_domain_outcome(
 }
 
 fn conditional_graph_pair() -> Pair {
-    let schema = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
+    let schema = panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[]);
     let migration = RefMigration {
         surviving_verts: ["a".to_owned()].into(),
         conditional: ["a".to_owned()].into(),
@@ -1877,7 +1879,7 @@ fn assert_graph_predicate_domain_families() -> u16 {
 }
 
 fn assert_graph_noninvertible_transform_domain_family() -> u16 {
-    let schema = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[])
+    let schema = panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[])
         .vertex("x_value", "int")
         .edge("a", "x_value", "prop", Some("x"));
     let migration = RefMigration {
@@ -1986,7 +1988,8 @@ fn assert_graph_missing_required_cell_domain_family() -> u16 {
 }
 
 fn assert_graph_duplicate_key_domain_family() -> u16 {
-    let mut reference_keyed = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
+    let mut reference_keyed =
+        panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[]);
     reference_keyed.keys.insert(
         "a".to_owned(),
         vec![panproto_reference::schema::Key {
@@ -2116,7 +2119,7 @@ fn keyed_graph_pair(
     edges: &[(&str, &str)],
     keys: Vec<panproto_reference::schema::Key>,
 ) -> Pair {
-    let mut reference = panproto_reference::enumerate::lenses::c11_schema(vertices, edges);
+    let mut reference = panproto_reference::enumerate::lenses::bounded_lens_schema(vertices, edges);
     let mut production = prod_schema(&reference);
     production
         .declarations
@@ -2349,7 +2352,7 @@ fn ill_formed_key_declarations_refuse_the_plan_like_the_reference() {
     }
 
     // Source declarations well formed, target's not: the target's errors.
-    let mut target = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
+    let mut target = panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[]);
     target.keys.insert(
         "a".to_owned(),
         vec![value_key(
@@ -2359,11 +2362,10 @@ fn ill_formed_key_declarations_refuse_the_plan_like_the_reference() {
             Vec::new(),
         )],
     );
-    let reference_source = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[]);
-    let mut production_target = prod_schema(&panproto_reference::enumerate::lenses::c11_schema(
-        &["a"],
-        &[],
-    ));
+    let reference_source = panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[]);
+    let mut production_target = prod_schema(
+        &panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[]),
+    );
     production_target
         .declarations
         .keys
@@ -2386,13 +2388,13 @@ fn ill_formed_key_declarations_refuse_the_plan_like_the_reference() {
 }
 
 fn assert_graph_malformed_fan_domain_family() -> u16 {
-    let fan_schema = c11_fan_schema();
+    let fan_schema = bounded_lens_fan_schema();
     let fan_pair = Pair::new(
         fan_schema.clone(),
         fan_schema.clone(),
         reference_carrier_migration(&fan_schema),
     );
-    let labels = panproto_reference::enumerate::lenses::c11_fan_labels();
+    let labels = panproto_reference::enumerate::lenses::bounded_lens_fan_labels();
     let mut hyper = RefNode::new(0, "h");
     hyper.shape = RefNodeShape::HyperEdge;
     let fan_source = RefGraph {
@@ -2467,8 +2469,8 @@ fn assert_graph_put_domain_family(family: GraphPutDomainFamily) -> u16 {
         | GraphPutDomainFamily::MissingRequiredCell
         | GraphPutDomainFamily::MalformedFan => assert_graph_validation_domain_families(),
         _ => {
-            let stages = c11_stages();
-            let (_, stage, source, edited) = c11_graph_domain_witnesses()
+            let stages = bounded_lens_stages();
+            let (_, stage, source, edited) = bounded_lens_graph_domain_witnesses()
                 .iter()
                 .find(|(candidate, _, _, _)| *candidate == family)
                 .unwrap_or_else(|| panic!("the bounded lens carrier has no {family:?} witness"));
@@ -2485,29 +2487,30 @@ fn assert_graph_put_domain_family(family: GraphPutDomainFamily) -> u16 {
 }
 
 #[test]
-fn the_cascade_agrees_with_the_reference_on_the_gf5_scope() {
-    let certificate = gf5_count_certificate();
+fn the_cascade_agrees_with_the_reference_on_the_delta_fragment_scope() {
+    let certificate = delta_fragment_count_certificate();
     let mut sources = [0_usize; 2];
-    for_each_gf5_source(|fixture, _| {
-        sources[usize::from(fixture == Gf5Fixture::VisibleThenHidden)] += 1;
+    for_each_delta_fragment_source(|fixture, _| {
+        sources[usize::from(fixture == DeltaFragmentFixture::VisibleThenHidden)] += 1;
     });
     assert_eq!(sources, certificate.sources);
 
     let mut cases = Vec::new();
-    for_each_gf5_deletion_edit(|fixture, source, edited| {
+    for_each_delta_fragment_deletion_edit(|fixture, source, edited| {
         cases.push((fixture, source.clone(), edited.clone()));
     });
     let edits: usize = certificate.deletion_edits.iter().sum();
     assert_eq!(cases.len(), edits);
     let probes: usize = certificate.source_subinstance_probes.iter().sum();
     let pairs = [
-        gf5_pair(Gf5Fixture::DropTarget),
-        gf5_pair(Gf5Fixture::VisibleThenHidden),
+        delta_fragment_pair(DeltaFragmentFixture::DropTarget),
+        delta_fragment_pair(DeltaFragmentFixture::VisibleThenHidden),
     ];
-    let pair_of =
-        |fixture: Gf5Fixture| &pairs[usize::from(fixture == Gf5Fixture::VisibleThenHidden)];
+    let pair_of = |fixture: DeltaFragmentFixture| {
+        &pairs[usize::from(fixture == DeltaFragmentFixture::VisibleThenHidden)]
+    };
     let bound = format!(
-        "GF5: fixtures=2, nodes<=3, edges<=3, sources={}, deletion_edits={edits}, source_subinstance_probes={probes}",
+        "Delta fragment: fixtures=2, nodes<=3, edges<=3, sources={}, deletion_edits={edits}, source_subinstance_probes={probes}",
         sources.iter().sum::<usize>()
     );
     println!("{bound}");
@@ -2525,11 +2528,12 @@ fn the_cascade_agrees_with_the_reference_on_the_gf5_scope() {
         &bound,
         cases.iter(),
         |(fixture, source, edited)| {
-            let (production, _, universal) = gf5_cascade_outcome(pair_of(*fixture), source, edited);
+            let (production, _, universal) =
+                delta_fragment_cascade_outcome(pair_of(*fixture), source, edited);
             (production.and_then(|outcome| outcome.put.ok()), universal)
         },
         |(fixture, source, edited)| {
-            let (_, largest, _) = gf5_cascade_outcome(pair_of(*fixture), source, edited);
+            let (_, largest, _) = delta_fragment_cascade_outcome(pair_of(*fixture), source, edited);
             (largest, true)
         },
         |production, reference| production == reference,
@@ -2579,17 +2583,17 @@ fn graph_put_domain_and_cascade_law_certificate() {
     let _ = graph_lens_agrees_with_the_reference_on_cases(&carriers);
 
     let pairs = [
-        gf5_pair(Gf5Fixture::DropTarget),
-        gf5_pair(Gf5Fixture::VisibleThenHidden),
+        delta_fragment_pair(DeltaFragmentFixture::DropTarget),
+        delta_fragment_pair(DeltaFragmentFixture::VisibleThenHidden),
     ];
     for (fixture, source, edited) in &cascades {
-        let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
+        let pair = &pairs[usize::from(*fixture == DeltaFragmentFixture::VisibleThenHidden)];
         assert_eq!(
             production_put(pair, source, edited),
             reference_strict_put(pair, source, edited),
             "Delta-fragment put at {fixture:?}"
         );
-        let (production, largest, universal) = gf5_cascade_outcome(pair, source, edited);
+        let (production, largest, universal) = delta_fragment_cascade_outcome(pair, source, edited);
         assert_eq!(
             production.and_then(|outcome| outcome.put.ok()),
             largest,
@@ -2600,37 +2604,37 @@ fn graph_put_domain_and_cascade_law_certificate() {
 }
 
 #[test]
-fn graph_get_agrees_with_the_reference_on_the_gf5_sources() {
+fn graph_get_agrees_with_the_reference_on_the_delta_fragment_sources() {
     let pairs = [
-        gf5_pair(Gf5Fixture::DropTarget),
-        gf5_pair(Gf5Fixture::VisibleThenHidden),
+        delta_fragment_pair(DeltaFragmentFixture::DropTarget),
+        delta_fragment_pair(DeltaFragmentFixture::VisibleThenHidden),
     ];
     let mut cases = Vec::new();
-    for_each_gf5_source(|fixture, source| cases.push((fixture, source.clone())));
-    let bound = format!("GF5 sources={}", cases.len());
+    for_each_delta_fragment_source(|fixture, source| cases.push((fixture, source.clone())));
+    let bound = format!("Delta-fragment sources={}", cases.len());
     println!("{bound}");
     let compared = assert_agree(agree(
         &bound,
         cases.iter(),
         |(fixture, source)| {
             production_get(
-                &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)],
+                &pairs[usize::from(*fixture == DeltaFragmentFixture::VisibleThenHidden)],
                 source,
             )
         },
         |(fixture, source)| {
             reference_get(
-                &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)],
+                &pairs[usize::from(*fixture == DeltaFragmentFixture::VisibleThenHidden)],
                 source,
             )
         },
         |production, reference| production == reference,
     ));
     assert_eq!(compared, 133);
-    // GetPut through the strict reference put on every GF5 source.
+    // GetPut through the strict reference put on every Delta-fragment source.
     for (fixture, source) in &cases {
-        let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
-        let (view, _) = reference_get(pair, source).expect("GF5 get is total");
+        let pair = &pairs[usize::from(*fixture == DeltaFragmentFixture::VisibleThenHidden)];
+        let (view, _) = reference_get(pair, source).expect("Delta-fragment get is total");
         let production = production_put(pair, source, &view).expect("production get");
         let reference = reference_strict_put(pair, source, &view).expect("reference get");
         assert_eq!(production, reference);
@@ -2837,14 +2841,14 @@ impl TablePair {
         }
     }
 
-    fn from_stage(stage: &C11Stage) -> Self {
+    fn from_stage(stage: &BoundedLensStage) -> Self {
         let layer: &'static dyn ValueLayer = match stage.layer {
-            C11Layer::None => &NoValueLayer,
-            C11Layer::SurvivalFalse => &C11SurvivalFalse,
-            C11Layer::AddField => &C11AddField,
-            C11Layer::DropField => &C11DropField,
-            C11Layer::ReadField => &C11ReadField,
-            C11Layer::OpTerm => &C11OpTerm,
+            BoundedLensLayer::None => &NoValueLayer,
+            BoundedLensLayer::SurvivalFalse => &BoundedLensSurvivalFalse,
+            BoundedLensLayer::AddField => &BoundedLensAddField,
+            BoundedLensLayer::DropField => &BoundedLensDropField,
+            BoundedLensLayer::ReadField => &BoundedLensReadField,
+            BoundedLensLayer::OpTerm => &BoundedLensOpTerm,
         };
         let kinds = std::collections::BTreeSet::from(["obj".to_owned()]);
         let value_kinds: BTreeMap<String, ScalarKind> = stage
@@ -4118,30 +4122,30 @@ fn reference_law_outcome<R: std::fmt::Debug>(report: &RefLawReport<R>) -> LawOut
 }
 
 #[test]
-fn graph_laws_agree_with_the_reference_on_the_gf5_sources() {
+fn graph_laws_agree_with_the_reference_on_the_delta_fragment_sources() {
     let pairs = [
-        gf5_pair(Gf5Fixture::DropTarget),
-        gf5_pair(Gf5Fixture::VisibleThenHidden),
+        delta_fragment_pair(DeltaFragmentFixture::DropTarget),
+        delta_fragment_pair(DeltaFragmentFixture::VisibleThenHidden),
     ];
     let mut cases = Vec::new();
-    for_each_gf5_source(|fixture, source| cases.push((fixture, source.clone())));
-    let bound = format!("GF5 law reports: sources={}", cases.len());
+    for_each_delta_fragment_source(|fixture, source| cases.push((fixture, source.clone())));
+    let bound = format!("Delta-fragment law reports: sources={}", cases.len());
     println!("{bound}");
     let compared = assert_agree(agree(
         &bound,
         cases.iter(),
         |(fixture, source)| {
-            let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
+            let pair = &pairs[usize::from(*fixture == DeltaFragmentFixture::VisibleThenHidden)];
             production_law_outcome(&graph_lens::check_laws(
                 &pair.production,
                 &prod_graph(source),
             ))
         },
         |(fixture, source)| {
-            let pair = &pairs[usize::from(*fixture == Gf5Fixture::VisibleThenHidden)];
+            let pair = &pairs[usize::from(*fixture == DeltaFragmentFixture::VisibleThenHidden)];
             pair.with_reference(|lens| {
                 reference_law_outcome(&panproto_reference::lens::check_graph_laws(
-                    lens.expect("GF5 plans compile"),
+                    lens.expect("Delta-fragment plans compile"),
                     source,
                 ))
             })
@@ -4335,19 +4339,21 @@ fn partial_lens_laws_agree_with_the_reference_on_every_lens_and_source() {
 // ---------------------------------------------------------------------------
 
 use panproto_reference::enumerate::lenses::{
-    c11_fan_schema, c11_fan_state_count, c11_fan_states, c11_graph_edit_count, c11_graph_edits,
-    c11_graph_state_count, c11_graph_states, c11_path_count_certificate, c11_stages,
-    c11_table_state_count, c11_table_states, c11_tree_square_count_certificate,
-    c11_tree_state_count, sigma2_count, sigma2_schemas,
+    bounded_lens_fan_schema, bounded_lens_fan_state_count, bounded_lens_fan_states,
+    bounded_lens_graph_edit_count, bounded_lens_graph_edits, bounded_lens_graph_state_count,
+    bounded_lens_graph_states, bounded_lens_path_count_certificate, bounded_lens_stages,
+    bounded_lens_table_state_count, bounded_lens_table_states,
+    bounded_lens_tree_square_count_certificate, bounded_lens_tree_state_count, sigma2_count,
+    sigma2_schemas,
 };
 
 /// The states a stage reads: the fan states for a stage over the fan
 /// schema, otherwise the graph states over its source schema.
-fn c11_sources(stage: &C11Stage) -> Vec<RefGraph> {
-    if stage.source == c11_fan_schema() {
-        c11_fan_states()
+fn bounded_lens_sources(stage: &BoundedLensStage) -> Vec<RefGraph> {
+    if stage.source == bounded_lens_fan_schema() {
+        bounded_lens_fan_states()
     } else {
-        c11_graph_states(&stage.source)
+        bounded_lens_graph_states(&stage.source)
     }
 }
 
@@ -4370,15 +4376,15 @@ enum GraphCaseOutcome {
 
 /// The source states of every stage, each checked against its independent
 /// count.
-fn c11_stage_sources(stages: &[C11Stage]) -> Vec<Vec<RefGraph>> {
+fn bounded_lens_stage_sources(stages: &[BoundedLensStage]) -> Vec<Vec<RefGraph>> {
     stages
         .iter()
         .map(|stage| {
-            let sources = c11_sources(stage);
-            let certified = if stage.source == c11_fan_schema() {
-                c11_fan_state_count()
+            let sources = bounded_lens_sources(stage);
+            let certified = if stage.source == bounded_lens_fan_schema() {
+                bounded_lens_fan_state_count()
             } else {
-                c11_graph_state_count(&stage.source)
+                bounded_lens_graph_state_count(&stage.source)
             };
             assert_eq!(sources.len(), certified, "stage {}", stage.name);
             sources
@@ -4388,18 +4394,18 @@ fn c11_stage_sources(stages: &[C11Stage]) -> Vec<Vec<RefGraph>> {
 
 /// The cases of one `(stage, state)` unit: the unedited view and its
 /// one-step edits (when the reference get succeeds), then the get.
-fn c11_graph_unit_cases<'a>(
+fn bounded_lens_graph_unit_cases<'a>(
     pairs: &[Pair],
-    stages: &[C11Stage],
+    stages: &[BoundedLensStage],
     stage: usize,
     source: &'a RefGraph,
 ) -> Vec<GraphCase<'a>> {
     let mut cases = Vec::new();
     if let Ok((view, complement)) = reference_get(&pairs[stage], source) {
-        let edits = c11_graph_edits(&view, &stages[stage].target, &complement);
+        let edits = bounded_lens_graph_edits(&view, &stages[stage].target, &complement);
         assert_eq!(
             edits.len(),
-            c11_graph_edit_count(&view, &stages[stage].target, &complement),
+            bounded_lens_graph_edit_count(&view, &stages[stage].target, &complement),
             "the per-view edit formula at stage {}",
             stages[stage].name
         );
@@ -4424,8 +4430,8 @@ fn graph_put_domain_family_bit(reason: &str) -> u16 {
 fn graph_lens_agrees_with_the_reference_on_cases(units: &[(usize, RefGraph)]) -> u16 {
     let schemas = sigma2_schemas();
     assert_eq!(schemas.len(), sigma2_count());
-    let stages = c11_stages();
-    let certificate = c11_path_count_certificate();
+    let stages = bounded_lens_stages();
+    let certificate = bounded_lens_path_count_certificate();
     assert_eq!(stages.len(), certificate.stages);
     assert_eq!(units.len(), certificate.single_stage_states);
     let bound = format!(
@@ -4446,7 +4452,7 @@ fn graph_lens_agrees_with_the_reference_on_cases(units: &[(usize, RefGraph)]) ->
         units,
         || stages.iter().map(Pair::from_stage).collect::<Vec<Pair>>(),
         |pairs, (stage, source)| {
-            let cases = c11_graph_unit_cases(pairs, &stages, *stage, source);
+            let cases = bounded_lens_graph_unit_cases(pairs, &stages, *stage, source);
             let viewed = usize::from(cases.len() > 1);
             views.fetch_add(viewed, std::sync::atomic::Ordering::Relaxed);
             edits.fetch_add(
@@ -4506,7 +4512,7 @@ fn graph_lens_agrees_with_the_reference_on_cases(units: &[(usize, RefGraph)]) ->
 // ---------------------------------------------------------------------------
 
 use panproto_inst::{Fan, WInstance};
-use panproto_reference::enumerate::lenses::c11_tree_states;
+use panproto_reference::enumerate::lenses::bounded_lens_tree_states;
 use panproto_reference::model::{Fan as RefFan, Tree as RefTree};
 
 fn ref_tree(tree: &WInstance) -> RefTree {
@@ -5112,8 +5118,8 @@ fn reference_tree_case(pair: &Pair, source: &RefTree) -> TreeOutcome {
 }
 
 fn tree_lens_agrees_with_the_reference_on_cases(cases: &[(usize, RefTree)]) {
-    let stages = c11_stages();
-    let certificate = c11_path_count_certificate();
+    let stages = bounded_lens_stages();
+    let certificate = bounded_lens_path_count_certificate();
     assert_eq!(cases.len(), certificate.stage_tree_states);
     let bound = format!(
         "bounded lens tree scope: stages={}, trees of at most 3 nodes over each stage's source schema, (stage, tree) cases={}",
@@ -5168,9 +5174,9 @@ fn tree_lens_agrees_with_the_reference_on_cases(cases: &[(usize, RefTree)]) {
 use panproto_lens::LensPath;
 use panproto_reference::path::{LensPath as RefLensPath, PathError, PathStage, PathStageError};
 
-const C11_PROTOCOL: &str = "";
+const BOUNDED_LENS_PROTOCOL: &str = "";
 
-fn ref_path_stage(index: usize, stage: &C11Stage) -> PathStage<usize> {
+fn ref_path_stage(index: usize, stage: &BoundedLensStage) -> PathStage<usize> {
     let migration = panproto_reference::table::canonical_migration_bytes(&stage.migration);
     let mut identity = u64::try_from(migration.len())
         .expect("migration descriptor length")
@@ -5186,9 +5192,9 @@ fn ref_path_stage(index: usize, stage: &C11Stage) -> PathStage<usize> {
     PathStage::new_with_protocols(
         index,
         &stage.source,
-        C11_PROTOCOL,
+        BOUNDED_LENS_PROTOCOL,
         &stage.target,
-        C11_PROTOCOL,
+        BOUNDED_LENS_PROTOCOL,
         identity.clone(),
         identity,
     )
@@ -5196,7 +5202,10 @@ fn ref_path_stage(index: usize, stage: &C11Stage) -> PathStage<usize> {
 
 /// The reference path of a word of stage indices; `Err` when two adjacent
 /// boundaries differ.
-fn reference_word(stages: &[C11Stage], word: &[usize]) -> Result<RefLensPath<usize>, String> {
+fn reference_word(
+    stages: &[BoundedLensStage],
+    word: &[usize],
+) -> Result<RefLensPath<usize>, String> {
     let mut path: Option<RefLensPath<usize>> = None;
     for index in word {
         let next = RefLensPath::single(ref_path_stage(*index, &stages[*index]));
@@ -5209,7 +5218,7 @@ fn reference_word(stages: &[C11Stage], word: &[usize]) -> Result<RefLensPath<usi
 }
 
 /// The production path of a word, built by `then` from single stages.
-fn production_word(stages: &[C11Stage], word: &[usize]) -> Result<LensPath, String> {
+fn production_word(stages: &[BoundedLensStage], word: &[usize]) -> Result<LensPath, String> {
     let mut path: Option<LensPath> = None;
     for index in word {
         let next = LensPath::single(production_stage(&stages[*index]));
@@ -5222,9 +5231,9 @@ fn production_word(stages: &[C11Stage], word: &[usize]) -> Result<LensPath, Stri
 }
 
 #[test]
-fn consecutive_c11_value_layers_remain_separate_normal_groups() {
-    let stages = c11_stages();
-    let transform = c11_stage_index(&stages, "T");
+fn consecutive_bounded_lens_value_layers_remain_separate_normal_groups() {
+    let stages = bounded_lens_stages();
+    let transform = bounded_lens_stage_index(&stages, "T");
     let path = production_word(&stages, &[transform, transform]).expect("T then T composes");
     let ranges = path
         .tree_normal_form()
@@ -5639,14 +5648,14 @@ fn words(stages: usize) -> Vec<Vec<usize>> {
     out
 }
 
-fn c11_stage_index(stages: &[C11Stage], name: &str) -> usize {
+fn bounded_lens_stage_index(stages: &[BoundedLensStage], name: &str) -> usize {
     stages
         .iter()
         .position(|stage| stage.name == name)
         .unwrap_or_else(|| panic!("missing bounded lens stage {name}"))
 }
 
-fn c11_identity_index(stages: &[C11Stage], schema: &RefSchema) -> usize {
+fn bounded_lens_identity_index(stages: &[BoundedLensStage], schema: &RefSchema) -> usize {
     stages
         .iter()
         .position(|stage| {
@@ -5655,16 +5664,16 @@ fn c11_identity_index(stages: &[C11Stage], schema: &RefSchema) -> usize {
         .unwrap_or_else(|| panic!("missing bounded lens identity at {schema:?}"))
 }
 
-fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
-    let stages = c11_stages();
-    let named = |name| c11_stage_index(&stages, name);
-    let identity_after = |name| c11_identity_index(&stages, &stages[named(name)].target);
+fn the_bounded_lens_alphabet_witnesses_every_tree_fusion_condition() {
+    let stages = bounded_lens_stages();
+    let named = |name| bounded_lens_stage_index(&stages, name);
+    let identity_after = |name| bounded_lens_identity_index(&stages, &stages[named(name)].target);
     let witnesses = [
         (
             0_u8,
             "admitted",
-            c11_identity_index(&stages, &stages[named("T")].source),
-            c11_identity_index(&stages, &stages[named("T")].source),
+            bounded_lens_identity_index(&stages, &stages[named("T")].source),
+            bounded_lens_identity_index(&stages, &stages[named("T")].source),
             true,
         ),
         (1, "contraction", named("C"), identity_after("C"), false),
@@ -5689,7 +5698,7 @@ fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
         (
             8,
             "operational identity domain",
-            c11_identity_index(&stages, &stages[named("D")].source),
+            bounded_lens_identity_index(&stages, &stages[named("D")].source),
             named("D"),
             false,
         ),
@@ -5722,7 +5731,7 @@ fn the_c11_alphabet_witnesses_every_tree_fusion_condition() {
     }
 }
 
-fn path_context(stages: &[C11Stage], words: &[Vec<usize>]) -> PathContext {
+fn path_context(stages: &[BoundedLensStage], words: &[Vec<usize>]) -> PathContext {
     let mut composites = Vec::new();
     for word in words {
         let production = production_word(stages, word).unwrap();
@@ -5734,7 +5743,7 @@ fn path_context(stages: &[C11Stage], words: &[Vec<usize>]) -> PathContext {
                 .then(&production)
                 .unwrap(),
             RefLensPath::then(
-                &RefLensPath::identity_with_protocol(&first.source, C11_PROTOCOL),
+                &RefLensPath::identity_with_protocol(&first.source, BOUNDED_LENS_PROTOCOL),
                 &reference,
             )
             .unwrap(),
@@ -5745,7 +5754,7 @@ fn path_context(stages: &[C11Stage], words: &[Vec<usize>]) -> PathContext {
                 .unwrap(),
             RefLensPath::then(
                 &reference,
-                &RefLensPath::identity_with_protocol(&last.target, C11_PROTOCOL),
+                &RefLensPath::identity_with_protocol(&last.target, BOUNDED_LENS_PROTOCOL),
             )
             .unwrap(),
         );
@@ -5757,8 +5766,8 @@ fn path_context(stages: &[C11Stage], words: &[Vec<usize>]) -> PathContext {
 }
 
 fn lens_paths_agree_with_the_reference_exhaustively() {
-    let stages = c11_stages();
-    let certificate = c11_path_count_certificate();
+    let stages = bounded_lens_stages();
+    let certificate = bounded_lens_path_count_certificate();
     let all = words(stages.len());
     assert_eq!(all.len(), certificate.words());
     let mut composable_words = Vec::new();
@@ -5783,7 +5792,7 @@ fn lens_paths_agree_with_the_reference_exhaustively() {
     // behaviourally). Built once per thread: the composites hold value
     // layers that are not shared between threads.
     let composites = || path_context(&stages, &composable_words);
-    let sources = c11_stage_sources(&stages);
+    let sources = bounded_lens_stage_sources(&stages);
     let units: Vec<(usize, usize)> = (0..3 * composable_words.len())
         .flat_map(|index| {
             let first = composable_words[index / 3][0];
@@ -5895,8 +5904,8 @@ fn with_undeclared_label(source: &RefGraph) -> Option<RefGraph> {
 /// [`lens_paths_agree_with_the_reference_exhaustively`], against the
 /// atomic reference fold, with every edit of the final-stage basis.
 fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
-    let stages = c11_stages();
-    let composable_words = composable_c11_words(&stages);
+    let stages = bounded_lens_stages();
+    let composable_words = composable_bounded_lens_words(&stages);
     let composites = || path_context(&stages, &composable_words);
     let (_, built) = composites();
     let fused: Vec<usize> = built
@@ -5910,7 +5919,7 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
         .map(|(index, _)| index)
         .collect();
     drop(built);
-    let sources = c11_stage_sources(&stages);
+    let sources = bounded_lens_stage_sources(&stages);
     let mut anchors = 0_usize;
     let mut labels = 0_usize;
     let units: Vec<(usize, RefGraph)> = fused
@@ -5982,7 +5991,7 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
 /// declared-source predicate selects: one complement per atomic stage on an
 /// undeclared source, one fused complement otherwise.
 fn assert_undeclared_groups_run_in_sequence(
-    stages: &[C11Stage],
+    stages: &[BoundedLensStage],
     word: &[usize],
     path: &LensPath,
     source: &RefGraph,
@@ -6014,7 +6023,7 @@ fn assert_undeclared_groups_run_in_sequence(
     }
 }
 
-fn composable_c11_words(stages: &[C11Stage]) -> Vec<Vec<usize>> {
+fn composable_bounded_lens_words(stages: &[BoundedLensStage]) -> Vec<Vec<usize>> {
     words(stages.len())
         .into_iter()
         .filter(|word| {
@@ -6153,10 +6162,10 @@ where
     }
 }
 
-fn assert_fan_parent_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
-    let identity = c11_stage_index(stages, "Id_h");
+fn assert_fan_parent_refusal_remains_in_strict_carrier(stages: &[BoundedLensStage]) {
+    let identity = bounded_lens_stage_index(stages, "Id_h");
     let pair = Pair::from_stage(&stages[identity]);
-    let labels = panproto_reference::enumerate::lenses::c11_fan_labels();
+    let labels = panproto_reference::enumerate::lenses::bounded_lens_fan_labels();
     let mut hyper = RefNode::new(0, "h");
     hyper.shape = RefNodeShape::HyperEdge;
     let source = RefGraph {
@@ -6226,18 +6235,18 @@ fn assert_fan_parent_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
     });
 }
 
-fn assert_derived_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
-    let transform = c11_stage_index(stages, "T");
+fn assert_derived_refusal_remains_in_strict_carrier(stages: &[BoundedLensStage]) {
+    let transform = bounded_lens_stage_index(stages, "T");
     assert_eq!(
         Pair::from_stage(&stages[transform]).plan,
         Err(PlanError::UndeclaredTransformField {
             source_vertex: "a".to_owned(),
             target_vertex: "a".to_owned(),
-            field: C11_FIELD.to_owned(),
+            field: BOUNDED_LENS_FIELD.to_owned(),
         })
     );
     let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
-    let transform = c11_stage_index(&stages, "DeclaredDefault");
+    let transform = bounded_lens_stage_index(&stages, "DeclaredDefault");
     let pair = Pair::from_stage(&stages[transform]);
     let source = RefGraph {
         nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
@@ -6282,7 +6291,7 @@ fn assert_derived_refusal_remains_in_strict_carrier(stages: &[C11Stage]) {
 
 #[test]
 fn positive_reference_basis_refusals_remain_in_the_strict_carrier() {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     assert_fan_parent_refusal_remains_in_strict_carrier(&stages);
     assert_derived_refusal_remains_in_strict_carrier(&stages);
 }
@@ -6316,8 +6325,8 @@ fn designated_reference_basis_negatives_require_ordered_exact_refusals() {
 
 #[test]
 fn projection_table_path_partitions_positive_and_negative_basis_cases() {
-    let stages = c11_stages();
-    let projection = c11_stage_index(&stages, "P");
+    let stages = bounded_lens_stages();
+    let projection = bounded_lens_stage_index(&stages, "P");
     assert_eq!(
         projection, 17,
         "P remains path stage 17 in the bounded lens alphabet"
@@ -6825,16 +6834,16 @@ fn independent_table_positive_basis(
             .1
             .columns
             .get(table)
-            .is_some_and(|columns| columns.contains_key(C11_FIELD))
+            .is_some_and(|columns| columns.contains_key(BOUNDED_LENS_FIELD))
         {
             continue;
         }
         let mut candidate = view.clone();
         let mut row = cells.clone();
-        if row.contains_key(C11_FIELD) {
-            row.remove(C11_FIELD);
+        if row.contains_key(BOUNDED_LENS_FIELD) {
+            row.remove(BOUNDED_LENS_FIELD);
         } else {
-            row.insert(C11_FIELD.to_owned(), C11_VALUE);
+            row.insert(BOUNDED_LENS_FIELD.to_owned(), BOUNDED_LENS_VALUE);
         }
         candidate.rows.insert(*id, (table.clone(), row));
         if candidates.iter().any(|existing| existing.view == candidate) {
@@ -6959,10 +6968,10 @@ fn reference_table_final_edits(
     for (id, (table, cells)) in &view.rows {
         let mut candidate = view.clone();
         let mut row = cells.clone();
-        if row.contains_key(C11_FIELD) {
-            row.remove(C11_FIELD);
+        if row.contains_key(BOUNDED_LENS_FIELD) {
+            row.remove(BOUNDED_LENS_FIELD);
         } else {
-            row.insert(C11_FIELD.to_owned(), C11_VALUE);
+            row.insert(BOUNDED_LENS_FIELD.to_owned(), BOUNDED_LENS_VALUE);
         }
         candidate.rows.insert(*id, (table.clone(), row));
         assert!(
@@ -7056,17 +7065,17 @@ struct TreeFusionCase {
 }
 
 fn tree_path_normal_forms_match_independent_atomic_folds() {
-    let stages = c11_stages();
-    let certificate = c11_path_count_certificate();
-    let composable = composable_c11_words(&stages);
+    let stages = bounded_lens_stages();
+    let certificate = bounded_lens_path_count_certificate();
+    let composable = composable_bounded_lens_words(&stages);
     assert_eq!(composable.len(), certificate.composable());
     let mut units = Vec::new();
     let mut by_length = [0_usize; 3];
     for word in &composable {
-        if stages[word[0]].source == c11_fan_schema() {
+        if stages[word[0]].source == bounded_lens_fan_schema() {
             continue;
         }
-        for source in c11_tree_states(&stages[word[0]].source) {
+        for source in bounded_lens_tree_states(&stages[word[0]].source) {
             by_length[word.len() - 1] += 1;
             units.push((word.clone(), source));
         }
@@ -7143,16 +7152,16 @@ struct TableFusionCase {
 }
 
 fn table_path_normal_forms_match_independent_atomic_folds() {
-    let stages = c11_stages();
-    let certificate = c11_path_count_certificate();
-    let composable = composable_c11_words(&stages);
+    let stages = bounded_lens_stages();
+    let certificate = bounded_lens_path_count_certificate();
+    let composable = composable_bounded_lens_words(&stages);
     let mut units = Vec::new();
     let mut by_length = [0_usize; 3];
     for word in &composable {
-        if stages[word[0]].source == c11_fan_schema() {
+        if stages[word[0]].source == bounded_lens_fan_schema() {
             continue;
         }
-        for source in c11_table_states(&stages[word[0]].source) {
+        for source in bounded_lens_table_states(&stages[word[0]].source) {
             by_length[word.len() - 1] += 1;
             units.push((word.clone(), source));
         }
@@ -7288,10 +7297,10 @@ fn edits_of_reference_view(
 }
 
 fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     let schemas: Vec<RefSchema> = sigma2_schemas()
         .into_iter()
-        .chain([c11_fan_schema()])
+        .chain([bounded_lens_fan_schema()])
         .collect();
     let mut identities = 0_usize;
     let mut triples = 0_usize;
@@ -7299,12 +7308,12 @@ fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
     for (index, stage) in stages.iter().enumerate() {
         let reference = RefLensPath::single(ref_path_stage(index, stage));
         let left = RefLensPath::then(
-            &RefLensPath::identity_with_protocol(&stage.source, C11_PROTOCOL),
+            &RefLensPath::identity_with_protocol(&stage.source, BOUNDED_LENS_PROTOCOL),
             &reference,
         );
         let right = RefLensPath::then(
             &reference,
-            &RefLensPath::identity_with_protocol(&stage.target, C11_PROTOCOL),
+            &RefLensPath::identity_with_protocol(&stage.target, BOUNDED_LENS_PROTOCOL),
         );
         assert_eq!(
             left.as_ref(),
@@ -7381,11 +7390,14 @@ fn lens_path_category_laws_agree_with_the_reference_exhaustively() {
         stages.len(),
         schemas.len()
     );
-    assert_eq!(triples, c11_path_count_certificate().words_by_length[2]);
+    assert_eq!(
+        triples,
+        bounded_lens_path_count_certificate().words_by_length[2]
+    );
 }
 
 struct PathPropertyCarrier {
-    stages: Vec<C11Stage>,
+    stages: Vec<BoundedLensStage>,
     words: Vec<Vec<usize>>,
     mismatched_triples: Vec<[usize; 3]>,
     graphs: Vec<Vec<RefGraph>>,
@@ -7397,8 +7409,8 @@ struct PathPropertyCarrier {
 fn path_property_carrier() -> &'static PathPropertyCarrier {
     static CARRIER: std::sync::OnceLock<PathPropertyCarrier> = std::sync::OnceLock::new();
     CARRIER.get_or_init(|| {
-        let stages = c11_stages();
-        let words = composable_c11_words(&stages);
+        let stages = bounded_lens_stages();
+        let words = composable_bounded_lens_words(&stages);
         let mut mismatched_triples = Vec::new();
         for first in 0..stages.len() {
             for second in 0..stages.len() {
@@ -7411,24 +7423,24 @@ fn path_property_carrier() -> &'static PathPropertyCarrier {
                 }
             }
         }
-        let graphs = stages.iter().map(c11_sources).collect();
+        let graphs = stages.iter().map(bounded_lens_sources).collect();
         let trees: Vec<Vec<RefTree>> = stages
             .iter()
             .map(|stage| {
-                if stage.source == c11_fan_schema() {
+                if stage.source == bounded_lens_fan_schema() {
                     Vec::new()
                 } else {
-                    c11_tree_states(&stage.source)
+                    bounded_lens_tree_states(&stage.source)
                 }
             })
             .collect();
         let tables: Vec<Vec<RefTable>> = stages
             .iter()
             .map(|stage| {
-                if stage.source == c11_fan_schema() {
+                if stage.source == bounded_lens_fan_schema() {
                     Vec::new()
                 } else {
-                    c11_table_states(&stage.source)
+                    bounded_lens_table_states(&stage.source)
                 }
             })
             .collect();
@@ -7482,7 +7494,7 @@ fn assert_path_on_all_carriers(
     }
 
     let tree_sources = &carrier.trees[word[0]];
-    if carrier.stages[word[0]].source != c11_fan_schema() && !tree_sources.is_empty() {
+    if carrier.stages[word[0]].source != bounded_lens_fan_schema() && !tree_sources.is_empty() {
         let tree_source = &tree_sources[source_index % tree_sources.len()];
         if let Some((tree_edits, _)) = reference_tree_path_edits(&pairs, word, tree_source) {
             let tree_edits = select_one(&tree_edits, edit_index);
@@ -7581,7 +7593,7 @@ fn assert_randomized_path_associativity(case: usize, source: usize, edit: usize)
     assert_path_on_all_carriers(carrier, word, &[left, right], &reference, source, edit);
 }
 
-fn assert_boundary_mismatched_associativity(stages: &[C11Stage], triple: [usize; 3]) {
+fn assert_boundary_mismatched_associativity(stages: &[BoundedLensStage], triple: [usize; 3]) {
     let [first, second, third] = triple;
     assert!(
         stages[first].target != stages[second].source
@@ -8755,8 +8767,8 @@ fn assert_protocol_drift_table_fusion_witness() {
 fn assert_tree_fusion_boundary_witness(witness: TreeFusionBoundaryWitness) {
     match witness {
         TreeFusionBoundaryWitness::StructuralIdentityBeforeValueLayer => {
-            let stages = c11_stages();
-            let predicate = c11_stage_index(&stages, "Q");
+            let stages = bounded_lens_stages();
+            let predicate = bounded_lens_stage_index(&stages, "Q");
             let identity = stages
                 .iter()
                 .position(|stage| {
@@ -8772,7 +8784,7 @@ fn assert_tree_fusion_boundary_witness(witness: TreeFusionBoundaryWitness) {
             assert_eq!(groups[0].stages, 0..2);
 
             let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
-            let sources = c11_tree_states(&stages[identity].source);
+            let sources = bounded_lens_tree_states(&stages[identity].source);
             assert_ne!(sources, []);
             for source in &sources {
                 let fused = production_tree_path_outcome(&path, source, &[]);
@@ -8852,7 +8864,7 @@ fn named_table_fusion_boundaries_agree_with_the_reference() {
 /// validating the two-million-case operational suffix does not rebuild a
 /// graph, tree or table census for each payload.
 struct ExpectedPathLawCases {
-    stages: Vec<C11Stage>,
+    stages: Vec<BoundedLensStage>,
     words: Vec<Vec<usize>>,
     graph_source_counts: Vec<usize>,
     tree_source_counts: Vec<usize>,
@@ -8866,35 +8878,35 @@ struct ExpectedPathLawCases {
 
 impl ExpectedPathLawCases {
     fn new() -> Self {
-        let stages = c11_stages();
-        let words = composable_c11_words(&stages);
+        let stages = bounded_lens_stages();
+        let words = composable_bounded_lens_words(&stages);
         let graph_source_counts = stages
             .iter()
             .map(|stage| {
-                if stage.source == c11_fan_schema() {
-                    c11_fan_state_count()
+                if stage.source == bounded_lens_fan_schema() {
+                    bounded_lens_fan_state_count()
                 } else {
-                    c11_graph_state_count(&stage.source)
+                    bounded_lens_graph_state_count(&stage.source)
                 }
             })
             .collect();
         let tree_source_counts = stages
             .iter()
             .map(|stage| {
-                if stage.source == c11_fan_schema() {
+                if stage.source == bounded_lens_fan_schema() {
                     0
                 } else {
-                    c11_tree_state_count(&stage.source)
+                    bounded_lens_tree_state_count(&stage.source)
                 }
             })
             .collect();
         let table_source_counts = stages
             .iter()
             .map(|stage| {
-                if stage.source == c11_fan_schema() {
+                if stage.source == bounded_lens_fan_schema() {
                     0
                 } else {
-                    c11_table_state_count(&stage.source)
+                    bounded_lens_table_state_count(&stage.source)
                 }
             })
             .collect();
@@ -9051,7 +9063,7 @@ fn path_certificate_manifest_is_exact() {
 fn lens_path_law_certificate() {
     path_certificate_manifest_is_exact();
     lens_path_category_laws_agree_with_the_reference_exhaustively();
-    the_c11_alphabet_witnesses_every_tree_fusion_condition();
+    the_bounded_lens_alphabet_witnesses_every_tree_fusion_condition();
     lens_paths_agree_with_the_reference_exhaustively();
     fused_graph_groups_agree_with_the_reference_on_undeclared_sources();
     tree_path_normal_forms_match_independent_atomic_folds();
@@ -9953,23 +9965,23 @@ fn reference_tree_square(pair: &Pair, case: &TreeSquareCase) -> SquareOutcome {
     })
 }
 
-fn graph_square_units(_stages: &[C11Stage]) -> Vec<(usize, RefTree)> {
+fn graph_square_units(_stages: &[BoundedLensStage]) -> Vec<(usize, RefTree)> {
     let mut units = Vec::new();
-    for_each_c11_tree_square_case(|case| units.push((case.stage, case.source)));
+    for_each_bounded_lens_tree_square_case(|case| units.push((case.stage, case.source)));
     units
 }
 
-fn assert_graph_square_carrier_metadata(stages: &[C11Stage], units: &[(usize, RefTree)]) {
-    let certificate = c11_tree_square_count_certificate();
-    let path_certificate = c11_path_count_certificate();
+fn assert_graph_square_carrier_metadata(stages: &[BoundedLensStage], units: &[(usize, RefTree)]) {
+    let certificate = bounded_lens_tree_square_count_certificate();
+    let path_certificate = bounded_lens_path_count_certificate();
     let schemas = sigma2_schemas();
     let nonfan_stages = stages
         .iter()
-        .filter(|stage| stage.source != c11_fan_schema())
+        .filter(|stage| stage.source != bounded_lens_fan_schema())
         .count();
     let schema_tree_states: usize = schemas
         .iter()
-        .map(|schema| c11_tree_states(schema).len())
+        .map(|schema| bounded_lens_tree_states(schema).len())
         .sum();
     assert_eq!(schemas.len(), sigma2_count());
     assert_eq!(schemas.len(), 16);
@@ -9986,7 +9998,7 @@ fn assert_graph_square_census(
     edit_families: &ClassifiedEditCensus,
     compared: u64,
 ) {
-    let certificate = c11_tree_square_count_certificate();
+    let certificate = bounded_lens_tree_square_count_certificate();
     assert_eq!(edit_families.total(), edits);
     println!(
         "bounded lens graph/tree square: bases={bases}, edits={edits}, admitted-positive families={:?}, refused-positive families={:?}, designated-negative families={:?}, total={}",
@@ -10024,7 +10036,7 @@ fn graph_square_bound() -> String {
 }
 
 fn assert_graph_square_agrees_with_the_reference_exhaustively(units: &[(usize, RefTree)]) {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     assert_graph_square_carrier_metadata(&stages, units);
     let bound = graph_square_bound();
     let edits = std::sync::atomic::AtomicUsize::new(0);
@@ -10080,7 +10092,7 @@ fn assert_graph_square_agrees_with_the_reference_exhaustively(units: &[(usize, R
 
 #[test]
 fn graph_square_agrees_with_the_reference_exhaustively() {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     let units = graph_square_units(&stages);
     assert_graph_square_agrees_with_the_reference_exhaustively(&units);
 }
@@ -10103,7 +10115,7 @@ fn graph_tree_route_law_certificate() {
         graph_tree_route_law_case_count_certificate()
     );
     assert_eq!(
-        c11_tree_square_count_certificate().observations + validations,
+        bounded_lens_tree_square_count_certificate().observations + validations,
         graph_tree_route_law_observation_count_certificate()
     );
     assert_graph_square_agrees_with_the_reference_exhaustively(&squares);
@@ -10111,7 +10123,7 @@ fn graph_tree_route_law_certificate() {
 
 #[test]
 fn graph_square_falls_back_before_a_distinct_tree_refusal() {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     let stage = &stages[21];
     assert_eq!(stage.name, "C");
     let pair = Pair::from_stage(stage);
@@ -10125,12 +10137,12 @@ fn graph_square_falls_back_before_a_distinct_tree_refusal() {
             (
                 0,
                 2,
-                panproto_reference::enumerate::lenses::c11_edge("a", "b"),
+                panproto_reference::enumerate::lenses::bounded_lens_edge("a", "b"),
             ),
             (
                 2,
                 1,
-                panproto_reference::enumerate::lenses::c11_edge("b", "a"),
+                panproto_reference::enumerate::lenses::bounded_lens_edge("b", "a"),
             ),
         ],
         fans: Vec::new(),
@@ -10145,7 +10157,7 @@ fn graph_square_falls_back_before_a_distinct_tree_refusal() {
         view.arcs.push((
             0,
             3,
-            panproto_reference::enumerate::lenses::c11_edge("a", "a"),
+            panproto_reference::enumerate::lenses::bounded_lens_edge("a", "a"),
         ));
 
         assert_eq!(
@@ -10418,7 +10430,8 @@ impl panproto_lens::enrichment_registry::LayoutEnricher for CountingRejectingEnr
         Err(LensError::EnrichmentSynthesisFailed {
             kind: panproto_gat::EnrichmentKind::Layout,
             enricher: self.name.to_owned(),
-            detail: "the L-lenses-19 precedence witness must not evaluate this transform".to_owned(),
+            detail: "the L-lenses-19 precedence witness must not evaluate this transform"
+                .to_owned(),
         })
     }
 }
@@ -10448,7 +10461,7 @@ impl panproto_lens::enrichment_registry::LayoutEnricher for OneShotSchemaEnriche
     }
 }
 
-fn l19_add_enrichment(
+fn protolens_add_enrichment(
     name: &'static str,
     precondition: panproto_gat::TheoryConstraint,
 ) -> panproto_gat::TheoryEndofunctor {
@@ -10463,7 +10476,7 @@ fn l19_add_enrichment(
     }
 }
 
-fn l19_expansion_source() -> Schema {
+fn protolens_expansion_source() -> Schema {
     SchemaBuilder::new(&Protocol::default())
         .vertex("a", "obj", None)
         .expect("open protocol accepts a")
@@ -10475,7 +10488,7 @@ fn l19_expansion_source() -> Schema {
         .expect("the direct-edge source schema is valid")
 }
 
-fn l19_overlong_expansion_target() -> Schema {
+fn protolens_overlong_expansion_target() -> Schema {
     let protocol = Protocol::default();
     let mut builder = SchemaBuilder::new(&protocol)
         .vertex("a", "obj", None)
@@ -10694,11 +10707,11 @@ fn ref_migration(compiled: &CompiledMigration) -> RefMigration {
 
 #[test]
 fn undeclared_transform_stages_keep_every_original_source_as_a_refusal() {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     assert_eq!(stages.len(), 31);
     let mut cases = [0_usize; 3];
     for name in ["T", "ReadF", "Op"] {
-        let stage = &stages[c11_stage_index(&stages, name)];
+        let stage = &stages[bounded_lens_stage_index(&stages, name)];
         let pair = Pair::from_stage(stage);
         let expected = Reason::Restrict("UndeclaredTransformField a a f".to_owned());
         let plan_error = PlanError::UndeclaredTransformField {
@@ -10711,12 +10724,12 @@ fn undeclared_transform_stages_keep_every_original_source_as_a_refusal() {
             Err(plan_error.clone())
         );
         assert_eq!(pair.plan, Err(plan_error.clone()));
-        for source in c11_sources(stage) {
+        for source in bounded_lens_sources(stage) {
             assert_eq!(reference_get(&pair, &source), Err(expected.clone()));
             assert_eq!(production_get(&pair, &source), Err(expected.clone()));
             cases[0] += 1;
         }
-        for source in c11_tree_states(&stage.source) {
+        for source in bounded_lens_tree_states(&stage.source) {
             assert_eq!(
                 reference_tree_case(&pair, &source),
                 Some(Err(expected.clone()))
@@ -10738,7 +10751,7 @@ fn undeclared_transform_stages_keep_every_original_source_as_a_refusal() {
             ),
             Err(TablePlanError::Plan(Box::new(plan_error)))
         );
-        for source in c11_table_states(&stage.source) {
+        for source in bounded_lens_table_states(&stage.source) {
             assert_eq!(table.try_with_reference(|_, _| ()), Err(expected.clone()));
             assert_eq!(production_table_get(&table, &source), Err(expected.clone()));
             cases[2] += 1;
@@ -10757,7 +10770,7 @@ fn undeclared_transform_stages_keep_every_original_source_as_a_refusal() {
 #[test]
 fn declared_transform_absence_complements_separate_the_default_collision() {
     let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
-    let pair = TablePair::from_stage(&stages[c11_stage_index(&stages, "DeclaredDefault")]);
+    let pair = TablePair::from_stage(&stages[bounded_lens_stage_index(&stages, "DeclaredDefault")]);
     let mut views = Vec::new();
     let mut complements = Vec::new();
     for source_value in [None, Some(0)] {
@@ -10800,7 +10813,7 @@ fn declared_transform_absence_complements_separate_the_default_collision() {
 fn declared_transform_absence_composition_matches_independent_union() {
     use panproto_lens::ComplementCompose;
     let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
-    let pair = TablePair::from_stage(&stages[c11_stage_index(&stages, "DeclaredDefault")]);
+    let pair = TablePair::from_stage(&stages[bounded_lens_stage_index(&stages, "DeclaredDefault")]);
     let source = RefTable {
         rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
         pairs: BTreeSet::new(),
@@ -10855,7 +10868,11 @@ fn declared_attribute_on_child(value: i64) -> RefTree {
     child.value = Some(RefPresence::Present(RefValue::Int(value)));
     RefTree {
         nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, child)]),
-        arcs: vec![(0, 1, RefSEdge::new("a", "value", "prop", Some(C11_FIELD)))],
+        arcs: vec![(
+            0,
+            1,
+            RefSEdge::new("a", "value", "prop", Some(BOUNDED_LENS_FIELD)),
+        )],
         fans: Vec::new(),
         root: 0,
     }
@@ -10864,7 +10881,7 @@ fn declared_attribute_on_child(value: i64) -> RefTree {
 #[test]
 fn declared_read_of_a_child_attribute_writes_it_back_to_the_child() {
     let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
-    let pair = Pair::from_stage(&stages[c11_stage_index(&stages, "DeclaredRead")]);
+    let pair = Pair::from_stage(&stages[bounded_lens_stage_index(&stages, "DeclaredRead")]);
     for value in [0, 1] {
         let source = declared_attribute_on_child(value);
         let production = production_tree_case(&pair, &source, true);
@@ -10902,7 +10919,7 @@ fn declared_read_of_a_child_attribute_writes_it_back_to_the_child() {
 fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
     let stages = panproto_reference::enumerate::lenses::declared_transform_stages();
     for name in ["DeclaredDefault", "DeclaredCompute"] {
-        let pair = Pair::from_stage(&stages[c11_stage_index(&stages, name)]);
+        let pair = Pair::from_stage(&stages[bounded_lens_stage_index(&stages, name)]);
         let source = RefTree {
             nodes: BTreeMap::from([(0, RefNode::new(0, "a"))]),
             arcs: Vec::new(),
@@ -10917,8 +10934,8 @@ fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
         assert_eq!(restored, Ok(source.clone()), "{name}");
         let value = view.nodes[&0]
             .fields
-            .get(C11_FIELD)
-            .unwrap_or_else(|| panic!("{name}: get writes `{C11_FIELD}` on the root"))
+            .get(BOUNDED_LENS_FIELD)
+            .unwrap_or_else(|| panic!("{name}: get writes `{BOUNDED_LENS_FIELD}` on the root"))
             .clone();
 
         let mut child_form = view.clone();
@@ -10927,17 +10944,19 @@ fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
             .get_mut(&0)
             .expect("root")
             .fields
-            .remove(C11_FIELD);
+            .remove(BOUNDED_LENS_FIELD);
         let mut child = RefNode::new(1, "value");
         child.value = Some(RefPresence::Present(value));
         child_form.nodes.insert(1, child);
-        child_form
-            .arcs
-            .push((0, 1, RefSEdge::new("a", "value", "prop", Some(C11_FIELD))));
+        child_form.arcs.push((
+            0,
+            1,
+            RefSEdge::new("a", "value", "prop", Some(BOUNDED_LENS_FIELD)),
+        ));
 
         let production = production_tree_put(&pair, &source, &child_form).expect("production get");
         let reference = reference_tree_put(&pair, &source, &child_form).expect("reference get");
-        let refusal = format!("DerivedCellEdited Node(0) {C11_FIELD}");
+        let refusal = format!("DerivedCellEdited Node(0) {BOUNDED_LENS_FIELD}");
         assert_eq!(
             reference.put,
             Err(Reason::PutDomain(refusal.clone())),
@@ -10953,7 +10972,11 @@ fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
             &prod_tree(&child_form),
             &complement,
         );
-        assert_eq!(ref_tree(&folded), view, "{name}: the fold recovers the view");
+        assert_eq!(
+            ref_tree(&folded),
+            view,
+            "{name}: the fold recovers the view"
+        );
         let production = production_tree_put(&pair, &source, &ref_tree(&folded));
         assert_eq!(
             production,
@@ -11190,10 +11213,10 @@ fn declared_transform_wrappers_preserve_their_active_field_domain() {
 
     let stage = declared_transform_stages()
         .into_iter()
-        .find(|stage| stage.layer == C11Layer::AddField)
+        .find(|stage| stage.layer == BoundedLensLayer::AddField)
         .expect("the separate declared carrier includes default insertion");
     let default = FieldTransform::AddField {
-        key: C11_FIELD.to_owned(),
+        key: BOUNDED_LENS_FIELD.to_owned(),
         value: Value::Int(0),
     };
     let wrappers = [
@@ -11238,7 +11261,11 @@ fn declared_transform_wrappers_preserve_their_active_field_domain() {
             stage.migration.output_fields,
             "inactive branches still contribute static output declarations"
         );
-        let layer: &'static dyn ValueLayer = if active { &C11AddField } else { &NoValueLayer };
+        let layer: &'static dyn ValueLayer = if active {
+            &BoundedLensAddField
+        } else {
+            &NoValueLayer
+        };
         let pair = Pair::with_production(
             stage.source.clone(),
             stage.target.clone(),
@@ -11264,7 +11291,7 @@ fn assert_default_wrapper_edits(pair: &Pair, name: &str, cases: &mut [usize; 2])
         node.fields.insert("other".to_owned(), RefValue::Int(0));
         if let Some(value) = source_field {
             node.fields
-                .insert(C11_FIELD.to_owned(), RefValue::Int(value));
+                .insert(BOUNDED_LENS_FIELD.to_owned(), RefValue::Int(value));
         }
         let source = RefGraph {
             nodes: [(0, node)].into(),
@@ -11291,7 +11318,7 @@ fn assert_default_wrapper_edits(pair: &Pair, name: &str, cases: &mut [usize; 2])
                 let mut edited = source.clone();
                 let fields = &mut edited.nodes.get_mut(&0).expect("one source node").fields;
                 fields.clear();
-                for (key, value) in [(C11_FIELD, edited_field), ("other", other_field)] {
+                for (key, value) in [(BOUNDED_LENS_FIELD, edited_field), ("other", other_field)] {
                     if let Some(value) = value {
                         fields.insert(key.to_owned(), RefValue::Int(value));
                     }
@@ -11321,7 +11348,7 @@ fn assert_default_wrapper_edits(pair: &Pair, name: &str, cases: &mut [usize; 2])
     }
 }
 
-fn conditional_default_stage() -> (C11Stage, Lens) {
+fn conditional_default_stage() -> (BoundedLensStage, Lens) {
     use panproto_expr::{BuiltinOp, Expr, Literal};
     use panproto_inst::{CaseBranch, FieldTransform};
 
@@ -11333,7 +11360,7 @@ fn conditional_default_stage() -> (C11Stage, Lens) {
         .edge("a", "f-value", "prop", Some("f"))
         .edge("a", "g-value", "prop", Some("g"))
         .edge("a", "hidden-value", "prop", Some("hidden"));
-    let stage = C11Stage {
+    let stage = BoundedLensStage {
         name: "ConditionalDefaultWithResidue".to_owned(),
         source: schema.clone(),
         target: schema.clone(),
@@ -11341,10 +11368,10 @@ fn conditional_default_stage() -> (C11Stage, Lens) {
             surviving_verts: schema.vertices.keys().cloned().collect(),
             surviving_edges: schema.edges,
             transformed: ["a".to_owned()].into(),
-            output_fields: [("a".to_owned(), vec![C11_FIELD.to_owned()])].into(),
+            output_fields: [("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()])].into(),
             ..RefMigration::default()
         },
-        layer: C11Layer::AddField,
+        layer: BoundedLensLayer::AddField,
     };
     let mut production = production_stage(&stage);
     production.compiled.field_transforms.insert(
@@ -11360,7 +11387,7 @@ fn conditional_default_stage() -> (C11Stage, Lens) {
                         vec![Expr::Var("g".into()), Expr::Lit(Literal::Int(0))],
                     ),
                     transforms: vec![FieldTransform::AddField {
-                        key: C11_FIELD.to_owned(),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
                         value: Value::Int(0),
                     }],
                 }],
@@ -11494,7 +11521,7 @@ fn conditional_default_graphs(
     node.fields.insert("hidden".to_owned(), RefValue::Int(9));
     if let Some(value) = source_f {
         node.fields
-            .insert(C11_FIELD.to_owned(), RefValue::Int(value));
+            .insert(BOUNDED_LENS_FIELD.to_owned(), RefValue::Int(value));
     }
     let source = RefGraph {
         nodes: [(0, node)].into(),
@@ -11504,9 +11531,9 @@ fn conditional_default_graphs(
     let fields = &mut edited.nodes.get_mut(&0).expect("one source node").fields;
     fields.remove("hidden");
     fields.insert("g".to_owned(), RefValue::Int(edited_g));
-    fields.remove(C11_FIELD);
+    fields.remove(BOUNDED_LENS_FIELD);
     if let Some(value) = edited_f {
-        fields.insert(C11_FIELD.to_owned(), RefValue::Int(value));
+        fields.insert(BOUNDED_LENS_FIELD.to_owned(), RefValue::Int(value));
     }
     (source, edited)
 }
@@ -11645,7 +11672,7 @@ struct ConditionalDefaultWithResidue;
 
 impl ConditionalDefaultWithResidue {
     fn inserts_default(fields: &BTreeMap<String, RefValue>) -> bool {
-        fields.get("g") == Some(&RefValue::Int(0)) && !fields.contains_key(C11_FIELD)
+        fields.get("g") == Some(&RefValue::Int(0)) && !fields.contains_key(BOUNDED_LENS_FIELD)
     }
 }
 
@@ -11672,7 +11699,7 @@ impl ValueLayer for ConditionalDefaultWithResidue {
         if node.anchor == "a" {
             fields.remove("hidden");
             if Self::inserts_default(&fields) {
-                fields.insert(C11_FIELD.to_owned(), RefValue::Int(0));
+                fields.insert(BOUNDED_LENS_FIELD.to_owned(), RefValue::Int(0));
             }
         }
         Ok((fields, node.value.clone()))
@@ -11699,17 +11726,18 @@ impl ValueLayer for ConditionalDefaultWithResidue {
             restored.insert("hidden".to_owned(), hidden.clone());
         }
         if baseline_writes_f {
-            restored.remove(C11_FIELD);
+            restored.remove(BOUNDED_LENS_FIELD);
         }
         let replay_writes_f = Self::inserts_default(&restored);
         let replay_f = if replay_writes_f {
-            Some(&C11_VALUE)
+            Some(&BOUNDED_LENS_VALUE)
         } else {
-            restored.get(C11_FIELD)
+            restored.get(BOUNDED_LENS_FIELD)
         };
-        if (baseline_writes_f || replay_writes_f) && replay_f != view.fields.get(C11_FIELD) {
+        if (baseline_writes_f || replay_writes_f) && replay_f != view.fields.get(BOUNDED_LENS_FIELD)
+        {
             return Err(PutFieldRefusal::DerivedCellEdited {
-                field: C11_FIELD.to_owned(),
+                field: BOUNDED_LENS_FIELD.to_owned(),
             });
         }
         Ok((restored, view.value.clone()))
@@ -11718,12 +11746,15 @@ impl ValueLayer for ConditionalDefaultWithResidue {
 
 #[test]
 fn declared_transform_attribute_edges_agree_with_the_reference() {
-    for (target, name) in [("value", Some(C11_FIELD)), (C11_FIELD, None)] {
+    for (target, name) in [
+        ("value", Some(BOUNDED_LENS_FIELD)),
+        (BOUNDED_LENS_FIELD, None),
+    ] {
         let schema = RefSchema::default()
             .vertex("a", "obj")
             .vertex(target, "int")
             .edge("a", target, "attribute", name);
-        let stage = C11Stage {
+        let stage = BoundedLensStage {
             name: "DeclaredAttribute".to_owned(),
             source: schema.clone(),
             target: schema.clone(),
@@ -11731,10 +11762,10 @@ fn declared_transform_attribute_edges_agree_with_the_reference() {
                 surviving_verts: schema.vertices.keys().cloned().collect(),
                 surviving_edges: schema.edges.clone(),
                 transformed: ["a".to_owned()].into(),
-                output_fields: [("a".to_owned(), vec![C11_FIELD.to_owned()])].into(),
+                output_fields: [("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()])].into(),
                 ..RefMigration::default()
             },
-            layer: C11Layer::AddField,
+            layer: BoundedLensLayer::AddField,
         };
         let pair = Pair::from_stage(&stage);
         let reference_plan =
@@ -11757,7 +11788,7 @@ fn declared_transform_attribute_edges_agree_with_the_reference() {
 
 #[test]
 fn declared_transform_table_functor_refusal_precedes_output_refusal() {
-    let stage = C11Stage {
+    let stage = BoundedLensStage {
         name: "DeclaredOutputCompetingRefusals".to_owned(),
         source: RefSchema::default().vertex("a", "obj"),
         target: RefSchema::default().vertex("value", "int"),
@@ -11765,10 +11796,10 @@ fn declared_transform_table_functor_refusal_precedes_output_refusal() {
             surviving_verts: ["value".to_owned()].into(),
             vertex_remap: [("a".to_owned(), "value".to_owned())].into(),
             transformed: ["a".to_owned()].into(),
-            output_fields: [("a".to_owned(), vec![C11_FIELD.to_owned()])].into(),
+            output_fields: [("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()])].into(),
             ..RefMigration::default()
         },
-        layer: C11Layer::AddField,
+        layer: BoundedLensLayer::AddField,
     };
     let pair = TablePair::from_stage(&stage);
     assert_eq!(
@@ -11776,7 +11807,7 @@ fn declared_transform_table_functor_refusal_precedes_output_refusal() {
         Err(PlanError::UndeclaredTransformField {
             source_vertex: "a".to_owned(),
             target_vertex: "value".to_owned(),
-            field: C11_FIELD.to_owned(),
+            field: BOUNDED_LENS_FIELD.to_owned(),
         })
     );
     let expected = TablePlanError::Functor(Box::new(
@@ -11897,10 +11928,10 @@ fn declared_transform_fusion_boundaries_preserve_atomic_behavior() {
     let pairs: Vec<_> = stages.iter().map(Pair::from_stage).collect();
     let graph_sources = declared_transform_graphs();
     let tree_sources = declared_transform_trees();
-    let id = c11_stage_index(&stages, "DeclaredId");
-    let default = c11_stage_index(&stages, "DeclaredDefault");
-    let drop = c11_stage_index(&stages, "DeclaredDrop");
-    let read = c11_stage_index(&stages, "DeclaredRead");
+    let id = bounded_lens_stage_index(&stages, "DeclaredId");
+    let default = bounded_lens_stage_index(&stages, "DeclaredDefault");
+    let drop = bounded_lens_stage_index(&stages, "DeclaredDrop");
+    let read = bounded_lens_stage_index(&stages, "DeclaredRead");
     let witnesses = [
         ("dropped field before read", [drop, read], 2),
         ("value layers on both stages", [default, default], 2),
@@ -12129,8 +12160,11 @@ fn assert_false_precondition_protolens_refusal() {
         ]);
         let inapplicable = Protolens {
             name: "l19-false-precondition".into(),
-            source: l19_add_enrichment("l19-source-must-not-run", false_precondition),
-            target: l19_add_enrichment("l19-target-must-not-run", TheoryConstraint::Unconstrained),
+            source: protolens_add_enrichment("l19-source-must-not-run", false_precondition),
+            target: protolens_add_enrichment(
+                "l19-target-must-not-run",
+                TheoryConstraint::Unconstrained,
+            ),
             complement_constructor: ComplementConstructor::Empty,
         };
         let empty_schema = Schema::default();
@@ -12194,8 +12228,8 @@ fn assert_overlong_protolens_expansion_refusal() {
         use panproto_gat::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
         use panproto_lens::{ComplementConstructor, Protolens};
 
-    let source = l19_expansion_source();
-    let target = l19_overlong_expansion_target();
+    let source = protolens_expansion_source();
+    let target = protolens_overlong_expansion_target();
     assert_eq!(source.vertices.len(), 2);
     assert_eq!(source.edges.len(), 1);
     assert_eq!(
@@ -12221,7 +12255,7 @@ fn assert_overlong_protolens_expansion_refusal() {
             precondition: TheoryConstraint::Unconstrained,
             transform: TheoryTransform::Identity,
         },
-        target: l19_add_enrichment("l19-overlong-expansion", TheoryConstraint::Unconstrained),
+        target: protolens_add_enrichment("l19-overlong-expansion", TheoryConstraint::Unconstrained),
         complement_constructor: ComplementConstructor::Empty,
     };
     let production_error = panproto_lens::graph_protolens::apply(
@@ -12381,12 +12415,12 @@ fn reference_semantic_envelope(
 
 #[test]
 fn a_redundant_unique_edge_resolver_has_the_same_semantic_migration() {
-    let schema = panproto_reference::enumerate::lenses::c11_schema(&["a"], &[("a", "a")]);
+    let schema = panproto_reference::enumerate::lenses::bounded_lens_schema(&["a"], &[("a", "a")]);
     let plain = reference_carrier_migration(&schema);
     let mut redundant = plain.clone();
     redundant.resolver.insert(
         ("a".to_owned(), "a".to_owned()),
-        panproto_reference::enumerate::lenses::c11_edge("a", "a"),
+        panproto_reference::enumerate::lenses::bounded_lens_edge("a", "a"),
     );
     assert_ne!(plain, redundant, "the syntax differs at the resolver");
     assert_eq!(
@@ -12460,10 +12494,10 @@ fn assert_malformed_fan_protolens_application_refusal() {
     use panproto_gat::{TheoryConstraint, TheoryEndofunctor, TheoryTransform};
     use panproto_lens::{ComplementConstructor, Protolens};
 
-    let schema = c11_fan_schema();
+    let schema = bounded_lens_fan_schema();
     let mut hyper = RefNode::new(0, "h");
     hyper.shape = RefNodeShape::HyperEdge;
-    let labels = panproto_reference::enumerate::lenses::c11_fan_labels();
+    let labels = panproto_reference::enumerate::lenses::bounded_lens_fan_labels();
     let source = RefGraph {
         nodes: BTreeMap::from([(0, hyper), (2, RefNode::new(2, "b"))]),
         edges: BTreeMap::from([(
@@ -12642,14 +12676,18 @@ fn assert_protolens_instance_units_agree(
 fn protolens_transforms_agree_with_the_reference_exhaustively() {
     let alphabet = protolens_alphabet();
     let schemas = sigma2_schemas();
-    let states: Vec<Vec<RefGraph>> = schemas.iter().map(c11_graph_states).collect();
+    let states: Vec<Vec<RefGraph>> = schemas.iter().map(bounded_lens_graph_states).collect();
     let (units, refusal_witnesses) = collect_protolens_instance_units();
     let certificate = protolens_instance_count_certificate();
     assert_eq!(certificate.protolenses, alphabet.len());
     assert_eq!(certificate.schemas, schemas.len());
     assert_eq!(
         units.len(),
-        alphabet.len() * schemas.iter().map(c11_graph_state_count).sum::<usize>()
+        alphabet.len()
+            * schemas
+                .iter()
+                .map(bounded_lens_graph_state_count)
+                .sum::<usize>()
     );
     assert_eq!(units.len(), certificate.elementary_cases);
     assert_eq!(refusal_witnesses, certificate.refusal_witnesses);
@@ -14459,8 +14497,8 @@ fn id_h_empty_basis_refusal_witnesses() -> [RefGraph; 2] {
 
 #[test]
 fn empty_common_basis_refusals_normalize_identically() {
-    let stages = c11_stages();
-    let stage = c11_stage_index(&stages, "Id_h");
+    let stages = bounded_lens_stages();
+    let stage = bounded_lens_stage_index(&stages, "Id_h");
     assert_eq!(stage, 16, "Id_h remains the seventeenth bounded lens stage");
     let pair = Pair::from_stage(&stages[stage]);
 
@@ -14578,8 +14616,8 @@ fn stage_c_three_node_common_basis_witnesses() -> [RefGraph; 2] {
 
 #[test]
 fn stage_c_three_node_common_basis_laws_agree() {
-    let stages = c11_stages();
-    let stage = c11_stage_index(&stages, "C");
+    let stages = bounded_lens_stages();
+    let stage = bounded_lens_stage_index(&stages, "C");
     assert_eq!(stage, 21, "C remains the twenty-second bounded lens stage");
     let pair = Pair::from_stage(&stages[stage]);
     let expected_counts = [2, 4, 1, 2, 0, 0, 0, 0, 0, 2, 0, 0, 2, 2, 4, 0, 0];
@@ -14783,8 +14821,8 @@ fn reference_graph_put_get_trace(
 
 #[test]
 fn stage_c_common_basis_put_get_traces_agree() {
-    let stages = c11_stages();
-    let stage = c11_stage_index(&stages, "C");
+    let stages = bounded_lens_stages();
+    let stage = bounded_lens_stage_index(&stages, "C");
     assert_eq!(stage, 21, "C remains the twenty-second bounded lens stage");
     let pair = Pair::from_stage(&stages[stage]);
 
@@ -14925,7 +14963,7 @@ fn assert_stage_c_put_get_traces(
 
 #[test]
 fn lens_laws_agree_with_the_reference_exhaustively() {
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     // The lens pairs of every family, built once per thread: they hold
     // value layers that are not shared between threads.
     let context = || {
@@ -15007,14 +15045,14 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
 // ---------------------------------------------------------------------------
 
 /// The amended bounded lens census has passed its independent count and dynamic gates.
-const C11_ACCEPTED: bool = true;
+const BOUNDED_LENS_ACCEPTED: bool = true;
 
-fn gf5_cases() -> &'static [(Gf5Fixture, RefGraph, RefGraph)] {
-    static CASES: std::sync::OnceLock<Vec<(Gf5Fixture, RefGraph, RefGraph)>> =
+fn delta_fragment_cases() -> &'static [(DeltaFragmentFixture, RefGraph, RefGraph)] {
+    static CASES: std::sync::OnceLock<Vec<(DeltaFragmentFixture, RefGraph, RefGraph)>> =
         std::sync::OnceLock::new();
     CASES.get_or_init(|| {
         let mut cases = Vec::new();
-        for_each_gf5_deletion_edit(|fixture, source, edited| {
+        for_each_delta_fragment_deletion_edit(|fixture, source, edited| {
             cases.push((fixture, source.clone(), edited.clone()));
         });
         cases
@@ -15039,19 +15077,23 @@ fn partial_lenses() -> &'static [PartialLens] {
     })
 }
 
-type C11Cases = (Vec<C11Stage>, Vec<(usize, RefGraph)>, Vec<(usize, RefTree)>);
+type BoundedLensCases = (
+    Vec<BoundedLensStage>,
+    Vec<(usize, RefGraph)>,
+    Vec<(usize, RefTree)>,
+);
 
-fn c11_cases() -> &'static C11Cases {
-    static CASES: std::sync::OnceLock<C11Cases> = std::sync::OnceLock::new();
+fn bounded_lens_cases() -> &'static BoundedLensCases {
+    static CASES: std::sync::OnceLock<BoundedLensCases> = std::sync::OnceLock::new();
     CASES.get_or_init(|| {
-        let stages = c11_stages();
+        let stages = bounded_lens_stages();
         let mut graphs = Vec::new();
         let mut trees = Vec::new();
         for (index, stage) in stages.iter().enumerate() {
-            graphs.extend(c11_sources(stage).into_iter().map(|g| (index, g)));
-            if stage.source != c11_fan_schema() {
+            graphs.extend(bounded_lens_sources(stage).into_iter().map(|g| (index, g)));
+            if stage.source != bounded_lens_fan_schema() {
                 trees.extend(
-                    c11_tree_states(&stage.source)
+                    bounded_lens_tree_states(&stage.source)
                         .into_iter()
                         .map(|t| (index, t)),
                 );
@@ -15077,18 +15119,18 @@ fn property_differ(
     }
 }
 
-fn gf5_property_case(index: usize) -> Result<(), String> {
-    let cases = gf5_cases();
+fn delta_fragment_property_case(index: usize) -> Result<(), String> {
+    let cases = delta_fragment_cases();
     let (fixture, source, edited) = &cases[index % cases.len()];
-    let pair = gf5_pair(*fixture);
+    let pair = delta_fragment_pair(*fixture);
     property_differ(
-        "GF5 put",
+        "Delta-fragment put",
         format!("{:?}", production_put(&pair, source, edited)),
         format!("{:?}", reference_put(&pair, source, edited)),
     )?;
-    let (production, largest, universal) = gf5_cascade_outcome(&pair, source, edited);
+    let (production, largest, universal) = delta_fragment_cascade_outcome(&pair, source, edited);
     property_differ(
-        "GF5 cascade",
+        "Delta-fragment cascade",
         format!(
             "{:?}",
             (production.and_then(|outcome| outcome.put.ok()), universal)
@@ -15099,10 +15141,10 @@ fn gf5_property_case(index: usize) -> Result<(), String> {
 
 type GraphDomainWitness = (GraphPutDomainFamily, usize, RefGraph, RefGraph);
 
-fn c11_graph_domain_witnesses() -> &'static [GraphDomainWitness] {
+fn bounded_lens_graph_domain_witnesses() -> &'static [GraphDomainWitness] {
     static WITNESSES: std::sync::OnceLock<Vec<GraphDomainWitness>> = std::sync::OnceLock::new();
     WITNESSES.get_or_init(|| {
-        let stages = c11_stages();
+        let stages = bounded_lens_stages();
         let pairs = stages.iter().map(Pair::from_stage).collect::<Vec<_>>();
         let focused = [
             GraphPutDomainFamily::SurvivalPredicateFails,
@@ -15125,11 +15167,11 @@ fn c11_graph_domain_witnesses() -> &'static [GraphDomainWitness] {
         let mut found = 0_u16;
         let mut witnesses = Vec::new();
         'stages: for (stage, descriptor) in stages.iter().enumerate() {
-            for source in c11_sources(descriptor) {
+            for source in bounded_lens_sources(descriptor) {
                 let Ok((view, complement)) = reference_get(&pairs[stage], &source) else {
                     continue;
                 };
-                for edited in c11_graph_edits(&view, &descriptor.target, &complement)
+                for edited in bounded_lens_graph_edits(&view, &descriptor.target, &complement)
                     .into_iter()
                     .map(|case| case.view)
                 {
@@ -15234,7 +15276,7 @@ fn partial_lens_property_case(index: usize, edit: usize) -> Result<(), String> {
 }
 
 fn graph_property_case(index: usize, edit: usize) -> Result<(), String> {
-    let (stages, graphs, _) = c11_cases();
+    let (stages, graphs, _) = bounded_lens_cases();
     let (stage, source) = &graphs[index % graphs.len()];
     let pair = Pair::from_stage(&stages[*stage]);
     property_differ(
@@ -15258,7 +15300,7 @@ fn graph_property_case(index: usize, edit: usize) -> Result<(), String> {
     };
     let mut views = vec![view.clone()];
     views.extend(
-        c11_graph_edits(&view, &stages[*stage].target, &complement)
+        bounded_lens_graph_edits(&view, &stages[*stage].target, &complement)
             .into_iter()
             .map(|candidate| candidate.view),
     );
@@ -15271,7 +15313,7 @@ fn graph_property_case(index: usize, edit: usize) -> Result<(), String> {
 }
 
 fn tree_property_case(index: usize) -> Result<(), String> {
-    let (stages, _, trees) = c11_cases();
+    let (stages, _, trees) = bounded_lens_cases();
     let (stage, tree) = &trees[index % trees.len()];
     let pair = Pair::from_stage(&stages[*stage]);
     let reference = reference_tree_case(&pair, tree);
@@ -15342,7 +15384,7 @@ fn tree_property_case(index: usize) -> Result<(), String> {
 }
 
 fn path_property_case(index: usize, edit: usize) -> Result<(), String> {
-    let (stages, _, _) = c11_cases();
+    let (stages, _, _) = bounded_lens_cases();
     let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
     let all = words(stages.len());
     let word = &all[index % all.len()];
@@ -15355,7 +15397,7 @@ fn path_property_case(index: usize, edit: usize) -> Result<(), String> {
             format!("{}", reference_word(stages, word).is_ok()),
         );
     };
-    let sources = c11_sources(&stages[word[0]]);
+    let sources = bounded_lens_sources(&stages[word[0]]);
     let source = &sources[edit % sources.len()];
     let (edits, _) = edits_of_reference_view(&pairs, word, source);
     let production = production_path_outcome(&production, source, &edits);
@@ -15459,7 +15501,7 @@ fn protolens_instance_property_case(index: usize, edit: usize) -> Result<(), Str
     let family = index % alphabet.len();
     let protolens = &alphabet[family];
     let schema = &schemas[(index / alphabet.len()) % schemas.len()];
-    let states = c11_graph_states(schema);
+    let states = bounded_lens_graph_states(schema);
     let source = &states[edit % states.len()];
     let production_schema = prod_schema(schema);
     let applicable = assert_protolens_schema_agrees(family, protolens, schema, &protocol);
@@ -15525,15 +15567,15 @@ fn protolens_instance_property_case(index: usize, edit: usize) -> Result<(), Str
 /// One random case of one family, compared on both sides.
 fn property_case(family: u8, index: usize, edit: usize) -> Result<(), String> {
     match family {
-        0 => gf5_property_case(index),
+        0 => delta_fragment_property_case(index),
         1 => table_property_case(index, edit),
         2 => partial_lens_property_case(index, edit),
-        3 if C11_ACCEPTED => graph_property_case(index, edit),
-        4 if C11_ACCEPTED => tree_property_case(index),
-        5 if C11_ACCEPTED => path_property_case(index, edit),
+        3 if BOUNDED_LENS_ACCEPTED => graph_property_case(index, edit),
+        4 if BOUNDED_LENS_ACCEPTED => tree_property_case(index),
+        5 if BOUNDED_LENS_ACCEPTED => path_property_case(index, edit),
         6 => table_writer_property_case(index, edit),
         7 => table_square_property_case(index),
-        8 if C11_ACCEPTED => protolens_instance_property_case(index, edit),
+        8 if BOUNDED_LENS_ACCEPTED => protolens_instance_property_case(index, edit),
         _ => Ok(()),
     }
 }
@@ -15588,7 +15630,7 @@ proptest! {
         carrier in any::<usize>(),
         edit in any::<usize>(),
     ) {
-        if let Err(message) = gf5_property_case(carrier) {
+        if let Err(message) = delta_fragment_property_case(carrier) {
             prop_assert!(false, "{message}");
         }
         if let Err(message) = graph_property_case(carrier, edit) {
@@ -15661,8 +15703,8 @@ proptest! {
 /// only the synthesized identities of elements the views hold.
 #[test]
 fn stage_c_tree_common_basis_laws_agree_with_the_reference() {
-    let stages = c11_stages();
-    let stage_c = c11_stage_index(&stages, "C");
+    let stages = bounded_lens_stages();
+    let stage_c = bounded_lens_stage_index(&stages, "C");
     let pair = Pair::from_stage(&stages[stage_c]);
     let mut cases = Vec::new();
     for_each_lens_law_case(|case| {
@@ -15719,11 +15761,11 @@ fn stage_c_tree_common_basis_laws_agree_with_the_reference() {
 /// even when the row's transform drops that same field.
 #[test]
 fn writerless_cell_under_a_dropping_transform_is_derived() {
-    use panproto_reference::enumerate::lenses::c11_stages;
+    use panproto_reference::enumerate::lenses::bounded_lens_stages;
 
-    let stage = c11_stages()
+    let stage = bounded_lens_stages()
         .into_iter()
-        .find(|stage| stage.layer == C11Layer::DropField)
+        .find(|stage| stage.layer == BoundedLensLayer::DropField)
         .expect("the stage alphabet includes the dropping transform");
     let pair = TablePair::from_stage(&stage);
     let source = RefTable {
@@ -15736,11 +15778,13 @@ fn writerless_cell_under_a_dropping_transform_is_derived() {
         .get_mut(&0)
         .expect("row zero")
         .1
-        .insert(C11_FIELD.to_owned(), C11_VALUE);
+        .insert(BOUNDED_LENS_FIELD.to_owned(), BOUNDED_LENS_VALUE);
     let reference = reference_table_put(&pair, &source, &edited);
     assert_eq!(
         reference.domain,
-        Err(vec![format!("DerivedCellEdited Row(0) {C11_FIELD}")])
+        Err(vec![format!(
+            "DerivedCellEdited Row(0) {BOUNDED_LENS_FIELD}"
+        )])
     );
     assert_eq!(production_table_put(&pair, &source, &edited), reference);
 }

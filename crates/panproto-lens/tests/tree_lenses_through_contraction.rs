@@ -2563,7 +2563,7 @@ mod composition_rule {
     /// composite, including an expansion the second lens truncates; (v)
     /// value layers that meet; (vi) a fan retarget in either lens.
     #[test]
-    fn tree_compose_follows_the_l6_rule() {
+    fn tree_compose_follows_the_composition_rule() {
         let kept = |first: &Lens, second: &Lens, case: &str| {
             let composite = pair_normal_form(first, second).unwrap();
             assert!(

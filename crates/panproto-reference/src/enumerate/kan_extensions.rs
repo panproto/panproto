@@ -2074,7 +2074,7 @@ pub fn decorate_spec_graph(graph: &Graph, spec: &GraphSpec) -> Graph {
 /// `value`), a table `b` without columns and a relation `f: a -> b`, with
 /// inner edges `x -k-> a.x.k` and `x -item-> a.x.item`.
 #[must_use]
-pub fn o7_encoding_spec() -> GraphSpec {
+pub fn graph_encoding_spec() -> GraphSpec {
     GraphSpec {
         tables: vec![("a", vec![("x", "value")]), ("b", vec![])],
         relations: vec![prop_edge("a", "b", "f")],
@@ -2089,7 +2089,7 @@ pub fn o7_encoding_spec() -> GraphSpec {
 /// forms, a record subtree, a list subtree, a leaf holding the list that
 /// subtree folds to, and a top-level labelled null.
 #[must_use]
-pub fn o7_encoding_forms() -> Vec<CellForm> {
+pub fn graph_encoding_forms() -> Vec<CellForm> {
     vec![
         CellForm::Leaf(Presence::Present(Value::Int(0))),
         CellForm::Leaf(Presence::Null),
@@ -2113,9 +2113,9 @@ pub fn o7_encoding_forms() -> Vec<CellForm> {
 /// and spread out (value nodes then precede table nodes), as enumerated, and
 /// spread.
 #[must_use]
-pub fn o7_encoding_presentations(max: usize) -> Vec<Graph> {
-    let spec = o7_encoding_spec();
-    let plain = spec_graphs(&spec, &|_, _| o7_encoding_forms(), max);
+pub fn graph_encoding_presentations(max: usize) -> Vec<Graph> {
+    let spec = graph_encoding_spec();
+    let plain = spec_graphs(&spec, &|_, _| graph_encoding_forms(), max);
     let mut out = Vec::with_capacity(plain.len() * 4);
     for graph in plain {
         let spread = spread_graph(&graph);
@@ -2127,10 +2127,10 @@ pub fn o7_encoding_presentations(max: usize) -> Vec<Graph> {
     out
 }
 
-/// Independent count of [`o7_encoding_presentations`]: four times the sum,
+/// Independent count of [`graph_encoding_presentations`]: four times the sum,
 /// over `a + b <= max`, of `7^a 2^(a b)`.
 #[must_use]
-pub fn o7_encoding_presentations_count(max: u32) -> u64 {
+pub fn graph_encoding_presentations_count(max: u32) -> u64 {
     4 * (0..=max)
         .flat_map(|a| (0..=max - a).map(move |b| (a, b)))
         .map(|(a, b)| 7u64.pow(a) * 2u64.pow(a * b))
@@ -2140,7 +2140,7 @@ pub fn o7_encoding_presentations_count(max: u32) -> u64 {
 /// The five leaf forms of the encoding spec's conforming tables: a
 /// constant, `Null`, a record, a list and a labelled null.
 #[must_use]
-pub fn o7_table_cells() -> Vec<CellForm> {
+pub fn graph_encoding_table_cells() -> Vec<CellForm> {
     vec![
         CellForm::Leaf(Presence::Present(Value::Int(0))),
         CellForm::Leaf(Presence::Null),
@@ -2403,14 +2403,14 @@ const fn graph_spec(
 /// column outside the image, two columns sent to one, a source table and
 /// column outside the kept part), each over at most four table nodes.
 #[must_use]
-pub fn o7_adjunction_family() -> Vec<GraphKanCase> {
-    let mut cases = o7_merge_cases();
-    cases.extend(o7_column_cases());
+pub fn graph_encoding_adjunction_family() -> Vec<GraphKanCase> {
+    let mut cases = graph_encoding_merge_cases();
+    cases.extend(graph_encoding_column_cases());
     cases
 }
 
-/// The four merges of [`o7_adjunction_family`].
-fn o7_merge_cases() -> Vec<GraphKanCase> {
+/// The four merges of [`graph_encoding_adjunction_family`].
+fn graph_encoding_merge_cases() -> Vec<GraphKanCase> {
     let merge = || {
         (
             shared_column_spec(),
@@ -2474,8 +2474,8 @@ fn o7_merge_cases() -> Vec<GraphKanCase> {
     ]
 }
 
-/// The three column cases of [`o7_adjunction_family`].
-fn o7_column_cases() -> Vec<GraphKanCase> {
+/// The three column cases of [`graph_encoding_adjunction_family`].
+fn graph_encoding_column_cases() -> Vec<GraphKanCase> {
     let one_column = || graph_spec(vec![("a", vec![("x", "int")])], vec![]);
     let two_columns = graph_spec(vec![("t", vec![("x", "int"), ("y", "int")])], vec![]);
     let dropped = graph_spec(
@@ -2594,11 +2594,11 @@ pub fn relation_merge_cases() -> Vec<GraphKanCase> {
     ]
 }
 
-/// The separated-reflection family: [`o7_adjunction_family`] followed by
+/// The separated-reflection family: [`graph_encoding_adjunction_family`] followed by
 /// [`relation_merge_cases`].
 #[must_use]
 pub fn reflection_family() -> Vec<GraphKanCase> {
-    let mut cases = o7_adjunction_family();
+    let mut cases = graph_encoding_adjunction_family();
     cases.extend(relation_merge_cases());
     cases
 }
@@ -3954,7 +3954,7 @@ mod tests {
             GraphSpec::column_edge("t", "c"),
             SEdge::new("t", "t.c", "prop", Some("c"))
         );
-        let spec = o7_encoding_spec();
+        let spec = graph_encoding_spec();
         assert_eq!(
             spec.inner_edges(),
             vec![
@@ -4047,10 +4047,10 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(leaf_forms(&[]), Vec::<CellForm>::new());
-        assert_eq!(o7_encoding_forms(), encoding_forms());
-        assert_eq!(o7_encoding_forms().len(), 7);
-        assert!(distinct(&o7_encoding_forms()));
-        let cells = o7_table_cells();
+        assert_eq!(graph_encoding_forms(), encoding_forms());
+        assert_eq!(graph_encoding_forms().len(), 7);
+        assert!(distinct(&graph_encoding_forms()));
+        let cells = graph_encoding_table_cells();
         assert_eq!(cells.len(), 5);
         assert!(distinct(&cells));
         assert_eq!(cells[0], CellForm::Leaf(Presence::Present(Value::Int(0))));
@@ -4145,12 +4145,15 @@ mod tests {
         };
         check_scope(&dangling, &none, 3, 4);
         // The encoding spec: the sum over a + b <= max of 7^a 2^(a b).
-        let seven = |_: &str, _: &str| o7_encoding_forms();
-        check_scope(&o7_encoding_spec(), &seven, 1, 9);
-        check_scope(&o7_encoding_spec(), &seven, 2, 73);
+        let seven = |_: &str, _: &str| graph_encoding_forms();
+        check_scope(&graph_encoding_spec(), &seven, 1, 9);
+        check_scope(&graph_encoding_spec(), &seven, 2, 73);
         check_scope(&unnamed_inner_spec(), &|_, _| unnamed_inner_forms(), 2, 21);
         // Counts alone beyond the enumerated sizes: 5 + 105 + 1029 + 3087 + 2401.
-        assert_eq!(spec_graphs_count(&o7_encoding_spec(), &|_, _| 7, 4), 6627);
+        assert_eq!(
+            spec_graphs_count(&graph_encoding_spec(), &|_, _| 7, 4),
+            6627
+        );
         // 1 + 2 + 4 + 10 + 34.
         assert_eq!(spec_graphs_count(&relation_spec(), &|_, _| 0, 4), 51);
         assert_eq!(spec_graphs_count(&GraphSpec::default(), &|_, _| 3, 5), 1);
@@ -4203,9 +4206,9 @@ mod tests {
     /// one `b` row it relates to.
     fn list_graph() -> Graph {
         spec_graph(
-            &o7_encoding_spec(),
+            &graph_encoding_spec(),
             &[1, 1],
-            &o7_encoding_forms(),
+            &graph_encoding_forms(),
             &[4],
             &[1],
         )
@@ -4230,8 +4233,8 @@ mod tests {
             ],
         );
         assert_eq!(list_graph(), expected);
-        let forms = o7_encoding_forms();
-        let spec = o7_encoding_spec();
+        let forms = graph_encoding_forms();
+        let spec = graph_encoding_spec();
         let record = spec_graph(&spec, &[1, 1], &forms, &[3], &[0]);
         let k = inner_prop_edge("a.x", "a.x.k", "k");
         assert_eq!(record.edges[&1], gedge(2, 3, k, None));
@@ -4293,7 +4296,7 @@ mod tests {
         assert_eq!(moved.nodes[&7].anchor, "a.x");
         assert_eq!((moved.edges[&3].src, moved.edges[&3].tgt), (7, 8));
         assert_eq!(moved.edges[&3].position, Some(0));
-        let spec = o7_encoding_spec();
+        let spec = graph_encoding_spec();
         let decorated = decorate_spec_graph(&moved, &spec);
         for (id, n) in &decorated.nodes {
             assert_eq!(n.discriminator.as_ref(), Some(&n.anchor));
@@ -4320,14 +4323,14 @@ mod tests {
     fn encoding_presentations_list_four_forms_of_each_graph() {
         // Four times 1, 9, 73: the sum over a + b <= max of 7^a 2^(a b).
         for (max, bound, expected) in [(0, 0, 4), (1, 1, 36), (2, 2, 292)] {
-            let presentations = o7_encoding_presentations(max);
-            assert_eq!(o7_encoding_presentations_count(bound), expected);
+            let presentations = graph_encoding_presentations(max);
+            assert_eq!(graph_encoding_presentations_count(bound), expected);
             assert_eq!(presentations.len() as u64, expected);
             assert!(presentations.iter().all(Graph::well_formed));
         }
-        assert_eq!(o7_encoding_presentations_count(4), 4 * 6627);
+        assert_eq!(graph_encoding_presentations_count(4), 4 * 6627);
         // The third graph at bound 1 is one `a` row holding the constant.
-        let all = o7_encoding_presentations(1);
+        let all = graph_encoding_presentations(1);
         let column = GraphSpec::column_edge("a", "x");
         let plain = graph(
             vec![
@@ -4427,7 +4430,7 @@ mod tests {
                 "a merge with a shared column whose relations merge",
             ]
         );
-        let mut joined = o7_adjunction_family();
+        let mut joined = graph_encoding_adjunction_family();
         assert_eq!(joined.len(), 7);
         let merges = relation_merge_cases();
         assert_eq!(merges.len(), 3);
@@ -4552,9 +4555,9 @@ mod tests {
     /// edges `0: 0 -> 2`, `1: 2 -> 3`, `2: 0 -> 1`.
     fn record_graph() -> Graph {
         spec_graph(
-            &o7_encoding_spec(),
+            &graph_encoding_spec(),
             &[1, 1],
-            &o7_encoding_forms(),
+            &graph_encoding_forms(),
             &[3],
             &[1],
         )
@@ -4691,9 +4694,9 @@ mod tests {
             edit_edge(&list, 1, &|e| e.position = None)
         );
         let two = spec_graph(
-            &o7_encoding_spec(),
+            &graph_encoding_spec(),
             &[2],
-            &o7_encoding_forms(),
+            &graph_encoding_forms(),
             &[0, 0],
             &[],
         );

@@ -4,7 +4,7 @@ An edit is useful only when its payload records enough of the old state to rejec
 
 The coverage scope of the edit algebra is a finite carrier fixed by its parameters. A schema has at most two vertices, drawn from `a` and `b`, and at most two edges of the one kind `e`, without names, which gives sixteen schemas. Over each schema the scope holds every graph of at most three nodes and two edges, every table of at most three rows and two foreign-key pairs, and every tree of at most three nodes, under every parent map and arc order. Node values, table cells in column `f` and tree fields `f` are absent, `0` or `1`, and every edge, pair and arc is labelled by the schema edge between the vertices of its endpoints. Ids are labelled, so no isomorphic copy is pruned.
 
-A word has at most three edits, and each letter is drawn from an alphabet generated at the state its prefix reaches. Additions of nodes, rows and edges take two ids: the fresh id, one above the largest id present, and the floor, one above the largest id present at any earlier point of the word. The other letters name the state's own elements: deletions with their payloads, changes of a value to another value of the alphabet, foreign-key additions and removals, and for trees leaf deletions, anchor changes and parent changes, the root's included. A letter that refuses ends its word, and its typed refusal is the word's outcome. Thus a graph word ends at a node deletion with incident edges, a table word at the addition of a present pair, and a tree word at the deletion of the root or of an inner node, at any move of the root, or at a move under the node itself or a descendant. Deleting, contracting and moving the root are refused alike as root operations (`RootOperation`), since the root has no parent arc to remove or replace; a move of the root is refused as a root operation before any cycle check, even though every other node is its descendant. `c8_scope_status` in the enumerator reports these parameters and reports the scope complete.
+A word has at most three edits, and each letter is drawn from an alphabet generated at the state its prefix reaches. Additions of nodes, rows and edges take two ids: the fresh id, one above the largest id present, and the floor, one above the largest id present at any earlier point of the word. The other letters name the state's own elements: deletions with their payloads, changes of a value to another value of the alphabet, foreign-key additions and removals, and for trees leaf deletions, anchor changes and parent changes, the root's included. A letter that refuses ends its word, and its typed refusal is the word's outcome. Thus a graph word ends at a node deletion with incident edges, a table word at the addition of a present pair, and a tree word at the deletion of the root or of an inner node, at any move of the root, or at a move under the node itself or a descendant. Deleting, contracting and moving the root are refused alike as root operations (`RootOperation`), since the root has no parent arc to remove or replace; a move of the root is refused as a root operation before any cycle check, even though every other node is its descendant. `coverage_scope_status` in the enumerator reports these parameters and reports the scope complete.
 
 Over the sixteen schemas the scope holds 61,066 graphs, 32,038 tables and 3,156 trees. From them start 847,822,000 graph words, 403,354,180 table words and 65,871,966 tree words, the empty word of each state included. An independent count agrees with each enumeration: it runs on structures without values, since a value never decides which letters exist or apply, and multiplies by the three values of each node, row or tree node and by the arc orders of each tree. Three exhaustive differentials, run in release mode, walk every word and compare production with the reference after each letter. Each compares the letter's outcome, typed refusals included. For graphs and tables they also compare the composite delta of the word, its inverse, its canonical bytes and its application from the initial state; for trees they compare the lowering of the whole word as a sequence, the embedding it reaches, its application to the initial graph form and the word's canonical bytes. A fourth compares independence and merge on every ordered pair of letters at every initial graph, and applies both orders and the merge whenever both letters apply and are independent.
 
@@ -42,9 +42,9 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 - Reference: `panproto_reference::edit::apply`
 - Reference: `panproto_reference::edit::independence`
 - Reference: `panproto_reference::edit::merge`
-- Enumerator: `panproto_reference::enumerate::edits::c8_graph_words; bound: word_length=3`
-- Exhaustive differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope)'`
+- Enumerator: `panproto_reference::enumerate::edits::coverage_graph_words; bound: word_length=3`
+- Exhaustive differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
+- Property differential test: `graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope)'`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`
 - File: `crates/panproto-inst/src/graph_edit/independence.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -96,8 +96,8 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 - Reference: `panproto_reference::edit::invert_table`
 - Reference: `panproto_reference::edit::compose_table`
 - Reference: `panproto_reference::edit::diff_table`
-- Enumerator: `panproto_reference::enumerate::edits::c8_table_words; bound: word_length=3`
-- Exhaustive differential test: `c8_table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
+- Enumerator: `panproto_reference::enumerate::edits::coverage_table_words; bound: word_length=3`
+- Exhaustive differential test: `table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
 - Outside-domain test: `e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables; witness: row 0 in table a with pair (a -e-> b, 0, 0)`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
@@ -147,9 +147,9 @@ The *per-element action* is one of none, deletion, addition, replacement, or a f
 - Law ID: `edits.e3`
 - Reference: `panproto_reference::edit::Delta::compose`
 - Reference: `panproto_reference::edit::graph_delta_from_tree_edit`
-- Enumerator: `panproto_reference::enumerate::edits::c8_tree_words; bound: word_length=3`
-- Exhaustive differential test: `c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
+- Enumerator: `panproto_reference::enumerate::edits::coverage_tree_words; bound: word_length=3`
+- Exhaustive differential test: `tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope)'`
+- Property differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-inst/src/tree_edit.rs`
@@ -198,8 +198,8 @@ A *canonical part order* is the field order stated above, followed by the derive
 - Reference: `panproto_reference::edit::canonical_graph_delta_bytes`
 - Reference: `panproto_reference::edit::canonical_table_delta_bytes`
 - Reference: `panproto_reference::edit::canonical_tree_edit_bytes`
-- Enumerator: `panproto_reference::enumerate::edits::c8_graph_words; bound: word_length=3`
-- Exhaustive differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
+- Enumerator: `panproto_reference::enumerate::edits::coverage_graph_words; bound: word_length=3`
+- Exhaustive differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence)'`
 - Outside-domain test: `e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain; witness: InsertNode child_id=1, node.id=2`
 - File: `crates/panproto-inst/src/graph_edit/canonical.rs`
@@ -254,8 +254,8 @@ A row payload is its table name together with its complete cell map. A relation 
 - Reference: `panproto_reference::edit::table_edit_delta`
 - Reference: `panproto_reference::edit::apply_table_step`
 - Reference: `panproto_reference::edit::delete_row_delta`
-- Enumerator: `panproto_reference::enumerate::edits::c8_table_words; bound: word_length=3`
-- Exhaustive differential test: `c8_table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
+- Enumerator: `panproto_reference::enumerate::edits::coverage_table_words; bound: word_length=3`
+- Exhaustive differential test: `table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `t5_surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=t5_surface_table_edits_lower_check_and_invert_like_the_reference)'`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/src/table_edit.rs`
@@ -306,8 +306,8 @@ The *incoming arc* of a nonroot tree node is its unique parent arc. *Joined-node
 - Reference: `panproto_reference::edit::apply_tree`
 - Reference: `panproto_reference::edit::graph_delta_from_tree_edit`
 - Enumerator: `panproto_reference::enumerate::edits::join_cases; bound: cases=9`
-- Exhaustive differential test: `e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive)'`
-- Property differential test: `tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged)'`
+- Exhaustive differential test: `tree_lowering_and_application_match_reference_for_every_primitive; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_lowering_and_application_match_reference_for_every_primitive)'`
+- Property differential test: `tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged)'`
 - File: `crates/panproto-inst/src/tree_edit.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -350,8 +350,8 @@ A *replacement* is one id present in both the deleted and added structural maps.
 
 - Law ID: `edits.replacement-semantics`
 - Reference: `panproto_reference::edit::Delta::compose`
-- Enumerator: `panproto_reference::enumerate::edits::c8_graph_words; bound: word_length=3`
-- Exhaustive differential test: `c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=c8_graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
+- Enumerator: `panproto_reference::enumerate::edits::coverage_graph_words; bound: word_length=3`
+- Exhaustive differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - Property differential test: `decision_9_delete_then_add_is_replacement_even_for_equal_payloads; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=decision_9_delete_then_add_is_replacement_even_for_equal_payloads)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`

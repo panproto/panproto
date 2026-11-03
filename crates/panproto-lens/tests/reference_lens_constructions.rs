@@ -19,12 +19,13 @@ use panproto_inst::{
 };
 use panproto_lens::{Lens, LensError, graph_lens, table_lens};
 use panproto_reference::enumerate::lenses::{
-    C11_FIELD, C11_VALUE, C11Layer, C11Stage, LensConstructionCase, LensConstructionCaseCensus,
-    TABLE_FIXTURE_TABLE_KIND, TABLE_FIXTURE_VALUE_KIND, TableFixture, WRITER_VALUE_KIND,
-    WriterFixture, c11_fan_schema, c11_fan_states, c11_graph_states, c11_stages, c11_tree_states,
-    for_each_lens_construction_case, for_each_table_fixture, for_each_writer_fixture,
-    lens_construction_case_census_certificate, lens_construction_count_certificate,
-    table_fixture_count_certificate, writer_count_certificate,
+    BOUNDED_LENS_FIELD, BOUNDED_LENS_VALUE, BoundedLensLayer, BoundedLensStage,
+    LensConstructionCase, LensConstructionCaseCensus, TABLE_FIXTURE_TABLE_KIND,
+    TABLE_FIXTURE_VALUE_KIND, TableFixture, WRITER_VALUE_KIND, WriterFixture,
+    bounded_lens_fan_schema, bounded_lens_fan_states, bounded_lens_graph_states,
+    bounded_lens_stages, bounded_lens_tree_states, for_each_lens_construction_case,
+    for_each_table_fixture, for_each_writer_fixture, lens_construction_case_census_certificate,
+    lens_construction_count_certificate, table_fixture_count_certificate, writer_count_certificate,
 };
 use panproto_reference::migration::Migration as RefMigration;
 use panproto_reference::model::{
@@ -332,60 +333,60 @@ fn prod_migration(migration: &RefMigration) -> CompiledMigration {
     }
 }
 
-fn production_stage(stage: &C11Stage) -> Lens {
+fn production_stage(stage: &BoundedLensStage) -> Lens {
     let mut structural = stage.migration.clone();
     structural.conditional.clear();
     structural.transformed.clear();
     let mut compiled = prod_migration(&structural);
     match stage.layer {
-        C11Layer::None => {}
-        C11Layer::SurvivalFalse => {
+        BoundedLensLayer::None => {}
+        BoundedLensLayer::SurvivalFalse => {
             for vertex in &stage.migration.conditional {
                 compiled
                     .conditional_survival
                     .insert(vertex.clone().into(), Expr::Lit(Literal::Bool(false)));
             }
         }
-        C11Layer::AddField => {
+        BoundedLensLayer::AddField => {
             for vertex in &stage.migration.transformed {
                 compiled.field_transforms.insert(
                     vertex.clone().into(),
                     vec![FieldTransform::AddField {
-                        key: C11_FIELD.to_owned(),
-                        value: prod_value(&C11_VALUE),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
+                        value: prod_value(&BOUNDED_LENS_VALUE),
                     }],
                 );
             }
         }
-        C11Layer::DropField => {
+        BoundedLensLayer::DropField => {
             for vertex in &stage.migration.transformed {
                 compiled.field_transforms.insert(
                     vertex.clone().into(),
                     vec![FieldTransform::DropField {
-                        key: C11_FIELD.to_owned(),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
                     }],
                 );
             }
         }
-        C11Layer::ReadField => {
+        BoundedLensLayer::ReadField => {
             for vertex in &stage.migration.transformed {
                 compiled.field_transforms.insert(
                     vertex.clone().into(),
                     vec![FieldTransform::ApplyExpr {
-                        key: C11_FIELD.to_owned(),
-                        expr: Expr::Var(C11_FIELD.into()),
-                        inverse: Some(Expr::Var(C11_FIELD.into())),
+                        key: BOUNDED_LENS_FIELD.to_owned(),
+                        expr: Expr::Var(BOUNDED_LENS_FIELD.into()),
+                        inverse: Some(Expr::Var(BOUNDED_LENS_FIELD.into())),
                         coercion_class: CoercionClass::Iso,
                     }],
                 );
             }
         }
-        C11Layer::OpTerm => {
+        BoundedLensLayer::OpTerm => {
             for vertex in &stage.migration.transformed {
                 compiled.op_term_assignments.insert(
                     vertex.clone().into(),
                     vec![TermAssignment::Compute {
-                        target: C11_FIELD.to_owned(),
+                        target: BOUNDED_LENS_FIELD.to_owned(),
                         scope: TermScope::Row,
                         term: Expr::Lit(Literal::Int(0)),
                         inverse: None,
@@ -1048,7 +1049,7 @@ fn target_only_edge_lens() -> Lens {
 }
 
 fn target_only_hyper_lens() -> Lens {
-    let target = prod_schema(&c11_fan_schema());
+    let target = prod_schema(&bounded_lens_fan_schema());
     let mut source = target.clone();
     source.hyper_edges.clear();
     Lens {
@@ -1236,7 +1237,7 @@ fn unit_complement_classifiers_reject_scalar_and_target_only_coordinates() -> us
     assert!(!target_hyper.is_isomorphism());
     scenarios += 1;
 
-    let hyper_schema = prod_schema(&c11_fan_schema());
+    let hyper_schema = prod_schema(&bounded_lens_fan_schema());
     let hyper_identity = identity_lens(&hyper_schema);
     let empty_fan_source = WInstance::new(
         HashMap::from([(0, Node::new(0, "a"))]),
@@ -1405,7 +1406,7 @@ fn incoherent_unique_pair_resolver_is_rejected() -> usize {
 
 fn graph_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
     let certificate = lens_construction_count_certificate();
-    let stages = c11_stages();
+    let stages = bounded_lens_stages();
     assert_eq!(stages.len(), certificate.stage_classifications);
     let mut seen = BTreeSet::new();
     let mut positive_stages = 0_usize;
@@ -1455,10 +1456,10 @@ fn graph_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
         }
         positive_stages += 1;
 
-        let source_graphs = if stage.source == c11_fan_schema() {
-            c11_fan_states()
+        let source_graphs = if stage.source == bounded_lens_fan_schema() {
+            bounded_lens_fan_states()
         } else {
-            c11_graph_states(&stage.source)
+            bounded_lens_graph_states(&stage.source)
         };
         let mut admitted = 0_usize;
         for state in source_graphs {
@@ -1534,7 +1535,7 @@ fn tree_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
     let mut state_bearing_positive_stages = 0_usize;
     let mut restored = 0_usize;
     let mut open_field_witness_count = 0_usize;
-    for stage in c11_stages() {
+    for stage in bounded_lens_stages() {
         stage_count += 1;
         let lens = production_stage(&stage);
         let obstruction = independent_tree_obstruction(&lens);
@@ -1561,11 +1562,11 @@ fn tree_classifier_and_complement_free_put_agree_with_the_structural_oracle() {
             continue;
         }
         positive_stages += 1;
-        if stage.source == c11_fan_schema() {
+        if stage.source == bounded_lens_fan_schema() {
             continue;
         }
 
-        let states = c11_tree_states(&stage.source);
+        let states = bounded_lens_tree_states(&stage.source);
         let expected = states.len();
         let mut admitted = 0_usize;
         for state in states {
@@ -2193,25 +2194,25 @@ fn sampled<T>(values: Vec<T>) -> Vec<T> {
         .collect()
 }
 
-fn c11_stage_carrier() -> &'static [C11Stage] {
-    static STAGES: OnceLock<Vec<C11Stage>> = OnceLock::new();
-    STAGES.get_or_init(c11_stages)
+fn bounded_lens_stage_carrier() -> &'static [BoundedLensStage] {
+    static STAGES: OnceLock<Vec<BoundedLensStage>> = OnceLock::new();
+    STAGES.get_or_init(bounded_lens_stages)
 }
 
-fn graph_restoration_carrier() -> &'static [(C11Stage, Vec<RefGraph>)] {
-    static CASES: OnceLock<Vec<(C11Stage, Vec<RefGraph>)>> = OnceLock::new();
+fn graph_restoration_carrier() -> &'static [(BoundedLensStage, Vec<RefGraph>)] {
+    static CASES: OnceLock<Vec<(BoundedLensStage, Vec<RefGraph>)>> = OnceLock::new();
     CASES.get_or_init(|| {
-        c11_stages()
+        bounded_lens_stages()
             .into_iter()
             .filter_map(|stage| {
                 let lens = production_stage(&stage);
                 if independent_graph_obstruction(&lens).is_some() {
                     return None;
                 }
-                let states = if stage.source == c11_fan_schema() {
-                    c11_fan_states()
+                let states = if stage.source == bounded_lens_fan_schema() {
+                    bounded_lens_fan_states()
                 } else {
-                    c11_graph_states(&stage.source)
+                    bounded_lens_graph_states(&stage.source)
                 };
                 Some((stage, sampled(states)))
             })
@@ -2219,18 +2220,19 @@ fn graph_restoration_carrier() -> &'static [(C11Stage, Vec<RefGraph>)] {
     })
 }
 
-fn tree_restoration_carrier() -> &'static [(C11Stage, Vec<RefTree>)] {
-    static CASES: OnceLock<Vec<(C11Stage, Vec<RefTree>)>> = OnceLock::new();
+fn tree_restoration_carrier() -> &'static [(BoundedLensStage, Vec<RefTree>)] {
+    static CASES: OnceLock<Vec<(BoundedLensStage, Vec<RefTree>)>> = OnceLock::new();
     CASES.get_or_init(|| {
-        c11_stages()
+        bounded_lens_stages()
             .into_iter()
             .filter_map(|stage| {
                 let lens = production_stage(&stage);
-                if independent_tree_obstruction(&lens).is_some() || stage.source == c11_fan_schema()
+                if independent_tree_obstruction(&lens).is_some()
+                    || stage.source == bounded_lens_fan_schema()
                 {
                     return None;
                 }
-                let states = c11_tree_states(&stage.source);
+                let states = bounded_lens_tree_states(&stage.source);
                 (!states.is_empty()).then(|| (stage, sampled(states)))
             })
             .collect()
@@ -2303,7 +2305,7 @@ fn tree_validation_isomorphism_witnesses() {
 }
 
 fn assert_random_graph_cases(selectors: &[u64]) {
-    let stages = c11_stage_carrier();
+    let stages = bounded_lens_stage_carrier();
     let stage = &stages[selector_index(selectors[0], stages.len())];
     let lens = production_stage(stage);
     let expected = independent_graph_obstruction(&lens);
@@ -2340,7 +2342,7 @@ fn assert_random_graph_cases(selectors: &[u64]) {
 }
 
 fn assert_random_tree_cases(selectors: &[u64]) {
-    let stages = c11_stage_carrier();
+    let stages = bounded_lens_stage_carrier();
     let stage = &stages[selector_index(selectors[0], stages.len())];
     let lens = production_stage(stage);
     let expected = independent_tree_obstruction(&lens);

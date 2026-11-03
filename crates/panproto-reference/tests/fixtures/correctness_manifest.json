@@ -2565,7 +2565,7 @@
               "role": "differential",
               "crate": "panproto-check",
               "binary": "panproto-check::reference_classify",
-              "test": "every_o17_key_change_classifies_through_the_factorization_certificate"
+              "test": "every_key_change_classifies_through_the_factorization_certificate"
             },
             {
               "role": "differential",
@@ -2865,7 +2865,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
-              "test": "xml_kernel_executes_the_exact_o17_carrier"
+              "test": "xml_kernel_executes_the_exact_key_carrier"
             }
           ]
         },
@@ -3382,7 +3382,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+              "test": "exhaustive_kan_hom_profile_pairs_agree_with_the_reference"
             },
             {
               "role": "differential",
@@ -3435,7 +3435,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+              "test": "exhaustive_kan_hom_profile_pairs_agree_with_the_reference"
             },
             {
               "role": "differential",
@@ -3480,7 +3480,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+              "test": "exhaustive_kan_hom_profile_pairs_agree_with_the_reference"
             },
             {
               "role": "differential",
@@ -3531,7 +3531,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o14_hom_profile_pairs_agree_with_the_reference"
+              "test": "exhaustive_kan_hom_profile_pairs_agree_with_the_reference"
             },
             {
               "role": "differential",
@@ -3594,31 +3594,31 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o7_encoding_agrees_with_the_reference"
+              "test": "graph_encoding_agrees_with_the_reference"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o7_decoding_agrees_with_the_reference_on_every_table_and_layout"
+              "test": "graph_decoding_agrees_with_the_reference_on_every_table_and_layout"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o7_encoding_refusals_agree_with_the_reference"
+              "test": "graph_encoding_refusals_agree_with_the_reference"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o7_graph_kan_homs_agree_with_the_reference"
+              "test": "graph_encoding_graph_kan_homs_agree_with_the_reference"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
-              "test": "o7_graph_adjunctions_agree_with_the_reference"
+              "test": "graph_encoding_graph_adjunctions_agree_with_the_reference"
             },
             {
               "role": "differential",
@@ -4109,26 +4109,26 @@
             {
               "role": "differential",
               "crate": "panproto-lens",
-              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
-              "test": "tr12_get_functoriality_replacement_and_minimality_match_the_reference"
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference"
             },
             {
               "role": "differential",
               "crate": "panproto-lens",
-              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
-              "test": "tr12_put_functoriality_minimality_and_source_undo_match_the_reference"
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference"
             },
             {
               "role": "differential",
               "crate": "panproto-lens",
-              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
-              "test": "tr12_state_reading_lowering_has_the_same_typed_refusals"
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "tree_edit_lens_state_reading_lowering_has_the_same_typed_refusals"
             },
             {
               "role": "differential",
               "crate": "panproto-lens",
-              "binary": "panproto-lens::reference_tree_edit_lens_tr12",
-              "test": "tr12_late_sequence_refusal_is_atomic_for_reference_and_production"
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "tree_edit_lens_late_sequence_refusal_is_atomic_for_reference_and_production"
             }
           ]
         },
@@ -4289,7 +4289,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive"
+              "test": "tree_lowering_and_application_match_reference_for_every_primitive"
             },
             {
               "role": "differential",
@@ -4385,13 +4385,13 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e3_tr14_tree_lowering_and_application_match_reference_for_every_primitive"
+              "test": "tree_lowering_and_application_match_reference_for_every_primitive"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "tr14_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged"
+              "test": "tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged"
             }
           ]
         },
@@ -6401,7 +6401,7 @@
               "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
-              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope"
             },
             {
               "role": "differential",
@@ -6470,13 +6470,13 @@
               "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
-              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+              "test": "all_five_resolution_laws_agree_on_the_exact_resolution_scope"
             },
             {
               "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
-              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope"
             }
           ]
         },
@@ -6536,7 +6536,7 @@
               "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
-              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+              "test": "all_five_resolution_laws_agree_on_the_exact_resolution_scope"
             },
             {
               "role": "reference",
@@ -6603,7 +6603,7 @@
               "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
-              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_s8_scope"
+              "test": "declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope"
             },
             {
               "role": "reference",
@@ -6675,7 +6675,7 @@
               "role": "differential",
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
-              "test": "all_five_resolution_laws_agree_on_the_exact_s8_scope"
+              "test": "all_five_resolution_laws_agree_on_the_exact_resolution_scope"
             },
             {
               "role": "reference",

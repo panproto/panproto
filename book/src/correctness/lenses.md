@@ -1032,7 +1032,7 @@ The graph form and the embedding are those of [L-lenses-5](#L-lenses-5). The com
 - Law ID: `lenses.fb-graph-square`
 - Reference: `panproto_reference::lens::graph_square`
 - Reference: `panproto_reference::lens::graph_put_square`
-- Enumerator: `panproto_reference::enumerate::lenses::for_each_c11_tree_square_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28864, observations=31412`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_bounded_lens_tree_square_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28864, observations=31412`
 - Exhaustive differential test: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_graph_square_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`

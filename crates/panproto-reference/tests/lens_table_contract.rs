@@ -2047,7 +2047,7 @@ fn with_default_table_lens<T>(run: impl FnOnce(&Schema, &TableLens<'_>) -> T) ->
         .output_fields
         .insert("a".to_owned(), vec!["f".to_owned()]);
     let (source, target, plan) = table_plan(&schema, &schema, &migration);
-    let layer = panproto_reference::enumerate::lenses::C11AddField;
+    let layer = panproto_reference::enumerate::lenses::BoundedLensAddField;
     let semantics = BTreeMap::new();
     let lens = must(TableLens::new(
         &schema,
