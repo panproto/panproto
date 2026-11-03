@@ -435,7 +435,11 @@ fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
 /// — the check has nothing to measure reachability from and reports nothing.
 ///
 /// From the roots this performs a full BFS through the source schema's edge
-/// graph. Non-surviving intermediate vertices are traversed but not counted as
+/// graph and its coproduct declarations: each arm declared a variant of a
+/// reached vertex is reached too, since a value of the coproduct is anchored
+/// at one of its arms. An arm need not carry an edge from its coproduct; the
+/// untagged arm of an open union, for instance, is known only through its
+/// variant declaration. Non-surviving intermediate vertices are traversed but not counted as
 /// reachable; only surviving vertices reached through the BFS are considered
 /// reachable. A visited set prevents infinite loops in schemas with cycles.
 fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
@@ -480,9 +484,15 @@ fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec
     }
 
     while let Some(current) = queue.pop_front() {
-        // Follow outgoing edges from the current vertex
-        for edge in src.outgoing_edges(current) {
-            let target = &*edge.tgt;
+        // Follow outgoing edges from the current vertex, then its declared
+        // coproduct arms.
+        let edge_targets = src.outgoing_edges(current).iter().map(|edge| &*edge.tgt);
+        let arms = src
+            .variants_of(current)
+            .iter()
+            .map(|variant| &*variant.id)
+            .filter(|arm| src.has_vertex(arm));
+        for target in edge_targets.chain(arms) {
             if visited.insert(target) {
                 queue.push_back(target);
                 if surviving_src.contains(target) {
@@ -1063,6 +1073,72 @@ mod tests {
         assert!(
             risks.is_empty(),
             "identity migration on a recursive schema must report no reachability risk, got {risks:?}"
+        );
+    }
+
+    /// An open union's untagged arm is declared a variant of the union and
+    /// has no edge into it. The identity reaches it through the variant
+    /// declaration, so it is not a reachability risk.
+    #[test]
+    fn an_arm_known_only_by_its_variant_declaration_is_reachable() {
+        let protocol = test_protocol("ThGraph", "ThWType");
+        let embed = Edge {
+            src: "post".into(),
+            tgt: "post.embed".into(),
+            kind: "prop".into(),
+            name: Some("embed".into()),
+        };
+        let mut schema = test_schema(
+            &[
+                ("post", "object"),
+                ("post.embed", "union"),
+                ("post.embed:open", "unknown"),
+            ],
+            &[embed.clone()],
+        );
+        schema.entries = vec![Name::from("post")];
+        schema.variants.insert(
+            Name::from("post.embed"),
+            vec![panproto_schema::Variant {
+                id: Name::from("post.embed:open"),
+                parent_vertex: Name::from("post.embed"),
+                tag: None,
+            }],
+        );
+        let mig = Migration {
+            vertex_map: HashMap::from([
+                (Name::from("post"), Name::from("post")),
+                (Name::from("post.embed"), Name::from("post.embed")),
+                (Name::from("post.embed:open"), Name::from("post.embed:open")),
+            ]),
+            edge_map: HashMap::from([(embed.clone(), embed)]),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+        let registry = HashMap::from([(
+            "ThWType".into(),
+            Theory::new(
+                "ThWType",
+                vec![panproto_gat::Sort::simple("Node")],
+                vec![],
+                vec![],
+            ),
+        )]);
+        let report = check_existence(&protocol, &schema, &schema, &mig, &registry);
+        let risks: Vec<&ExistenceError> = report
+            .errors
+            .iter()
+            .filter(|e| matches!(e, ExistenceError::ReachabilityRisk { .. }))
+            .collect();
+        assert!(
+            risks.is_empty(),
+            "a variant arm without an inbound edge is reached through its union, got {risks:?}"
         );
     }
 
