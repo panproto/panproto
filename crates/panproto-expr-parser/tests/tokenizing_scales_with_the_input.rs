@@ -10,13 +10,17 @@
 //! over. The bound below is loose enough that machine noise cannot trip it and
 //! tight enough that a per-token rescan cannot pass.
 //!
-//! Two things keep the measurement honest under a loaded machine, which is the
-//! condition it actually runs in: a whole test suite in parallel. The inputs
-//! are large enough that both timings sit well above the scheduler's noise
-//! floor, and each is the *minimum* of several runs rather than the median.
-//! Contention can only ever make a sample slower, never faster, so the minimum
-//! is the closest estimate of the uncontended cost, while a median moves with
-//! whatever else the machine was doing.
+//! A raw quotient of two timings is exposed to the machine's load, which is the
+//! condition the test actually runs in: a whole suite in parallel. Other test
+//! binaries preempt the tokenizer, move it between fast and slow cores and
+//! contend for the caches, and a longer run over a larger input is slowed more
+//! than a shorter one, so a linear tokenizer can show a superlinear quotient.
+//! So the large run is measured against the small run itself: each round times
+//! one large run and, right after it, a window of repeated small runs that lasts
+//! about as long. Both windows tokenize about the same number of lines for
+//! about the same time at the same moment, so the load slows both alike and
+//! their quotient, the large run in small runs, keeps its value. The measure is
+//! the median of that quotient over the rounds.
 
 #![allow(
     clippy::expect_used,
@@ -44,41 +48,55 @@ fn source(lines: usize) -> String {
     out
 }
 
-/// The fastest of nine timings.
-///
-/// Every source of noise here is one-sided: another process taking the core,
-/// a page fault, the allocator going to the OS. Each makes a run slower and
-/// none makes one faster, so the minimum is the best available estimate of
-/// what the work costs, and it is the statistic that stays put when the rest
-/// of the suite runs alongside it.
-fn time_tokenizing(lines: usize) -> Duration {
-    let input = source(lines);
-    (0..9)
+/// The time one tokenization of `input` takes.
+fn time_tokenizing(input: &str, lines: usize) -> Duration {
+    let start = Instant::now();
+    let tokens = tokenize(input).expect("the fixture tokenizes");
+    let elapsed = start.elapsed();
+    assert!(tokens.len() > lines, "every line contributes tokens");
+    elapsed
+}
+
+/// The median, over `rounds` rounds, of one tokenization of `large` lines
+/// measured in tokenizations of `small` lines run right after it for about
+/// as long.
+fn large_run_in_small_runs(rounds: usize, small: usize, large: usize) -> f64 {
+    let (small_input, large_input) = (source(small), source(large));
+    // One warm-up run of each, then the repeat count that makes the window
+    // of small runs about as long as one large run.
+    let one_small = time_tokenizing(&small_input, small).max(Duration::from_micros(1));
+    let one_large = time_tokenizing(&large_input, large);
+    let (s, l) = (one_small.as_nanos(), one_large.as_nanos());
+    let repeats = u32::try_from((l + s / 2) / s)
+        .unwrap_or(u32::MAX)
+        .clamp(1, 1_000_000);
+    let mut quotients: Vec<f64> = (0..rounds)
         .map(|_| {
-            let start = Instant::now();
-            let tokens = tokenize(&input).expect("the fixture tokenizes");
-            assert!(tokens.len() > lines, "every line contributes tokens");
-            start.elapsed()
+            let large_run = time_tokenizing(&large_input, large).as_secs_f64();
+            let window: f64 = (0..repeats)
+                .map(|_| time_tokenizing(&small_input, small).as_secs_f64())
+                .sum();
+            large_run * f64::from(repeats) / window
         })
-        .min()
-        .expect("nine samples")
+        .collect();
+    quotients.sort_by(f64::total_cmp);
+    quotients[quotients.len() / 2]
 }
 
 #[test]
 fn four_times_the_input_does_not_cost_sixteen_times_the_time() {
-    // Large enough that the smaller timing is milliseconds rather than the
-    // hundreds of microseconds where a single scheduling slice dominates it.
-    let small = time_tokenizing(2_000);
-    let large = time_tokenizing(8_000);
+    // Large enough that one small run is milliseconds even when optimized,
+    // well above the scheduler slice that dominates a run of microseconds.
+    let ratio = large_run_in_small_runs(9, 8_000, 32_000);
+    println!("32000 lines took {ratio:.2} times as long as 8000 lines");
 
     // Linear scanning puts this at about 4. Quadratic scanning puts it at
     // about 16. Eight leaves room for cache effects and allocator noise while
     // staying well clear of the quadratic curve.
-    let ratio = large.as_secs_f64() / small.as_secs_f64().max(f64::EPSILON);
     assert!(
         ratio < 8.0,
-        "2000 lines took {small:?}, 8000 lines took {large:?} — a ratio of \
-         {ratio:.1}, which is the quadratic curve, not the linear one"
+        "32000 lines took {ratio:.1} times as long as 8000 lines, which is the \
+         quadratic curve, not the linear one"
     );
 }
 
