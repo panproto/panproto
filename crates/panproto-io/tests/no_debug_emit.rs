@@ -72,7 +72,7 @@ const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
     ),
     (
         "src/cst_extract.rs",
-        r#"format!( "data row {} at byte {:?} has {} fields but {} header fields are declared", row_idx + 1, cst_byte_offset(cst, row_name), fields.len(), headers.len() )"#,
+        r#"format!( "data row {} at byte {:?} has {} fields but {} header fields are declared", row_idx + 1, cst_byte_offset(cst, row_name), field_count, headers )"#,
     ),
     (
         "src/json_pathway.rs",
@@ -119,8 +119,72 @@ const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
         r#"format!("invalid XML namespace declaration {key:?}")"#,
     ),
     (
+        "src/json_pathway.rs",
+        r#"format!("no arm of union '{anchor}' reads `$type` {tag:?}")"#,
+    ),
+    (
         "src/xml_pathway.rs",
-        r#"format!( "XML attribute {key:?} uses unbound namespace prefix {:?}", String::from_utf8_lossy(&prefix) )"#,
+        r#"format!("XML encoding {label:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("external XML entity {name:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("XML parameter entity construct {name:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("XML entity {name:?} is undeclared at byte {byte_offset:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("XML entity {name:?} is recursive at byte {byte_offset:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("malformed XML entity or character reference at byte {byte_offset:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("XML attribute has invalid QName or Clark name {key:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML attributes map to duplicate written qualified name {output_key:?}" )"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML document element {tag:?} does not match its declared document type" )"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("XML element {tag:?} uses an invalid or unbound namespace prefix")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML attribute {key:?} uses unbound namespace prefix {:?}", String::from_utf8_lossy(prefix) )"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML #FIXED attribute {key:?} on element {element_name:?} has a different value" )"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!("invalid XML namespace declaration {key:?}")"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML defaulted attribute {key:?} uses unbound namespace prefix {:?}", String::from_utf8_lossy(prefix) )"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML entity \"missing\" is undeclared at byte {expected:?}" )"#,
+    ),
+    (
+        "src/xml_pathway.rs",
+        r#"format!( "XML entity \"a\" is recursive at byte {reference_offset:?}" )"#,
     ),
     (
         "src/toml_pathway.rs",

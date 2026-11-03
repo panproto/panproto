@@ -78,14 +78,23 @@ fn a_hexadecimal_character_reference_resolves() {
     assert_eq!(root_text("<doc>&#x41;&#x42;</doc>").as_deref(), Some("AB"));
 }
 
-/// A document-defined entity is not resolved: expanding one is what the
-/// billion-laughs class of attack turns on. It is written back
-/// literally rather than dropped, so no character disappears.
+/// A reference to an entity that a document with no DOCTYPE never
+/// declares breaks XML 1.0's Entity Declared constraint. It is malformed
+/// input, refused with a parse error naming the entity, rather than read
+/// as literal text that the emitter would then escape into different
+/// characters.
 #[test]
-fn an_unknown_entity_is_preserved_literally_rather_than_dropped() {
-    assert_eq!(
-        root_text("<doc>x &custom; y</doc>").as_deref(),
-        Some("x &custom; y"),
+fn an_undeclared_entity_is_refused_rather_than_read_as_text() {
+    let schema = open_schema();
+    let error = parse_xml_bytes(&schema, b"<doc>x &custom; y</doc>", "test")
+        .expect_err("an undeclared entity is malformed input");
+    assert!(
+        matches!(
+            &error,
+            panproto_io::ParseInstanceError::Parse { message, .. }
+                if message.contains("custom") && message.contains("undeclared")
+        ),
+        "the refusal names the undeclared entity: {error:?}",
     );
 }
 
