@@ -13,6 +13,10 @@ name: Corpus Gate
 #     pair in sixteen separate processes and compares the whole span, so a
 #     result that varied with the hash seed would show up as a second digest.
 #     ~7 minutes unoptimised.
+#
+# The `exhaustive-reference` job runs the exhaustive reference agreements that
+# exceed the ordinary per-test bound even in the optimised `ci-test` build (see
+# `.config/nextest.toml`). Dispatch this workflow before tagging a release.
 on:
   schedule:
     - cron: "0 6 * * *"
@@ -56,3 +60,32 @@ jobs:
         run: |
           cargo nextest run -p panproto-mig \
             -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'
+
+  exhaustive-reference:
+    name: Exhaustive reference agreements
+    runs-on: ubuntu-latest
+    # The longest of these walked the whole values scope for 92 minutes in a
+    # release build; the job allows the runner's six-hour maximum.
+    timeout-minutes: 360
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: exhaustive-reference
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
+      # The default nextest profile has no per-test bound, and the `ci-test`
+      # cargo profile keeps debug assertions and overflow checks live.
+      - name: Run the exhaustive reference agreements
+        run: |
+          cargo nextest run --locked --cargo-profile ci-test --no-tests=fail \
+            -p panproto-gat -p panproto-inst -p panproto-lens \
+            --test reference_theories --test reference_coercion --test reference_lenses \
+            -E 'test(=composition_agrees_with_the_reference_on_every_discrete_pair) | test(=nearest_reading_coercion_agrees_with_the_reference) | test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(=lens_laws_agree_with_the_reference_exhaustively) | test(=lens_path_law_certificate)'

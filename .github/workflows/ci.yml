@@ -121,11 +121,12 @@ jobs:
         with:
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
-      # The `ci` nextest profile skips the whole-corpus gates and the exhaustive
-      # Kan certificates. The former run in the scheduled `corpus-gate` workflow;
-      # the latter run as separately recorded acceptance gates. Every test
-      # still runs locally by default. See `.config/nextest.toml`.
-      - name: Keep the exhaustive Kan acceptance gates outside ordinary CI
+      # The `ci` nextest profile skips the whole-corpus gates, the exhaustive
+      # reference agreements and the exhaustive Kan certificates. The first two
+      # run in the scheduled `corpus-gate` workflow; the last run as separately
+      # recorded acceptance gates. Every test still runs locally by default.
+      # See `.config/nextest.toml`.
+      - name: Keep the exhaustive acceptance gates outside ordinary CI
         shell: bash
         run: |
           set -euo pipefail
@@ -160,6 +161,11 @@ jobs:
           check_gate panproto-reference kan exhaustive_kan_executes_every_representative_profile_pair
           check_gate panproto-reference kan exhaustive_kan_every_labelled_member_has_checked_operation_transports
           check_gate panproto-inst reference_kan exhaustive_kan_hom_profile_pairs_agree_with_the_reference
+          check_gate panproto-gat reference_theories composition_agrees_with_the_reference_on_every_discrete_pair
+          check_gate panproto-inst reference_coercion nearest_reading_coercion_agrees_with_the_reference
+          check_gate panproto-inst reference_coercion coerce_value_agrees_with_the_reference_over_the_values_scope
+          check_gate panproto-lens reference_lenses lens_laws_agree_with_the_reference_exhaustively
+          check_gate panproto-lens reference_lenses lens_path_law_certificate
       #
       # Every build of this job uses the `ci-test` cargo profile of the
       # workspace `Cargo.toml`, so the gate listings above, the suite, the
