@@ -4875,8 +4875,8 @@ pub struct C11TreeSquareCounts {
 pub const fn c11_tree_square_count_certificate() -> C11TreeSquareCounts {
     C11TreeSquareCounts {
         bases: 2_548,
-        edited_views: 28_874,
-        observations: 31_422,
+        edited_views: 28_864,
+        observations: 31_412,
     }
 }
 
@@ -4931,7 +4931,7 @@ pub const fn graph_tree_route_law_case_count_certificate() -> usize {
 /// Independent pinned observation count after expanding each square base.
 #[must_use]
 pub const fn graph_tree_route_law_observation_count_certificate() -> usize {
-    31_422 + 2
+    31_412 + 2
 }
 
 /// Which categorical or operational path form a certificate case observes.

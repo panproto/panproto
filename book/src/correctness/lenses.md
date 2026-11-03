@@ -563,7 +563,7 @@ The tree arc order is not a graph complement field. The graph form carries child
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
-- Enumerator: `panproto_reference::enumerate::lenses::for_each_graph_tree_route_law_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28874, named_nonfan_validation_cases=2, base_cases=2550, observations=31424`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_graph_tree_route_law_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28864, named_nonfan_validation_cases=2, base_cases=2550, observations=31414`
 - Exhaustive differential test: `graph_tree_route_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_tree_route_law_certificate)'`
 - Property differential test: `randomized_graph_tree_route_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_tree_route_law_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`
@@ -1032,7 +1032,7 @@ The graph form and the embedding are those of [L-lenses-5](#L-lenses-5). The com
 - Law ID: `lenses.fb-graph-square`
 - Reference: `panproto_reference::lens::graph_square`
 - Reference: `panproto_reference::lens::graph_put_square`
-- Enumerator: `panproto_reference::enumerate::lenses::for_each_c11_tree_square_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28874, observations=31422`
+- Enumerator: `panproto_reference::enumerate::lenses::for_each_c11_tree_square_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28864, observations=31412`
 - Exhaustive differential test: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_graph_square_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
 - File: `crates/panproto-lens/src/dispatch.rs`

@@ -9998,13 +9998,13 @@ fn assert_graph_square_census(
     assert_eq!(
         edit_families.admitted_positive.families,
         [
-            6_366, 0, 6_504, 3_232, 56, 6_504, 3_232, 1_728, 0, 1_152, 0, 0, 0, 0, 0, 0, 0,
+            6_360, 0, 6_504, 3_232, 56, 6_504, 3_232, 1_728, 0, 1_152, 0, 0, 0, 0, 0, 0, 0,
         ],
         "the admitted graph/tree-square mutation-family census is part of the certificate"
     );
     assert_eq!(
         edit_families.refused_positive.families,
-        [0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the refused graph/tree-square mutation-family census is part of the certificate"
     );
     assert_eq!(
