@@ -15857,6 +15857,51 @@ mod transformed_tables {
         }
     }
 
+    /// `ComputeField b := a + 1` with inverse `b - 1`, then `DropField a`,
+    /// on table `t`.
+    struct SuccessorIntoB;
+
+    impl ValueLayer for SuccessorIntoB {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            layer_semantics("panproto-lens/table-test/successor-into-b")
+        }
+
+        fn survives(&self, _: &RefGraph, _: &RefNode) -> Result<bool, RefPredicateRefusal> {
+            Ok(true)
+        }
+
+        fn transform(
+            &self,
+            _: &RefGraph,
+            node: &RefNode,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+            let mut fields = node.fields.clone();
+            let Some(value) = int(&fields, "a") else {
+                return Err(LayerRefusal {
+                    kind: "expression".to_owned(),
+                    detail: "unbound variable: a".to_owned(),
+                });
+            };
+            fields.insert("b".to_owned(), RefValue::Int(value + 1));
+            fields.remove("a");
+            Ok((fields, node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &RefNode,
+            _: Option<&BTreeMap<String, RefValue>>,
+            _: Option<&Option<RefPresence>>,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+            let mut fields = view.fields.clone();
+            if let Some(value) = int(&fields, "b") {
+                fields.remove("b");
+                fields.insert("a".to_owned(), RefValue::Int(value - 1));
+            }
+            Ok((fields, view.value.clone()))
+        }
+    }
+
     /// `ApplyExpr a := 7` with the non-inverting inverse `8`: a changed
     /// coordinate goes through the inverse, an unchanged one keeps its
     /// recorded original.
@@ -15962,6 +16007,49 @@ mod transformed_tables {
             agreed_put(&pair, &one_row(&[("a", 1)]), &one_row(&[("a", 5)])).put,
             Ok(one_row(&[("a", 4)]))
         );
+    }
+
+    /// A declared transform's output at a target column is that column's
+    /// value: the rename `a -> b` places the source cell at `b`, and the
+    /// computed `b := a + 1` then overwrites it.
+    #[test]
+    fn a_transform_output_overwrites_the_renamed_cell_at_its_column() {
+        let mut compiled = CompiledMigration {
+            surviving_verts: ["t", "t.b"].into_iter().map(Into::into).collect(),
+            surviving_edges: [column("b")].into(),
+            vertex_remap: HashMap::from([("t.a".into(), "t.b".into())]),
+            edge_remap: HashMap::from([(column("a"), column("b"))]),
+            ..CompiledMigration::default()
+        };
+        let step = |op, operand: &str| {
+            Expr::Builtin(
+                op,
+                vec![Expr::Var(operand.into()), Expr::Lit(Literal::Int(1))],
+            )
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![
+                FieldTransform::ComputeField {
+                    target_key: "b".to_owned(),
+                    expr: step(BuiltinOp::Add, "a"),
+                    inverse: Some(step(BuiltinOp::Sub, "b")),
+                    coercion_class: CoercionClass::Iso,
+                },
+                FieldTransform::DropField {
+                    key: "a".to_owned(),
+                },
+            ],
+        );
+        let pair = pair(&["a"], &["b"], compiled, &SuccessorIntoB);
+        let source = one_row(&[("a", 1)]);
+        let production = production_table_get(&pair, &source);
+        let reference = reference_table_get(&pair, &source);
+        assert_eq!(
+            reference.as_ref().map(|(view, _)| view),
+            Ok(&one_row(&[("b", 2)]))
+        );
+        assert_eq!(production, reference);
     }
 
     #[test]

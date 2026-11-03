@@ -333,6 +333,32 @@ impl TablePlan {
         cell_writer(fates, t)
     }
 
+    /// Definition: The view cells of a transformed source row of table `s`.
+    ///
+    /// The cell fates place the source cells first, all at once, as
+    /// [`Self::apply`] does; then each field the migration's value layer
+    /// declares as an output of `s` ([`Migration::output_fields`]) and that
+    /// the transformed row holds overwrites the cell of its column. A
+    /// declared transform's output at a target column is that column's
+    /// value: a rename whose image is the same column does not override it.
+    ///
+    /// Book anchors: `L-lenses-12`.
+    #[must_use]
+    pub fn view_cells(
+        &self,
+        migration: &Migration,
+        s: &str,
+        row: &BTreeMap<String, Value>,
+    ) -> BTreeMap<String, Value> {
+        let mut cells = self.apply(s, row);
+        for output in migration.output_fields.get(s).into_iter().flatten() {
+            if let Some(value) = row.get(output) {
+                cells.insert(output.clone(), value.clone());
+            }
+        }
+        cells
+    }
+
     /// The view cells of a source row of table `s`: each target column with
     /// a writer present in the row takes the writer's cell (all fates
     /// simultaneous).
@@ -763,7 +789,7 @@ fn get_with_identity(
     for (id, node) in &vg.nodes {
         let (stable, source_cells) = &source.rows[id];
         view.rows
-            .insert(*id, (node.anchor.clone(), tp.apply(stable, &node.fields)));
+            .insert(*id, (node.anchor.clone(), tp.view_cells(mig, stable, &node.fields)));
         if table_preimages(tp, &node.anchor) != vec![stable.clone()] {
             comp.original_tables.insert(*id, stable.clone());
         }
@@ -1198,7 +1224,7 @@ impl TableLens<'_> {
             s0.clone()
         };
         let mut fields = f0.clone();
-        let v0 = self.tp.apply(table, &f0);
+        let v0 = self.tp.view_cells(self.m, table, &f0);
         let changed: BTreeSet<&String> = view
             .keys()
             .chain(v0.keys())
