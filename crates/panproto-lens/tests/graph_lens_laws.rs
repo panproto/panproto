@@ -50,6 +50,37 @@ fn schema(include_b: bool) -> Schema {
     builder.build().expect("schema")
 }
 
+/// [`schema`] without `b`, with each of `fields` declared an integer
+/// attribute of `a`: a leaf edge labelled with the field name. A value
+/// transform may write only a declared attribute of its vertex.
+fn schema_declaring(fields: &[&str]) -> Schema {
+    schema_with_b_declaring(false, fields)
+}
+
+/// [`schema`] with each of `fields` declared an integer attribute of `a`.
+fn schema_with_b_declaring(include_b: bool, fields: &[&str]) -> Schema {
+    let protocol = Protocol::default();
+    let mut builder = SchemaBuilder::new(&protocol)
+        .vertex("a", "record", None)
+        .expect("a");
+    if include_b {
+        builder = builder
+            .vertex("b", "record", None)
+            .expect("b")
+            .edge("a", "b", "rel", Some("b"))
+            .expect("edge");
+    }
+    for field in fields {
+        let vertex = format!("a.{field}");
+        builder = builder
+            .vertex(&vertex, "integer", None)
+            .expect("attribute vertex")
+            .edge("a", &vertex, "prop", Some(field))
+            .expect("attribute edge");
+    }
+    builder.build().expect("schema")
+}
+
 fn identity_lens(schema: &Schema) -> Lens {
     Lens {
         compiled: CompiledMigration {
@@ -332,10 +363,11 @@ fn graph_obstructions_are_reported() {
 
 #[test]
 fn graph_isomorphism_rejects_an_open_field_rename_collision() {
-    let schema = schema(false);
+    let schema = schema_declaring(&["new"]);
     let lens = Lens {
         compiled: CompiledMigration {
-            surviving_verts: std::iter::once("a".into()).collect(),
+            surviving_verts: schema.vertices.keys().cloned().collect(),
+            surviving_edges: schema.edges.keys().cloned().collect(),
             field_transforms: std::iter::once((
                 "a".into(),
                 vec![FieldTransform::RenameField {
@@ -863,7 +895,7 @@ fn graph_put_domain_reports_duplicate_keys_and_missing_required_cells() {
 
 #[test]
 fn editing_a_non_invertible_transform_output_is_refused() {
-    let schema = schema(false);
+    let schema = schema_declaring(&["n"]);
     let lens = Lens {
         compiled: CompiledMigration {
             surviving_verts: std::iter::once("a".into()).collect(),
@@ -903,7 +935,7 @@ fn editing_a_non_invertible_transform_output_is_refused() {
 
 #[test]
 fn editing_a_derived_cell_is_refused() {
-    let schema = schema(false);
+    let schema = schema_declaring(&["double"]);
     let lens = Lens {
         compiled: CompiledMigration {
             surviving_verts: std::iter::once("a".into()).collect(),
@@ -1468,10 +1500,16 @@ fn residue_classification_agrees_across_shapes() {
     assert_cross_shape_agreement("b", &rename, &rename_tree, &rename_graph);
 
     // (c) Merging parallel edge labels records which source label carried
-    // each edge and therefore is not complement-free in either shape.
+    // each edge and therefore is not complement-free in either shape. The
+    // merged target edge is unnamed: a named edge is a single-valued field,
+    // and two source fields merged onto one under a parent are outside the
+    // tree domain, which the named variant below pins.
     let sx = edge("a", "b", "x");
     let sy = edge("a", "b", "y");
-    let tx = edge("a", "b", "x");
+    let tx = Edge {
+        name: None,
+        ..edge("a", "b", "x")
+    };
     let merge = Lens {
         compiled: CompiledMigration {
             surviving_verts: ["a".into(), "b".into()].into_iter().collect(),
@@ -1496,6 +1534,27 @@ fn residue_classification_agrees_across_shapes() {
     let merge_graph =
         GInstance::from_wtype_with_schema(&merge_tree, &merge.src_schema).expect("graph form");
     assert_cross_shape_agreement("c", &merge, &merge_tree, &merge_graph);
+    let named = edge("a", "b", "x");
+    let named_merge = Lens {
+        compiled: CompiledMigration {
+            surviving_edges: std::iter::once(named.clone()).collect(),
+            edge_remap: HashMap::from([
+                (edge("a", "b", "x"), named.clone()),
+                (edge("a", "b", "y"), named.clone()),
+            ]),
+            ..merge.compiled.clone()
+        },
+        src_schema: merge.src_schema.clone(),
+        tgt_schema: built_schema(&["a", "b"], std::slice::from_ref(&named)),
+    };
+    assert!(matches!(
+        panproto_lens::get(&named_merge, &merge_tree),
+        Err(LensError::Restrict(panproto_inst::RestrictError::MultipleArcsOnSingleValuedEdge {
+            parent: 0,
+            count: 2,
+            ..
+        }))
+    ));
 
     // (d) A fan relabel is recorded residue in both shapes.
     let (fan_schema, fan_graph) = fanned_fixture();
@@ -1801,7 +1860,7 @@ fn a_parent_only_fan_prevents_global_graph_isomorphism() {
 
 #[test]
 fn a_nested_path_transform_is_not_a_graph_isomorphism() {
-    let mut lens = identity_lens(&schema(false));
+    let mut lens = identity_lens(&schema_declaring(&["cell"]));
     lens.compiled.field_transforms.insert(
         "a".into(),
         vec![FieldTransform::PathTransform {
@@ -2200,7 +2259,7 @@ proptest! {
     fn graph_composition_preserves_sequential_behaviour(
         values in prop::collection::vec(any::<i16>(), 0..12),
     ) {
-        let schema = schema(true);
+        let schema = schema_with_b_declaring(true, &["new"]);
         let source = generated_source(&values);
         let mut first_with_layer = identity_lens(&schema);
         first_with_layer.compiled.field_transforms.insert(
