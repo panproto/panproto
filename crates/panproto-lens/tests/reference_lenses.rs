@@ -15762,7 +15762,7 @@ mod transformed_tables {
         production
     }
 
-    fn layer_semantics(domain: &'static str) -> ValueLayerSemantics {
+    const fn layer_semantics(domain: &'static str) -> ValueLayerSemantics {
         ValueLayerSemantics {
             domain,
             version: 1,
@@ -15916,12 +15916,18 @@ mod transformed_tables {
         );
         let pair = pair(&["old"], &["new"], compiled, &RenameOldToNew);
         let source = one_row(&[("old", 1)]);
-        assert_eq!(agreed_put(&pair, &source, &one_row(&[("new", 1)])).put, Ok(source.clone()));
+        assert_eq!(
+            agreed_put(&pair, &source, &one_row(&[("new", 1)])).put,
+            Ok(source.clone())
+        );
         assert_eq!(
             agreed_put(&pair, &source, &one_row(&[("new", 2)])).domain,
             Err(vec!["DerivedCellEdited Row(0) new".to_owned()])
         );
-        assert!(!table_lens::is_isomorphism(&pair.production, pair.protocols()));
+        assert!(!table_lens::is_isomorphism(
+            &pair.production,
+            pair.protocols()
+        ));
     }
 
     #[test]
@@ -15948,7 +15954,10 @@ mod transformed_tables {
         );
         let pair = pair(&["a"], &["a"], compiled, &Successor);
         let source = one_row(&[("a", 1)]);
-        assert_eq!(agreed_put(&pair, &source, &one_row(&[("a", 2)])).put, Ok(source));
+        assert_eq!(
+            agreed_put(&pair, &source, &one_row(&[("a", 2)])).put,
+            Ok(source)
+        );
         assert_eq!(
             agreed_put(&pair, &one_row(&[("a", 1)]), &one_row(&[("a", 5)])).put,
             Ok(one_row(&[("a", 4)]))

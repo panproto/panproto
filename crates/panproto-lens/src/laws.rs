@@ -8191,7 +8191,7 @@ mod tests {
         // The table plan's last writer of `new` is `new` itself, which is not
         // a source column, so the transformed cell is derived and an edit to
         // it lies outside the put domain.
-        let mut edited = base.clone();
+        let mut edited = base;
         let Some(row) = edited.row_mut(RowId(0)) else {
             panic!("transform rename keeps row 0");
         };
