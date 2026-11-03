@@ -284,7 +284,11 @@ impl Protolens {
             apply_theory_transform_to_schema(&self.target.transform, schema, protocol)?;
 
         // 3. Compute the migration from F(S) to G(S)
-        let compiled = compute_migration_between(&src_schema, &tgt_schema);
+        let compiled = compute_migration_between(
+            &src_schema,
+            &tgt_schema,
+            &ExplicitVertexChanges::of(&self.target.transform),
+        );
 
         let mut lens = Lens {
             compiled,
@@ -2414,9 +2418,53 @@ pub mod combinators {
     }
 }
 
+/// The schema vertices a transform drops or adds by exact id.
+///
+/// A vertex a transform drops by id is gone, and a vertex it adds by id is
+/// new; neither is one end of a rename, so the structural comparison in
+/// [`compute_migration_between`] never pairs them.
+#[derive(Default)]
+struct ExplicitVertexChanges {
+    dropped: HashSet<Name>,
+    added: HashSet<Name>,
+}
+
+impl ExplicitVertexChanges {
+    fn of(transform: &TheoryTransform) -> Self {
+        let mut changes = Self::default();
+        changes.collect(transform);
+        changes
+    }
+
+    fn collect(&mut self, transform: &TheoryTransform) {
+        match transform {
+            TheoryTransform::DropSchemaVertex { vertex_id } => {
+                self.dropped.insert(Name::from(&**vertex_id));
+            }
+            TheoryTransform::AddSchemaVertex { vertex_id, .. } => {
+                self.added.insert(Name::from(&**vertex_id));
+            }
+            TheoryTransform::Compose(first, second) => {
+                self.collect(first);
+                self.collect(second);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Build a [`CompiledMigration`] between two schemas by comparing their
 /// structures.
-fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
+///
+/// A source vertex absent from the target is read as renamed to the least
+/// target-only vertex of its kind not already taken, source vertices in id
+/// order, unless `explicit` records it as dropped or the candidate as added
+/// by exact id.
+fn compute_migration_between(
+    src: &Schema,
+    tgt: &Schema,
+    explicit: &ExplicitVertexChanges,
+) -> CompiledMigration {
     let mut surviving_verts: HashSet<Name> = src
         .vertices
         .keys()
@@ -2433,16 +2481,18 @@ fn compute_migration_between(src: &Schema, tgt: &Schema) -> CompiledMigration {
 
     // Build vertex remap: vertices in src that were renamed in tgt.
     let mut vertex_remap = HashMap::new();
-    let unmapped_src: Vec<&Name> = src
+    let mut unmapped_src: Vec<&Name> = src
         .vertices
         .keys()
-        .filter(|v| !tgt.vertices.contains_key(&**v))
+        .filter(|v| !tgt.vertices.contains_key(&**v) && !explicit.dropped.contains(*v))
         .collect();
-    let unmapped_tgt: Vec<&Name> = tgt
+    unmapped_src.sort();
+    let mut unmapped_tgt: Vec<&Name> = tgt
         .vertices
         .keys()
-        .filter(|v| !src.vertices.contains_key(&**v))
+        .filter(|v| !src.vertices.contains_key(&**v) && !explicit.added.contains(*v))
         .collect();
+    unmapped_tgt.sort();
 
     // Match unmapped vertices by structural similarity (same kind).
     for src_id in &unmapped_src {
