@@ -19,8 +19,8 @@ use panproto_reference::pages::representation::canonical::{
 };
 use panproto_reference::rel::{self, RelSchema};
 use panproto_reference::restrict::{
-    LayerRefusal, NoValueLayer, PlanError, PredicateRefusal, PutFieldRefusal, RestrictError,
-    ValueLayer, ValueLayerSemantics,
+    EngineError, ErrorKey, LayerRefusal, NoValueLayer, PlanError, PredicateRefusal,
+    PutFieldRefusal, RestrictError, ValueLayer, ValueLayerSemantics,
 };
 use panproto_reference::schema::{Key, KeyPart, KeyRole, KeyScope, Schema};
 use panproto_reference::table::{
@@ -534,6 +534,50 @@ impl ValueLayer for RefusingBaselineTransform {
             kind: "test-refusal".to_owned(),
             detail: "baseline".to_owned(),
         })
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        _: Option<&BTreeMap<String, Value>>,
+        _: Option<&Option<Presence>>,
+    ) -> Result<(BTreeMap<String, Value>, Option<Presence>), PutFieldRefusal> {
+        Ok((view.fields.clone(), view.value.clone()))
+    }
+}
+
+/// The cell value [`RefusingEditedTransform`] refuses.
+const EDITED_REFUSED: i64 = 2;
+
+/// A value layer that transforms every row as the identity except one whose
+/// `x` is [`EDITED_REFUSED`], which it refuses.
+struct RefusingEditedTransform;
+
+impl ValueLayer for RefusingEditedTransform {
+    fn canonical_semantics(&self) -> ValueLayerSemantics {
+        ValueLayerSemantics {
+            domain: "panproto-reference/test/refusing-edited-transform",
+            version: 1,
+            canonical_payload: b"kind=test-refusal\0detail=baseline\0x=2".to_vec(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<(BTreeMap<String, Value>, Option<Presence>), LayerRefusal> {
+        if node.fields.get("x") == Some(&Value::Int(EDITED_REFUSED)) {
+            return Err(LayerRefusal {
+                kind: "test-refusal".to_owned(),
+                detail: "baseline".to_owned(),
+            });
+        }
+        Ok((node.fields.clone(), node.value.clone()))
     }
 
     fn restore(
@@ -1391,9 +1435,62 @@ fn baseline_transform_refusal_is_typed_operational_incompleteness() {
         &migration,
         &plan,
         &BTreeMap::new(),
+        &RefusingEditedTransform,
+    ));
+    let mut source = Table::default();
+    source.rows.insert(
+        0,
+        (
+            "t".to_owned(),
+            BTreeMap::from([("x".to_owned(), Value::Int(1))]),
+        ),
+    );
+    let (mut view, complement) = must(lens.get(&source));
+    // The edited source row is restored from a baseline that holds the
+    // edited cell, and transforming that baseline is refused.
+    if let Some((_, cells)) = view.rows.get_mut(&0) {
+        cells.insert("x".to_owned(), Value::Int(EDITED_REFUSED));
+    }
+    let expected = TableOperationalError::Transform {
+        elem: ViewRef::Row(0),
+        refusal: LayerRefusal {
+            kind: "test-refusal".to_owned(),
+            detail: "baseline".to_owned(),
+        },
+    };
+    assert_eq!(
+        table::check_put_domain(&lens, &view, &complement),
+        Err(TableCheckError::Operational(expected.clone()))
+    );
+    assert_eq!(
+        table::put(&lens, &view, &complement),
+        Err(TablePutError::Operational(expected))
+    );
+}
+
+#[test]
+fn an_inserted_row_refused_by_the_forward_get_is_typed_operational_incompleteness() {
+    let schema = two_column_schema(&[("x", "sx")]);
+    let migration = Migration {
+        surviving_verts: schema.vertices.keys().cloned().collect(),
+        surviving_edges: schema.edges.clone(),
+        transformed: ["t".to_owned()].into(),
+        ..Migration::default()
+    };
+    let (source_boundary, target_boundary, plan) = table_plan(&schema, &schema, &migration);
+    let lens = must(TableLens::new(
+        &schema,
+        &schema,
+        TableBoundaries::new(&source_boundary, &target_boundary),
+        &migration,
+        &plan,
+        &BTreeMap::new(),
         &RefusingBaselineTransform,
     ));
     let (mut view, complement) = must(lens.get(&Table::default()));
+    // An inserted row has no source baseline: its cells are pulled back
+    // through the value layer's restore, and the transform first runs in
+    // the forward get of the restored source, which refuses it there.
     view.rows.insert(
         1,
         (
@@ -1401,13 +1498,17 @@ fn baseline_transform_refusal_is_typed_operational_incompleteness() {
             BTreeMap::from([("x".to_owned(), Value::Int(1))]),
         ),
     );
-    let expected = TableOperationalError::Transform {
-        elem: ViewRef::Row(1),
-        refusal: LayerRefusal {
+    let expected = TableOperationalError::ForwardGet(RestrictError::At {
+        key: ErrorKey {
+            stage: 0,
+            id: 1,
+            id2: 0,
+        },
+        error: EngineError::Layer(LayerRefusal {
             kind: "test-refusal".to_owned(),
             detail: "baseline".to_owned(),
-        },
-    };
+        }),
+    });
     assert_eq!(
         table::check_put_domain(&lens, &view, &complement),
         Err(TableCheckError::Operational(expected.clone()))
