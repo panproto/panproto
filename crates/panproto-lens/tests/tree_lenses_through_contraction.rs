@@ -346,7 +346,15 @@ mod strict_put {
             vec![(prop("r", "c", "c"), prop("r", "c", "c"))],
             vec![],
         );
-        lens(src, declaring_on_r(&[("r", "object"), ("c", "object")], &[prop("r", "c", "c")], fields), &m)
+        lens(
+            src,
+            declaring_on_r(
+                &[("r", "object"), ("c", "object")],
+                &[prop("r", "c", "c")],
+                fields,
+            ),
+            &m,
+        )
     }
 
     /// The schema of `vertices` and `edges` with each of `fields` declared

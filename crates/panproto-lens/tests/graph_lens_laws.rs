@@ -1549,11 +1549,13 @@ fn residue_classification_agrees_across_shapes() {
     };
     assert!(matches!(
         panproto_lens::get(&named_merge, &merge_tree),
-        Err(LensError::Restrict(panproto_inst::RestrictError::MultipleArcsOnSingleValuedEdge {
-            parent: 0,
-            count: 2,
-            ..
-        }))
+        Err(LensError::Restrict(
+            panproto_inst::RestrictError::MultipleArcsOnSingleValuedEdge {
+                parent: 0,
+                count: 2,
+                ..
+            }
+        ))
     ));
 
     // (d) A fan relabel is recorded residue in both shapes.

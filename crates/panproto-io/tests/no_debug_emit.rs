@@ -122,10 +122,7 @@ const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
         "src/json_pathway.rs",
         r#"format!("no arm of union '{anchor}' reads `$type` {tag:?}")"#,
     ),
-    (
-        "src/xml_pathway.rs",
-        r#"format!("XML encoding {label:?}")"#,
-    ),
+    ("src/xml_pathway.rs", r#"format!("XML encoding {label:?}")"#),
     (
         "src/xml_pathway.rs",
         r#"format!("external XML entity {name:?}")"#,
