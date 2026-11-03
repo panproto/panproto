@@ -15669,3 +15669,318 @@ fn writerless_cell_under_a_dropping_transform_is_derived() {
     );
     assert_eq!(production_table_put(&pair, &source, &edited), reference);
 }
+
+// ---------------------------------------------------------------------------
+// Transformed tables: put through a value layer agrees with the reference on
+// derived transform outputs, in-place inverses and the inserted-row floor
+// ---------------------------------------------------------------------------
+
+mod transformed_tables {
+    use super::*;
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_gat::CoercionClass;
+    use panproto_inst::FieldTransform;
+
+    fn schema(columns: &[&str]) -> RefSchema {
+        let mut schema = RefSchema::default().vertex("t", TABLE_FIXTURE_TABLE_KIND);
+        for column in columns {
+            schema = schema
+                .vertex(&format!("t.{column}"), WRITER_VALUE_KIND)
+                .edge("t", &format!("t.{column}"), "prop", Some(column));
+        }
+        schema
+    }
+
+    fn column(name: &str) -> Edge {
+        Edge {
+            src: "t".into(),
+            tgt: format!("t.{name}").into(),
+            kind: "prop".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// The table pair of a production migration whose transforms the
+    /// reference sees through `layer`.
+    fn pair(
+        source: &[&str],
+        target: &[&str],
+        compiled: CompiledMigration,
+        layer: &'static dyn ValueLayer,
+    ) -> TablePair {
+        let migration = ref_migration(&compiled);
+        let mut structural = migration.clone();
+        structural.conditional.clear();
+        structural.transformed.clear();
+        structural.output_fields.clear();
+        let mut pair = TablePair::new(
+            schema(source),
+            schema(target),
+            structural,
+            WRITER_VALUE_KIND,
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        );
+        pair.plan = panproto_reference::table::compile_for_tables(
+            &pair.src,
+            &pair.tgt,
+            &pair.boundaries.0,
+            &pair.boundaries.1,
+            &migration,
+        );
+        pair.migration = migration;
+        pair.production = Lens {
+            compiled,
+            src_schema: prod_schema(&schema(source)),
+            tgt_schema: prod_schema(&schema(target)),
+        };
+        pair.layer = layer;
+        pair
+    }
+
+    fn one_row(cells: &[(&str, i64)]) -> RefTable {
+        let mut table = RefTable::default();
+        table.rows.insert(
+            0,
+            (
+                "t".to_owned(),
+                cells
+                    .iter()
+                    .map(|(key, value)| ((*key).to_owned(), RefValue::Int(*value)))
+                    .collect(),
+            ),
+        );
+        table
+    }
+
+    fn agreed_put(pair: &TablePair, source: &RefTable, view: &RefTable) -> TablePutOutcome {
+        let production = production_table_put(pair, source, view);
+        let reference = reference_table_put(pair, source, view);
+        assert_eq!(production, reference);
+        production
+    }
+
+    fn layer_semantics(domain: &'static str) -> ValueLayerSemantics {
+        ValueLayerSemantics {
+            domain,
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn int(fields: &BTreeMap<String, RefValue>, key: &str) -> Option<i64> {
+        match fields.get(key) {
+            Some(RefValue::Int(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// `RenameField old -> new` on table `t`.
+    struct RenameOldToNew;
+
+    impl ValueLayer for RenameOldToNew {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            layer_semantics("panproto-lens/table-test/rename-old-new")
+        }
+
+        fn survives(&self, _: &RefGraph, _: &RefNode) -> Result<bool, RefPredicateRefusal> {
+            Ok(true)
+        }
+
+        fn transform(
+            &self,
+            _: &RefGraph,
+            node: &RefNode,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+            let mut fields = node.fields.clone();
+            if let Some(value) = fields.remove("old") {
+                fields.insert("new".to_owned(), value);
+            }
+            Ok((fields, node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &RefNode,
+            _: Option<&BTreeMap<String, RefValue>>,
+            _: Option<&Option<RefPresence>>,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+            let mut fields = view.fields.clone();
+            if let Some(value) = fields.remove("new") {
+                fields.insert("old".to_owned(), value);
+            }
+            Ok((fields, view.value.clone()))
+        }
+    }
+
+    /// `ComputeField a := a + 1` with inverse `a - 1` on table `t`.
+    struct Successor;
+
+    impl ValueLayer for Successor {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            layer_semantics("panproto-lens/table-test/successor")
+        }
+
+        fn survives(&self, _: &RefGraph, _: &RefNode) -> Result<bool, RefPredicateRefusal> {
+            Ok(true)
+        }
+
+        fn transform(
+            &self,
+            _: &RefGraph,
+            node: &RefNode,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+            let mut fields = node.fields.clone();
+            let Some(value) = int(&fields, "a") else {
+                return Err(LayerRefusal {
+                    kind: "expression".to_owned(),
+                    detail: "unbound variable: a".to_owned(),
+                });
+            };
+            fields.insert("a".to_owned(), RefValue::Int(value + 1));
+            Ok((fields, node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &RefNode,
+            _: Option<&BTreeMap<String, RefValue>>,
+            _: Option<&Option<RefPresence>>,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+            let mut fields = view.fields.clone();
+            if let Some(value) = int(&fields, "a") {
+                fields.insert("a".to_owned(), RefValue::Int(value - 1));
+            }
+            Ok((fields, view.value.clone()))
+        }
+    }
+
+    /// `ApplyExpr a := 7` with the non-inverting inverse `8`: a changed
+    /// coordinate goes through the inverse, an unchanged one keeps its
+    /// recorded original.
+    struct ConstantSeven;
+
+    impl ValueLayer for ConstantSeven {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            layer_semantics("panproto-lens/table-test/constant-seven")
+        }
+
+        fn survives(&self, _: &RefGraph, _: &RefNode) -> Result<bool, RefPredicateRefusal> {
+            Ok(true)
+        }
+
+        fn transform(
+            &self,
+            _: &RefGraph,
+            node: &RefNode,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+            let mut fields = node.fields.clone();
+            if fields.contains_key("a") {
+                fields.insert("a".to_owned(), RefValue::Int(7));
+            }
+            Ok((fields, node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &RefNode,
+            original: Option<&BTreeMap<String, RefValue>>,
+            _: Option<&Option<RefPresence>>,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+            let mut fields = view.fields.clone();
+            if fields.contains_key("a") {
+                let kept = original
+                    .and_then(|original| original.get("a"))
+                    .filter(|_| int(&fields, "a") == Some(7))
+                    .cloned();
+                fields.insert("a".to_owned(), kept.unwrap_or(RefValue::Int(8)));
+            }
+            Ok((fields, view.value.clone()))
+        }
+    }
+
+    #[test]
+    fn a_transform_only_rename_output_is_a_derived_cell() {
+        let mut compiled = CompiledMigration {
+            surviving_verts: std::iter::once("t".into()).collect(),
+            ..CompiledMigration::default()
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![FieldTransform::RenameField {
+                old_key: "old".to_owned(),
+                new_key: "new".to_owned(),
+            }],
+        );
+        let pair = pair(&["old"], &["new"], compiled, &RenameOldToNew);
+        let source = one_row(&[("old", 1)]);
+        assert_eq!(agreed_put(&pair, &source, &one_row(&[("new", 1)])).put, Ok(source.clone()));
+        assert_eq!(
+            agreed_put(&pair, &source, &one_row(&[("new", 2)])).domain,
+            Err(vec!["DerivedCellEdited Row(0) new".to_owned()])
+        );
+        assert!(!table_lens::is_isomorphism(&pair.production, pair.protocols()));
+    }
+
+    #[test]
+    fn an_edited_in_place_computation_pulls_back_through_its_inverse() {
+        let mut compiled = CompiledMigration {
+            surviving_verts: ["t", "t.a"].into_iter().map(Into::into).collect(),
+            surviving_edges: [column("a")].into(),
+            ..CompiledMigration::default()
+        };
+        let step = |op, operand: &str| {
+            Expr::Builtin(
+                op,
+                vec![Expr::Var(operand.into()), Expr::Lit(Literal::Int(1))],
+            )
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "a".to_owned(),
+                expr: step(BuiltinOp::Add, "a"),
+                inverse: Some(step(BuiltinOp::Sub, "a")),
+                coercion_class: CoercionClass::Iso,
+            }],
+        );
+        let pair = pair(&["a"], &["a"], compiled, &Successor);
+        let source = one_row(&[("a", 1)]);
+        assert_eq!(agreed_put(&pair, &source, &one_row(&[("a", 2)])).put, Ok(source));
+        assert_eq!(
+            agreed_put(&pair, &one_row(&[("a", 1)]), &one_row(&[("a", 5)])).put,
+            Ok(one_row(&[("a", 4)]))
+        );
+    }
+
+    #[test]
+    fn the_id_floor_separates_inserted_rows_from_source_rows() {
+        let mut compiled = CompiledMigration {
+            surviving_verts: ["t", "t.a"].into_iter().map(Into::into).collect(),
+            surviving_edges: [column("a")].into(),
+            ..CompiledMigration::default()
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![FieldTransform::ApplyExpr {
+                key: "a".to_owned(),
+                expr: Expr::Lit(Literal::Int(7)),
+                inverse: Some(Expr::Lit(Literal::Int(8))),
+                coercion_class: CoercionClass::Projection,
+            }],
+        );
+        let pair = pair(&["a"], &["a"], compiled, &ConstantSeven);
+        let view = one_row(&[("a", 7)]);
+        // From an empty source the floor is 0, so row 0 is inserted and its
+        // cell is pulled back through the inverse.
+        assert_eq!(
+            agreed_put(&pair, &RefTable::default(), &view).put,
+            Ok(one_row(&[("a", 8)]))
+        );
+        // From the one-row source the floor is 1, so row 0 is a source row
+        // and its unedited view restores the source.
+        assert_eq!(agreed_put(&pair, &view, &view).put, Ok(view.clone()));
+    }
+}

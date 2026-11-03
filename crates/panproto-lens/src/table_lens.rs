@@ -19,7 +19,9 @@ use panproto_inst::{
 };
 use panproto_schema::{ConstraintValue, Edge, Protocol, Schema};
 
-use crate::asymmetric::{ComplementCompose, propagate_view_edits_through_inverse, value_equiv};
+use crate::asymmetric::{
+    ComplementCompose, apply_inverse_transforms, propagate_view_edits_through_inverse, value_equiv,
+};
 use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::graph_lens::{GraphComposite, SequentialGraphLens};
 use crate::{Lens, LensError};
@@ -1399,7 +1401,7 @@ fn restore_with_plan(
     let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells) else {
         return Err(Vec::new());
     };
-    let (mut source, mut errors) = restore_rows(view, complement, functor);
+    let (mut source, mut errors) = restore_rows(lens, view, complement, functor, cells);
 
     restore_view_pairs(view, complement, plan, functor, &mut source, &mut errors);
     restore_dropped_pairs(complement, &mut source);
@@ -1431,10 +1433,26 @@ fn restore_with_plan(
     }
 }
 
+/// Whether a view row is newly inserted rather than a source row: its id is
+/// at or above the complement's floor and the complement records no residue
+/// for it.
+fn is_inserted_row(complement: &TableComplement, id: RowId) -> bool {
+    id.0 >= complement.id_floor
+        && !complement.original_tables.contains_key(&id)
+        && !complement.dropped_cells.keys().any(|(row, _)| *row == id)
+        && !complement.original_cells.keys().any(|(row, _)| *row == id)
+        && !complement
+            .original_absent_cells
+            .iter()
+            .any(|(row, _)| *row == id)
+}
+
 fn restore_rows(
+    lens: &Lens,
     view: &FInstance,
     complement: &TableComplement,
     functor: &panproto_inst::EntityFunctor,
+    cells: &panproto_inst::CellPlan,
 ) -> (FInstance, Vec<PutDomainError>) {
     let mut source = FInstance::new();
     let mut errors = Vec::new();
@@ -1469,21 +1487,43 @@ fn restore_rows(
             continue;
         };
         let columns = functor.source().columns(&source_table);
-        let mut row = Row::new();
-        for column in columns.keys() {
-            let key = (id, column.clone());
-            if complement.original_absent_cells.contains(&key) {
-                continue;
+        let transforms = lens.compiled.value_transforms(&source_table);
+        let row = if !transforms.is_empty() && is_inserted_row(complement, id) {
+            // An inserted row has no source baseline: each view cell is
+            // written to its writer, and the inverse transforms then pull
+            // the written row back to the source columns.
+            let fates = cells
+                .fates
+                .get(&source_table)
+                .map_or(&[][..], Vec::as_slice);
+            let mut node = panproto_inst::Node::new(id.0, source_table.clone());
+            for (target, value) in view_row {
+                if let Some(writer) = cell_writer(fates, target) {
+                    node.extra_fields.insert(writer, value.clone());
+                }
             }
-            if let Some(value) = complement
-                .dropped_cells
-                .get(&key)
-                .or_else(|| complement.original_cells.get(&key))
-                .or_else(|| view_row.get(column))
-            {
-                row.insert(column.clone(), value.clone());
+            apply_inverse_transforms(&mut node, &transforms);
+            let mut row = node.extra_fields;
+            row.retain(|key, _| columns.contains_key(key));
+            row
+        } else {
+            let mut row = Row::new();
+            for column in columns.keys() {
+                let key = (id, column.clone());
+                if complement.original_absent_cells.contains(&key) {
+                    continue;
+                }
+                if let Some(value) = complement
+                    .dropped_cells
+                    .get(&key)
+                    .or_else(|| complement.original_cells.get(&key))
+                    .or_else(|| view_row.get(column))
+                {
+                    row.insert(column.clone(), value.clone());
+                }
             }
-        }
+            row
+        };
         if source.insert_row(source_table, id, row).is_err() {
             errors.push(PutDomainError::IdCollision {
                 elem: ViewRef::Row(id),
@@ -1775,9 +1815,9 @@ fn forward_stability(
     };
     let mut found = Vec::new();
     let mut traces = if let Some(boundary) = &plan.boundary
-        && let (Some(functor), Some(_)) = (&boundary.table, &boundary.cells)
+        && let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells)
     {
-        let (mut baseline, mut errors) = restore_rows(view, complement, functor);
+        let (mut baseline, mut errors) = restore_rows(lens, view, complement, functor, cells);
         restore_view_pairs(view, complement, plan, functor, &mut baseline, &mut errors);
         restore_dropped_pairs(complement, &mut baseline);
         if !errors.is_empty() {

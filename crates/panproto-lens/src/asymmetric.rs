@@ -2866,15 +2866,16 @@ fn pull_computed_field(
     // expression read. The snapshot remains authoritative for
     // every other source coordinate, including an existing
     // coordinate overwritten by the computed key.
-    // While the source coordinate is still in the view the
+    // While a distinct source coordinate is still in the view the
     // computed key is derived from it (`collect_derived_fields`):
     // the view's own value of the source is authoritative and
-    // the inverse has no say.
+    // the inverse has no say. A computation that rewrites its own
+    // source in place leaves no other view coordinate for it, so
+    // the inverse recovers the source from the shown value.
     if let Some(inv_expr) = inverse
         && working.contains_key(target_key)
         && let Some(source_key) = crate::derived::sole_source_var(expr)
-        && (!working.contains_key(&source_key)
-            || (changed.is_some() && source_key == target_key))
+        && (!working.contains_key(&source_key) || source_key == target_key)
         // Only an `extra_fields` source can be written here. A
         // child scalar lives on another node, and inserting it
         // on this one would invent a field the source lacked;

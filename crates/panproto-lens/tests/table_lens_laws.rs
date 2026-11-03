@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 
-use panproto_expr::{BuiltinOp, Expr, Literal};
+use panproto_expr::{BuiltinOp, Expr, ExprError, Literal};
 use panproto_gat::{CoercionClass, Name};
 use panproto_inst::identity::{
     AnyComplement, Encoding, IdentityCarrier, IdentityField, decode_complement,
@@ -884,7 +884,6 @@ fn a_fresh_computed_isomorphism_preserves_a_retained_source_column() {
             "t",
             [
                 (RowId(0), row(&[("a", Value::Int(7))])),
-                (RowId(1), row(&[])),
                 (RowId(2), row(&[("a", Value::Null)])),
             ],
         )
@@ -899,6 +898,19 @@ fn a_fresh_computed_isomorphism_preserves_a_retained_source_column() {
         table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
         source
     );
+
+    // A row without `a` gives the computation no input: get evaluates the
+    // genuine finite row and refuses with the unbound variable.
+    let absent = FInstance::new()
+        .with_rows("t", [(RowId(1), row(&[]))])
+        .unwrap();
+    assert!(matches!(
+        table_lens::get(&lens, &absent, boundary),
+        Err(LensError::Restrict(RestrictError::FieldTransformFailed {
+            ref key,
+            source: ExprError::UnboundVariable(ref variable),
+        })) if key == "b" && variable == "a"
+    ));
 }
 
 #[test]
@@ -947,14 +959,46 @@ fn an_optional_computed_replacement_is_not_a_table_isomorphism() {
         source
     );
 
+    // A source without `a` has no view to put back: get evaluates the
+    // genuine finite row, and the computation refuses its unbound input.
     let absent = FInstance::new()
         .with_rows("t", [(RowId(0), row(&[]))])
         .unwrap();
-    let (absent_view, _) = table_lens::get(&invertible, &absent, boundary).unwrap();
-    assert_ne!(
-        raw_complement_free_put(&invertible, &absent_view, boundary).unwrap(),
-        absent
+    assert!(matches!(
+        table_lens::get(&invertible, &absent, boundary),
+        Err(LensError::Restrict(RestrictError::FieldTransformFailed {
+            ref key,
+            source: ExprError::UnboundVariable(ref variable),
+        })) if key == "b" && variable == "a"
+    ));
+}
+
+#[test]
+fn an_edit_to_an_in_place_computed_cell_pulls_back_through_its_inverse() {
+    let (protocol, _schema, mut lens, source) = one_column();
+    lens.compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::ComputeField {
+            target_key: "a".to_owned(),
+            expr: Expr::Builtin(
+                BuiltinOp::Add,
+                vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(1))],
+            ),
+            inverse: Some(Expr::Builtin(
+                BuiltinOp::Sub,
+                vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(1))],
+            )),
+            coercion_class: CoercionClass::Iso,
+        }],
     );
+    let boundary = contexts(&protocol);
+    let (mut view, complement) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["a"], Value::Int(2));
+    view.row_mut(RowId(0))
+        .unwrap()
+        .insert("a".to_owned(), Value::Int(5));
+    let restored = table_lens::put(&lens, &view, &complement, boundary).unwrap();
+    assert_eq!(restored.row(RowId(0)).unwrap()["a"], Value::Int(4));
 }
 
 #[test]
@@ -1068,11 +1112,14 @@ fn an_encoded_carrier_must_reach_its_matching_inverse() {
     let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
     assert_eq!(view.row(RowId(0)).unwrap()["b"], Value::Int(2));
 
+    // The last writer of `b` is the source column `a`, so `b` is not a
+    // derived cell; with no complement the shown carrier is written to `a`
+    // and the value layer cannot reproduce it from there.
     assert!(!table_lens::is_isomorphism(&lens, boundary));
     assert!(matches!(
         table_lens::put(&lens, &view, &TableComplement::empty(), boundary),
         Err(LensError::PutDomain(error))
-            if matches!(*error, PutDomainError::DerivedCellEdited {
+            if matches!(*error, PutDomainError::TransformNotInvertible {
                 elem: ViewRef::Row(RowId(0)), ref field
             } if field == "b")
     ));

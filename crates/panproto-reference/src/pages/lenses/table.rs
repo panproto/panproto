@@ -588,6 +588,17 @@ impl TableComplement {
         self.dropped_rows.keys().copied().collect()
     }
 
+    /// Whether view row `row` is newly inserted rather than a source row:
+    /// its id is at or above the floor and no residue is recorded for it.
+    #[must_use]
+    pub fn is_inserted_row(&self, row: u32) -> bool {
+        row >= self.id_floor
+            && !self.original_tables.contains_key(&row)
+            && !self.dropped_cells.keys().any(|(id, _)| *id == row)
+            && !self.original_cells.keys().any(|(id, _)| *id == row)
+            && !self.original_absent_cells.iter().any(|(id, _)| *id == row)
+    }
+
     /// Whether this complement carries no residue or allocation bookkeeping.
     fn records_nothing(&self) -> bool {
         self.residue_is_trivial() && self.synthesized_fk_pairs.is_empty() && self.id_floor == 0
@@ -886,6 +897,24 @@ fn table_preimages(plan: &TablePlan, view_table: &str) -> Vec<Name> {
         .collect()
 }
 
+/// The put-domain violation of a value-layer refusal at a row.
+fn row_refusal(row: u32, refusal: crate::restrict::PutFieldRefusal) -> PutDomainError {
+    match refusal {
+        crate::restrict::PutFieldRefusal::DerivedCellEdited { field } => {
+            PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Row(row),
+                field,
+            }
+        }
+        crate::restrict::PutFieldRefusal::TransformNotInvertible { field } => {
+            PutDomainError::TransformNotInvertible {
+                elem: ViewRef::Row(row),
+                field,
+            }
+        }
+    }
+}
+
 /// The table lens.
 pub struct TableLens<'a> {
     /// Source schema.
@@ -1115,7 +1144,13 @@ impl TableLens<'_> {
     /// written fields are the transformed ones, and the value layer
     /// restores the source fields from them (with the baseline as the
     /// recorded original when the transform changed it), its refusal being
-    /// the row's `TransformNotInvertible` or `DerivedCellEdited`.
+    /// the row's `TransformNotInvertible` or `DerivedCellEdited`. A row
+    /// whose view is unchanged restores its baseline.
+    ///
+    /// The id floor separates source rows from rows the view inserted. An
+    /// inserted row of a transformed table has no source baseline: each view
+    /// cell is written to its writer, and the value layer restores the source
+    /// columns from them with no recorded original.
     fn cells(
         &self,
         row: u32,
@@ -1123,8 +1158,28 @@ impl TableLens<'_> {
         s0: &BTreeMap<String, Value>,
         g0: &Graph,
         view: &BTreeMap<String, Value>,
+        inserted: bool,
     ) -> Result<BTreeMap<String, Value>, CellRestoreError> {
         let transformed = self.m.transformed.contains(table);
+        if transformed && inserted {
+            let mut written = crate::model::Node::new(row, table);
+            for (target, value) in view {
+                if let Some(writer) = self.tp.writer(table, target) {
+                    written.fields.insert(writer, value.clone());
+                }
+            }
+            let columns = self.rs.columns.get(table);
+            return self
+                .vl
+                .restore(&written, None, None)
+                .map(|(mut restored, _)| {
+                    restored.retain(|column, _| {
+                        columns.is_some_and(|columns| columns.contains_key(column))
+                    });
+                    restored
+                })
+                .map_err(|refusal| CellRestoreError::Domain(vec![row_refusal(row, refusal)]));
+        }
         let mut node = crate::model::Node::new(row, table);
         node.fields.clone_from(s0);
         let f0 = if transformed {
@@ -1149,7 +1204,7 @@ impl TableLens<'_> {
             .chain(v0.keys())
             .filter(|col| view.get(*col) != v0.get(*col))
             .collect();
-        if changed.is_empty() && !transformed {
+        if changed.is_empty() {
             return Ok(s0.clone());
         }
         let mut errs = Vec::new();
@@ -1193,22 +1248,7 @@ impl TableLens<'_> {
         self.vl
             .restore(&written, original, None)
             .map(|(restored, _)| restored)
-            .map_err(|refusal| {
-                CellRestoreError::Domain(vec![match refusal {
-                    crate::restrict::PutFieldRefusal::DerivedCellEdited { field } => {
-                        PutDomainError::DerivedCellEdited {
-                            elem: ViewRef::Row(row),
-                            field,
-                        }
-                    }
-                    crate::restrict::PutFieldRefusal::TransformNotInvertible { field } => {
-                        PutDomainError::TransformNotInvertible {
-                            elem: ViewRef::Row(row),
-                            field,
-                        }
-                    }
-                }])
-            })
+            .map_err(|refusal| CellRestoreError::Domain(vec![row_refusal(row, refusal)]))
     }
 
     /// Restore by the baseline-and-pullback rule, collecting every violation.
@@ -1278,7 +1318,8 @@ impl TableLens<'_> {
         retain_coherent_pairs(&mut source0);
         let (g0, _) = table_to_graph(&source0).map_err(TableOperationalError::BaselineEncoding)?;
         for (r, (s, s0)) in baselines {
-            match self.cells(r, &s, &s0, &g0, &view.rows[&r].1) {
+            let inserted = c.is_inserted_row(r);
+            match self.cells(r, &s, &s0, &g0, &view.rows[&r].1, inserted) {
                 Ok(restored) => {
                     out.rows.insert(r, (s, restored));
                 }
@@ -1631,7 +1672,14 @@ impl TableLens<'_> {
         for (row, (table, baseline)) in baselines {
             let view_cells = &view.rows.get(&row)?.1;
             let restored = self
-                .cells(row, &table, &baseline, &baseline_graph, view_cells)
+                .cells(
+                    row,
+                    &table,
+                    &baseline,
+                    &baseline_graph,
+                    view_cells,
+                    complement.is_inserted_row(row),
+                )
                 .ok()?;
             candidate.rows.insert(row, (table, restored));
         }
