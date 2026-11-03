@@ -1502,7 +1502,22 @@ fn restore_rows(
                     node.extra_fields.insert(writer, value.clone());
                 }
             }
-            apply_inverse_transforms(&mut node, &transforms);
+            // A default or an inverse-less computation at a source column
+            // has nothing to pull back: the written cell is the source's own.
+            let inverses: Vec<FieldTransform> = transforms
+                .iter()
+                .filter(|transform| match transform {
+                    FieldTransform::AddField { key, .. }
+                    | FieldTransform::ComputeField {
+                        target_key: key,
+                        inverse: None,
+                        ..
+                    } => !columns.contains_key(key),
+                    _ => true,
+                })
+                .cloned()
+                .collect();
+            apply_inverse_transforms(&mut node, &inverses);
             let mut row = node.extra_fields;
             row.retain(|key, _| columns.contains_key(key));
             row

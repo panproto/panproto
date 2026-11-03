@@ -242,9 +242,10 @@ fn collect_into(
                 inverse,
                 coercion_class,
             } => {
-                if !replaces_its_source(expr, inverse.as_ref(), *coercion_class, &removed)
-                    || children.contains(target_key)
-                {
+                // A computed output is declared as an attribute of its
+                // vertex, so its name is always a child edge's; that says
+                // nothing about whether it carries an independent coordinate.
+                if !replaces_its_source(expr, inverse.as_ref(), *coercion_class, &removed) {
                     fiber.locations.insert((path.to_vec(), target_key.clone()));
                 }
             }
