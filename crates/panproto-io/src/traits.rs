@@ -11,9 +11,9 @@
 //!   delimited, tabular and columnar formats;
 //! - a graph ([`NativeRepr::Graph`], [`panproto_inst::GInstance`]) for
 //!   native graph formats such as triples and edge lists, read through
-//!   [`GraphInstanceParser`](crate::traits::GraphInstanceParser) and written through [`GraphInstanceEmitter`](crate::traits::GraphInstanceEmitter).
+//!   [`GraphInstanceParser`] and written through [`GraphInstanceEmitter`].
 //!
-//! [`TableInstanceParser`](crate::traits::TableInstanceParser) and [`TableInstanceEmitter`](crate::traits::TableInstanceEmitter) are the table
+//! [`TableInstanceParser`] and [`TableInstanceEmitter`] are the table
 //! counterparts of the graph traits. The
 //! [`ProtocolRegistry`](crate::ProtocolRegistry) keeps graph and table
 //! codecs in their own tables beside the tree and table codecs of

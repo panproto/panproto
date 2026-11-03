@@ -3,8 +3,8 @@
 //! YAML, TOML, and CSV are format families in their own right: they carry
 //! structured instance data yet, unlike the domain protocols, name no
 //! single application. Registering them here gives the format-preserving
-//! [`UnifiedCodec`](crate::unified_codec::UnifiedCodec) a home in
-//! [`default_registry`], so a lossless,
+//! [`UnifiedCodec`] a home in
+//! [`default_registry`](crate::default_registry), so a lossless,
 //! byte-preserving round-trip is reachable by protocol name (`yaml`,
 //! `toml`, `csv`).
 //!

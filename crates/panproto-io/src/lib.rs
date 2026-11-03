@@ -63,85 +63,52 @@
 // Allow concrete HashMap in public API per workspace conventions.
 #![allow(clippy::implicit_hasher)]
 
-/// Error types for instance parse and emit operations.
 pub mod error;
 
-/// Core traits: [`InstanceParser`] and [`InstanceEmitter`].
 pub mod traits;
 
-/// Protocol registry mapping names to parser/emitter implementations.
 pub mod registry;
 
-/// Provider-indexed reference resolution and semantic shape conversion.
 pub mod resolution;
 
-/// Lossless JSON pathway for schema-guided instance parsing.
 pub mod json_pathway;
 
-/// Arena allocation helpers for zero-copy hot paths.
 pub mod arena;
 
-/// Generic JSON-based codec reused by many protocols.
-///
-/// Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
 #[allow(deprecated)]
 pub mod json_codec;
 
-/// Canonical TOML emission for instances with no layout complement.
 pub mod toml_pathway;
 
-/// Zero-copy XML pathway for schema-guided instance parsing via `quick-xml`.
 pub mod xml_pathway;
 
-/// Generic XML-based codec reused by several protocols.
-///
-/// Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
 #[allow(deprecated)]
 pub mod xml_codec;
 
-/// Shared tabular pathway for line/field-delimited formats via `memchr`.
 pub mod tabular_pathway;
 
-/// Generic tabular codec for delimited text protocols.
-///
-/// Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
 #[allow(deprecated)]
 pub mod tabular_codec;
 
-/// Byte-faithful codec for delimited line-oriented formats with no tree-sitter
-/// grammar (redis/RESP, SWIFT MT, EDI X12, CoNLL-U).
 pub mod byte_tabular;
 
-/// CST-to-Instance extraction lens for format-preserving round-trips.
 pub mod cst_extract;
 
-/// Unified tree-sitter-based codec for all protocols.
 #[cfg(feature = "tree-sitter")]
 pub mod unified_codec;
 
 // ── Protocol category modules ──────────────────────────────────────────
 
-/// Linguistic annotation protocols (brat, CoNLL-U, NAF, etc.).
 pub mod annotation;
-/// API specification protocols (OpenAPI, AsyncAPI, JSON:API, RAML).
 pub mod api;
-/// Configuration protocols (CloudFormation, Ansible, K8s CRD).
 pub mod config;
-/// Data schema protocols (CDDL, BSON).
 pub mod data_schema;
-/// Data science protocols (DataFrame, Parquet, Arrow).
 pub mod data_science;
-/// Database protocols (MongoDB, DynamoDB, Cassandra, Neo4j, Redis).
 pub mod database;
-/// Domain-specific protocols (GeoJSON, FHIR, RSS/Atom, vCard/iCal, etc.).
 pub mod domain;
-/// Serialization protocols (Avro, FlatBuffers, ASN.1, Bond, MsgPack).
 pub mod serialization;
-/// Generic text serialization formats (YAML, TOML, CSV) with
-/// format-preserving codecs; requires the `tree-sitter` feature.
 #[cfg(feature = "tree-sitter")]
 pub mod text_format;
-/// Web and document protocols (ATProto, DOCX, ODF).
 pub mod web_document;
 
 // Re-exports for convenience.

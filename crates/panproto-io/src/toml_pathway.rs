@@ -4,7 +4,7 @@
 //! of the bytes it came from, so the output is TOML written from scratch
 //! rather than the original document with edits threaded through it. The
 //! format-preserving path lives in
-//! [`cst_extract`]'s TOML section and should be preferred
+//! [`cst_extract`](crate::cst_extract)'s TOML section and should be preferred
 //! wherever a complement is available.
 //!
 //! The instance is mapped directly onto TOML's data model. Going through

@@ -1,5 +1,7 @@
 //! Generic tabular codec for protocols whose instance data is delimited text.
 //!
+//! Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+//!
 //! Used for CSV, INI, and similar tab/comma/pipe-delimited formats.
 
 use panproto_inst::{FInstance, WInstance};

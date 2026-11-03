@@ -1,5 +1,7 @@
 //! Generic JSON-based codec for protocols whose instance data is JSON.
 //!
+//! Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+//!
 //! Many protocols (GraphQL responses, OpenAPI payloads, JSON Schema instances,
 //! ATProto records, etc.) use JSON as their instance encoding. This module
 //! provides a reusable `JsonCodec` that implements `InstanceParser` and

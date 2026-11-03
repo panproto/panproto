@@ -32,7 +32,7 @@ pub enum UnitFailure {
 ///
 /// # Errors
 ///
-/// [`UnitFailure::OutOfRange`] when an origin subtraction or length addition
+/// `UnitFailure::OutOfRange` when an origin subtraction or length addition
 /// underflows or overflows.
 pub fn form_to_declared(
     written_start: u64,
@@ -57,12 +57,12 @@ pub fn form_to_declared(
 /// Decode the two written coordinates of a standoff declaration into
 /// zero-origin, exclusive-end offsets in its declared unit.
 ///
-/// This is [`form_to_declared`] for an exclusive end, refusing a start
+/// This is `form_to_declared` for an exclusive end, refusing a start
 /// after its end.
 ///
 /// # Errors
 ///
-/// [`UnitFailure::OutOfRange`] when an origin subtraction or length addition
+/// `UnitFailure::OutOfRange` when an origin subtraction or length addition
 /// underflows or overflows, or when an offset-form start lies after its end.
 pub fn form_to_offsets(
     written_start: u64,
@@ -85,7 +85,7 @@ pub fn form_to_offsets(
 ///
 /// # Errors
 ///
-/// [`UnitFailure::OutOfRange`] when the interval is reversed or adding the
+/// `UnitFailure::OutOfRange` when the interval is reversed or adding the
 /// origin overflows.
 pub fn offsets_to_form(
     start: u64,
@@ -162,8 +162,8 @@ pub fn valid_token_boundaries(boundaries: &[u64], len: u64) -> bool {
 ///
 /// # Errors
 ///
-/// [`UnitFailure::OutOfRange`] past the last boundary and
-/// [`UnitFailure::Violation`] inside a unit.
+/// `UnitFailure::OutOfRange` past the last boundary and
+/// `UnitFailure::Violation` inside a unit.
 pub fn to_byte(boundaries: &[Option<u64>], offset: u64) -> Result<u64, UnitFailure> {
     let index = usize::try_from(offset).map_err(|_| UnitFailure::OutOfRange)?;
     match boundaries.get(index) {
@@ -177,8 +177,8 @@ pub fn to_byte(boundaries: &[Option<u64>], offset: u64) -> Result<u64, UnitFailu
 ///
 /// # Errors
 ///
-/// [`UnitFailure::OutOfRange`] past the text and
-/// [`UnitFailure::Violation`] at a byte inside a unit.
+/// `UnitFailure::OutOfRange` past the text and
+/// `UnitFailure::Violation` at a byte inside a unit.
 pub fn from_byte(boundaries: &[Option<u64>], byte: u64) -> Result<u64, UnitFailure> {
     let last = boundaries
         .iter()
@@ -203,8 +203,8 @@ pub fn from_byte(boundaries: &[Option<u64>], byte: u64) -> Result<u64, UnitFailu
 ///
 /// # Errors
 ///
-/// [`UnitFailure::OutOfRange`] when an end lies past the text or the start
-/// lies after the end, [`UnitFailure::Violation`] with the offset that is
+/// `UnitFailure::OutOfRange` when an end lies past the text or the start
+/// lies after the end, `UnitFailure::Violation` with the offset that is
 /// inside a unit.
 pub fn declared_to_bytes(
     boundaries: &[Option<u64>],
@@ -233,13 +233,13 @@ pub fn declared_to_bytes(
 }
 
 /// A half-open byte interval converted to the declared form, the inverse of
-/// [`declared_to_bytes`] on its image.
+/// `declared_to_bytes` on its image.
 ///
 /// # Errors
 ///
-/// [`UnitFailure::Violation`] when a byte end is inside a unit or an
+/// `UnitFailure::Violation` when a byte end is inside a unit or an
 /// inclusive declaration would need an empty span, and
-/// [`UnitFailure::OutOfRange`] when the interval lies past the text.
+/// `UnitFailure::OutOfRange` when the interval lies past the text.
 pub fn bytes_to_declared(
     boundaries: &[Option<u64>],
     byte_start: u64,
@@ -263,8 +263,8 @@ pub fn bytes_to_declared(
 
 /// The half-open byte span that one written standoff form names over `text`.
 ///
-/// This is the composition of [`form_to_offsets`], [`unit_boundaries`] and
-/// [`declared_to_bytes`] (exclusive end) that get applies to every
+/// This is the composition of [`form_to_offsets`], `unit_boundaries` and
+/// `declared_to_bytes` (exclusive end) that get applies to every
 /// occurrence. `None` when get would refuse the form.
 #[must_use]
 pub fn written_form_to_bytes(
@@ -281,7 +281,7 @@ pub fn written_form_to_bytes(
 
 /// The written standoff form of a half-open byte span over `text`.
 ///
-/// This is the composition of [`bytes_to_declared`] and [`offsets_to_form`]
+/// This is the composition of `bytes_to_declared` and [`offsets_to_form`]
 /// (exclusive end) that put applies to every written occurrence. `None` when
 /// put would refuse the span.
 #[must_use]

@@ -3,8 +3,8 @@
 //! This module provides the core JSON → `WInstance` pipeline used by ~30
 //! protocols whose instance data is JSON (or JSON-like: YAML, TOML, BSON).
 //! Numeric tokens remain borrowed slices of the input until
-//! [`coerce`](panproto_inst::value::coerce::coerce) classifies them under
-//! the schema vertex's declared [`ValueSpec`](panproto_schema::ValueSpec).
+//! [`coerce`] classifies them under
+//! the schema vertex's declared [`ValueSpec`].
 //! No binary floating-point or bounded-integer carrier can therefore round
 //! or reject an exact numeral before the value layer sees it.
 //!

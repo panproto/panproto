@@ -1,5 +1,7 @@
 //! Generic XML-based codec for protocols whose instance data is XML.
 //!
+//! Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+//!
 //! Used by NAF, FoLiA, TEI, TimeML, ELAN, ISO-Space, XSD instances,
 //! RSS/Atom, PAULA, LAF/GrAF, DOCX (inner XML), ODF (inner XML).
 //!
