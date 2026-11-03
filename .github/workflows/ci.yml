@@ -121,11 +121,11 @@ jobs:
         with:
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
-      # The `ci` nextest profile skips the whole-corpus gates and the exact O14
-      # certificates. The former run in the scheduled `corpus-gate` workflow;
-      # the latter run as persisted graph-parity acceptance gates. Every test
+      # The `ci` nextest profile skips the whole-corpus gates and the exhaustive
+      # Kan certificates. The former run in the scheduled `corpus-gate` workflow;
+      # the latter run as separately recorded acceptance gates. Every test
       # still runs locally by default. See `.config/nextest.toml`.
-      - name: Keep O14 acceptance gates outside ordinary CI
+      - name: Keep the exhaustive Kan acceptance gates outside ordinary CI
         shell: bash
         run: |
           set -euo pipefail
@@ -265,8 +265,8 @@ jobs:
       - run: cd bindings/typescript && pnpm run build
       - run: cd bindings/typescript && pnpm test
       - run: cd bindings/typescript && pnpm exec tsc --noEmit
-      # Smoke-test that Panproto.init() works in pure Node.js (regression
-      # guard for GitHub issue #33: WASM not included / fetch file:// fails).
+      # Smoke-test that Panproto.init() works in pure Node.js, where the
+      # package must ship its WASM and must not load it with a file:// fetch.
       - run: cd bindings/typescript && node --input-type=module -e "import('./dist/index.js').then(async ({ Panproto }) => { const p = await Panproto.init(); console.log('Panproto.init() OK in Node ' + process.version); })"
 
   python:

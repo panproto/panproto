@@ -1,4 +1,4 @@
-//! Coverage (M7, long tail): assert the emit fixed-point law on idiomatic
+//! Coverage (long tail): assert the emit fixed-point law on idiomatic
 //! source across the long tail of vendored grammars, with a stronger oracle
 //! than the byte fixed point alone.
 //!

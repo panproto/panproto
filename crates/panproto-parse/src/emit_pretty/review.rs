@@ -493,7 +493,7 @@ pub(crate) fn emit_vertex(
         // its recorded span) lost the separators that, in its original
         // source, lived in the surrounding parent's interstitials. Restore a
         // line break on each edge so the byte-faithful body cannot glue onto
-        // an adjacent sibling (issue #202: a grafted Python `class` running
+        // an adjacent sibling (a grafted Python `class` would otherwise run
         // into the next `def`). Line breaks are idempotent at a line start,
         // so a body that already ends in a newline gains none; and a freshly
         // parsed schema (every child's span nested in its parent's) is never
@@ -3174,10 +3174,9 @@ pub(crate) fn pick_choice_with_cursor<'a>(
         // discriminator that excludes the automatic-semicolon terminator
         // `_semicolon = CHOICE[_automatic_semicolon, ";"]`: there the newline
         // alt is the EXTERNAL `_automatic_semicolon`, and defaulting to it on
-        // the canonical path drops the `;` that statements genuinely need (the
-        // §WAVE-5-B js 108->97 regression). The `_blank` field is a real
-        // grammar rule, so it passes; `_automatic_semicolon` is external, so it
-        // does not. The literal alt is restricted to a single-char
+        // the canonical path drops the `;` that JavaScript statements genuinely
+        // need. The `_blank` field is a real grammar rule, so it passes;
+        // `_automatic_semicolon` is external, so it does not. The literal alt is restricted to a single-char
         // `IMMEDIATE_TOKEN` so an ordinary keyword/separator CHOICE is
         // untouched.
         if alternatives.len() == 2 {

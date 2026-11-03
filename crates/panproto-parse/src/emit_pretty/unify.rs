@@ -86,7 +86,7 @@ fn dispatches_to<'g>(
     // sound — it cannot steal a child, exactly the property that makes the
     // SEQ-member non-traversal safe — so a default value `= 5` whose
     // `expression` field reaches `integer_literal` only through `literal` is
-    // no longer dropped.
+    // kept.
     let is_dispatch =
         name.starts_with('_') || grammar.supertypes.contains(name) || is_pure_choice_dispatch(rule);
     if !is_dispatch {

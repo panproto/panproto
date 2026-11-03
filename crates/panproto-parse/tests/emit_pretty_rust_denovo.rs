@@ -34,10 +34,10 @@ fn with_big_stack<F: FnOnce() + Send + 'static>(inner: F) {
         .expect("worker panicked");
 }
 
-/// Defect 1: a line comment must not absorb the items that follow it. Before
-/// the fix the abstract emit placed every following item on the comment line,
-/// so the whole file re-parsed as one `line_comment`. The fix registers
-/// rust's `//` prefix (whose grammar body is `SEQ[STRING "//", CHOICE[…]]`),
+/// Defect 1: a line comment must not absorb the items that follow it. Without
+/// a line break after it, the abstract emit places every following item on
+/// the comment line, so the whole file re-parses as one `line_comment`. The
+/// emitter registers rust's `//` prefix (whose grammar body is `SEQ[STRING "//", CHOICE[…]]`),
 /// so the layout pass breaks the line after the comment leaf.
 #[test]
 fn line_comment_does_not_absorb_following_item() {

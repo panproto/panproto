@@ -2,10 +2,10 @@
 //!
 //! When tree-sitter recovers from an incomplete construct by *inserting* a
 //! zero-width MISSING token, and that token is anonymous (a `]`, `}`, `)`,
-//! `,`, or keyword), the walker used to drop it silently: the recovered parse
-//! carried no `ERROR` vertex and no zero-width vertex, so it was
-//! indistinguishable from a complete parse and a downstream walker validating
-//! input could not reject it. The walker now surfaces each such token as a
+//! `,`, or keyword), dropping it silently would leave the recovered parse with
+//! no `ERROR` vertex and no zero-width vertex, indistinguishable from a
+//! complete parse, so a downstream walker validating input could not reject
+//! it. The walker therefore surfaces each such token as a
 //! zero-width, `ERROR`-kinded marker vertex carrying a `missing` constraint.
 
 #![cfg(all(feature = "grammars", feature = "lang-qvr"))]

@@ -18,7 +18,7 @@
 #     and are what would catch a regression; the corpus run is the wider net.
 #     Its name is unique on purpose, since the filter below matches test names
 #     across every binary and the fixture siblings must stay lit.
-#   * the exact O14 Kan acceptance tests, which enumerate the complete labelled
+#   * the exhaustive Kan acceptance tests, which enumerate the complete labelled
 #     member and representative-pair spaces. They are acceptance gates with
 #     separately persisted evidence; the representative-pair certificate alone
 #     takes several hours in release mode and cannot fit an ordinary CI job.
@@ -35,7 +35,7 @@
 #     agreement sweep, which requires `-p panproto-mig --features oracle`, and
 #   * on a schedule (and on demand) in the `corpus-gate` workflow,
 #
-# The O14 certificates instead run as separately recorded graph-parity
+# The exhaustive Kan certificates instead run as separately recorded
 # acceptance gates. Thus both guarantees stay enforced without blocking PR CI.
 [profile.ci]
 # Report every failing test in one run rather than stopping at the first.
@@ -44,9 +44,9 @@ default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|str
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #
-# Nothing here previously bounded a test's runtime, so a change that made
-# an operation quadratic showed up as repeated SLOW lines and a run that
-# never finished, rather than as a failure. An unbounded test reads as slow
+# Without a bound on a test's runtime, a change that made an operation
+# quadratic would show up as repeated SLOW lines and a run that never
+# finished, rather than as a failure. An unbounded test reads as slow
 # rather than broken, which is the wrong signal.
 #
 # The bound applies to the `ci` profile, whose slowest observed test is

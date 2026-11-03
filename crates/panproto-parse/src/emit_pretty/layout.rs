@@ -32,10 +32,9 @@ use super::{Grammar, TokenRole, is_word_like};
 ///
 /// The default policy inserts a single space between adjacent tokens,
 /// a newline after `;` / `}` / `{`, and tracks indent on `{` / `}`
-/// boundaries. Per-language overrides (idiomatic indent width,
-/// trailing-comma rules, blank-line conventions) can ride alongside
-/// this struct in a follow-up branch; today's defaults aim only for
-/// syntactic validity.
+/// boundaries. Per-language conventions (idiomatic indent width,
+/// trailing-comma rules, blank-line conventions) are not modelled; the
+/// defaults aim only for syntactic validity.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FormatPolicy {
     /// Number of spaces per indent level.

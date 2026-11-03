@@ -618,7 +618,7 @@ impl<'a> AstWalker<'a> {
     /// `field('func', choice('sigmoid','exp','log','abs'))` attach a
     /// field name to an unnamed token alternative. The named-children
     /// walk in [`walk_children_with_interstitials`] omits these (they
-    /// are not named nodes), and downstream consumers previously had
+    /// are not named nodes), so without this pass a consumer would have
     /// to recover the value by reading the source buffer between
     /// recorded byte offsets. This emits the value as a structural
     /// constraint so [`Schema::field_text`] can return it directly.
@@ -947,8 +947,7 @@ mod tests {
         if detector.has_query() {
             let vertex_ids: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
 
-            // Rust's function_item — the regression from issue #34 — must be
-            // detected as a named scope now.
+            // Rust's function_item must be detected as a named scope.
             assert!(
                 vertex_ids.iter().any(|id| id.ends_with("::verify_push")),
                 "expected ::verify_push named scope, got: {vertex_ids:?}"

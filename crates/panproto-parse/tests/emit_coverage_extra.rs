@@ -1,6 +1,6 @@
-//! Coverage (M3 systems, M4 functional, M5 data, M6 markup): assert the
-//! emit fixed-point law on idiomatic source. Every protocol here is now
-//! emit-verified (no remaining `#[ignore]`d defect cases).
+//! Coverage (systems, functional, data and markup grammars): assert the
+//! emit fixed-point law on idiomatic source. Every protocol here is
+//! emit-verified (no `#[ignore]`d defect cases).
 
 // Every test gates on a systems / functional / data / markup grammar,
 // none of which is in the workspace-default `group-core`. Gate the whole
@@ -77,7 +77,7 @@ fn assert_emit_fixed_point(protocol: &'static str, ext: &'static str, src: &'sta
     });
 }
 
-// ── M5 data / config ────────────────────────────────────────────────
+// ── Data / config ───────────────────────────────────────────────────
 #[test]
 #[cfg(feature = "lang-json")]
 fn json_emit_is_fixed_point() {
@@ -126,7 +126,7 @@ fn ron_emit_is_fixed_point() {
     assert_emit_fixed_point("ron", "ron", b"(\n    a: 1,\n)\n");
 }
 
-// ── M3 systems ──────────────────────────────────────────────────────
+// ── Systems ─────────────────────────────────────────────────────────
 #[test]
 #[cfg(feature = "lang-zig")]
 fn zig_emit_is_fixed_point() {
@@ -178,7 +178,7 @@ fn odin_emit_is_fixed_point() {
     assert_emit_fixed_point("odin", "odin", b"package main\n\nmain :: proc() {\n}\n");
 }
 
-// ── M4 functional ───────────────────────────────────────────────────
+// ── Functional ──────────────────────────────────────────────────────
 #[test]
 #[cfg(feature = "lang-haskell")]
 fn haskell_emit_is_fixed_point() {
@@ -215,7 +215,7 @@ fn lean_emit_is_fixed_point() {
     assert_emit_fixed_point("lean", "lean", b"def x : Nat := 1\n");
 }
 
-// ── M6 markup ───────────────────────────────────────────────────────
+// ── Markup ──────────────────────────────────────────────────────────
 #[test]
 #[cfg(feature = "lang-markdown")]
 fn markdown_emit_is_fixed_point() {

@@ -1,15 +1,15 @@
-//! Regression (issue #202): a parsed subtree relocated into a new context
+//! Regression: a parsed subtree relocated into a new context
 //! must not replay its stale byte span verbatim and concatenate onto its new
 //! sibling.
 //!
 //! When a parsed `class_definition` is grafted onto a fresh schema beside a
 //! sibling statement, the class keeps the `[start-byte, end-byte)` span it
-//! had in its original source. The verbatim replay path tiled that stale span
-//! perfectly and emitted the class as raw bytes, which bypasses the
-//! inter-statement separator the relocated context needs: the class body's
-//! last token ran straight into the next `def` (`…(1 + 2)def f():`), invalid
-//! Python. The fix declines verbatim replay when a vertex's recorded span is
-//! not contained by its parent's, falling back to the role-table walk that
+//! had in its original source. Verbatim replay would tile that stale span
+//! perfectly and emit the class as raw bytes, bypassing the inter-statement
+//! separator the relocated context needs: the class body's last token would
+//! run straight into the next `def` (`…(1 + 2)def f():`), invalid Python.
+//! Emission therefore declines verbatim replay when a vertex's recorded span
+//! is not contained by its parent's, falling back to the role-table walk that
 //! inserts the grammar-default separator.
 //!
 //! This test reproduces the "relocated" condition minimally: it parses a real
