@@ -788,8 +788,13 @@ fn get_with_identity(
     };
     for (id, node) in &vg.nodes {
         let (stable, source_cells) = &source.rows[id];
-        view.rows
-            .insert(*id, (node.anchor.clone(), tp.view_cells(mig, stable, &node.fields)));
+        view.rows.insert(
+            *id,
+            (
+                node.anchor.clone(),
+                tp.view_cells(mig, stable, &node.fields),
+            ),
+        );
         if table_preimages(tp, &node.anchor) != vec![stable.clone()] {
             comp.original_tables.insert(*id, stable.clone());
         }

@@ -51,7 +51,10 @@ fn the_post_to_profile_lens_targets_the_profile_schema_up_to_renaming() {
     );
     assert_eq!(kind_multiset(&target), kind_multiset(&profile));
     assert_eq!(edge_multiset(&target), edge_multiset(&profile));
-    assert_eq!(generated.lens.tgt_schema.vertices.len(), profile.vertices.len());
+    assert_eq!(
+        generated.lens.tgt_schema.vertices.len(),
+        profile.vertices.len()
+    );
 }
 
 /// A source vertex the chain drops by id and a target vertex it adds by id
@@ -88,11 +91,18 @@ fn the_post_to_profile_get_carries_only_the_aligned_cells() {
     let source = panproto_inst::parse_json(&post, &protocol, "app.bsky.feed.post", &record)
         .expect("the record parses");
     let (view, complement) = panproto_lens::get(&lens, &source).expect("get carries the record");
-    let mut anchors: Vec<&str> = view.nodes.values().map(|node| node.anchor.as_ref()).collect();
+    let mut anchors: Vec<&str> = view
+        .nodes
+        .values()
+        .map(|node| node.anchor.as_ref())
+        .collect();
     anchors.sort_unstable();
     assert_eq!(
         anchors,
-        ["app.bsky.feed.post:body", "app.bsky.feed.post:body.createdAt"]
+        [
+            "app.bsky.feed.post:body",
+            "app.bsky.feed.post:body.createdAt"
+        ]
     );
     let restored = panproto_lens::put(&lens, &view, &complement).expect("put restores");
     assert_eq!(
