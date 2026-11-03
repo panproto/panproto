@@ -960,6 +960,8 @@ mod tests {
             .unwrap()
     }
 
+    /// A `post` record with a `text` field that also declares `derived`,
+    /// the attribute the ordered document's `compute_field` writes.
     fn ordered_value_schema() -> Schema {
         let proto = crate::api::helpers::default_protocol("test");
         SchemaBuilder::new(&proto)
@@ -968,7 +970,11 @@ mod tests {
             .unwrap()
             .vertex("post.text", "string", None::<&str>)
             .unwrap()
+            .vertex("post.derived", "string", None::<&str>)
+            .unwrap()
             .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .edge("post", "post.derived", "prop", Some("derived"))
             .unwrap()
             .build()
             .unwrap()

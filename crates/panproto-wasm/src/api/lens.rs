@@ -1725,11 +1725,17 @@ mod tests {
             .expect("record vertex")
             .vertex("post.text", "string", None::<&str>)
             .expect("field vertex")
+            .vertex("post.derived", "string", None::<&str>)
+            .expect("computed field vertex")
             .edge("post", "post.text", "prop", Some("text"))
             .expect("field edge")
+            .edge("post", "post.derived", "prop", Some("derived"))
+            .expect("computed field edge")
             .build()
             .expect("schema builds");
         let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema)));
+        // The schema declares `derived`, the attribute `compute_field`
+        // writes, so instantiation reaches the group refusal.
         let doc = serde_json::json!({
             "id": "ordered",
             "source": "s",
