@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
-//! Deterministic audit of every semantic path in the schema-v3 manifest.
+//! Deterministic audit of every semantic path in the schema-v4 manifest.
 //!
 //! The crate-level rustdoc table is the compile-time path audit: strict
 //! rustdoc rejects any unresolved link. This test proves that the links
@@ -47,13 +47,13 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
     assert_eq!(laws.len(), 205);
     assert_eq!(
         laws.iter()
-            .filter(|law| law.due_gate == panproto_reference::manifest::Gate::Phase3)
+            .filter(|law| law.due_gate == panproto_reference::manifest::Gate::Candidate)
             .count(),
         191
     );
     assert_eq!(
         laws.iter()
-            .filter(|law| law.due_gate == panproto_reference::manifest::Gate::Final)
+            .filter(|law| law.due_gate == panproto_reference::manifest::Gate::Release)
             .count(),
         14
     );
@@ -78,13 +78,8 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
     for page in manifest.pages.values().filter(|page| {
         page.inventory_status == panproto_reference::manifest::InventoryStatus::Partial
     }) {
-        let mut expected_scope = Vec::new();
-        for locator in page.laws.iter().flat_map(|law| &law.contract) {
-            if !expected_scope.contains(locator) {
-                expected_scope.push(locator.clone());
-            }
-        }
-        assert_eq!(page.contract_scope, expected_scope);
+        let expected_scope: Vec<_> = page.laws.iter().map(|law| law.anchor.clone()).collect();
+        assert_eq!(page.open_scope, expected_scope);
     }
 
     let partial_laws: Vec<_> = manifest

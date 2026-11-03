@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "pages": {
     "values": {
       "inventory_status": "complete",
@@ -11,16 +11,10 @@
         {
           "id": "values.vf1-representation",
           "anchor": "L-values-1",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF1"
-            }
-          ],
           "references": [
             "panproto_reference::value::representation"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -39,16 +33,10 @@
         {
           "id": "values.vf4-lexical-mapping",
           "anchor": "L-values-2",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF4"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -67,20 +55,10 @@
         {
           "id": "values.vf6-exact-conversion",
           "anchor": "L-values-3",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF6"
-            },
-            {
-              "section": "O11",
-              "clause": "E7"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -99,16 +77,10 @@
         {
           "id": "values.coercion-lexical-fidelity",
           "anchor": "L-values-4",
-          "contract": [
-            {
-              "section": "O9",
-              "clause": "(13) law (i)"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -127,16 +99,10 @@
         {
           "id": "values.coercion-idempotence",
           "anchor": "L-values-5",
-          "contract": [
-            {
-              "section": "O9",
-              "clause": "(13) law (ii)"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -155,17 +121,11 @@
         {
           "id": "values.coercion-fixed-points",
           "anchor": "L-values-6",
-          "contract": [
-            {
-              "section": "O9",
-              "clause": "(13) law (iii)"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce",
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -190,16 +150,10 @@
         {
           "id": "values.computed-nan-canonicalization",
           "anchor": "L-values-7",
-          "contract": [
-            {
-              "section": "O11",
-              "clause": "E4"
-            }
-          ],
           "references": [
             "panproto_reference::float::computed_nan"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -218,17 +172,11 @@
         {
           "id": "values.binary32-nan-bits",
           "anchor": "L-values-8",
-          "contract": [
-            {
-              "section": "O11",
-              "clause": "E6"
-            }
-          ],
           "references": [
             "panproto_reference::float::narrow_bits",
             "panproto_reference::float::widen_bits"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -253,17 +201,11 @@
         {
           "id": "values.closest-shortest-ties-even",
           "anchor": "L-values-9",
-          "contract": [
-            {
-              "section": "O11",
-              "clause": "E12-E14"
-            }
-          ],
           "references": [
             "panproto_reference::float::shortest",
             "panproto_reference::float::round_to"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -288,16 +230,10 @@
         {
           "id": "values.decimal-numeric-order",
           "anchor": "L-values-10",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF1"
-            }
-          ],
           "references": [
             "panproto_reference::exact::DecimalValue::cmp_numeric"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -316,16 +252,10 @@
         {
           "id": "values.decimal-total-order",
           "anchor": "L-values-11",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF1"
-            }
-          ],
           "references": [
             "panproto_reference::exact::Decimal::compare_total"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -344,20 +274,10 @@
         {
           "id": "values.temporal-chronological-order",
           "anchor": "L-values-12",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF1 temporal order"
-            },
-            {
-              "section": "O12",
-              "clause": "D30(e)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -376,29 +296,11 @@
         {
           "id": "values.canonical-bytes-injective",
           "anchor": "L-values-13",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF1 canonical bytes"
-            },
-            {
-              "section": "O11",
-              "clause": "E1-E3"
-            },
-            {
-              "section": "O12",
-              "clause": "D30(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(a)-(c)"
-            }
-          ],
           "references": [
             "panproto_reference::canonical::decode_value",
             "panproto_reference::canonical::value_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -417,20 +319,10 @@
         {
           "id": "values.expression-evaluation",
           "anchor": "L-values-14",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "expression evaluator construction"
-            },
-            {
-              "section": "decision 29",
-              "clause": "pre-lane reach"
-            }
-          ],
           "references": [
             "panproto_reference::value::eval"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -449,16 +341,10 @@
         {
           "id": "values.temporal-parse-display",
           "anchor": "L-values-15",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(c) exact-descriptor parse/display accepted-lexeme implication"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::parse_display"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -477,16 +363,10 @@
         {
           "id": "values.temporal-display-parse",
           "anchor": "L-values-16",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(c) exact-descriptor display/parse value round trip"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::display_parse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -505,28 +385,10 @@
         {
           "id": "values.temporal-comparability-reversal",
           "anchor": "L-values-17",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(e) law (1)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(a) extension of A2(e) law (1)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(b) extension of A2(e) law (1)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(c) extension of A2(e) law (1)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -545,28 +407,10 @@
         {
           "id": "values.temporal-comparability-total-preorder",
           "anchor": "L-values-18",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(e) law (2)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(a) extension of A2(e) law (2)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(b) extension of A2(e) law (2)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(c) extension of A2(e) law (2)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -591,28 +435,10 @@
         {
           "id": "values.temporal-written-form-equality",
           "anchor": "L-values-19",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(e) law (3)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(a) extension of A2(e) law (3)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(b) extension of A2(e) law (3)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(c) extension of A2(e) law (3)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -631,28 +457,10 @@
         {
           "id": "values.temporal-complete-conservativity",
           "anchor": "L-values-20",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(e) law (4)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(a) extension of A2(e) law (4)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(b) extension of A2(e) law (4)"
-            },
-            {
-              "section": "O12",
-              "clause": "E40(c) extension of A2(e) law (4)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -671,16 +479,10 @@
         {
           "id": "values.temporal-new-form-byte-injectivity",
           "anchor": "L-values-21",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(d)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::canonical_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -699,16 +501,10 @@
         {
           "id": "values.tagged-discriminator-coercion",
           "anchor": "L-values-22",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A4(b) law"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce_tagged"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -727,16 +523,10 @@
         {
           "id": "values.numeral-dialect-agreement",
           "anchor": "L-values-23",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A5 law"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce_dialect"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -755,18 +545,12 @@
         {
           "id": "values.latin1-decode-encode",
           "anchor": "L-values-24",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 Latin1 decode-encode law"
-            }
-          ],
           "references": [
             "panproto_reference::bytes::latin1_decode",
             "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_decode_encode"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -785,18 +569,12 @@
         {
           "id": "values.padded-accepted-text-encode-decode",
           "anchor": "L-values-25",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 padded accepted-text encode-decode law"
-            }
-          ],
           "references": [
             "panproto_reference::bytes::decode_base64",
             "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_text_encode_decode"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -815,16 +593,10 @@
         {
           "id": "values.optional-byte-text-decode-encode",
           "anchor": "L-values-26",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 optional-form decode/encode law"
-            }
-          ],
           "references": [
             "panproto_reference::bytes::optional"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -843,16 +615,10 @@
         {
           "id": "values.optional-byte-text-padding-equivalence",
           "anchor": "L-values-27",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 optional-form padding-equivalence law"
-            }
-          ],
           "references": [
             "panproto_reference::bytes::optional"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -871,16 +637,10 @@
         {
           "id": "values.epoch-count-to-temporal-round-trip",
           "anchor": "L-values-28",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A7 count-to-temporal-to-count law"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::from_epoch_count"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -899,16 +659,10 @@
         {
           "id": "values.temporal-to-epoch-count-round-trip",
           "anchor": "L-values-29",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A7 temporal-to-count-to-temporal law"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::to_epoch_count"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -939,16 +693,10 @@
         {
           "id": "values.binary16-lexeme-fidelity",
           "anchor": "L-values-30",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A8(a) law (i) at b = 16"
-            }
-          ],
           "references": [
             "panproto_reference::float::binary16"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -967,16 +715,10 @@
         {
           "id": "values.nearest-reading-acceptance",
           "anchor": "L-values-31",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A8(b) law (1)"
-            }
-          ],
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1001,16 +743,10 @@
         {
           "id": "values.nearest-reading-canonical-round-trip",
           "anchor": "L-values-33",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A8(b) law (3)"
-            }
-          ],
           "references": [
             "panproto_reference::float::shortest"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1035,17 +771,11 @@
         {
           "id": "values.exact-reading-conservativity",
           "anchor": "L-values-34",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A8(b) law (4)"
-            }
-          ],
           "references": [
             "panproto_reference::float::exact_reading",
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1082,16 +812,10 @@
         {
           "id": "values.decimal-numeric-total-preorder",
           "anchor": "L-values-35",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A9(b) law (1)"
-            }
-          ],
           "references": [
             "panproto_reference::exact::Decimal::cmp_numeric"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1110,16 +834,10 @@
         {
           "id": "values.decimal-special-placement",
           "anchor": "L-values-36",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A9(b) law (2)"
-            }
-          ],
           "references": [
             "panproto_reference::exact::Decimal::cmp_numeric"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1138,16 +856,10 @@
         {
           "id": "values.decimal-compare-total-refinement",
           "anchor": "L-values-37",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A9(b) law (3)"
-            }
-          ],
           "references": [
             "panproto_reference::exact::Decimal::compare_total"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1166,16 +878,10 @@
         {
           "id": "values.decimal-special-canonical-injectivity",
           "anchor": "L-values-38",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A9(b) law (4)"
-            }
-          ],
           "references": [
             "panproto_reference::canonical::decimal_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1194,16 +900,10 @@
         {
           "id": "values.yaml-unwritten-zulu-representation",
           "anchor": "L-values-39",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "D30(e)"
-            }
-          ],
           "references": [
             "panproto_reference::temporal::unwritten_zulu"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1222,18 +922,12 @@
         {
           "id": "values.latin1-encode-decode",
           "anchor": "L-values-41",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 Latin1 encode-decode law"
-            }
-          ],
           "references": [
             "panproto_reference::bytes::latin1_decode",
             "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_encode_decode"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1252,18 +946,12 @@
         {
           "id": "values.padded-byte-decode-encode",
           "anchor": "L-values-42",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 padded byte decode-encode law"
-            }
-          ],
           "references": [
             "panproto_reference::bytes::decode_base64",
             "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_bytes_decode_encode"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1282,16 +970,10 @@
         {
           "id": "values.exact-rounding-ties-even",
           "anchor": "L-values-43",
-          "contract": [
-            {
-              "section": "O10",
-              "clause": "L_b maps every exact rational to the nearest representable binary16, binary32 or binary64 value when finite, ties to an even significand, preserves the supplied sign of exact zero, and reports signed overflow when the rounded result is infinite"
-            }
-          ],
           "references": [
             "panproto_reference::float::round_to"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1308,7 +990,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "value-io": {
       "inventory_status": "complete",
@@ -1320,16 +1002,10 @@
         {
           "id": "value-io.rcm-prop1",
           "anchor": "L-value-io-1",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "RCM Proposition 1 canonical/default routes"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::round_trip"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1360,16 +1036,10 @@
         {
           "id": "value-io.vf7-emission",
           "anchor": "L-value-io-2",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF7"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::emit"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1400,16 +1070,10 @@
         {
           "id": "value-io.vf8-null-and-absence",
           "anchor": "L-value-io-3",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF8 canonical/default routes"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::presence"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1431,16 +1095,10 @@
         {
           "id": "value-io.vf9-reading",
           "anchor": "L-value-io-4",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF9 canonical/default routes"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::parse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1474,16 +1132,10 @@
         {
           "id": "value-io.temporal-route-representability",
           "anchor": "L-value-io-5",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A2(f) canonical-emitter scope: JSON, TOML, XML, CSV and TSV"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::temporal"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1502,16 +1154,10 @@
         {
           "id": "value-io.byte-text-writer-agreement",
           "anchor": "L-value-io-6",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A6 writer clause"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -1530,16 +1176,10 @@
         {
           "id": "value-io.special-decimal-writer-agreement",
           "anchor": "L-value-io-7",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "A9(d)"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::decimal"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1552,30 +1192,18 @@
         {
           "id": "value-io.raw-numeric-lexeme-preservation",
           "anchor": "L-value-io-8",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C3 law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::raw_numeric"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.duplicate-member-refusal",
           "anchor": "L-value-io-9",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C11 canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::duplicate_member"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1588,16 +1216,10 @@
         {
           "id": "value-io.canonical-encoding-normalization",
           "anchor": "L-value-io-10",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C12 canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::encoding"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1622,16 +1244,10 @@
         {
           "id": "value-io.toml-decimal-bigint-round-trip",
           "anchor": "L-value-io-11",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C27 canonical law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::toml_scalar"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1644,17 +1260,11 @@
         {
           "id": "value-io.xml-entity-bounded-expansion",
           "anchor": "L-value-io-12",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C54 canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::xml_entity",
             "panproto_reference::xml::expand_entities"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1667,16 +1277,10 @@
         {
           "id": "value-io.xml-canonical-encoding",
           "anchor": "L-value-io-13",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C55 canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::xml_encoding"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1695,16 +1299,10 @@
         {
           "id": "value-io.tsv-comment-opt-in",
           "anchor": "L-value-io-14",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90a law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::tsv_comment"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1717,16 +1315,10 @@
         {
           "id": "value-io.tabular-missing-token",
           "anchor": "L-value-io-15",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90b canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::tabular_missing"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1739,16 +1331,10 @@
         {
           "id": "value-io.one-column-empty-row-round-trip",
           "anchor": "L-value-io-16",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90c one-column canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::tabular_empty_row"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1761,16 +1347,10 @@
         {
           "id": "value-io.tsv-quote-acceptance",
           "anchor": "L-value-io-17",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90c quote canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::tsv_quote"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1783,16 +1363,10 @@
         {
           "id": "value-io.xml-expanded-name-function",
           "anchor": "L-value-io-18",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "G57 canonical/default law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::xml_expanded_name"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1805,16 +1379,10 @@
         {
           "id": "value-io.blob-writer-agreement",
           "anchor": "L-value-io-19",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "I88(c) generic blob-writer arm"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::blob_writer"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1839,31 +1407,19 @@
         {
           "id": "value-io.rcm-prop1-cst",
           "anchor": "L-value-io-20",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "RCM Proposition 1 CST routes"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::round_trip_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.vf8-presentation-preservation-cst",
           "anchor": "L-value-io-21",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF8 CST routes"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::preserve",
             "panproto_reference::value_io::preserve_cst"
           ],
-          "due_gate": "final",
+          "due_gate": "release",
           "consumers": [
             {
               "role": "production",
@@ -1885,44 +1441,26 @@
         {
           "id": "value-io.vf9-reading-cst",
           "anchor": "L-value-io-22",
-          "contract": [
-            {
-              "section": "P.3",
-              "clause": "VF9 CST routes"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::parse_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.duplicate-member-refusal-cst",
           "anchor": "L-value-io-23",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C11 CST law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::duplicate_member_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.encoding-and-bom-preservation-cst",
           "anchor": "L-value-io-24",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C12 CST law"
-            }
-          ],
           "references": [
             "panproto_reference::value_io::encoding_bom_cst"
           ],
-          "due_gate": "final",
+          "due_gate": "release",
           "consumers": [
             {
               "role": "production",
@@ -1944,45 +1482,27 @@
         {
           "id": "value-io.toml-decimal-bigint-round-trip-cst",
           "anchor": "L-value-io-25",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C27 CST law"
-            }
-          ],
           "references": [
             "panproto_reference::toml::decimal_bigint_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.xml-entity-bounded-expansion-cst",
           "anchor": "L-value-io-26",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C54 CST law"
-            }
-          ],
           "references": [
             "panproto_reference::xml::bounded_expansion_cst",
             "panproto_reference::xml::expand_entities"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.xml-byte-round-trip-cst",
           "anchor": "L-value-io-27",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C55 CST law"
-            }
-          ],
           "references": [
             "panproto_reference::xml::round_trip_cst"
           ],
-          "due_gate": "final",
+          "due_gate": "release",
           "consumers": [
             {
               "role": "production",
@@ -2004,114 +1524,51 @@
         {
           "id": "value-io.tabular-missing-token-cst",
           "anchor": "L-value-io-28",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90b CST law"
-            }
-          ],
           "references": [
             "panproto_reference::tabular::missing_token_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.one-column-empty-row-round-trip-cst",
           "anchor": "L-value-io-29",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90c one-column CST law"
-            }
-          ],
           "references": [
             "panproto_reference::tabular::one_column_empty_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.tsv-quote-acceptance-cst",
           "anchor": "L-value-io-30",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "C90c quote CST law"
-            }
-          ],
           "references": [
             "panproto_reference::tabular::tsv_quote_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         },
         {
           "id": "value-io.xml-expanded-name-function-cst",
           "anchor": "L-value-io-31",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "G57 CST law"
-            }
-          ],
           "references": [
             "panproto_reference::xml::expanded_name_cst"
           ],
-          "due_gate": "final"
+          "due_gate": "release"
         }
       ],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.3",
-          "clause": "RCM Proposition 1 CST routes"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF8 CST routes"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF9 CST routes"
-        },
-        {
-          "section": "O12",
-          "clause": "C11 CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C12 CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C27 CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C54 CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C55 CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C90b CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C90c one-column CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C90c quote CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "G57 CST law"
-        },
-        {
-          "section": "O12",
-          "clause": "C3 law"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "L-value-io-20",
+        "L-value-io-21",
+        "L-value-io-22",
+        "L-value-io-23",
+        "L-value-io-24",
+        "L-value-io-25",
+        "L-value-io-26",
+        "L-value-io-27",
+        "L-value-io-28",
+        "L-value-io-29",
+        "L-value-io-30",
+        "L-value-io-31",
+        "L-value-io-8"
       ]
     },
     "theories": {
@@ -2124,16 +1581,10 @@
         {
           "id": "theories.q1",
           "anchor": "L-theories-1",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.5"
-            }
-          ],
           "references": [
             "panproto_reference::theory::typecheck_signature"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2152,16 +1603,10 @@
         {
           "id": "theories.q2",
           "anchor": "L-theories-2",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.5"
-            }
-          ],
           "references": [
             "panproto_reference::theory::typecheck_signature"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2180,16 +1625,10 @@
         {
           "id": "theories.q3",
           "anchor": "L-theories-3",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.3"
-            }
-          ],
           "references": [
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2208,16 +1647,10 @@
         {
           "id": "theories.q4",
           "anchor": "L-theories-4",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.4"
-            }
-          ],
           "references": [
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2248,16 +1681,10 @@
         {
           "id": "theories.q5",
           "anchor": "L-theories-5",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.2"
-            }
-          ],
           "references": [
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2276,16 +1703,10 @@
         {
           "id": "theories.union-find-closure",
           "anchor": "L-theories-6",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q union-find closure"
-            }
-          ],
           "references": [
             "panproto_reference::theory::quotient"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2304,16 +1725,10 @@
         {
           "id": "theories.morphism-checking",
           "anchor": "L-theories-7",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q morphism checks"
-            }
-          ],
           "references": [
             "panproto_reference::theory::check_morphism"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2338,16 +1753,10 @@
         {
           "id": "theories.recompose-replay",
           "anchor": "L-theories-8",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q composition replay"
-            }
-          ],
           "references": [
             "panproto_reference::theory::recompose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2364,7 +1773,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "keys-and-registration": {
       "inventory_status": "complete",
@@ -2376,16 +1785,10 @@
         {
           "id": "keys.key-declarations",
           "anchor": "L-keys-and-registration-1",
-          "contract": [
-            {
-              "section": "P.4",
-              "clause": "key declarations"
-            }
-          ],
           "references": [
             "panproto_reference::keys::key_value"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2416,16 +1819,10 @@
         {
           "id": "keys.reference-declarations",
           "anchor": "L-keys-and-registration-2",
-          "contract": [
-            {
-              "section": "P.4",
-              "clause": "reference declarations"
-            }
-          ],
           "references": [
             "panproto_reference::keys::buckets"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2456,52 +1853,10 @@
         {
           "id": "keys.canonical-schema-bytes-injective",
           "anchor": "L-keys-and-registration-3",
-          "contract": [
-            {
-              "section": "P.4",
-              "clause": "schema canonical-byte injectivity"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14a(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14b(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14d(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14e(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B15(a)"
-            },
-            {
-              "section": "O12",
-              "clause": "B16(a)"
-            }
-          ],
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2538,28 +1893,10 @@
         {
           "id": "keys.change-classification",
           "anchor": "L-keys-and-registration-4",
-          "contract": [
-            {
-              "section": "P.4",
-              "clause": "key-change classification"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(e) classification sentence"
-            },
-            {
-              "section": "O12",
-              "clause": "B14e(d)"
-            },
-            {
-              "section": "O12",
-              "clause": "B15(e)"
-            }
-          ],
           "references": [
             "panproto_reference::schema::classify_change"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2578,17 +1915,11 @@
         {
           "id": "keys.q6",
           "anchor": "L-keys-and-registration-5",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.6"
-            }
-          ],
           "references": [
             "panproto_reference::theory::typecheck_signature",
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -2619,16 +1950,10 @@
         {
           "id": "keys.q7",
           "anchor": "L-keys-and-registration-6",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.7"
-            }
-          ],
           "references": [
             "panproto_reference::theory::recompose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -2665,17 +1990,11 @@
         {
           "id": "keys.q8",
           "anchor": "L-keys-and-registration-7",
-          "contract": [
-            {
-              "section": "Q",
-              "clause": "Q.8"
-            }
-          ],
           "references": [
             "panproto_reference::theory::canonical_theory_bytes",
             "panproto_reference::theory::canonical_composition_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2694,20 +2013,10 @@
         {
           "id": "keys.equality-kernel-equivalence",
           "anchor": "L-keys-and-registration-8",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B10(d) law (1)"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::keys::key_equivalence"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2720,20 +2029,10 @@
         {
           "id": "keys.representation-refinement",
           "anchor": "L-keys-and-registration-9",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B10(d) law (2)"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::keys::representation_refines"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2752,20 +2051,10 @@
         {
           "id": "keys.equality-declaration-byte-injectivity",
           "anchor": "L-keys-and-registration-10",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B10(d) law (3)"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2778,16 +2067,10 @@
         {
           "id": "keys.sort-key-total-preorder",
           "anchor": "L-keys-and-registration-11",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14e(e) total-preorder law"
-            }
-          ],
           "references": [
             "panproto_reference::keys::sort_order"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2800,16 +2083,10 @@
         {
           "id": "keys.sort-key-adjacent-descents",
           "anchor": "L-keys-and-registration-12",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14e(e) adjacent-descent law"
-            }
-          ],
           "references": [
             "panproto_reference::keys::key_order"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2822,16 +2099,10 @@
         {
           "id": "keys.target-set-declaration",
           "anchor": "L-keys-and-registration-13",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B15(e) declaration law"
-            }
-          ],
           "references": [
             "panproto_reference::keys::target_set"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2850,16 +2121,10 @@
         {
           "id": "keys.xml-noncdata-equivalence",
           "anchor": "L-keys-and-registration-14",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "G56 law"
-            }
-          ],
           "references": [
             "panproto_reference::keys::xml_noncdata"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2872,16 +2137,10 @@
         {
           "id": "keys.group-g-declaration-injectivity",
           "anchor": "L-keys-and-registration-15",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "G56-G61 declaration-encoding law"
-            }
-          ],
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2918,16 +2177,10 @@
         {
           "id": "keys.index-and-null-match-declarations",
           "anchor": "L-keys-and-registration-16",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "E33 and E42(c) declaration law"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::get"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2946,16 +2199,10 @@
         {
           "id": "keys.lexical-space-declaration",
           "anchor": "L-keys-and-registration-17",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "F45 declaration law"
-            }
-          ],
           "references": [
             "panproto_reference::keys::lexical_space_outcome"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2968,17 +2215,11 @@
         {
           "id": "keys.annotated-format-declaration",
           "anchor": "L-keys-and-registration-18",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "H72 declaration law"
-            }
-          ],
           "references": [
             "panproto_reference::keys::annotated_format_outcome",
             "panproto_reference::keys::uuid_format"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2989,7 +2230,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "representation": {
       "inventory_status": "complete",
@@ -3001,16 +2242,10 @@
         {
           "id": "representation.tree-to-graph-total",
           "anchor": "L-representation-1",
-          "contract": [
-            {
-              "section": "decisions 3 and 12",
-              "clause": "representation contract"
-            }
-          ],
           "references": [
             "panproto_reference::encode::tree_to_graph"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3023,16 +2258,10 @@
         {
           "id": "representation.graph-to-tree-decision",
           "anchor": "L-representation-2",
-          "contract": [
-            {
-              "section": "decisions 3 and 12",
-              "clause": "representation contract"
-            }
-          ],
           "references": [
             "panproto_reference::encode::graph_to_tree"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3045,16 +2274,10 @@
         {
           "id": "representation.reify-round-trip",
           "anchor": "L-representation-3",
-          "contract": [
-            {
-              "section": "P.2",
-              "clause": "reify_fans image round trip"
-            }
-          ],
           "references": [
             "panproto_reference::encode::reify"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3067,18 +2290,12 @@
         {
           "id": "representation.canonical-serde",
           "anchor": "L-representation-4",
-          "contract": [
-            {
-              "section": "P.2",
-              "clause": "canonical serde"
-            }
-          ],
           "references": [
             "panproto_reference::canonical::decode_graph",
             "panproto_reference::canonical::decode_table",
             "panproto_reference::canonical::decode_tree"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3091,16 +2308,10 @@
         {
           "id": "representation.identity-envelope",
           "anchor": "L-representation-5",
-          "contract": [
-            {
-              "section": "decision 9",
-              "clause": "identity envelope"
-            }
-          ],
           "references": [
             "panproto_reference::canonical::identity"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3113,16 +2324,10 @@
         {
           "id": "representation.table-to-graph-total",
           "anchor": "L-representation-6",
-          "contract": [
-            {
-              "section": "T.7",
-              "clause": "table-to-graph maps every well-formed table whose pairs fit the nonreserved edge-id carrier to plain row nodes and ascending unpositioned pair edges, while malformed pairs and reserved edge-id exhaustion are typed refusals"
-            }
-          ],
           "references": [
             "panproto_reference::encode::table_to_graph"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3135,16 +2340,10 @@
         {
           "id": "representation.graph-to-table-decision",
           "anchor": "L-representation-7",
-          "contract": [
-            {
-              "section": "T.7",
-              "clause": "graph-to-table returns the row and pair carrier exactly for well-formed table-shaped graphs and returns None for every graph outside that domain"
-            }
-          ],
           "references": [
             "panproto_reference::encode::graph_to_table"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3157,16 +2356,10 @@
         {
           "id": "representation.fan-domain",
           "anchor": "L-representation-8",
-          "contract": [
-            {
-              "section": "F",
-              "clause": "fan-domain decision lists every violation at one node in the specified deterministic order, including reserved kinds outside fans and schema-relative hyper-edge and child-label defects"
-            }
-          ],
           "references": [
             "panproto_reference::fan::violations_at"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3177,7 +2370,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "kan-extensions": {
       "inventory_status": "complete",
@@ -3189,17 +2382,11 @@
         {
           "id": "kan.delta",
           "anchor": "L-kan-extensions-1",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Delta construction"
-            }
-          ],
           "references": [
             "panproto_reference::rel::delta",
             "panproto_reference::rel::delta_on_hom"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3236,17 +2423,11 @@
         {
           "id": "kan.sigma",
           "anchor": "L-kan-extensions-2",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Sigma construction"
-            }
-          ],
           "references": [
             "panproto_reference::rel::sigma",
             "panproto_reference::rel::sigma_on_hom"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3307,17 +2488,11 @@
         {
           "id": "kan.pi",
           "anchor": "L-kan-extensions-3",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Pi construction"
-            }
-          ],
           "references": [
             "panproto_reference::rel::pi",
             "panproto_reference::rel::pi_on_hom"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3354,12 +2529,6 @@
         {
           "id": "kan.sigma-delta-adjunction",
           "anchor": "L-kan-extensions-4",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Sigma left adjoint to Delta"
-            }
-          ],
           "references": [
             "panproto_reference::rel::sigma",
             "panproto_reference::rel::delta",
@@ -3370,7 +2539,7 @@
             "panproto_reference::rel::sigma_transpose_forward",
             "panproto_reference::rel::sigma_transpose_inverse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3407,12 +2576,6 @@
         {
           "id": "kan.delta-pi-adjunction",
           "anchor": "L-kan-extensions-5",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Delta left adjoint to Pi"
-            }
-          ],
           "references": [
             "panproto_reference::rel::delta",
             "panproto_reference::rel::pi",
@@ -3423,7 +2586,7 @@
             "panproto_reference::rel::pi_transpose_forward",
             "panproto_reference::rel::pi_transpose_inverse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3460,12 +2623,6 @@
         {
           "id": "kan.sigma-delta-hom-bijection",
           "anchor": "L-kan-extensions-6",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Sigma-Delta hom-set bijection"
-            }
-          ],
           "references": [
             "panproto_reference::rel::homs",
             "panproto_reference::rel::row_bijection",
@@ -3474,7 +2631,7 @@
             "panproto_reference::rel::sigma_transpose_forward",
             "panproto_reference::rel::sigma_transpose_inverse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3511,12 +2668,6 @@
         {
           "id": "kan.delta-pi-hom-bijection",
           "anchor": "L-kan-extensions-7",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "Delta-Pi hom-set bijection"
-            }
-          ],
           "references": [
             "panproto_reference::rel::homs",
             "panproto_reference::rel::row_bijection",
@@ -3525,7 +2676,7 @@
             "panproto_reference::rel::pi_transpose_forward",
             "panproto_reference::rel::pi_transpose_inverse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3562,12 +2713,6 @@
         {
           "id": "kan.graph-conjugation-square",
           "anchor": "L-kan-extensions-8",
-          "contract": [
-            {
-              "section": "O7",
-              "clause": "graph conjugation square"
-            }
-          ],
           "references": [
             "panproto_reference::encode::decode_table",
             "panproto_reference::encode::encode_graph",
@@ -3576,7 +2721,7 @@
             "panproto_reference::encode::g_sigma",
             "panproto_reference::migration::graph_square"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3631,16 +2776,10 @@
         {
           "id": "kan.table-conjugation-square",
           "anchor": "L-kan-extensions-9",
-          "contract": [
-            {
-              "section": "O7",
-              "clause": "table conjugation square"
-            }
-          ],
           "references": [
             "panproto_reference::migration::table_square"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3665,19 +2804,13 @@
         {
           "id": "kan.tree-conjugation-square",
           "anchor": "L-kan-extensions-10",
-          "contract": [
-            {
-              "section": "O7",
-              "clause": "tree conjugation square"
-            }
-          ],
           "references": [
             "panproto_reference::encode::t_delta",
             "panproto_reference::encode::t_pi",
             "panproto_reference::encode::t_sigma",
             "panproto_reference::migration::tree_square"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3696,16 +2829,10 @@
         {
           "id": "kan.entity-functor",
           "anchor": "L-kan-extensions-11",
-          "contract": [
-            {
-              "section": "O4",
-              "clause": "the entity functor keeps and maps tables, relations, attribute arrows and inner value edges in the stated order, refusing the least incoherent table, relation, attribute or value-structure image"
-            }
-          ],
           "references": [
             "panproto_reference::rel::entity_functor"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3730,16 +2857,10 @@
         {
           "id": "kan.relation-classification",
           "anchor": "L-kan-extensions-12",
-          "contract": [
-            {
-              "section": "O4",
-              "clause": "strict relation classification requires disjoint value and non-value kinds, classifies declared and kind-selected tables and the value closure, and refuses the least ambiguity, unclassified vertex, value-to-table edge or duplicate column in that order"
-            }
-          ],
           "references": [
             "panproto_reference::rel::classify"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3756,7 +2877,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "restrict-and-contraction": {
       "inventory_status": "complete",
@@ -3768,17 +2889,11 @@
         {
           "id": "restrict.f-r",
           "anchor": "L-restrict-and-contraction-1",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "F.R"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::edge_image"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3797,16 +2912,10 @@
         {
           "id": "restrict.c1",
           "anchor": "L-restrict-and-contraction-2",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "C.1"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::contraction_plan"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3819,16 +2928,10 @@
         {
           "id": "restrict.c2",
           "anchor": "L-restrict-and-contraction-3",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "C.2"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::resolve_pair"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3841,18 +2944,12 @@
         {
           "id": "restrict.c3",
           "anchor": "L-restrict-and-contraction-4",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "C.3"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::edge_image",
             "panproto_reference::restrict::compile"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3907,16 +3004,10 @@
         {
           "id": "restrict.tr6",
           "anchor": "L-restrict-and-contraction-5",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR6"
-            }
-          ],
           "references": [
             "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3929,16 +3020,10 @@
         {
           "id": "restrict.tr7",
           "anchor": "L-restrict-and-contraction-6",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR7"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::column_fates"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3951,16 +3036,10 @@
         {
           "id": "restrict.tr8",
           "anchor": "L-restrict-and-contraction-7",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR8"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::scalar_child_bindings"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3973,16 +3052,10 @@
         {
           "id": "restrict.tr9",
           "anchor": "L-restrict-and-contraction-8",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR9"
-            }
-          ],
           "references": [
             "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4007,17 +3080,11 @@
         {
           "id": "restrict.tr10",
           "anchor": "L-restrict-and-contraction-9",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR10"
-            }
-          ],
           "references": [
             "panproto_reference::lens::TreeShape::check_put_domain",
             "panproto_reference::lens::tree_put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4054,17 +3121,11 @@
         {
           "id": "restrict.tr11",
           "anchor": "L-restrict-and-contraction-10",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR11"
-            }
-          ],
           "references": [
             "panproto_reference::lens::check_tree_laws",
             "panproto_reference::lens::TreeShape::single_step_basis"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4089,12 +3150,6 @@
         {
           "id": "restrict.tr12",
           "anchor": "L-restrict-and-contraction-11",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR12"
-            }
-          ],
           "references": [
             "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::lower",
             "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Lens::get_edit",
@@ -4104,7 +3159,7 @@
             "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::apply",
             "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4135,16 +3190,10 @@
         {
           "id": "restrict.tr13",
           "anchor": "L-restrict-and-contraction-12",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR13"
-            }
-          ],
           "references": [
             "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4157,21 +3206,11 @@
         {
           "id": "restrict.reachability",
           "anchor": "L-restrict-and-contraction-13",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "C.3 reachability"
-            },
-            {
-              "section": "O11",
-              "clause": "D13"
-            }
-          ],
           "references": [
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::realized_pairs_by_walks"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4182,7 +3221,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "edits": {
       "inventory_status": "complete",
@@ -4194,18 +3233,12 @@
         {
           "id": "edits.e1",
           "anchor": "L-edits-1",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "E.1"
-            }
-          ],
           "references": [
             "panproto_reference::edit::apply",
             "panproto_reference::edit::independence",
             "panproto_reference::edit::merge"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4230,19 +3263,13 @@
         {
           "id": "edits.e2",
           "anchor": "L-edits-2",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "E.2"
-            }
-          ],
           "references": [
             "panproto_reference::edit::Delta::invert",
             "panproto_reference::edit::invert_table",
             "panproto_reference::edit::compose_table",
             "panproto_reference::edit::diff_table"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4267,17 +3294,11 @@
         {
           "id": "edits.e3",
           "anchor": "L-edits-3",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "E.3"
-            }
-          ],
           "references": [
             "panproto_reference::edit::Delta::compose",
             "panproto_reference::edit::graph_delta_from_tree_edit"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4302,18 +3323,12 @@
         {
           "id": "edits.e3a",
           "anchor": "L-edits-4",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "E.3a"
-            }
-          ],
           "references": [
             "panproto_reference::edit::canonical_graph_delta_bytes",
             "panproto_reference::edit::canonical_table_delta_bytes",
             "panproto_reference::edit::canonical_tree_edit_bytes"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4338,19 +3353,13 @@
         {
           "id": "edits.t5",
           "anchor": "L-edits-5",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "T.5"
-            }
-          ],
           "references": [
             "panproto_reference::edit::apply_table",
             "panproto_reference::edit::table_edit_delta",
             "panproto_reference::edit::apply_table_step",
             "panproto_reference::edit::delete_row_delta"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4369,17 +3378,11 @@
         {
           "id": "edits.tr14",
           "anchor": "L-edits-6",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "TR14"
-            }
-          ],
           "references": [
             "panproto_reference::edit::apply_tree",
             "panproto_reference::edit::graph_delta_from_tree_edit"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4398,16 +3401,10 @@
         {
           "id": "edits.replacement-semantics",
           "anchor": "L-edits-7",
-          "contract": [
-            {
-              "section": "decision 9",
-              "clause": "whole decision"
-            }
-          ],
           "references": [
             "panproto_reference::edit::Delta::compose"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4420,19 +3417,13 @@
         {
           "id": "edits.translation-square",
           "anchor": "L-edits-8",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "edit translation"
-            }
-          ],
           "references": [
             "panproto_reference::edit::diff",
             "panproto_reference::edit::diff_keeping_replacements",
             "panproto_reference::edit::get_edit",
             "panproto_reference::edit::put_edit"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4449,7 +3440,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "validation": {
       "inventory_status": "complete",
@@ -4461,50 +3452,12 @@
         {
           "id": "validation.v1",
           "anchor": "L-validation-1",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.1"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(c),(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(b)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14e(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "B15(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "F45"
-            }
-          ],
           "references": [
             "panproto_reference::validation::validate",
             "panproto_reference::validation::validate_table",
             "panproto_reference::validation::validate_tree"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4529,48 +3482,10 @@
         {
           "id": "validation.v2",
           "anchor": "L-validation-2",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.2"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(c),(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(b)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14e(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "B15(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "F45"
-            }
-          ],
           "references": [
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4595,49 +3510,11 @@
         {
           "id": "validation.v3",
           "anchor": "L-validation-3",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.3"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(c),(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(b)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14e(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "B15(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "F45"
-            }
-          ],
           "references": [
             "panproto_reference::validation::witness_with_trust",
             "panproto_reference::validation::incremental_footprint"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4662,17 +3539,11 @@
         {
           "id": "validation.v4",
           "anchor": "L-validation-4",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.4"
-            }
-          ],
           "references": [
             "panproto_reference::validation::witness_with_trust",
             "panproto_reference::validation::incremental_report"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4697,16 +3568,10 @@
         {
           "id": "validation.v5",
           "anchor": "L-validation-5",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.5"
-            }
-          ],
           "references": [
             "panproto_reference::validation::witness_with_trust"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4731,16 +3596,10 @@
         {
           "id": "validation.v6",
           "anchor": "L-validation-6",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.6"
-            }
-          ],
           "references": [
             "panproto_reference::validation::witness_with_trust"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4765,16 +3624,10 @@
         {
           "id": "validation.v7",
           "anchor": "L-validation-7",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.7"
-            }
-          ],
           "references": [
             "panproto_reference::validation::witness_with_trust"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4793,18 +3646,12 @@
         {
           "id": "validation.v8",
           "anchor": "L-validation-8",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.8"
-            }
-          ],
           "references": [
             "panproto_reference::validation::validate",
             "panproto_reference::validation::validate_table",
             "panproto_reference::validation::validate_tree"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4835,16 +3682,10 @@
         {
           "id": "validation.v9",
           "anchor": "L-validation-9",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.9"
-            }
-          ],
           "references": [
             "panproto_reference::validation::restriction_boundary"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4863,16 +3704,10 @@
         {
           "id": "validation.v10",
           "anchor": "L-validation-10",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.10"
-            }
-          ],
           "references": [
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4897,16 +3732,10 @@
         {
           "id": "validation.v11",
           "anchor": "L-validation-11",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "V.11"
-            }
-          ],
           "references": [
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4931,16 +3760,10 @@
         {
           "id": "validation.admission-policies",
           "anchor": "L-validation-12",
-          "contract": [
-            {
-              "section": "V",
-              "clause": "validation admission policies"
-            }
-          ],
           "references": [
             "panproto_reference::validation::admits"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4953,16 +3776,10 @@
         {
           "id": "validation.key-equality-checks",
           "anchor": "L-validation-13",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B10(c),(e)"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::declared_key_equality"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4987,16 +3804,10 @@
         {
           "id": "validation.variable-binding-checks",
           "anchor": "L-validation-14",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B13(c)"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::nearest_preceding"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5015,17 +3826,11 @@
         {
           "id": "validation.guard-target-set-sort-key-checks",
           "anchor": "L-validation-15",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14c, B14e and B15"
-            }
-          ],
           "references": [
             "panproto_reference::keys::target_set",
             "panproto_reference::schema::validate_declarations"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5044,18 +3849,12 @@
         {
           "id": "validation.index-null-match-checks",
           "anchor": "L-validation-16",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "E33 and E42(c)"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::get",
             "panproto_reference::resolution::put",
             "panproto_reference::schema::validate_declarations"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5074,17 +3873,11 @@
         {
           "id": "validation.lexical-space-advisory",
           "anchor": "L-validation-17",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "F45 law"
-            }
-          ],
           "references": [
             "panproto_reference::validation::classify_selector",
             "panproto_reference::validation::lexical_space"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5121,16 +3914,10 @@
         {
           "id": "validation.annotated-format-no-assertion-equivalence",
           "anchor": "L-validation-18",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "H72(d) law (1)"
-            }
-          ],
           "references": [
             "panproto_reference::validation::annotated_format_parse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5143,16 +3930,10 @@
         {
           "id": "validation.annotated-format-advisory-exactness",
           "anchor": "L-validation-19",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "H72(d) law (2)"
-            }
-          ],
           "references": [
             "panproto_reference::validation::annotated_format_advisory"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5165,16 +3946,10 @@
         {
           "id": "validation.format-assertion-acceptance",
           "anchor": "L-validation-20",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "H72(d) law (3)"
-            }
-          ],
           "references": [
             "panproto_reference::validation::format_assertion_acceptance"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5185,7 +3960,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "segments": {
       "inventory_status": "complete",
@@ -5197,16 +3972,10 @@
         {
           "id": "segments.sg1",
           "anchor": "L-segments-1",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "SG.1"
-            }
-          ],
           "references": [
             "panproto_reference::segment::partition"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5219,16 +3988,10 @@
         {
           "id": "segments.sg2",
           "anchor": "L-segments-2",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "SG.2"
-            }
-          ],
           "references": [
             "panproto_reference::segment::partition"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5241,17 +4004,11 @@
         {
           "id": "segments.sg3",
           "anchor": "L-segments-3",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "SG.3"
-            }
-          ],
           "references": [
             "panproto_reference::segment::partition",
             "panproto_reference::segment::glue"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5264,19 +4021,13 @@
         {
           "id": "segments.sg6",
           "anchor": "L-segments-4",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "SG.6"
-            }
-          ],
           "references": [
             "panproto_reference::segment::canonical_manifest_bytes",
             "panproto_reference::segment::canonical_segment_bytes",
             "panproto_reference::segment::seal_manifest",
             "panproto_reference::segment::verify_manifest"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5289,17 +4040,11 @@
         {
           "id": "segments.sg7-types",
           "anchor": "L-segments-5",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "SG.7 types"
-            }
-          ],
           "references": [
             "panproto_reference::segment::task_inputs_digest",
             "panproto_reference::segment::journal_task_reusable"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -5318,18 +4063,12 @@
         {
           "id": "segments.sg9",
           "anchor": "L-segments-6",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "SG.9"
-            }
-          ],
           "references": [
             "panproto_reference::segment::decode_segment_bytes",
             "panproto_reference::segment::partition",
             "panproto_reference::segment::validate_segment_contract"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5342,16 +4081,10 @@
         {
           "id": "segments.s10",
           "anchor": "L-segments-7",
-          "contract": [
-            {
-              "section": "S10",
-              "clause": "finite carrier"
-            }
-          ],
           "references": [
             "panproto_reference::segment::validate_segment_contract"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5364,16 +4097,10 @@
         {
           "id": "segments.s10a",
           "anchor": "L-segments-8",
-          "contract": [
-            {
-              "section": "S10a",
-              "clause": "finite carrier"
-            }
-          ],
           "references": [
             "panproto_reference::segment::validation_view_preflight"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -5392,16 +4119,10 @@
         {
           "id": "segments.execution-equivalence",
           "anchor": "L-segments-9",
-          "contract": [
-            {
-              "section": "SG",
-              "clause": "segment execution equals whole-state execution"
-            }
-          ],
           "references": [
             "panproto_reference::segment::segmented"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5414,16 +4135,10 @@
         {
           "id": "segments.id-floor",
           "anchor": "L-segments-10",
-          "contract": [
-            {
-              "section": "decision 9",
-              "clause": "allocation floor"
-            }
-          ],
           "references": [
             "panproto_reference::segment::fresh"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5434,95 +4149,31 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "lenses": {
       "inventory_status": "partial",
-      "contract_scope": [
-        {
-          "section": "P.5",
-          "clause": "L.1"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.2"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.3"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.4"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.5"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.6"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.7"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.8"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.9"
-        },
-        {
-          "section": "P.5",
-          "clause": "L.10"
-        },
-        {
-          "section": "P.5",
-          "clause": "T.3"
-        },
-        {
-          "section": "P.5",
-          "clause": "T.4"
-        },
-        {
-          "section": "O1",
-          "clause": "LensPath left identity"
-        },
-        {
-          "section": "O1",
-          "clause": "LensPath right identity"
-        },
-        {
-          "section": "O1",
-          "clause": "LensPath associativity"
-        },
-        {
-          "section": "O1",
-          "clause": "fusion soundness"
-        },
-        {
-          "section": "P.5",
-          "clause": "F.B graph commuting square"
-        },
-        {
-          "section": "P.5",
-          "clause": "F.B table commuting square"
-        },
-        {
-          "section": "P.5",
-          "clause": "protolens schema-transform construction"
-        },
-        {
-          "section": "decision 29",
-          "clause": "pre-lane reach"
-        },
-        {
-          "section": "P.5",
-          "clause": "protolens instance-transform construction"
-        }
+      "open_scope": [
+        "L-lenses-1",
+        "L-lenses-2",
+        "L-lenses-3",
+        "L-lenses-4",
+        "L-lenses-5",
+        "L-lenses-6",
+        "L-lenses-7",
+        "L-lenses-8",
+        "L-lenses-9",
+        "L-lenses-10",
+        "L-lenses-11",
+        "L-lenses-12",
+        "L-lenses-13",
+        "L-lenses-14",
+        "L-lenses-15",
+        "L-lenses-16",
+        "L-lenses-17",
+        "L-lenses-18",
+        "L-lenses-19",
+        "L-lenses-20"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
@@ -5541,19 +4192,13 @@
         {
           "id": "lenses.l1",
           "anchor": "L-lenses-1",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.1"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5572,19 +4217,13 @@
         {
           "id": "lenses.l2",
           "anchor": "L-lenses-2",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.2"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5603,19 +4242,13 @@
         {
           "id": "lenses.l3",
           "anchor": "L-lenses-3",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.3"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5634,19 +4267,13 @@
         {
           "id": "lenses.l4",
           "anchor": "L-lenses-4",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.4"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5695,12 +4322,6 @@
         {
           "id": "lenses.l5",
           "anchor": "L-lenses-5",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.5"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
@@ -5709,7 +4330,7 @@
             "panproto_reference::lens::tree_get",
             "panproto_reference::lens::tree_put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5740,16 +4361,10 @@
         {
           "id": "lenses.l6",
           "anchor": "L-lenses-6",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.6"
-            }
-          ],
           "references": [
             "panproto_reference::lens::compose_complement"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5768,19 +4383,13 @@
         {
           "id": "lenses.l7",
           "anchor": "L-lenses-7",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.7"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5799,12 +4408,6 @@
         {
           "id": "lenses.l8",
           "anchor": "L-lenses-8",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.8"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
@@ -5813,7 +4416,7 @@
             "panproto_reference::lens::check_graph_laws",
             "panproto_reference::lens::check_laws_report"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5844,19 +4447,13 @@
         {
           "id": "lenses.l9",
           "anchor": "L-lenses-9",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.9"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5875,19 +4472,13 @@
         {
           "id": "lenses.l10",
           "anchor": "L-lenses-10",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "L.10"
-            }
-          ],
           "references": [
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5906,16 +4497,10 @@
         {
           "id": "lenses.t3",
           "anchor": "L-lenses-11",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "T.3"
-            }
-          ],
           "references": [
             "panproto_reference::table::get"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5934,19 +4519,13 @@
         {
           "id": "lenses.t4",
           "anchor": "L-lenses-12",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "T.4"
-            }
-          ],
           "references": [
             "panproto_reference::table::TablePlan::writer",
             "panproto_reference::table::compile_for_tables",
             "panproto_reference::table::get",
             "panproto_reference::table::TableLens::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6013,18 +4592,12 @@
         {
           "id": "lenses.path-left-identity",
           "anchor": "L-lenses-13",
-          "contract": [
-            {
-              "section": "O1",
-              "clause": "LensPath left identity"
-            }
-          ],
           "references": [
             "panproto_reference::path::LensPath::then",
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6043,18 +4616,12 @@
         {
           "id": "lenses.path-right-identity",
           "anchor": "L-lenses-14",
-          "contract": [
-            {
-              "section": "O1",
-              "clause": "LensPath right identity"
-            }
-          ],
           "references": [
             "panproto_reference::path::LensPath::then",
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6073,18 +4640,12 @@
         {
           "id": "lenses.path-associativity",
           "anchor": "L-lenses-15",
-          "contract": [
-            {
-              "section": "O1",
-              "clause": "LensPath associativity"
-            }
-          ],
           "references": [
             "panproto_reference::path::LensPath::then",
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6103,12 +4664,6 @@
         {
           "id": "lenses.fusion-soundness",
           "anchor": "L-lenses-16",
-          "contract": [
-            {
-              "section": "O1",
-              "clause": "fusion soundness"
-            }
-          ],
           "references": [
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path",
@@ -6117,7 +4672,7 @@
             "panproto_reference::lens::TableShape::get",
             "panproto_reference::lens::TableShape::put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6148,17 +4703,11 @@
         {
           "id": "lenses.fb-graph-square",
           "anchor": "L-lenses-17",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "F.B graph commuting square"
-            }
-          ],
           "references": [
             "panproto_reference::lens::graph_square",
             "panproto_reference::lens::graph_put_square"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6177,19 +4726,13 @@
         {
           "id": "lenses.fb-table-square",
           "anchor": "L-lenses-18",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "F.B table commuting square"
-            }
-          ],
           "references": [
             "panproto_reference::lens::table_square",
             "panproto_reference::lens::table_put_square",
             "panproto_reference::lens::relational_table_get",
             "panproto_reference::lens::relational_table_put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6214,20 +4757,10 @@
         {
           "id": "lenses.protolens-schema-transform",
           "anchor": "L-lenses-19",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "protolens schema-transform construction"
-            },
-            {
-              "section": "decision 29",
-              "clause": "pre-lane reach"
-            }
-          ],
           "references": [
             "panproto_reference::lens::protolens_schema"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6246,20 +4779,10 @@
         {
           "id": "lenses.protolens-instance-transform",
           "anchor": "L-lenses-20",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "protolens instance-transform construction"
-            },
-            {
-              "section": "decision 29",
-              "clause": "pre-lane reach"
-            }
-          ],
           "references": [
             "panproto_reference::lens::protolens_instance"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6276,7 +4799,7 @@
           ]
         }
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "dsl-semantics": {
       "inventory_status": "pending",
@@ -6285,13 +4808,10 @@
         "crates/panproto-reference/src/enumerate/dsl_semantics.rs"
       ],
       "laws": [],
-      "contract_scope": [
-        {
-          "section": "O11",
-          "clause": "D20(a) first independent law/operation/domain/refusal inventory audit"
-        }
+      "open_scope": [
+        "first independent inventory of laws, operations, domains and refusals"
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "vcs": {
       "inventory_status": "pending",
@@ -6300,13 +4820,10 @@
         "crates/panproto-reference/src/enumerate/vcs.rs"
       ],
       "laws": [],
-      "contract_scope": [
-        {
-          "section": "O11",
-          "clause": "D20(b) first independent law/operation/domain/refusal inventory audit"
-        }
+      "open_scope": [
+        "first independent inventory of laws, operations, domains and refusals"
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "migration-solver": {
       "inventory_status": "pending",
@@ -6315,13 +4832,10 @@
         "crates/panproto-reference/src/enumerate/migration_solver.rs"
       ],
       "laws": [],
-      "contract_scope": [
-        {
-          "section": "O11",
-          "clause": "D20(c) first independent law/operation/domain/refusal inventory audit"
-        }
+      "open_scope": [
+        "first independent inventory of laws, operations, domains and refusals"
       ],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "parsing": {
       "inventory_status": "pending",
@@ -6330,13 +4844,10 @@
         "crates/panproto-reference/src/enumerate/parsing.rs"
       ],
       "laws": [],
-      "contract_scope": [
-        {
-          "section": "O11",
-          "clause": "D20(d) first independent law/operation/domain/refusal inventory audit"
-        }
+      "open_scope": [
+        "first independent inventory of laws, operations, domains and refusals"
       ],
-      "due_gate": "final"
+      "due_gate": "release"
     },
     "resolution": {
       "inventory_status": "complete",
@@ -6348,54 +4859,12 @@
         {
           "id": "resolution.get-put",
           "anchor": "L-resolution-1",
-          "contract": [
-            {
-              "section": "P.6",
-              "clause": "GetPut"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14a(d)(3)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(d)"
-            },
-            {
-              "section": "O12",
-              "clause": "B16(d) forms, origins and units"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "G58"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::get",
             "panproto_reference::resolution::put",
             "panproto_reference::resolution::deferred_form"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6414,48 +4883,6 @@
         {
           "id": "resolution.put-get",
           "anchor": "L-resolution-2",
-          "contract": [
-            {
-              "section": "P.6",
-              "clause": "PutGet modulo SynthIndex"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14a(d)(3)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(d)"
-            },
-            {
-              "section": "O12",
-              "clause": "B16(d) forms, origins and units"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "G58"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::get",
             "panproto_reference::resolution::put",
@@ -6464,7 +4891,7 @@
             "panproto_reference::resolution::coherent_rekey",
             "panproto_reference::resolution::equivalent"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6483,54 +4910,12 @@
         {
           "id": "resolution.totality",
           "anchor": "L-resolution-3",
-          "contract": [
-            {
-              "section": "P.6",
-              "clause": "Totality"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14a(d)(3)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(d)"
-            },
-            {
-              "section": "O12",
-              "clause": "B16(d) forms, origins and units"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "G58"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::put",
             "panproto_reference::resolution::check_put_domain",
             "panproto_reference::resolution::indexed_put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6549,55 +4934,13 @@
         {
           "id": "resolution.congruence",
           "anchor": "L-resolution-4",
-          "contract": [
-            {
-              "section": "P.6",
-              "clause": "Congruence"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14a(d)(3)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(d)"
-            },
-            {
-              "section": "O12",
-              "clause": "B16(d) forms, origins and units"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "G58"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::put",
             "panproto_reference::resolution::check_put_domain",
             "panproto_reference::resolution::coherent_rename",
             "panproto_reference::resolution::indexed_put"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6616,52 +4959,6 @@
         {
           "id": "resolution.gated-put-twice",
           "anchor": "L-resolution-5",
-          "contract": [
-            {
-              "section": "P.6",
-              "clause": "gated PutTwice"
-            },
-            {
-              "section": "S8",
-              "clause": "/S8a"
-            },
-            {
-              "section": "O12",
-              "clause": "B10(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B13(e)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14a(d)(3)"
-            },
-            {
-              "section": "O12",
-              "clause": "B14c(d)"
-            },
-            {
-              "section": "O12",
-              "clause": "B16(d) forms, origins and units"
-            },
-            {
-              "section": "O12",
-              "clause": "E33"
-            },
-            {
-              "section": "O12",
-              "clause": "E42(c)"
-            },
-            {
-              "section": "O12",
-              "clause": "G58"
-            },
-            {
-              "section": "O12",
-              "clause": "G56"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::put",
             "panproto_reference::resolution::indexed_get",
@@ -6669,7 +4966,7 @@
             "panproto_reference::resolution::coherent_rekey",
             "panproto_reference::resolution::gated_put_twice"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6688,16 +4985,10 @@
         {
           "id": "resolution.uri-environment-locality",
           "anchor": "L-resolution-6",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14a(d) law (1)"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::uri_environment"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6710,16 +5001,10 @@
         {
           "id": "resolution.rfc3986-algorithm",
           "anchor": "L-resolution-7",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14a(d) law (2)"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::rfc3986"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6732,16 +5017,10 @@
         {
           "id": "resolution.referenced-text-identity",
           "anchor": "L-resolution-8",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14b(d) text-identity law for Local and External sites"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::text_identity"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6754,16 +5033,10 @@
         {
           "id": "resolution.guarded-occurrence-partition",
           "anchor": "L-resolution-9",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B14c(d) partition law"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::guarded_partition"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6776,17 +5049,11 @@
         {
           "id": "resolution.standoff-form-injectivity",
           "anchor": "L-resolution-10",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B16(d) injectivity law for forms, origins and units"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::standoff_form",
             "panproto_reference::resolution::standoff_byte_span"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6805,17 +5072,11 @@
         {
           "id": "resolution.standoff-put-left-inverse",
           "anchor": "L-resolution-11",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B16(d) left-inverse law for forms, origins and units"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::standoff_inverse",
             "panproto_reference::resolution::standoff_byte_inverse"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6834,16 +5095,10 @@
         {
           "id": "resolution.index-target-nonresolution",
           "anchor": "L-resolution-12",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "E33 resolution law"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::get"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6856,16 +5111,10 @@
         {
           "id": "resolution.inherited-base-locality",
           "anchor": "L-resolution-13",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "G58 law"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::inherited_base"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6878,16 +5127,10 @@
         {
           "id": "resolution.declared-key-equality",
           "anchor": "L-resolution-14",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B10(e) exact resolution relation"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::declared_key_equality"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6906,16 +5149,10 @@
         {
           "id": "resolution.nearest-preceding-binding",
           "anchor": "L-resolution-15",
-          "contract": [
-            {
-              "section": "O12",
-              "clause": "B13(e) nearest-preceding binding semantics"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::nearest_preceding"
           ],
-          "due_gate": "phase3",
+          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6928,16 +5165,10 @@
         {
           "id": "resolution.preserving-registry-product",
           "anchor": "L-resolution-16",
-          "contract": [
-            {
-              "section": "P.5",
-              "clause": "R8 preserving registry product"
-            }
-          ],
           "references": [
             "panproto_reference::resolution::preserving_registry"
           ],
-          "due_gate": "final",
+          "due_gate": "release",
           "consumers": [
             {
               "role": "reference",
@@ -6948,425 +5179,260 @@
           ]
         }
       ],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.5",
-          "clause": "R8 preserving registry product"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "L-resolution-16"
       ]
     },
     "edit-lenses": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.5",
-          "clause": "E.4-E.6 graph and table edit lenses"
-        },
-        {
-          "section": "P.5",
-          "clause": "TR12 tree twins"
-        },
-        {
-          "section": "V",
-          "clause": "V.7 admission integration"
-        }
+      "open_scope": [
+        "graph and table edit lenses",
+        "tree edit lenses",
+        "validation admission of edit lenses"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/edit_lenses.rs",
         "crates/panproto-reference/src/enumerate/edit_lenses.rs"
       ],
       "laws": [],
-      "due_gate": "phase3b"
+      "due_gate": "extended"
     },
     "segment-execution": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "SG",
-          "clause": "SG.4-SG.5 classifier and preflight"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.7 execution and stores"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.9 budgets and reports"
-        },
-        {
-          "section": "SG",
-          "clause": "SG.11 execution tests"
-        }
+      "open_scope": [
+        "segment classifier and preflight",
+        "execution and stores",
+        "budgets and reports",
+        "execution tests"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/segment_execution.rs",
         "crates/panproto-reference/src/enumerate/segment_execution.rs"
       ],
       "laws": [],
-      "due_gate": "phase4"
+      "due_gate": "execution"
     },
     "formats/api": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F api rows"
-        },
-        {
-          "section": "O12",
-          "clause": "H68-H74 API amendments"
-        }
+      "open_scope": [
+        "API protocol inventory",
+        "API format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/api.rs",
         "crates/panproto-reference/src/enumerate/formats/api.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/config": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F config rows"
-        },
-        {
-          "section": "O12",
-          "clause": "D31 configuration amendment"
-        }
+      "open_scope": [
+        "configuration protocol inventory",
+        "configuration format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/config.rs",
         "crates/panproto-reference/src/enumerate/formats/config.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/data-schema": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F data_schema rows"
-        },
-        {
-          "section": "O12",
-          "clause": "H71-H76 schema amendments"
-        }
+      "open_scope": [
+        "data-schema protocol inventory",
+        "data-schema format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/data_schema.rs",
         "crates/panproto-reference/src/enumerate/formats/data_schema.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/data-science": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F data_science rows"
-        },
-        {
-          "section": "O12",
-          "clause": "I81-I86 data-science amendments"
-        }
+      "open_scope": [
+        "data-science protocol inventory",
+        "data-science format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/data_science.rs",
         "crates/panproto-reference/src/enumerate/formats/data_science.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/database": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F database rows"
-        },
-        {
-          "section": "P.2",
-          "clause": "database-family semantics"
-        },
-        {
-          "section": "P.4",
-          "clause": "database keys and references"
-        }
+      "open_scope": [
+        "database protocol inventory",
+        "database-family semantics",
+        "database keys and references"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/database.rs",
         "crates/panproto-reference/src/enumerate/formats/database.rs"
       ],
       "laws": [],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.5",
-          "clause": "R8 Redis preserving-entry sublaws"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF11 CST-route fixture sublaws"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "Redis preserving-entry sublaws of L-resolution-16",
+        "CST-route fixture sublaws of value fidelity"
       ]
     },
     "formats/domain": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F domain rows"
-        },
-        {
-          "section": "O12",
-          "clause": "I87, I89 and I90 domain amendments"
-        }
+      "open_scope": [
+        "domain protocol inventory",
+        "domain format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/domain.rs",
         "crates/panproto-reference/src/enumerate/formats/domain.rs"
       ],
       "laws": [],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.5",
-          "clause": "R8 EDI-X12 and Swift-MT preserving-entry sublaws"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF11 CST-route fixture sublaws"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "EDI X12 and SWIFT MT preserving-entry sublaws of L-resolution-16",
+        "CST-route fixture sublaws of value fidelity"
       ]
     },
     "formats/serialization": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F serialization rows"
-        },
-        {
-          "section": "P.5",
-          "clause": "R6"
-        },
-        {
-          "section": "O12",
-          "clause": "H77-H80 serialization amendments"
-        }
+      "open_scope": [
+        "serialization protocol inventory",
+        "serialization resolution laws",
+        "serialization format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/serialization.rs",
         "crates/panproto-reference/src/enumerate/formats/serialization.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/web-document": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F web_document rows"
-        },
-        {
-          "section": "O12",
-          "clause": "I88(a), I88(b), and I88(c) route laws"
-        }
+      "open_scope": [
+        "web-document protocol inventory",
+        "web-document route laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/web_document.rs",
         "crates/panproto-reference/src/enumerate/formats/web_document.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/xml": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F annotation-xml rows"
-        },
-        {
-          "section": "O12",
-          "clause": "G53 and G56-G62 XML amendments"
-        }
+      "open_scope": [
+        "annotation XML protocol inventory",
+        "XML format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/xml.rs",
         "crates/panproto-reference/src/enumerate/formats/xml.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/conllu": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F annotation-other rows"
-        },
-        {
-          "section": "O12",
-          "clause": "G63-G67 annotation amendments"
-        },
-        {
-          "section": "O12",
-          "clause": "Conllu proof obligations"
-        }
+      "open_scope": [
+        "annotation protocol inventory",
+        "annotation format laws",
+        "CoNLL-U proof obligations"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/conllu.rs",
         "crates/panproto-reference/src/enumerate/formats/conllu.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/text": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F text-formats rows"
-        },
-        {
-          "section": "P.3",
-          "clause": "value-fidelity laws"
-        },
-        {
-          "section": "O12",
-          "clause": "D19-D30 text-format amendments"
-        }
+      "open_scope": [
+        "text-format protocol inventory",
+        "value-fidelity laws",
+        "text-format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/text.rs",
         "crates/panproto-reference/src/enumerate/formats/text.rs"
       ],
       "laws": [],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.5",
-          "clause": "R5 preserving-route sublaws"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF8 CST sublaws"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF11 CST-route fixture sublaws"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "preserving-route resolution sublaws",
+        "CST sublaws of L-value-io-21",
+        "CST-route fixture sublaws of value fidelity"
       ]
     },
     "formats/sql-ddl": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F sql-ddl rows"
-        },
-        {
-          "section": "O12",
-          "clause": "E32-E43 SQL DDL amendments"
-        }
+      "open_scope": [
+        "SQL DDL protocol inventory",
+        "SQL DDL format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/sql_ddl.rs",
         "crates/panproto-reference/src/enumerate/formats/sql_ddl.rs"
       ],
       "laws": [],
-      "due_gate": "phase3"
+      "due_gate": "candidate"
     },
     "formats/sql-data": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F sql-data rows"
-        },
-        {
-          "section": "O12",
-          "clause": "E32-E43 SQL data amendments"
-        }
+      "open_scope": [
+        "SQL data protocol inventory",
+        "SQL data format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/sql_data.rs",
         "crates/panproto-reference/src/enumerate/formats/sql_data.rs"
       ],
       "laws": [],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.2",
-          "clause": "CST-route sublaws"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF11 CST-route fixture sublaws"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "CST-route sublaws of the SQL data protocols",
+        "CST-route fixture sublaws of value fidelity"
       ]
     },
     "formats/code": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F code-parse-fix rows"
-        },
-        {
-          "section": "P.5",
-          "clause": "R11"
-        },
-        {
-          "section": "O12",
-          "clause": "I91 code-parser amendment"
-        }
+      "open_scope": [
+        "code-parser protocol inventory",
+        "code-parser resolution laws",
+        "code-parser format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/code.rs",
         "crates/panproto-reference/src/enumerate/formats/code.rs"
       ],
       "laws": [],
-      "due_gate": "final"
+      "due_gate": "release"
     },
     "formats/rdf": {
       "inventory_status": "pending",
-      "contract_scope": [
-        {
-          "section": "P.1",
-          "clause": "Appendix F formats-rdf rows N1-N5"
-        },
-        {
-          "section": "P.5",
-          "clause": "R9"
-        },
-        {
-          "section": "O12",
-          "clause": "F44-F52 RDF amendments"
-        }
+      "open_scope": [
+        "RDF protocol inventory",
+        "RDF resolution laws",
+        "RDF format laws"
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/formats/rdf.rs",
         "crates/panproto-reference/src/enumerate/formats/rdf.rs"
       ],
       "laws": [],
-      "due_gate": "phase3",
-      "final_gate_scope": [
-        {
-          "section": "P.5",
-          "clause": "R9 Turtle and JSON-LD tree-route sublaws"
-        },
-        {
-          "section": "P.3",
-          "clause": "VF11 CST-route fixture sublaws"
-        }
+      "due_gate": "candidate",
+      "release_scope": [
+        "Turtle and JSON-LD tree-route resolution sublaws",
+        "CST-route fixture sublaws of value fidelity"
       ]
     }
   }
