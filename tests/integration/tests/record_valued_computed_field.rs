@@ -189,4 +189,3 @@ fn an_edited_source_with_its_recomputed_field_puts_back() {
         serde_json::json!({ "text": "bye" })
     );
 }
-

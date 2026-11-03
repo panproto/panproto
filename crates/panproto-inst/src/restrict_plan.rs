@@ -977,8 +977,8 @@ impl RestrictPlan {
             return Ok(track.on_child);
         };
         if let Some(fates) = fates {
-            let transformed = (!transforms.is_empty())
-                .then(|| (node.extra_fields.clone(), track.clone()));
+            let transformed =
+                (!transforms.is_empty()).then(|| (node.extra_fields.clone(), track.clone()));
             apply_cell_fates(&mut node.extra_fields, fates, &mut track);
             if let Some((transformed, mut before)) = transformed {
                 overwrite_with_outputs(
