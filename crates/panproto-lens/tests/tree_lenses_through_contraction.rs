@@ -333,13 +333,36 @@ mod strict_put {
     use panproto_lens::{LensError, PutDomainError};
 
     fn plain_lens() -> Lens {
+        plain_lens_declaring(&[])
+    }
+
+    /// [`plain_lens`] whose target declares each of `fields` an integer
+    /// attribute of `r`, a leaf edge labelled with the field name. A value
+    /// transform may write only a declared attribute of its vertex.
+    fn plain_lens_declaring(fields: &[&str]) -> Lens {
         let src = schema(&[("r", "object"), ("c", "object")], &[prop("r", "c", "c")]);
         let m = migration(
             &[("r", "r"), ("c", "c")],
             vec![(prop("r", "c", "c"), prop("r", "c", "c"))],
             vec![],
         );
-        lens(src.clone(), src, &m)
+        lens(src, declaring_on_r(&[("r", "object"), ("c", "object")], &[prop("r", "c", "c")], fields), &m)
+    }
+
+    /// The schema of `vertices` and `edges` with each of `fields` declared
+    /// an integer attribute of `r`.
+    fn declaring_on_r(vertices: &[(&str, &str)], edges: &[Edge], fields: &[&str]) -> Schema {
+        let names: Vec<String> = fields.iter().map(|field| format!("r.{field}")).collect();
+        let mut vertices = vertices.to_vec();
+        vertices.extend(names.iter().map(|name| (name.as_str(), "integer")));
+        let mut edges = edges.to_vec();
+        edges.extend(
+            fields
+                .iter()
+                .zip(&names)
+                .map(|(field, name)| prop("r", name, field)),
+        );
+        schema(&vertices, &edges)
     }
 
     /// `r(0) {n: 1} -> c(1) {level: 2}`.
@@ -413,7 +436,7 @@ mod strict_put {
 
     #[test]
     fn tree_put_rejects_an_edited_computed_field() {
-        let mut lens = plain_lens();
+        let mut lens = plain_lens_declaring(&["double"]);
         lens.compiled.field_transforms.insert(
             "r".into(),
             vec![FieldTransform::ComputeField {
@@ -443,7 +466,7 @@ mod strict_put {
 
     #[test]
     fn tree_put_rejects_an_edited_non_invertible_field() {
-        let mut lens = plain_lens();
+        let mut lens = plain_lens_declaring(&["n"]);
         lens.compiled.field_transforms.insert(
             "r".into(),
             vec![FieldTransform::ApplyExpr {
@@ -470,7 +493,7 @@ mod strict_put {
     /// An edit through a transform that has an inverse stays in the domain.
     #[test]
     fn tree_put_accepts_an_edit_through_an_inverse() {
-        let mut lens = plain_lens();
+        let mut lens = plain_lens_declaring(&["n"]);
         lens.compiled.field_transforms.insert(
             "r".into(),
             vec![FieldTransform::ApplyExpr {
@@ -506,7 +529,7 @@ mod strict_put {
     /// computed field on another: both are reported.
     #[test]
     fn check_put_domain_reports_a_failed_predicate_and_an_edited_derived_cell() {
-        let mut lens = plain_lens();
+        let mut lens = plain_lens_declaring(&["double"]);
         lens.compiled.conditional_survival.insert(
             "c".into(),
             Expr::Builtin(
@@ -538,7 +561,7 @@ mod strict_put {
     /// returns the first.
     #[test]
     fn check_put_domain_reports_structural_and_value_violations_together() {
-        let mut lens = plain_lens();
+        let mut lens = plain_lens_declaring(&["double"]);
         doubling(&mut lens);
         let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
         let mut view = edited(&view, 0, "double", Value::Int(10));
@@ -576,7 +599,11 @@ mod strict_put {
             &[("r", "object"), ("c", "object"), ("d", "object")],
             &[prop("r", "c", "c"), prop("r", "d", "d")],
         );
-        let tgt = schema(&[("r", "object"), ("c", "object")], &[prop("r", "c", "c")]);
+        let tgt = declaring_on_r(
+            &[("r", "object"), ("c", "object")],
+            &[prop("r", "c", "c")],
+            &["double"],
+        );
         let m = migration(
             &[("r", "r"), ("c", "c")],
             vec![(prop("r", "c", "c"), prop("r", "c", "c"))],
@@ -703,21 +730,43 @@ mod residue {
 
     /// Two parallel source edges merged onto one target edge: the view
     /// cannot say which one an arc came from, so that is residue and the
-    /// source cannot be rebuilt from the view alone.
+    /// source cannot be rebuilt from the view alone. The merged edge is
+    /// unnamed: a named edge is a single-valued field, and two source
+    /// fields merged onto one under a parent are outside the tree domain.
     #[test]
     fn tree_residue_classification_agrees_on_merged_parallel_edges() {
+        let merged = Edge {
+            name: None,
+            ..prop("r", "a", "x")
+        };
         let src = schema(
             &[("r", "object"), ("a", "string")],
             &[prop("r", "a", "x"), prop("r", "a", "y")],
         );
-        let tgt = schema(&[("r", "object"), ("a", "string")], &[prop("r", "a", "x")]);
+        let tgt = schema(
+            &[("r", "object"), ("a", "string")],
+            std::slice::from_ref(&merged),
+        );
         let m = migration(
+            &[("r", "r"), ("a", "a")],
+            vec![
+                (prop("r", "a", "x"), merged.clone()),
+                (prop("r", "a", "y"), merged.clone()),
+            ],
+            vec![],
+        );
+        let named = migration(
             &[("r", "r"), ("a", "a")],
             vec![
                 (prop("r", "a", "x"), prop("r", "a", "x")),
                 (prop("r", "a", "y"), prop("r", "a", "x")),
             ],
             vec![],
+        );
+        let named = lens(
+            src.clone(),
+            schema(&[("r", "object"), ("a", "string")], &[prop("r", "a", "x")]),
+            &named,
         );
         let lens = lens(src, tgt, &m);
         let source = WInstance::new(
@@ -731,6 +780,16 @@ mod residue {
             0,
             "r".into(),
         );
+        assert!(matches!(
+            panproto_lens::get(&named, &source),
+            Err(panproto_lens::LensError::Restrict(
+                panproto_inst::RestrictError::MultipleArcsOnSingleValuedEdge {
+                    parent: 0,
+                    count: 2,
+                    ..
+                }
+            ))
+        ));
         let (view, complement) = panproto_lens::get(&lens, &source).unwrap();
         assert!(!complement.residue_is_trivial(), "{complement:?}");
         assert_eq!(complement.arc_edges.len(), 2);
@@ -996,16 +1055,22 @@ mod edits {
     }
 
     /// `r -> m -> leaf` where `m` survives only when its `keep` field is
-    /// true, and the pair `(r, leaf)` resolves to `r -> leaf`.
+    /// true, and the pair `(r, leaf)` resolves to `r -> leaf` named
+    /// `lifted`. The direct `r -> leaf` edge `label` keeps its own target
+    /// edge: a leaf contracted onto the field a parent already holds
+    /// directly would give that single-valued field two values, which is
+    /// outside the tree domain, so the edit scripts below never reach it.
     fn conditional_lens() -> Lens {
-        let s = schema(
-            &[("r", "object"), ("m", "object"), ("leaf", "string")],
-            &[
-                prop("r", "m", "m"),
-                prop("m", "leaf", "leaf"),
-                prop("r", "leaf", "label"),
-            ],
-        );
+        let vertices = [("r", "object"), ("m", "object"), ("leaf", "string")];
+        let edges = [
+            prop("r", "m", "m"),
+            prop("m", "leaf", "leaf"),
+            prop("r", "leaf", "label"),
+        ];
+        let s = schema(&vertices, &edges);
+        let mut target_edges = edges.to_vec();
+        target_edges.push(prop("r", "leaf", "lifted"));
+        let t = schema(&vertices, &target_edges);
         let m = migration(
             &[("r", "r"), ("m", "m"), ("leaf", "leaf")],
             vec![
@@ -1013,9 +1078,9 @@ mod edits {
                 (prop("m", "leaf", "leaf"), prop("m", "leaf", "leaf")),
                 (prop("r", "leaf", "label"), prop("r", "leaf", "label")),
             ],
-            vec![(("r", "leaf"), prop("r", "leaf", "label"))],
+            vec![(("r", "leaf"), prop("r", "leaf", "lifted"))],
         );
-        let mut l = lens(s.clone(), s, &m);
+        let mut l = lens(s, t, &m);
         l.compiled.conditional_survival.insert(
             "m".into(),
             panproto_expr::Expr::Var(std::sync::Arc::from("keep")),
@@ -1997,9 +2062,27 @@ mod composition_rule {
         }
     }
 
-    /// The identity lens on `r -> c` with the value layer `layer`.
+    /// The identity lens on `r -> c` with the value layer `layer`. `c`
+    /// declares the attribute `level`, which the transform layer writes.
     fn valued_identity(layer: u8) -> Lens {
-        let src = schema(&[("r", "object"), ("c", "string")], &[prop("r", "c", "c")]);
+        valued_identity_on(true, layer)
+    }
+
+    /// The identity lens on `r -> c` with the value layer `layer`, where
+    /// `c` declares the attribute `level` as a leaf child when `declared`
+    /// and is itself a leaf otherwise. A transform may write only a
+    /// declared attribute, so the transform layer needs `declared`; a
+    /// survival predicate on `c` then makes `c` an interior over the
+    /// surviving `level`, which is a contraction.
+    fn valued_identity_on(declared: bool, layer: u8) -> Lens {
+        let src = if declared {
+            schema(
+                &[("r", "object"), ("c", "string"), ("c.level", "integer")],
+                &[prop("r", "c", "c"), prop("c", "c.level", "level")],
+            )
+        } else {
+            schema(&[("r", "object"), ("c", "string")], &[prop("r", "c", "c")])
+        };
         let mut lens = identity(&src);
         value_layer(&mut lens, "c", layer);
         lens
@@ -2066,14 +2149,19 @@ mod composition_rule {
         /// combination of no value layer, an invertible transform and two
         /// survival predicates, the rule fuses exactly the pairs whose first
         /// stage has no value layer. Every fused lens is observationally the
-        /// pair in sequence.
+        /// pair in sequence. `c` declares `level` exactly when a stage
+        /// writes it, so a predicate-only pair stays contraction-free.
         #[test]
         fn value_layers_fuse_only_where_they_do_not_meet(
             a in 0u8..4,
             b in 0u8..4,
             levels in prop::collection::vec(0i64..5, 0..5),
         ) {
-            let (first, second) = (valued_identity(a), valued_identity(b));
+            let declared = a == 1 || b == 1;
+            let (first, second) = (
+                valued_identity_on(declared, a),
+                valued_identity_on(declared, b),
+            );
             let composite = pair_normal_form(&first, &second).unwrap();
             let fusable = a == 0;
             let fused = match composite {

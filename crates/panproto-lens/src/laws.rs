@@ -10775,13 +10775,27 @@ mod tests {
             }])
         }
 
-        /// `text := upper(text)` over the child scalar `text`, which shadows
-        /// the child with a parent entry `put` cannot write back.
+        /// `text := "x:" ++ text` over the child scalar `text`, written back
+        /// to the child, with inverse `slice(text, 2, len(text))`. Unlike a
+        /// case change, the prefix is a bijection onto the views the value
+        /// mutation reaches, so every admitted edit of the child round-trips.
         fn apply_over_a_child_scalar() -> Lens {
+            use panproto_expr::Literal;
+
             lens_with(vec![FieldTransform::ApplyExpr {
                 key: "text".into(),
-                expr: Expr::Builtin(BuiltinOp::Upper, vec![var("text")]),
-                inverse: Some(Expr::Builtin(BuiltinOp::Lower, vec![var("text")])),
+                expr: Expr::Builtin(
+                    BuiltinOp::Concat,
+                    vec![Expr::Lit(Literal::Str("x:".into())), var("text")],
+                ),
+                inverse: Some(Expr::Builtin(
+                    BuiltinOp::Slice,
+                    vec![
+                        var("text"),
+                        Expr::Lit(Literal::Int(2)),
+                        Expr::Builtin(BuiltinOp::Len, vec![var("text")]),
+                    ],
+                )),
                 coercion_class: CoercionClass::Iso,
             }])
         }
