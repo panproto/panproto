@@ -76,13 +76,34 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
 }
 
 fn user_schema(field: &str) -> Schema {
-    let edge = Edge {
+    user_schema_declaring(field, &[])
+}
+
+/// [`user_schema`] that also declares each of `attributes` as a string
+/// attribute of `user`, a leaf edge labelled with the attribute's name. A
+/// field transform may write only a declared attribute of its vertex.
+fn user_schema_declaring(field: &str, attributes: &[&str]) -> Schema {
+    let mut verts = vec![
+        ("user".to_owned(), "object"),
+        ("user.name".to_owned(), "string"),
+    ];
+    let mut edges = vec![Edge {
         src: "user".into(),
         tgt: "user.name".into(),
         kind: "prop".into(),
         name: Some(field.into()),
-    };
-    make_schema(&[("user", "object"), ("user.name", "string")], &[edge])
+    }];
+    for attribute in attributes {
+        verts.push((format!("user.{attribute}"), "string"));
+        edges.push(Edge {
+            src: "user".into(),
+            tgt: Name::from(format!("user.{attribute}")),
+            kind: "prop".into(),
+            name: Some(Name::from(*attribute)),
+        });
+    }
+    let verts: Vec<(&str, &str)> = verts.iter().map(|(id, kind)| (id.as_str(), *kind)).collect();
+    make_schema(&verts, &edges)
 }
 
 fn identity_migration(schema: &Schema) -> CompiledMigration {
@@ -188,8 +209,8 @@ fn slug_of(view: &WInstance) -> Option<Value> {
 /// composite failed with `UnboundVariable`.
 #[test]
 fn composite_agrees_with_sequential_across_an_edge_rename() {
-    let src = user_schema("name");
-    let mid = user_schema("displayName");
+    let src = user_schema_declaring("name", &["slug"]);
+    let mid = user_schema_declaring("displayName", &["slug"]);
 
     let instance: WInstance = parse_json(
         &src,
@@ -231,8 +252,8 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
 /// It has to be rejected when the composed path executes its second stage.
 #[test]
 fn composite_rejects_an_expression_written_against_the_wrong_frame() {
-    let src = user_schema("name");
-    let mid = user_schema("displayName");
+    let src = user_schema_declaring("name", &["slug"]);
+    let mid = user_schema_declaring("displayName", &["slug"]);
 
     let instance: WInstance = parse_json(
         &src,
@@ -267,7 +288,7 @@ fn composite_rejects_an_expression_written_against_the_wrong_frame() {
 /// as well would rewrite a sound reference into a dangling one.
 #[test]
 fn composite_agrees_with_sequential_across_an_extra_field_rename() {
-    let schema = user_schema("name");
+    let schema = user_schema_declaring("name", &["userHandle", "slug"]);
     let instance: WInstance = parse_json(
         &schema,
         &test_protocol(),
@@ -310,9 +331,9 @@ fn composite_agrees_with_sequential_across_an_extra_field_rename() {
 /// `(l_ab ∘ l_bc) ∘ l2` and reads the far end of the chain.
 #[test]
 fn rename_chain_resolves_transitively() {
-    let s_a = user_schema("a");
-    let s_b = user_schema("b");
-    let s_c = user_schema("c");
+    let s_a = user_schema_declaring("a", &["slug"]);
+    let s_b = user_schema_declaring("b", &["slug"]);
+    let s_c = user_schema_declaring("c", &["slug"]);
 
     let instance: WInstance = parse_json(
         &s_a,
@@ -339,7 +360,8 @@ fn rename_chain_resolves_transitively() {
     );
 }
 
-/// Two-edge schema whose edges carry the given field names.
+/// Two-edge schema whose edges carry the given field names, declaring as
+/// well the `joined` attribute a transform over both writes.
 fn pair_schema(first: &str, second: &str) -> Schema {
     let e1 = Edge {
         src: "user".into(),
@@ -353,13 +375,20 @@ fn pair_schema(first: &str, second: &str) -> Schema {
         kind: "prop".into(),
         name: Some(second.into()),
     };
+    let joined = Edge {
+        src: "user".into(),
+        tgt: "user.joined".into(),
+        kind: "prop".into(),
+        name: Some("joined".into()),
+    };
     make_schema(
         &[
             ("user", "object"),
             ("user.x", "string"),
             ("user.y", "string"),
+            ("user.joined", "string"),
         ],
-        &[e1, e2],
+        &[e1, e2, joined],
     )
 }
 
@@ -456,9 +485,10 @@ fn rename_swap_conjugates_simultaneously() {
 
 /// `ApplyExpr` reads and writes one key, so an edge rename splits its two
 /// coordinates: it must read the source name and write the output name.
-/// The composite has to land the transformed value on the renamed edge,
-/// not emit the original under the new name beside the transformed value
-/// under the old one.
+/// Over a child scalar the result is written back to that child. The
+/// composite has to land the transformed value on the renamed edge's
+/// child, not emit the original under the new name beside the transformed
+/// value under the old one.
 #[test]
 fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let src = user_schema("name");
@@ -495,26 +525,41 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let composed = compose(&l1, &l2).expect("compose");
     let (vc, _) = composed.get(&instance).expect("get composed path");
 
-    let field = |view: &WInstance, key: &str| {
-        view.nodes
+    // Every value the view holds under `key` at the root: a field of the
+    // root, then the scalar of each child under an edge labelled `key`.
+    let values = |view: &WInstance, key: &str| {
+        let mut out: Vec<Value> = view
+            .nodes
             .get(&view.root)
             .and_then(|n| n.extra_fields.get(key))
             .cloned()
+            .into_iter()
+            .collect();
+        for (parent, child, edge) in &view.arcs {
+            if *parent == view.root && edge.name.as_deref() == Some(key) {
+                if let Some(panproto_inst::value::FieldPresence::Present(value)) =
+                    view.nodes.get(child).and_then(|n| n.value.clone())
+                {
+                    out.push(value);
+                }
+            }
+        }
+        out
     };
 
     assert_eq!(
-        field(&v2, "displayName"),
-        Some(Value::Str("alice".into())),
+        values(&v2, "displayName"),
+        vec![Value::Str("alice".into())],
         "sequentially, the transform writes the lowered value under the new edge name"
     );
     assert_eq!(
-        field(&vc, "displayName"),
-        field(&v2, "displayName"),
+        values(&vc, "displayName"),
+        values(&v2, "displayName"),
         "the composite must write to the output name, not the source name"
     );
     assert_eq!(
-        field(&vc, "name"),
-        None,
+        values(&vc, "name"),
+        Vec::<Value>::new(),
         "no value may be left behind under the pre-rename name"
     );
 }
@@ -523,7 +568,7 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
 /// lenses are executed, at the stage that reads the absent field.
 #[test]
 fn reading_a_dropped_field_refuses_at_the_reading_stage() {
-    let schema = user_schema("name");
+    let schema = user_schema_declaring("name", &["slug"]);
 
     let mut m1 = identity_migration(&schema);
     m1.field_transforms.insert(
@@ -558,7 +603,7 @@ fn reading_a_dropped_field_refuses_at_the_reading_stage() {
 /// still bound at evaluation time.
 #[test]
 fn dropping_an_extra_field_shadowing_a_child_edge_still_composes() {
-    let schema = user_schema("name");
+    let schema = user_schema_declaring("name", &["slug"]);
 
     let mut m1 = identity_migration(&schema);
     m1.field_transforms.insert(

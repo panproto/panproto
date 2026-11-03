@@ -358,14 +358,10 @@ mod tests {
             kind: "prop".into(),
             name: Some("tag".into()),
         };
-        lens.tgt_schema.vertices.insert(
-            edge.tgt.clone(),
-            panproto_schema::Vertex {
-                id: edge.tgt.clone(),
-                kind: "string".into(),
-                nsid: None,
-            },
-        );
+        // The declared `tag` is a string leaf like `post:body.text` itself.
+        let mut tag_vertex = lens.tgt_schema.vertices[&edge.src].clone();
+        tag_vertex.id = edge.tgt.clone();
+        lens.tgt_schema.vertices.insert(edge.tgt.clone(), tag_vertex);
         lens.tgt_schema
             .edges
             .insert(edge.clone(), edge.kind.clone());
