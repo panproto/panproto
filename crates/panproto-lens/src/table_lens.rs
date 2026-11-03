@@ -695,7 +695,7 @@ fn table_column_obstruction(
             "produces column `{output}` outside the target table, so the column map is not bijective"
         ));
     }
-    let decoded = decode_source_origins(&state, &flat, fates);
+    let decoded = decode_source_origins(&state, &flat, fates, source_columns);
     if let Some(source) = source_columns.iter().find(|source| {
         let raw = BTreeSet::from([
             OriginTrace {
@@ -928,6 +928,7 @@ fn decode_source_origins(
     state: &TableTransformState,
     transforms: &[&FieldTransform],
     fates: &[CellFate],
+    source_columns: &BTreeSet<String>,
 ) -> BTreeMap<String, BTreeSet<OriginTrace>> {
     let mut view = state.carriers.clone();
     let mut moved = Vec::new();
@@ -947,9 +948,14 @@ fn decode_source_origins(
         view.insert(target, origins);
     }
 
+    // Put writes a view cell back only through a writer that is a column of
+    // the source table; a cell whose writer the source lacks is derived, so
+    // whatever a transform carried into it is not recovered from the view.
     let mut decoded = BTreeMap::new();
     for (target, origins) in view {
-        if let Some(writer) = cell_writer(fates, &target) {
+        if let Some(writer) =
+            cell_writer(fates, &target).filter(|writer| source_columns.contains(writer))
+        {
             decoded.insert(writer, origins);
         }
     }

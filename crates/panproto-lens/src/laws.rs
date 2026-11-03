@@ -8150,7 +8150,7 @@ mod tests {
     }
 
     #[test]
-    fn table_locality_pulls_back_a_transform_only_column_rename()
+    fn table_put_refuses_an_edit_to_a_transform_only_column_rename()
     -> Result<(), Box<dyn std::error::Error>> {
         let protocol = table_protocol();
         let source_schema = SchemaBuilder::new(&protocol)
@@ -8187,19 +8187,23 @@ mod tests {
             tgt: protocol,
         };
         let (base, complement) = TableShape::get(&lens, &source, &ctx)?;
+        assert_eq!(TableShape::put(&lens, &base, &complement, &ctx)?, source);
+        // The table plan's last writer of `new` is `new` itself, which is not
+        // a source column, so the transformed cell is derived and an edit to
+        // it lies outside the put domain.
         let mut edited = base.clone();
         let Some(row) = edited.row_mut(RowId(0)) else {
             panic!("transform rename keeps row 0");
         };
         row.insert("new".to_owned(), Value::Int(2));
-        let restored = TableShape::put(&lens, &edited, &complement, &ctx)?;
-        assert_eq!(
-            restored.row(RowId(0)).and_then(|row| row.get("old")),
-            Some(&Value::Int(2))
-        );
-        assert!(
-            table_locality(&lens, &source, &base, &edited, &restored, &complement, &ctx).is_none()
-        );
+        assert!(matches!(
+            TableShape::put(&lens, &edited, &complement, &ctx),
+            Err(crate::LensError::PutDomain(error)) if matches!(
+                *error,
+                PutDomainError::DerivedCellEdited { elem: ViewRef::Row(RowId(0)), ref field }
+                    if field == "new"
+            )
+        ));
         Ok(())
     }
 

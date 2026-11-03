@@ -769,7 +769,7 @@ fn repeated_defaults_on_one_derived_column_are_complement_free() {
 }
 
 #[test]
-fn renaming_a_source_column_over_a_derived_column_is_complement_free() {
+fn renaming_a_source_column_over_a_derived_column_is_not_complement_free() {
     let protocol = protocol();
     let source_schema = tables(&[("t", &[("old", "int")])], &[]);
     let target_schema = tables(&[("t", &[("new", "int")])], &[]);
@@ -800,11 +800,18 @@ fn renaming_a_source_column_over_a_derived_column_is_complement_free() {
         .unwrap();
     let boundary = contexts(&protocol);
 
-    assert!(table_lens::is_isomorphism(&lens, boundary));
-    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    // The transform carries `old` into `new`, but `new` is not a source
+    // column, so its cell is derived and put writes nothing back through it:
+    // the view alone does not determine `old`.
+    assert!(!table_lens::is_isomorphism(&lens, boundary));
+    let (view, complement) = table_lens::get(&lens, &source, boundary).unwrap();
     assert_eq!(view.row(RowId(0)).unwrap()["new"], Value::Int(7));
+    assert!(matches!(
+        table_lens::put_without_complement(&lens, &view, boundary),
+        Err(LensError::NotAnIsomorphism { .. })
+    ));
     assert_eq!(
-        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        table_lens::put(&lens, &view, &complement, boundary).unwrap(),
         source
     );
 }
