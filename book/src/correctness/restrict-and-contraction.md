@@ -262,7 +262,7 @@ None. Recomputing a tree-only fate is forbidden even when it agrees on current f
 
 ### Statement
 
-For every surviving record, graph and table restriction remove or rename a cell exactly when the compiled cell plan removes or renames the corresponding attribute arrow. A dropped target vertex removes the cell. A retained attribute whose compiled edge image is renamed changes the cell name once. Tree restriction obtains the same result by applying the corresponding fate to the child carrier. No engine derives column fate by inspecting instance labels after compilation.
+For every surviving record, graph and table restriction remove or rename a cell exactly when the compiled cell plan removes or renames the corresponding attribute arrow. A dropped target vertex removes the cell. A retained attribute whose compiled edge image is renamed changes the cell name once. The fates place the transformed cells all at once; then each column that a declared field transform writes, and that the transformed record holds, takes the transform's output, so a renamed cell whose image is an output column is overwritten there, as in [L-lenses-12](./lenses.md#L-lenses-12). Tree restriction obtains the same result by applying the corresponding fate to the child carrier. No engine derives column fate by inspecting instance labels after compilation.
 
 ### Outside the domain
 

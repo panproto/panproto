@@ -15902,6 +15902,50 @@ mod transformed_tables {
         }
     }
 
+    /// `ComputeField b := a + 1` with inverse `b - 1` on table `t`, keeping
+    /// `a`.
+    struct SuccessorBesideA;
+
+    impl ValueLayer for SuccessorBesideA {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            layer_semantics("panproto-lens/table-test/successor-beside-a")
+        }
+
+        fn survives(&self, _: &RefGraph, _: &RefNode) -> Result<bool, RefPredicateRefusal> {
+            Ok(true)
+        }
+
+        fn transform(
+            &self,
+            _: &RefGraph,
+            node: &RefNode,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+            let mut fields = node.fields.clone();
+            let Some(value) = int(&fields, "a") else {
+                return Err(LayerRefusal {
+                    kind: "expression".to_owned(),
+                    detail: "unbound variable: a".to_owned(),
+                });
+            };
+            fields.insert("b".to_owned(), RefValue::Int(value + 1));
+            Ok((fields, node.value.clone()))
+        }
+
+        fn restore(
+            &self,
+            view: &RefNode,
+            _: Option<&BTreeMap<String, RefValue>>,
+            _: Option<&Option<RefPresence>>,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+            let mut fields = view.fields.clone();
+            if let Some(value) = int(&fields, "b") {
+                fields.remove("b");
+                fields.insert("a".to_owned(), RefValue::Int(value - 1));
+            }
+            Ok((fields, view.value.clone()))
+        }
+    }
+
     /// `ApplyExpr a := 7` with the non-inverting inverse `8`: a changed
     /// coordinate goes through the inverse, an unchanged one keeps its
     /// recorded original.
@@ -16048,6 +16092,116 @@ mod transformed_tables {
         assert_eq!(
             reference.as_ref().map(|(view, _)| view),
             Ok(&one_row(&[("b", 2)]))
+        );
+        assert_eq!(production, reference);
+    }
+
+    /// The output wins without a drop of its renamed source: the rename
+    /// `a -> b` moves `a`'s cell onto `b`, and the computed `b := a + 1`,
+    /// evaluated on the source row, then overwrites it.
+    #[test]
+    fn a_transform_output_overwrites_a_renamed_cell_it_does_not_drop() {
+        let mut compiled = CompiledMigration {
+            surviving_verts: ["t", "t.b"].into_iter().map(Into::into).collect(),
+            surviving_edges: [column("b")].into(),
+            vertex_remap: HashMap::from([("t.a".into(), "t.b".into())]),
+            edge_remap: HashMap::from([(column("a"), column("b"))]),
+            ..CompiledMigration::default()
+        };
+        let step = |op, operand: &str| {
+            Expr::Builtin(
+                op,
+                vec![Expr::Var(operand.into()), Expr::Lit(Literal::Int(1))],
+            )
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "b".to_owned(),
+                expr: step(BuiltinOp::Add, "a"),
+                inverse: Some(step(BuiltinOp::Sub, "b")),
+                coercion_class: CoercionClass::Iso,
+            }],
+        );
+        let pair = pair(&["a"], &["b"], compiled, &SuccessorBesideA);
+        let source = one_row(&[("a", 1)]);
+        let production = production_table_get(&pair, &source);
+        let reference = reference_table_get(&pair, &source);
+        assert_eq!(
+            reference.as_ref().map(|(view, _)| view),
+            Ok(&one_row(&[("b", 2)]))
+        );
+        assert_eq!(production, reference);
+        // Put compares a view against the same placement, so the unedited
+        // view restores the source.
+        assert_eq!(
+            agreed_put(&pair, &source, &one_row(&[("b", 2)])).put,
+            Ok(source.clone())
+        );
+        // Both engines refuse an edit of the output column `b`, which the
+        // rename also writes.
+        let edited = one_row(&[("b", 5)]);
+        assert!(production_table_put(&pair, &source, &edited).put.is_err());
+        assert!(reference_table_put(&pair, &source, &edited).put.is_err());
+    }
+
+    /// The graph engine applies no cell fates to a node's fields: under the
+    /// rename `a -> b` and the computed `b := a + 1`, the view node keeps the
+    /// source field `a` beside the computed `b`, in production as in the
+    /// reference.
+    #[test]
+    fn a_graph_transform_output_sits_beside_the_field_a_rename_does_not_move() {
+        let mut compiled = CompiledMigration {
+            surviving_verts: ["t", "t.b"].into_iter().map(Into::into).collect(),
+            surviving_edges: [column("b")].into(),
+            vertex_remap: HashMap::from([("t.a".into(), "t.b".into())]),
+            edge_remap: HashMap::from([(column("a"), column("b"))]),
+            ..CompiledMigration::default()
+        };
+        let step = |op, operand: &str| {
+            Expr::Builtin(
+                op,
+                vec![Expr::Var(operand.into()), Expr::Lit(Literal::Int(1))],
+            )
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "b".to_owned(),
+                expr: step(BuiltinOp::Add, "a"),
+                inverse: Some(step(BuiltinOp::Sub, "b")),
+                coercion_class: CoercionClass::Iso,
+            }],
+        );
+        let migration = ref_migration(&compiled);
+        let production = Lens {
+            compiled,
+            src_schema: prod_schema(&schema(&["a"])),
+            tgt_schema: prod_schema(&schema(&["b"])),
+        };
+        let pair = Pair::with_production(
+            schema(&["a"]),
+            schema(&["b"]),
+            migration,
+            &SuccessorBesideA,
+            production,
+        );
+        let mut node = RefNode::new(0, "t");
+        node.fields.insert("a".to_owned(), RefValue::Int(1));
+        let source = RefGraph {
+            nodes: BTreeMap::from([(0, node)]),
+            ..RefGraph::default()
+        };
+        let production = production_get(&pair, &source);
+        let reference = reference_get(&pair, &source);
+        assert_eq!(
+            reference
+                .as_ref()
+                .map(|(view, _)| view.nodes[&0].fields.clone()),
+            Ok(BTreeMap::from([
+                ("a".to_owned(), RefValue::Int(1)),
+                ("b".to_owned(), RefValue::Int(2)),
+            ]))
         );
         assert_eq!(production, reference);
     }

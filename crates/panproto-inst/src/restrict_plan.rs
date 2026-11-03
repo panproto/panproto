@@ -924,7 +924,11 @@ impl RestrictPlan {
     /// Transform a surviving element, already re-anchored to its image: its
     /// vertex's value transforms (over the children bound in `ctx`), then,
     /// when `cells` is set and the plan has a cell layer, the cell fates of
-    /// its source table, then the coercion of every key a transform wrote
+    /// its source table, which place the transformed cells all at once,
+    /// then the overwrite of each column a transform declares as an output
+    /// with the value the transformed element holds there (so a declared
+    /// output at a column is that column's value, whatever fate also
+    /// targets the column), then the coercion of every key a transform wrote
     /// that is a column of its target table to that column's spec. A key
     /// the transforms left holding the element's own source value at that
     /// key (an identity read, say) is not coerced: it carries the source
@@ -973,7 +977,18 @@ impl RestrictPlan {
             return Ok(track.on_child);
         };
         if let Some(fates) = fates {
+            let transformed = (!transforms.is_empty())
+                .then(|| (node.extra_fields.clone(), track.clone()));
             apply_cell_fates(&mut node.extra_fields, fates, &mut track);
+            if let Some((transformed, mut before)) = transformed {
+                overwrite_with_outputs(
+                    &mut node.extra_fields,
+                    &transformed,
+                    &transforms,
+                    &mut before,
+                    &mut track,
+                );
+            }
         }
         for key in track.written.clone() {
             let Some(spec) = layer.specs.get(&(node.anchor.clone(), key.clone())) else {
@@ -1042,6 +1057,32 @@ fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], tra
     for (to, value, state) in moved {
         fields.insert(to.clone(), value);
         track.put(to, state);
+    }
+}
+
+/// Overwrite each column `transforms` declare as an output with the value
+/// the transformed cells `transformed` hold there, after the cell fates
+/// placed `fields`: a declared transform output at a column is that
+/// column's value, and a fate whose image is the same column does not
+/// override it. An overwritten key takes the written state it had before
+/// the fates, as `before` records it.
+fn overwrite_with_outputs(
+    fields: &mut HashMap<String, Value>,
+    transformed: &HashMap<String, Value>,
+    transforms: &[FieldTransform],
+    before: &mut KeyTrack,
+    track: &mut KeyTrack,
+) {
+    let mut outputs = Vec::new();
+    for transform in transforms {
+        transform_output_fields(transform, &mut outputs);
+    }
+    let outputs: BTreeSet<&str> = outputs.into_iter().collect();
+    for key in outputs {
+        if let Some(value) = transformed.get(key) {
+            fields.insert(key.to_owned(), value.clone());
+            track.put(key, before.take(key));
+        }
     }
 }
 
