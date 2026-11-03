@@ -3367,3 +3367,49 @@ fn composition_agrees_with_the_reference_outside_the_enumerated_scopes() {
     println!("outside-scope compositions compared: {compared} (6 diagrams x 2 modes x 2 policies)");
     assert_eq!(compared, 24);
 }
+
+/// A colimit step whose two sides name one registry theory labels both
+/// sides of its span alike, so its composition refuses the diagram for the
+/// repeated label, whatever is shared and in either mode.
+#[test]
+fn a_colimit_step_over_one_theory_twice_is_refused_as_the_reference_refuses_it() {
+    use outside_scope::{named, op, sort, theory};
+    let graph = theory(
+        "L",
+        vec![sort("Vertex", Vec::new()), sort("Edge", Vec::new())],
+        vec![
+            op("src", &[("e", "Edge")], named("Vertex")),
+            op("tgt", &[("e", "Edge")], named("Vertex")),
+        ],
+    );
+    let names = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+    for mode in [
+        r::CompositionMode::Amalgamate,
+        r::CompositionMode::ExplicitIdentity,
+    ] {
+        for (shared_sorts, shared_ops) in [
+            (names(&[]), names(&[])),
+            (names(&["Vertex", "Edge"]), names(&[])),
+            (names(&["Vertex", "Edge"]), names(&["src", "tgt"])),
+        ] {
+            let spec = r::CompositionSpec {
+                result_name: "out".to_owned(),
+                steps: vec![r::CompositionStep::Colimit {
+                    left: "L".to_owned(),
+                    right: "L".to_owned(),
+                    shared_sorts,
+                    shared_ops,
+                    mode,
+                }],
+                version: 1,
+            };
+            let (production, reference) = recompose_outcomes(&graph, &graph, &spec);
+            assert_eq!(
+                reference,
+                Err("Composition(DuplicateNodeLabel(L))".to_owned()),
+                "{spec:?}"
+            );
+            assert_eq!(production, reference, "{spec:?}");
+        }
+    }
+}

@@ -219,7 +219,8 @@ fn compose_step(
         .iter()
         .any(|e| matches!(e, SharedEntry::Sort { decl, .. } if !decl.params.is_empty()));
 
-    if step.identify.is_empty() && !shares_a_dependent_sort {
+    let plain = step.identify.is_empty() && !shares_a_dependent_sort;
+    if plain && colimit_replays(step, &step_name) {
         let recipe = CompositionStep::Colimit {
             left: step.left.clone(),
             right: step.right.clone(),
@@ -253,14 +254,37 @@ fn compose_step(
         });
     }
 
+    // A plain step stands in for a `Colimit` step, whose interface glues
+    // each sort its declarations use without declaring it, in either mode.
     let entries = match step.mode {
-        CompositionMode::Amalgamate => {
-            glue_same_named_sorts(step, left, right, entries).map_err(failed)?
-        }
-        CompositionMode::ExplicitIdentity => entries,
+        CompositionMode::ExplicitIdentity if !plain => entries,
+        _ => glue_same_named_sorts(step, left, right, entries).map_err(failed)?,
     };
     let apexes = apexes(&shared_name, entries).map_err(failed)?;
     compose_diagram(step, left, right, apexes, &step_name).map_err(failed)
+}
+
+/// Whether a `Colimit` recipe step replays `step`.
+///
+/// Replay labels the span's sides by their names and its interface
+/// `{step_name}_interface`, so the step replays only when each side's name
+/// is a node label and the three labels are distinct. A side named
+/// `my.Graph`, or a theory composed with itself, is composed and recorded
+/// as a diagram instead, which carries such a side inline (see
+/// [`side_node`]).
+fn colimit_replays(step: &ColimitStepSpec, step_name: &str) -> bool {
+    let interface = format!("{step_name}_interface");
+    is_node_label(&step.left)
+        && is_node_label(&step.right)
+        && step.left != step.right
+        && step.left != interface
+        && step.right != interface
+}
+
+/// Whether `name` can label a diagram node: non-empty, with neither `.`
+/// nor `#`.
+fn is_node_label(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['.', '#'])
 }
 
 /// `entries` with an entry sharing each sort that a declaration needs to be
@@ -272,7 +296,9 @@ fn compose_step(
 /// symbol of the result, so a dependent shared sort over `V`, or a shared
 /// or identified operation over `V`, composes without `V` being named, as
 /// a pushout by name did in 0.74. The added entries come after the step's
-/// own, in the order their declarations first need them.
+/// own, in the order their declarations first need them. A step without
+/// identifications that is composed as a diagram (see [`colimit_replays`])
+/// glues them in either mode, as the interface of a `Colimit` step does.
 ///
 /// # Errors
 ///
@@ -308,8 +334,9 @@ fn glue_same_named_sorts(
     Ok(entries)
 }
 
-/// Compose a step that has identifications, or that shares a dependent
-/// sort: one diagram over the two sides and the step's shared theories (see
+/// Compose a step that has identifications, that shares a dependent sort,
+/// or whose sides a `Colimit` recipe step cannot label (see
+/// [`colimit_replays`]): one diagram over the two sides and the step's shared theories (see
 /// [`apexes`]), each with a leg into either side.
 ///
 /// Each side is a node of the diagram, labelled as [`side_node`] says, so a
@@ -407,8 +434,7 @@ struct SideNode {
 /// its theory is renamed to that label, since `recompose` finds an inline
 /// theory by its name.
 fn side_node(name: &str, theory: &Theory, taken: &[&str], step_name: &str, role: &str) -> SideNode {
-    let valid = !name.is_empty() && !name.contains(['.', '#']);
-    if valid && !taken.contains(&name) {
+    if is_node_label(name) && !taken.contains(&name) {
         return SideNode {
             label: name.to_owned(),
             theory: theory.clone(),
