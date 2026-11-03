@@ -112,7 +112,10 @@ fn round_trip(
         "core put refuses the computed field read back as a child: {direct:?}"
     );
     let folded = fold_computed_children_into_fields(lens, &reparsed, &complement);
-    assert!(folded.nodes.len() < reparsed.nodes.len(), "the fold moves `g` into a field");
+    assert!(
+        folded.nodes.len() < reparsed.nodes.len(),
+        "the fold moves `g` into a field"
+    );
     panproto_lens::put(lens, &folded, &complement)
         .map(|restored| to_json(&lens.src_schema, &restored).unwrap())
 }
