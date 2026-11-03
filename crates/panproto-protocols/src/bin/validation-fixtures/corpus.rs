@@ -63,7 +63,7 @@ impl EditTrace {
     }
 
     /// The number of edits.
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         match self {
             Self::Graph(edits) => edits.len(),
             Self::Tree(edits) => edits.len(),

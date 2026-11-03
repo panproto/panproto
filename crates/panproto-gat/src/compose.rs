@@ -6128,13 +6128,13 @@ mod tests {
             fn explicit_and_amalgamate_agree_on_name_clash_free_diagrams(spec in arb_spec()) {
                 let d = build(&spec);
                 let explicit = compose(&d, &explicit(ClashPolicy::Reject));
-                if let Ok(e) = explicit {
-                    if e.report.name_clash_free {
-                        let a = compose(&d, &amalgamate()).map_err(fail)?;
-                        prop_assert_eq!(&a.theory, &e.theory);
-                        prop_assert_eq!(&a.provenance, &e.provenance);
-                        prop_assert_eq!(&a.inclusions, &e.inclusions);
-                    }
+                if let Ok(e) = explicit
+                    && e.report.name_clash_free
+                {
+                    let a = compose(&d, &amalgamate()).map_err(fail)?;
+                    prop_assert_eq!(&a.theory, &e.theory);
+                    prop_assert_eq!(&a.provenance, &e.provenance);
+                    prop_assert_eq!(&a.inclusions, &e.inclusions);
                 }
             }
         }

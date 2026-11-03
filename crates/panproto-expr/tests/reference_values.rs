@@ -3093,10 +3093,10 @@ proptest! {
             op,
             operands
         );
-        if let Ok(Literal::Float(x)) = &production {
-            if x.is_nan() {
-                prop_assert_eq!(x.to_bits(), canonical, "{:?} on {:x?}", op, operands);
-            }
+        if let Ok(Literal::Float(x)) = &production
+            && x.is_nan()
+        {
+            prop_assert_eq!(x.to_bits(), canonical, "{:?} on {:x?}", op, operands);
         }
         let names = ["a", "b", "c"];
         let mut expr = call(op, names[..arity].iter().map(|name| var(name)).collect());
@@ -3111,10 +3111,10 @@ proptest! {
             expr
         );
         prop_assert_eq!(outcome_to_ref(&evaluated), reference, "{:?}", expr);
-        if let Ok(Literal::Float(x)) = &evaluated {
-            if x.is_nan() {
-                prop_assert_eq!(x.to_bits(), canonical, "{:?}", expr);
-            }
+        if let Ok(Literal::Float(x)) = &evaluated
+            && x.is_nan()
+        {
+            prop_assert_eq!(x.to_bits(), canonical, "{:?}", expr);
         }
         for bits in operands {
             let passed = let_in("x", float(f64::from_bits(*bits)), var("x"));

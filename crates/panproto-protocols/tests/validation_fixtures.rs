@@ -332,7 +332,7 @@ impl Fixture {
     }
 
     /// The number of edits of the trace.
-    fn edits(&self) -> usize {
+    const fn edits(&self) -> usize {
         match &self.edit_trace {
             EditTrace::Graph(edits) => edits.len(),
             EditTrace::Tree(edits) => edits.len(),
