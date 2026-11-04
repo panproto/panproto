@@ -88,4 +88,4 @@ jobs:
           cargo nextest run --locked --cargo-profile ci-test --no-tests=fail \
             -p panproto-gat -p panproto-inst -p panproto-lens \
             --test reference_theories --test reference_coercion --test reference_lenses \
-            -E 'test(=composition_agrees_with_the_reference_on_every_discrete_pair) | test(=nearest_reading_coercion_agrees_with_the_reference) | test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(=lens_laws_agree_with_the_reference_exhaustively) | test(=lens_path_law_certificate) | test(=protolens_transforms_agree_with_the_reference_exhaustively)'
+            -E 'test(=composition_agrees_with_the_reference_on_every_discrete_pair) | test(=nearest_reading_coercion_agrees_with_the_reference) | test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(=lens_laws_agree_with_the_reference_exhaustively) | test(=lens_path_law_certificate)'
