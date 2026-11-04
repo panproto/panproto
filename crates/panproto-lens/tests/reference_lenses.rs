@@ -5242,6 +5242,39 @@ fn consecutive_bounded_lens_value_layers_remain_separate_normal_groups() {
     assert_eq!(ranges, [0..1, 1..2]);
 }
 
+/// An identity followed by a transform that writes an undeclared field stays
+/// two groups, since that transform's plan refuses at compile; the same
+/// transform with its field declared fuses with the identity.
+#[test]
+fn undeclared_transform_stages_never_join_a_fused_group() {
+    let stages = bounded_lens_stages();
+    let identity = bounded_lens_stage_index(&stages, "Id1");
+    for name in ["T", "ReadF", "Op"] {
+        let transform = bounded_lens_stage_index(&stages, name);
+        let path =
+            production_word(&stages, &[identity, transform]).expect("Id1 meets each transform");
+        let ranges = path
+            .graph_normal_form()
+            .into_iter()
+            .map(|group| group.stages)
+            .collect::<Vec<_>>();
+        assert_eq!(ranges, [0..1, 1..2], "Id1 then {name}");
+    }
+    let declared = panproto_reference::enumerate::lenses::declared_transform_stages();
+    let identity = bounded_lens_stage_index(&declared, "DeclaredId");
+    for name in ["DeclaredDefault", "DeclaredRead", "DeclaredCompute"] {
+        let transform = bounded_lens_stage_index(&declared, name);
+        let path = production_word(&declared, &[identity, transform])
+            .expect("DeclaredId meets each transform");
+        let ranges = path
+            .graph_normal_form()
+            .into_iter()
+            .map(|group| group.stages)
+            .collect::<Vec<_>>();
+        assert_eq!(ranges, [0..2], "DeclaredId then {name}");
+    }
+}
+
 /// A located path refusal: the reason and the atomic stages of the group
 /// that refused.
 type PathRefusal = (Reason, std::ops::Range<usize>);
@@ -5902,6 +5935,15 @@ fn with_undeclared_label(source: &RefGraph) -> Option<RefGraph> {
 /// group must run its stages in sequence. The comparison is the one of
 /// [`lens_paths_agree_with_the_reference_exhaustively`], against the
 /// atomic reference fold, with every edit of the final-stage basis.
+///
+/// A pair fuses only when both stage plans compile. The stages `T`,
+/// `ReadF` and `Op` write the field [`BOUNDED_LENS_FIELD`], which schema `a`
+/// does not declare, so their plans refuse at compile and every source with
+/// them; no group contains one, and the 42 composable words in which `Id1`
+/// directly precedes one of them and no other adjacent pair fuses lie
+/// outside this census.
+/// Their refusals are compared by the path differential and pinned by
+/// `undeclared_transform_stages_keep_every_original_source_as_a_refusal`.
 fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
     let stages = bounded_lens_stages();
     let composable_words = composable_bounded_lens_words(&stages);
@@ -5955,10 +5997,10 @@ fn fused_graph_groups_agree_with_the_reference_on_undeclared_sources() {
     println!("{bound}");
     assert_eq!(anchors, source_states);
     assert_eq!(anchors + labels, units.len());
-    assert_eq!(fused.len(), 384);
-    assert_eq!(source_states, 761_742);
-    assert_eq!(labels, 761_358);
-    assert_eq!(units.len(), 1_523_100);
+    assert_eq!(fused.len(), 258);
+    assert_eq!(source_states, 752_958);
+    assert_eq!(labels, 752_700);
+    assert_eq!(units.len(), 1_505_658);
     let compared = assert_agree(agree_in_parallel(
         &bound,
         &units,
@@ -7214,14 +7256,17 @@ fn table_path_normal_forms_match_independent_atomic_folds() {
         edit_families.refused_positive.named(),
         edit_families.designated_negative.named()
     );
+    // A word through `T`, `ReadF` or `Op` refuses at compile, since each
+    // writes a field schema `a` does not declare, so it contributes a refusal
+    // outcome and no final-stage edits to these families.
     assert_eq!(
         edit_families.admitted_positive.families,
-        [0, 0, 19_258, 28_445, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 18_598, 27_218, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the admitted table-path mutation-family census is part of the certificate"
     );
     assert_eq!(
         edit_families.refused_positive.families,
-        [28_445, 0, 1_035, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [27_218, 0, 242, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the refused table-path mutation-family census is part of the certificate"
     );
     assert_eq!(

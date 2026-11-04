@@ -965,7 +965,7 @@ A graph source is **declared** by a schema when every node has a declared anchor
 - Reference: `panproto_reference::lens::TableShape::get`
 - Reference: `panproto_reference::lens::TableShape::put`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_path_law_case; bound: left_unit_words=537, right_unit_words=537, associative_triples=29791, graph_operational_cases=1855809, tree_fusion_cases=15596, table_fusion_cases=100811, named_table_boundaries=4, target_only_relational_subcases=3, named_path_boundaries=3, structural_key_mismatch_subcases=3, named_tree_fusion_boundaries=8, cases=2003096`
-- Undeclared-source census: `fused_graph_groups_agree_with_the_reference_on_undeclared_sources; bound: fused_composites=384, source_states=761742, undeclared_anchor_sources=761742, undeclared_label_sources=761358, cases=1523100`
+- Undeclared-source census: `fused_graph_groups_agree_with_the_reference_on_undeclared_sources; bound: fused_composites=258, source_states=752958, undeclared_anchor_sources=752958, undeclared_label_sources=752700, cases=1505658`
 - Exhaustive differential test: `lens_path_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_path_law_certificate)'`
 - Property differential test: `randomized_path_fusion_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_path_fusion_differential)'`
 - File: `crates/panproto-lens/src/lens_path.rs`
