@@ -42,7 +42,7 @@ use crate::schema::{PyProtocol, PySchema};
 
 /// Why a put from a serialized view failed: the view could not be read,
 /// or the lens refused it.
-pub(crate) enum SerializedPutError {
+pub enum SerializedPutError {
     /// The view is not JSON, or does not parse under the target schema.
     Read(String),
     /// The view could not be aligned to the complement, or `put` refused it.
@@ -83,7 +83,7 @@ fn align_and_fold(
 /// The view is read under the lens's target schema, rooted at the vertex
 /// `complement` records for the root of the view `get` returned; aligned
 /// to `complement`; its computed fields folded; and put.
-pub(crate) fn put_json_view(
+pub fn put_json_view(
     the_lens: &Lens,
     view_json: &str,
     complement: &Complement,
@@ -113,7 +113,7 @@ pub(crate) fn put_json_view(
 }
 
 /// [`align_and_fold`] for a Python view instance.
-pub(crate) fn align_view(
+pub fn align_view(
     the_lens: &Lens,
     view: &PyInstance,
     complement: &Complement,
@@ -127,7 +127,7 @@ pub(crate) fn align_view(
 impl SerializedPutError {
     /// The Python exception for this failure, a lens failure raised as
     /// `lens_error`.
-    pub(crate) fn into_py(self, lens_error: fn(String) -> PyErr) -> PyErr {
+    pub fn into_py(self, lens_error: fn(String) -> PyErr) -> PyErr {
         match self {
             Self::Read(message) => crate::error::IoError::new_err(message),
             Self::Lens(message) => lens_error(message),
@@ -267,7 +267,7 @@ impl PyLens {
     ///     ``put`` refuses it.
     fn put_json(&self, view_json: &str, complement: &PyComplement) -> PyResult<String> {
         put_json_view(&self.inner, view_json, &complement.inner)
-            .map_err(|e| e.into_py(|m| crate::error::LensError::new_err(m)))
+            .map_err(|e| e.into_py(crate::error::LensError::new_err))
     }
 
     /// Align a view read from a serialization to the complement, ready
@@ -301,7 +301,7 @@ impl PyLens {
     ///     is left.
     fn align_view(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
         align_view(&self.inner, view, &complement.inner)
-            .map_err(|e| e.into_py(|m| crate::error::LensError::new_err(m)))
+            .map_err(|e| e.into_py(crate::error::LensError::new_err))
     }
 
     /// Run the five strict lens gates on a test instance.

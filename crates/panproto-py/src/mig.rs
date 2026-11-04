@@ -343,7 +343,7 @@ impl PyCompiledMigration {
     ///     refuses it.
     fn put_json(&self, view_json: &str, complement: &PyComplement) -> PyResult<String> {
         crate::lens::put_json_view(&self.as_lens(), view_json, &complement.inner)
-            .map_err(|e| e.into_py(|m| crate::error::MigrationError::new_err(m)))
+            .map_err(|e| e.into_py(crate::error::MigrationError::new_err))
     }
 
     /// Align a view read from a serialization to the complement, ready
@@ -374,7 +374,7 @@ impl PyCompiledMigration {
     ///     is left.
     fn align_view(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
         crate::lens::align_view(&self.as_lens(), view, &complement.inner)
-            .map_err(|e| e.into_py(|m| crate::error::MigrationError::new_err(m)))
+            .map_err(|e| e.into_py(crate::error::MigrationError::new_err))
     }
 
     /// View this migration as a ``Lens``.
