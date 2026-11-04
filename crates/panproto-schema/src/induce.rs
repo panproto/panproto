@@ -215,6 +215,7 @@ pub fn induce<VS: BuildHasher, ES: BuildHasher>(
 ///             }])],
 ///             role: KeyRole::Primary,
 ///             scope: KeyScope::Document,
+///             equality: Vec::new(),
 ///         },
 ///     )
 ///     .build()?;
