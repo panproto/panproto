@@ -1508,13 +1508,13 @@ Usage: schema lens apply [OPTIONS] --protocol <PROTOCOL> <CHAIN> <DATA>
 
 Arguments:
   <CHAIN>  Path to the compiled artifact, raw chain, or target-schema JSON
-  <DATA>   Path to the data file
+  <DATA>   Path to the data file: a source record forward, or a view under the lens's target schema backward
 
 Options:
       --protocol <PROTOCOL>      Protocol name
   -v, --verbose                  Enable verbose output
       --direction <DIRECTION>    Direction: "forward" or "backward" [default: forward]
-      --complement <COMPLEMENT>  Complement data for backward apply
+      --complement <COMPLEMENT>  Complement data for backward apply. Without one, backward apply succeeds only for a lens that is an isomorphism
       --schema <SCHEMA>          Schema for chain instantiation
   -h, --help                     Print help
 ```
