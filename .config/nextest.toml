@@ -27,16 +27,19 @@
 #     (about 1.3 billion words) and compare production with the reference
 #     after each letter. They run in release mode as acceptance gates; the
 #     fixed-alphabet edit differentials beside them stay in the profile.
-#   * the five exhaustive reference agreements that exceed the ten-minute
-#     bound below even in the optimised `ci-test` build, measured alone on a
-#     developer machine with three test threads:
+#   * the exhaustive reference agreements that exceed or approach the
+#     ten-minute bound below even in the optimised `ci-test` build. Five were
+#     measured alone on a developer machine with three test threads:
 #     `composition_agrees_with_the_reference_on_every_discrete_pair` (every
 #     discrete two-node diagram over the full signature scope, 61.5 million
 #     compositions), `nearest_reading_coercion_agrees_with_the_reference` and
 #     `coerce_value_agrees_with_the_reference_over_the_values_scope` (the whole
 #     values scope), and `lens_laws_agree_with_the_reference_exhaustively` and
 #     `lens_path_law_certificate` (the bounded lens carrier and every path
-#     over it). Each passed 600 s without finishing. They run in the
+#     over it). Each passed 600 s without finishing. Beside them runs
+#     `protolens_transforms_agree_with_the_reference_exhaustively` (every
+#     protolens transform over the bounded carrier), which took between 298 s
+#     and 515 s on the hosted runners and once exceeded 600 s. They run in the
 #     `exhaustive-reference` job of the `corpus-gate` workflow, nightly and on
 #     demand; dispatch it before tagging a release.
 #
@@ -57,7 +60,7 @@
 [profile.ci]
 # Report every failing test in one run rather than stopping at the first.
 fail-fast = false
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate/)'
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate|protolens_transforms_agree_with_the_reference_exhaustively/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #
