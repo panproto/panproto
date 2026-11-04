@@ -122,10 +122,11 @@ impl GEdge {
 /// ascending key order, so one instance encodes to the same bytes in every
 /// process. In a human-readable format (JSON among them), each node is
 /// written in the form [`to_node_link_json`] gives it: a float that is `NaN`
-/// or infinite, which JSON has no number for, is written as
-/// `{"Float": "NaN"}`, `{"Float": "Infinity"}` or `{"Float": "-Infinity"}`
-/// and read back as that float, so every instance round-trips through JSON.
-/// A binary format writes such floats as floats. Decoding rebuilds the adjacency indices and fails with
+/// or infinite, which JSON has no number for, is written under `"Float"` as
+/// `"NaN"`, `"-NaN"`, `"Infinity"`, `"-Infinity"`, or `"NaN:0x"` and the
+/// sixteen hexadecimal digits of any other `NaN`'s bits, and read back bit
+/// for bit, so every instance round-trips through JSON. A binary format
+/// writes such floats as floats. Decoding rebuilds the adjacency indices and fails with
 /// [`InstError::DanglingEdge`] when an edge names a missing node, with
 /// [`InstError::NodeIdMismatch`] when a node is filed under an id other than
 /// its own, and with [`InstError::DuplicateNode`] or
@@ -163,19 +164,9 @@ impl Serialize for GInstance {
             self.nodes.iter().all(|(key, node)| *key == node.id),
             "a node's id was changed through node_mut"
         );
-        let readable = serializer.is_human_readable();
         let mut wire = serializer.serialize_struct("GInstanceWire", 2)?;
-        if readable {
-            let nodes: BTreeMap<u32, nodelink::MarkedNode<'_>> = self
-                .nodes
-                .iter()
-                .map(|(id, node)| (*id, nodelink::MarkedNode::new(node)))
-                .collect();
-            wire.serialize_field("nodes", &nodes)?;
-        } else {
-            let nodes: BTreeMap<u32, &Node> = self.nodes.iter().map(|(id, n)| (*id, n)).collect();
-            wire.serialize_field("nodes", &nodes)?;
-        }
+        let nodes: BTreeMap<u32, &Node> = self.nodes.iter().map(|(id, n)| (*id, n)).collect();
+        wire.serialize_field("nodes", &nodes)?;
         let edges: BTreeMap<EdgeId, &GEdge> = self.edges.iter().map(|(id, e)| (*id, e)).collect();
         wire.serialize_field("edges", &edges)?;
         wire.end()
@@ -187,21 +178,7 @@ impl<'de> Deserialize<'de> for GInstance {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::Error as _;
 
-        let wire = if deserializer.is_human_readable() {
-            let readable = GInstanceReadableEntries::deserialize(deserializer)?;
-            let nodes = readable
-                .nodes
-                .into_iter()
-                .map(|(key, json)| nodelink::decode_node(&json).map(|node| (key, node)))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(D::Error::custom)?;
-            GInstanceWireEntries {
-                nodes,
-                edges: readable.edges,
-            }
-        } else {
-            GInstanceWireEntries::deserialize(deserializer)?
-        };
+        let wire = GInstanceWireEntries::deserialize(deserializer)?;
         Self::try_from(wire).map_err(D::Error::custom)
     }
 }
@@ -213,16 +190,6 @@ impl<'de> Deserialize<'de> for GInstance {
 struct GInstanceWireEntries {
     #[serde(deserialize_with = "map_entries")]
     nodes: Vec<(u32, Node)>,
-    #[serde(deserialize_with = "map_entries")]
-    edges: Vec<(EdgeId, GEdge)>,
-}
-
-/// [`GInstanceWireEntries`] in a human-readable format, each node still in
-/// the JSON form that may write a non-finite float as a string.
-#[derive(Deserialize)]
-struct GInstanceReadableEntries {
-    #[serde(deserialize_with = "map_entries")]
-    nodes: Vec<(u32, serde_json::Value)>,
     #[serde(deserialize_with = "map_entries")]
     edges: Vec<(EdgeId, GEdge)>,
 }

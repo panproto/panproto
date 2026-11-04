@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 
 use panproto_gat::Name;
+use panproto_inst::value::{CANONICAL_NAN, NEGATIVE_CANONICAL_NAN};
 use panproto_inst::{
     EdgeId, FInstance, Fan, FanViolation, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND,
     HYPER_PARENT_KIND, InstError, Node, NodeShape, NotTreeReason, RowId, Value, ViewRef, WInstance,
@@ -830,4 +831,113 @@ fn decoding_refuses_a_key_listed_twice() {
     );
     let err = serde_json::from_str::<GInstance>(&twice_node).expect_err("node 0 is listed twice");
     assert!(err.to_string().contains("node 0"), "{err}");
+}
+
+/// The bits of every float a value holds, in a fixed order.
+fn float_bits(value: &Value, out: &mut Vec<u64>) {
+    match value {
+        Value::Float(x) => out.push(x.to_bits()),
+        Value::List(items) => items.iter().for_each(|item| float_bits(item, out)),
+        Value::Unknown(fields) => {
+            let mut keys: Vec<&String> = fields.keys().collect();
+            keys.sort();
+            for key in keys {
+                float_bits(&fields[key], out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The bits of every float in a graph's nodes, by node id then field name.
+fn graph_float_bits(graph: &GInstance) -> Vec<u64> {
+    let mut ids: Vec<u32> = graph.nodes().keys().copied().collect();
+    ids.sort_unstable();
+    let mut out = Vec::new();
+    for id in ids {
+        let node = graph.node(id).expect("listed node");
+        if let Some(FieldPresence::Present(value)) = &node.value {
+            float_bits(value, &mut out);
+        }
+        for map in [&node.extra_fields, &node.annotations] {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            for key in keys {
+                float_bits(&map[key], &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// A graph holding the negative canonical `NaN` and a `NaN` with a payload,
+/// as a node's value, an extra field, an annotation and inside a list.
+fn graph_with_signed_and_payload_nans() -> GInstance {
+    let payload = f64::from_bits(0x7ff8_0000_0000_0001);
+    let mut odd = Node::new(1, "a");
+    odd.extra_fields
+        .insert("negative".into(), Value::Float(NEGATIVE_CANONICAL_NAN));
+    odd.extra_fields.insert(
+        "nested".into(),
+        Value::List(vec![
+            Value::Float(payload),
+            Value::Float(CANONICAL_NAN),
+            Value::Float(-0.0),
+        ]),
+    );
+    odd.annotations.insert(
+        "score".into(),
+        Value::Float(f64::from_bits(0xfff0_0000_0000_0002)),
+    );
+    GInstance::new()
+        .with_node(odd)
+        .with_node(Node::new(0, "a"))
+        .with_value(0, Value::Float(NEGATIVE_CANONICAL_NAN))
+}
+
+#[test]
+fn node_link_json_keeps_the_sign_and_payload_of_every_nan() {
+    let graph = graph_with_signed_and_payload_nans();
+    let expected = graph_float_bits(&graph);
+    assert_eq!(expected.len(), 6);
+
+    let doc = to_node_link_json(&graph);
+    let text = doc.to_string();
+    assert!(text.contains(r#"{"Float":"-NaN"}"#), "{text}");
+    assert!(
+        text.contains(r#"{"Float":"NaN:0x7ff8000000000001"}"#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#"{"Float":"NaN:0xfff0000000000002"}"#),
+        "{text}"
+    );
+    let back = from_node_link_json(&doc).expect("the document reads back");
+    assert_eq!(graph_float_bits(&back), expected);
+    let reparsed: serde_json::Value = serde_json::from_str(&text).expect("the text is JSON");
+    let again = from_node_link_json(&reparsed).expect("the text reads back");
+    assert_eq!(graph_float_bits(&again), expected);
+
+    // The serde encoding of a graph writes nodes in the same form.
+    let serde_text = serde_json::to_string(&graph).expect("a graph encodes as JSON");
+    let serde_back: GInstance = serde_json::from_str(&serde_text).expect("the JSON reads back");
+    assert_eq!(graph_float_bits(&serde_back), expected);
+}
+
+#[test]
+fn node_link_json_refuses_a_nan_spelled_twice() {
+    // A `NaN:0x` string naming the bits of one of the two named NaNs is not
+    // its spelling, so a document cannot hold one NaN in two forms.
+    let mut doc = to_node_link_json(&graph_with_signed_and_payload_nans());
+    doc["nodes"][0]["value"]["Present"]["Float"] = serde_json::json!("NaN:0xfff8000000000000");
+    assert!(matches!(
+        from_node_link_json(&doc),
+        Err(InstError::NodeLink(_))
+    ));
+    doc["nodes"][0]["value"]["Present"]["Float"] = serde_json::json!("NaN");
+    let back = from_node_link_json(&doc).expect("the unsigned spelling reads");
+    assert!(matches!(
+        back.node(0).and_then(|n| n.value.clone()),
+        Some(FieldPresence::Present(Value::Float(x))) if x.to_bits() == CANONICAL_NAN.to_bits()
+    ));
 }

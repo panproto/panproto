@@ -40,7 +40,8 @@ use panproto_gat::{Name, is_interstitial_text_sort};
 use panproto_inst::metadata::Node;
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
 use panproto_inst::value::{
-    BigIntValue, CANONICAL_NAN, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
+    BigIntValue, CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Offset,
+    Temporal, Value,
 };
 use panproto_inst::wtype::WInstance;
 use panproto_inst::{FInstance, ValueFidelityError, ValueSite};
@@ -124,6 +125,15 @@ pub struct CstComplement {
     /// re-extraction has no root to check the preserved source against.
     #[serde(default)]
     pub source_vertex: Option<Name>,
+    /// Whether the source began with a UTF-8 byte-order mark.
+    ///
+    /// Tree-sitter skips a leading mark, so no CST vertex carries its bytes;
+    /// the preserving emitters of the tree-sitter `UnifiedCodec` write it
+    /// back from this flag. A complement decoded from a carrier
+    /// without the field has `false`, and the field is omitted from a
+    /// carrier when it is `false`.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub byte_order_mark: bool,
 }
 
 impl CstComplement {
@@ -1095,6 +1105,7 @@ pub fn extract_json_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -2129,6 +2140,7 @@ pub fn extract_toml_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -3177,8 +3189,21 @@ fn ensure_toml_presence_roundtrips(
             site,
             value.type_name(),
             "toml",
-            EmitValueReason::NotRepresentable,
+            refusal_reason(value),
         ))
+    }
+}
+
+/// The reason a value with no spelling that reads back as itself is
+/// refused: [`EmitValueReason::NonFinite`] for a non-finite float or a
+/// special decimal, [`EmitValueReason::NotRepresentable`] otherwise.
+const fn refusal_reason(value: &Value) -> EmitValueReason {
+    if matches!(value, Value::Float(number) if !number.is_finite())
+        || matches!(value, Value::Decimal(number) if !number.is_finite())
+    {
+        EmitValueReason::NonFinite
+    } else {
+        EmitValueReason::NotRepresentable
     }
 }
 
@@ -3251,6 +3276,7 @@ pub fn extract_xml_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -4539,6 +4565,7 @@ pub fn extract_yaml_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -5458,6 +5485,56 @@ fn is_empty_yaml_sequence_item_carrier(cst: &Schema, vertex: &Name) -> bool {
         && find_yaml_sequence_item_value(cst, vertex).is_none()
 }
 
+/// The YAML text of a decimal: tagged `!!decimal` under an open kind, so it
+/// reads back as a decimal rather than a binary float.
+///
+/// A special decimal is refused with [`EmitValueReason::NonFinite`]: no YAML
+/// spelling reads back as the same decimal, since `.inf` and `.nan` are
+/// binary floats.
+fn yaml_decimal_text(
+    value: &DecimalValue,
+    spec: &ValueSpec,
+    site: &ValueSite,
+) -> Result<String, CstCodecError> {
+    if !value.is_finite() {
+        return Err(cst_value_error(
+            site,
+            "decimal",
+            "yaml",
+            EmitValueReason::NonFinite,
+        ));
+    }
+    Ok(if spec.kind == ScalarKind::Any {
+        format!("!!decimal {value}")
+    } else {
+        value.to_string()
+    })
+}
+
+/// The YAML text of a temporal: a `!!timestamp` tag on its quoted display.
+///
+/// A YAML timestamp written without a zone denotes UTC, so a value with a
+/// local offset (every date and every zone-less time or date-time) has no
+/// YAML spelling that reads back as itself and is refused with
+/// [`EmitValueReason::NotRepresentable`].
+fn yaml_temporal_text(value: &Temporal, site: &ValueSite) -> Result<String, CstCodecError> {
+    if value
+        .lexical_form()
+        .is_none_or(|form| form.offset == Offset::Local)
+    {
+        return Err(cst_value_error(
+            site,
+            "temporal",
+            "yaml",
+            EmitValueReason::NotRepresentable,
+        ));
+    }
+    let quoted = serde_json::to_string(&value.to_string()).map_err(|error| {
+        CstCodecError::Structure(format!("YAML timestamp encoding failed: {error}"))
+    })?;
+    Ok(format!("!!timestamp {quoted}"))
+}
+
 /// Convert a `FieldPresence` to YAML scalar text.
 fn field_presence_to_yaml_text(
     presence: &FieldPresence,
@@ -5500,13 +5577,7 @@ fn field_presence_to_yaml_text(
         FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
         FieldPresence::Present(Value::Bool(value)) => value.to_string(),
         FieldPresence::Present(Value::Bytes(bytes)) => yaml_bytes_text(bytes, spec, site)?,
-        FieldPresence::Present(Value::Decimal(value)) => {
-            if spec.kind == ScalarKind::Any {
-                format!("!!decimal {value}")
-            } else {
-                value.to_string()
-            }
-        }
+        FieldPresence::Present(Value::Decimal(value)) => yaml_decimal_text(value, spec, site)?,
         FieldPresence::Present(Value::BigInt(value)) => {
             let text = cst_bigint_text(value, site, "yaml", false)?;
             if spec.kind == ScalarKind::Any {
@@ -5515,12 +5586,7 @@ fn field_presence_to_yaml_text(
                 text
             }
         }
-        FieldPresence::Present(Value::Temporal(value)) => {
-            let quoted = serde_json::to_string(&value.to_string()).map_err(|error| {
-                CstCodecError::Structure(format!("YAML timestamp encoding failed: {error}"))
-            })?;
-            format!("!!timestamp {quoted}")
-        }
+        FieldPresence::Present(Value::Temporal(value)) => yaml_temporal_text(value, site)?,
         FieldPresence::Null | FieldPresence::Present(Value::Null) => "null".to_owned(),
         FieldPresence::Absent => {
             return Err(EmitValueError::new(
@@ -5664,9 +5730,28 @@ pub fn extract_tabular_cst_with_protocol(
         cell_to_cst: HashMap::new(),
         fidelity: Vec::new(),
     };
+    // Each row is addressed by its position in the instance, so a blank line
+    // read as a row below takes a position, and every later cell carrier is
+    // keyed past it.
     let mut rows = Vec::new();
-    for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
-        rows.push(reader.row(row_idx, row_name)?);
+    for (index, row_name) in row_vertices[1..].iter().enumerate() {
+        // A blank line of a one-column table is one row holding the empty
+        // string, as the canonical reader gives it. The grammar makes it no
+        // row node, so it is counted from the line endings between the
+        // previous row (or the header) and this one; it has no cell carrier,
+        // and an edit of it is refused as an unaddressed structure edit.
+        // With more columns a blank line is no row, again as the canonical
+        // reader gives it.
+        if reader.headers.len() == 1 {
+            for _ in 0..blank_lines_between(cst, &doc_vertex, row_vertices[index], row_name) {
+                let col = reader.headers[0].clone();
+                if let Some(value) = reader.coerce_cell(&col, "", None) {
+                    rows.push(HashMap::from([(col, value)]));
+                }
+            }
+        }
+        let position = rows.len();
+        rows.push(reader.row(position, row_name)?);
     }
 
     // The CSV/TSV grammar's `text` token may be empty. At the end of a
@@ -5719,6 +5804,7 @@ fn tabular_complement(
         node_to_cst_struct: HashMap::new(),
         cell_to_cst_value: cell_to_cst,
         source_vertex: Some(Name::from(table_vertex)),
+        byte_order_mark: false,
     }
 }
 
@@ -5898,6 +5984,51 @@ fn delimited_field_starts(text: &str, delimiter: u8, quoted: bool) -> Vec<usize>
     starts
 }
 
+/// Count the blank lines between two consecutive rows of a tabular CST: the
+/// line endings between the end of `previous` and the start of `next`, less
+/// the one that ends `previous`. A gap holding anything but line endings
+/// counts no blank line.
+fn blank_lines_between(cst: &Schema, document: &str, previous: &Name, next: &Name) -> usize {
+    let Some((document_start, _)) = cst_recorded_span(cst, document) else {
+        return 0;
+    };
+    let (Some((_, previous_end)), Some((next_start, _))) = (
+        cst_recorded_span(cst, previous),
+        cst_recorded_span(cst, next),
+    ) else {
+        return 0;
+    };
+    let source = cst_source_text(cst, document);
+    let Some(gap) = previous_end
+        .checked_sub(document_start)
+        .zip(next_start.checked_sub(document_start))
+        .and_then(|(start, end)| source.as_bytes().get(start..end))
+    else {
+        return 0;
+    };
+    line_endings(gap).map_or(0, |endings| endings.saturating_sub(1))
+}
+
+/// The number of line endings `bytes` holds, a CRLF counting once, or `None`
+/// when it holds any other byte.
+fn line_endings(bytes: &[u8]) -> Option<usize> {
+    let mut endings = 0_usize;
+    let mut bytes = bytes.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\n' => endings += 1,
+            b'\r' => {
+                endings += 1;
+                if bytes.peek() == Some(&b'\n') {
+                    bytes.next();
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(endings)
+}
+
 /// Count physical empty rows after the last row represented in a tabular CST.
 fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> usize {
     let Some((document_start, _)) = cst_recorded_span(cst, document) else {
@@ -5913,21 +6044,7 @@ fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> 
     else {
         return 0;
     };
-    let mut endings = 0_usize;
-    let mut bytes = tail.iter().copied().peekable();
-    while let Some(byte) = bytes.next() {
-        match byte {
-            b'\n' => endings += 1,
-            b'\r' => {
-                endings += 1;
-                if bytes.peek() == Some(&b'\n') {
-                    bytes.next();
-                }
-            }
-            _ => return 0,
-        }
-    }
-    endings.saturating_sub(1)
+    line_endings(tail).map_or(0, |endings| endings.saturating_sub(1))
 }
 
 /// Whether the bytes after the last represented row hold anything but line
@@ -6229,7 +6346,7 @@ fn tabular_cst_value_text(
             site.clone(),
             value.type_name(),
             format,
-            EmitValueReason::NotRepresentable,
+            refusal_reason(value),
         )
         .into());
     }

@@ -2,6 +2,18 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Node-link JSON keeps the sign and payload of every NaN** (`panproto-inst`): `to_node_link_json` and the human-readable `GInstance` encoding wrote every NaN as `{"Float": "NaN"}` and read it back as the positive canonical NaN, so the negative canonical NaN and every NaN with a payload changed its bits on a round trip. Nodes are now written through the `Value` float form, which spells those NaNs `"-NaN"` and `"NaN:0x"` followed by sixteen lowercase hexadecimal digits, and every float reads back bit for bit. Documents written before this change still read.
+- **The YAML, TOML, CSV and TSV preserving routes refuse a source that is not UTF-8 and keep a leading byte-order mark** (`panproto-io`): an invalid UTF-8 sequence lexed as no token, so a CSV cell holding one read as the empty string and an unedited emission dropped its bytes. These routes now refuse such a source with `ParseInstanceError::Parse` naming the first invalid byte; JSON and XML are unchanged. A leading UTF-8 byte-order mark, which tree-sitter skips, was dropped by preserving emission; `CstComplement` records it in the new `byte_order_mark` field (omitted from a carrier when `false`) and the preserving emitters write it back. The `UnifiedCodec` documentation now declares the fixed CSV and TSV dialects these routes read.
+- **The YAML preserving writer refuses a special decimal with `NonFinite`** (`panproto-io`): it wrote a decimal infinity as `!!decimal -Infinity` and refused a decimal NaN as `NotRepresentable`, where every other route refuses both with `NonFinite`, since no route reads a special spelling back as the same decimal.
+- **The YAML preserving writer refuses a local temporal** (`panproto-io`): a YAML timestamp written without a zone denotes UTC, so a date, a zone-less time or a zone-less date-time cannot be written as YAML and read back as the same local value. The writer now refuses such a temporal with `NotRepresentable`, as the YAML arm of the temporal representability law states; a zoned temporal is written as before.
+- **The preserving CSV and TSV routes read the blank lines of a one-column table as rows** (`panproto-io`): extraction skipped a blank body line, so `a\n1\n\n2\n` read as two rows on the preserving route and three (`1`, the empty string, `2`) on the canonical route. Each blank line between rows now reads as an empty-string row, cell carriers are keyed by row position, and an edit of a blank row, which has no carrier, is refused with `UnsupportedStructuralEdit`. A blank line in a table of several columns is still no row, as on the canonical route.
+- **The TOML and delimited preserving writers name a refused non-finite number `NonFinite`** (`panproto-io`): where these writers refuse a non-finite float or special decimal, the reason was `NotRepresentable`; it is now `NonFinite`, as on every other route. A spelling that reads back as the same value is still written, and a TOML NaN with a payload remains `NotRepresentable`.
+- **Canonical TOML writes a temporal as its exact token** (`panproto-io`): `emit_toml_bytes` converted temporals through a nanosecond date-time, which truncated `07:32:00.1234567891Z` to `07:32:00.123456789Z` and rewrote a space separator or lowercase `z`. It now writes the temporal's display token.
+
 ## [0.77.0] - 2026-11-04
 
 ### Added
