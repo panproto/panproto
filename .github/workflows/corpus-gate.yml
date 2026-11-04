@@ -62,13 +62,15 @@ jobs:
             -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'
 
   exhaustive-reference:
-    name: Exhaustive reference agreement (${{ matrix.test }})
+    name: Exhaustive reference agreement (${{ matrix.test }}${{ matrix.shard && format(' shard {0}', matrix.shard) || '' }})
     runs-on: ubuntu-latest
-    # Each agreement runs in a job of its own. Run together on one runner they
-    # shared four cores, and the bounded lens law sweep was still running when
-    # the job reached the runner's six-hour maximum. A job per test gives each
-    # one the whole runner and its own six hours, and one failure no longer
-    # cancels the others.
+    # Each agreement runs in a job of its own, so each has the whole runner and
+    # its own six hours, and one failure does not cancel the others. The
+    # bounded lens law sweep needs about twenty hours of a four-core runner, so
+    # it runs as twelve shards: an entry's `shard` value `i/n` becomes
+    # `PANPROTO_TEST_SHARD`, and the job compares the cases whose position in
+    # the full enumeration is `i` modulo `n`. Every shard still enumerates and
+    # counts the whole scope, and the twelve together compare every case.
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -86,6 +88,51 @@ jobs:
           - package: panproto-lens
             binary: reference_lenses
             test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 0/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 1/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 2/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 3/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 4/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 5/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 6/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 7/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 8/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 9/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 10/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 11/12
           - package: panproto-lens
             binary: reference_lenses
             test: lens_path_law_certificate
@@ -110,6 +157,10 @@ jobs:
           PACKAGE: ${{ matrix.package }}
           BINARY: ${{ matrix.binary }}
           TEST: ${{ matrix.test }}
+          SHARD: ${{ matrix.shard }}
         run: |
+          if [ -n "$SHARD" ]; then
+            export PANPROTO_TEST_SHARD="$SHARD"
+          fi
           cargo nextest run --locked --cargo-profile ci-test --no-tests=fail \
             -p "$PACKAGE" --test "$BINARY" -E "test(=$TEST)"
