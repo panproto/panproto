@@ -802,6 +802,18 @@ def pinned_release_header(tag: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+def coverage_header_source(workspace: Version, pinned: Version) -> str:
+    """Which header the symbol-coverage check reads: `"pinned"` or `"tree"`.
+
+    The pinned release's header governs whenever the workspace is at or
+    behind the pin, since that artifact is what a consumer resolving this
+    tree compiles against. With the workspace ahead of the pin, the tree
+    is a release in preparation whose own artifact replaces the pin before
+    any consumer can resolve it, so the tree's header governs.
+    """
+    return "tree" if pinned.sort_key < workspace.sort_key else "pinned"
+
+
 def check_swift_pin_symbol_coverage() -> list[Mismatch]:
     """The pinned artifact must declare every symbol the shims reference.
 
@@ -822,6 +834,15 @@ def check_swift_pin_symbol_coverage() -> list[Mismatch]:
 
     This closes that gap: for the release the pin names, every ungated
     `pp_*` the shims call must appear in that release's header.
+
+    A release that adds an export is the one state where the pinned header
+    is the wrong one to read. Between the bump and the tag the workspace
+    sits ahead of the pin, and no consumer resolves the tree in that state:
+    the tag push rebuilds the XCFramework from this tree, `publish-swift.yml`
+    re-pins to it, and the mirror job refuses to publish unless the pin
+    names the tag. So when the workspace is ahead, the header a consumer of
+    the coming release compiles against is the tree's own, and that is the
+    header this check reads. `coverage_header_source` states the rule.
     """
     path = ROOT / SWIFT_PACKAGE
     if not path.exists():
@@ -833,6 +854,34 @@ def check_swift_pin_symbol_coverage() -> list[Mismatch]:
     if shape is None:
         return []
     tag = shape.group(1)
+
+    workspace, pinned = parse_version(workspace_version()), parse_version(tag)
+    if (
+        workspace is not None
+        and pinned is not None
+        and coverage_header_source(workspace, pinned) == "tree"
+    ):
+        tree_header = ROOT / "crates/panproto-c/include/panproto.h"
+        missing = symbols_missing_from(
+            ungated_ffi_symbols(), tree_header.read_text(encoding="utf-8")
+        )
+        if not missing:
+            return []
+        return [
+            Mismatch(
+                path=path,
+                field="releaseXCFrameworkURL",
+                found=(
+                    f"workspace {workspace.raw} ahead of the {tag} pin, and the "
+                    "tree's header declares neither " + ", ".join(missing)
+                ),
+                expected=f"crates/panproto-c/include/panproto.h declaring {', '.join(missing)}",
+                note=(
+                    "The coming release's XCFramework is built from this tree's "
+                    "header, so a shim calling a symbol it lacks cannot compile."
+                ),
+            )
+        ]
 
     header = pinned_release_header(tag)
     if header is None:
@@ -1035,6 +1084,16 @@ COVERAGE_CASES: tuple[tuple[str, set[str], str, tuple[str, ...]], ...] = (
         "\n/** calls pp_hom_find_span (see above) */\nvoid\npp_other (\n",
         ("pp_hom_find_span",),
     ),
+)
+
+
+# (label, workspace, pinned tag, header the coverage check reads)
+HEADER_SOURCE_CASES: tuple[tuple[str, str, str, str], ...] = (
+    ("pin current", "0.76.1", "v0.76.1", "pinned"),
+    ("release in preparation", "0.77.0", "v0.76.1", "tree"),
+    ("patch in preparation", "0.76.2", "v0.76.1", "tree"),
+    ("prerelease ahead of the pin", "0.77.0-rc.1", "v0.76.1", "tree"),
+    ("pin ahead of the workspace", "0.76.0", "v0.76.1", "pinned"),
 )
 
 
@@ -1255,6 +1314,15 @@ def self_test(*, verbose: bool) -> int:
         if got != expected:
             report("coverage", label, f"expected {expected}, got {got}")
 
+    for label, workspace, tag, expected in HEADER_SOURCE_CASES:
+        ws, pin = parse_version(workspace), parse_version(tag)
+        if ws is None or pin is None:
+            report("header source", label, "did not parse")
+            continue
+        got = coverage_header_source(ws, pin)
+        if got != expected:
+            report("header source", label, f"expected {expected}, got {got}")
+
     for label, workspace, tag, tags, should_fail in LAG_CASES:
         published = (
             None
@@ -1308,6 +1376,7 @@ def self_test(*, verbose: bool) -> int:
         + len(SHAPE_CASES)
         + len(DOC_CASES)
         + len(COVERAGE_CASES)
+        + len(HEADER_SOURCE_CASES)
     )
     total += len(PIN_LINE_VARIANTS)
     if failures:
