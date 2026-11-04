@@ -15841,57 +15841,29 @@ impl PreparedCommonBasis {
     }
 }
 
-/// Production and the reference agree on the law report, admission census
-/// and full five-gate common-basis outcome of every case of a carrier whose
-/// target schemas have two distinct edges between the same vertices. The
-/// bounded sweep's carrier has no such schema, so this is where the two
-/// implementations are compared on edge relabels.
-///
-/// For each shape (graph, tree, table) and lens the test pins the number of
-/// edge-relabel candidates of the common basis that the put domain admits
-/// and refuses, and the refusal variants. Under the identity every relabel
-/// is admitted. Under the contraction a relabel of `x` to `y` is refused
-/// with `ContractedEdgeInserted`, since `y` arises only by contraction.
-/// Under the merge a relabel to `x` is admitted, since `x` has one direct
-/// source preimage, and a relabel to `y` is refused with
-/// `UnrepresentableViewEdge`, since `y` has two.
-#[test]
-fn relabel_edge_laws_agree_with_the_reference() {
-    let relabel = relabel_edge_family();
-    let context = relabel_edge_law_context();
-    let cases = relabel_edge_law_cases(&context);
-    let selected: Vec<&LawCase> = cases.iter().collect();
-    let bound = format!(
-        "L-lenses-8 parallel-edge relabel carrier: cases={}",
-        cases.len()
-    );
-    println!("{bound}");
-    let (compared, tally, common_tally) =
-        compare_law_cases(&bound, &selected, relabel_edge_law_context);
-    assert_eq!(
-        compared,
-        u64::try_from(cases.len()).expect("a case count fits in u64")
-    );
-    println!(
-        "L-lenses-8 relabel carrier admission census: candidates={}, admitted positive reference-basis candidates={}",
-        tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
-        tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
-    );
+/// The relabel carrier's edge relabels by shape and lens: how many
+/// candidates of the common basis the put domain admits, how many it
+/// refuses, and the variants of the refusals.
+type RelabelEdgeCensus = BTreeMap<(&'static str, usize), (usize, usize, BTreeSet<String>)>;
 
-    // Per shape and lens: the edge-relabel candidates of the common basis
-    // that the put domain admits, those it refuses, and the variants of the
-    // refusals. The verdicts are the reference's; the comparison above has
-    // asserted that production's are equal.
-    let (pairs, table_pairs, _) = &context;
-    let mut census: BTreeMap<(&str, usize), (usize, usize, BTreeSet<String>)> = BTreeMap::new();
-    for case in &cases {
+/// The [`RelabelEdgeCensus`] of `cases`, from the reference's verdicts on
+/// the common basis of each case, where `relabel` is the edge-relabel
+/// family. The differential asserts that production's verdicts are equal.
+fn relabel_edge_census(
+    context: &LawContext,
+    cases: &[LawCase],
+    relabel: usize,
+) -> RelabelEdgeCensus {
+    let (pairs, table_pairs, _) = context;
+    let mut census = RelabelEdgeCensus::new();
+    for case in cases {
         let (shape, lens) = match case {
             LawCase::Graph(stage, _) => ("graph", *stage),
             LawCase::Tree(stage, _) => ("tree", *stage),
             LawCase::Table(fixture) => ("table", fixture.retained),
             LawCase::Partial(_, _) => unreachable!("the relabel carrier has no partial lenses"),
         };
-        let prepared = prepare_law_case(&context, case);
+        let prepared = prepare_law_case(context, case);
         let (admissions, _) = common_basis_evidence(
             pairs,
             table_pairs,
@@ -15941,6 +15913,47 @@ fn relabel_edge_laws_agree_with_the_reference() {
             }));
         }
     }
+    census
+}
+
+/// Production and the reference agree on the law report, admission census
+/// and full five-gate common-basis outcome of every case of a carrier whose
+/// target schemas have two distinct edges between the same vertices. The
+/// bounded sweep's carrier has no such schema, so this is where the two
+/// implementations are compared on edge relabels.
+///
+/// For each shape (graph, tree, table) and lens the test pins the number of
+/// edge-relabel candidates of the common basis that the put domain admits
+/// and refuses, and the refusal variants. Under the identity every relabel
+/// is admitted. Under the contraction a relabel of `x` to `y` is refused
+/// with `ContractedEdgeInserted`, since `y` arises only by contraction.
+/// Under the merge a relabel to `x` is admitted, since `x` has one direct
+/// source preimage, and a relabel to `y` is refused with
+/// `UnrepresentableViewEdge`, since `y` has two.
+#[test]
+fn relabel_edge_laws_agree_with_the_reference() {
+    let relabel = relabel_edge_family();
+    let context = relabel_edge_law_context();
+    let cases = relabel_edge_law_cases(&context);
+    let selected: Vec<&LawCase> = cases.iter().collect();
+    let bound = format!(
+        "L-lenses-8 parallel-edge relabel carrier: cases={}",
+        cases.len()
+    );
+    println!("{bound}");
+    let (compared, tally, common_tally) =
+        compare_law_cases(&bound, &selected, relabel_edge_law_context);
+    assert_eq!(
+        compared,
+        u64::try_from(cases.len()).expect("a case count fits in u64")
+    );
+    println!(
+        "L-lenses-8 relabel carrier admission census: candidates={}, admitted positive reference-basis candidates={}",
+        tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
+        tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
+    );
+
+    let census = relabel_edge_census(&context, &cases, relabel);
     println!(
         "L-lenses-8 relabel carrier edge relabels by (shape, lens): (admitted, refused, refusal variants): {census:?}"
     );
