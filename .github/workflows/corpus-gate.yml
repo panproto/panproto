@@ -62,11 +62,33 @@ jobs:
             -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'
 
   exhaustive-reference:
-    name: Exhaustive reference agreements
+    name: Exhaustive reference agreement (${{ matrix.test }})
     runs-on: ubuntu-latest
-    # The longest of these walked the whole values scope for 92 minutes in a
-    # release build; the job allows the runner's six-hour maximum.
+    # Each agreement runs in a job of its own. Run together on one runner they
+    # shared four cores, and the bounded lens law sweep was still running when
+    # the job reached the runner's six-hour maximum. A job per test gives each
+    # one the whole runner and its own six hours, and one failure no longer
+    # cancels the others.
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: panproto-gat
+            binary: reference_theories
+            test: composition_agrees_with_the_reference_on_every_discrete_pair
+          - package: panproto-inst
+            binary: reference_coercion
+            test: nearest_reading_coercion_agrees_with_the_reference
+          - package: panproto-inst
+            binary: reference_coercion
+            test: coerce_value_agrees_with_the_reference_over_the_values_scope
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_path_law_certificate
     steps:
       - name: Free disk space
         run: |
@@ -79,13 +101,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
-          key: exhaustive-reference
+          key: exhaustive-reference-${{ matrix.package }}
       - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
       # The default nextest profile has no per-test bound, and the `ci-test`
       # cargo profile keeps debug assertions and overflow checks live.
-      - name: Run the exhaustive reference agreements
+      - name: Run the exhaustive reference agreement
+        env:
+          PACKAGE: ${{ matrix.package }}
+          BINARY: ${{ matrix.binary }}
+          TEST: ${{ matrix.test }}
         run: |
           cargo nextest run --locked --cargo-profile ci-test --no-tests=fail \
-            -p panproto-gat -p panproto-inst -p panproto-lens \
-            --test reference_theories --test reference_coercion --test reference_lenses \
-            -E 'test(=composition_agrees_with_the_reference_on_every_discrete_pair) | test(=nearest_reading_coercion_agrees_with_the_reference) | test(=coerce_value_agrees_with_the_reference_over_the_values_scope) | test(=lens_laws_agree_with_the_reference_exhaustively) | test(=lens_path_law_certificate)'
+            -p "$PACKAGE" --test "$BINARY" -E "test(=$TEST)"
