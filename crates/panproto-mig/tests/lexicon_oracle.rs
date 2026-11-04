@@ -127,13 +127,11 @@ const ORDERED_PAIRS: usize = 77 * 76;
 /// lexicon is added or removed or when which targets a source vertex may take
 /// changes. Attribute a moved number to one of those before restating it.
 ///
-/// It last moved from 2773 to 2804 when the `atproto` parser changed the
-/// kinds of a union's vertices: each arm became a `ref` rather than an
-/// `object`, an open union gained an untagged `unknown` arm, a ref to a def no
-/// parsed document defines became an `unknown` placeholder rather than a
-/// `ref`, and a subscription's message union began to parse its arms. Those
-/// kinds narrow the targets the arms and placeholders may take, so 33 pairs
-/// became enumerable and 2 stopped being so.
+/// The count reflects how the `atproto` parser types a union: each arm is a
+/// `ref`, an open union carries an untagged `unknown` arm, a ref to a def no
+/// parsed document defines is an `unknown` placeholder, and a subscription's
+/// message union has its arms parsed. Those kinds bound the targets an arm or
+/// placeholder vertex may take.
 const ENUMERABLE_PAIRS: usize = 2804;
 
 /// Which of the two networks a check ran on.
