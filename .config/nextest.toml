@@ -38,7 +38,9 @@
 #     `lens_path_law_certificate` (the bounded lens carrier and every path
 #     over it). Each passed 600 s without finishing. They run in the
 #     `exhaustive-reference` job of the `corpus-gate` workflow, nightly and on
-#     demand; dispatch it before tagging a release.
+#     demand; dispatch it before tagging a release. That job splits
+#     `lens_laws_agree_with_the_reference_exhaustively` into twelve shards
+#     through `PANPROTO_TEST_SHARD=i/n`; unset, the test compares every case.
 #
 # Running these on every PR is wasteful. Every excluded test still runs by
 # default for local runs (`cargo nextest run`). The corpus gates also run

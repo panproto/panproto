@@ -15292,6 +15292,195 @@ fn assert_stage_c_put_get_traces(
     }
 }
 
+/// The environment variable that selects one shard of the bounded lens law
+/// sweep.
+const LAW_SHARD_VARIABLE: &str = "PANPROTO_TEST_SHARD";
+
+/// One shard of a sweep split `count` ways: the cases whose position in the
+/// full enumeration is congruent to `index` modulo `count`. The `count`
+/// shards with indexes `0` to `count - 1` partition the cases, and taking
+/// residues rather than contiguous blocks spreads every case family evenly
+/// over the shards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LawShard {
+    index: usize,
+    count: usize,
+}
+
+impl LawShard {
+    /// Parse `index/count`: two unsigned decimal numerals with
+    /// `0 <= index < count`.
+    fn parse(value: &str) -> Result<Self, String> {
+        let numeral = |part: &str, role: &str| {
+            if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(format!(
+                    "the shard {role} {part:?} is not an unsigned decimal numeral"
+                ));
+            }
+            part.parse::<usize>()
+                .map_err(|error| format!("the shard {role} {part:?} does not fit: {error}"))
+        };
+        let (index, count) = value
+            .split_once('/')
+            .ok_or_else(|| format!("{value:?} is not of the form index/count"))?;
+        let (index, count) = (numeral(index, "index")?, numeral(count, "count")?);
+        if count == 0 {
+            return Err(format!("{value:?} has a shard count of zero"));
+        }
+        if index >= count {
+            return Err(format!(
+                "{value:?} has shard index {index}, which is not below the shard count {count}"
+            ));
+        }
+        Ok(Self { index, count })
+    }
+
+    /// The shard named by [`LAW_SHARD_VARIABLE`], or `None` when the variable
+    /// is unset. A value that is not a well-formed shard panics, so a
+    /// misconfigured job fails instead of checking the wrong cases.
+    fn from_environment() -> Option<Self> {
+        match std::env::var(LAW_SHARD_VARIABLE) {
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(value)) => {
+                panic!(
+                    "{LAW_SHARD_VARIABLE}={} is not valid Unicode",
+                    value.display()
+                )
+            }
+            Ok(value) => Some(Self::parse(&value).unwrap_or_else(|error| {
+                panic!("{LAW_SHARD_VARIABLE} must be index/count with index < count: {error}")
+            })),
+        }
+    }
+
+    /// Whether the case at `position` of the full enumeration is in this
+    /// shard.
+    const fn contains(self, position: usize) -> bool {
+        position % self.count == self.index
+    }
+
+    /// The number of the first `total` positions that are in this shard.
+    const fn share(self, total: usize) -> usize {
+        total.saturating_sub(self.index).div_ceil(self.count)
+    }
+}
+
+#[test]
+fn law_shard_accepts_only_an_index_below_its_count() {
+    assert_eq!(LawShard::parse("0/1"), Ok(LawShard { index: 0, count: 1 }));
+    assert_eq!(
+        LawShard::parse("7/12"),
+        Ok(LawShard {
+            index: 7,
+            count: 12
+        })
+    );
+    for malformed in [
+        "",
+        "3",
+        "/4",
+        "3/",
+        "4/4",
+        "5/4",
+        "0/0",
+        "-1/4",
+        "+1/4",
+        " 1/4",
+        "1/4 ",
+        "1/2/3",
+        "a/4",
+        "1/99999999999999999999999",
+    ] {
+        assert!(
+            LawShard::parse(malformed).is_err(),
+            "{malformed:?} must not parse as a shard"
+        );
+    }
+    for count in 1..=9 {
+        for total in 0..=40 {
+            let shares: usize = (0..count)
+                .map(|index| {
+                    let shard = LawShard { index, count };
+                    let selected = (0..total)
+                        .filter(|position| shard.contains(*position))
+                        .count();
+                    assert_eq!(shard.share(total), selected);
+                    selected
+                })
+                .sum();
+            assert_eq!(shares, total);
+        }
+    }
+}
+
+/// The per-family candidate counts of the prepared common basis of every
+/// case, summed in parallel with one context per worker.
+fn common_basis_family_census<C: Sync>(
+    cases: &[C],
+    context: impl Fn() -> LawContext + Sync,
+    prepare: impl Fn(&LawContext, &C) -> Option<[usize; EDIT_FAMILIES]> + Sync,
+) -> [usize; EDIT_FAMILIES] {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const BLOCK: usize = 64;
+    let next = AtomicUsize::new(0);
+    let partials: Vec<[usize; EDIT_FAMILIES]> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..comparison_threads())
+            .map(|_| {
+                scope.spawn(|| {
+                    let context = context();
+                    let mut counts = [0_usize; EDIT_FAMILIES];
+                    loop {
+                        let start = next.fetch_add(BLOCK, Ordering::Relaxed);
+                        if start >= cases.len() {
+                            return counts;
+                        }
+                        for case in &cases[start..(start + BLOCK).min(cases.len())] {
+                            if let Some(case_counts) = prepare(&context, case) {
+                                for (total, count) in counts.iter_mut().zip(case_counts) {
+                                    *total += count;
+                                }
+                            }
+                        }
+                    }
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .expect("a common-basis census worker panicked")
+            })
+            .collect()
+    });
+    let mut total = [0_usize; EDIT_FAMILIES];
+    for partial in partials {
+        for (total, count) in total.iter_mut().zip(partial) {
+            *total += count;
+        }
+    }
+    total
+}
+
+/// Production and the reference agree on the law report of every case of
+/// the bounded lens scope, and on the admission census and full five-gate
+/// outcome of every case's common basis.
+///
+/// With [`LAW_SHARD_VARIABLE`] unset the test compares every case. With it
+/// set to `i/n` the test still enumerates the full scope and asserts its
+/// census, then compares only the cases of [`LawShard`] `i` of `n`, and
+/// asserts that it compared exactly that shard's share. The one whole-run
+/// assertion, [`assert_bounded_common_basis_families`], holds of the
+/// per-case family counts, which each comparison asserts equal to the counts
+/// of the prepared basis. A shard therefore prepares the common basis of
+/// every case of the scope (not only its own), makes that assertion of the
+/// full census, and asserts that the family counts its comparisons tallied
+/// equal the prepared counts of its own cases. Running
+/// the `n` shards `0/n` to `n-1/n` thus compares every case once and checks
+/// every assertion of the unsharded run; the admission census is printed
+/// per shard, and the shards' printed counts sum to the unsharded totals.
 #[test]
 fn lens_laws_agree_with_the_reference_exhaustively() {
     let stages = bounded_lens_stages();
@@ -15334,11 +15523,96 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         cases.len()
     );
     println!("{bound}");
+    let shard = LawShard::from_environment();
+    let selected = law_shard_cases(shard, &cases);
+    let (compared, tally, common_tally) = compare_law_cases(&bound, &selected, context);
+    println!(
+        "L-lenses-8 admission census (graph, tree and table families): candidates={}, admitted positive reference-basis candidates={}",
+        tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
+        tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
+    );
+    let common_counts = common_tally.snapshot();
+    println!("L-lenses-8 common five-gate basis by mutation family: {common_counts:?}");
+    let Some(shard) = shard else {
+        assert_bounded_common_basis_families(&common_counts);
+        assert_eq!(compared, 200_606);
+        return;
+    };
+    assert_eq!(
+        u64::try_from(shard.share(cases.len())).expect("a case count fits in u64"),
+        compared,
+        "shard {}/{} must compare exactly its share of the cases",
+        shard.index,
+        shard.count
+    );
+    assert_law_shard_common_basis(&cases, &selected, common_counts, context);
+}
+
+/// The cases of `shard` in enumeration order, or every case when there is
+/// no shard, after checking that there are exactly the shard's share of them.
+fn law_shard_cases(shard: Option<LawShard>, cases: &[LawCase]) -> Vec<&LawCase> {
+    let selected: Vec<&LawCase> = cases
+        .iter()
+        .enumerate()
+        .filter(|(position, _)| shard.is_none_or(|shard| shard.contains(*position)))
+        .map(|(_, case)| case)
+        .collect();
+    let Some(shard) = shard else {
+        assert_eq!(selected.len(), cases.len());
+        return selected;
+    };
+    assert_eq!(selected.len(), shard.share(cases.len()));
+    println!(
+        "L-lenses-8 shard {}/{}: comparing {} of {} cases",
+        shard.index,
+        shard.count,
+        selected.len(),
+        cases.len()
+    );
+    selected
+}
+
+/// A shard's common-basis assertions: the five-gate family counts its
+/// comparisons tallied equal the prepared common basis of its own cases, and
+/// every mutation family occurs in the prepared common basis of the full
+/// scope.
+fn assert_law_shard_common_basis(
+    cases: &[LawCase],
+    selected: &[&LawCase],
+    tallied: [usize; EDIT_FAMILIES],
+    context: impl Fn() -> LawContext + Sync + Copy,
+) {
+    let shard_basis = common_basis_family_census(selected, context, |context, case| {
+        prepare_law_case(context, case).common.family_counts()
+    });
+    assert_eq!(
+        tallied, shard_basis,
+        "the shard's tallied five-gate family counts must equal its prepared common basis"
+    );
+    let full_basis = common_basis_family_census(cases, context, |context, case| {
+        prepare_law_case(context, case).common.family_counts()
+    });
+    println!(
+        "L-lenses-8 prepared common basis of the full scope by mutation family: {full_basis:?}"
+    );
+    assert_bounded_common_basis_families(&full_basis);
+}
+
+/// Compare production with the reference on every case of `cases` as the
+/// L-lenses-8 sweep does: the law report of each case, then the admission
+/// census and full five-gate outcome of its prepared common basis. Returns
+/// the number of cases compared with the reference side's admission and
+/// common-basis family tallies.
+fn compare_law_cases(
+    bound: &str,
+    cases: &[&LawCase],
+    context: impl Fn() -> LawContext + Sync,
+) -> (u64, AdmissionTally, CommonBasisTally) {
     let tally = AdmissionTally::default();
     let common_tally = CommonBasisTally::default();
     let compared = assert_agree(agree_in_parallel(
-        &bound,
-        &cases,
+        bound,
+        cases,
         context,
         |context, case| vec![prepare_law_case(context, case)],
         |context: &LawContext, prepared: &PreparedLawCase<'_>| {
@@ -15357,18 +15631,356 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         },
         |production, reference| production == reference,
     ));
+    (compared, tally, common_tally)
+}
+
+/// The position of the edge-relabel family in [`Mutation::ALL`], which the
+/// reference's [`ref_mutation_index`] assigns to the same family.
+fn relabel_edge_family() -> usize {
+    let family = Mutation::ALL
+        .iter()
+        .position(|mutation| *mutation == Mutation::RelabelEdge)
+        .expect("Mutation::ALL contains the edge-relabel family");
+    assert_eq!(family, ref_mutation_index(RefMutation::RelabelEdge));
+    family
+}
+
+/// The family assertion of the bounded scope's common basis: every mutation
+/// family occurs in it except edge relabelling, which occurs zero times.
+///
+/// A relabel gives a view edge another target-schema edge with the same
+/// endpoints, and no target schema of the bounded carrier has two distinct
+/// edges between the same pair of vertices, so neither side proposes one.
+/// `relabel_edge_laws_agree_with_the_reference` compares that family on a
+/// parallel-edge carrier instead. The count is asserted to be zero rather
+/// than left unchecked, so a carrier change that starts producing relabels
+/// fails here and the exemption is revisited.
+fn assert_bounded_common_basis_families(counts: &[usize; EDIT_FAMILIES]) {
+    let relabel = relabel_edge_family();
+    for (family, count) in counts.iter().enumerate() {
+        if family == relabel {
+            assert_eq!(
+                *count, 0,
+                "the bounded carrier has no parallel target edges, so its common basis has no edge relabels"
+            );
+        } else {
+            assert!(
+                *count > 0,
+                "mutation family {} must occur in the independently formed common basis",
+                Mutation::ALL[family].as_str()
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Edge relabelling: the law differential on a parallel-edge carrier
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{BOUNDED_LENS_EDGE_KIND, BOUNDED_LENS_VERTEX_KIND};
+
+/// The edge kind of the relabel carrier's table schemas.
+const RELABEL_TABLE_EDGE_KIND: &str = "foreign-key";
+
+/// The schema on vertices `a` and `b` of `kind` with one `edge_kind` edge
+/// from `a` to `b` named by each of `names`.
+fn relabel_edge_schema(kind: &str, edge_kind: &str, names: &[&str]) -> RefSchema {
+    names.iter().fold(
+        RefSchema::default().vertex("a", kind).vertex("b", kind),
+        |schema, name| schema.edge("a", "b", edge_kind, Some(name)),
+    )
+}
+
+/// The lenses of the relabel carrier over edges of `edge_kind`, as
+/// `(source, target, migration)`; every target schema has the parallel
+/// edges `x` and `y` from `a` to `b`. The first lens is the identity. The
+/// second contracts the path `a -> m -> b` of a source with a third vertex
+/// `m` into `y`, so `y` is synthesized and has no direct source preimage.
+/// With `merge`, a third lens merges a third parallel source edge `z` into
+/// `y`, so `y` has two direct source preimages; the table plan refuses such
+/// a merge, so the table carrier omits it.
+fn relabel_edge_lenses(
+    kind: &str,
+    edge_kind: &str,
+    merge: bool,
+) -> Vec<(RefSchema, RefSchema, RefMigration)> {
+    let edge = |name| RefSEdge::new("a", "b", edge_kind, Some(name));
+    let parallel = relabel_edge_schema(kind, edge_kind, &["x", "y"]);
+    let mut lenses = vec![
+        (
+            parallel.clone(),
+            parallel.clone(),
+            RefMigration {
+                surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                surviving_edges: parallel.edges.clone(),
+                ..RefMigration::default()
+            },
+        ),
+        (
+            relabel_edge_schema(kind, edge_kind, &["x"])
+                .vertex("m", kind)
+                .edge("a", "m", edge_kind, Some("left"))
+                .edge("m", "b", edge_kind, Some("right")),
+            parallel.clone(),
+            RefMigration {
+                surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                surviving_edges: [edge("x")].into(),
+                resolver: [(("a".to_owned(), "b".to_owned()), edge("y"))].into(),
+                ..RefMigration::default()
+            },
+        ),
+    ];
+    if merge {
+        lenses.push((
+            relabel_edge_schema(kind, edge_kind, &["x", "y", "z"]),
+            parallel,
+            RefMigration {
+                surviving_verts: ["a".to_owned(), "b".to_owned()].into(),
+                surviving_edges: [edge("x"), edge("y"), edge("z")].into(),
+                edge_remap: [(edge("z"), edge("y"))].into(),
+                ..RefMigration::default()
+            },
+        ));
+    }
+    lenses
+}
+
+/// The relabel carrier's law context: the graph and tree lenses of
+/// [`relabel_edge_lenses`] over bounded lens kinds, then the table lenses
+/// over table kinds as the one row of table pairs.
+fn relabel_edge_law_context() -> LawContext {
+    let pairs = relabel_edge_lenses(BOUNDED_LENS_VERTEX_KIND, BOUNDED_LENS_EDGE_KIND, true)
+        .into_iter()
+        .map(|(source, target, migration)| Pair::new(source, target, migration))
+        .collect();
+    let tables = relabel_edge_lenses(TABLE_FIXTURE_TABLE_KIND, RELABEL_TABLE_EDGE_KIND, false)
+        .into_iter()
+        .map(|(source, target, migration)| {
+            TablePair::new(
+                source,
+                target,
+                migration,
+                TABLE_FIXTURE_VALUE_KIND,
+                ScalarKind::Any,
+            )
+        })
+        .collect();
+    (pairs, vec![tables], empty_lens())
+}
+
+/// The relabel carrier's law cases. For each graph lens, the graph states
+/// and tree states of at most two nodes over its source schema. For each
+/// table lens, the tables with one row per source vertex, row ids in vertex
+/// order, related by each set of the source schema's edges. A table case's
+/// `columns` and `retained` index the context's table pairs, as they index
+/// the fixture pairs in the bounded sweep's context.
+fn relabel_edge_law_cases(context: &LawContext) -> Vec<LawCase> {
+    let (pairs, table_pairs, _) = context;
+    let mut cases = Vec::new();
+    for (stage, pair) in pairs.iter().enumerate() {
+        cases.extend(
+            bounded_lens_graph_states(&pair.src)
+                .into_iter()
+                .filter(|graph| graph.nodes.len() <= 2)
+                .map(|graph| LawCase::Graph(stage, graph)),
+        );
+        cases.extend(
+            bounded_lens_tree_states(&pair.src)
+                .into_iter()
+                .filter(|tree| tree.nodes.len() <= 2)
+                .map(|tree| LawCase::Tree(stage, tree)),
+        );
+    }
+    for (retained, pair) in table_pairs[0].iter().enumerate() {
+        let rows: BTreeMap<&str, u32> = pair
+            .src
+            .vertices
+            .keys()
+            .zip(0..)
+            .map(|(vertex, id)| (vertex.as_str(), id))
+            .collect();
+        let edges: Vec<&RefSEdge> = pair.src.edges.iter().collect();
+        for subset in 0..1_usize << edges.len() {
+            let source = RefTable {
+                rows: rows
+                    .iter()
+                    .map(|(vertex, id)| (*id, ((*vertex).to_owned(), BTreeMap::new())))
+                    .collect(),
+                pairs: edges
+                    .iter()
+                    .enumerate()
+                    .filter(|(bit, _)| subset & (1 << bit) != 0)
+                    .map(|(_, edge)| {
+                        (
+                            (*edge).clone(),
+                            rows[edge.src.as_str()],
+                            rows[edge.tgt.as_str()],
+                        )
+                    })
+                    .collect(),
+            };
+            cases.push(LawCase::Table(TableFixture {
+                columns: 0,
+                retained,
+                source,
+            }));
+        }
+    }
+    cases
+}
+
+impl PreparedCommonBasis {
+    /// The mutation family of each candidate, in candidate order.
+    fn mutations(&self) -> Vec<usize> {
+        match self {
+            Self::None => Vec::new(),
+            Self::Graph(candidates) => candidates.iter().map(|c| c.mutation).collect(),
+            Self::Tree(candidates) => candidates.iter().map(|c| c.mutation).collect(),
+            Self::Table(candidates) => candidates.iter().map(|c| c.mutation).collect(),
+        }
+    }
+}
+
+/// The relabel carrier's edge relabels by shape and lens: how many
+/// candidates of the common basis the put domain admits, how many it
+/// refuses, and the variants of the refusals.
+type RelabelEdgeCensus = BTreeMap<(&'static str, usize), (usize, usize, BTreeSet<String>)>;
+
+/// The [`RelabelEdgeCensus`] of `cases`, from the reference's verdicts on
+/// the common basis of each case, where `relabel` is the edge-relabel
+/// family. The differential asserts that production's verdicts are equal.
+fn relabel_edge_census(
+    context: &LawContext,
+    cases: &[LawCase],
+    relabel: usize,
+) -> RelabelEdgeCensus {
+    let (pairs, table_pairs, _) = context;
+    let mut census = RelabelEdgeCensus::new();
+    for case in cases {
+        let (shape, lens) = match case {
+            LawCase::Graph(stage, _) => ("graph", *stage),
+            LawCase::Tree(stage, _) => ("tree", *stage),
+            LawCase::Table(fixture) => ("table", fixture.retained),
+            LawCase::Partial(_, _) => unreachable!("the relabel carrier has no partial lenses"),
+        };
+        let prepared = prepare_law_case(context, case);
+        let (admissions, _) = common_basis_evidence(
+            pairs,
+            table_pairs,
+            &prepared,
+            false,
+            &AdmissionTally::default(),
+            &CommonBasisTally::default(),
+        );
+        let Some(admissions) = admissions else {
+            continue;
+        };
+        for (mutation, verdict) in prepared
+            .common
+            .mutations()
+            .into_iter()
+            .zip(&admissions.verdicts)
+        {
+            if mutation != relabel {
+                continue;
+            }
+            let entry = census.entry((shape, lens)).or_default();
+            let violations = match verdict {
+                Admission::Admitted
+                | Admission::Table {
+                    domain: TableDomainVerdict::Admitted,
+                    raw: TableRawVerdict::Admitted,
+                } => {
+                    entry.0 += 1;
+                    continue;
+                }
+                Admission::Refused(violations)
+                | Admission::Table {
+                    domain: TableDomainVerdict::Refused { violations, .. },
+                    raw: TableRawVerdict::Domain(_),
+                } => violations,
+                Admission::Table { .. } => {
+                    panic!("a table relabel verdict is not a domain verdict: {verdict:?}")
+                }
+            };
+            entry.1 += 1;
+            entry.2.extend(violations.iter().map(|violation| {
+                violation
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            }));
+        }
+    }
+    census
+}
+
+/// Production and the reference agree on the law report, admission census
+/// and full five-gate common-basis outcome of every case of a carrier whose
+/// target schemas have two distinct edges between the same vertices. The
+/// bounded sweep's carrier has no such schema, so this is where the two
+/// implementations are compared on edge relabels.
+///
+/// For each shape (graph, tree, table) and lens the test pins the number of
+/// edge-relabel candidates of the common basis that the put domain admits
+/// and refuses, and the refusal variants. Under the identity every relabel
+/// is admitted. Under the contraction a relabel of `x` to `y` is refused
+/// with `ContractedEdgeInserted`, since `y` arises only by contraction.
+/// Under the merge a relabel to `x` is admitted, since `x` has one direct
+/// source preimage, and a relabel to `y` is refused with
+/// `UnrepresentableViewEdge`, since `y` has two.
+#[test]
+fn relabel_edge_laws_agree_with_the_reference() {
+    let relabel = relabel_edge_family();
+    let context = relabel_edge_law_context();
+    let cases = relabel_edge_law_cases(&context);
+    let selected: Vec<&LawCase> = cases.iter().collect();
+    let bound = format!(
+        "L-lenses-8 parallel-edge relabel carrier: cases={}",
+        cases.len()
+    );
+    println!("{bound}");
+    let (compared, tally, common_tally) =
+        compare_law_cases(&bound, &selected, relabel_edge_law_context);
+    assert_eq!(
+        compared,
+        u64::try_from(cases.len()).expect("a case count fits in u64")
+    );
     println!(
-        "L-lenses-8 admission census (graph, tree and table families): candidates={}, admitted positive reference-basis candidates={}",
+        "L-lenses-8 relabel carrier admission census: candidates={}, admitted positive reference-basis candidates={}",
         tally.candidates.load(std::sync::atomic::Ordering::Relaxed),
         tally.admitted.load(std::sync::atomic::Ordering::Relaxed),
     );
-    let common_counts = common_tally.snapshot();
-    println!("L-lenses-8 common five-gate basis by mutation family: {common_counts:?}");
-    assert!(
-        common_counts.iter().all(|count| *count > 0),
-        "every mutation family must occur in the independently formed common basis"
+
+    let census = relabel_edge_census(&context, &cases, relabel);
+    println!(
+        "L-lenses-8 relabel carrier edge relabels by (shape, lens): (admitted, refused, refusal variants): {census:?}"
     );
-    assert_eq!(compared, 200_606);
+    let variants = |variant: &str| BTreeSet::from([variant.to_owned()]);
+    let contracted = "ContractedEdgeInserted";
+    let unrepresentable = "UnrepresentableViewEdge";
+    assert_eq!(
+        census,
+        BTreeMap::from([
+            (("graph", 0), (272, 0, BTreeSet::new())),
+            (("graph", 1), (0, 48, variants(contracted))),
+            (("graph", 2), (544, 272, variants(unrepresentable))),
+            (("table", 0), (2, 0, BTreeSet::new())),
+            (("table", 1), (0, 3, variants(contracted))),
+            (("tree", 0), (16, 0, BTreeSet::new())),
+            (("tree", 1), (0, 8, variants(contracted))),
+            (("tree", 2), (16, 8, variants(unrepresentable))),
+        ])
+    );
+    assert_eq!(
+        common_tally.snapshot()[relabel],
+        census
+            .values()
+            .map(|(admitted, refused, _)| admitted + refused)
+            .sum::<usize>(),
+        "the five-gate tally must count every edge-relabel candidate of the common basis"
+    );
 }
 
 // ---------------------------------------------------------------------------

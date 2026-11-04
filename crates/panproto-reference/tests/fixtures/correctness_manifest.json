@@ -4437,6 +4437,12 @@
               "test": "declared_transform_atomic_laws_agree_with_the_reference"
             },
             {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "relabel_edge_laws_agree_with_the_reference"
+            },
+            {
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::enumerate_lenses",

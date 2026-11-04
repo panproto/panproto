@@ -490,6 +490,7 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 - Reference: `panproto_reference::lens::check_graph_laws`
 - Reference: `panproto_reference::lens::check_laws_report`
 - Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_atomic_laws_agree_with_the_reference)'`
+- Regression differential test: `relabel_edge_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=relabel_edge_laws_agree_with_the_reference)'`
 - Independent reference test: `a_refused_positive_candidate_is_out_of_the_domain; command: cargo nextest run --release -p panproto-reference --test enumerate_lenses --no-tests=fail -E 'test(=a_refused_positive_candidate_is_out_of_the_domain)'`
 - Reference: `panproto_reference::lens::GraphLens::check_put_domain`
 - Reference: `panproto_reference::lens::GraphLens::put`
