@@ -135,3 +135,14 @@ threads-required = 'num-cpus'
 [[profile.ci.overrides]]
 filter = 'package(panproto-lens) & binary(reference_lenses) & (test(=graph_put_law_certificate) | test(=lens_equivalence_law_certificate) | test(=graph_put_domain_and_cascade_law_certificate) | test(=randomized_graph_put_domain_and_cascade_differential))'
 slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
+
+# The reference differentials and law certificates below finish inside the
+# ten-minute bound when they run beside light tests: on the hosted runners
+# each took between 250 s and 515 s. Beside the heavy certificates above they
+# slow by up to a factor of two, and `randomized_kan_hom_bijection_differential`
+# (350 s to 367 s) and
+# `protolens_transforms_agree_with_the_reference_exhaustively` (298 s to
+# 515 s) each once exceeded 600 s. They get the thirty-minute bound too.
+[[profile.ci.overrides]]
+filter = '(package(panproto-inst) & binary(reference_kan) & (test(=bounded_family_kan_objects_agree_with_the_reference) | test(=randomized_kan_hom_bijection_differential))) | (package(panproto-lens) & binary(reference_lenses) & (test(=protolens_transforms_agree_with_the_reference_exhaustively) | test(=protolens_schema_law_certificate) | test(=randomized_graph_put_law_differential) | test(=randomized_lens_law_differential) | test(=randomized_protolens_instance_differential) | test(=table_get_put_law_certificate) | test(=tree_put_law_certificate)))'
+slow-timeout = { period = "60s", terminate-after = 30, grace-period = "5s" }
