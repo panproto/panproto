@@ -15292,6 +15292,195 @@ fn assert_stage_c_put_get_traces(
     }
 }
 
+/// The environment variable that selects one shard of the bounded lens law
+/// sweep.
+const LAW_SHARD_VARIABLE: &str = "PANPROTO_TEST_SHARD";
+
+/// One shard of a sweep split `count` ways: the cases whose position in the
+/// full enumeration is congruent to `index` modulo `count`. The `count`
+/// shards with indexes `0` to `count - 1` partition the cases, and taking
+/// residues rather than contiguous blocks spreads every case family evenly
+/// over the shards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LawShard {
+    index: usize,
+    count: usize,
+}
+
+impl LawShard {
+    /// Parse `index/count`: two unsigned decimal numerals with
+    /// `0 <= index < count`.
+    fn parse(value: &str) -> Result<Self, String> {
+        let numeral = |part: &str, role: &str| {
+            if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(format!(
+                    "the shard {role} {part:?} is not an unsigned decimal numeral"
+                ));
+            }
+            part.parse::<usize>()
+                .map_err(|error| format!("the shard {role} {part:?} does not fit: {error}"))
+        };
+        let (index, count) = value
+            .split_once('/')
+            .ok_or_else(|| format!("{value:?} is not of the form index/count"))?;
+        let (index, count) = (numeral(index, "index")?, numeral(count, "count")?);
+        if count == 0 {
+            return Err(format!("{value:?} has a shard count of zero"));
+        }
+        if index >= count {
+            return Err(format!(
+                "{value:?} has shard index {index}, which is not below the shard count {count}"
+            ));
+        }
+        Ok(Self { index, count })
+    }
+
+    /// The shard named by [`LAW_SHARD_VARIABLE`], or `None` when the variable
+    /// is unset. A value that is not a well-formed shard panics, so a
+    /// misconfigured job fails instead of checking the wrong cases.
+    fn from_environment() -> Option<Self> {
+        match std::env::var(LAW_SHARD_VARIABLE) {
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(value)) => {
+                panic!(
+                    "{LAW_SHARD_VARIABLE}={} is not valid Unicode",
+                    value.display()
+                )
+            }
+            Ok(value) => Some(Self::parse(&value).unwrap_or_else(|error| {
+                panic!("{LAW_SHARD_VARIABLE} must be index/count with index < count: {error}")
+            })),
+        }
+    }
+
+    /// Whether the case at `position` of the full enumeration is in this
+    /// shard.
+    const fn contains(self, position: usize) -> bool {
+        position % self.count == self.index
+    }
+
+    /// The number of the first `total` positions that are in this shard.
+    const fn share(self, total: usize) -> usize {
+        total.saturating_sub(self.index).div_ceil(self.count)
+    }
+}
+
+#[test]
+fn law_shard_accepts_only_an_index_below_its_count() {
+    assert_eq!(LawShard::parse("0/1"), Ok(LawShard { index: 0, count: 1 }));
+    assert_eq!(
+        LawShard::parse("7/12"),
+        Ok(LawShard {
+            index: 7,
+            count: 12
+        })
+    );
+    for malformed in [
+        "",
+        "3",
+        "/4",
+        "3/",
+        "4/4",
+        "5/4",
+        "0/0",
+        "-1/4",
+        "+1/4",
+        " 1/4",
+        "1/4 ",
+        "1/2/3",
+        "a/4",
+        "1/99999999999999999999999",
+    ] {
+        assert!(
+            LawShard::parse(malformed).is_err(),
+            "{malformed:?} must not parse as a shard"
+        );
+    }
+    for count in 1..=9 {
+        for total in 0..=40 {
+            let shares: usize = (0..count)
+                .map(|index| {
+                    let shard = LawShard { index, count };
+                    let selected = (0..total)
+                        .filter(|position| shard.contains(*position))
+                        .count();
+                    assert_eq!(shard.share(total), selected);
+                    selected
+                })
+                .sum();
+            assert_eq!(shares, total);
+        }
+    }
+}
+
+/// The per-family candidate counts of the prepared common basis of every
+/// case, summed in parallel with one context per worker.
+fn common_basis_family_census<C: Sync>(
+    cases: &[C],
+    context: impl Fn() -> LawContext + Sync,
+    prepare: impl Fn(&LawContext, &C) -> Option<[usize; EDIT_FAMILIES]> + Sync,
+) -> [usize; EDIT_FAMILIES] {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const BLOCK: usize = 64;
+    let next = AtomicUsize::new(0);
+    let partials: Vec<[usize; EDIT_FAMILIES]> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..comparison_threads())
+            .map(|_| {
+                scope.spawn(|| {
+                    let context = context();
+                    let mut counts = [0_usize; EDIT_FAMILIES];
+                    loop {
+                        let start = next.fetch_add(BLOCK, Ordering::Relaxed);
+                        if start >= cases.len() {
+                            return counts;
+                        }
+                        for case in &cases[start..(start + BLOCK).min(cases.len())] {
+                            if let Some(case_counts) = prepare(&context, case) {
+                                for (total, count) in counts.iter_mut().zip(case_counts) {
+                                    *total += count;
+                                }
+                            }
+                        }
+                    }
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .expect("a common-basis census worker panicked")
+            })
+            .collect()
+    });
+    let mut total = [0_usize; EDIT_FAMILIES];
+    for partial in partials {
+        for (total, count) in total.iter_mut().zip(partial) {
+            *total += count;
+        }
+    }
+    total
+}
+
+/// Production and the reference agree on the law report of every case of
+/// the bounded lens scope, and on the admission census and full five-gate
+/// outcome of every case's common basis.
+///
+/// With [`LAW_SHARD_VARIABLE`] unset the test compares every case. With it
+/// set to `i/n` the test still enumerates the full scope and asserts its
+/// census, then compares only the cases of [`LawShard`] `i` of `n`, and
+/// asserts that it compared exactly that shard's share. The one whole-run
+/// assertion, that every mutation family occurs in the common basis, holds
+/// of the per-case family counts, which each comparison asserts equal to the
+/// counts of the prepared basis. A shard therefore prepares the common basis
+/// of every case of the scope (not only its own), asserts that every family
+/// occurs in that full census, and asserts that the family counts its
+/// comparisons tallied equal the prepared counts of its own cases. Running
+/// the `n` shards `0/n` to `n-1/n` thus compares every case once and checks
+/// every assertion of the unsharded run; the admission census is printed
+/// per shard, and the shards' printed counts sum to the unsharded totals.
 #[test]
 fn lens_laws_agree_with_the_reference_exhaustively() {
     let stages = bounded_lens_stages();
@@ -15334,11 +15523,13 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
         cases.len()
     );
     println!("{bound}");
+    let shard = LawShard::from_environment();
+    let selected = law_shard_cases(shard, &cases);
     let tally = AdmissionTally::default();
     let common_tally = CommonBasisTally::default();
     let compared = assert_agree(agree_in_parallel(
         &bound,
-        &cases,
+        &selected,
         context,
         |context, case| vec![prepare_law_case(context, case)],
         |context: &LawContext, prepared: &PreparedLawCase<'_>| {
@@ -15364,11 +15555,75 @@ fn lens_laws_agree_with_the_reference_exhaustively() {
     );
     let common_counts = common_tally.snapshot();
     println!("L-lenses-8 common five-gate basis by mutation family: {common_counts:?}");
+    let Some(shard) = shard else {
+        assert!(
+            common_counts.iter().all(|count| *count > 0),
+            "every mutation family must occur in the independently formed common basis"
+        );
+        assert_eq!(compared, 200_606);
+        return;
+    };
+    assert_eq!(
+        u64::try_from(shard.share(cases.len())).expect("a case count fits in u64"),
+        compared,
+        "shard {}/{} must compare exactly its share of the cases",
+        shard.index,
+        shard.count
+    );
+    assert_law_shard_common_basis(&cases, &selected, common_counts, context);
+}
+
+/// The cases of `shard` in enumeration order, or every case when there is
+/// no shard, after checking that there are exactly the shard's share of them.
+fn law_shard_cases(shard: Option<LawShard>, cases: &[LawCase]) -> Vec<&LawCase> {
+    let selected: Vec<&LawCase> = cases
+        .iter()
+        .enumerate()
+        .filter(|(position, _)| shard.is_none_or(|shard| shard.contains(*position)))
+        .map(|(_, case)| case)
+        .collect();
+    let Some(shard) = shard else {
+        assert_eq!(selected.len(), cases.len());
+        return selected;
+    };
+    assert_eq!(selected.len(), shard.share(cases.len()));
+    println!(
+        "L-lenses-8 shard {}/{}: comparing {} of {} cases",
+        shard.index,
+        shard.count,
+        selected.len(),
+        cases.len()
+    );
+    selected
+}
+
+/// A shard's common-basis assertions: the five-gate family counts its
+/// comparisons tallied equal the prepared common basis of its own cases, and
+/// every mutation family occurs in the prepared common basis of the full
+/// scope.
+fn assert_law_shard_common_basis(
+    cases: &[LawCase],
+    selected: &[&LawCase],
+    tallied: [usize; EDIT_FAMILIES],
+    context: impl Fn() -> LawContext + Sync + Copy,
+) {
+    let shard_basis = common_basis_family_census(selected, context, |context, case| {
+        prepare_law_case(context, case).common.family_counts()
+    });
+    assert_eq!(
+        tallied, shard_basis,
+        "the shard's tallied five-gate family counts must equal its prepared common basis"
+    );
+    let full_basis = common_basis_family_census(cases, context, |context, case| {
+        prepare_law_case(context, case).common.family_counts()
+    });
+    println!(
+        "L-lenses-8 prepared common basis of the full scope by mutation family: {full_basis:?}"
+    );
     assert!(
-        common_counts.iter().all(|count| *count > 0),
+        full_basis.iter().all(|count| *count > 0),
         "every mutation family must occur in the independently formed common basis"
     );
-    assert_eq!(compared, 200_606);
 }
 
 // ---------------------------------------------------------------------------
