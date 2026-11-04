@@ -40,6 +40,101 @@ use crate::convert;
 use crate::inst::PyInstance;
 use crate::schema::{PyProtocol, PySchema};
 
+/// Why a put from a serialized view failed: the view could not be read,
+/// or the lens refused it.
+pub(crate) enum SerializedPutError {
+    /// The view is not JSON, or does not parse under the target schema.
+    Read(String),
+    /// The view could not be aligned to the complement, or `put` refused it.
+    Lens(String),
+}
+
+/// The vertex the view `get` returned is rooted at, as `complement`
+/// records it.
+fn recorded_view_root(complement: &Complement) -> Option<&Name> {
+    complement
+        .view_positions
+        .values()
+        .find_map(|position| match position {
+            panproto_core::inst::ViewPosition::Root { anchor } => Some(anchor),
+            panproto_core::inst::ViewPosition::Child { .. } => None,
+        })
+}
+
+/// `view` with each node given the id `get` gave the node at its position,
+/// then with every computed field `to_json` wrote as a child moved back
+/// among its node's fields: the view a serialized reader returns, made the
+/// view `put` reads.
+fn align_and_fold(
+    the_lens: &Lens,
+    view: &panproto_core::inst::WInstance,
+    complement: &Complement,
+) -> Result<panproto_core::inst::WInstance, SerializedPutError> {
+    let aligned = lens::align_view_to_complement(the_lens, view, complement)
+        .map_err(|e| SerializedPutError::Lens(format!("align_view failed: {e}")))?;
+    Ok(lens::fold_computed_children_into_fields(
+        the_lens, &aligned, complement,
+    ))
+}
+
+/// Put a JSON view back through `the_lens`, returning the restored source
+/// as JSON.
+///
+/// The view is read under the lens's target schema, rooted at the vertex
+/// `complement` records for the root of the view `get` returned; aligned
+/// to `complement`; its computed fields folded; and put.
+pub(crate) fn put_json_view(
+    the_lens: &Lens,
+    view_json: &str,
+    complement: &Complement,
+) -> Result<String, SerializedPutError> {
+    let json: serde_json::Value = serde_json::from_str(view_json)
+        .map_err(|e| SerializedPutError::Read(format!("invalid JSON: {e}")))?;
+    let root = recorded_view_root(complement).ok_or_else(|| {
+        SerializedPutError::Lens(format!(
+            "put_json failed: {}",
+            lens::ViewAlignmentError::PositionsNotRecorded
+        ))
+    })?;
+    let parsed = panproto_core::inst::parse_json(
+        &the_lens.tgt_schema,
+        &crate::protocols::protocol_for_schema(&the_lens.tgt_schema),
+        root,
+        &json,
+    )
+    .map_err(|e| SerializedPutError::Read(format!("parse failed: {e}")))?;
+    let view = align_and_fold(the_lens, &parsed, complement)?;
+    let restored = lens::put(the_lens, &view, complement)
+        .map_err(|e| SerializedPutError::Lens(format!("put failed: {e}")))?;
+    let restored_json = panproto_core::inst::to_json(&the_lens.src_schema, &restored)
+        .map_err(|e| SerializedPutError::Read(format!("to_json failed: {e}")))?;
+    serde_json::to_string(&restored_json)
+        .map_err(|e| SerializedPutError::Read(format!("to_json failed: {e}")))
+}
+
+/// [`align_and_fold`] for a Python view instance.
+pub(crate) fn align_view(
+    the_lens: &Lens,
+    view: &PyInstance,
+    complement: &Complement,
+) -> Result<PyInstance, SerializedPutError> {
+    Ok(PyInstance {
+        inner: align_and_fold(the_lens, &view.inner, complement)?,
+        schema: Arc::clone(&view.schema),
+    })
+}
+
+impl SerializedPutError {
+    /// The Python exception for this failure, a lens failure raised as
+    /// `lens_error`.
+    pub(crate) fn into_py(self, lens_error: fn(String) -> PyErr) -> PyErr {
+        match self {
+            Self::Read(message) => crate::error::IoError::new_err(message),
+            Self::Lens(message) => lens_error(message),
+        }
+    }
+}
+
 /// An asymmetric lens with compiled migration and schema references.
 ///
 /// Provides bidirectional transformations: ``get`` projects an instance
@@ -111,12 +206,25 @@ impl PyLens {
 
     /// Reconstruct an instance from a view and complement.
     ///
+    /// ``view`` must carry the node ids ``get`` gave it, since the
+    /// complement keys what the view dropped by those ids. A view read
+    /// back from JSON (``Instance.from_json``) is numbered afresh, and
+    /// putting it directly can lose a dropped field while reporting
+    /// success. Put a JSON view with ``put_json``, or pass a view you
+    /// parsed yourself through ``align_view`` first.
+    ///
     /// Parameters
     /// ----------
     /// view : Instance
-    ///     The (possibly modified) view.
+    ///     The (possibly modified) view, with the node ids ``get`` gave
+    ///     it.
     /// complement : Complement
     ///     The complement from a prior ``get`` call.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The reconstructed instance of the source schema.
     fn put(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
         let restored = lens::put(&self.inner, &view.inner, &complement.inner)
             .map_err(|e| crate::error::LensError::new_err(format!("put failed: {e}")))?;
@@ -124,6 +232,76 @@ impl PyLens {
             inner: restored,
             schema: Arc::new(self.inner.src_schema.clone()),
         })
+    }
+
+    /// Reconstruct the source from a JSON view and the complement.
+    ///
+    /// The view is read under the lens's target schema, rooted where the
+    /// view ``get`` returned was rooted; aligned to the complement, so
+    /// that each node at a position ``get`` produced takes back the id
+    /// ``get`` gave it and a node the view adds takes a fresh one; its
+    /// computed fields are folded back among their nodes' fields; and it
+    /// is put. Use this, not ``put``, for a view that went through JSON.
+    ///
+    /// Parameters
+    /// ----------
+    /// `view_json` : str
+    ///     The (possibly edited) view as JSON, as ``Instance.to_json``
+    ///     writes it.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///     The reconstructed source instance as JSON.
+    ///
+    /// Raises
+    /// ------
+    /// `IoError`
+    ///     If ``view_json`` is not JSON or does not parse under the target
+    ///     schema.
+    /// `LensError`
+    ///     If the view cannot be aligned to the complement (one that
+    ///     records no view positions, or a view rooted elsewhere), or
+    ///     ``put`` refuses it.
+    fn put_json(&self, view_json: &str, complement: &PyComplement) -> PyResult<String> {
+        put_json_view(&self.inner, view_json, &complement.inner)
+            .map_err(|e| e.into_py(|m| crate::error::LensError::new_err(m)))
+    }
+
+    /// Align a view read from a serialization to the complement, ready
+    /// for ``put``.
+    ///
+    /// A reader that keeps no node ids, such as ``Instance.from_json``,
+    /// numbers a view's nodes afresh. This gives each node at a position
+    /// ``get`` produced the id ``get`` gave it, and a node the view adds a
+    /// fresh id, then moves each computed field the reader read as a
+    /// child back among its node's fields. ``put_json`` does this for a
+    /// JSON view in one call.
+    ///
+    /// Parameters
+    /// ----------
+    /// view : Instance
+    ///     The view as a reader returned it, under the lens's target
+    ///     schema.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The view with the ids ``put`` reads ``complement`` by.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If the complement records no view positions, the view is rooted
+    ///     at another vertex than the view ``get`` returned, or no fresh id
+    ///     is left.
+    fn align_view(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
+        align_view(&self.inner, view, &complement.inner)
+            .map_err(|e| e.into_py(|m| crate::error::LensError::new_err(m)))
     }
 
     /// Run the five strict lens gates on a test instance.

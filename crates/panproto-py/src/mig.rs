@@ -283,12 +283,25 @@ impl PyCompiledMigration {
     /// Put: reconstruct the source from a view and the complement a prior
     /// ``get`` produced.
     ///
+    /// ``view`` must carry the node ids ``get`` gave it, since the
+    /// complement keys what the view dropped by those ids. A view read
+    /// back from JSON (``Instance.from_json``) is numbered afresh, and
+    /// putting it directly can lose a dropped field while reporting
+    /// success. Put a JSON view with ``put_json``, or pass a view you
+    /// parsed yourself through ``align_view`` first.
+    ///
     /// Parameters
     /// ----------
     /// view : Instance
-    ///     The (possibly modified) view.
+    ///     The (possibly modified) view, with the node ids ``get`` gave
+    ///     it.
     /// complement : Complement
     ///     The complement from a prior ``get`` call.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The reconstructed instance of the source schema.
     fn put(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
         let lens_obj = self.as_lens();
         let restored = panproto_core::lens::put(&lens_obj, &view.inner, &complement.inner)
@@ -297,6 +310,71 @@ impl PyCompiledMigration {
             inner: restored,
             schema: Arc::clone(&self.src_schema),
         })
+    }
+
+    /// Put: reconstruct the source from a JSON view and the complement a
+    /// prior ``get`` produced.
+    ///
+    /// As ``Lens.put_json``: the view is read under the target schema,
+    /// rooted where the view ``get`` returned was rooted, aligned to the
+    /// complement, its computed fields folded, and put. Use this, not
+    /// ``put``, for a view that went through JSON.
+    ///
+    /// Parameters
+    /// ----------
+    /// `view_json` : str
+    ///     The (possibly edited) view as JSON, as ``Instance.to_json``
+    ///     writes it.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///     The reconstructed source instance as JSON.
+    ///
+    /// Raises
+    /// ------
+    /// `IoError`
+    ///     If ``view_json`` is not JSON or does not parse under the target
+    ///     schema.
+    /// `MigrationError`
+    ///     If the view cannot be aligned to the complement or ``put``
+    ///     refuses it.
+    fn put_json(&self, view_json: &str, complement: &PyComplement) -> PyResult<String> {
+        crate::lens::put_json_view(&self.as_lens(), view_json, &complement.inner)
+            .map_err(|e| e.into_py(|m| crate::error::MigrationError::new_err(m)))
+    }
+
+    /// Align a view read from a serialization to the complement, ready
+    /// for ``put``.
+    ///
+    /// As ``Lens.align_view``: each node at a position ``get`` produced
+    /// takes the id ``get`` gave it, a node the view adds takes a fresh
+    /// one, and each computed field the reader read as a child moves back
+    /// among its node's fields.
+    ///
+    /// Parameters
+    /// ----------
+    /// view : Instance
+    ///     The view as a reader returned it, under the target schema.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The view with the ids ``put`` reads ``complement`` by.
+    ///
+    /// Raises
+    /// ------
+    /// `MigrationError`
+    ///     If the complement records no view positions, the view is rooted
+    ///     at another vertex than the view ``get`` returned, or no fresh id
+    ///     is left.
+    fn align_view(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
+        crate::lens::align_view(&self.as_lens(), view, &complement.inner)
+            .map_err(|e| e.into_py(|m| crate::error::MigrationError::new_err(m)))
     }
 
     /// View this migration as a ``Lens``.

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 
@@ -981,6 +981,99 @@ class TestCompiledMigrationLens:
         instance = self._instance(src)
         assert compiled.check_laws(instance) is None
         assert compiled.to_lens().check_laws(instance) is None
+
+
+# ---------------------------------------------------------------------------
+# Putting a view back through JSON
+# ---------------------------------------------------------------------------
+
+
+class TestSerializedViewPut:
+    """A view that went through JSON puts back the residue its complement
+    holds. JSON keeps no node ids, and `Instance.from_json` numbers a view
+    afresh, while the complement keys the field a lens dropped by the ids
+    `get` gave the view. The lens here drops the nested field `obj.d`, and
+    its target schema declares `obj` before `text`, so the reader numbers
+    the view differently from `get`."""
+
+    SOURCE: ClassVar[dict[str, JsonValue]] = {"text": "hello", "obj": {"k": "1", "d": "2"}}
+
+    @staticmethod
+    def _lens() -> tuple[panproto.Schema, panproto.Schema, panproto.CompiledMigration]:
+        proto = panproto.get_builtin_protocol("atproto")
+
+        def build(nsid: str, *, with_d: bool, body_edges: tuple[str, str]) -> panproto.Schema:
+            b = proto.schema()
+            b.vertex("r", "record", nsid)
+            b.vertex("r:body", "object")
+            b.vertex("r:body.text", "string")
+            b.vertex("r:body.obj", "object")
+            b.vertex("r:body.obj.k", "string")
+            if with_d:
+                b.vertex("r:body.obj.d", "string")
+            b.edge("r", "r:body", "record-schema")
+            for name in body_edges:
+                b.edge("r:body", f"r:body.{name}", "prop", name)
+            b.edge("r:body.obj", "r:body.obj.k", "prop", "k")
+            if with_d:
+                b.edge("r:body.obj", "r:body.obj.d", "prop", "d")
+            return b.build()
+
+        src = build("local.nested.src", with_d=True, body_edges=("text", "obj"))
+        tgt = build("local.nested.tgt", with_d=False, body_edges=("obj", "text"))
+        mb = panproto.MigrationBuilder()
+        for v in ("r", "r:body", "r:body.text", "r:body.obj", "r:body.obj.k"):
+            mb.map_vertex(v, v)
+        return src, tgt, panproto.compile_migration(mb.build(), src, tgt)
+
+    def _get(self, source: dict[str, JsonValue]) -> tuple[panproto.Lens, str, panproto.Complement]:
+        src, _tgt, compiled = self._lens()
+        lens = compiled.to_lens()
+        view, complement = lens.get(panproto.Instance.from_json(src, "r:body", json.dumps(source)))
+        return lens, view.to_json(), complement
+
+    def test_an_unedited_view_puts_back_the_nested_dropped_field(self) -> None:
+        lens, view_json, complement = self._get(self.SOURCE)
+        assert json.loads(view_json) == {"text": "hello", "obj": {"k": "1"}}
+        assert json.loads(lens.put_json(view_json, complement)) == self.SOURCE
+
+    def test_an_edited_kept_field_puts_back_both(self) -> None:
+        lens, _view_json, complement = self._get(self.SOURCE)
+        edited = json.dumps({"text": "bye", "obj": {"k": "9"}})
+        assert json.loads(lens.put_json(edited, complement)) == {
+            "text": "bye",
+            "obj": {"k": "9", "d": "2"},
+        }
+
+    def test_an_inserted_sibling_puts_back_both(self) -> None:
+        lens, view_json, complement = self._get({"obj": {"k": "1", "d": "2"}})
+        assert json.loads(view_json) == {"obj": {"k": "1"}}
+        inserted = json.dumps({"text": "new", "obj": {"k": "1"}})
+        assert json.loads(lens.put_json(inserted, complement)) == {
+            "text": "new",
+            "obj": {"k": "1", "d": "2"},
+        }
+
+    def test_the_compiled_migration_puts_a_json_view_alike(self) -> None:
+        src, _tgt, compiled = self._lens()
+        view, complement = compiled.get(
+            panproto.Instance.from_json(src, "r:body", json.dumps(self.SOURCE))
+        )
+        assert json.loads(compiled.put_json(view.to_json(), complement)) == self.SOURCE
+
+    def test_a_view_parsed_by_the_caller_puts_back_once_aligned(self) -> None:
+        _src, tgt, _compiled = self._lens()
+        lens, view_json, complement = self._get(self.SOURCE)
+        parsed = panproto.Instance.from_json(tgt, "r:body", view_json)
+        restored = lens.put(lens.align_view(parsed, complement), complement)
+        assert json.loads(restored.to_json()) == self.SOURCE
+
+    def test_a_view_rooted_elsewhere_is_refused(self) -> None:
+        _src, tgt, _compiled = self._lens()
+        lens, _view_json, complement = self._get(self.SOURCE)
+        elsewhere = panproto.Instance.from_json(tgt, "r:body.obj", '{"k": "1"}')
+        with pytest.raises(panproto.LensError, match="anchored at"):
+            lens.align_view(elsewhere, complement)
 
 
 # ---------------------------------------------------------------------------
