@@ -47,9 +47,9 @@
 //!
 //! # What this covers, and what it does not
 //!
-//! 2773 of the 5852 ordered pairs are enumerable at [`MAX_ORACLE_ASSIGNMENTS`],
-//! which is 47%, and all seventy-seven lexicons are the source of at least one
-//! of them. On those pairs the oracle scores 65 583 836 assignments across the
+//! 2804 of the 5852 ordered pairs are enumerable at [`MAX_ORACLE_ASSIGNMENTS`],
+//! which is 48%, and all seventy-seven lexicons are the source of at least one
+//! of them. On those pairs the oracle scores 66 298 030 assignments across the
 //! two networks.
 //!
 //! That fraction reads better than it is. `MAX_ORACLE_ASSIGNMENTS` is a ceiling
@@ -60,7 +60,7 @@
 //! two lexicons have little in common. The branching-variable counts the report
 //! prints name that property directly, a branching variable being one with at
 //! least one real target: the enumerable pairs run 1 to 16 with a median of 6,
-//! the unenumerable ones 5 to 37 with a median of 11. Structural similarity is
+//! the unenumerable ones 5 to 39 with a median of 11. Structural similarity is
 //! what puts a pair out of reach, and structural similarity is what a migration
 //! is written across. Two lexicons alike enough that aligning them is worth
 //! doing are two lexicons this test says nothing about.
@@ -72,9 +72,9 @@
 //! test can reach. The pairs whose *speed* is the headline claim are exactly the
 //! pairs whose *answer* has no oracle.
 //!
-//! The bias falls harder on the total network than on the span network. Only 334
-//! of the 2773 checked pairs admit any total morphism at all, and on those the
-//! four claims are checked against a real argmin. On the other 2439 the
+//! The bias falls harder on the total network than on the span network. Only 335
+//! of the 2804 checked pairs admit any total morphism at all, and on those the
+//! four claims are checked against a real argmin. On the other 2469 the
 //! enumeration finds nothing feasible, so what is established there is the
 //! narrower claim that the solver agrees: it returns no assignment and reports
 //! `⊤`. The span network has no such shortfall, since its feasible set is never
