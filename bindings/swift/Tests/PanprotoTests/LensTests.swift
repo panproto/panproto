@@ -96,6 +96,32 @@ private func smallSchema(fields: [String]) throws -> SchemaHandle {
     return SchemaHandle(adopting: created.handle)
 }
 
+/// `post { text, obj { k, d } }`, or without `obj.d`, with the edges
+/// out of `post` declared in the order `postEdges` gives.
+///
+/// - Throws: ``CBORError`` when the schema declines to encode.
+@PanprotoEngine
+private func nestedSchema(withD: Bool, postEdges: [String]) throws -> SchemaHandle {
+    var schema = Schema(protocol: "test")
+    schema.addVertex(id: "post", kind: "record")
+    schema.addVertex(id: "post.text", kind: "string")
+    schema.addVertex(id: "post.obj", kind: "object")
+    schema.addVertex(id: "post.obj.k", kind: "string")
+    if withD {
+        schema.addVertex(id: "post.obj.d", kind: "string")
+    }
+    for name in postEdges {
+        schema.addEdge(src: "post", tgt: "post.\(name)", kind: "prop", name: name)
+    }
+    schema.addEdge(src: "post.obj", tgt: "post.obj.k", kind: "prop", name: "k")
+    if withD {
+        schema.addEdge(src: "post.obj", tgt: "post.obj.d", kind: "prop", name: "d")
+    }
+    let created = Raw.schemaFromCbor(spec: try CBOREncoder().encode(schema))
+    #expect(created.status.isOK)
+    return SchemaHandle(adopting: created.handle)
+}
+
 /// A record parsed against `schema` and rooted at its `post` vertex.
 ///
 /// - Throws: ``CBORError`` or `DecodingError` when the parsed instance
@@ -383,6 +409,53 @@ struct LensTests {
         #expect(restored.nodes.count == original.nodes.count)
         #expect(restored.arcs.count == original.arcs.count)
         #expect(restored.root == original.root)
+    }
+
+    @Test("a view put back through JSON restores the nested field the lens dropped")
+    func putJsonRestoresANestedDroppedField() async throws {
+        let (restored, realigned) = try await PanprotoEngine.run {
+            () throws -> ([Data], Data) in
+            // The target declares `obj` before `text`, so a reader numbers
+            // a view differently from `get`; the complement keys the
+            // dropped `obj.d` by the ids `get` gave the view.
+            let source = try nestedSchema(withD: true, postEdges: ["text", "obj"])
+            let target = try nestedSchema(withD: false, postEdges: ["obj", "text"])
+            let migration = Migration(
+                vertexMap: Dictionary(
+                    uniqueKeysWithValues: ["post", "post.text", "post.obj", "post.obj.k"].map {
+                        ($0, $0)
+                    }
+                )
+            )
+            let lens = try migration.compile(from: source, to: target)
+            let record = try smallInstance(
+                source,
+                json: #"{"text":"hello","obj":{"k":"1","d":"2"}}"#
+            )
+            let projection = try lens.get(record)
+            let viewJSON = try target.json(for: projection.view)
+            let edited = Data(#"{"text":"bye","obj":{"k":"9"}}"#.utf8)
+            var restored: [Data] = []
+            for shown in [viewJSON, edited] {
+                restored.append(try lens.put(json: shown, complement: projection.complement))
+            }
+            let parsed = try target.instance(fromJSON: viewJSON, rootVertex: "post")
+            let aligned = try lens.alignedView(parsed, to: projection.complement)
+            let realigned = try source.json(
+                for: try lens.put(view: aligned, complement: projection.complement)
+            )
+            return (restored, realigned)
+        }
+
+        let decode = { (bytes: Data) throws -> NSDictionary in
+            try #require(try JSONSerialization.jsonObject(with: bytes) as? NSDictionary)
+        }
+        let expected: [NSDictionary] = [
+            ["text": "hello", "obj": ["k": "1", "d": "2"]],
+            ["text": "bye", "obj": ["k": "9", "d": "2"]],
+        ]
+        #expect(try restored.map(decode) == expected)
+        #expect(try decode(realigned) == expected[0])
     }
 
     @Test("a complement from another projection is refused")

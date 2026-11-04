@@ -89,7 +89,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `compat-report.cbor` | `Raw.checkClassify(proto:diff:)` | 10794 | the full diff against the `atproto` protocol |
 | `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 12705 | the chain auto-generated at stringency `lenient` |
 | `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 12793 | the same chain at the post schema |
-| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1797 | the post instance through the instantiated post to profile chain |
+| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1974 | the post instance through the instantiated post to profile chain |
 | `vcs-add.cbor` | `Raw.vcsAdd(repo:schema:)` | 119 | the post schema staged into a fresh repository |
 | `vcs-commit.cbor` | `Raw.vcsCommit(repo:message:author:)` | 163 | the commit that records the staged post schema |
 | `vcs-branches.cbor` | `Raw.vcsListBranches(repo:)` | 211 | the listing after `Raw.vcsBranch(repo:name:)` created `post-fixture` |

@@ -429,6 +429,54 @@ extension Raw {
         }
     }
 
+    /// Bidirectional put from a JSON view: restore a record from a view
+    /// that went through JSON and its complement.
+    ///
+    /// `viewJSON` is raw JSON bytes, as `instToJson` writes the view, and
+    /// `complement` is the CBOR-encoded `Complement` ``lensGetRecord(migration:record:)``
+    /// returned with it. The engine reads the view under the target schema
+    /// at the root the complement records, aligns it to the complement,
+    /// folds its computed fields and puts it. The buffer receives the
+    /// restored record as JSON bytes.
+    ///
+    /// `migration` must be a `Migration` or `MigrationWithSchemas`
+    /// handle.
+    @inlinable
+    public static func lensPutJson(
+        migration: UInt32,
+        viewJSON: Data,
+        complement: Data
+    ) -> (status: RawStatus, bytes: Data) {
+        withPpSlices(viewJSON, complement) { viewJSON, complement in
+            withPpOutBuffer { out in
+                pp_lens_put_json(migration, viewJSON, complement, out)
+            }
+        }
+    }
+
+    /// Align a view a reader numbered afresh to its complement, ready for
+    /// ``lensPutRecord(migration:view:complement:)``.
+    ///
+    /// `view` is a CBOR-encoded `Instance`, as `instJsonToInstance`
+    /// returns it, and `complement` is the CBOR-encoded `Complement` from
+    /// the `get` that produced the view. The buffer receives the
+    /// CBOR-encoded aligned `Instance`.
+    ///
+    /// `migration` must be a `Migration` or `MigrationWithSchemas`
+    /// handle.
+    @inlinable
+    public static func lensAlignView(
+        migration: UInt32,
+        view: Data,
+        complement: Data
+    ) -> (status: RawStatus, bytes: Data) {
+        withPpSlices(view, complement) { view, complement in
+            withPpOutBuffer { out in
+                pp_lens_align_view(migration, view, complement, out)
+            }
+        }
+    }
+
     /// Auto-generate a symmetric lens from two schemas.
     ///
     /// No payload crosses the boundary; the out-handle is a fresh
