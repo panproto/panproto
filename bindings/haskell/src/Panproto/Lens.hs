@@ -716,7 +716,34 @@ class (SchemaBackend back, InstanceBackend back) => LensBackend back where
 
     -- | Reconstruct a source instance from a (possibly modified) view
     -- and a complement. Wraps @pp_lens_put_record@ (@lens::put@).
+    --
+    -- The view must carry the node ids 'lensGet' gave it, since the
+    -- complement keys what the view dropped by those ids. A view read
+    -- back from JSON with 'Panproto.Instance.jsonToInstance' is numbered
+    -- afresh, and putting it here can lose a dropped field while
+    -- reporting success: put a JSON view with 'lensPutJson', or pass a
+    -- view parsed some other way through 'lensAlignView' first.
     lensPut :: LensRep back -> InstanceRep back -> Complement -> IO (InstanceRep back)
+
+    -- | Reconstruct a source from a view that went through JSON and the
+    -- complement 'lensGet' returned with it, answering the source as
+    -- JSON. The view is read under the lens's target schema, rooted where
+    -- the view 'lensGet' returned was rooted; aligned to the complement,
+    -- so that each node at a position 'lensGet' produced takes back the
+    -- id it gave it and a node the edit added takes a fresh one; its
+    -- computed fields are folded back among their nodes' fields; and it
+    -- is put. Wraps @pp_lens_put_json@.
+    lensPutJson :: LensRep back -> Text -> Complement -> IO Text
+
+    -- | Align a view a reader numbered afresh (such as
+    -- 'Panproto.Instance.jsonToInstance') to the complement 'lensGet'
+    -- returned with it, so that 'lensPut' reads it: each node at a
+    -- position 'lensGet' produced takes the id it gave it, a node the
+    -- edit added takes a fresh one, and each computed field the reader
+    -- read as a child moves back among its node's fields. Throws when the
+    -- complement records no view positions or the view is rooted at
+    -- another vertex. Wraps @pp_lens_align_view@.
+    lensAlignView :: LensRep back -> InstanceRep back -> Complement -> IO (InstanceRep back)
 
     -- | Run the five strict gates on a test instance, throwing on the
     -- first violation: @GetPut@, @PutGet@, finite-basis totality,

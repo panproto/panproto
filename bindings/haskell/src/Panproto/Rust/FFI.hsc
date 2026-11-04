@@ -100,6 +100,8 @@ module Panproto.Rust.FFI
     , pp_lens_check_put_get_at
     , pp_lens_get_record_at
     , pp_lens_put_record_at
+    , pp_lens_put_json_at
+    , pp_lens_align_view_at
     , pp_lens_compose
     , pp_protolens_instantiate
     , pp_protolens_complement_spec_at
@@ -493,6 +495,18 @@ foreign import ccall safe "pp_lens_get_record_at"
 -- | Run @put@ on a CBOR view plus complement, returning a CBOR record.
 foreign import ccall safe "pp_lens_put_record_at"
     pp_lens_put_record_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Run @put@ on a raw JSON view plus a CBOR complement, aligning the view
+-- to the complement first, and return the restored record as raw JSON.
+foreign import ccall safe "pp_lens_put_json_at"
+    pp_lens_put_json_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Align a CBOR view a reader numbered afresh to a CBOR complement,
+-- returning the aligned CBOR view.
+foreign import ccall safe "pp_lens_align_view_at"
+    pp_lens_align_view_at
         :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
 -- | Compose two compiled lenses into a fresh migration-with-schemas handle.
