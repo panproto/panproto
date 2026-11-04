@@ -2270,6 +2270,45 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
         }
     }
 
+    /// Applies the exact-value edits a CST route must rerender. YAML leaves
+    /// the local timestamp out, since it refuses one, and edits its NaN.
+    fn apply_rerender_edits(instance: &mut WInstance, label: &str) {
+        for (anchor, value) in exact_value_edits()
+            .into_iter()
+            .filter(|(anchor, _)| label != "YAML" || *anchor != "timestamp_local")
+            .chain([("null_value", Value::Str("materialized-null".into()))])
+        {
+            set_tree_value(instance, anchor, FieldPresence::Present(value));
+        }
+        if label == "YAML" {
+            set_tree_value(instance, "nan", FieldPresence::Present(Value::Float(1.25)));
+        }
+    }
+
+    /// A YAML timestamp without a zone denotes UTC, so the YAML route
+    /// refuses the edited local timestamp and keeps the source one.
+    fn assert_yaml_cst_refuses_a_local_timestamp(
+        codec: &UnifiedCodec,
+        schema: &Schema,
+        instance: &WInstance,
+        complement: &CstComplement,
+    ) {
+        let mut local = instance.clone();
+        let (anchor, value) = exact_value_edits()
+            .into_iter()
+            .find(|(anchor, _)| *anchor == "timestamp_local")
+            .expect("a local timestamp edit");
+        set_tree_value(&mut local, anchor, FieldPresence::Present(value));
+        assert!(
+            matches!(
+                codec.emit_wtype_preserving(schema, &local, complement),
+                Err(EmitInstanceError::Value(ref error))
+                    if error.reason == EmitValueReason::NotRepresentable
+            ),
+            "YAML wrote a local timestamp"
+        );
+    }
+
     #[test]
     fn json_cst_yaml_cst_and_toml_cst_exact_routes_force_a_rerender() {
         let schema = exact_value_schema("root");
@@ -2334,38 +2373,10 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 continue;
             }
 
-            // A YAML timestamp without a zone denotes UTC, so the YAML route
-            // refuses the edited local timestamp and keeps the source one.
             if label == "YAML" {
-                let mut local = instance.clone();
-                let (anchor, value) = exact_value_edits()
-                    .into_iter()
-                    .find(|(anchor, _)| *anchor == "timestamp_local")
-                    .expect("a local timestamp edit");
-                set_tree_value(&mut local, anchor, FieldPresence::Present(value));
-                assert!(
-                    matches!(
-                        codec.emit_wtype_preserving(&schema, &local, &complement),
-                        Err(EmitInstanceError::Value(ref error))
-                            if error.reason == EmitValueReason::NotRepresentable
-                    ),
-                    "YAML wrote a local timestamp"
-                );
+                assert_yaml_cst_refuses_a_local_timestamp(&codec, &schema, &instance, &complement);
             }
-            for (anchor, value) in exact_value_edits()
-                .into_iter()
-                .filter(|(anchor, _)| label != "YAML" || *anchor != "timestamp_local")
-                .chain([("null_value", Value::Str("materialized-null".into()))])
-            {
-                set_tree_value(&mut instance, anchor, FieldPresence::Present(value));
-            }
-            if label == "YAML" {
-                set_tree_value(
-                    &mut instance,
-                    "nan",
-                    FieldPresence::Present(Value::Float(1.25)),
-                );
-            }
+            apply_rerender_edits(&mut instance, label);
 
             let emitted = codec
                 .emit_wtype_preserving(&schema, &instance, &complement)
