@@ -452,3 +452,93 @@ fn preserving_tabular_routes_read_blank_body_lines_as_the_canonical_route_does()
         assert_eq!(column_a(&instance), [text("1"), text("3")]);
     }
 }
+
+fn non_finite_values() -> Vec<Value> {
+    vec![
+        Value::Float(CANONICAL_NAN),
+        Value::Float(NEGATIVE_CANONICAL_NAN),
+        Value::Float(f64::from_bits(0x7ff8_0000_0000_0001)),
+        Value::Float(f64::INFINITY),
+        Value::Float(f64::NEG_INFINITY),
+        Value::Decimal(DecimalValue::infinity(false)),
+        Value::Decimal(DecimalValue::infinity(true)),
+        Value::Decimal(DecimalValue::nan(false, false, "")),
+        Value::Decimal(DecimalValue::nan(true, true, "7")),
+    ]
+}
+
+fn assert_refused(
+    result: Result<Vec<u8>, EmitInstanceError>,
+    reason: &EmitValueReason,
+    what: &str,
+) {
+    match result {
+        Err(EmitInstanceError::Value(error)) => assert_eq!(&error.reason, reason, "{what}"),
+        other => panic!("{what}: expected a typed refusal, got {other:?}"),
+    }
+}
+
+/// Under an open column kind a delimited cell reads as text, so no spelling
+/// of a non-finite number reads back as it, and the refusal names the
+/// number as non-finite. A declared float column does spell the canonical
+/// NaNs and the infinities; `value_fidelity_corpus` covers that route.
+#[test]
+fn preserving_tabular_writers_refuse_an_unspellable_non_finite_number_as_non_finite() {
+    let table = one_vertex_schema("rows");
+    for (codec, input) in [
+        (UnifiedCodec::csv("test").unwrap(), &b"a,b\n1,2\n"[..]),
+        (UnifiedCodec::tsv("test", "rows").unwrap(), b"a\tb\n1\t2\n"),
+    ] {
+        let (instance, complement) = codec.parse_functor_preserving(&table, input).unwrap();
+        let first = instance.table("rows").unwrap().ids()[0];
+        for value in non_finite_values() {
+            let mut edited = instance.clone();
+            edited
+                .row_mut(first)
+                .unwrap()
+                .insert("b".to_owned(), value.clone());
+            assert_refused(
+                codec.emit_functor_preserving(&table, &edited, &complement),
+                &EmitValueReason::NonFinite,
+                &format!("{value:?}"),
+            );
+        }
+    }
+}
+
+#[test]
+fn preserving_toml_writer_refuses_a_special_decimal_as_non_finite() {
+    let tree = one_vertex_schema("root");
+    let codec = UnifiedCodec::toml("test").unwrap();
+    let (instance, complement) = codec.parse_wtype_preserving(&tree, b"a = 1.5\n").unwrap();
+    for value in non_finite_values() {
+        let mut edited = instance.clone();
+        set_value(&mut edited, "root:a", value.clone());
+        let result = codec.emit_wtype_preserving(&tree, &edited, &complement);
+        match &value {
+            // TOML spells both canonical NaNs and both infinities.
+            Value::Float(number)
+                if number.is_infinite()
+                    || number.to_bits() == CANONICAL_NAN.to_bits()
+                    || number.to_bits() == NEGATIVE_CANONICAL_NAN.to_bits() =>
+            {
+                let written = result.expect("a TOML float spelling");
+                let (reread, _) = codec.parse_wtype_preserving(&tree, &written).unwrap();
+                assert_eq!(
+                    float_bits(value_at(&reread, "root:a")),
+                    number.to_bits(),
+                    "{value:?}"
+                );
+            }
+            // No TOML spelling carries a NaN payload.
+            Value::Float(_) => {
+                assert_refused(
+                    result,
+                    &EmitValueReason::NotRepresentable,
+                    &format!("{value:?}"),
+                );
+            }
+            _ => assert_refused(result, &EmitValueReason::NonFinite, &format!("{value:?}")),
+        }
+    }
+}

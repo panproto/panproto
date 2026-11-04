@@ -3189,8 +3189,21 @@ fn ensure_toml_presence_roundtrips(
             site,
             value.type_name(),
             "toml",
-            EmitValueReason::NotRepresentable,
+            refusal_reason(value),
         ))
+    }
+}
+
+/// The reason a value with no spelling that reads back as itself is
+/// refused: [`EmitValueReason::NonFinite`] for a non-finite float or a
+/// special decimal, [`EmitValueReason::NotRepresentable`] otherwise.
+fn refusal_reason(value: &Value) -> EmitValueReason {
+    if matches!(value, Value::Float(number) if !number.is_finite())
+        || matches!(value, Value::Decimal(number) if !number.is_finite())
+    {
+        EmitValueReason::NonFinite
+    } else {
+        EmitValueReason::NotRepresentable
     }
 }
 
@@ -6333,7 +6346,7 @@ fn tabular_cst_value_text(
             site.clone(),
             value.type_name(),
             format,
-            EmitValueReason::NotRepresentable,
+            refusal_reason(value),
         )
         .into());
     }
