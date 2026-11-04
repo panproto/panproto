@@ -40,7 +40,8 @@ use panproto_gat::{Name, is_interstitial_text_sort};
 use panproto_inst::metadata::Node;
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
 use panproto_inst::value::{
-    BigIntValue, CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
+    BigIntValue, CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Offset,
+    Temporal, Value,
 };
 use panproto_inst::wtype::WInstance;
 use panproto_inst::{FInstance, ValueFidelityError, ValueSite};
@@ -5497,6 +5498,30 @@ fn yaml_decimal_text(
     })
 }
 
+/// The YAML text of a temporal: a `!!timestamp` tag on its quoted display.
+///
+/// A YAML timestamp written without a zone denotes UTC, so a value with a
+/// local offset (every date and every zone-less time or date-time) has no
+/// YAML spelling that reads back as itself and is refused with
+/// [`EmitValueReason::NotRepresentable`].
+fn yaml_temporal_text(value: &Temporal, site: &ValueSite) -> Result<String, CstCodecError> {
+    if value
+        .lexical_form()
+        .is_none_or(|form| form.offset == Offset::Local)
+    {
+        return Err(cst_value_error(
+            site,
+            "temporal",
+            "yaml",
+            EmitValueReason::NotRepresentable,
+        ));
+    }
+    let quoted = serde_json::to_string(&value.to_string()).map_err(|error| {
+        CstCodecError::Structure(format!("YAML timestamp encoding failed: {error}"))
+    })?;
+    Ok(format!("!!timestamp {quoted}"))
+}
+
 /// Convert a `FieldPresence` to YAML scalar text.
 fn field_presence_to_yaml_text(
     presence: &FieldPresence,
@@ -5548,12 +5573,7 @@ fn field_presence_to_yaml_text(
                 text
             }
         }
-        FieldPresence::Present(Value::Temporal(value)) => {
-            let quoted = serde_json::to_string(&value.to_string()).map_err(|error| {
-                CstCodecError::Structure(format!("YAML timestamp encoding failed: {error}"))
-            })?;
-            format!("!!timestamp {quoted}")
-        }
+        FieldPresence::Present(Value::Temporal(value)) => yaml_temporal_text(value, site)?,
         FieldPresence::Null | FieldPresence::Present(Value::Null) => "null".to_owned(),
         FieldPresence::Absent => {
             return Err(EmitValueError::new(

@@ -2334,8 +2334,27 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 continue;
             }
 
+            // A YAML timestamp without a zone denotes UTC, so the YAML route
+            // refuses the edited local timestamp and keeps the source one.
+            if label == "YAML" {
+                let mut local = instance.clone();
+                let (anchor, value) = exact_value_edits()
+                    .into_iter()
+                    .find(|(anchor, _)| *anchor == "timestamp_local")
+                    .expect("a local timestamp edit");
+                set_tree_value(&mut local, anchor, FieldPresence::Present(value));
+                assert!(
+                    matches!(
+                        codec.emit_wtype_preserving(&schema, &local, &complement),
+                        Err(EmitInstanceError::Value(ref error))
+                            if error.reason == EmitValueReason::NotRepresentable
+                    ),
+                    "YAML wrote a local timestamp"
+                );
+            }
             for (anchor, value) in exact_value_edits()
                 .into_iter()
+                .filter(|(anchor, _)| label != "YAML" || *anchor != "timestamp_local")
                 .chain([("null_value", Value::Str("materialized-null".into()))])
             {
                 set_tree_value(&mut instance, anchor, FieldPresence::Present(value));

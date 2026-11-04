@@ -179,7 +179,15 @@ fn assert_yaml_refuses(value: &Value, reason: &EmitValueReason) {
 }
 
 #[test]
-fn yaml_writes_a_zoned_temporal_exactly() {
+fn yaml_refuses_a_local_temporal_and_writes_a_zoned_one() {
+    // A YAML timestamp without a zone denotes UTC, so no YAML spelling
+    // reads back as a local date, time or date-time.
+    for local in ["1979-05-27", "07:32:00", "1979-05-27T07:32:00"] {
+        assert_yaml_refuses(
+            &Value::Temporal(Temporal::parse(local).expect("temporal")),
+            &EmitValueReason::NotRepresentable,
+        );
+    }
     let zoned = Value::Temporal(Temporal::parse("1979-05-27T07:32:00.1234567891Z").unwrap());
     let written = yaml_edit(zoned.clone()).expect("a zoned date-time has a YAML spelling");
     let tree = one_vertex_schema("root");
