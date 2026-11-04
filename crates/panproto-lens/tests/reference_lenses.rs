@@ -7256,14 +7256,17 @@ fn table_path_normal_forms_match_independent_atomic_folds() {
         edit_families.refused_positive.named(),
         edit_families.designated_negative.named()
     );
+    // A word through `T`, `ReadF` or `Op` refuses at compile, since each
+    // writes a field schema `a` does not declare, so it contributes a refusal
+    // outcome and no final-stage edits to these families.
     assert_eq!(
         edit_families.admitted_positive.families,
-        [0, 0, 19_258, 28_445, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 18_598, 27_218, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the admitted table-path mutation-family census is part of the certificate"
     );
     assert_eq!(
         edit_families.refused_positive.families,
-        [28_445, 0, 1_035, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [27_218, 0, 242, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         "the refused table-path mutation-family census is part of the certificate"
     );
     assert_eq!(
