@@ -124,6 +124,15 @@ pub struct CstComplement {
     /// re-extraction has no root to check the preserved source against.
     #[serde(default)]
     pub source_vertex: Option<Name>,
+    /// Whether the source began with a UTF-8 byte-order mark.
+    ///
+    /// Tree-sitter skips a leading mark, so no CST vertex carries its bytes;
+    /// the preserving emitters of the tree-sitter `UnifiedCodec` write it
+    /// back from this flag. A complement decoded from a carrier
+    /// without the field has `false`, and the field is omitted from a
+    /// carrier when it is `false`.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub byte_order_mark: bool,
 }
 
 impl CstComplement {
@@ -1095,6 +1104,7 @@ pub fn extract_json_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -2129,6 +2139,7 @@ pub fn extract_toml_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -3251,6 +3262,7 @@ pub fn extract_xml_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -4539,6 +4551,7 @@ pub fn extract_yaml_cst_with_protocol(
         node_to_cst_struct: state.node_to_cst_struct,
         cell_to_cst_value: HashMap::new(),
         source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
     };
 
     let instance = WInstance::new(
@@ -5500,6 +5513,16 @@ fn field_presence_to_yaml_text(
         FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
         FieldPresence::Present(Value::Bool(value)) => value.to_string(),
         FieldPresence::Present(Value::Bytes(bytes)) => yaml_bytes_text(bytes, spec, site)?,
+        // No YAML spelling reads back as the same special decimal: `.inf`
+        // and `.nan` are binary floats.
+        FieldPresence::Present(Value::Decimal(value)) if !value.is_finite() => {
+            return Err(cst_value_error(
+                site,
+                "decimal",
+                "yaml",
+                EmitValueReason::NonFinite,
+            ));
+        }
         FieldPresence::Present(Value::Decimal(value)) => {
             if spec.kind == ScalarKind::Any {
                 format!("!!decimal {value}")
@@ -5719,6 +5742,7 @@ fn tabular_complement(
         node_to_cst_struct: HashMap::new(),
         cell_to_cst_value: cell_to_cst,
         source_vertex: Some(Name::from(table_vertex)),
+        byte_order_mark: false,
     }
 }
 
