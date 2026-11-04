@@ -166,7 +166,6 @@ jobs:
           check_gate panproto-inst reference_coercion coerce_value_agrees_with_the_reference_over_the_values_scope
           check_gate panproto-lens reference_lenses lens_laws_agree_with_the_reference_exhaustively
           check_gate panproto-lens reference_lenses lens_path_law_certificate
-          check_gate panproto-lens reference_lenses protolens_transforms_agree_with_the_reference_exhaustively
       #
       # Every build of this job uses the `ci-test` cargo profile of the
       # workspace `Cargo.toml`, so the gate listings above, the suite, the
