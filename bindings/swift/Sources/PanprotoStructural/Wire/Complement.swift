@@ -71,6 +71,36 @@ public struct SynthKey: Codable, Hashable, Sendable {
     }
 }
 
+/// Where `get` put a node of the view: the view's root, or a child of a
+/// parent on an edge at an index among that parent's children on the edge.
+public struct ViewPosition: Codable, Hashable, Sendable {
+    /// The exact externally tagged view-position representation.
+    public var representation: CBORValue
+
+    /// Admit one known view-position variant.
+    public init(representation: CBORValue) throws {
+        guard case .map(let entries) = representation.untagged, entries.count == 1,
+            case .textString(let tag) = entries[0].key,
+            ["root", "child"].contains(tag)
+        else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "unknown view-position variant"))
+        }
+        self.representation = representation
+    }
+
+    /// Read and validate a view position.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained view-position representation.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+}
+
 /// The kind of complement named by an identity envelope.
 public enum ComplementShape: String, Codable, Hashable, Sendable, CaseIterable {
     case wtype
@@ -193,7 +223,7 @@ public struct IdentityEnvelope: Codable, Hashable, Sendable {
 ///
 /// Not every producer fills every field. The lens path fills the
 /// structural-reconstruction fields; the restrict pipeline additionally
-/// fills ``contractedInto``. Every field through ``synthesizedKeys`` is
+/// fills ``contractedInto``. Every field through ``viewPositions`` is
 /// written, empty or not, because MessagePack also carries this struct
 /// positionally. Only the final optional ``identity`` field may be omitted.
 ///
@@ -250,6 +280,10 @@ public struct Complement: Codable, Hashable, Sendable {
     public var idFloor: UInt32
     /// Stable keys for nodes synthesized by `get`.
     public var synthesizedKeys: [UInt32: SynthKey]
+    /// Where `get` put each node of the view, by view node id. A
+    /// serialized put aligns a view read without node ids to these
+    /// positions before it puts.
+    public var viewPositions: [UInt32: ViewPosition]
     /// The schema and lens identity that produced this complement.
     public var identity: IdentityEnvelope?
 
@@ -273,6 +307,7 @@ public struct Complement: Codable, Hashable, Sendable {
         originalAnchors: [UInt32: Name] = [:],
         idFloor: UInt32 = 0,
         synthesizedKeys: [UInt32: SynthKey] = [:],
+        viewPositions: [UInt32: ViewPosition] = [:],
         identity: IdentityEnvelope? = nil
     ) {
         self.droppedNodes = droppedNodes
@@ -290,12 +325,13 @@ public struct Complement: Codable, Hashable, Sendable {
         self.originalAnchors = originalAnchors
         self.idFloor = idFloor
         self.synthesizedKeys = synthesizedKeys
+        self.viewPositions = viewPositions
         self.identity = identity
     }
 }
 
 extension Complement {
-    /// The wire spellings of the sixteen fields, in Rust declaration
+    /// The wire spellings of the seventeen fields, in Rust declaration
     /// order.
     private enum CodingKeys: String, CodingKey {
         case droppedNodes = "dropped_nodes"
@@ -313,6 +349,7 @@ extension Complement {
         case originalAnchors = "original_anchors"
         case idFloor = "id_floor"
         case synthesizedKeys = "synthesized_keys"
+        case viewPositions = "view_positions"
         case identity
     }
 
@@ -367,6 +404,10 @@ extension Complement {
                 UInt32KeyedMap<SynthKey>.self,
                 forKey: .synthesizedKeys
             )?.entries ?? [:],
+            viewPositions: try container.decodeIfPresent(
+                UInt32KeyedMap<ViewPosition>.self,
+                forKey: .viewPositions
+            )?.entries ?? [:],
             identity: try container.decodeIfPresent(IdentityEnvelope.self, forKey: .identity)
         )
     }
@@ -397,6 +438,7 @@ extension Complement {
         try container.encode(UInt32KeyedMap(originalAnchors), forKey: .originalAnchors)
         try container.encode(idFloor, forKey: .idFloor)
         try container.encode(UInt32KeyedMap(synthesizedKeys), forKey: .synthesizedKeys)
+        try container.encode(UInt32KeyedMap(viewPositions), forKey: .viewPositions)
         if let identity { try container.encode(identity, forKey: .identity) }
     }
 

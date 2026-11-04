@@ -1231,6 +1231,7 @@ fn tree_synth_fixture(graph: &GraphSynthFixture) -> TreeSynthFixture {
         },
         embedding: TreeEmbedding::default(),
         source_arcs: BTreeMap::new(),
+        view_positions: BTreeMap::new(),
     };
     let right_complement = TreeLawComplement {
         complement: Complement {
@@ -1239,6 +1240,7 @@ fn tree_synth_fixture(graph: &GraphSynthFixture) -> TreeSynthFixture {
         },
         embedding: TreeEmbedding::default(),
         source_arcs: BTreeMap::new(),
+        view_positions: BTreeMap::new(),
     };
     TreeSynthFixture {
         left,

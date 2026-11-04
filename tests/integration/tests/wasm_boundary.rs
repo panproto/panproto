@@ -130,6 +130,27 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         original_anchors: HashMap::new(),
         id_floor: 0,
         synthesized_keys: std::collections::BTreeMap::new(),
+        view_positions: std::collections::BTreeMap::from([
+            (
+                0,
+                panproto_inst::ViewPosition::Root {
+                    anchor: "body".into(),
+                },
+            ),
+            (
+                1,
+                panproto_inst::ViewPosition::Child {
+                    parent: 0,
+                    edge: Edge {
+                        src: "body".into(),
+                        tgt: "kept.field".into(),
+                        kind: "prop".into(),
+                        name: Some("kept".into()),
+                    },
+                    index: 0,
+                },
+            ),
+        ]),
         identity: None,
     };
 
@@ -147,6 +168,8 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
     // Arc order crosses the wire: it is what array element order is read
     // off when the backward direction rebuilds the source.
     assert_eq!(decoded.arc_order, vec![(0, 99)]);
+    // So do the view positions a serialized put aligns a view to.
+    assert_eq!(decoded.view_positions, complement.view_positions);
 
     Ok(())
 }

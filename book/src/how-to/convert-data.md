@@ -74,7 +74,7 @@ if (!result.holds) {
 
 `schema lens verify <DATA> <SCHEMA> --protocol <PROTOCOL>` parses the data with the supplied schema and runs five strict gates: GetPut, PutGet, finite-basis totality, PutTwice complement stability, and congruence. A passing result applies to that record and its finite single-step mutation basis. It is not a proof over every instance of the schema.
 
-Backward CLI conversion uses an empty complement. It can reconstruct only lenses that need no captured source data or for which defaults suffice. Use an SDK `get`/`put` pair when backward conversion depends on the complement produced from a specific source record.
+Backward CLI conversion has no complement, so it reconstructs the source only through a lens that is an isomorphism and refuses every other lens with `NotAnIsomorphism`. Use `schema lens apply --direction backward --complement`, or an SDK `get`/`put` pair, when backward conversion depends on the complement produced from a specific source record.
 
 `--chain` selects a saved chain instead of automatic lens generation. It still requires `--from` and `--to`, since a serialized `ProtolensChain` does not contain the concrete schemas needed for instantiation. `schema lens generate --save` writes this round-trippable chain format. The compiled artifact produced by `schema lens compile --out` also carries ordered value-transform stages and is intended for `schema lens apply`, not `schema convert --chain`.
 

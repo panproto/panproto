@@ -165,6 +165,8 @@ impl ComplementCompose for Complement {
 
         let synthesized_keys = merge_synthesized_keys(self, other)?;
 
+        let view_positions = merge_view_positions(self, other)?;
+
         Ok(Self {
             dropped_nodes,
             dropped_arcs,
@@ -181,6 +183,7 @@ impl ComplementCompose for Complement {
             original_anchors,
             id_floor: self.id_floor.max(other.id_floor),
             synthesized_keys,
+            view_positions,
             identity,
         })
     }
@@ -428,6 +431,30 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
     get_with_identity(lens, instance, &lens.identity(ComplementShape::WType))
 }
 
+/// The union of two complements' view positions, which must agree on every
+/// view node both record.
+fn merge_view_positions(
+    a: &Complement,
+    b: &Complement,
+) -> Result<std::collections::BTreeMap<u32, panproto_inst::ViewPosition>, LensError> {
+    let mut view_positions = a.view_positions.clone();
+    for (&id, position) in &b.view_positions {
+        match view_positions.get(&id) {
+            Some(mine) if mine != position => {
+                return Err(LensError::ComplementConflict {
+                    kind: "view_positions",
+                    key: format!("{id:?}"),
+                });
+            }
+            Some(_) => {}
+            None => {
+                view_positions.insert(id, position.clone());
+            }
+        }
+    }
+    Ok(view_positions)
+}
+
 /// The union of two complements' synthesized keys, which must agree by id
 /// and by key: one id names one key, and one key one id.
 fn merge_synthesized_keys(
@@ -668,6 +695,9 @@ pub(crate) fn get_with_identity(
         // by the source arc it expands (its edge id in the source's graph
         // form) and its hop.
         synthesized_keys: synthesis.synthesized_keys,
+        // Where `get` put each view node, so that a serialized view, whose
+        // reader numbers its nodes afresh, can be given these ids back.
+        view_positions: panproto_inst::view_positions_of(&view),
         identity: None,
     };
     complement.stamp(envelope.clone(), &lens.src_schema);
@@ -762,8 +792,14 @@ pub(crate) fn put_with_identity(
 /// and knows nothing of the lens, reads it back as a child on the edge the
 /// field names. Tree [`put`] and [`check_put_domain`] refuse that child, as
 /// the reference lens does, since the source held no child there. A caller
-/// that reads a view from JSON calls this before `put` to recover the view
-/// `get` returned.
+/// that reads a view from a serialization calls this before `put` to
+/// recover the view `get` returned.
+///
+/// `view` must carry the node ids `get` gave it: a view read from a
+/// serialization is first passed through
+/// [`align_view_to_complement`](crate::align_view_to_complement), so that
+/// a node at a position `get` produced holds the id `get` gave it and a
+/// child the view adds holds a fresh id.
 ///
 /// A child of node `n` on an edge named `key` is moved into the field `key`
 /// of `n` exactly when
@@ -774,22 +810,16 @@ pub(crate) fn put_with_identity(
 /// * `n` holds no field `key`;
 /// * the child is the only child of `n` on an edge named `key`, has no
 ///   children of its own, and takes part in no fan;
-/// * neither node was synthesized by `get`; and
+/// * the complement records no source arc from `n` to the child, and neither
+///   node was synthesized by `get`; and
 /// * the child presents a cell value: a scalar or null as its own value with
 ///   no fields, or a record as its fields with no value of its own.
 ///
-/// The test is structural: it reads the child's edge and shape, never its
-/// node id. `parse_json` numbers the nodes of a view afresh in the target
-/// schema's edge order, so the id a computed child receives may be the id of
-/// some source child in the complement; a rename that moves an edge later in
-/// that order is enough. An id therefore says nothing about whether the
-/// child was a source child. `get` writes a computed field among its node's
-/// fields on every node it computes for, so a node of a view `get` returned
-/// holds field `key` and is left alone; a view without it whose child on
-/// edge `key` matches the shape above is the serialized form of that field.
-/// JSON writes a field and a child of the same name under one key, so a node
-/// whose source also held a child on edge `key` cannot present both, and
-/// the fold reads the key as the computed field.
+/// A child the complement records as a source arc is never folded. A node
+/// whose source held a child on the computed field's own edge presents, in
+/// JSON, one key for both, and the child aligned to that source arc is the
+/// source child; `put` then refuses the view, since the computed field is
+/// missing from its node, rather than reading the key as either value.
 ///
 /// Every other child is left as it is. Neither [`get`] nor [`put`] calls
 /// this.
@@ -803,6 +833,7 @@ pub fn fold_computed_children_into_fields(
         return view.clone();
     }
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let source_arcs: HashSet<(u32, u32)> = complement.arc_order.iter().copied().collect();
     let mut children: HashMap<u32, Vec<(u32, &Edge)>> = HashMap::new();
     for (parent, child, edge) in &view.arcs {
         children.entry(*parent).or_default().push((*child, edge));
@@ -845,6 +876,7 @@ pub fn fold_computed_children_into_fields(
             };
             let folds_here = !children.contains_key(&child)
                 && !fanned.contains(&child)
+                && !source_arcs.contains(&(id, child))
                 && !complement.synthesized_nodes.contains(&child);
             if folds_here && let Some(value) = presented_cell(child_node) {
                 folds.push((id, key, child, value));

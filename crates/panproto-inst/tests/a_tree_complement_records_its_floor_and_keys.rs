@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use panproto_inst::complement::{fresh_view_node_id, tree_id_floor};
-use panproto_inst::{Complement, EdgeId, Fan, GInstance, Node, SynthKey, WInstance};
+use panproto_inst::{Complement, EdgeId, Fan, GInstance, Node, SynthKey, ViewPosition, WInstance};
 use panproto_schema::Edge;
 use proptest::prelude::*;
 
@@ -82,8 +82,8 @@ fn an_empty_tree_has_floor_zero() {
     assert_eq!(tree_id_floor(&tree).unwrap(), 0);
 }
 
-/// `id_floor` then `synthesized_keys` follow `original_anchors`, and
-/// `identity` is last and omitted when absent.
+/// `id_floor`, `synthesized_keys` and then `view_positions` follow
+/// `original_anchors`, and `identity` is last and omitted when absent.
 #[test]
 fn tree_complement_fields_serialize_in_contract_order() {
     let mut complement = Complement::empty();
@@ -96,28 +96,35 @@ fn tree_complement_fields_serialize_in_contract_order() {
             hop: 0,
         },
     );
+    complement
+        .view_positions
+        .insert(0, ViewPosition::Root { anchor: "a".into() });
     let json = serde_json::to_string(&complement).unwrap();
     let at = |key: &str| json.find(&format!("\"{key}\":")).unwrap();
     assert!(at("original_anchors") < at("id_floor"));
     assert!(at("id_floor") < at("synthesized_keys"));
+    assert!(at("synthesized_keys") < at("view_positions"));
     assert!(
-        json.ends_with(r#""synthesized_keys":{"7":{"expand":{"source_edge":2,"hop":0}}}}"#),
+        json.ends_with(
+            r#""synthesized_keys":{"7":{"expand":{"source_edge":2,"hop":0}}},"view_positions":{"0":{"root":{"anchor":"a"}}}}"#
+        ),
         "{json}"
     );
     assert!(!json.contains("\"identity\""));
 
-    // Positional MessagePack: the two fields sit in their slots, and the
+    // Positional MessagePack: the fields sit in their slots, and the
     // complement reads back.
     let bytes = rmp_serde::to_vec(&complement).unwrap();
     let back: Complement = rmp_serde::from_slice(&bytes).unwrap();
     assert_eq!(back.id_floor, 9);
     assert_eq!(back.synthesized_keys, complement.synthesized_keys);
+    assert_eq!(back.view_positions, complement.view_positions);
     let positional: Vec<serde::de::IgnoredAny> = rmp_serde::from_slice(&bytes).unwrap();
-    assert_eq!(positional.len(), 15);
+    assert_eq!(positional.len(), 16);
 }
 
-/// A complement written before the two fields existed reads with floor 0
-/// and no keys.
+/// A complement written before the later fields existed reads with floor
+/// 0, no keys and no view positions.
 #[test]
 fn a_complement_without_the_new_fields_reads_back() {
     let json = serde_json::json!({
@@ -127,6 +134,7 @@ fn a_complement_without_the_new_fields_reads_back() {
     let back: Complement = serde_json::from_value(json).unwrap();
     assert_eq!(back.id_floor, 0);
     assert!(back.synthesized_keys.is_empty());
+    assert!(back.view_positions.is_empty());
 }
 
 /// The residue counts neither identity nor provenance nor the derived
@@ -150,7 +158,14 @@ fn tree_residue_ignores_bookkeeping_fields() {
     complement.contracted_into.insert(2, 0);
     complement.original_parent.insert(1, 0);
     complement.arc_order.push((0, 1));
+    complement
+        .view_positions
+        .insert(0, ViewPosition::Root { anchor: "r".into() });
     assert!(complement.residue_is_trivial());
+    assert!(!complement.is_empty());
+    let mut positions_only = Complement::empty();
+    positions_only.view_positions = complement.view_positions.clone();
+    assert!(positions_only.is_empty());
     complement.arc_edges.insert((0, 1), prop("r", "a"));
     assert!(!complement.residue_is_trivial());
 }

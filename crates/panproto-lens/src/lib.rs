@@ -65,6 +65,7 @@ pub mod table_lens;
 pub mod table_protolens;
 pub mod table_shape;
 pub mod table_symmetric;
+pub mod view_alignment;
 
 // Re-exports for convenience.
 pub use asymmetric::{
@@ -134,6 +135,7 @@ pub use symmetric::{CoherenceViolation, SymmetricLens};
 pub use table_protolens::AppliedTableProtolens;
 pub use table_shape::{TableContext, TableShape};
 pub use table_symmetric::TableSymmetricContext;
+pub use view_alignment::{ViewAlignmentError, align_view_to_complement};
 
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;

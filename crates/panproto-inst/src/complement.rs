@@ -153,6 +153,20 @@ pub struct Complement {
     /// embedding, which is the arc's position in the source's arc order.
     #[serde(default)]
     pub synthesized_keys: BTreeMap<u32, SynthKey>,
+    /// The structural position of every node of the view `get` returned,
+    /// by view node id (see [`view_positions_of`]).
+    ///
+    /// A serialized view (JSON, or any format without node ids) loses the
+    /// ids `get` assigned, and a reader numbers its nodes afresh. The
+    /// positions let a serialized put entry point give each node of such a
+    /// view back the id `get` assigned the node at the same position before
+    /// calling `put` (`panproto_lens::align_view_to_complement`).
+    ///
+    /// Bookkeeping, not residue: the positions are a function of the view.
+    /// Empty on a complement written before positions were recorded, which
+    /// `put` still accepts and the alignment refuses.
+    #[serde(default)]
+    pub view_positions: BTreeMap<u32, ViewPosition>,
     /// The lens this complement was produced by. See
     /// [`crate::identity`].
     ///
@@ -160,6 +174,83 @@ pub struct Complement {
     /// binds itself only through [`source_fingerprint`](Self::source_fingerprint).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<IdentityEnvelope>,
+}
+
+/// Where a node sits in a view: the structure a serialized view keeps when
+/// it loses its node ids.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewPosition {
+    /// The view's root, anchored at `anchor`.
+    Root {
+        /// The schema vertex of the root.
+        anchor: Name,
+    },
+    /// The child at `index` among the children of `parent` on `edge`,
+    /// counted from 0 in the view's arc order.
+    Child {
+        /// The parent's view node id.
+        parent: u32,
+        /// The schema edge from the parent.
+        edge: Edge,
+        /// The child's index among the parent's children on `edge`.
+        index: u32,
+    },
+}
+
+/// The structural position of every node of `view` reachable by its arcs
+/// from its root, by node id.
+///
+/// The root is at [`ViewPosition::Root`]; a child is at its parent, its
+/// edge and its index among the parent's children on that edge, in the
+/// view's arc order. A serialized view keeps each of these: the root is
+/// the document, a child sits under its parent's field for the edge, and
+/// the children on one edge keep their order. A node no arc reaches from
+/// the root has no position. An index that does not fit in a `u32` is
+/// left out.
+#[must_use]
+pub fn view_positions_of(view: &WInstance) -> BTreeMap<u32, ViewPosition> {
+    let mut positions = BTreeMap::new();
+    let Some(root) = view.nodes.get(&view.root) else {
+        return positions;
+    };
+    positions.insert(
+        view.root,
+        ViewPosition::Root {
+            anchor: root.anchor.clone(),
+        },
+    );
+    let mut counts: HashMap<(u32, &Edge), usize> = HashMap::new();
+    let mut children: HashMap<u32, Vec<(u32, &Edge, u32)>> = HashMap::new();
+    for (parent, child, edge) in &view.arcs {
+        let count = counts.entry((*parent, edge)).or_insert(0);
+        let index = u32::try_from(*count);
+        *count += 1;
+        if let Ok(index) = index {
+            children
+                .entry(*parent)
+                .or_default()
+                .push((*child, edge, index));
+        }
+    }
+    let mut stack = vec![view.root];
+    while let Some(parent) = stack.pop() {
+        for &(child, edge, index) in children.get(&parent).into_iter().flatten() {
+            if positions.contains_key(&child) {
+                continue;
+            }
+            positions.insert(
+                child,
+                ViewPosition::Child {
+                    parent,
+                    edge: edge.clone(),
+                    index,
+                },
+            );
+            stack.push(child);
+        }
+    }
+    positions
 }
 
 impl Complement {
@@ -174,7 +265,8 @@ impl Complement {
     /// The [`source_fingerprint`](Self::source_fingerprint) and the
     /// [`identity`](Self::identity) envelope are provenance rather than
     /// discarded data, and [`id_floor`](Self::id_floor),
-    /// [`synthesized_keys`](Self::synthesized_keys) and the contraction
+    /// [`synthesized_keys`](Self::synthesized_keys),
+    /// [`view_positions`](Self::view_positions) and the contraction
     /// bookkeeping ([`contraction_choices`](Self::contraction_choices),
     /// [`contracted_into`](Self::contracted_into)) are derived from the
     /// source and the lens, so a projection that records only those counts
@@ -214,7 +306,8 @@ impl Complement {
     ///   it. This is the information present in `S` and absent from `V`, so
     ///   it *is* the complement, and no amount of looking at `V` recovers it.
     /// * **Bookkeeping.** `original_parent`, `arc_order`, the contraction
-    ///   choices and `contracted_into`, `id_floor`, `synthesized_keys`.
+    ///   choices and `contracted_into`, `id_floor`, `synthesized_keys`,
+    ///   `view_positions`.
     ///   These record the shape of the reassembly, which is a function of
     ///   the view's own structure, the dropped nodes and the lens rather
     ///   than of the particular record. They make `put` cheap and

@@ -273,18 +273,23 @@ pub fn load_schema_from_store(store: &dyn vcs::Store, id: vcs::ObjectId) -> Resu
 /// Put a JSON view back through `the_lens`.
 ///
 /// The view is read under the lens's target schema, the schema `get` wrote
-/// it in, with `protocol`. With a complement, `parse_json` reads a computed
-/// field that `to_json` wrote as a child on the edge it names, so
+/// it in, with `protocol`; `parse_json` numbers its nodes afresh. With a
+/// complement,
+/// [`align_view_to_complement`](lens::align_view_to_complement) first gives
+/// every node at a position `get` produced the id `get` gave it, which the
+/// complement's residue is keyed by, and a node the view adds a fresh id.
+/// `parse_json` reads a computed field that `to_json` wrote as a child on
+/// the edge it names, so
 /// [`fold_computed_children_into_fields`](lens::fold_computed_children_into_fields)
-/// moves each such child back among its node's fields, where `get` wrote it
-/// and where `put` reads it. Without one, the view is put through
-/// [`put_without_complement`](lens::put_without_complement), which succeeds
-/// exactly for the lenses it certifies as isomorphisms.
+/// then moves each such child back among its node's fields, where `get`
+/// wrote it and where `put` reads it. Without a complement, the view is put
+/// through [`put_without_complement`](lens::put_without_complement), which
+/// succeeds exactly for the lenses it certifies as isomorphisms.
 ///
 /// # Errors
 ///
-/// Returns an error if the view does not parse under the target schema or
-/// the put refuses it.
+/// Returns an error if the view does not parse under the target schema,
+/// cannot be aligned to the complement, or the put refuses it.
 pub fn put_json_view(
     the_lens: &lens::Lens,
     protocol: &Protocol,
@@ -300,6 +305,7 @@ pub fn put_json_view(
         .map_or_else(
             || lens::put_without_complement(the_lens, &view),
             |complement| {
+                let view = lens::align_view_to_complement(the_lens, &view, complement)?;
                 let view = lens::fold_computed_children_into_fields(the_lens, &view, complement);
                 lens::put(the_lens, &view, complement)
             },

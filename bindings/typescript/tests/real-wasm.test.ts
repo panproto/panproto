@@ -760,6 +760,54 @@ describe('compileLensDocument', () => {
     schema[Symbol.dispose]();
     proto[Symbol.dispose]();
   });
+
+  // JSON carries no node ids, so `putJson` aligns the view it parses to the
+  // positions the complement records before it puts. A lens that drops the
+  // nested field `obj.d` rebuilds the target schema with `obj` before
+  // `text`, so the parsed view is numbered differently from the view
+  // `getJson` returned; the dropped field still comes back.
+  it('putJson restores a nested dropped field, unedited and edited', () => {
+    const proto = buildCustomProto();
+    const schema = proto
+      .schema()
+      .vertex('rec', 'rec')
+      .vertex('rec:body', 'rec:body')
+      .vertex('rec:body.text', 'string')
+      .vertex('rec:body.obj', 'object')
+      .vertex('rec:body.obj.k', 'string')
+      .vertex('rec:body.obj.d', 'string')
+      .edge('rec', 'rec:body', 'record-schema')
+      .edge('rec:body', 'rec:body.text', 'prop', { name: 'text' })
+      .edge('rec:body', 'rec:body.obj', 'prop', { name: 'obj' })
+      .edge('rec:body.obj', 'rec:body.obj.k', 'prop', { name: 'k' })
+      .edge('rec:body.obj', 'rec:body.obj.d', 'prop', { name: 'd' })
+      .build();
+
+    const chain = pp.compileLensDocument(
+      {
+        id: 'demo.nested-drop',
+        source: 'v1',
+        target: 'v2',
+        steps: [{ remove_field: 'd' }],
+      },
+      'rec:body.obj',
+    );
+    const lens = chain.instantiate(schema);
+
+    const source = { text: 'hello', obj: { k: '1', d: '2' } };
+    const { view, complement } = lens.getJson(source, 'rec:body');
+    expect(view).toEqual({ text: 'hello', obj: { k: '1' } });
+    expect(lens.putJson(view, complement, 'rec:body')).toEqual(source);
+    expect(lens.putJson({ text: 'bye', obj: { k: '9' } }, complement, 'rec:body')).toEqual({
+      text: 'bye',
+      obj: { k: '9', d: '2' },
+    });
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
 });
 
 // ---------------------------------------------------------------------------

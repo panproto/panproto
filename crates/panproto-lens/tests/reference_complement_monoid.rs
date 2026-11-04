@@ -16,7 +16,7 @@ use panproto_inst::identity::{
     ComplementShape, IdentityCarrier, IdentityError, LegacyRejectReason,
 };
 use panproto_inst::{
-    CompiledMigration, Complement, EdgeId, Fan, FieldPresence, Node, SynthKey, Value,
+    CompiledMigration, Complement, EdgeId, Fan, FieldPresence, Node, SynthKey, Value, ViewPosition,
 };
 use panproto_lens::{ComplementCompose, Lens, LensError};
 use panproto_reference::enumerate::lenses::{
@@ -74,6 +74,7 @@ fn populate_model_atom(complement: &mut ComplementModel, atom: u32) {
     complement.contracted_into.insert(key, parent);
     complement.original_anchors.insert(key, key);
     complement.synthesized_keys.insert(key, key);
+    complement.view_positions.insert(key, key);
     complement.id_floor = complement.id_floor.max(parent + 1);
 }
 
@@ -159,12 +160,25 @@ fn materialize_model(model: &ComplementModel, lens: &Lens) -> Complement {
             },
         );
     }
+    for (&id, &atom) in &model.view_positions {
+        complement.view_positions.insert(id, view_position(atom));
+    }
     if model.identity.is_some() {
         complement.stamp(lens.identity(ComplementShape::WType), &lens.src_schema);
     } else {
         complement.source_fingerprint = model.source_fingerprint;
     }
     complement
+}
+
+/// The view position an atom names: a child of `atom + 100` on the atom's
+/// canonical edge, at index `atom`.
+fn view_position(atom: u32) -> ViewPosition {
+    ViewPosition::Child {
+        parent: atom + 100,
+        edge: edge(atom, "canonical"),
+        index: atom,
+    }
 }
 
 fn complement_for(binding: ComplementMonoidBinding, mask: u8, lens: &Lens) -> Complement {
@@ -545,6 +559,40 @@ fn assert_reference_carrier_rejects_internal_synthesis_duplicates_symmetrically(
     assert_eq!(
         compose_complement(&unit, &malformed),
         Err(ComplementComposeRefusal::SynthesizedIdByKey)
+    );
+}
+
+/// Two complements that record different positions for one view node do
+/// not compose, in production and in the reference alike; equal positions
+/// compose to their union.
+#[test]
+fn distinct_view_positions_for_one_node_refuse_in_both_operations() {
+    let lens = identity_lens("v");
+    let mut left = ComplementModel {
+        source_fingerprint: LEGACY_FINGERPRINT,
+        ..ComplementModel::default()
+    };
+    let mut right = left.clone();
+    left.view_positions.insert(1, 1);
+    right.view_positions.insert(1, 2);
+    right.view_positions.insert(2, 2);
+    assert_eq!(
+        compose_complement(&left, &right),
+        Err(ComplementComposeRefusal::ViewPositions)
+    );
+    let error = materialize_model(&left, &lens)
+        .compose(&materialize_model(&right, &lens))
+        .expect_err("distinct positions for node 1 conflict");
+    assert_conflict(error, "view_positions", "1");
+
+    right.view_positions.insert(1, 1);
+    let model = compose_complement(&left, &right).expect("equal positions compose");
+    assert_equivalent(
+        materialize_model(&left, &lens)
+            .compose(&materialize_model(&right, &lens))
+            .expect("equal positions compose"),
+        materialize_model(&model, &lens),
+        "view positions merge as a keyed union",
     );
 }
 

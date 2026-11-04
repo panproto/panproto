@@ -122,6 +122,9 @@ sampleComplement =
         , originalAnchors = HM.fromList [(1, "old_text")]
         , idFloor = 100
         , synthesizedKeys = HM.fromList [(99, wire (Enc.encodeString "synth-key"))]
+        , viewPositions =
+            HM.fromList
+                [(0, wire (Enc.encodeMapLen 1 <> Enc.encodeString "root" <> Enc.encodeMapLen 1 <> textField "anchor" "post"))]
         , identity = Just (wire (Enc.encodeMapLen 1 <> Enc.encodeString "version" <> Enc.encodeWord 1))
         }
 

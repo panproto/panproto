@@ -721,10 +721,14 @@ pub(super) fn get_json_engine(
 
 /// Bidirectional put: restore from a JSON view + complement.
 ///
-/// The view is read under the target schema and passed through
-/// [`fold_computed_children_into_fields`](lens::fold_computed_children_into_fields)
-/// before `put`, so a computed field that [`get_json`] wrote is read back as
-/// that field.
+/// The view is read under the target schema, which numbers its nodes
+/// afresh. It is then aligned to the complement with
+/// [`align_view_to_complement`](lens::align_view_to_complement), so that
+/// every node at a position [`get_json`] produced takes the id `get` gave
+/// it and a node the view adds takes a fresh one, and passed through
+/// [`fold_computed_children_into_fields`](lens::fold_computed_children_into_fields),
+/// so that a computed field [`get_json`] wrote is read back as that field,
+/// before `put`. A view that cannot be aligned is refused.
 ///
 /// # Errors
 ///
@@ -773,6 +777,13 @@ pub(super) fn put_json_engine(
             tgt_schema,
         };
 
+        // `parse_json` numbers the view's nodes afresh; give each the id
+        // `get` gave the node at its position, which the complement's
+        // residue is keyed by.
+        let view_instance = lens::align_view_to_complement(&lens_obj, &view_instance, &comp)
+            .map_err(|e| WasmError::PutFailed {
+                reason: e.to_string(),
+            })?;
         // `parse_json` reads a computed field `to_json` wrote as a child on
         // the edge it names; move it back among its node's fields, where
         // `get` wrote it and where `put` reads it.
@@ -1292,6 +1303,113 @@ mod tests {
                 text.contains(&printed),
                 "another process wrote different payloads: {text}"
             );
+        }
+    }
+
+    /// `rec:body { text, obj { k, d } }`, or without `obj.d`, built under
+    /// `protocol` with the edges out of `rec:body` in the order given.
+    fn nested_schema(protocol: u32, with_d: bool, body_edges: [&str; 2]) -> u32 {
+        let mut ops = vec![
+            serde_json::json!({ "op": "vertex", "id": "rec", "kind": "rec", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body", "kind": "rec:body", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body.text", "kind": "string", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body.obj", "kind": "object", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body.obj.k", "kind": "string", "nsid": null }),
+            serde_json::json!({ "op": "edge", "src": "rec", "tgt": "rec:body", "kind": "record-schema", "name": null }),
+        ];
+        if with_d {
+            ops.push(serde_json::json!({ "op": "vertex", "id": "rec:body.obj.d", "kind": "string", "nsid": null }));
+        }
+        for name in body_edges {
+            ops.push(serde_json::json!({
+                "op": "edge", "src": "rec:body", "tgt": format!("rec:body.{name}"), "kind": "prop", "name": name
+            }));
+        }
+        ops.push(serde_json::json!({ "op": "edge", "src": "rec:body.obj", "tgt": "rec:body.obj.k", "kind": "prop", "name": "k" }));
+        if with_d {
+            ops.push(serde_json::json!({ "op": "edge", "src": "rec:body.obj", "tgt": "rec:body.obj.d", "kind": "prop", "name": "d" }));
+        }
+        build_schema(protocol, &rmp_serde::to_vec_named(&ops).unwrap()).unwrap()
+    }
+
+    /// `put_json` aligns the view it parses to the complement before `put`:
+    /// a lens that drops `obj.d` and whose target schema declares `obj`
+    /// before `text` gets the view back with ids `parse_json` numbers
+    /// differently from `get`, and putting it back, unedited or edited,
+    /// restores `d`.
+    #[test]
+    fn json_round_trip_restores_a_nested_dropped_field() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "demo-nested-drop".into(),
+            schema_theory: "ThConstrainedGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: ["record-schema", "prop"]
+                .into_iter()
+                .map(|kind| panproto_core::schema::EdgeRule {
+                    edge_kind: kind.into(),
+                    src_kinds: vec![],
+                    tgt_kinds: vec![],
+                })
+                .collect(),
+            obj_kinds: ["rec", "rec:body", "object", "string"]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            ..Default::default()
+        };
+        let protocol_handle =
+            define_protocol(&rmp_serde::to_vec_named(&protocol).unwrap()).unwrap();
+        let src_handle = nested_schema(protocol_handle, true, ["text", "obj"]);
+        let tgt_handle = nested_schema(protocol_handle, false, ["obj", "text"]);
+        let (src_schema, tgt_schema) = slab::try_get_two(src_handle, tgt_handle, |r1, r2| {
+            Ok((slab::as_schema(r1)?.clone(), slab::as_schema(r2)?.clone()))
+        })
+        .unwrap();
+        let compiled = panproto_core::inst::CompiledMigration {
+            surviving_verts: tgt_schema.vertices.keys().cloned().collect(),
+            surviving_edges: tgt_schema.edges.keys().cloned().collect(),
+            ..Default::default()
+        };
+        let migration = slab::alloc(Resource::MigrationWithSchemas {
+            compiled,
+            src_schema: std::sync::Arc::new(src_schema),
+            tgt_schema: std::sync::Arc::new(tgt_schema),
+        });
+
+        let source = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+        let got = get_json_engine(migration, source.to_string().as_bytes(), "rec:body").unwrap();
+        let got: serde_json::Value = rmp_serde::from_slice(&got).unwrap();
+        assert_eq!(
+            got["view"],
+            serde_json::json!({ "text": "hello", "obj": { "k": "1" } })
+        );
+        let complement: Vec<u8> = got["complement"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64().unwrap()).unwrap())
+            .collect();
+
+        for (shown, expected) in [
+            (got["view"].clone(), source),
+            (
+                serde_json::json!({ "text": "bye", "obj": { "k": "9" } }),
+                serde_json::json!({ "text": "bye", "obj": { "k": "9", "d": "2" } }),
+            ),
+        ] {
+            let restored = put_json_engine(
+                migration,
+                shown.to_string().as_bytes(),
+                &complement,
+                "rec:body",
+            )
+            .unwrap();
+            let restored: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+            assert_eq!(restored, expected, "put of {shown}");
+        }
+
+        for handle in [migration, tgt_handle, src_handle, protocol_handle] {
+            slab::free(handle);
         }
     }
 }

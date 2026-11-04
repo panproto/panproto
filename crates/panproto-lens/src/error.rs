@@ -403,6 +403,12 @@ pub enum LensError {
     #[error("the view is outside the domain of put: {0}")]
     PutDomain(Box<panproto_inst::PutDomainError>),
 
+    /// A serialized view cannot be aligned to the positions its complement
+    /// records. See
+    /// [`align_view_to_complement`](crate::align_view_to_complement).
+    #[error("the view cannot be aligned to its complement: {0}")]
+    ViewAlignment(crate::view_alignment::ViewAlignmentError),
+
     /// No enrichment synthesis driver is registered for the named
     /// `(kind, enricher)` pair. The driver must be registered via
     /// [`enrichment_registry::register_enricher`](crate::enrichment_registry::register_enricher)

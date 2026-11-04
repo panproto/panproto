@@ -10376,6 +10376,292 @@ fn tree_put_law_certificate() {
     assert_graph_square_agrees_with_the_reference_exhaustively(&carriers);
 }
 
+// ---------------------------------------------------------------------------
+// Serialized views: alignment to the recorded positions, then put
+// ---------------------------------------------------------------------------
+
+/// `tree` numbered as a reader that keeps no node ids numbers it: breadth
+/// first from the root, children in arc order, from 0, every node no arc
+/// reaches after them in id order. Arc order and fans are kept.
+fn renumbered(tree: &RefTree) -> RefTree {
+    let mut order = vec![tree.root];
+    let mut next = 0;
+    while next < order.len() {
+        let parent = order[next];
+        next += 1;
+        for (_, child, _) in tree.arcs.iter().filter(|(p, _, _)| *p == parent) {
+            if !order.contains(child) {
+                order.push(*child);
+            }
+        }
+    }
+    let unreached: Vec<u32> = tree
+        .nodes
+        .keys()
+        .copied()
+        .filter(|id| !order.contains(id))
+        .collect();
+    order.extend(unreached);
+    let rename: BTreeMap<u32, u32> = order
+        .iter()
+        .enumerate()
+        .map(|(new, old)| (*old, u32::try_from(new).expect("small tree")))
+        .collect();
+    let id = |old: u32| rename.get(&old).copied().unwrap_or(old);
+    RefTree {
+        nodes: tree
+            .nodes
+            .values()
+            .map(|node| {
+                let mut node = node.clone();
+                node.id = id(node.id);
+                (node.id, node)
+            })
+            .collect(),
+        arcs: tree
+            .arcs
+            .iter()
+            .map(|(p, c, e)| (id(*p), id(*c), e.clone()))
+            .collect(),
+        fans: tree
+            .fans
+            .iter()
+            .map(|fan| RefFan {
+                parent: id(fan.parent),
+                hyper_edge: fan.hyper_edge.clone(),
+                children: fan
+                    .children
+                    .iter()
+                    .map(|(l, c)| (l.clone(), id(*c)))
+                    .collect(),
+            })
+            .collect(),
+        root: id(tree.root),
+    }
+}
+
+/// The serialized views of a get view `view`, each renumbered as a reader
+/// numbers it: `view` itself; `view` with its last arc's child removed
+/// when that child is a leaf in no fan; and `view` with a copy of that
+/// leaf added under the same parent and edge after it.
+fn serialized_views(view: &RefTree) -> Vec<RefTree> {
+    let mut views = vec![renumbered(view)];
+    let fanned: BTreeSet<u32> = view
+        .fans
+        .iter()
+        .flat_map(|fan| std::iter::once(fan.parent).chain(fan.children.values().copied()))
+        .collect();
+    if let Some((parent, leaf, edge)) = view.arcs.last().cloned()
+        && !view.arcs.iter().any(|(p, _, _)| *p == leaf)
+        && !fanned.contains(&leaf)
+    {
+        let mut deleted = view.clone();
+        deleted.arcs.pop();
+        deleted.nodes.remove(&leaf);
+        views.push(renumbered(&deleted));
+        let mut inserted = view.clone();
+        let fresh = view.nodes.keys().max().copied().unwrap_or(0) + 1;
+        let mut copy = view.nodes[&leaf].clone();
+        copy.id = fresh;
+        inserted.nodes.insert(fresh, copy);
+        inserted.arcs.push((parent, fresh, edge));
+        views.push(renumbered(&inserted));
+    }
+    views
+}
+
+/// The observable outcome of a serialized put: the positions get recorded,
+/// and for each serialized view its alignment and the aligned view's put
+/// and put-domain report.
+#[derive(Debug, PartialEq, Eq)]
+struct AlignedPutOutcome {
+    positions: BTreeMap<u32, String>,
+    puts: Vec<(Result<RefTree, String>, Option<TreePutOutcome>)>,
+}
+
+fn production_position(position: &panproto_inst::ViewPosition) -> String {
+    match position {
+        panproto_inst::ViewPosition::Root { anchor } => format!("root {anchor}"),
+        panproto_inst::ViewPosition::Child {
+            parent,
+            edge,
+            index,
+        } => format!("child {parent} {:?} {index}", ref_edge(edge)),
+    }
+}
+
+fn reference_position(position: &panproto_reference::lens::ViewPosition) -> String {
+    match position {
+        panproto_reference::lens::ViewPosition::Root { anchor } => format!("root {anchor}"),
+        panproto_reference::lens::ViewPosition::Child {
+            parent,
+            edge,
+            index,
+        } => format!("child {parent} {edge:?} {index}"),
+    }
+}
+
+fn production_alignment_reason(error: &LensError) -> String {
+    match error {
+        LensError::ViewAlignment(panproto_lens::ViewAlignmentError::PositionsNotRecorded) => {
+            "positions not recorded".to_owned()
+        }
+        LensError::ViewAlignment(panproto_lens::ViewAlignmentError::MalformedPositions {
+            ..
+        }) => "malformed positions".to_owned(),
+        LensError::ViewAlignment(panproto_lens::ViewAlignmentError::RootAnchorMismatch {
+            recorded,
+            found,
+        }) => format!("root anchor {recorded} {found}"),
+        LensError::ViewAlignment(panproto_lens::ViewAlignmentError::IdsExhausted) => {
+            "ids exhausted".to_owned()
+        }
+        other => format!("{other:?}"),
+    }
+}
+
+fn reference_alignment_reason(error: &panproto_reference::lens::ViewAlignmentRefusal) -> String {
+    use panproto_reference::lens::ViewAlignmentRefusal as Refusal;
+    match error {
+        Refusal::PositionsNotRecorded => "positions not recorded".to_owned(),
+        Refusal::MalformedPositions => "malformed positions".to_owned(),
+        Refusal::RootAnchorMismatch { recorded, found } => {
+            format!("root anchor {recorded} {found}")
+        }
+        Refusal::IdsExhausted => "ids exhausted".to_owned(),
+    }
+}
+
+fn production_aligned_put(pair: &Pair, source: &RefTree) -> Option<AlignedPutOutcome> {
+    let (view, complement) = panproto_lens::get(&pair.production, &prod_tree(source)).ok()?;
+    let positions = complement
+        .view_positions
+        .iter()
+        .map(|(id, position)| (*id, production_position(position)))
+        .collect();
+    let puts = serialized_views(&ref_tree(&view))
+        .iter()
+        .map(|shown| {
+            match panproto_lens::align_view_to_complement(
+                &pair.production,
+                &prod_tree(shown),
+                &complement,
+            ) {
+                Ok(aligned) => {
+                    let put = Some(TreePutOutcome {
+                        put: panproto_lens::put(&pair.production, &aligned, &complement)
+                            .map(|restored| ref_tree(&restored))
+                            .map_err(|error| lens_reason(&error)),
+                        domain: panproto_lens::asymmetric::check_put_domain(
+                            &pair.production,
+                            &aligned,
+                            &complement,
+                        )
+                        .map_err(|errors| errors.iter().map(put_domain_reason).collect()),
+                    });
+                    (Ok(ref_tree(&aligned)), put)
+                }
+                Err(error) => (Err(production_alignment_reason(&error)), None),
+            }
+        })
+        .collect();
+    Some(AlignedPutOutcome { positions, puts })
+}
+
+fn reference_aligned_put(pair: &Pair, source: &RefTree) -> Option<AlignedPutOutcome> {
+    pair.with_reference(|lens| {
+        let lens = lens.ok()?;
+        let (view, complement) = RefTreeShape::get(lens, source, &()).ok()?;
+        let positions = complement
+            .view_positions
+            .iter()
+            .map(|(id, position)| (*id, reference_position(position)))
+            .collect();
+        let puts = serialized_views(&view)
+            .iter()
+            .map(|shown| {
+                match panproto_reference::lens::align_tree_view(
+                    shown,
+                    &complement.view_positions,
+                    &complement.complement,
+                ) {
+                    Ok(aligned) => {
+                        let put = Some(TreePutOutcome {
+                            put: RefTreeShape::put(lens, &aligned, &complement, &())
+                                .map_err(|error| reference_tree_law_reason(&error)),
+                            domain: RefTreeShape::check_put_domain(
+                                lens,
+                                &aligned,
+                                &complement,
+                                &(),
+                            )
+                            .map_err(|error| match error {
+                                panproto_reference::lens::ReferenceLawError::PutDomain(errors) => {
+                                    errors.iter().map(ref_put_domain_reason).collect()
+                                }
+                                other => panic!("unexpected reference domain refusal: {other:?}"),
+                            }),
+                        });
+                        (Ok(aligned), put)
+                    }
+                    Err(error) => (Err(reference_alignment_reason(&error)), None),
+                }
+            })
+            .collect();
+        Some(AlignedPutOutcome { positions, puts })
+    })
+}
+
+/// On every tree put-law carrier, production and the reference record the
+/// same view positions at get, align the same serialized views (the view
+/// renumbered as a reader numbers it, with its last leaf deleted, and with
+/// a copy of that leaf inserted) to the same trees, and put the aligned
+/// views alike, refusals and put-domain reports included.
+#[test]
+fn tree_aligned_put_agrees_with_the_reference() {
+    let mut carriers = Vec::new();
+    for_each_tree_put_law_case(|case| {
+        if let TreePutLawCase::Carrier { stage, source } = case {
+            carriers.push((stage, source));
+        }
+    });
+    assert_eq!(carriers.len(), 2_548);
+    let stages = bounded_lens_stages();
+    let bound = format!(
+        "aligned tree put: (stage, tree) carriers={}, three serialized views each at most",
+        carriers.len()
+    );
+    println!("{bound}");
+    let edited = std::sync::atomic::AtomicUsize::new(0);
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &carriers,
+        || stages.iter().map(Pair::from_stage).collect::<Vec<Pair>>(),
+        |_, case| vec![case],
+        |pairs, (stage, tree)| {
+            // Outside the reference tree domain (a stage dropping an edge
+            // between surviving vertices) there is no tree put to compare.
+            let inside = reference_aligned_put(&pairs[*stage], tree).is_some();
+            let outcome = inside
+                .then(|| production_aligned_put(&pairs[*stage], tree))
+                .flatten();
+            if let Some(outcome) = &outcome {
+                edited.fetch_add(
+                    outcome.puts.len().saturating_sub(1),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
+            outcome
+        },
+        |pairs, (stage, tree)| reference_aligned_put(&pairs[*stage], tree),
+        |production, reference| production == reference,
+    ));
+    assert_eq!(compared, u64::try_from(carriers.len()).unwrap());
+    let edited = edited.into_inner();
+    println!("aligned tree put: edited serialized views={edited}");
+    assert!(edited > 0, "some carrier has a leaf to delete and copy");
+}
+
 #[test]
 fn lens_equivalence_law_certificate() {
     let mut bases = [0_usize; 3];

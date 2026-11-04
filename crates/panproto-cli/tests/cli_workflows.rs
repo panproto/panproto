@@ -3388,6 +3388,110 @@ fn cli_lens_apply_backward_restores_the_source_of_a_rename_and_computed_field() 
     assert_eq!(restored, serde_json::json!({ "text": "hello" }));
 }
 
+/// `lens apply --direction backward` aligns the view it parses to the
+/// complement before `put`. A lens that drops the nested field `obj.d`
+/// returns a view whose nodes `parse_json` may number differently from
+/// `get`; forward then backward, unedited or with a kept field edited,
+/// restores `d`.
+#[test]
+fn cli_lens_apply_backward_restores_a_nested_dropped_field() {
+    let tmp = tempfile::tempdir().unwrap();
+    let document = serde_json::json!({
+        "id": "dev.test.nested_drop",
+        "source": "s",
+        "target": "t",
+        "steps": [{ "remove_field": "d" }],
+    });
+    std::fs::write(tmp.path().join("document.json"), document.to_string()).unwrap();
+    schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            "document.json",
+            "--body-vertex",
+            "root.obj",
+            "--out",
+            "lens.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[
+            ("root", "object"),
+            ("root.text", "string"),
+            ("root.obj", "object"),
+            ("root.obj.k", "string"),
+            ("root.obj.d", "string"),
+        ],
+        &[
+            ("root", "root.text", "prop", "text"),
+            ("root", "root.obj", "prop", "obj"),
+            ("root.obj", "root.obj.k", "prop", "k"),
+            ("root.obj", "root.obj.d", "prop", "d"),
+        ],
+    );
+    let source_json = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+    std::fs::write(tmp.path().join("data.json"), source_json.to_string()).unwrap();
+    let forward = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "lens.json",
+            "data.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let view: serde_json::Value = serde_json::from_slice(&forward.stdout).unwrap();
+    assert_eq!(
+        view,
+        serde_json::json!({ "text": "hello", "obj": { "k": "1" } })
+    );
+    write_complement_of_one_stage_lens(tmp.path(), &source_json);
+
+    for (shown, expected) in [
+        (view, source_json),
+        (
+            serde_json::json!({ "text": "bye", "obj": { "k": "9" } }),
+            serde_json::json!({ "text": "bye", "obj": { "k": "9", "d": "2" } }),
+        ),
+    ] {
+        std::fs::write(tmp.path().join("view.json"), shown.to_string()).unwrap();
+        let backward = schema_cmd()
+            .args([
+                "lens",
+                "apply",
+                "lens.json",
+                "view.json",
+                "--protocol",
+                "atproto",
+                "--schema",
+                "source.json",
+                "--direction",
+                "backward",
+                "--complement",
+                "complement.json",
+            ])
+            .current_dir(tmp.path())
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        let restored: serde_json::Value = serde_json::from_slice(&backward.stdout).unwrap();
+        assert_eq!(restored, expected, "backward apply of {shown}");
+    }
+}
+
 /// `data convert --direction backward` has no complement, so it puts the
 /// view through `put_without_complement`: a renaming chain is an
 /// isomorphism, and the view under the target schema converts back to the

@@ -48,6 +48,8 @@ pub struct ComplementModel {
     pub id_floor: u32,
     /// Structural synthesis-key payload by synthesized node id.
     pub synthesized_keys: BTreeMap<u32, ComplementAtom>,
+    /// View-position payload by view node id.
+    pub view_positions: BTreeMap<u32, ComplementAtom>,
     /// Legacy source-schema fingerprint; zero means absent.
     pub source_fingerprint: u64,
     /// Equality class of the complete identity envelope; absent means legacy
@@ -126,6 +128,8 @@ pub enum ComplementComposeRefusal {
     SynthesizedIdByKey,
     /// Two nonempty global arc sequences disagree.
     ArcOrder,
+    /// Distinct view positions are recorded for one view node.
+    ViewPositions,
     /// A data-bearing complement carries neither identity nor fingerprint.
     UnboundData,
     /// Two legacy fingerprints disagree.
@@ -286,6 +290,11 @@ pub fn compose_complement(
         (false, false) => return Err(ComplementComposeRefusal::ArcOrder),
     };
     let synthesized_keys = merge_synthesized_keys(&left.synthesized_keys, &right.synthesized_keys)?;
+    let view_positions = merge_keyed(
+        &left.view_positions,
+        &right.view_positions,
+        ComplementComposeRefusal::ViewPositions,
+    )?;
     Ok(ComplementModel {
         dropped_nodes,
         dropped_arcs,
@@ -301,11 +310,15 @@ pub fn compose_complement(
         original_anchors,
         id_floor: left.id_floor.max(right.id_floor),
         synthesized_keys,
+        view_positions,
         source_fingerprint,
         identity,
     })
 }
 
+pub use super::alignment::{
+    ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
+};
 pub use super::domain::{PutDomainError, ViewRef};
 pub use super::graph::{
     GraphLens, IdentityError, IdentityStatus, LensError, cascade_universal_property,

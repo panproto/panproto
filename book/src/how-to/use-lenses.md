@@ -20,7 +20,7 @@ const updatedOld = mig.putJson(editedView, complement, "user:body") as {
 };
 ```
 
-`mig.getJson` returns the forward view together with the complement, which retains data discarded by the forward operation. `mig.putJson` consumes both values and reconstructs a JavaScript record with the edit applied. The law checks below test the round trip for a supplied instance.
+`mig.getJson` returns the forward view together with the complement, which retains data discarded by the forward operation. `mig.putJson` consumes both values and reconstructs a JavaScript record with the edit applied. JSON carries no node ids, so `putJson` first gives each node of the parsed view the id `getJson` gave the node at the same position (its parent, its field, and its index in an array), which the complement records; a node the edit adds takes a fresh id. Keep the complement with the view it came from: a complement from an earlier release that records no positions is refused, and calling `getJson` again gives a current one. The law checks below test the round trip for a supplied instance.
 
 To compose two compiled migrations sequentially:
 

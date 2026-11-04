@@ -2,16 +2,19 @@
 //! A computed field survives a JSON round trip of its view.
 //!
 //! This is the path a binding takes: `get` on a parsed record, the view
-//! written to JSON, the JSON read back under the target schema, the computed
-//! field that `parse_json` reads as a child folded back into its node's
-//! fields, and `put` with the complement from `get`. Putting back the
+//! written to JSON, the JSON read back under the target schema and aligned
+//! to the positions the complement records, the computed field that
+//! `parse_json` reads as a child folded back into its node's fields, and
+//! `put` with the complement from `get`. Putting back the
 //! unedited view must restore the source, and putting back a view whose
 //! computed field was edited must be refused, whether the field holds a
 //! record or a string. Core `put` itself refuses the view as `parse_json`
 //! reads it, before the fold, as the reference lens does.
 
 use panproto_inst::{parse_json, to_json};
-use panproto_lens::{Lens, LensError, PutDomainError, fold_computed_children_into_fields};
+use panproto_lens::{
+    Lens, LensError, PutDomainError, align_view_to_complement, fold_computed_children_into_fields,
+};
 use panproto_schema::{EdgeRule, Protocol, SchemaBuilder};
 
 /// A protocol that classifies no value kind, as a binding falls back to
@@ -91,7 +94,8 @@ fn lens(protocol: &Protocol, g_kind: &str, expr: &str) -> Lens {
 ///
 /// The rename moves the `amount` edge after `g` in the target schema's edge
 /// order, so `parse_json` gives the computed child `g` the id the source
-/// child `text` holds in the complement.
+/// child `text` holds in the complement; alignment gives `amount` that id
+/// back and `g` a fresh one.
 fn renaming_lens(protocol: &Protocol, expr: &str) -> Lens {
     let base = lens(protocol, "string", expr);
     let rename = panproto_lens_dsl::eval::eval_json(
@@ -115,35 +119,43 @@ fn renaming_lens(protocol: &Protocol, expr: &str) -> Lens {
 }
 
 /// Get, write the view to JSON, check it is `expected_view`, then read
-/// back `shown` (the view as a client returns it), check that core `put`
-/// refuses it as read, and put it after folding its computed field back
-/// into its node's fields.
+/// back `shown` (the view as a client returns it), align it to the
+/// complement, check that core `put` refuses it as aligned, and put it
+/// after folding its computed field back into its node's fields.
 fn round_trip(
     protocol: &Protocol,
     lens: &Lens,
     expected_view: &serde_json::Value,
     shown: &serde_json::Value,
 ) -> Result<serde_json::Value, LensError> {
-    let source = parse_json(
-        &lens.src_schema,
+    round_trip_from(
         protocol,
-        "rec:body",
+        lens,
         &serde_json::json!({ "text": "hello" }),
+        expected_view,
+        shown,
     )
-    .unwrap();
+}
+
+/// [`round_trip`] from the source record `source`.
+fn round_trip_from(
+    protocol: &Protocol,
+    lens: &Lens,
+    source: &serde_json::Value,
+    expected_view: &serde_json::Value,
+    shown: &serde_json::Value,
+) -> Result<serde_json::Value, LensError> {
+    let source = parse_json(&lens.src_schema, protocol, "rec:body", source).unwrap();
     let (view, complement) = panproto_lens::get(lens, &source).unwrap();
     assert_eq!(&to_json(&lens.tgt_schema, &view).unwrap(), expected_view);
     let reparsed = parse_json(&lens.tgt_schema, protocol, "rec:body", shown).unwrap();
-    let direct = panproto_lens::put(lens, &reparsed, &complement);
+    let aligned = align_view_to_complement(lens, &reparsed, &complement)?;
+    let direct = panproto_lens::put(lens, &aligned, &complement);
     assert!(
         matches!(&direct, Err(LensError::PutDomain(_))),
         "core put refuses the computed field read back as a child: {direct:?}"
     );
-    let folded = fold_computed_children_into_fields(lens, &reparsed, &complement);
-    assert!(
-        folded.nodes.len() < reparsed.nodes.len(),
-        "the fold moves `g` into a field"
-    );
+    let folded = fold_computed_children_into_fields(lens, &aligned, &complement);
     panproto_lens::put(lens, &folded, &complement)
         .map(|restored| to_json(&lens.src_schema, &restored).unwrap())
 }
@@ -259,4 +271,25 @@ fn an_edited_computed_field_beside_a_renamed_field_is_refused() {
         ),
         "{refused:?}"
     );
+}
+
+/// A source that holds a child on the computed field's own edge presents
+/// the child and the computed field under one JSON key. Aligned, the key is
+/// the source child, which the fold leaves in place, so `put` refuses the
+/// view instead of reading the key as the computed field and dropping the
+/// source child.
+#[test]
+fn a_computed_field_whose_edge_carries_a_source_child_is_refused() {
+    let protocol = protocol();
+    let lens = lens(&protocol, "string", "upper text");
+    let view = serde_json::json!({ "text": "hello", "g": "HELLO" });
+    let refused = round_trip_from(
+        &protocol,
+        &lens,
+        &serde_json::json!({ "text": "hello", "g": "x" }),
+        &view,
+        &view,
+    )
+    .unwrap_err();
+    assert!(matches!(&refused, LensError::PutDomain(_)), "{refused:?}");
 }

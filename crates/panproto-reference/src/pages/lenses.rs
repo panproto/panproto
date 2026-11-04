@@ -1,5 +1,7 @@
 //! Complete reference operations assigned to `lenses`.
 
+// Structural alignment of a tree view read from a serialization.
+mod alignment;
 // Shared put-domain machinery and graph restoration.
 mod domain;
 mod graph;
@@ -15,6 +17,9 @@ mod squares;
 pub mod table;
 mod tree;
 
+pub use self::alignment::{
+    ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
+};
 pub use self::laws::{
     BasisCase, CongruenceCase, Divergence, DivergenceKind, DomainExpectation, EqualityClass,
     FusionCheck, FusionObservation, GateReport, GraphShape, LawFailure, LawGate, LawGateStatus,

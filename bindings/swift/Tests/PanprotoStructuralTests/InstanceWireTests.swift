@@ -540,9 +540,9 @@ struct ComplementWireTests {
             Issue.record("a complement encodes as a map")
             return
         }
-        // Fifteen fields are always written; the sixteenth, the identity
+        // Sixteen fields are always written; the seventeenth, the identity
         // envelope, is left out when absent, as the engine leaves it out.
-        #expect(entries.count == 15)
+        #expect(entries.count == 16)
         #expect(!entries.contains { $0.key == .textString("identity") })
     }
 
@@ -597,6 +597,29 @@ struct ComplementWireTests {
                             .textMap([("source_edge", .unsigned(3)), ("hop", .unsigned(1))])
                         )
                     ]))
+            ],
+            viewPositions: [
+                0: try ViewPosition(
+                    representation: .textMap([("root", .textMap([("anchor", .textString("v"))]))])),
+                1: try ViewPosition(
+                    representation: .textMap([
+                        (
+                            "child",
+                            .textMap([
+                                ("parent", .unsigned(0)),
+                                (
+                                    "edge",
+                                    .textMap([
+                                        ("src", .textString("a")),
+                                        ("tgt", .textString("b")),
+                                        ("kind", .textString("prop")),
+                                        ("name", .textString("n")),
+                                    ])
+                                ),
+                                ("index", .unsigned(0)),
+                            ])
+                        )
+                    ])),
             ],
             identity: IdentityEnvelope(
                 sourceSchema: Data(repeating: 1, count: 32),

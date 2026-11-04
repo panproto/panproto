@@ -115,7 +115,7 @@ pub use adjunction::{
     f_sigma_on_hom, f_sigma_with_provenance,
 };
 pub use attributes::{AttributeDecl, AttributeSchema, AttributeViolation};
-pub use complement::Complement;
+pub use complement::{Complement, ViewPosition, view_positions_of};
 pub use contraction::{ContractionRecord, ContractionTracker};
 pub use contraction_plan::{
     ContractionMode, ContractionPlan, PairResolution, PlannedPair, UnresolvedReason, resolve_pair,

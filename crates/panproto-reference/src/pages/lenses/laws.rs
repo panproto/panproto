@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::alignment::{ViewPosition, reindexed_positions, tree_view_positions};
 use super::domain::{PutDomainError, ViewRef};
 use super::graph::{GraphLens, IdentityError, LensError};
 use super::table::TableComplement;
@@ -126,6 +127,9 @@ pub struct TreeLawComplement {
     /// earlier tree arc is inserted or removed and the graph encoding's
     /// positional edge ids consequently shift.
     pub source_arcs: BTreeMap<u32, (u32, u32)>,
+    /// The structural position of every node of the view tree get
+    /// returned, by view id: [`tree_view_positions`] of that view.
+    pub view_positions: BTreeMap<u32, ViewPosition>,
 }
 
 fn tree_source_arcs(source: &Tree) -> BTreeMap<u32, (u32, u32)> {
@@ -1170,6 +1174,7 @@ fn collision_free_tree_rekey(
         complement: reindexed_complement(&complement.complement, &node_alignment, &edge_alignment),
         embedding,
         source_arcs: complement.source_arcs.clone(),
+        view_positions: reindexed_positions(&complement.view_positions, &node_alignment),
     })
 }
 
@@ -2742,6 +2747,7 @@ fn tree_congruence_case(
             complement: reindexed_complement(graph, &nodes, &edges),
             embedding: reindexed_embedding(&complement.embedding, &nodes, &edges),
             source_arcs: complement.source_arcs.clone(),
+            view_positions: reindexed_positions(&complement.view_positions, &nodes),
         },
     })
 }
@@ -3612,12 +3618,14 @@ impl<'a> LawShape<GraphLens<'a>> for TreeShape {
         let result = tree_get(lens, source).ok_or(ReferenceLawError::OutsideTreeDomain)?;
         result
             .map(|(view, complement, embedding)| {
+                let view_positions = tree_view_positions(&view);
                 (
                     view,
                     TreeLawComplement {
                         complement,
                         embedding,
                         source_arcs: tree_source_arcs(source),
+                        view_positions,
                     },
                 )
             })
@@ -6373,6 +6381,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&restored),
+            view_positions: BTreeMap::new(),
         };
         assert!(<super::TreeShape as super::LensShape>::equivalent(
             &candidate.view,
@@ -6407,6 +6416,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(source),
+            view_positions: BTreeMap::new(),
         };
         tree_basis(&lens, &view, &complement)
     }
@@ -6504,6 +6514,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         for (_, _, label) in &mut view.arcs {
             label.clone_from(&unrepresentable);
@@ -6607,6 +6618,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let Some(arc) = view.arcs.iter_mut().find(|(_, child, _)| *child == 1) else {
             panic!("the child arc is present");
@@ -6689,6 +6701,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let Some((&synthesized, _)) = complement.complement.synthesized_nodes.iter().next() else {
             panic!("the expanded path has an intermediate node");
@@ -6782,6 +6795,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let mut siblings: Vec<_> = view
             .arcs
@@ -6978,6 +6992,7 @@ mod locality_tests {
                 ..TreeEmbedding::default()
             },
             source_arcs: [(0, (0, 1)), (1, (0, 2)), (2, (0, 3))].into(),
+            view_positions: BTreeMap::new(),
         };
         assert!(
             tree_locality_divergence(&source, &source, &edited, &edited, &complement).is_none()
@@ -7019,6 +7034,7 @@ mod locality_tests {
             complement,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let reorder: Vec<_> = tree_basis(&lens, &view, &complement)
             .into_iter()
@@ -7105,6 +7121,7 @@ mod locality_tests {
             complement,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let reorder: Vec<_> = tree_basis(&lens, &view, &complement)
             .into_iter()
@@ -7150,6 +7167,7 @@ mod locality_tests {
                 ..TreeEmbedding::default()
             },
             source_arcs: BTreeMap::new(),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(fresh_tree_node(&view, &complement), Some(4));
 
@@ -7202,6 +7220,7 @@ mod locality_tests {
                 ..TreeEmbedding::default()
             },
             source_arcs: BTreeMap::new(),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(fresh_tree_edge(&complement), Some(7));
 
@@ -7379,6 +7398,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(source),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(
             tree_basis(&lens, &view, &complement)
@@ -7422,6 +7442,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let edited: Vec<_> = tree_basis(&lens, &view, &complement)
             .into_iter()
@@ -7636,6 +7657,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(
             tree_basis(&lens, &view, &complement)
@@ -7744,6 +7766,7 @@ mod locality_tests {
             complement: super::reindexed_complement(&graph, &moves, &BTreeMap::new()),
             embedding: super::reindexed_embedding(&embedding, &moves, &BTreeMap::new()),
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(view.nodes[&3].anchor, "m");
         assert_eq!(view.nodes[&10].anchor, "m");
@@ -7831,6 +7854,7 @@ mod locality_tests {
             complement: super::reindexed_complement(&graph, &moves, &BTreeMap::new()),
             embedding: super::reindexed_embedding(&embedding, &moves, &BTreeMap::new()),
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(
             tree_check_put_domain(&lens, &view, &complement.embedding, &complement.complement,),
@@ -7884,6 +7908,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(
             tree_basis(&lens, &view, &complement)
@@ -7919,6 +7944,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         assert_eq!(
             super::isolated_reserved_tree_parent(&complement, 2),
@@ -7994,6 +8020,7 @@ mod locality_tests {
             complement: graph,
             embedding,
             source_arcs: tree_source_arcs(&source),
+            view_positions: BTreeMap::new(),
         };
         let contracted: Vec<_> = tree_basis(&lens, &view, &complement)
             .into_iter()
@@ -8088,6 +8115,7 @@ mod locality_tests {
                 ..TreeEmbedding::default()
             },
             source_arcs: BTreeMap::new(),
+            view_positions: BTreeMap::new(),
         };
         let Some(rekeyed) =
             collision_free_tree_rekey(&complement, &BTreeMap::new(), &[(6, 5), (7, 6)].into())
@@ -8180,6 +8208,7 @@ mod locality_tests {
                 ..TreeEmbedding::default()
             },
             source_arcs: [(0, (0, 1))].into(),
+            view_positions: BTreeMap::new(),
         };
         assert!(
             tree_locality_divergence(&source, &original_view, &edited, &exact, &complement,)

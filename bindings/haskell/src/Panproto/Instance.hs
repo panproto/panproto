@@ -365,6 +365,10 @@ data Complement = Complement
     -- ^ First node id outside the source graph at @get@ time.
     , synthesizedKeys :: !(HashMap Word32 WireTerm)
     -- ^ Stable synthesis keys, retained in their exact Rust serde form.
+    , viewPositions :: !(HashMap Word32 WireTerm)
+    -- ^ Where @get@ put each view node, by view node id, retained in its
+    -- exact Rust serde form. A serialized put aligns a view read without
+    -- node ids to these positions.
     , identity :: !(Maybe WireTerm)
     -- ^ Complement identity envelope, retained without interpretation.
     }
@@ -391,6 +395,7 @@ emptyComplement =
         , originalAnchors = HM.empty
         , idFloor = 0
         , synthesizedKeys = HM.empty
+        , viewPositions = HM.empty
         , identity = Nothing
         }
 
@@ -493,7 +498,7 @@ encodeComplements = CBOR.toLazyByteString . encodeList complementEncoding
 
 complementEncoding :: Complement -> Encoding
 complementEncoding c =
-    Enc.encodeMapLen (if maybe False (const True) c.identity then 16 else 15)
+    Enc.encodeMapLen (if maybe False (const True) c.identity then 17 else 16)
         <> kv "dropped_nodes" (encodeNodeMap c.droppedNodes)
         <> kv "dropped_arcs" (encodeArcs c.droppedArcs)
         <> kv "dropped_fans" (encodeList encodeFan c.droppedFans)
@@ -509,6 +514,7 @@ complementEncoding c =
         <> kv "original_anchors" (encodeWordMap Enc.encodeString c.originalAnchors)
         <> kv "id_floor" (Enc.encodeWord32 c.idFloor)
         <> kv "synthesized_keys" (encodeWordMap encodeWireTerm c.synthesizedKeys)
+        <> kv "view_positions" (encodeWordMap encodeWireTerm c.viewPositions)
         <> maybe mempty (kv "identity" . encodeWireTerm) c.identity
   where
     kv k v = Enc.encodeString k <> v
@@ -723,6 +729,8 @@ complementDecoder = decodeMapWith emptyComplement onKey
         "id_floor" -> (\v -> acc {idFloor = v}) <$> decodeWord32
         "synthesized_keys" ->
             (\v -> acc {synthesizedKeys = v}) <$> decodeWordMap decodeWireTerm
+        "view_positions" ->
+            (\v -> acc {viewPositions = v}) <$> decodeWordMap decodeWireTerm
         "identity" -> (\v -> acc {identity = Just v}) <$> decodeWireTerm
         _ -> skipTerm >> pure acc
 
