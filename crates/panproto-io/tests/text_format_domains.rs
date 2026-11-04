@@ -379,3 +379,76 @@ fn csv_and_tsv_read_their_declared_dialects() {
         );
     }
 }
+
+/// The `a` cell of every row, in row order.
+fn column_a(instance: &panproto_inst::FInstance) -> Vec<Value> {
+    instance
+        .rows("rows")
+        .into_iter()
+        .map(|(_, row)| row.get("a").cloned().expect("an `a` cell"))
+        .collect()
+}
+
+#[test]
+fn preserving_tabular_routes_read_blank_body_lines_as_the_canonical_route_does() {
+    let table = one_vertex_schema("rows");
+    for (codec, delimiter) in [
+        (UnifiedCodec::csv("test").unwrap(), b','),
+        (UnifiedCodec::tsv("test", "rows").unwrap(), b'\t'),
+    ] {
+        for (input, expected) in [
+            (&b"a\n1\n\n2\n"[..], vec!["1", "", "2"]),
+            (b"a\n\n\n1\n", vec!["", "", "1"]),
+            (b"a\r\n1\r\n\r\n\r\n2\r\n", vec!["1", "", "", "2"]),
+            (b"a\n1\n\n2\n\n", vec!["1", "", "2", ""]),
+        ] {
+            let label = String::from_utf8_lossy(input);
+            let (instance, complement) = codec.parse_functor_preserving(&table, input).unwrap();
+            let expected: Vec<Value> = expected.into_iter().map(text).collect();
+            assert_eq!(column_a(&instance), expected, "{label}");
+            let canonical = panproto_io::tabular_pathway::parse_tsv(
+                &table, input, "test", "rows", delimiter, None,
+            )
+            .unwrap();
+            assert_eq!(column_a(&canonical), expected, "canonical {label}");
+            assert_eq!(
+                codec
+                    .emit_functor_preserving(&table, &instance, &complement)
+                    .unwrap(),
+                input,
+                "{label}"
+            );
+        }
+
+        // An edit after a blank line lands on its own row, and a blank line,
+        // which has no cell carrier, cannot be edited.
+        let input = b"a\n1\n\n2\n";
+        let (instance, complement) = codec.parse_functor_preserving(&table, input).unwrap();
+        let ids = instance.table("rows").unwrap().ids();
+        let mut edited = instance.clone();
+        edited
+            .row_mut(ids[2])
+            .unwrap()
+            .insert("a".to_owned(), text("3"));
+        assert_eq!(
+            codec
+                .emit_functor_preserving(&table, &edited, &complement)
+                .unwrap(),
+            b"a\n1\n\n3\n"
+        );
+        let mut blank_edit = instance;
+        blank_edit
+            .row_mut(ids[1])
+            .unwrap()
+            .insert("a".to_owned(), text("x"));
+        assert!(matches!(
+            codec.emit_functor_preserving(&table, &blank_edit, &complement),
+            Err(EmitInstanceError::UnsupportedStructuralEdit { .. })
+        ));
+
+        // With more than one column a blank line is no row on either route.
+        let input = b"a,b\n1,2\n\n3,4\n".map(|byte| if byte == b',' { delimiter } else { byte });
+        let (instance, _) = codec.parse_functor_preserving(&table, &input).unwrap();
+        assert_eq!(column_a(&instance), [text("1"), text("3")]);
+    }
+}

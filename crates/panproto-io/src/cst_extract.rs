@@ -5717,9 +5717,28 @@ pub fn extract_tabular_cst_with_protocol(
         cell_to_cst: HashMap::new(),
         fidelity: Vec::new(),
     };
+    // Each row is addressed by its position in the instance, so a blank line
+    // read as a row below takes a position, and every later cell carrier is
+    // keyed past it.
     let mut rows = Vec::new();
-    for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
-        rows.push(reader.row(row_idx, row_name)?);
+    for (index, row_name) in row_vertices[1..].iter().enumerate() {
+        // A blank line of a one-column table is one row holding the empty
+        // string, as the canonical reader gives it. The grammar makes it no
+        // row node, so it is counted from the line endings between the
+        // previous row (or the header) and this one; it has no cell carrier,
+        // and an edit of it is refused as an unaddressed structure edit.
+        // With more columns a blank line is no row, again as the canonical
+        // reader gives it.
+        if reader.headers.len() == 1 {
+            for _ in 0..blank_lines_between(cst, &doc_vertex, row_vertices[index], row_name) {
+                let col = reader.headers[0].clone();
+                if let Some(value) = reader.coerce_cell(&col, "", None) {
+                    rows.push(HashMap::from([(col, value)]));
+                }
+            }
+        }
+        let position = rows.len();
+        rows.push(reader.row(position, row_name)?);
     }
 
     // The CSV/TSV grammar's `text` token may be empty. At the end of a
@@ -5952,6 +5971,51 @@ fn delimited_field_starts(text: &str, delimiter: u8, quoted: bool) -> Vec<usize>
     starts
 }
 
+/// Count the blank lines between two consecutive rows of a tabular CST: the
+/// line endings between the end of `previous` and the start of `next`, less
+/// the one that ends `previous`. A gap holding anything but line endings
+/// counts no blank line.
+fn blank_lines_between(cst: &Schema, document: &str, previous: &Name, next: &Name) -> usize {
+    let Some((document_start, _)) = cst_recorded_span(cst, document) else {
+        return 0;
+    };
+    let (Some((_, previous_end)), Some((next_start, _))) = (
+        cst_recorded_span(cst, previous),
+        cst_recorded_span(cst, next),
+    ) else {
+        return 0;
+    };
+    let source = cst_source_text(cst, document);
+    let Some(gap) = previous_end
+        .checked_sub(document_start)
+        .zip(next_start.checked_sub(document_start))
+        .and_then(|(start, end)| source.as_bytes().get(start..end))
+    else {
+        return 0;
+    };
+    line_endings(gap).map_or(0, |endings| endings.saturating_sub(1))
+}
+
+/// The number of line endings `bytes` holds, a CRLF counting once, or `None`
+/// when it holds any other byte.
+fn line_endings(bytes: &[u8]) -> Option<usize> {
+    let mut endings = 0_usize;
+    let mut bytes = bytes.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\n' => endings += 1,
+            b'\r' => {
+                endings += 1;
+                if bytes.peek() == Some(&b'\n') {
+                    bytes.next();
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(endings)
+}
+
 /// Count physical empty rows after the last row represented in a tabular CST.
 fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> usize {
     let Some((document_start, _)) = cst_recorded_span(cst, document) else {
@@ -5967,21 +6031,7 @@ fn trailing_empty_tabular_rows(cst: &Schema, document: &str, rows: &[&Name]) -> 
     else {
         return 0;
     };
-    let mut endings = 0_usize;
-    let mut bytes = tail.iter().copied().peekable();
-    while let Some(byte) = bytes.next() {
-        match byte {
-            b'\n' => endings += 1,
-            b'\r' => {
-                endings += 1;
-                if bytes.peek() == Some(&b'\n') {
-                    bytes.next();
-                }
-            }
-            _ => return 0,
-        }
-    }
-    endings.saturating_sub(1)
+    line_endings(tail).map_or(0, |endings| endings.saturating_sub(1))
 }
 
 /// Whether the bytes after the last represented row hold anything but line
