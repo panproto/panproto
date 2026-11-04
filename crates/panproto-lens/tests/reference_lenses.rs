@@ -5271,7 +5271,8 @@ fn undeclared_transform_stages_never_join_a_fused_group() {
             .into_iter()
             .map(|group| group.stages)
             .collect::<Vec<_>>();
-        assert_eq!(ranges, [0..2], "DeclaredId then {name}");
+        assert_eq!(ranges.len(), 1, "DeclaredId then {name} formed one group");
+        assert_eq!(ranges[0], 0..2, "DeclaredId then {name}");
     }
 }
 
