@@ -126,7 +126,15 @@ const ORDERED_PAIRS: usize = 77 * 76;
 /// and of kind compatibility, not of the objective, so it moves only when a
 /// lexicon is added or removed or when which targets a source vertex may take
 /// changes. Attribute a moved number to one of those before restating it.
-const ENUMERABLE_PAIRS: usize = 2773;
+///
+/// It last moved from 2773 to 2804 when the `atproto` parser changed the
+/// kinds of a union's vertices: each arm became a `ref` rather than an
+/// `object`, an open union gained an untagged `unknown` arm, a ref to a def no
+/// parsed document defines became an `unknown` placeholder rather than a
+/// `ref`, and a subscription's message union began to parse its arms. Those
+/// kinds narrow the targets the arms and placeholders may take, so 33 pairs
+/// became enumerable and 2 stopped being so.
+const ENUMERABLE_PAIRS: usize = 2804;
 
 /// Which of the two networks a check ran on.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
