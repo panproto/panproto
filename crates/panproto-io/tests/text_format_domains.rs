@@ -5,10 +5,10 @@
 #![cfg(feature = "tree-sitter")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use panproto_inst::WInstance;
 use panproto_inst::value::{
     CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Temporal, Value,
 };
-use panproto_inst::WInstance;
 use panproto_io::ParseInstanceError;
 use panproto_io::error::{EmitInstanceError, EmitValueReason};
 use panproto_io::toml_pathway::emit_toml_bytes;
@@ -99,7 +99,10 @@ fn yaml_and_toml_read_the_sign_of_a_nan() {
         .unwrap()
         .parse_wtype_preserving(&tree, b"a: .nan\nb: -.nan\n")
         .unwrap();
-    assert_eq!(float_bits(value_at(&yaml, "root:a")), CANONICAL_NAN.to_bits());
+    assert_eq!(
+        float_bits(value_at(&yaml, "root:a")),
+        CANONICAL_NAN.to_bits()
+    );
     assert_eq!(
         float_bits(value_at(&yaml, "root:b")),
         NEGATIVE_CANONICAL_NAN.to_bits()
@@ -108,12 +111,18 @@ fn yaml_and_toml_read_the_sign_of_a_nan() {
         .unwrap()
         .parse_wtype_preserving(&tree, b"a = nan\nb = -nan\nc = +nan\n")
         .unwrap();
-    assert_eq!(float_bits(value_at(&toml, "root:a")), CANONICAL_NAN.to_bits());
+    assert_eq!(
+        float_bits(value_at(&toml, "root:a")),
+        CANONICAL_NAN.to_bits()
+    );
     assert_eq!(
         float_bits(value_at(&toml, "root:b")),
         NEGATIVE_CANONICAL_NAN.to_bits()
     );
-    assert_eq!(float_bits(value_at(&toml, "root:c")), CANONICAL_NAN.to_bits());
+    assert_eq!(
+        float_bits(value_at(&toml, "root:c")),
+        CANONICAL_NAN.to_bits()
+    );
 }
 
 #[test]
@@ -126,10 +135,17 @@ fn canonical_toml_writes_a_temporal_exactly_as_it_displays() {
     let input = b"a = 1979-05-27 07:32:00.1234567891z\nb = 07:32:00.0000000001\nc = 1979-05-27T07:32:00-00:00\n";
     let (parsed, _) = codec.parse_wtype_preserving(&tree, input).unwrap();
     let written = emit_toml_bytes(&tree, &parsed, "test").expect("canonical TOML");
-    assert_eq!(String::from_utf8(written.clone()).unwrap(), String::from_utf8(input.to_vec()).unwrap());
+    assert_eq!(
+        String::from_utf8(written.clone()).unwrap(),
+        String::from_utf8(input.to_vec()).unwrap()
+    );
     let (reread, _) = codec.parse_wtype_preserving(&tree, &written).unwrap();
     for anchor in ["root:a", "root:b", "root:c"] {
-        assert_eq!(value_at(&reread, anchor), value_at(&parsed, anchor), "{anchor}");
+        assert_eq!(
+            value_at(&reread, anchor),
+            value_at(&parsed, anchor),
+            "{anchor}"
+        );
     }
 
     // A temporal TOML has no form for is still refused.
@@ -155,7 +171,7 @@ fn yaml_edit(value: Value) -> Result<Vec<u8>, EmitInstanceError> {
     codec.emit_wtype_preserving(&tree, &instance, &complement)
 }
 
-fn assert_yaml_refuses(value: Value, reason: &EmitValueReason) {
+fn assert_yaml_refuses(value: &Value, reason: &EmitValueReason) {
     match yaml_edit(value.clone()) {
         Err(EmitInstanceError::Value(error)) => assert_eq!(&error.reason, reason, "{value:?}"),
         other => panic!("{value:?}: expected a typed refusal, got {other:?}"),
@@ -182,7 +198,7 @@ fn yaml_refuses_a_special_decimal_as_non_finite() {
         DecimalValue::nan(false, false, ""),
         DecimalValue::nan(true, true, "7"),
     ] {
-        assert_yaml_refuses(Value::Decimal(special), &EmitValueReason::NonFinite);
+        assert_yaml_refuses(&Value::Decimal(special), &EmitValueReason::NonFinite);
     }
     let finite = Value::Decimal(DecimalValue::parse("1.10").unwrap());
     let written = yaml_edit(finite.clone()).expect("a finite decimal has a YAML spelling");
@@ -198,11 +214,20 @@ fn yaml_refuses_a_special_decimal_as_non_finite() {
 fn text_routes_write_back_a_leading_byte_order_mark() {
     let tree = one_vertex_schema("root");
     for (codec, input, anchor) in [
-        (UnifiedCodec::yaml("test").unwrap(), "\u{feff}a: 1\n", "root:a"),
-        (UnifiedCodec::toml("test").unwrap(), "\u{feff}a = 1\n", "root:a"),
+        (
+            UnifiedCodec::yaml("test").unwrap(),
+            "\u{feff}a: 1\n",
+            "root:a",
+        ),
+        (
+            UnifiedCodec::toml("test").unwrap(),
+            "\u{feff}a = 1\n",
+            "root:a",
+        ),
     ] {
-        let (mut instance, complement) =
-            codec.parse_wtype_preserving(&tree, input.as_bytes()).unwrap();
+        let (mut instance, complement) = codec
+            .parse_wtype_preserving(&tree, input.as_bytes())
+            .unwrap();
         assert!(complement.byte_order_mark, "{input:?}");
         assert_eq!(value_at(&instance, anchor), &Value::Int(1));
         let unedited = codec
@@ -219,7 +244,10 @@ fn text_routes_write_back_a_leading_byte_order_mark() {
     let table = one_vertex_schema("rows");
     for (codec, input) in [
         (UnifiedCodec::csv("test").unwrap(), "\u{feff}a,b\r\n1,2\r\n"),
-        (UnifiedCodec::tsv("test", "rows").unwrap(), "\u{feff}a\tb\r\n1\t2\r\n"),
+        (
+            UnifiedCodec::tsv("test", "rows").unwrap(),
+            "\u{feff}a\tb\r\n1\t2\r\n",
+        ),
     ] {
         let (instance, complement) = codec
             .parse_functor_preserving(&table, input.as_bytes())
@@ -230,7 +258,11 @@ fn text_routes_write_back_a_leading_byte_order_mark() {
             keys.sort();
             keys
         };
-        assert_eq!(header, ["a", "b"], "the mark is not part of the first header");
+        assert_eq!(
+            header,
+            ["a", "b"],
+            "the mark is not part of the first header"
+        );
         assert_eq!(
             codec
                 .emit_functor_preserving(&table, &instance, &complement)
@@ -246,7 +278,11 @@ fn text_routes_write_back_a_leading_byte_order_mark() {
         .parse_wtype_preserving(&tree, b"a: 1\n")
         .unwrap();
     assert!(!complement.byte_order_mark);
-    assert!(!serde_json::to_string(&complement).unwrap().contains("byte_order_mark"));
+    assert!(
+        !serde_json::to_string(&complement)
+            .unwrap()
+            .contains("byte_order_mark")
+    );
     assert_eq!(
         UnifiedCodec::yaml("test")
             .unwrap()
@@ -312,7 +348,10 @@ fn csv_and_tsv_read_their_declared_dialects() {
     assert_eq!(read(&csv, b"a;b\n1;2\n"), [("a;b".to_owned(), text("1;2"))]);
     assert_eq!(
         read(&tsv, b"a\tb\r\n\"x\"\t\"y,z\"\r\n"),
-        [("a".to_owned(), text("\"x\"")), ("b".to_owned(), text("\"y,z\""))]
+        [
+            ("a".to_owned(), text("\"x\"")),
+            ("b".to_owned(), text("\"y,z\""))
+        ]
     );
 
     for (codec, input) in [

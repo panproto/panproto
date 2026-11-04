@@ -65,10 +65,11 @@ struct NodeLinkEdge {
 /// form, and every text written from it, the same in both builds.
 ///
 /// Values are written as serde writes [`Value`](crate::value::Value) in a
-/// human-readable format, so a float JSON cannot represent is written as
-/// one of the strings the [module documentation](self) lists, and
-/// [`from_node_link_json`] reads every graph back with every float bit
-/// intact, the sign and payload of a `NaN` included.
+/// human-readable format, so a float JSON cannot represent is written under
+/// `"Float"` as `"NaN"`, `"-NaN"`, `"Infinity"`, `"-Infinity"`, or `"NaN:0x"`
+/// followed by the sixteen lowercase hexadecimal digits of any other `NaN`'s
+/// bits, and [`from_node_link_json`] reads every graph back with every float
+/// bit intact, the sign and payload of a `NaN` included.
 #[must_use]
 pub fn to_node_link_json(graph: &GInstance) -> serde_json::Value {
     let mut nodes: Vec<&Node> = graph.nodes().values().collect();
@@ -120,8 +121,8 @@ fn with_ascending_keys(json: serde_json::Value) -> serde_json::Value {
 /// # Errors
 ///
 /// Returns [`InstError::NodeLink`] when the document does not have the
-/// node-link shape (a string under `"Float"` other than the spellings the
-/// module documentation lists included), [`InstError::DuplicateNode`] or
+/// node-link shape (a string under `"Float"` other than the spellings
+/// [`to_node_link_json`] writes included), [`InstError::DuplicateNode`] or
 /// [`InstError::DuplicateEdge`] when an id is listed twice, and
 /// [`InstError::DanglingEdge`] when an edge names a node the document does
 /// not list.

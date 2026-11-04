@@ -40,7 +40,7 @@ use panproto_gat::{Name, is_interstitial_text_sort};
 use panproto_inst::metadata::Node;
 use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
 use panproto_inst::value::{
-    BigIntValue, CANONICAL_NAN, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
+    BigIntValue, CANONICAL_NAN, DecimalValue, FieldPresence, NEGATIVE_CANONICAL_NAN, Value,
 };
 use panproto_inst::wtype::WInstance;
 use panproto_inst::{FInstance, ValueFidelityError, ValueSite};
@@ -5471,6 +5471,32 @@ fn is_empty_yaml_sequence_item_carrier(cst: &Schema, vertex: &Name) -> bool {
         && find_yaml_sequence_item_value(cst, vertex).is_none()
 }
 
+/// The YAML text of a decimal: tagged `!!decimal` under an open kind, so it
+/// reads back as a decimal rather than a binary float.
+///
+/// A special decimal is refused with [`EmitValueReason::NonFinite`]: no YAML
+/// spelling reads back as the same decimal, since `.inf` and `.nan` are
+/// binary floats.
+fn yaml_decimal_text(
+    value: &DecimalValue,
+    spec: &ValueSpec,
+    site: &ValueSite,
+) -> Result<String, CstCodecError> {
+    if !value.is_finite() {
+        return Err(cst_value_error(
+            site,
+            "decimal",
+            "yaml",
+            EmitValueReason::NonFinite,
+        ));
+    }
+    Ok(if spec.kind == ScalarKind::Any {
+        format!("!!decimal {value}")
+    } else {
+        value.to_string()
+    })
+}
+
 /// Convert a `FieldPresence` to YAML scalar text.
 fn field_presence_to_yaml_text(
     presence: &FieldPresence,
@@ -5513,23 +5539,7 @@ fn field_presence_to_yaml_text(
         FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
         FieldPresence::Present(Value::Bool(value)) => value.to_string(),
         FieldPresence::Present(Value::Bytes(bytes)) => yaml_bytes_text(bytes, spec, site)?,
-        // No YAML spelling reads back as the same special decimal: `.inf`
-        // and `.nan` are binary floats.
-        FieldPresence::Present(Value::Decimal(value)) if !value.is_finite() => {
-            return Err(cst_value_error(
-                site,
-                "decimal",
-                "yaml",
-                EmitValueReason::NonFinite,
-            ));
-        }
-        FieldPresence::Present(Value::Decimal(value)) => {
-            if spec.kind == ScalarKind::Any {
-                format!("!!decimal {value}")
-            } else {
-                value.to_string()
-            }
-        }
+        FieldPresence::Present(Value::Decimal(value)) => yaml_decimal_text(value, spec, site)?,
         FieldPresence::Present(Value::BigInt(value)) => {
             let text = cst_bigint_text(value, site, "yaml", false)?;
             if spec.kind == ScalarKind::Any {

@@ -885,8 +885,10 @@ fn graph_with_signed_and_payload_nans() -> GInstance {
             Value::Float(-0.0),
         ]),
     );
-    odd.annotations
-        .insert("score".into(), Value::Float(f64::from_bits(0xfff0_0000_0000_0002)));
+    odd.annotations.insert(
+        "score".into(),
+        Value::Float(f64::from_bits(0xfff0_0000_0000_0002)),
+    );
     GInstance::new()
         .with_node(odd)
         .with_node(Node::new(0, "a"))
@@ -902,8 +904,14 @@ fn node_link_json_keeps_the_sign_and_payload_of_every_nan() {
     let doc = to_node_link_json(&graph);
     let text = doc.to_string();
     assert!(text.contains(r#"{"Float":"-NaN"}"#), "{text}");
-    assert!(text.contains(r#"{"Float":"NaN:0x7ff8000000000001"}"#), "{text}");
-    assert!(text.contains(r#"{"Float":"NaN:0xfff0000000000002"}"#), "{text}");
+    assert!(
+        text.contains(r#"{"Float":"NaN:0x7ff8000000000001"}"#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#"{"Float":"NaN:0xfff0000000000002"}"#),
+        "{text}"
+    );
     let back = from_node_link_json(&doc).expect("the document reads back");
     assert_eq!(graph_float_bits(&back), expected);
     let reparsed: serde_json::Value = serde_json::from_str(&text).expect("the text is JSON");
