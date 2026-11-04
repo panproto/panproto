@@ -958,6 +958,31 @@ pp_last_error_take (
     Vec_uint8_t * out);
 
 /** \brief
+ *  Align a view read from a serialization to its complement, ready for
+ *  [`pp_lens_put_record`].
+ *
+ *  `migration` is a migration/lens handle; `view` is the CBOR-encoded
+ *  `WInstance` a reader that keeps no node ids returned (such as
+ *  `pp_inst_json_to_instance`); `complement` is the CBOR-encoded
+ *  `Complement` from the `get` that produced the view. Each node at a
+ *  position `get` produced takes the id `get` gave it and a node the view
+ *  adds takes a fresh one (`lens::align_view_to_complement`), then each
+ *  computed field the reader read as a child moves back among its node's
+ *  fields (`lens::fold_computed_children_into_fields`). On success, `out`
+ *  receives the CBOR-encoded aligned `WInstance`.
+ *
+ *  A complement that records no view positions, a view rooted at another
+ *  vertex than the view `get` returned, and exhausted fresh ids are
+ *  [`FfiError::Operation`].
+ */
+int32_t
+pp_lens_align_view (
+    uint32_t migration,
+    slice_ref_uint8_t view,
+    slice_ref_uint8_t complement,
+    Vec_uint8_t * out);
+
+/** \brief
  *  Auto-generate up to `top_n` ranked candidate lenses.
  *
  *  `schema1` and `schema2` are schema handles; `stringency` is the
@@ -1116,11 +1141,45 @@ pp_lens_get_record (
     Vec_uint8_t * out);
 
 /** \brief
+ *  Bidirectional put from a JSON view: restore a record from a view
+ *  that went through JSON and the complement `get` returned with it.
+ *
+ *  `migration` is a migration/lens handle; `view_json` is raw JSON bytes
+ *  (not CBOR), as `pp_inst_to_json` writes the view; `complement` is the
+ *  CBOR-encoded `Complement` from [`pp_lens_get_record`]. The view is read
+ *  under the lens's target schema, rooted at the vertex the complement
+ *  records for the root of the view `get` returned; aligned to the
+ *  complement with `lens::align_view_to_complement`, so that each node at a
+ *  position `get` produced takes back the id `get` gave it and a node the
+ *  view adds takes a fresh one; its computed fields are folded back among
+ *  their nodes' fields with `lens::fold_computed_children_into_fields`; and
+ *  it is put with `lens::put`. On success, `out` receives the restored
+ *  record as JSON bytes.
+ *
+ *  A complement that records no view positions, a view that does not
+ *  parse under the target schema, and a put that refuses the view are
+ *  [`FfiError::Operation`]; bytes that are not JSON are
+ *  [`FfiError::Serialization`].
+ */
+int32_t
+pp_lens_put_json (
+    uint32_t migration,
+    slice_ref_uint8_t view_json,
+    slice_ref_uint8_t complement,
+    Vec_uint8_t * out);
+
+/** \brief
  *  Bidirectional put: restore a record from a view and complement.
  *
  *  `migration` is a migration/lens handle; `view` and `complement` are
  *  CBOR-encoded `WInstance` and `Complement`. On success, `out`
  *  receives the CBOR-encoded restored `WInstance`. Calls `lens::put`.
+ *
+ *  `view` must carry the node ids `get` gave it, which the complement
+ *  keys its residue by. A view read from JSON (`pp_inst_json_to_instance`)
+ *  is numbered afresh, and putting it here can lose a dropped field while
+ *  reporting success: put a JSON view with [`pp_lens_put_json`], or pass a
+ *  view parsed some other way through [`pp_lens_align_view`] first.
  */
 int32_t
 pp_lens_put_record (

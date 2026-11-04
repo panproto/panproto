@@ -139,7 +139,7 @@ the ordered path normalizes to one concrete lens group.
 | `int32_t pp_registry_list_builtin(Vec_uint8_t *out)` | CBOR `Vec<String>` out; calls `helpers::builtin_protocol_names`. |
 | `int32_t pp_registry_get_builtin(slice_ref_uint8_t name, Vec_uint8_t *out)` | UTF-8 name in; CBOR `Protocol` out; calls `helpers::lookup_builtin_protocol`. |
 
-## lens (19)
+## lens (21)
 
 | Signature | Notes |
 | --- | --- |
@@ -149,7 +149,9 @@ the ordered path normalizes to one concrete lens group.
 | `int32_t pp_lens_check_get_put(uint32_t migration, slice_ref_uint8_t instance, Vec_uint8_t *out)` | As above; calls `lens::check_get_put`. |
 | `int32_t pp_lens_check_put_get(uint32_t migration, slice_ref_uint8_t instance, Vec_uint8_t *out)` | As above; calls `lens::check_put_get`. |
 | `int32_t pp_lens_get_record(uint32_t migration, slice_ref_uint8_t record, Vec_uint8_t *out)` | CBOR `WInstance` in; CBOR `{ view, complement }` out; calls `lens::get`. |
-| `int32_t pp_lens_put_record(uint32_t migration, slice_ref_uint8_t view, slice_ref_uint8_t complement, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; CBOR `WInstance` out; calls `lens::put`. |
+| `int32_t pp_lens_put_record(uint32_t migration, slice_ref_uint8_t view, slice_ref_uint8_t complement, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; CBOR `WInstance` out; calls `lens::put`. The view must carry the node ids `get` gave it: a view read from JSON goes through `pp_lens_put_json`, or through `pp_lens_align_view` first. |
+| `int32_t pp_lens_put_json(uint32_t migration, slice_ref_uint8_t view_json, slice_ref_uint8_t complement, Vec_uint8_t *out)` | Raw JSON view + CBOR `Complement` in; JSON out. Reads the view under the target schema at the root the complement records, then calls `lens::align_view_to_complement`, `lens::fold_computed_children_into_fields` and `lens::put`. A complement that records no view positions is refused. |
+| `int32_t pp_lens_align_view(uint32_t migration, slice_ref_uint8_t view, slice_ref_uint8_t complement, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; CBOR `WInstance` out; calls `lens::align_view_to_complement` and `lens::fold_computed_children_into_fields`, readying a view a reader numbered afresh for `pp_lens_put_record`. |
 | `int32_t pp_lens_compose(uint32_t l1, uint32_t l2, uint32_t *out_handle)` | New `MigrationWithSchemas` handle; calls `lens::compose`. |
 | `int32_t pp_protolens_instantiate(uint32_t chain, uint32_t schema, uint32_t *out_handle)` | Accepts `ProtolensChain` and chain-compatible directional `CompiledLensDoc` handles. A plain chain calls `ProtolensChain::instantiate`; a compiled document instantiates its ordered stages and value transforms, then refuses unless normalization yields one concrete lens group. On success, the function returns a new `MigrationWithSchemas` handle. |
 | `int32_t pp_protolens_complement_spec(uint32_t chain, uint32_t schema, Vec_uint8_t *out)` | CBOR `ComplementSpec` out; calls `lens::chain_complement_spec` on the protolens chain or a compiled document's compatibility-chain projection. The projection omits ordered stage boundaries and value transforms. |

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use ciborium::value::Value as CborValue;
 use panproto_core::{
-    inst::WInstance,
+    inst::{ViewPosition, WInstance},
     lens::{self, Stringency},
 };
 use safer_ffi::prelude::*;
@@ -442,6 +442,12 @@ pub fn pp_lens_get_record(
 /// `migration` is a migration/lens handle; `view` and `complement` are
 /// CBOR-encoded `WInstance` and `Complement`. On success, `out`
 /// receives the CBOR-encoded restored `WInstance`. Calls `lens::put`.
+///
+/// `view` must carry the node ids `get` gave it, which the complement
+/// keys its residue by. A view read from JSON (`pp_inst_json_to_instance`)
+/// is numbered afresh, and putting it here can lose a dropped field while
+/// reporting success: put a JSON view with [`pp_lens_put_json`], or pass a
+/// view parsed some other way through [`pp_lens_align_view`] first.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_lens_put_record(
@@ -457,6 +463,124 @@ pub fn pp_lens_put_record(
         let restored = lens::put(&lens_obj, &view_inst, &comp)
             .map_err(|e| FfiError::Operation(format!("put: {e}")))?;
         *out = canonical::encode(&restored)?.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// The vertex the view `get` returned is rooted at, as `complement`
+/// records it.
+fn recorded_view_root(complement: &lens::Complement) -> Option<&panproto_core::gat::Name> {
+    complement
+        .view_positions
+        .values()
+        .find_map(|position| match position {
+            ViewPosition::Root { anchor } => Some(anchor),
+            ViewPosition::Child { .. } => None,
+        })
+}
+
+/// `view` aligned to `complement` and with its computed fields folded:
+/// the view a reader that keeps no node ids returns, made the view
+/// `lens::put` reads.
+fn align_and_fold(
+    lens_obj: &lens::Lens,
+    view: &WInstance,
+    complement: &lens::Complement,
+) -> Result<WInstance, FfiError> {
+    let aligned = lens::align_view_to_complement(lens_obj, view, complement)
+        .map_err(|e| FfiError::Operation(format!("align_view: {e}")))?;
+    Ok(lens::fold_computed_children_into_fields(
+        lens_obj, &aligned, complement,
+    ))
+}
+
+/// Bidirectional put from a JSON view: restore a record from a view
+/// that went through JSON and the complement `get` returned with it.
+///
+/// `migration` is a migration/lens handle; `view_json` is raw JSON bytes
+/// (not CBOR), as `pp_inst_to_json` writes the view; `complement` is the
+/// CBOR-encoded `Complement` from [`pp_lens_get_record`]. The view is read
+/// under the lens's target schema, rooted at the vertex the complement
+/// records for the root of the view `get` returned; aligned to the
+/// complement with `lens::align_view_to_complement`, so that each node at a
+/// position `get` produced takes back the id `get` gave it and a node the
+/// view adds takes a fresh one; its computed fields are folded back among
+/// their nodes' fields with `lens::fold_computed_children_into_fields`; and
+/// it is put with `lens::put`. On success, `out` receives the restored
+/// record as JSON bytes.
+///
+/// A complement that records no view positions, a view that does not
+/// parse under the target schema, and a put that refuses the view are
+/// [`FfiError::Operation`]; bytes that are not JSON are
+/// [`FfiError::Serialization`].
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_lens_put_json(
+    migration: u32,
+    view_json: c_slice::Ref<'_, u8>,
+    complement: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
+    guard(|| {
+        let json: serde_json::Value = serde_json::from_slice(view_json.as_slice())
+            .map_err(|e| FfiError::Serialization(e.to_string()))?;
+        let comp = decode_complement_from_host(complement.as_slice())?;
+        let lens_obj = lens_from_handle(migration)?;
+        let root = recorded_view_root(&comp).ok_or_else(|| {
+            FfiError::Operation(format!(
+                "put_json: {}",
+                lens::ViewAlignmentError::PositionsNotRecorded
+            ))
+        })?;
+        let parsed = panproto_core::inst::parse_json(
+            &lens_obj.tgt_schema,
+            &protocol_for_schema(&lens_obj.tgt_schema),
+            root,
+            &json,
+        )
+        .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))?;
+        let view = align_and_fold(&lens_obj, &parsed, &comp)?;
+        let restored = lens::put(&lens_obj, &view, &comp)
+            .map_err(|e| FfiError::Operation(format!("put: {e}")))?;
+        let restored_json = panproto_core::inst::to_json(&lens_obj.src_schema, &restored)
+            .map_err(|e| FfiError::Operation(format!("to_json: {e}")))?;
+        *out = serde_json::to_vec(&restored_json)
+            .map_err(|e| FfiError::Serialization(e.to_string()))?
+            .into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Align a view read from a serialization to its complement, ready for
+/// [`pp_lens_put_record`].
+///
+/// `migration` is a migration/lens handle; `view` is the CBOR-encoded
+/// `WInstance` a reader that keeps no node ids returned (such as
+/// `pp_inst_json_to_instance`); `complement` is the CBOR-encoded
+/// `Complement` from the `get` that produced the view. Each node at a
+/// position `get` produced takes the id `get` gave it and a node the view
+/// adds takes a fresh one (`lens::align_view_to_complement`), then each
+/// computed field the reader read as a child moves back among its node's
+/// fields (`lens::fold_computed_children_into_fields`). On success, `out`
+/// receives the CBOR-encoded aligned `WInstance`.
+///
+/// A complement that records no view positions, a view rooted at another
+/// vertex than the view `get` returned, and exhausted fresh ids are
+/// [`FfiError::Operation`].
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_lens_align_view(
+    migration: u32,
+    view: c_slice::Ref<'_, u8>,
+    complement: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
+    guard(|| {
+        let view_inst: WInstance = canonical::decode(view.as_slice())?;
+        let comp = decode_complement_from_host(complement.as_slice())?;
+        let lens_obj = lens_from_handle(migration)?;
+        let aligned = align_and_fold(&lens_obj, &view_inst, &comp)?;
+        *out = canonical::encode(&aligned)?.into();
         Ok(PpStatus::Ok)
     })
 }
@@ -1470,5 +1594,217 @@ mod tests {
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    /// `post { text, obj { k, d } }`, or without `obj.d`, with the edges
+    /// out of `post` declared in the order given.
+    fn nested_schema(with_d: bool, post_edges: [&str; 2]) -> Schema {
+        let proto = crate::api::helpers::default_protocol("test");
+        let mut builder = SchemaBuilder::new(&proto)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .vertex("post.obj", "object", None::<&str>)
+            .unwrap()
+            .vertex("post.obj.k", "string", None::<&str>)
+            .unwrap();
+        if with_d {
+            builder = builder
+                .vertex("post.obj.d", "string", None::<&str>)
+                .unwrap();
+        }
+        for name in post_edges {
+            builder = builder
+                .edge("post", &format!("post.{name}"), "prop", Some(name))
+                .unwrap();
+        }
+        builder = builder
+            .edge("post.obj", "post.obj.k", "prop", Some("k"))
+            .unwrap();
+        if with_d {
+            builder = builder
+                .edge("post.obj", "post.obj.d", "prop", Some("d"))
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// Handles to the lens that drops `obj.d`, its source schema and its
+    /// target schema. The target declares `obj` before `text`, so
+    /// `pp_inst_json_to_instance` numbers a view differently from `get`.
+    fn nested_drop_lens() -> (u32, u32, u32) {
+        let src = nested_schema(true, ["text", "obj"]);
+        let tgt = nested_schema(false, ["obj", "text"]);
+        let compiled = panproto_core::inst::CompiledMigration {
+            surviving_verts: tgt.vertices.keys().cloned().collect(),
+            surviving_edges: tgt.edges.keys().cloned().collect(),
+            ..panproto_core::inst::CompiledMigration::default()
+        };
+        let src_h = schema_handle(&src);
+        let tgt_h = schema_handle(&tgt);
+        let lens_h = handle::alloc(Resource::MigrationWithSchemas {
+            compiled: Box::new(compiled),
+            src_schema: Arc::new(src),
+            tgt_schema: Arc::new(tgt),
+        });
+        (lens_h, src_h, tgt_h)
+    }
+
+    /// Run `call`, which writes into an out-buffer, and return the bytes,
+    /// or the status when it is not `Ok`.
+    fn out_bytes(call: impl FnOnce(&mut repr_c::Vec<u8>) -> i32) -> Result<Vec<u8>, i32> {
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = call(&mut out);
+        let bytes = out.to_vec();
+        pp_buf_free(out);
+        if status == PpStatus::Ok as i32 {
+            Ok(bytes)
+        } else {
+            Err(status)
+        }
+    }
+
+    /// Get `source` through the nested-drop lens, returning the view as
+    /// JSON and the complement as the host CBOR `get_record` frames it.
+    fn get_nested(
+        lens_h: u32,
+        src_h: u32,
+        tgt_h: u32,
+        source: &serde_json::Value,
+    ) -> (serde_json::Value, Vec<u8>) {
+        use crate::api::instance::{pp_inst_json_to_instance, pp_inst_to_json};
+        let json = source.to_string();
+        let source_cbor = out_bytes(|out| {
+            pp_inst_json_to_instance(
+                src_h,
+                slice(json.as_bytes()).as_ref(),
+                slice(b"post").as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let record =
+            out_bytes(|out| pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), out)).unwrap();
+        let (view_cbor, comp_cbor) = split_get_record(&record);
+        let view_json =
+            out_bytes(|out| pp_inst_to_json(tgt_h, slice(&view_cbor).as_ref(), out)).unwrap();
+        (serde_json::from_slice(&view_json).unwrap(), comp_cbor)
+    }
+
+    /// `pp_lens_put_json` reads a view that went through JSON, aligns it
+    /// to the complement and puts it, so the field the lens dropped from
+    /// `obj` comes back: unedited, with a kept field edited, and with a
+    /// sibling the view inserts.
+    #[test]
+    fn put_json_restores_a_nested_dropped_field() {
+        let (lens_h, src_h, tgt_h) = nested_drop_lens();
+        let source = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+        let (view, complement) = get_nested(lens_h, src_h, tgt_h, &source);
+        assert_eq!(
+            view,
+            serde_json::json!({ "text": "hello", "obj": { "k": "1" } })
+        );
+        let without_text = serde_json::json!({ "obj": { "k": "1", "d": "2" } });
+        let (bare_view, bare_complement) = get_nested(lens_h, src_h, tgt_h, &without_text);
+        assert_eq!(bare_view, serde_json::json!({ "obj": { "k": "1" } }));
+
+        for (shown, comp, expected) in [
+            (view, &complement, source),
+            (
+                serde_json::json!({ "text": "bye", "obj": { "k": "9" } }),
+                &complement,
+                serde_json::json!({ "text": "bye", "obj": { "k": "9", "d": "2" } }),
+            ),
+            (
+                serde_json::json!({ "text": "new", "obj": { "k": "1" } }),
+                &bare_complement,
+                serde_json::json!({ "text": "new", "obj": { "k": "1", "d": "2" } }),
+            ),
+        ] {
+            let shown_bytes = shown.to_string();
+            let restored = out_bytes(|out| {
+                pp_lens_put_json(
+                    lens_h,
+                    slice(shown_bytes.as_bytes()).as_ref(),
+                    slice(comp).as_ref(),
+                    out,
+                )
+            })
+            .unwrap_or_else(|status| panic!("put_json of {shown} failed with {status}"));
+            let restored: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+            assert_eq!(restored, expected, "put_json of {shown}");
+        }
+
+        for h in [lens_h, src_h, tgt_h] {
+            assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        }
+    }
+
+    /// A view parsed with `pp_inst_json_to_instance` and passed through
+    /// `pp_lens_align_view` puts back through `pp_lens_put_record` with
+    /// the dropped field restored; a view rooted at another vertex is
+    /// refused.
+    #[test]
+    fn align_view_readies_a_parsed_view_for_put_record() {
+        use crate::api::instance::{pp_inst_json_to_instance, pp_inst_to_json};
+        let (lens_h, src_h, tgt_h) = nested_drop_lens();
+        let source = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+        let (view, complement) = get_nested(lens_h, src_h, tgt_h, &source);
+        let view_bytes = view.to_string();
+        let parsed = out_bytes(|out| {
+            pp_inst_json_to_instance(
+                tgt_h,
+                slice(view_bytes.as_bytes()).as_ref(),
+                slice(b"post").as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let aligned = out_bytes(|out| {
+            pp_lens_align_view(
+                lens_h,
+                slice(&parsed).as_ref(),
+                slice(&complement).as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let restored = out_bytes(|out| {
+            pp_lens_put_record(
+                lens_h,
+                slice(&aligned).as_ref(),
+                slice(&complement).as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let restored_json =
+            out_bytes(|out| pp_inst_to_json(src_h, slice(&restored).as_ref(), out)).unwrap();
+        let restored_json: serde_json::Value = serde_json::from_slice(&restored_json).unwrap();
+        assert_eq!(restored_json, source);
+
+        let elsewhere = out_bytes(|out| {
+            pp_inst_json_to_instance(
+                tgt_h,
+                slice(br#"{"k":"1"}"#).as_ref(),
+                slice(b"post.obj").as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let refused = out_bytes(|out| {
+            pp_lens_align_view(
+                lens_h,
+                slice(&elsewhere).as_ref(),
+                slice(&complement).as_ref(),
+                out,
+            )
+        });
+        assert_eq!(refused, Err(PpStatus::Operation as i32));
+
+        for h in [lens_h, src_h, tgt_h] {
+            assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        }
     }
 }
