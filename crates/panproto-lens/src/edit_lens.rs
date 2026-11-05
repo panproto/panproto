@@ -379,7 +379,7 @@ impl EditLens {
             ));
         }
 
-        self.commit_translation(edited_source, complement);
+        self.commit_translation(&edited_source, complement);
         Ok(translated)
     }
 
@@ -767,7 +767,7 @@ impl EditLens {
                 "the translated tree edit does not produce the whole-state get view".to_owned(),
             ));
         }
-        staged.commit_translation(after, complement);
+        staged.commit_translation(&after, complement);
         *self = staged;
         Ok(translated)
     }
@@ -791,11 +791,11 @@ impl EditLens {
         }
     }
 
-    fn commit_translation(&mut self, source: WInstance, mut complement: Complement) {
+    fn commit_translation(&mut self, source: &WInstance, mut complement: Complement) {
         // Residue is the whole-state result; allocation history remains monotone.
         complement.id_floor = complement.id_floor.max(self.complement.id_floor);
         self.complement = complement;
-        self.pipeline = Some(EditPipeline::from_lens_and_instance(self, &source));
+        self.pipeline = Some(EditPipeline::from_lens_and_instance(self, source));
     }
 
     fn get_edit_inner(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
@@ -1443,7 +1443,7 @@ impl EditLens {
                 "the translated source does not reproduce the edited view".to_owned(),
             ));
         }
-        staged.commit_translation(actual_source, complement);
+        staged.commit_translation(&actual_source, complement);
         *self = staged;
         Ok(translated)
     }
@@ -2244,7 +2244,7 @@ mod tests {
     }
 
     use panproto_gat::Name;
-    use panproto_inst::{Node, TreeEdit, WInstance};
+    use panproto_inst::{GInstance, GraphDelta, Node, TreeEdit, WInstance};
     use panproto_schema::{Edge, Protocol};
     use std::collections::HashMap;
 
