@@ -65,7 +65,7 @@ pub fn binary16_bits(x: f64) -> Option<u16> {
                     let significand = fraction | (1 << 52);
                     let out = significand & ((1 << shift) - 1);
                     let field = u16::try_from(significand >> shift).ok()?;
-                    (out == 0).then_some(sign | field)
+                    (out == 0).then_some(sign + field)
                 }
                 _ => None,
             }
@@ -95,7 +95,7 @@ pub fn binary16_widen(h: u16) -> f64 {
             // Zero or a subnormal: fraction × 2^-24, exact in binary64.
             let magnitude = f64::from(u32::try_from(fraction).unwrap_or(0))
                 * f64::from_bits(0x3e70_0000_0000_0000);
-            f64::from_bits(sign | magnitude.to_bits())
+            f64::from_bits(sign + magnitude.to_bits())
         }
         _ => f64::from_bits(sign | ((field + 1008) << 52) | (fraction << 42)),
     }
@@ -182,7 +182,8 @@ pub fn binary16_nearest(d: &DecimalValue) -> f64 {
         }
     };
     let m = if up { hi } else { lo };
-    signed(if m > BINARY16_OVERFLOW {
+    // The rounded bracket endpoint is finite binary16 or exactly 2^16.
+    signed(if m.to_bits() == 65_536.0_f64.to_bits() {
         f64::INFINITY
     } else {
         m

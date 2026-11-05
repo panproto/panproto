@@ -113,7 +113,7 @@ pub fn binary32_bits(x: f64) -> Option<u32> {
     let low = fraction & ((1 << 29) - 1);
     let high = u32::try_from(fraction >> 29).ok()?;
     match biased {
-        0x7ff => (low == 0).then_some(sign | 0x7f80_0000 | high),
+        0x7ff => (low == 0).then_some(sign + 0x7f80_0000 + high),
         // A zero; a non-zero binary64 subnormal is below 2^-1022, far below
         // the least binary32, 2^-149.
         0 => (fraction == 0).then_some(sign),
