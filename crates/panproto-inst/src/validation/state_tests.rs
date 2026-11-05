@@ -460,3 +460,27 @@ fn shape_evaluation_returns_the_reads_of_the_compiled_check() {
     assert!(!separately_traced.is_empty());
     assert_eq!(evaluated_reads, separately_traced);
 }
+
+#[test]
+fn absent_element_has_no_empty_key() {
+    let graph = GInstance::new();
+    let key = Key {
+        id: "empty".into(),
+        parts: Vec::new(),
+        role: KeyRole::Primary,
+        scope: KeyScope::Document,
+        equality: Vec::new(),
+    };
+    let element = crate::view_ref::ViewRef::Node(123);
+    assert_eq!(
+        super::state::key_values(super::checks::InstanceView::Graph(&graph), &element, &key),
+        None,
+        "the key-reading outside-domain clause refuses an absent start node"
+    );
+    let graph = graph.with_node(Node::new(123, "item"));
+    assert_eq!(
+        super::state::key_values(super::checks::InstanceView::Graph(&graph), &element, &key),
+        Some(Vec::new()),
+        "an existing node retains the empty composite key"
+    );
+}

@@ -117,6 +117,7 @@ pub fn part_value(view: InstanceView<'_>, element: &ViewRef, part: &KeyPart) -> 
 /// The value of every part of `key` for `element`, or `None` when some part
 /// has none (an element with a NULL key part takes no part in uniqueness).
 pub fn key_values(view: InstanceView<'_>, element: &ViewRef, key: &Key) -> Option<Vec<Value>> {
+    view.node(element)?;
     key.parts
         .iter()
         .map(|part| part_value(view, element, part))

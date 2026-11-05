@@ -543,6 +543,14 @@ pub mod implementation {
         route: Route,
         value: &crate::exact::BigIntValue,
     ) -> Result<String, ValueIoError> {
+        let normalized = crate::exact::ExactInteger::from_parts(
+            value.negative,
+            &value.significand,
+            &value.zeros,
+        );
+        if normalized != crate::exact::ExactInteger::Big(value.clone()) {
+            return Err(ValueIoError::NotRepresentable);
+        }
         let sign = if value.negative { "-" } else { "" };
         let significand = value.significand.to_string();
         let zeros = value.zeros.to_u64();

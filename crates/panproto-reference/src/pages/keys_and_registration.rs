@@ -593,6 +593,7 @@ pub mod keys {
     /// Book anchors: `L-keys-and-registration-1`.
     #[must_use]
     pub fn key_value(g: &Graph, n: u32, key: &Key) -> Option<Vec<Value>> {
+        g.nodes.get(&n)?;
         key.parts
             .iter()
             .map(|p| match p {
