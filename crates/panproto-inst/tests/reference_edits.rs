@@ -2540,38 +2540,178 @@ impl CoverageTally {
     }
 }
 
-/// Run `work` over every `(schema, state)` job on at most four workers and
-/// sum their tallies.
-fn coverage_parallel<S: Sync>(
+/// A deterministic partition of the ordered source-state inventory.
+#[derive(Clone, Copy, Debug)]
+struct CoverageShard {
+    index: usize,
+    count: usize,
+}
+
+impl CoverageShard {
+    fn from_env(total_states: usize) -> Self {
+        let shard = match std::env::var("PANPROTO_EDIT_COVERAGE_SHARD") {
+            Ok(value) => {
+                let (index, count) = value.split_once('/').expect("edit shard is index/count");
+                Self {
+                    index: index
+                        .parse()
+                        .expect("edit shard index is an unsigned integer"),
+                    count: count
+                        .parse()
+                        .expect("edit shard count is an unsigned integer"),
+                }
+            }
+            Err(std::env::VarError::NotPresent) => Self { index: 0, count: 1 },
+            Err(error) => panic!("invalid edit shard environment: {error}"),
+        };
+        assert!(shard.count > 0 && shard.count <= total_states);
+        assert!(shard.index < shard.count);
+        shard
+    }
+
+    const fn contains(self, state: usize) -> bool {
+        state % self.count == self.index
+    }
+}
+
+struct CoverageRun {
+    tally: CoverageTally,
+    shard: CoverageShard,
+    source_commit: Option<String>,
+    total_states: usize,
+    completed_state_indices: Vec<usize>,
+    universe_digest: String,
+    elapsed_seconds: f64,
+}
+
+impl CoverageRun {
+    fn emit(&self, certificate: &str) {
+        let report = serde_json::json!({
+            "schema_version": 1,
+            "certificate": certificate,
+            "source_commit": self.source_commit,
+            "shard_index": self.shard.index,
+            "shard_count": self.shard.count,
+            "total_states": self.total_states,
+            "completed_state_indices": self.completed_state_indices,
+            "universe_blake3": self.universe_digest,
+            "source_blake3": {
+                "crates/panproto-inst/tests/reference_edits.rs": blake3::hash(include_bytes!("reference_edits.rs")).to_hex().to_string(),
+                "crates/panproto-reference/src/enumerate/edits.rs": blake3::hash(include_bytes!("../../panproto-reference/src/enumerate/edits.rs")).to_hex().to_string(),
+                "crates/panproto-reference/src/pages/edits.rs": blake3::hash(include_bytes!("../../panproto-reference/src/pages/edits.rs")).to_hex().to_string(),
+            },
+            "tally": {
+                "states": self.tally.states,
+                "words": self.tally.words,
+                "refusals": self.tally.refusals,
+                "replacements": self.tally.replacements,
+                "commuting": self.tally.commuting,
+            },
+            "elapsed_seconds": self.elapsed_seconds,
+            "complete": true,
+        });
+        let encoded = serde_json::to_string(&report).expect("coverage report serializes");
+        if let Some(directory) = std::env::var_os("PANPROTO_EDIT_COVERAGE_REPORT_DIR") {
+            use std::io::Write as _;
+            std::fs::create_dir_all(&directory).expect("coverage report directory exists");
+            let path = std::path::PathBuf::from(directory).join(format!(
+                "{certificate}-{}-of-{}.json",
+                self.shard.index, self.shard.count
+            ));
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .expect("coverage report must not overwrite another attempt");
+            writeln!(file, "{encoded}").expect("coverage report is written");
+        }
+        println!("PANPROTO_EDIT_COVERAGE_JSON {encoded}");
+    }
+}
+
+/// Run every selected source state completely, partitioning by its global
+/// enumeration index. No word or outcome assertion inside `work` is sampled.
+fn coverage_parallel<S: Sync + std::fmt::Debug>(
     jobs: &[(usize, S)],
     work: impl Fn(&carrier::CoverageSchema, &S, &mut CoverageTally) + Sync,
-) -> CoverageTally {
+) -> CoverageRun {
+    let shard = CoverageShard::from_env(jobs.len());
+    let source_commit = match std::env::var("PANPROTO_CERTIFICATE_SOURCE_SHA") {
+        Ok(value) => {
+            assert!(value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()));
+            Some(value)
+        }
+        Err(std::env::VarError::NotPresent) => {
+            assert_eq!(
+                shard.count, 1,
+                "sharded certificates require a frozen source SHA"
+            );
+            None
+        }
+        Err(error) => panic!("invalid certificate source environment: {error}"),
+    };
     let schemas = carrier::coverage_schemas();
+    let mut digest = blake3::Hasher::new();
+    digest.update(format!("edit-source-state-universe-v1:{schemas:?}\n").as_bytes());
+    for (index, state) in jobs.iter().enumerate() {
+        digest.update(format!("{index}:{state:?}\n").as_bytes());
+    }
+    let universe_digest = digest.finalize().to_hex().to_string();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let workers = std::thread::available_parallelism().map_or(1, |n| usize::from(n).min(4));
-    std::thread::scope(|threads| {
+    let started = std::time::Instant::now();
+    let (tally, mut completed_state_indices) = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 threads.spawn(|| {
                     let mut tally = CoverageTally::default();
+                    let mut completed = Vec::new();
                     loop {
                         let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some((schema, state)) = jobs.get(index) else {
                             break;
                         };
+                        if !shard.contains(index) {
+                            continue;
+                        }
                         tally.states += 1;
                         work(&schemas[*schema], state, &mut tally);
+                        completed.push(index);
                     }
-                    tally
+                    (tally, completed)
                 })
             })
             .collect();
         let mut total = CoverageTally::default();
+        let mut completed = Vec::new();
         for handle in handles {
-            total.absorb(handle.join().expect("worker completes"));
+            let (tally, indices) = handle.join().expect("worker completes");
+            total.absorb(tally);
+            completed.extend(indices);
         }
-        total
-    })
+        (total, completed)
+    });
+    completed_state_indices.sort_unstable();
+    let expected: Vec<_> = (0..jobs.len())
+        .filter(|index| shard.contains(*index))
+        .collect();
+    assert_eq!(
+        completed_state_indices, expected,
+        "every selected state finishes exactly once"
+    );
+    assert_eq!(
+        tally.states,
+        u64::try_from(expected.len()).expect("state count fits")
+    );
+    CoverageRun {
+        tally,
+        shard,
+        source_commit,
+        total_states: jobs.len(),
+        completed_state_indices,
+        universe_digest,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    }
 }
 
 fn coverage_jobs<S>(states: impl Fn(&carrier::CoverageSchema) -> Vec<S>) -> Vec<(usize, S)> {
@@ -2658,7 +2798,7 @@ fn check_graph_composite(
 #[test]
 fn graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_graphs);
-    let tally = coverage_parallel(&jobs, |schema, graph, tally| {
+    let run = coverage_parallel(&jobs, |schema, graph, tally| {
         let mut prefixes: Vec<GraphPrefix> = Vec::with_capacity(4);
         carrier::coverage_graph_words(schema, graph, &mut |word| {
             let length = word.letters.len();
@@ -2718,16 +2858,25 @@ fn graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
             });
         });
     });
+    let tally = &run.tally;
     println!("graph scope: {tally:?}");
-    assert_coverage_counts(&tally, carrier::coverage_graph_counts_certificate());
-    assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
-    assert!(tally.replacements > 0);
+    assert_eq!(
+        u64::try_from(run.total_states).unwrap(),
+        carrier::coverage_graph_counts_certificate().states
+    );
+    assert_eq!(tally.words[0], tally.states);
+    if run.shard.count == 1 {
+        assert_coverage_counts(tally, carrier::coverage_graph_counts_certificate());
+        assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
+        assert!(tally.replacements > 0);
+    }
+    run.emit("graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope");
 }
 
 #[test]
 fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_graphs);
-    let tally = coverage_parallel(&jobs, |schema, graph, tally| {
+    let run = coverage_parallel(&jobs, |schema, graph, tally| {
         let letters = carrier::coverage_graph_letters(
             schema,
             graph,
@@ -2800,12 +2949,22 @@ fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_cove
             }
         }
     });
+    let tally = &run.tally;
     println!("graph pairs: {tally:?}");
     assert_eq!(
-        tally.states,
+        u64::try_from(run.total_states).unwrap(),
         carrier::coverage_graph_counts_certificate().states
     );
-    assert!(tally.commuting > 0 && !tally.refusals.is_empty());
+    if run.shard.count == 1 {
+        assert_eq!(
+            tally.states,
+            carrier::coverage_graph_counts_certificate().states
+        );
+        assert!(tally.commuting > 0 && !tally.refusals.is_empty());
+    }
+    run.emit(
+        "graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope",
+    );
 }
 
 /// The prefix states of the table word under test, by length.
@@ -2874,7 +3033,7 @@ fn check_table_composite(
 #[test]
 fn table_edits_match_reference_on_every_word_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_tables);
-    let tally = coverage_parallel(&jobs, |schema, table, tally| {
+    let run = coverage_parallel(&jobs, |schema, table, tally| {
         let mut prefixes: Vec<TablePrefix> = Vec::with_capacity(4);
         carrier::coverage_table_words(schema, table, &mut |word| {
             let length = word.letters.len();
@@ -2941,13 +3100,22 @@ fn table_edits_match_reference_on_every_word_of_the_coverage_scope() {
             });
         });
     });
+    let tally = &run.tally;
     println!("table scope: {tally:?}");
-    assert_coverage_counts(&tally, carrier::coverage_table_counts_certificate());
     assert_eq!(
-        tally.refusals.keys().collect::<Vec<_>>(),
-        ["DuplicateForeignKey"]
+        u64::try_from(run.total_states).unwrap(),
+        carrier::coverage_table_counts_certificate().states
     );
-    assert!(tally.replacements > 0);
+    assert_eq!(tally.words[0], tally.states);
+    if run.shard.count == 1 {
+        assert_coverage_counts(tally, carrier::coverage_table_counts_certificate());
+        assert_eq!(
+            tally.refusals.keys().collect::<Vec<_>>(),
+            ["DuplicateForeignKey"]
+        );
+        assert!(tally.replacements > 0);
+    }
+    run.emit("table_edits_match_reference_on_every_word_of_the_coverage_scope");
 }
 
 /// A tree-edit refusal, read exactly from either implementation.
@@ -3098,7 +3266,7 @@ impl TreeWordLowering {
 #[test]
 fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_trees);
-    let tally = coverage_parallel(&jobs, |schema, tree, tally| {
+    let run = coverage_parallel(&jobs, |schema, tree, tally| {
         let (start_graph, start_embedding) = panproto_reference::encode::tree_to_graph(tree, None)
             .expect("a scope tree has a graph form");
         let production_tree = tree_to_production(tree);
@@ -3158,13 +3326,22 @@ fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope()
         })
         .expect("a scope tree has a graph form");
     });
+    let tally = &run.tally;
     println!("tree scope: {tally:?}");
-    assert_coverage_counts(&tally, carrier::coverage_tree_counts_certificate());
     assert_eq!(
-        tally.refusals.keys().collect::<Vec<_>>(),
-        ["Cycle", "NotLeaf", "RootOperation"]
+        u64::try_from(run.total_states).unwrap(),
+        carrier::coverage_tree_counts_certificate().states
     );
-    assert!(tally.replacements > 0);
+    assert_eq!(tally.words[0], tally.states);
+    if run.shard.count == 1 {
+        assert_coverage_counts(tally, carrier::coverage_tree_counts_certificate());
+        assert_eq!(
+            tally.refusals.keys().collect::<Vec<_>>(),
+            ["Cycle", "NotLeaf", "RootOperation"]
+        );
+        assert!(tally.replacements > 0);
+    }
+    run.emit("tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope");
 }
 
 /// Every move of the root, under each node including itself, is a root
