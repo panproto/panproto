@@ -1666,7 +1666,7 @@ fn empty_reference(id: &str, holder: &str, target: &str) -> Reference {
     plain_reference(id, holder, RefSource::KeyValue { parts: vec![] }, target)
 }
 
-fn standoff_source(text: RefTextSource) -> RefSource {
+const fn standoff_source(text: RefTextSource) -> RefSource {
     RefSource::Standoff {
         text,
         start: vec![],
@@ -2022,6 +2022,16 @@ fn standoff_end_and_fragment_requirements_are_independent() {
             findings(&schema, &protocol()),
             if defect == 0 {
                 vec![]
+            } else if defect == 2 {
+                vec![
+                    KeyRefError::PathDoesNotResolve {
+                        owner: "h".into(),
+                        path: vec![prop("t", "v", "value")],
+                    },
+                    KeyRefError::InvalidFragments {
+                        reference: "r".into(),
+                    },
+                ]
             } else {
                 vec![KeyRefError::InvalidFragments {
                     reference: "r".into(),
@@ -2075,7 +2085,7 @@ fn guard_groups_require_equal_holder_source_and_field() {
         .declarations
         .references
         .insert("single".into(), reference);
-    assert!(findings(&schema, &protocol()).is_empty());
+    assert_eq!(findings(&schema, &protocol()), vec![]);
 }
 
 fn binder_matrix_schema() -> Schema {
@@ -2217,7 +2227,7 @@ fn text_references_check_holder_cardinality_kind_and_acyclicity() {
                     .references
                     .get_mut("inner")
                     .unwrap()
-                    .holder = "u".into()
+                    .holder = "u".into();
             }
             2 => {
                 schema
@@ -2225,7 +2235,7 @@ fn text_references_check_holder_cardinality_kind_and_acyclicity() {
                     .references
                     .get_mut("inner")
                     .unwrap()
-                    .cardinality = Cardinality::Many
+                    .cardinality = Cardinality::Many;
             }
             3 => {
                 schema
@@ -2233,7 +2243,7 @@ fn text_references_check_holder_cardinality_kind_and_acyclicity() {
                     .references
                     .get_mut("inner")
                     .unwrap()
-                    .source = standoff_source(RefTextSource::Local(vec![]))
+                    .source = standoff_source(RefTextSource::Local(vec![]));
             }
             4 => {
                 schema
@@ -2293,7 +2303,7 @@ fn text_references_check_holder_cardinality_kind_and_acyclicity() {
         .source = standoff_source(RefTextSource::Span {
         reference: "inner".into(),
     });
-    assert!(findings(&schema, &protocol()).is_empty());
+    assert_eq!(findings(&schema, &protocol()), vec![]);
 }
 
 fn scope_via_matrix_schema() -> Schema {
@@ -2358,7 +2368,7 @@ fn scope_via_requires_a_nonempty_single_valued_chain_from_a_proper_ancestor() {
                     .scope_via = Some(ScopeVia {
                     ancestor: "u".into(),
                     hops: vec![],
-                })
+                });
             }
             2 => {
                 schema
@@ -2383,7 +2393,7 @@ fn scope_via_requires_a_nonempty_single_valued_chain_from_a_proper_ancestor() {
                     .references
                     .get_mut("hop")
                     .unwrap()
-                    .cardinality = Cardinality::Many
+                    .cardinality = Cardinality::Many;
             }
             4 => {
                 schema
@@ -2391,7 +2401,7 @@ fn scope_via_requires_a_nonempty_single_valued_chain_from_a_proper_ancestor() {
                     .references
                     .get_mut("hop")
                     .unwrap()
-                    .holder = "t".into()
+                    .holder = "t".into();
             }
             5 => {
                 schema
@@ -2399,7 +2409,7 @@ fn scope_via_requires_a_nonempty_single_valued_chain_from_a_proper_ancestor() {
                     .references
                     .get_mut("hop")
                     .unwrap()
-                    .target_vertex = "c".into()
+                    .target_vertex = "c".into();
             }
             _ => {}
         }
