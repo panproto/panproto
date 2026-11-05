@@ -2284,41 +2284,39 @@ fn translated_replacement_closes_over_incident_contraction_edges() {
     assert_eq!(identity.delta, GraphDelta::identity());
 }
 
+struct VisibleFieldLayer;
+impl restrict::ValueLayer for VisibleFieldLayer {
+    fn canonical_semantics(&self) -> restrict::ValueLayerSemantics {
+        restrict::ValueLayerSemantics {
+            domain: "visible-bool",
+            version: 1,
+            canonical_payload: vec![],
+        }
+    }
+    fn survives(&self, _: &RefGraph, node: &RefNode) -> Result<bool, restrict::PredicateRefusal> {
+        Ok(node.fields.get("visible") == Some(&RefValue::Bool(true)))
+    }
+    fn transform(
+        &self,
+        graph: &RefGraph,
+        node: &RefNode,
+    ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), restrict::LayerRefusal> {
+        NoValueLayer.transform(graph, node)
+    }
+    fn restore(
+        &self,
+        view: &RefNode,
+        fields: Option<&BTreeMap<String, RefValue>>,
+        value: Option<&Option<RefPresence>>,
+    ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), restrict::PutFieldRefusal> {
+        NoValueLayer.restore(view, fields, value)
+    }
+}
+
 /// The reference restrict domain admits the same two-attribute survival loop.
 #[test]
 fn reference_survival_loop_is_a_replacement_after_translation() {
     use panproto_reference::edit::{self, GElem, GraphDelta};
-    use panproto_reference::restrict::{
-        LayerRefusal, PredicateRefusal, PutFieldRefusal, ValueLayer, ValueLayerSemantics,
-    };
-    struct Visible;
-    impl ValueLayer for Visible {
-        fn canonical_semantics(&self) -> ValueLayerSemantics {
-            ValueLayerSemantics {
-                domain: "visible-bool",
-                version: 1,
-                canonical_payload: vec![],
-            }
-        }
-        fn survives(&self, _: &RefGraph, node: &RefNode) -> Result<bool, PredicateRefusal> {
-            Ok(node.fields.get("visible") == Some(&RefValue::Bool(true)))
-        }
-        fn transform(
-            &self,
-            graph: &RefGraph,
-            node: &RefNode,
-        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
-            NoValueLayer.transform(graph, node)
-        }
-        fn restore(
-            &self,
-            view: &RefNode,
-            fields: Option<&BTreeMap<String, RefValue>>,
-            value: Option<&Option<RefPresence>>,
-        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
-            NoValueLayer.restore(view, fields, value)
-        }
-    }
     let schema = RefSchema::default()
         .vertex("r", "record")
         .vertex("a", "record")
@@ -2355,7 +2353,7 @@ fn reference_survival_loop_is_a_replacement_after_translation() {
     let up = edit::diff(&middle, &before);
     assert_eq!(down.compose(&up).unwrap(), GraphDelta::identity());
     let plan = restrict::compile(&schema, &schema, &migration).unwrap();
-    let layer = Visible;
+    let layer = VisibleFieldLayer;
     let lens = RefGraphLens::new(
         &schema,
         &schema,
@@ -2376,7 +2374,7 @@ fn reference_survival_loop_is_a_replacement_after_translation() {
             &closure_schema,
             &closure_schema,
             &closure_migration,
-            &Visible,
+            &VisibleFieldLayer,
             state,
         )
     };
@@ -2390,4 +2388,106 @@ fn reference_survival_loop_is_a_replacement_after_translation() {
     assert_ne!(sequential, direct.delta);
     let (view, _) = get(&before).unwrap();
     assert_eq!(edit::apply(&sequential, &view).unwrap(), view);
+}
+
+/// The existing common-image domain excludes merged named tree attributes.
+/// Graph/table placement remains defined, while the tree reports the exact boundary refusal.
+#[test]
+fn column_fate_many_to_one_is_outside_the_common_tree_image() {
+    let protocol = table_protocol();
+    let source = SchemaBuilder::new(&protocol)
+        .vertex("t", "record", None)
+        .and_then(|b| b.vertex("t.a", "int", None))
+        .and_then(|b| b.vertex("t.b", "int", None))
+        .and_then(|b| b.edge("t", "t.a", "prop", Some("a")))
+        .and_then(|b| b.edge("t", "t.b", "prop", Some("b")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let (target, _, mut migration, _, _) =
+        column_case_target(&protocol, &[ColumnState::Rename, ColumnState::Drop]);
+    let edge = |target: &str, name: &str| Edge {
+        src: "t".into(),
+        tgt: target.into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    };
+    migration
+        .vertex_remap
+        .insert("t.b".into(), "t.a_new".into());
+    migration
+        .edge_remap
+        .insert(edge("t.b", "b"), edge("t.a_new", "a_new"));
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let plan =
+        RestrictPlan::compile_with_protocols(&source, &target, &migration, protocols).unwrap();
+    let table_plan =
+        RestrictPlan::compile_for_tables(&source, &target, &migration, protocols).unwrap();
+    let target_edge = edge("t.a_new", "a_new");
+    let expected_fates = vec![
+        CellFate::Rename("a".to_owned(), "a_new".to_owned()),
+        CellFate::Rename("b".to_owned(), "a_new".to_owned()),
+    ];
+    for compiled in [&plan, &table_plan] {
+        for (vertex, column) in [("t.a", "a"), ("t.b", "b")] {
+            assert_eq!(
+                compiled.edge_image.fate(&edge(vertex, column)),
+                Some(&EdgeFate::Keep(target_edge.clone())),
+            );
+        }
+        assert_eq!(
+            compiled
+                .boundary
+                .as_ref()
+                .and_then(|b| b.cells.as_ref())
+                .and_then(|cells| cells.fates.get("t")),
+            Some(&expected_fates),
+        );
+    }
+    let table = FInstance::new()
+        .with_rows(
+            "t",
+            [(
+                RowId(0),
+                HashMap::from([
+                    ("a".to_owned(), Value::Int(1)),
+                    ("b".to_owned(), Value::Int(2)),
+                ]),
+            )],
+        )
+        .unwrap();
+    let (table_view, _) = functor_restrict_with_plan(&table, &table_plan).unwrap();
+    let expected = HashMap::from([("a_new".to_owned(), Value::Int(2))]);
+    assert_eq!(table_view.row(RowId(0)), Some(&expected));
+    let (graph, _) = GInstance::from_finstance(&table).unwrap();
+    let (graph_view, _) = graph_restrict_with_plan(&graph, &plan).unwrap();
+    assert_eq!(graph_view.node(0).map(|n| &n.extra_fields), Some(&expected));
+    let tree = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "t")),
+            (
+                1,
+                Node::new(1, "t.a").with_value(FieldPresence::Present(Value::Int(1))),
+            ),
+            (
+                2,
+                Node::new(2, "t.b").with_value(FieldPresence::Present(Value::Int(2))),
+            ),
+        ]),
+        vec![(0, 1, edge("t.a", "a")), (0, 2, edge("t.b", "b"))],
+        Vec::new(),
+        0,
+        "t".into(),
+    );
+    let error = wtype_restrict_with_plan(&tree, &plan).unwrap_err();
+    assert!(
+        matches!(
+            error.unlocated(),
+            RestrictError::MultipleArcsOnSingleValuedEdge { parent: 0, edge: found, count: 2 }
+                if found.as_ref() == &target_edge
+        ),
+        "the documented tree boundary must name the merged edge and both arcs: {error:?}"
+    );
 }

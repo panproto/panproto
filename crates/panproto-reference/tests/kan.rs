@@ -5289,8 +5289,5 @@ fn pi_reports_exact_product_above_machine_cardinality() {
     };
     assert_eq!(vertex, "m");
     assert_eq!(limit, 1);
-    assert_eq!(
-        actual.to_string(),
-        (1_u128 << (usize::BITS + 1)).to_string()
-    );
+    assert_eq!(actual, (1_u128 << (usize::BITS + 1)).to_string());
 }
