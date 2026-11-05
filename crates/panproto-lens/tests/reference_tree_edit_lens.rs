@@ -1169,7 +1169,7 @@ fn conditional_survival_loop_exposes_strict_functoriality_obstruction() {
     assert_eq!(result, gv0);
 }
 
-/// Public get_edit must agree with get when removing a rename's shadowing source.
+/// Public `get_edit` must agree with `get` when removing a rename's shadowing source.
 #[test]
 fn field_removal_recovers_a_shadowed_rename_destination() {
     let protocol = Protocol::default();
