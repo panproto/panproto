@@ -1586,6 +1586,38 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn graph_relabel_basis_includes_isolated_nodes_and_preserves_synthesized_nodes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let schema = small_schema()?;
+        let mut view = small_view()?;
+        view.insert_node(Node::new(9, "user"))?;
+        view.insert_node(Node::new(10, "author"))?;
+        let presentation = Presentation {
+            nodes: BTreeSet::from([10]),
+            ..Presentation::default()
+        };
+        let Cases::Views(candidates) =
+            graph_cases(&schema, &view, &presentation, Mutation::RelabelNode)
+        else {
+            panic!("an isolated ordinary node has schema-valid relabelings");
+        };
+        let anchors = ["author", "doc", "post", "user_id"];
+        assert_eq!(candidates.len(), anchors.len());
+        for (candidate, anchor) in candidates.iter().zip(anchors) {
+            let mut expected = view.clone();
+            expected
+                .node_mut(9)
+                .ok_or("isolated node is absent")?
+                .anchor = anchor.into();
+            assert!(
+                GInstance::identical(candidate, &expected),
+                "only the isolated ordinary node is relabeled to {anchor}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn shape_only_families_match_the_lens_checker_under_an_identity_lens()
     -> Result<(), Box<dyn std::error::Error>> {
         let schema = small_schema()?;

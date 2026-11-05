@@ -171,11 +171,7 @@ fn compose_hyper_resolvers(
     for ((he, l_src), l_tgt) in &m1.label_map {
         label_inverse
             .entry((he.as_str(), l_tgt.as_str()))
-            .and_modify(|chosen| {
-                if l_src < *chosen {
-                    *chosen = l_src;
-                }
-            })
+            .and_modify(|chosen| *chosen = (*chosen).min(l_src))
             .or_insert(l_src);
     }
 
