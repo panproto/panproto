@@ -4082,6 +4082,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::boundary_cut_matches_the_reference_on_generated_shape_choices"
             }
           ]
         },
@@ -4196,6 +4202,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "malformed_manifests_preserve_the_complete_structural_refusal_order"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::typed_refusals_match_the_reference_on_generated_carrier_choices"
             }
           ]
         },
@@ -4212,6 +4224,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::node_identity_refusals_match_the_reference_on_generated_identifiers"
             }
           ]
         },
@@ -4285,6 +4303,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "append_floor_and_exhaustion_agree_on_an_independently_counted_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::append_floor_matches_the_reference_on_generated_small_carriers"
             }
           ]
         }

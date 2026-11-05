@@ -1927,3 +1927,87 @@ fn malformed_manifests_preserve_the_complete_structural_refusal_order() {
     }
     assert_eq!(failures, Vec::<String>::new());
 }
+
+mod randomized {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn boundary_cut_matches_the_reference_on_generated_shape_choices(
+            choice in 0_usize..SHAPE_WITNESSES,
+        ) {
+            let (whole, partition) = carrier::shape_witnesses().remove(choice);
+            let expected = reference::partition(&whole, &partition).unwrap();
+            let production_partition = partition_to_production(&partition);
+            let actual = partition_and_assemble_shape(&whole, &production_partition);
+            assert_segment_bytes_agree(&expected, &actual, &partition, &production_partition);
+        }
+
+        #[test]
+        fn typed_refusals_match_the_reference_on_generated_carrier_choices(
+            choice in 0_usize..carrier::REFUSAL_CASE_COUNT,
+        ) {
+            let case = carrier::refusal_cases().remove(choice);
+            prop_assert_eq!(
+                production_refusal(&case),
+                error_to_production(&reference_refusal(&case)),
+                "case {:?}", case
+            );
+        }
+
+        #[test]
+        fn node_identity_refusals_match_the_reference_on_generated_identifiers(
+            key in 0_u32..=4,
+            offset in 1_u32..=5,
+        ) {
+            let found = key + offset;
+            let partition = reference::Partition {
+                shape: reference::InstanceShapeKind::Graph,
+                specs: vec![reference::SegmentSpec {
+                    id: reference::SegmentId(0),
+                    nodes: vec![reference::IdRange { lo: key, hi: key }],
+                    alloc_nodes: None,
+                    alloc_edges: None,
+                }],
+            };
+            let segment = reference::AnySegment::Graph(reference::GraphSegment {
+                segment: reference::SegmentId(0),
+                nodes: BTreeMap::from([(key, reference_model::Node::new(found, "a"))]),
+                edges: BTreeMap::new(),
+                boundary: reference::Boundary::default(),
+            });
+            let expected = reference::validate_segment_contract(&segment, &partition)
+                .map_err(|error| error_to_production(&error));
+            let actual = check_segment(
+                &segment_to_production(&segment),
+                &partition_to_production(&partition),
+            );
+            prop_assert_eq!(&actual, &expected);
+            prop_assert_eq!(actual, Err(SegmentError::Invalid {
+                violations: vec![SegmentError::NodeIdMismatch { key, found }],
+            }));
+        }
+
+        #[test]
+        fn append_floor_matches_the_reference_on_generated_small_carriers(
+            endpoints in (0_u32..=4, 0_u32..=4),
+            source_bits in 0_u8..64,
+            used_bits in 0_u8..64,
+        ) {
+            let lo = endpoints.0.min(endpoints.1);
+            let hi = endpoints.0.max(endpoints.1);
+            let ids = |bits: u8| -> BTreeSet<u32> {
+                (0_u32..=5).filter(|id| bits & (1_u8 << *id) != 0).collect()
+            };
+            let source = ids(source_bits);
+            let used = ids(used_bits);
+            let expected = reference::fresh(reference::IdRange { lo, hi }, &source, &used);
+            let actual = IdAllocator::from_source(IdRange { lo, hi }, source.iter().copied())
+                .fresh(used.iter().copied());
+            prop_assert_eq!(actual.ok(), expected);
+        }
+    }
+}
