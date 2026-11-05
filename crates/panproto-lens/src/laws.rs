@@ -642,9 +642,8 @@ fn child_sequences(instance: &WInstance) -> std::collections::HashMap<u32, Vec<u
 /// parent maps, arc-edge disambiguators, snapshot `extra_fields`/values,
 /// synthesized-node sets, contracted-into fibres, arc order, original
 /// anchors, the identity envelope and the source fingerprint. The
-/// edit-lens complement-coherence checker
-/// ([`crate::edit_laws`]) and the delta-lens functoriality proptests both
-/// rely on it.
+/// edit-lens complement-coherence checker ([`crate::edit_laws`]) adds
+/// exact metadata, order, bookkeeping, and historical-floor checks.
 pub(crate) fn complements_equivalent(a: &Complement, b: &Complement) -> bool {
     complement_divergence(a, b).is_none()
 }
@@ -4088,7 +4087,7 @@ fn add_table_pairs(
     }
 }
 
-fn tree_identical(a: &WInstance, b: &WInstance) -> bool {
+pub(crate) fn tree_identical(a: &WInstance, b: &WInstance) -> bool {
     a.root == b.root
         && a.schema_root == b.schema_root
         && a.nodes.len() == b.nodes.len()

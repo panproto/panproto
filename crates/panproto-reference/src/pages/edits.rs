@@ -3290,8 +3290,9 @@ pub mod edit {
     /// attribute change of its own, even when the payloads are equal. A
     /// state differ cannot see such a replacement, and a replacement is a
     /// new element under a reused id, never an unchanged one (identity
-    /// policy (ii)), so a translation that composes with the translations
-    /// of a delete and a later add (edit-lens functoriality) carries it.
+    /// policy (ii)). Keeping it is an explicit occurrence policy, not an
+    /// unrestricted edit-lens functoriality claim. Node replacements also
+    /// require the before/after incidence closure implemented below.
     ///
     /// Book anchors: `L-edits-8`.
     #[must_use]

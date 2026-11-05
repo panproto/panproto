@@ -260,6 +260,21 @@ fn complement_carrier(complement: &panproto_inst::Complement) -> BTreeMap<u32, L
         .collect()
 }
 
+// Allocation history survives cancellation and undo. Compare every other
+// law-observable complement coordinate, then check the floor separately.
+fn assert_residue_restored(
+    actual: &panproto_lens::Complement,
+    original: &panproto_lens::Complement,
+) {
+    assert!(actual.id_floor >= original.id_floor);
+    let mut expected = original.clone();
+    expected.id_floor = actual.id_floor;
+    assert!(
+        <TreeShape as LensShape>::complement_divergence(actual, &expected).is_none(),
+        "all complement coordinates except historical allocation agree"
+    );
+}
+
 fn all_new_leaves(id: u32) -> Vec<Leaf> {
     [Visibility::Visible, Visibility::Hidden]
         .into_iter()
@@ -559,14 +574,10 @@ fn tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_referen
                     "production cancellation: {}",
                     plan.name
                 );
-                assert!(
-                    <TreeShape as LensShape>::complement_divergence(
-                        &initial_complement,
-                        &whole_complement
-                    )
-                    .is_none(),
-                    "add/delete restores residue: {}",
-                    plan.name
+                assert_residue_restored(&whole_complement, &initial_complement);
+                assert_eq!(
+                    whole_complement.id_floor,
+                    initial_complement.id_floor.max(FRESH + 1)
                 );
             }
             if plan.name.starts_with("delete-reinsert") {
@@ -682,6 +693,7 @@ fn tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_referen
             assert_eq!(expected_inverse_view, reference::Delta::invert(&ref_input));
             assert_eq!(expected_after_undo, initial_ref_complement);
 
+            let floor_before_undo = whole_lens.complement.id_floor;
             let translated_inverse = whole_lens
                 .get_graph_edit(
                     &whole.tree,
@@ -726,15 +738,8 @@ fn tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_referen
                 "exact canonical view undo: {}",
                 plan.name
             );
-            assert!(
-                <TreeShape as LensShape>::complement_divergence(
-                    &whole_lens.complement,
-                    &initial_complement
-                )
-                .is_none(),
-                "source undo restores complement: {}",
-                plan.name
-            );
+            assert_residue_restored(&whole_lens.complement, &initial_complement);
+            assert!(whole_lens.complement.id_floor >= floor_before_undo);
             checked += 1;
         }
     }

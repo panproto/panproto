@@ -3184,6 +3184,66 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens",
               "test": "tree_edit_lens_late_sequence_refusal_is_atomic_for_reference_and_production"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::raw_get_refuses_an_omitted_computed_output_atomically"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::raw_put_refuses_an_uninverted_output_atomically"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::raw_guard_preserves_identity_projection_replacements_and_allocation_floor"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::graph_edit_guard_refuses_metadata_drift_in_the_supplied_view"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::strict_guard_comparison_keeps_global_arc_and_fan_order"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::raw_nonidentity_edits_require_initialization"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "conditional_survival_loop_exposes_strict_functoriality_obstruction"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "field_removal_recovers_a_shadowed_rename_destination"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_laws::tests::edit_law_checkers_require_the_matching_initialized_source"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_laws::tests::retained_complement_comparison_checks_floor_metadata_and_bookkeeping"
             }
           ]
         },
@@ -3436,6 +3496,30 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_edit_translation",
               "test": "graph_get_keeps_same_payload_replacements_of_the_input"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::graph_edit_guard_refuses_metadata_drift_in_the_supplied_view"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::strict_guard_comparison_keeps_global_arc_and_fan_order"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens",
+              "test": "edit_lens::tests::synthetic_incidence_is_replaced_without_touching_unrelated_edges"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_tree_edit_lens",
+              "test": "conditional_survival_loop_exposes_strict_functoriality_obstruction"
             }
           ]
         }
@@ -4034,6 +4118,36 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "manifest_header_schema_mutation_preserves_records_but_refuses_original_identity"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "manifest_header_schema_mutation_must_refuse_the_original_identity"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "manifest_cross_refusal_precedes_root_and_identity_refusals"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "manifest_root_refusal_precedes_identity_refusal_when_cross_pairs_agree"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "malformed_manifests_preserve_the_complete_structural_refusal_order"
             }
           ]
         },
@@ -4066,7 +4180,8 @@
           "references": [
             "panproto_reference::segment::decode_segment_bytes",
             "panproto_reference::segment::partition",
-            "panproto_reference::segment::validate_segment_contract"
+            "panproto_reference::segment::validate_segment_contract",
+            "panproto_reference::segment::verify_manifest"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -4075,6 +4190,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "malformed_manifests_preserve_the_complete_structural_refusal_order"
             }
           ]
         },
@@ -4098,12 +4219,13 @@
           "id": "segments.s10a",
           "anchor": "L-segments-8",
           "references": [
-            "panproto_reference::segment::validation_view_preflight"
+            "panproto_reference::segment::validation_view_preflight",
+            "panproto_reference::segment::validate_segment_contract"
           ],
           "due_gate": "candidate",
           "consumers": [
             {
-              "role": "production",
+              "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst",
               "test": "segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge"
@@ -4113,6 +4235,24 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "partition_and_decoder_refusals_preserve_typed_error_precedence"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst",
+              "test": "segment::tests::validation::validation_view_capacity_agrees_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst",
+              "test": "segment::tests::validation::validation_view_capacity_preserves_contract_error_precedence"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst",
+              "test": "segment::tests::validation::validation_view_capacity_reaches_only_valid_contracts"
             }
           ]
         },
