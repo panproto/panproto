@@ -4723,7 +4723,7 @@ pub mod segment {
             root,
             instance_digest,
         };
-        verify_manifest(&manifest)?;
+        verify_manifest_records(&manifest)?;
         Ok(manifest)
     }
     fn merkle(records: &[SegmentRecord]) -> Digest {
@@ -5227,12 +5227,34 @@ pub mod segment {
         })
     }
 
-    /// Verify manifest shape, cross maps, and Merkle root without segments.
+    /// Verify a manifest against a trusted expected full identity without segments.
+    ///
+    /// The expected identity comes from the caller's trusted artifact reference,
+    /// not from rehashing the supplied untrusted manifest.
     ///
     /// # Errors
     ///
-    /// Returns a version, density, cross-map, or root-digest mismatch.
-    pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
+    /// Returns existing version, density, cross-map, or root-digest errors first,
+    /// then a full-manifest digest mismatch with the expected and found identities.
+    pub fn verify_manifest(
+        manifest: &SegmentManifest,
+        expected_digest: Digest,
+    ) -> Result<(), SegmentError> {
+        verify_manifest_records(manifest)?;
+        let found = Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(manifest));
+        if found != expected_digest {
+            return Err(SegmentError::DigestMismatch {
+                segment: None,
+                expected: expected_digest,
+                found,
+            });
+        }
+        Ok(())
+    }
+
+    // Used by structural decoding and segment checks, which carry no trusted
+    // full manifest identity. It does not authenticate the manifest header.
+    fn verify_manifest_records(manifest: &SegmentManifest) -> Result<(), SegmentError> {
         if manifest.version != SEGMENT_MANIFEST_VERSION {
             return Err(decode_error(
                 ArtifactKind::Manifest,
@@ -5240,20 +5262,24 @@ pub mod segment {
             ));
         }
         manifest_partition(manifest).validate()?;
-        for (position, record) in manifest.segments.iter().enumerate() {
-            let expected = SegmentId(u32::try_from(position).unwrap_or(u32::MAX));
-            if record.id != expected || record.stats.segment != expected {
+        for record in &manifest.segments {
+            if record.stats.segment != record.id {
                 return Err(SegmentError::MalformedPartition {
-                    segment: expected,
-                    defect: PartitionDefect::NotDense { found: record.id },
+                    segment: record.id,
+                    defect: PartitionDefect::NotDense {
+                        found: record.stats.segment,
+                    },
                 });
             }
+        }
+        for record in &manifest.segments {
             for (target, digest) in &record.cross_out {
                 if manifest
                     .segments
                     .get(index(*target))
                     .and_then(|peer| peer.cross_in.get(&record.id))
                     != Some(digest)
+                    || *target == record.id
                 {
                     return Err(SegmentError::CrossMismatch {
                         from: record.id,
@@ -5267,6 +5293,7 @@ pub mod segment {
                     .get(index(*source))
                     .and_then(|peer| peer.cross_out.get(&record.id))
                     != Some(digest)
+                    || *source == record.id
                 {
                     return Err(SegmentError::CrossMismatch {
                         from: *source,
@@ -5325,7 +5352,7 @@ pub mod segment {
         manifest: &SegmentManifest,
         segment: &AnySegment,
     ) -> Result<(), SegmentError> {
-        verify_manifest(manifest)?;
+        verify_manifest_records(manifest)?;
         if segment.shape() != manifest.shape {
             return Err(SegmentError::ShapeMismatch {
                 expected: manifest.shape,

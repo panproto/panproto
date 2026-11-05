@@ -674,13 +674,21 @@ fn graph_table_and_tree_artifacts_match_the_reference_exactly() {
             None,
         )
         .expect("reference manifest");
-        reference::verify_manifest(&reference_manifest).expect("reference manifest verifies");
+        let reference_expected = reference::Digest::derive(
+            reference::MANIFEST_CONTEXT,
+            &reference::canonical_manifest_bytes(&reference_manifest),
+        );
+        reference::verify_manifest(&reference_manifest, reference_expected)
+            .expect("reference manifest verifies");
         let production_manifest = seal_production_manifest(
             &production_segments,
             &production_partition,
             production_schema,
         );
-        verify_manifest(&production_manifest).expect("production manifest verifies");
+        let production_expected = production_manifest.digest();
+        assert_eq!(production_expected.0, reference_expected.0);
+        verify_manifest(&production_manifest, production_expected)
+            .expect("production manifest verifies");
         for segment in &production_segments {
             verify_segment(&production_manifest, segment).expect("production segment verifies");
         }
@@ -1474,4 +1482,448 @@ fn release_carrier_has_no_unstated_scope_expansion() {
     );
     assert_eq!(reference::SEGMENT_FORMAT_VERSION, 1);
     assert_eq!(reference::SEGMENT_MANIFEST_VERSION, 1);
+}
+
+fn manifests_for_schema_header_regression() -> Vec<(
+    reference::SegmentManifest,
+    panproto_inst::segment::SegmentManifest,
+)> {
+    let witnesses = carrier::shape_witnesses();
+    assert_eq!(witnesses.len(), SHAPE_WITNESSES);
+    witnesses
+        .into_iter()
+        .map(|(whole, reference_partition)| {
+            let production_partition = partition_to_production(&reference_partition);
+            let reference_segments = reference::partition(&whole, &reference_partition)
+                .expect("reference shape partition");
+            let production_segments = partition_and_assemble_shape(&whole, &production_partition);
+            let (reference_schema, production_schema) = schema_digest();
+            let reference_manifest = reference::seal_manifest(
+                &reference_segments,
+                &reference_partition,
+                reference_schema,
+                reference::ManifestRole::Source,
+                None,
+            )
+            .expect("reference manifest");
+            let production_manifest = seal_production_manifest(
+                &production_segments,
+                &production_partition,
+                production_schema,
+            );
+            (reference_manifest, production_manifest)
+        })
+        .collect()
+}
+
+#[test]
+fn manifest_header_schema_mutation_preserves_records_but_refuses_original_identity() {
+    for (index, (reference_manifest, production_manifest)) in
+        manifests_for_schema_header_regression()
+            .into_iter()
+            .enumerate()
+    {
+        let reference_expected = reference::Digest::derive(
+            reference::MANIFEST_CONTEXT,
+            &reference::canonical_manifest_bytes(&reference_manifest),
+        );
+        let production_expected = production_manifest.digest();
+        assert_eq!(production_expected.0, reference_expected.0);
+        assert_eq!(
+            verify_manifest(&production_manifest, production_expected),
+            Ok(())
+        );
+        assert_eq!(
+            reference::verify_manifest(&reference_manifest, reference_expected),
+            Ok(())
+        );
+
+        let mut reference_changed = reference_manifest.clone();
+        let mut production_changed = production_manifest.clone();
+        reference_changed.schema.0[0] ^= 1;
+        production_changed.schema.0[0] ^= 1;
+        assert_eq!(reference_changed.root, reference_manifest.root);
+        assert_eq!(production_changed.root, production_manifest.root);
+        assert_eq!(reference_changed.segments, reference_manifest.segments);
+        assert_eq!(production_changed.segments, production_manifest.segments);
+        let reference_found = reference::Digest::derive(
+            reference::MANIFEST_CONTEXT,
+            &reference::canonical_manifest_bytes(&reference_changed),
+        );
+        let production_found = production_changed.digest();
+        assert_eq!(production_found.0, reference_found.0);
+        assert_ne!(production_found, production_expected);
+        assert_ne!(reference_found, reference_expected);
+        assert_eq!(
+            verify_manifest(&production_changed, production_expected),
+            Err(SegmentError::DigestMismatch {
+                segment: None,
+                expected: production_expected,
+                found: production_found,
+            }),
+        );
+        assert_eq!(
+            reference::verify_manifest(&reference_changed, reference_expected),
+            Err(reference::SegmentError::DigestMismatch {
+                segment: None,
+                expected: reference_expected,
+                found: reference_found,
+            }),
+        );
+        eprintln!(
+            "schema mutation witness={index} expected={:02x?} found={:02x?}",
+            production_expected.0, production_found.0,
+        );
+    }
+}
+
+#[test]
+fn manifest_header_schema_mutation_must_refuse_the_original_identity() {
+    for (reference_manifest, production_manifest) in manifests_for_schema_header_regression() {
+        // Expected identities are captured from trusted originals before mutation.
+        let reference_expected = reference::Digest::derive(
+            reference::MANIFEST_CONTEXT,
+            &reference::canonical_manifest_bytes(&reference_manifest),
+        );
+        let production_expected = production_manifest.digest();
+        assert_eq!(production_expected.0, reference_expected.0);
+        let mut reference_changed = reference_manifest;
+        let mut production_changed = production_manifest;
+        reference_changed.schema.0[0] ^= 1;
+        production_changed.schema.0[0] ^= 1;
+        let reference_found = reference::Digest::derive(
+            reference::MANIFEST_CONTEXT,
+            &reference::canonical_manifest_bytes(&reference_changed),
+        );
+        let production_found = production_changed.digest();
+        assert_eq!(production_found.0, reference_found.0);
+        assert_eq!(
+            (
+                verify_manifest(&production_changed, production_expected),
+                reference::verify_manifest(&reference_changed, reference_expected),
+            ),
+            (
+                Err(SegmentError::DigestMismatch {
+                    segment: None,
+                    expected: production_expected,
+                    found: production_found,
+                }),
+                Err(reference::SegmentError::DigestMismatch {
+                    segment: None,
+                    expected: reference_expected,
+                    found: reference_found,
+                }),
+            ),
+            "a changed schema must be refused against the original manifest identity",
+        );
+    }
+}
+
+#[test]
+fn manifest_cross_refusal_precedes_root_and_identity_refusals() {
+    let (reference_manifest, production_manifest) = manifests_for_schema_header_regression()
+        .into_iter()
+        .next()
+        .expect("graph manifest fixture");
+    let reference_expected = reference::Digest::derive(
+        reference::MANIFEST_CONTEXT,
+        &reference::canonical_manifest_bytes(&reference_manifest),
+    );
+    let production_expected = production_manifest.digest();
+    assert_eq!(production_expected.0, reference_expected.0);
+    assert_eq!(
+        verify_manifest(&production_manifest, production_expected),
+        Ok(())
+    );
+    assert_eq!(
+        reference::verify_manifest(&reference_manifest, reference_expected),
+        Ok(())
+    );
+
+    // Change one crossing digest without updating either recorded root or trusted identity.
+    let mut production_changed = production_manifest.clone();
+    let mut reference_changed = reference_manifest.clone();
+    production_changed.segments[0]
+        .cross_out
+        .get_mut(&SegmentId(1))
+        .expect("graph crossing 0 -> 1")
+        .0[0] ^= 1;
+    reference_changed.segments[0]
+        .cross_out
+        .get_mut(&reference::SegmentId(1))
+        .expect("reference graph crossing 0 -> 1")
+        .0[0] ^= 1;
+    assert_eq!(production_changed.root, production_manifest.root);
+    assert_eq!(reference_changed.root, reference_manifest.root);
+    assert_ne!(
+        panproto_inst::segment::merkle_root(&production_changed.segments),
+        production_changed.root
+    );
+    let reference_found = reference::Digest::derive(
+        reference::MANIFEST_CONTEXT,
+        &reference::canonical_manifest_bytes(&reference_changed),
+    );
+    assert_eq!(production_changed.digest().0, reference_found.0);
+    assert_ne!(production_changed.digest(), production_expected);
+    let actual = (
+        verify_manifest(&production_changed, production_expected),
+        reference::verify_manifest(&reference_changed, reference_expected),
+    );
+    eprintln!("cross plus root refusal pair: {actual:?}");
+    assert_eq!(
+        actual,
+        (
+            Err(SegmentError::CrossMismatch {
+                from: SegmentId(0),
+                to: SegmentId(1)
+            }),
+            Err(reference::SegmentError::CrossMismatch {
+                from: reference::SegmentId(0),
+                to: reference::SegmentId(1)
+            }),
+        )
+    );
+}
+
+#[test]
+fn manifest_root_refusal_precedes_identity_refusal_when_cross_pairs_agree() {
+    let (mut reference_manifest, mut production_manifest) =
+        manifests_for_schema_header_regression()
+            .into_iter()
+            .next()
+            .expect("graph manifest fixture");
+    let reference_expected = reference::Digest::derive(
+        reference::MANIFEST_CONTEXT,
+        &reference::canonical_manifest_bytes(&reference_manifest),
+    );
+    let production_expected = production_manifest.digest();
+    assert_eq!(production_expected.0, reference_expected.0);
+    let reference_root = reference_manifest.root;
+    let production_root = production_manifest.root;
+    assert_eq!(production_root.0, reference_root.0);
+    // Records, including their crossing maps, remain intact.
+    reference_manifest.root.0[0] ^= 1;
+    production_manifest.root.0[0] ^= 1;
+    assert_eq!(
+        panproto_inst::segment::merkle_root(&production_manifest.segments),
+        production_root
+    );
+    assert_ne!(production_manifest.digest(), production_expected);
+    assert_eq!(
+        (
+            verify_manifest(&production_manifest, production_expected),
+            reference::verify_manifest(&reference_manifest, reference_expected),
+        ),
+        (
+            Err(SegmentError::DigestMismatch {
+                segment: None,
+                expected: production_manifest.root,
+                found: production_root
+            }),
+            Err(reference::SegmentError::DigestMismatch {
+                segment: None,
+                expected: reference_manifest.root,
+                found: reference_root
+            }),
+        )
+    );
+}
+
+fn mutate_manifest_cross_case(
+    case: u32,
+    reference_manifest: &mut reference::SegmentManifest,
+    production_manifest: &mut panproto_inst::segment::SegmentManifest,
+) -> SegmentError {
+    match case {
+        0 => {
+            // Reciprocal self maps agree as bytes but describe no crossing edge.
+            reference_manifest.segments[0]
+                .cross_out
+                .insert(reference::SegmentId(0), reference::Digest([17; 32]));
+            reference_manifest.segments[0]
+                .cross_in
+                .insert(reference::SegmentId(0), reference::Digest([17; 32]));
+            production_manifest.segments[0]
+                .cross_out
+                .insert(SegmentId(0), Digest([17; 32]));
+            production_manifest.segments[0]
+                .cross_in
+                .insert(SegmentId(0), Digest([17; 32]));
+            SegmentError::CrossMismatch {
+                from: SegmentId(0),
+                to: SegmentId(0),
+            }
+        }
+        1 => {
+            // The reference visits record 0's incoming pair before record 1's.
+            for record in &mut reference_manifest.segments {
+                record.cross_out.clear();
+                record.cross_in.clear();
+            }
+            for record in &mut production_manifest.segments {
+                record.cross_out.clear();
+                record.cross_in.clear();
+            }
+            reference_manifest.segments[0]
+                .cross_in
+                .insert(reference::SegmentId(1), reference::Digest([17; 32]));
+            reference_manifest.segments[1]
+                .cross_in
+                .insert(reference::SegmentId(0), reference::Digest([17; 32]));
+            production_manifest.segments[0]
+                .cross_in
+                .insert(SegmentId(1), Digest([17; 32]));
+            production_manifest.segments[1]
+                .cross_in
+                .insert(SegmentId(0), Digest([17; 32]));
+            SegmentError::CrossMismatch {
+                from: SegmentId(1),
+                to: SegmentId(0),
+            }
+        }
+        _ => unreachable!("case belongs to the other mutation family"),
+    }
+}
+
+fn mutate_manifest_structural_case(
+    case: u32,
+    reference_manifest: &mut reference::SegmentManifest,
+    production_manifest: &mut panproto_inst::segment::SegmentManifest,
+) -> SegmentError {
+    match case {
+        2 => {
+            reference_manifest.segments[0].stats.segment = reference::SegmentId(1);
+            production_manifest.segments[0].stats.segment = SegmentId(1);
+            SegmentError::MalformedPartition {
+                segment: SegmentId(0),
+                defect: PartitionDefect::NotDense {
+                    found: SegmentId(1),
+                },
+            }
+        }
+        3 => {
+            // A partition defect precedes a later statistics-id defect.
+            reference_manifest.segments[0].id = reference::SegmentId(7);
+            reference_manifest.segments[0].stats.segment = reference::SegmentId(7);
+            reference_manifest.segments[1].stats.segment = reference::SegmentId(0);
+            production_manifest.segments[0].id = SegmentId(7);
+            production_manifest.segments[0].stats.segment = SegmentId(7);
+            production_manifest.segments[1].stats.segment = SegmentId(0);
+            SegmentError::MalformedPartition {
+                segment: SegmentId(0),
+                defect: PartitionDefect::NotDense {
+                    found: SegmentId(7),
+                },
+            }
+        }
+        4 => {
+            // All statistics identifiers precede even an earlier record's cross defect.
+            reference_manifest.segments[1].stats.segment = reference::SegmentId(0);
+            production_manifest.segments[1].stats.segment = SegmentId(0);
+            reference_manifest.segments[0]
+                .cross_out
+                .get_mut(&reference::SegmentId(1))
+                .expect("crossing")
+                .0[0] ^= 1;
+            production_manifest.segments[0]
+                .cross_out
+                .get_mut(&SegmentId(1))
+                .expect("crossing")
+                .0[0] ^= 1;
+            SegmentError::MalformedPartition {
+                segment: SegmentId(1),
+                defect: PartitionDefect::NotDense {
+                    found: SegmentId(0),
+                },
+            }
+        }
+        5 => {
+            // Density alone is the control for the mixed partition/statistics case.
+            reference_manifest.segments[0].id = reference::SegmentId(7);
+            reference_manifest.segments[0].stats.segment = reference::SegmentId(7);
+            production_manifest.segments[0].id = SegmentId(7);
+            production_manifest.segments[0].stats.segment = SegmentId(7);
+            SegmentError::MalformedPartition {
+                segment: SegmentId(0),
+                defect: PartitionDefect::NotDense {
+                    found: SegmentId(7),
+                },
+            }
+        }
+        _ => unreachable!("case belongs to the other mutation family"),
+    }
+}
+
+#[test]
+fn malformed_manifests_preserve_the_complete_structural_refusal_order() {
+    let (reference_original, production_original) = manifests_for_schema_header_regression()
+        .into_iter()
+        .next()
+        .expect("two-record graph manifest fixture");
+    let reference_expected = reference::Digest::derive(
+        reference::MANIFEST_CONTEXT,
+        &reference::canonical_manifest_bytes(&reference_original),
+    );
+    let production_expected = production_original.digest();
+    assert_eq!(production_expected.0, reference_expected.0);
+    let mut failures = Vec::new();
+    for case in 0..6 {
+        let mut reference_manifest = reference_original.clone();
+        let mut production_manifest = production_original.clone();
+        let expected = if case <= 1 {
+            mutate_manifest_cross_case(case, &mut reference_manifest, &mut production_manifest)
+        } else {
+            mutate_manifest_structural_case(case, &mut reference_manifest, &mut production_manifest)
+        };
+        // Independently rebuild the two-leaf root so a stale root cannot mask the case.
+        assert_eq!(reference_manifest.segments.len(), 2);
+        let mut reference_children = Vec::new();
+        for record in &reference_manifest.segments {
+            reference_children.extend(reference::manifest_leaf(record).0);
+        }
+        reference_manifest.root =
+            reference::Digest::derive(reference::MANIFEST_NODE_CONTEXT, &reference_children);
+        production_manifest.root =
+            panproto_inst::segment::merkle_root(&production_manifest.segments);
+        assert_eq!(production_manifest.root.0, reference_manifest.root.0);
+        let reference_found = reference::Digest::derive(
+            reference::MANIFEST_CONTEXT,
+            &reference::canonical_manifest_bytes(&reference_manifest),
+        );
+        assert_eq!(production_manifest.digest().0, reference_found.0);
+        assert_ne!(production_manifest.digest(), production_expected);
+        let production = verify_manifest(&production_manifest, production_expected);
+        let oracle =
+            reference::verify_manifest(&reference_manifest, reference_expected).map_err(|error| {
+                match error {
+                    reference::SegmentError::CrossMismatch { from, to } => {
+                        SegmentError::CrossMismatch {
+                            from: SegmentId(from.0),
+                            to: SegmentId(to.0),
+                        }
+                    }
+                    reference::SegmentError::DigestMismatch {
+                        segment,
+                        expected,
+                        found,
+                    } => SegmentError::DigestMismatch {
+                        segment: segment.map(|id| SegmentId(id.0)),
+                        expected: Digest(expected.0),
+                        found: Digest(found.0),
+                    },
+                    reference::SegmentError::Decode { artifact, .. } => SegmentError::Decode {
+                        artifact: artifact_to_production(artifact),
+                        message: String::new(),
+                    },
+                    other => error_to_production(&other),
+                }
+            });
+        eprintln!(
+            "malformed manifest case={case} production={production:?} reference={oracle:?} expected={expected:?}"
+        );
+        if production != Err(expected.clone()) || oracle != Err(expected.clone()) {
+            failures.push(format!("case={case}: production={production:?}, reference={oracle:?}, expected={expected:?}"));
+        }
+    }
+    assert_eq!(failures, Vec::<String>::new());
 }

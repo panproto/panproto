@@ -659,12 +659,16 @@ fn local_and_manifest_validators_emit_their_exact_error_variants() {
         None,
     )
     .test_unwrap("manifest seals");
+    let expected_manifest_digest = Digest::derive(
+        segment::MANIFEST_CONTEXT,
+        &segment::canonical_manifest_bytes(&manifest),
+    );
     let mut crossed = manifest.clone();
     crossed.segments[0]
         .cross_out
         .insert(SegmentId(1), Digest([8; 32]));
     assert_eq!(
-        segment::verify_manifest(&crossed),
+        segment::verify_manifest(&crossed, expected_manifest_digest),
         Err(SegmentError::CrossMismatch {
             from: SegmentId(0),
             to: SegmentId(1),
@@ -844,7 +848,14 @@ fn manifests_are_canonical_bound_and_verifiable() {
         )
         .test_unwrap("caller segment order is presentation only");
         assert_eq!(first, reordered);
-        assert_eq!(segment::verify_manifest(&first), Ok(()));
+        let expected_manifest_digest = Digest::derive(
+            segment::MANIFEST_CONTEXT,
+            &segment::canonical_manifest_bytes(&first),
+        );
+        assert_eq!(
+            segment::verify_manifest(&first, expected_manifest_digest),
+            Ok(())
+        );
         assert_segment_artifact_proofs(&first, &segments, &partition);
         assert_eq!(
             segment::canonical_manifest_bytes(&first),
@@ -879,7 +890,7 @@ fn manifests_are_canonical_bound_and_verifiable() {
         let mut tampered = first;
         tampered.root = Digest([9; 32]);
         assert!(matches!(
-            segment::verify_manifest(&tampered),
+            segment::verify_manifest(&tampered, expected_manifest_digest),
             Err(SegmentError::DigestMismatch { segment: None, .. })
         ));
     }

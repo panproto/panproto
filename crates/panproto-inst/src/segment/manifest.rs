@@ -384,41 +384,48 @@ fn records_partition(
     records: &[SegmentRecord],
     shape: InstanceShapeKind,
 ) -> Result<Partition, SegmentError> {
-    if let Some(r) = records.iter().find(|r| r.stats.segment != r.id) {
-        return Err(manifest_error(format!(
-            "the record of {} carries the stats of {}",
-            r.id, r.stats.segment
-        )));
-    }
     let partition = Partition::new(shape, records.iter().map(SegmentRecord::spec).collect());
     partition.validate()?;
+    for record in records {
+        if record.stats.segment != record.id {
+            return Err(SegmentError::MalformedPartition {
+                segment: record.id,
+                defect: PartitionDefect::NotDense {
+                    found: record.stats.segment,
+                },
+            });
+        }
+    }
     Ok(partition)
 }
 
 /// Check that every cross digest has its counterpart: `cross_out[j]` of `i`
 /// equals `cross_in[i]` of `j`, in both directions.
 fn check_cross_pairs(records: &[SegmentRecord]) -> Result<(), SegmentError> {
-    let mut mismatches: Vec<(SegmentId, SegmentId)> = Vec::new();
     let record = |id: SegmentId| records.get(usize::try_from(id.0).unwrap_or(usize::MAX));
     for rec in records {
         for (to, digest) in &rec.cross_out {
             if record(*to).and_then(|peer| peer.cross_in.get(&rec.id)) != Some(digest)
                 || *to == rec.id
             {
-                mismatches.push((rec.id, *to));
+                return Err(SegmentError::CrossMismatch {
+                    from: rec.id,
+                    to: *to,
+                });
             }
         }
         for (from, digest) in &rec.cross_in {
             if record(*from).and_then(|peer| peer.cross_out.get(&rec.id)) != Some(digest)
                 || *from == rec.id
             {
-                mismatches.push((*from, rec.id));
+                return Err(SegmentError::CrossMismatch {
+                    from: *from,
+                    to: rec.id,
+                });
             }
         }
     }
-    mismatches.into_iter().min().map_or(Ok(()), |(from, to)| {
-        Err(SegmentError::CrossMismatch { from, to })
-    })
+    Ok(())
 }
 
 /// Check that every edge allocation range lies above the largest edge id
@@ -693,8 +700,9 @@ impl SegmentManifest {
 /// # Errors
 ///
 /// The partition's error when the records' ranges are malformed,
-/// [`SegmentError::CrossMismatch`] for the least `(from, to)` pair whose
-/// digests disagree or lack a counterpart,
+/// [`SegmentError::CrossMismatch`] for the first self-cross or unpaired
+/// digest in record order, outgoing entries before incoming entries and
+/// ascending peer identifiers within each map,
 /// [`SegmentError::AllocationBelowFloor`] for the first segment whose edge
 /// allocation range does not lie above every edge id,
 /// [`SegmentError::Decode`] of the runs when a record has no run or two, a
@@ -749,18 +757,43 @@ pub fn seal_full<'a>(
     Ok(manifest)
 }
 
-/// Verify a manifest from its records alone, reading no segment: its
-/// version, the partition its records state, its Merkle root and the
-/// pairing of every cross digest.
+/// Verify a manifest against its trusted expected identity without reading a segment.
+///
+/// Structural record checks run first, preserving their typed error precedence.
+/// Then the complete canonical manifest digest must equal `expected_digest`.
+/// Obtain that identity from a trusted artifact reference or the original
+/// sealed manifest, never by hashing an untrusted manifest supplied for checking.
 ///
 /// # Errors
 ///
 /// [`SegmentError::Decode`] of the manifest for another layout version, the
 /// partition's error when the records' ranges are malformed,
+/// [`SegmentError::MalformedPartition`] with the actual statistics identifier
+/// when a record's statistics name another segment, then
+/// [`SegmentError::CrossMismatch`] for the first self-cross or unpaired digest
+/// in record order (outgoing before incoming, ascending peer identifiers), then
 /// [`SegmentError::DigestMismatch`] (with no segment) when the root is not
-/// the Merkle root of the records, and [`SegmentError::CrossMismatch`] for
-/// the least unpaired cross digest.
-pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
+/// the Merkle root of the records. After those checks, a changed header or
+/// other canonical field returns [`SegmentError::DigestMismatch`] with no
+/// segment, the trusted expected identity, and the supplied manifest's digest.
+pub fn verify_manifest(
+    manifest: &SegmentManifest,
+    expected_digest: Digest,
+) -> Result<(), SegmentError> {
+    verify_manifest_records(manifest)?;
+    let found = manifest.digest();
+    if found != expected_digest {
+        return Err(SegmentError::DigestMismatch {
+            segment: None,
+            expected: expected_digest,
+            found,
+        });
+    }
+    Ok(())
+}
+
+// Record consistency is not authentication of the manifest header.
+fn verify_manifest_records(manifest: &SegmentManifest) -> Result<(), SegmentError> {
     if manifest.version != SEGMENT_MANIFEST_VERSION {
         return Err(manifest_error(format!(
             "manifest layout version {}",
@@ -768,6 +801,7 @@ pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
         )));
     }
     records_partition(&manifest.segments, manifest.shape)?;
+    check_cross_pairs(&manifest.segments)?;
     let root = merkle_root(&manifest.segments);
     if root != manifest.root {
         return Err(SegmentError::DigestMismatch {
@@ -776,7 +810,7 @@ pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
             found: root,
         });
     }
-    check_cross_pairs(&manifest.segments)
+    Ok(())
 }
 
 /// Verify one segment against its record in `manifest`.
