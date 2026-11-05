@@ -2194,3 +2194,200 @@ fn reference_restore_vocabulary_covers_tree_put_domain_refusals() {
         restrict::PredicateRefusal::AmbiguousChildField { .. }
     ));
 }
+
+/// A replaced endpoint also needs its synthesized incident edge replaced.
+#[test]
+fn translated_replacement_closes_over_incident_contraction_edges() {
+    use panproto_reference::edit::{GElem, GPayload, GraphDelta, apply, get_edit};
+    let source_schema = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .edge("a", "b", "e", None)
+        .edge("b", "c", "e", None);
+    let target_schema = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("c", "record")
+        .edge("a", "c", "e", None);
+    let migration = RefMigration {
+        surviving_verts: BTreeSet::from(["a".to_owned(), "c".to_owned()]),
+        ..RefMigration::default()
+    };
+    let source = RefGraph {
+        nodes: BTreeMap::from([
+            (0, RefNode::new(0, "a")),
+            (1, RefNode::new(1, "b")),
+            (2, RefNode::new(2, "c")),
+        ]),
+        edges: BTreeMap::from([
+            (
+                0,
+                RefGEdge {
+                    src: 0,
+                    tgt: 1,
+                    label: RefEdge::new("a", "b", "e", None),
+                    position: None,
+                },
+            ),
+            (
+                1,
+                RefGEdge {
+                    src: 1,
+                    tgt: 2,
+                    label: RefEdge::new("b", "c", "e", None),
+                    position: None,
+                },
+            ),
+        ]),
+    };
+    let get = move |graph: &RefGraph| {
+        restrict::get(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &NoValueLayer,
+            graph,
+        )
+    };
+    let (view, _) = get(&source).unwrap();
+    assert_eq!(view.edges.keys().copied().collect::<Vec<_>>(), vec![2]);
+    let replaced = BTreeMap::from([
+        (GElem::Node(0), GPayload::Node(source.nodes[&0].clone())),
+        (GElem::Edge(0), GPayload::Edge(source.edges[&0].clone())),
+    ]);
+    let input = GraphDelta {
+        del: replaced.clone(),
+        add: replaced,
+        attrs: BTreeMap::new(),
+    };
+    assert_eq!(apply(&input, &source).unwrap(), source);
+    let translated = get_edit(&get, &source, &input).unwrap();
+    assert_eq!(
+        apply(&translated.delta, &view).unwrap(),
+        view,
+        "the translated replacement must apply to the contraction view"
+    );
+    assert_eq!(
+        translated.delta.del.keys().cloned().collect::<Vec<_>>(),
+        vec![GElem::Node(0), GElem::Edge(2)]
+    );
+    assert_eq!(translated.delta.del, translated.delta.add);
+    assert_eq!(
+        translated.delta.compose(&GraphDelta::identity()).unwrap(),
+        translated.delta
+    );
+    assert_eq!(
+        GraphDelta::identity().compose(&translated.delta).unwrap(),
+        translated.delta
+    );
+    let identity = get_edit(&get, &source, &GraphDelta::identity()).unwrap();
+    assert_eq!(identity.delta, GraphDelta::identity());
+}
+
+/// The reference restrict domain admits the same two-attribute survival loop.
+#[test]
+fn reference_survival_loop_is_a_replacement_after_translation() {
+    use panproto_reference::edit::{self, GElem, GraphDelta};
+    use panproto_reference::restrict::{
+        LayerRefusal, PredicateRefusal, PutFieldRefusal, ValueLayer, ValueLayerSemantics,
+    };
+    struct Visible;
+    impl ValueLayer for Visible {
+        fn canonical_semantics(&self) -> ValueLayerSemantics {
+            ValueLayerSemantics {
+                domain: "visible-bool",
+                version: 1,
+                canonical_payload: vec![],
+            }
+        }
+        fn survives(&self, _: &RefGraph, node: &RefNode) -> Result<bool, PredicateRefusal> {
+            Ok(node.fields.get("visible") == Some(&RefValue::Bool(true)))
+        }
+        fn transform(
+            &self,
+            graph: &RefGraph,
+            node: &RefNode,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), LayerRefusal> {
+            NoValueLayer.transform(graph, node)
+        }
+        fn restore(
+            &self,
+            view: &RefNode,
+            fields: Option<&BTreeMap<String, RefValue>>,
+            value: Option<&Option<RefPresence>>,
+        ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), PutFieldRefusal> {
+            NoValueLayer.restore(view, fields, value)
+        }
+    }
+    let schema = RefSchema::default()
+        .vertex("r", "record")
+        .vertex("a", "record")
+        .edge("r", "a", "prop", Some("a"));
+    let migration = RefMigration {
+        surviving_verts: BTreeSet::from(["r".to_owned(), "a".to_owned()]),
+        surviving_edges: schema.edges.clone(),
+        conditional: BTreeSet::from(["a".to_owned()]),
+        ..RefMigration::default()
+    };
+    let mut leaf = RefNode::new(1, "a");
+    leaf.fields
+        .insert("visible".to_owned(), RefValue::Bool(true));
+    let before = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "r")), (1, leaf)]),
+        edges: BTreeMap::from([(
+            0,
+            RefGEdge {
+                src: 0,
+                tgt: 1,
+                label: RefEdge::new("r", "a", "prop", Some("a")),
+                position: None,
+            },
+        )]),
+    };
+    let mut middle = before.clone();
+    middle
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("visible".to_owned(), RefValue::Bool(false));
+    let down = edit::diff(&before, &middle);
+    let up = edit::diff(&middle, &before);
+    assert_eq!(down.compose(&up).unwrap(), GraphDelta::identity());
+    let plan = restrict::compile(&schema, &schema, &migration).unwrap();
+    let layer = Visible;
+    let lens = RefGraphLens::new(
+        &schema,
+        &schema,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &layer,
+    )
+    .unwrap();
+    for state in [&before, &middle] {
+        let (view, complement) = lens.get(state).unwrap();
+        assert_eq!(lens.put(&view, &complement).unwrap(), *state);
+    }
+    let closure_schema = schema.clone();
+    let closure_migration = migration.clone();
+    let get = move |state: &RefGraph| {
+        restrict::get(
+            &closure_schema,
+            &closure_schema,
+            &closure_migration,
+            &Visible,
+            state,
+        )
+    };
+    let first = edit::get_edit(&get, &before, &down).unwrap();
+    let second = edit::get_edit(&get, &middle, &up).unwrap();
+    let sequential = first.delta.compose(&second.delta).unwrap();
+    let direct = edit::get_edit(&get, &before, &GraphDelta::identity()).unwrap();
+    assert!(sequential.del.contains_key(&GElem::Node(1)));
+    assert!(sequential.add.contains_key(&GElem::Node(1)));
+    assert_eq!(direct.delta, GraphDelta::identity());
+    assert_ne!(sequential, direct.delta);
+    let (view, _) = get(&before).unwrap();
+    assert_eq!(edit::apply(&sequential, &view).unwrap(), view);
+}

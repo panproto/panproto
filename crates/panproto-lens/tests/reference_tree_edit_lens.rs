@@ -958,3 +958,271 @@ fn tree_edit_lens_late_sequence_refusal_is_atomic_for_reference_and_production()
         "a late production refusal must leave the tracked source unchanged"
     );
 }
+
+/// A field transform belongs to its declared anchor, including for edits.
+#[test]
+fn field_edit_translation_uses_only_the_edited_nodes_anchor() {
+    let protocol = Protocol::default();
+    let source_schema = SchemaBuilder::new(&protocol)
+        .vertex("a", "record", None::<&str>)
+        .unwrap()
+        .vertex("b", "record", None::<&str>)
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    let target_schema = SchemaBuilder::new(&protocol)
+        .vertex("a", "record", None::<&str>)
+        .unwrap()
+        .vertex("b", "record", None::<&str>)
+        .unwrap()
+        .vertex("g", "scalar", None::<&str>)
+        .unwrap()
+        .edge("b", "g", "prop", Some("g"))
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    let mut compiled = CompiledMigration {
+        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "b".into(),
+        vec![panproto_inst::FieldTransform::RenameField {
+            old_key: "f".to_owned(),
+            new_key: "g".to_owned(),
+        }],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let mut node = Node::new(0, "a");
+    node.extra_fields.insert("f".to_owned(), Value::Int(0));
+    let source = WInstance::new(
+        HashMap::from([(0, node)]),
+        Vec::new(),
+        Vec::new(),
+        0,
+        "a".into(),
+    );
+    let edit = TreeEdit::SetField {
+        node_id: 0,
+        field: "f".into(),
+        value: Value::Int(1),
+    };
+    let (mut translated_view, _) = panproto_lens::get(&lens, &source).unwrap();
+    let mut edited_source = source.clone();
+    edit.apply(&mut edited_source).unwrap();
+    let (expected, _) = panproto_lens::get(&lens, &edited_source).unwrap();
+    let mut edit_lens = EditLens::from_lens(lens, protocol);
+    edit_lens.initialize(&source).unwrap();
+    edit_lens
+        .get_edit(edit)
+        .unwrap()
+        .apply(&mut translated_view)
+        .unwrap();
+    assert_eq!(
+        translated_view.nodes[&0].extra_fields, expected.nodes[&0].extra_fields,
+        "a transform declared at b must not rename a field edit on a"
+    );
+    let removal = edit_lens
+        .get_edit(TreeEdit::RemoveField {
+            node_id: 0,
+            field: "f".into(),
+        })
+        .unwrap();
+    assert!(matches!(removal, TreeEdit::RemoveField { field, .. } if field == "f"));
+    let backward = edit_lens
+        .put_edit(TreeEdit::SetField {
+            node_id: 0,
+            field: "g".into(),
+            value: Value::Int(2),
+        })
+        .unwrap();
+    assert!(matches!(backward, TreeEdit::SetField { field, .. } if field == "g"));
+    let backward_removal = edit_lens
+        .put_edit(TreeEdit::RemoveField {
+            node_id: 0,
+            field: "g".into(),
+        })
+        .unwrap();
+    assert!(matches!(backward_removal, TreeEdit::RemoveField { field, .. } if field == "g"));
+    let sequence = edit_lens
+        .put_edit(TreeEdit::Sequence(vec![
+            TreeEdit::RelabelNode {
+                id: 0,
+                new_anchor: "b".into(),
+            },
+            TreeEdit::SetField {
+                node_id: 0,
+                field: "g".into(),
+                value: Value::Int(3),
+            },
+        ]))
+        .unwrap();
+    let TreeEdit::Sequence(steps) = sequence else {
+        panic!("expected relabel then field edit")
+    };
+    assert!(matches!(&steps[1], TreeEdit::SetField { field, .. } if field == "f"));
+    let tracked = edit_lens.pipeline.as_ref().unwrap().source();
+    assert_eq!(tracked.nodes[&0].anchor.as_ref(), "b");
+    assert_eq!(tracked.nodes[&0].extra_fields["f"], Value::Int(3));
+}
+
+/// Diagnostic: an attribute loop is identity in the source and replacement in the view.
+#[test]
+fn conditional_survival_loop_exposes_strict_functoriality_obstruction() {
+    let protocol = Protocol::default();
+    let schema = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None::<&str>)
+        .unwrap()
+        .vertex("a", "record", None::<&str>)
+        .unwrap()
+        .edge("r", "a", "prop", Some("a"))
+        .unwrap()
+        .entry("r")
+        .build()
+        .unwrap();
+    let mut compiled = CompiledMigration {
+        surviving_verts: schema.vertices.keys().cloned().collect(),
+        surviving_edges: schema.edges.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled
+        .conditional_survival
+        .insert("a".into(), panproto_expr::Expr::Var("visible".into()));
+    let make_lens = || Lens {
+        compiled: compiled.clone(),
+        src_schema: schema.clone(),
+        tgt_schema: schema.clone(),
+    };
+    let mut leaf = Node::new(1, "a");
+    leaf.extra_fields
+        .insert("visible".to_owned(), Value::Bool(true));
+    let arc = Edge {
+        src: "r".into(),
+        tgt: "a".into(),
+        kind: "prop".into(),
+        name: Some("a".into()),
+    };
+    let before = WInstance::new(
+        HashMap::from([(0, Node::new(0, "r")), (1, leaf)]),
+        vec![(0, 1, arc)],
+        vec![],
+        0,
+        "r".into(),
+    );
+    let mut middle = before.clone();
+    TreeEdit::SetField {
+        node_id: 1,
+        field: "visible".into(),
+        value: Value::Bool(false),
+    }
+    .apply(&mut middle)
+    .unwrap();
+    let (g0, se0) = GInstance::from_wtype_embedded(&before, Some(&schema)).unwrap();
+    let (g1, se1) = GInstance::from_wtype_embedded(&middle, Some(&schema)).unwrap();
+    let down = GraphDelta::diff(&g0, &g1);
+    let up = GraphDelta::diff(&g1, &g0);
+    assert_eq!(down.compose(&up).unwrap(), GraphDelta::identity());
+    let lens = make_lens();
+    let (v0, c0) = panproto_lens::get(&lens, &before).unwrap();
+    let (v1, c1) = panproto_lens::get(&lens, &middle).unwrap();
+    assert!(v0.nodes.contains_key(&1));
+    assert!(!v1.nodes.contains_key(&1));
+    // Both reached views are admitted to whole-state put, with the threaded complement.
+    panproto_lens::put(&lens, &v0, &c0).unwrap();
+    panproto_lens::put(&lens, &v1, &c1).unwrap();
+    let (gv0, ve0) = GInstance::from_wtype_embedded(&v0, Some(&schema)).unwrap();
+    let (_, ve1) = GInstance::from_wtype_embedded(&v1, Some(&schema)).unwrap();
+    let mut translator = EditLens::from_lens(make_lens(), protocol.clone());
+    translator.initialize(&before).unwrap();
+    let first = translator
+        .get_graph_edit(&before, &se0, &v0, &ve0, &down)
+        .unwrap();
+    let second = translator
+        .get_graph_edit(&middle, &se1, &v1, &ve1, &up)
+        .unwrap();
+    let sequential = first.compose(&second).unwrap();
+    let mut direct_lens = EditLens::from_lens(make_lens(), protocol);
+    direct_lens.initialize(&before).unwrap();
+    let direct = direct_lens
+        .get_graph_edit(&before, &se0, &v0, &ve0, &GraphDelta::identity())
+        .unwrap();
+    assert!(sequential.del_nodes().contains_key(&1));
+    assert!(sequential.add_nodes().contains_key(&1));
+    assert_eq!(direct, GraphDelta::identity());
+    assert_ne!(
+        sequential, direct,
+        "the existing strict general theorem is incompatible with occurrence-sensitive equality"
+    );
+    let mut result = gv0.clone();
+    sequential.apply(&mut result).unwrap();
+    assert_eq!(result, gv0);
+}
+
+/// Public get_edit must agree with get when removing a rename's shadowing source.
+#[test]
+fn field_removal_recovers_a_shadowed_rename_destination() {
+    let protocol = Protocol::default();
+    let source_schema = SchemaBuilder::new(&protocol)
+        .vertex("a", "record", None::<&str>)
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    let target_schema = SchemaBuilder::new(&protocol)
+        .vertex("a", "record", None::<&str>)
+        .unwrap()
+        .vertex("g", "scalar", None::<&str>)
+        .unwrap()
+        .edge("a", "g", "prop", Some("g"))
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    let mut compiled = CompiledMigration {
+        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "a".into(),
+        vec![panproto_inst::FieldTransform::RenameField {
+            old_key: "f".to_owned(),
+            new_key: "g".to_owned(),
+        }],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let mut node = Node::new(0, "a");
+    node.extra_fields.insert("f".to_owned(), Value::Int(1));
+    node.extra_fields.insert("g".to_owned(), Value::Int(2));
+    let source = WInstance::new(HashMap::from([(0, node)]), vec![], vec![], 0, "a".into());
+    let edit = TreeEdit::RemoveField {
+        node_id: 0,
+        field: "f".into(),
+    };
+    let (mut actual, _) = panproto_lens::get(&lens, &source).unwrap();
+    assert_eq!(actual.nodes[&0].extra_fields["g"], Value::Int(1));
+    let mut edited_source = source.clone();
+    edit.apply(&mut edited_source).unwrap();
+    let (expected, expected_complement) = panproto_lens::get(&lens, &edited_source).unwrap();
+    assert_eq!(expected.nodes[&0].extra_fields["g"], Value::Int(2));
+    // Explicitly establish the resulting view's whole-state put domain;
+    // a failed assertion here must not be reported as an admitted-law failure.
+    panproto_lens::put(&lens, &expected, &expected_complement).unwrap();
+    let mut translator = EditLens::from_lens(lens, protocol);
+    translator.initialize(&source).unwrap();
+    let translated = translator.get_edit(edit).unwrap();
+    translated.apply(&mut actual).unwrap();
+    assert_eq!(
+        actual.nodes[&0].extra_fields,
+        expected.nodes[&0].extra_fields
+    );
+}
