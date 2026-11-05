@@ -1794,6 +1794,110 @@ fn compare_generated_key_order(indices: &[usize]) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
+fn compare_generated_bucket_graph(
+    choices: [usize; 3],
+    connected: [bool; 3],
+    scope: usize,
+    path: bool,
+) -> Result<(), Box<dyn Error>> {
+    let entries = ReferenceSchemaEdge::new("document", "item", "prop", Some("entries"));
+    let field = ReferenceSchemaEdge::new("item", "value", "prop", Some("value"));
+    let mut pair = GraphPair::default();
+    for id in [0, 1] {
+        pair.add_node(id, "document", None)?;
+    }
+    for (group, (choice, connected)) in choices.into_iter().zip(connected).enumerate() {
+        let group = u32::try_from(group)?;
+        let presence = match choice {
+            0 => Some(ReferencePresence::Present(ReferenceValue::Int(0))),
+            1 => Some(ReferencePresence::Present(ReferenceValue::Int(1))),
+            2 => Some(ReferencePresence::Present(ReferenceValue::Str(
+                "a".to_owned(),
+            ))),
+            3 => Some(ReferencePresence::Present(ReferenceValue::Str(
+                "A".to_owned(),
+            ))),
+            4 => Some(ReferencePresence::Null),
+            _ => None,
+        };
+        for twin in 0..2 {
+            let id = 10 + 2 * group + twin;
+            pair.add_node(id, "item", if path { None } else { presence.clone() })?;
+            if path {
+                pair.add_node(id + 100, "value", presence.clone())?;
+                pair.add_edge(id + 100, id, id + 100, &field, None)?;
+            }
+            if connected {
+                pair.add_edge(id, group % 2, id, &entries, None)?;
+            }
+        }
+    }
+    let key = reference::Key {
+        id: "generated".to_owned(),
+        parts: vec![reference::KeyPart::Path(if path {
+            vec![field.clone()]
+        } else {
+            Vec::new()
+        })],
+        role: reference::KeyRole::Unique,
+        scope: match scope {
+            0 => reference::KeyScope::Document,
+            1 => reference::KeyScope::Global,
+            _ => reference::KeyScope::Within("document".to_owned()),
+        },
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[
+            ("document", "object"),
+            ("item", "object"),
+            ("value", "scalar"),
+        ],
+        &[entries, field],
+        &[],
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
+fn compare_generated_position_graph(
+    positions: [Option<u32>; 2],
+    global: bool,
+) -> Result<(), Box<dyn Error>> {
+    let within = ReferenceSchemaEdge::new("list", "item", "prop", Some("items"));
+    let mut pair = GraphPair::default();
+    for parent in 0..2 {
+        pair.add_node(parent, "list", None)?;
+        for (slot, position) in positions.into_iter().enumerate() {
+            let id = 10 + 2 * parent + u32::try_from(slot)?;
+            pair.add_node(id, "item", None)?;
+            pair.add_edge(id, parent, id, &within, position)?;
+        }
+    }
+    let key = reference::Key {
+        id: "generated-position".to_owned(),
+        parts: vec![reference::KeyPart::Position {
+            within: within.clone(),
+        }],
+        role: reference::KeyRole::Unique,
+        scope: if global {
+            reference::KeyScope::Global
+        } else {
+            reference::KeyScope::Document
+        },
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[("list", "object"), ("item", "object")],
+        std::slice::from_ref(&within),
+        std::slice::from_ref(&within),
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
 mod randomized {
     use proptest::prelude::*;
 
@@ -1801,6 +1905,70 @@ mod randomized {
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn key_values_and_scoped_buckets_match_on_generated_twin_graphs(
+            values in proptest::array::uniform3(0_usize..6),
+            connected in proptest::array::uniform3(proptest::bool::ANY),
+            scope in 0_usize..3,
+            path in proptest::bool::ANY,
+        ) {
+            super::compare_generated_bucket_graph(values, connected, scope, path)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        }
+
+        #[test]
+        fn position_key_values_and_buckets_match_on_generated_sibling_orders(
+            positions in proptest::array::uniform2(proptest::option::of(0_u32..4)),
+            global in proptest::bool::ANY,
+        ) {
+            super::compare_generated_position_graph(positions, global)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        }
+
+        #[test]
+        fn lexical_space_admission_and_preservation_match_on_generated_literals(
+            literal in 0_usize..12,
+            datatype in 0_usize..3,
+        ) {
+            let texts = ["0", "42", "-1", "+1", "007", " 1", "1.5", "1e3",
+                "9223372036854775807", "9223372036854775808", "not-an-integer", ""];
+            let datatype = ["integer", "decimal", "unknown-datatype"][datatype];
+            let text = texts[literal];
+            let expected = super::reference_keys::lexical_space_outcome(text, datatype, &super::lexical_table());
+            let (passed, reported, unsupported, preserved) = super::production_lexical_outcome(text, datatype);
+            prop_assert!(passed);
+            prop_assert_eq!(preserved, text);
+            prop_assert_eq!((reported, unsupported), match expected {
+                super::reference_keys::LexicalOutcome::Coerces => (false, false),
+                super::reference_keys::LexicalOutcome::IllTyped => (true, false),
+                super::reference_keys::LexicalOutcome::UnsupportedDeclaration => (false, true),
+            });
+        }
+
+        #[test]
+        fn annotated_format_admission_and_preservation_match_on_generated_strings(
+            literal in 0_usize..8,
+            mode in 0_usize..3,
+        ) {
+            let texts = ["550e8400-e29b-41d4-a716-446655440000",
+                "550E8400-E29B-41D4-A716-446655440000",
+                "550e8400-e29b-41d4-a716-44665544000",
+                "550e8400e29b-41d4-a716-4466554400000",
+                "{550e8400-e29b-41d4-a716-446655440000}",
+                "550e8400-e29b-41d4-a716-44665544000g", "not-a-uuid", ""];
+            let (format, asserting) = [("uuid", false), ("uuid", true), ("x-unrecognized", false)][mode];
+            let text = texts[literal];
+            let expected = super::reference_keys::annotated_format_outcome(format, text, asserting);
+            let (passed, reported, incomplete, preserved) = super::production_format_outcome(format, text, asserting);
+            prop_assert_eq!(preserved, text);
+            prop_assert!(!incomplete);
+            prop_assert_eq!((passed, reported), match expected {
+                super::reference_keys::FormatOutcome::Unchecked | super::reference_keys::FormatOutcome::Recognized => (true, false),
+                super::reference_keys::FormatOutcome::Advisory => (true, true),
+                super::reference_keys::FormatOutcome::Refused => (false, true),
+            });
+        }
 
         #[test]
         fn key_kernels_and_typed_refusals_match_on_generated_pairs(

@@ -2250,3 +2250,150 @@ fn declaration_bytes_decode_back_on_every_extension_combination() {
     }
     assert_eq!(encodings.len(), carrier.len());
 }
+
+fn compare_generated_declarations(schema: &reference::Schema) {
+    let (actual, structural) = production_classes(schema);
+    assert!(
+        structural.is_empty(),
+        "unexpected structural findings: {structural:?}"
+    );
+    let classes = |items: Vec<DeclarationClass>| {
+        let mut names = items
+            .into_iter()
+            .map(|item| format!("{item:?}"))
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(classes(actual), classes(reference_classes(schema)));
+}
+
+fn compare_generated_declaration_bytes(schema: &reference::Schema) {
+    let (expected, actual) = paired_declaration_bytes(schema);
+    assert_eq!(actual, expected);
+    let decoded = DeclarationReader { bytes: &actual }.declarations();
+    assert_eq!(
+        decoded,
+        (
+            schema.keys.clone(),
+            schema.references.clone(),
+            schema.target_sets.clone()
+        )
+    );
+}
+
+mod randomized {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn descriptor_schema(vertices: usize, graph: usize, slots: [usize; 2]) -> reference::Schema {
+        let graphs = enumerate::structural_schemas(vertices);
+        let descriptors = enumerate::key_descriptors(vertices);
+        enumerate::schema_with_keys(
+            graphs[graph % graphs.len()].clone(),
+            slots.map(|slot| descriptors.get(slot % (descriptors.len() + 1))),
+        )
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn canonical_bytes_distinguish_generated_descriptor_schemas(
+            vertices in 1_usize..=3,
+            graph in 0_usize..148,
+            left in proptest::array::uniform2(0_usize..451),
+            right in proptest::array::uniform2(0_usize..451),
+        ) {
+            let left = descriptor_schema(vertices, graph, left);
+            let right = descriptor_schema(vertices, graph, right);
+            compare_generated_declaration_bytes(&left);
+            compare_generated_declaration_bytes(&right);
+            let (left_reference, left_production) = paired_bytes(&left);
+            let (right_reference, right_production) = paired_bytes(&right);
+            prop_assert_eq!(left_reference == right_reference, left == right);
+            prop_assert_eq!(left_production == right_production, left == right);
+        }
+
+        #[test]
+        fn equality_declaration_words_match_and_decode(
+            indices in proptest::collection::vec(0_usize..12, 0..=3),
+        ) {
+            let configurations = enumerate::equality_configurations();
+            prop_assert_eq!(configurations.len(), 12);
+            let equality = indices.into_iter().map(|index| configurations[index].1.clone()).collect();
+            compare_generated_declaration_bytes(&equality_fixture(equality));
+        }
+
+        #[test]
+        fn extension_declarations_match_and_decode_on_generated_pairs(
+            left in 0_usize..194,
+            right in 0_usize..194,
+        ) {
+            let carrier = extension_carrier();
+            prop_assert_eq!(carrier.len(), 194);
+            compare_generated_declaration_bytes(&carrier[left]);
+            compare_generated_declaration_bytes(&carrier[right]);
+            let (left_reference, left_production) = paired_declaration_bytes(&carrier[left]);
+            let (right_reference, right_production) = paired_declaration_bytes(&carrier[right]);
+            prop_assert_eq!(left_reference == right_reference, left == right);
+            prop_assert_eq!(left_production == right_production, left == right);
+        }
+
+        #[test]
+        fn key_and_reference_admission_match_on_generated_coordinates(
+            role in 0_usize..5,
+            key_parts in 1_usize..=2,
+            equalities in 0_usize..=3,
+            source_parts in 1_usize..=2,
+            duplicate in proptest::bool::ANY,
+            nullable in proptest::bool::ANY,
+            full in proptest::bool::ANY,
+        ) {
+            let mut schema = canonical_base();
+            let key = &mut schema.keys.get_mut("target").expect("target keys")[0];
+            key.role = [reference::KeyRole::Primary, reference::KeyRole::Unique,
+                reference::KeyRole::Identifier, reference::KeyRole::SortKey,
+                reference::KeyRole::Index][role];
+            key.parts = vec![reference::KeyPart::Path(Vec::new()); key_parts];
+            key.equality = vec![reference_keys::KeyEquality::Representation; equalities];
+            if duplicate {
+                let second = key.clone();
+                schema.keys.get_mut("target").expect("target keys").push(second);
+            }
+            let declaration = schema.references.get_mut("r").expect("reference");
+            declaration.source = reference::RefSource::KeyValue {
+                parts: vec![vec![reference_edge("holder", "scalar", "field")]; source_parts],
+            };
+            declaration.nullable = nullable;
+            declaration.null_match = if full { reference::NullMatch::Full } else { reference::NullMatch::Simple };
+            compare_generated_declarations(&schema);
+        }
+
+        #[test]
+        fn target_set_admission_matches_on_generated_member_words(
+            indices in proptest::collection::vec(0_usize..8, 0..=4),
+        ) {
+            let mut schema = target_set_predicate_base();
+            let members = [("a", "id"), ("b", "id"), ("a", "implicit"),
+                ("b", "explicit"), ("b", "two"), ("b", "representation"),
+                ("c", "scoped"), ("missing", "id")];
+            let selected = indices.iter().map(|&index| {
+                let (vertex, key) = members[index];
+                (vertex.to_owned(), key.to_owned())
+            }).collect::<Vec<_>>();
+            let local = reference_target_signatures(&schema, &selected)
+                .as_deref().map(reference_keys::target_set);
+            schema.target_sets.insert("targets".to_owned(), reference::TargetSet {
+                members: selected, scope: reference::KeyScope::Document,
+            });
+            compare_generated_declarations(&schema);
+            prop_assert_eq!(reference_member_mismatches(&schema), production_member_mismatches(&schema));
+            // The local signature predicate deliberately has no scope coordinate.
+            // On this all-document subdomain it decides complete admission.
+            if indices.iter().all(|&index| index < 6) {
+                prop_assert_eq!(local, Some(production_classes(&schema).0.is_empty()));
+            }
+        }
+    }
+}

@@ -2525,7 +2525,8 @@ fn variable_binding_serialization_keeps_the_nondefault_selection_rule() {
 
 #[test]
 fn exact_float_reading_omits_only_the_default_serialized_field() {
-    use panproto_schema::{FloatReading, ScalarKind, ValueSpec};
+    use panproto_schema::value_kinds::FloatReading;
+    use panproto_schema::{ScalarKind, ValueSpec};
 
     let mut spec = ValueSpec::new(ScalarKind::Float { bits: 64 });
     assert!(spec.float_reading.is_exact());
@@ -2641,7 +2642,8 @@ fn standoff_extension_slots_round_trip_for_every_presence_pattern() {
 #[test]
 fn value_spec_extension_slots_round_trip_for_every_presence_pattern() {
     use panproto_expr::exact::TimeUnit;
-    use panproto_schema::{FloatReading, NumeralDialect, ScalarKind, ValueSpec};
+    use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
+    use panproto_schema::{ScalarKind, ValueSpec};
     use std::collections::BTreeMap;
 
     for mask in 0..32 {
