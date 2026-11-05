@@ -1541,3 +1541,56 @@ fn fan_domain_lists_the_same_ordered_typed_violations() {
         ]
     );
 }
+
+/// A later positioned edge does not mask an earlier duplicate parent.
+#[test]
+fn graph_to_tree_mixed_failures_preserve_edge_order() {
+    let graph = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "a")), (1, RefNode::new(1, "a"))]),
+        edges: (0..3)
+            .map(|id| {
+                (
+                    id,
+                    RefGEdge {
+                        src: 0,
+                        tgt: 1,
+                        label: RefEdge::new("a", "a", "e", None),
+                        position: (id == 2).then_some(0),
+                    },
+                )
+            })
+            .collect(),
+    };
+    assert_eq!(
+        graph_to_tree(&graph, 0, &schema_parent_name(None)),
+        Err(RefNotATree::SecondParent { node: 1 }),
+    );
+    assert!(matches!(
+        prod_graph(&graph).to_wtype(0),
+        Err(InstError::NotATree {
+            reason: NotTreeReason::ParallelEdges { src: 0, tgt: 1 }
+        })
+    ));
+}
+
+#[test]
+fn rooted_multiple_parent_refusal_retains_the_complete_incoming_witness() {
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(1, "a"))
+        .with_node(Node::new(2, "a"))
+        .with_node(Node::new(3, "a"));
+    let edge = panproto_schema::Edge {
+        src: "a".into(),
+        tgt: "a".into(),
+        kind: "e".into(),
+        name: None,
+    };
+    let graph = graph
+        .with_edge_id(EdgeId(5), 0, 3, edge.clone())
+        .with_edge_id(EdgeId(1), 1, 3, edge.clone())
+        .with_edge_id(EdgeId(9), 2, 3, edge);
+    assert!(matches!(graph.to_wtype(0), Err(InstError::NotATree {
+        reason: NotTreeReason::MultipleParents { node: 3, edges }
+    }) if edges == vec![EdgeId(1), EdgeId(5), EdgeId(9)]));
+}
