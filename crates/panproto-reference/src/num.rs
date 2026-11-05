@@ -53,7 +53,7 @@ impl Nat {
     }
 
     fn normalized(mut limbs: Vec<u32>) -> Self {
-        while let Some(&0) = limbs.last() {
+        while limbs.last().is_some_and(|&limb| limb == 0) {
             limbs.pop();
         }
         Self { limbs }
