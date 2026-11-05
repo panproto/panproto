@@ -53,7 +53,7 @@ impl Nat {
     }
 
     fn normalized(mut limbs: Vec<u32>) -> Self {
-        while limbs.last() == Some(&0) {
+        while let Some(&0) = limbs.last() {
             limbs.pop();
         }
         Self { limbs }
@@ -864,6 +864,30 @@ mod tests {
 
     fn nat(s: &str) -> Nat {
         Nat::parse(s).unwrap_or_default()
+    }
+
+    #[test]
+    fn natural_normalization_trims_only_most_significant_zero_limbs() {
+        for (input, expected) in [
+            (vec![], vec![]),
+            (vec![0], vec![]),
+            (vec![0, 0, 0], vec![]),
+            (vec![1], vec![1]),
+            (vec![1, 0, 0], vec![1]),
+            (vec![0, 1, 0], vec![0, 1]),
+            (vec![7, 0, 9, 0, 0], vec![7, 0, 9]),
+            (vec![999_999_999, 0], vec![999_999_999]),
+        ] {
+            let normalized = Nat::normalized(input.clone());
+            assert_eq!(normalized.limbs, expected, "normalizing {input:?}");
+            assert_eq!(
+                Nat::normalized(normalized.limbs.clone()),
+                normalized,
+                "normalization is idempotent for {input:?}"
+            );
+        }
+        assert_eq!(Nat::parse("000000000000000000"), Some(Nat::zero()));
+        assert_eq!(Nat::parse("000000001000000000"), Some(Nat::from_u64(BASE)));
     }
 
     #[test]
