@@ -301,6 +301,17 @@ Lens, put domain and report order are defined at the head of this page; the clau
 4. Tree get records a surviving node's source anchor exactly when the reverse vertex map does not return it (definition of tree get, the same recording rule as graph get, [L-lenses-2](#L-lenses-2) step 3); tree restoration applies the recorded anchor exactly when its image equals the view anchor, else the unique reverse anchor (definition of tree restoration). The structural synthesis checks still read the original complement. A synthesized reparent thus retains both its original and current native arc witnesses, while the sibling-order rule selects the least synthesis key and arc independently of discovery order.
 5. On the nonfan tree lens domain, no edge between survivors is dropped. The graph restriction of the tree's graph form thus keeps exactly the arcs whose endpoints survive, and unique tree paths make its contraction choices equal to the native tree choices. The durable embedding maps an arc-local native witness to its public graph edge and applies the graph-specific minimum-edge rule to a sibling-order witness. After this explicit projection, the native structural and value passes of step 1 inspect the same restored nodes and source labels as graph restoration. Each route verifies its own shape-specific envelope. Thus their views, projected domain reports and restored sources agree under the embedding.
 
+
+6. Call the association from each view node to its root or child position the *position map*. For a rooted tree, the root has one root position, and every other node has one parent arc. Counting that parent’s children separately for each edge in arc order gives each child a distinct index. Thus the position map records one id at each occupied position. Production and reference get record the same map on the common tree domain because step 5 gives the same root, anchors and ordered arcs. A reader’s renumbering preserves these positions when it preserves the root anchor, edge labels and sibling order.
+
+7. Alignment traverses the parsed view breadth first, with children in arc order. The root receives the recorded root id. Inductively, suppose the assignments before a child agree in both implementations. If its parent received a recorded id, the parent id, edge and sibling index determine the same lookup in the position map. Both implementations assign the recorded child id when that lookup succeeds. Otherwise both mark the child fresh. Every descendant of a fresh child is also fresh: its parent has no recorded id with which to perform a lookup. The two traversals thus make identical recorded-or-fresh assignments at every reached node. Nodes outside the root walk, when present, follow in ascending input-id order and are fresh.
+
+8. Recorded assignments are injective. The root id occurs only at its root position, distinct child positions name distinct recorded ids, and the inductive parent assignments keep child lookup keys distinct. Fresh allocation begins at the maximum of the complement’s node floor and the saturating successor floor of the recorded view, dropped and synthesized node ids; `u32::MAX` is the exhaustion sentinel. For complements just returned by get, these bounds agree in production and reference. Production’s `tree_id_floor` and the reference source-graph floor both reserve the source nodes on this nonfan domain. The keys of production’s synthesized-key map already occur among its synthesized node ids. The recorded source floor also covers retained source metadata. Allocation advances in traversal order. Each fresh id is thus distinct from every recorded id and every earlier fresh id, or allocation refuses with `IdsExhausted` before returning an aligned view.
+
+9. Each implementation applies this injective renaming to node-map keys, stored node ids, arc endpoints, fan endpoints and the root. It preserves payloads, arc order, edge labels and fan labels. The results thus agree as trees. For an unedited get-view subjected only to a bijective renumbering, induction along the original root paths makes every position lookup succeed with its original id, so alignment recovers that view exactly. When the child of the last arc is a leaf outside every fan, deleting that child leaves its position unoccupied; appending its copy creates an unrecorded position and thus a fresh id. These are the deletion and insertion edits in the bounded certificate. An unoccupied recorded position contributes no node to the aligned view, so the existing put-domain and restoration rules treat that positional absence as a deletion, subject to their ordinary refusal conditions.
+
+10. The production wrapper checks the complement’s lens identity before alignment. For the get-produced complements compared here, that check succeeds. If a rooted input is paired with no recorded positions, alignment returns `PositionsNotRecorded`; a recorded map with no single root or repeated child position returns `MalformedPositions`; a different root anchor returns `RootAnchorMismatch` with the recorded and found anchors. These checks precede fresh allocation. They follow directly from the position-index construction and root check, though the bounded carrier certificate does not exercise every malformed-map or exhausted-id case. After successful alignment, put is the original operation on the renamed view and the original complement. Steps 1 through 5 thus determine its refusal report and restored source.
+
 ### Executable counterpart
 
 - Law ID: `lenses.l5`
@@ -312,15 +323,20 @@ Lens, put domain and report order are defined at the head of this page; the clau
 - Reference: `panproto_reference::lens::put`
 - Reference: `panproto_reference::lens::tree_get`
 - Reference: `panproto_reference::lens::tree_put`
+- Reference: `panproto_reference::lens::align_tree_view`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_tree_put_law_case; bound: named_validation_cases=3, tree_stage_states=2548, base_cases=2551`
 - Exhaustive differential test: `tree_put_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_put_law_certificate)'`
 - Property differential test: `randomized_tree_put_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_tree_put_law_differential)'`
+- Regression differential test: `tree_aligned_put_agrees_with_the_reference; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_aligned_put_agrees_with_the_reference)'`
 - File: `crates/panproto-lens/src/asymmetric.rs`
+- File: `crates/panproto-lens/src/view_alignment.rs`
+- File: `crates/panproto-inst/src/complement.rs`
 - File: `crates/panproto-lens/src/graph_lens.rs`
 - File: `crates/panproto-lens/src/lens_shape.rs`
 - File: `crates/panproto-inst/src/error_detail.rs`
 - File: `crates/panproto-inst/src/view_ref.rs`
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
+- File: `crates/panproto-reference/src/pages/lenses/alignment.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/pages/lenses/domain.rs`
 - File: `crates/panproto-reference/src/pages/lenses/laws.rs`
@@ -931,8 +947,7 @@ Table stages must also satisfy the **table fusion criterion**:
 2. the first table stage is a complement-`Unit` bijection, so its table, relation and column maps are both injective from the source and surjective onto the middle relational schema;
 3. the first target and second source relational schemas are equal, and the second source has no protocol-derived required-value obligation;
 4. the first stage carries neither field transforms nor op-term assignments;
-5. the three entity functors compose literally on every source table, relation and column, and the second-stage column map is injective within each middle table; and
-6. if the second stage has a value layer, the source and middle protocols are equal and the first plan has equal source and target relational schemas.
+5. the three entity functors compose literally on every source table, relation and column, and the second-stage column map is injective within each middle table.
 
 ### Outside the domain
 

@@ -4177,6 +4177,7 @@
       ],
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
+        "crates/panproto-reference/src/pages/lenses/alignment.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
         "crates/panproto-reference/src/pages/lenses/graph.rs",
         "crates/panproto-reference/src/pages/lenses/laws.rs",
@@ -4328,7 +4329,8 @@
             "panproto_reference::lens::get",
             "panproto_reference::lens::put",
             "panproto_reference::lens::tree_get",
-            "panproto_reference::lens::tree_put"
+            "panproto_reference::lens::tree_put",
+            "panproto_reference::lens::align_tree_view"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -4355,6 +4357,12 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "declared_transform_conditional_defaults_track_actual_writes"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "tree_aligned_put_agrees_with_the_reference"
             }
           ]
         },
