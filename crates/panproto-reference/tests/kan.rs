@@ -1812,7 +1812,7 @@ fn literal_adjunction_error(error: &KanError) -> rel::AdjunctionError {
             limit,
         } => rel::AdjunctionError::ProductSizeExceeded {
             vertex: vertex.clone(),
-            actual: *actual,
+            actual: actual.clone(),
             limit: *limit,
         },
         KanError::AttributeOutsideImage { table, column } => {
@@ -2603,7 +2603,7 @@ fn pi_checks_multi_table_fibres_before_enumerating_their_product() {
         rel::pi(&f, &input, 3),
         Err(KanError::ProductSizeExceeded {
             vertex: "m".to_owned(),
-            actual: 4,
+            actual: "4".to_owned(),
             limit: 3,
         })
     );
@@ -4394,10 +4394,18 @@ fn check_literal_pi(
             );
             stats.pi_outputs[index] += 1;
         }
-        Err(error @ KanError::ProductSizeExceeded { actual, limit, .. }) => {
-            assert!(actual > limit);
+        Err(
+            ref error @ KanError::ProductSizeExceeded {
+                ref actual, limit, ..
+            },
+        ) => {
+            let bound_text = limit.to_string();
+            assert!(
+                actual.len() > bound_text.len()
+                    || (actual.len() == bound_text.len() && actual > &bound_text)
+            );
             assert_eq!(limit, bound);
-            check_literal_pi_refusal(context, input_graph, input_tree, &error, bound, stats);
+            check_literal_pi_refusal(context, input_graph, input_tree, error, bound, stats);
             stats.pi_products[index] += 1;
         }
         Err(error @ KanError::AttributeOutsideImage { .. }) => {
@@ -5253,5 +5261,36 @@ fn sigma_clash_features_keep_slots_and_transport_first_witnesses() {
             .map(|(row, _, _, _)| *row)
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([7, 9]),
+    );
+}
+
+#[test]
+fn pi_reports_exact_product_above_machine_cardinality() {
+    let mut source = Schema::default();
+    let target = Schema::default().vertex("m", "record");
+    let mut migration = Migration::default();
+    let mut input = Table::default();
+    for index in 0..=usize::BITS {
+        let name = format!("s{index:03}");
+        source = source.vertex(&name, "record");
+        migration.vertex_remap.insert(name.clone(), "m".to_owned());
+        input.rows.insert(index * 2, row(&name, &[]));
+        input.rows.insert(index * 2 + 1, row(&name, &[]));
+    }
+    let f = functor(&source, &target, &migration);
+    let error = rel::pi(&f, &input, 1).unwrap_err();
+    let KanError::ProductSizeExceeded {
+        vertex,
+        actual,
+        limit,
+    } = error
+    else {
+        panic!("expected product refusal, got {error:?}");
+    };
+    assert_eq!(vertex, "m");
+    assert_eq!(limit, 1);
+    assert_eq!(
+        actual.to_string(),
+        (1_u128 << (usize::BITS + 1)).to_string()
     );
 }

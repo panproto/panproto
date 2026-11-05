@@ -1469,7 +1469,7 @@ mod tests {
             (
                 RestrictError::ProductSizeExceeded {
                     vertex: "v".into(),
-                    actual: 2,
+                    actual: "2".to_owned(),
                     limit: 1,
                 },
                 "product_size_exceeded",
@@ -1663,11 +1663,11 @@ mod tests {
             crate::functor_pi(&x, &src, &p, &tgt, &p, &m, 3),
             Err(crate::AdjunctionError::Pi(
                 RestrictError::ProductSizeExceeded {
-                    actual: 4,
+                    actual,
                     limit: 3,
                     ..
                 }
-            ))
+            )) if actual == "4"
         ));
         assert_eq!(
             crate::functor_pi(&x, &src, &p, &tgt, &p, &m, 4)?.row_count("m"),

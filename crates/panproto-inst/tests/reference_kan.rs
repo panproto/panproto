@@ -790,7 +790,7 @@ fn ref_kan_error(error: &AdjunctionError) -> Option<rel::KanError> {
             limit,
         }) => rel::KanError::ProductSizeExceeded {
             vertex: vertex.clone(),
-            actual: *actual,
+            actual: actual.clone(),
             limit: *limit,
         },
         AdjunctionError::RowIdsExhausted => rel::KanError::RowIdsExhausted,
@@ -5488,10 +5488,10 @@ fn pi_transpose_checks_the_map_before_the_product_bound() {
     assert!(matches!(
         rel::pi(f, &i, 4),
         Err(rel::KanError::ProductSizeExceeded {
-            actual: 9,
+            actual,
             limit: 4,
             ..
-        })
+        }) if actual == "9"
     ));
     let (delta, _) = rel::delta(f, &j).unwrap();
     let first = *delta.rows.keys().next().unwrap();

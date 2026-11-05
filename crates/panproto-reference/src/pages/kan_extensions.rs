@@ -4400,9 +4400,8 @@ pub mod rel {
         ProductSizeExceeded {
             /// The target table, or the source table of the target relation.
             vertex: Name,
-            /// The exact product, saturated only when machine `usize` cannot
-            /// represent it.
-            actual: usize,
+            /// The exact product as canonical unsigned decimal text.
+            actual: String,
             /// The configured bound.
             limit: usize,
         },
@@ -4439,8 +4438,8 @@ pub mod rel {
         ProductSizeExceeded {
             /// Target table or relation-source table.
             vertex: Name,
-            /// Exact saturated cardinality.
-            actual: usize,
+            /// Exact cardinality as canonical unsigned decimal text.
+            actual: String,
             /// Bound.
             limit: usize,
         },
@@ -4893,6 +4892,40 @@ pub mod rel {
     /// The cones of each target table, with their cells.
     type PiCones = BTreeMap<Name, Vec<(Vec<u32>, BTreeMap<String, Value>)>>;
 
+    /// Exact cardinality using the reference's independent natural arithmetic.
+    fn exact_product(counts: impl IntoIterator<Item = usize>) -> String {
+        counts
+            .into_iter()
+            .fold(crate::num::Nat::one(), |product, count| {
+                product.mul(&crate::num::Nat::from_u128(count as u128))
+            })
+            .to_string()
+    }
+
+    /// Compare canonical nonnegative decimal text with a machine bound.
+    fn product_exceeds(actual: &str, limit: usize) -> bool {
+        let limit = limit.to_string();
+        actual.len() > limit.len() || (actual.len() == limit.len() && actual > limit.as_str())
+    }
+
+    #[cfg(test)]
+    mod product_cardinality_tests {
+        use super::{exact_product, product_exceeds};
+
+        #[test]
+        fn overflow_and_late_zero_are_exact() {
+            let actual = exact_product(std::iter::repeat_n(2, usize::BITS as usize + 1));
+            assert_eq!(actual, (1_u128 << (usize::BITS + 1)).to_string());
+            assert!(product_exceeds(&actual, usize::MAX));
+            assert_eq!(exact_product([usize::MAX, usize::MAX, 0]), "0");
+            assert!(!product_exceeds(
+                &exact_product([usize::MAX, 1]),
+                usize::MAX
+            ));
+            assert_eq!(exact_product([]), "1");
+        }
+    }
+
     /// The product checks of [`pi`] and the cones of each target table of
     /// `i`, an instance of the kept part.
     fn pi_cones(f: &RelFunctor, i: &Table, max_product_size: usize) -> Result<PiCones, KanError> {
@@ -4903,18 +4936,13 @@ pub mod rel {
         for d in &f.tgt.tables {
             let fibre = f.fibre(d);
             if fibre.len() > 1 {
-                let actual = fibre
-                    .iter()
-                    .try_fold(1usize, |product, table| {
-                        product.checked_mul(
-                            i.rows
-                                .values()
-                                .filter(|(candidate, _)| candidate == table)
-                                .count(),
-                        )
-                    })
-                    .unwrap_or(usize::MAX);
-                if actual > max_product_size {
+                let actual = exact_product(fibre.iter().map(|table| {
+                    i.rows
+                        .values()
+                        .filter(|(candidate, _)| candidate == table)
+                        .count()
+                }));
+                if product_exceeds(&actual, max_product_size) {
                     return Err(KanError::ProductSizeExceeded {
                         vertex: d.clone(),
                         actual,
@@ -4935,8 +4963,8 @@ pub mod rel {
                 continue;
             }
             let count = |t: &Name| cones.get(t).map_or(0, Vec::len);
-            let actual = count(&rho.src).saturating_mul(count(&rho.tgt));
-            if actual > max_product_size {
+            let actual = exact_product([count(&rho.src), count(&rho.tgt)]);
+            if product_exceeds(&actual, max_product_size) {
                 return Err(KanError::ProductSizeExceeded {
                     vertex: rho.src.clone(),
                     actual,
@@ -7466,7 +7494,7 @@ mod tests {
             rel::pi_restricted(&f, &pi_input(), 3),
             Err(KanError::ProductSizeExceeded {
                 vertex: "D".to_owned(),
-                actual: 4,
+                actual: "4".to_owned(),
                 limit: 3,
             })
         );
@@ -8065,7 +8093,7 @@ mod tests {
         assert!(matches!(
             rel::pi_on_hom(&f, &pi_input(), &pi_codomain(), &h, 3),
             Err(rel::TransposeError::Adjunction(error))
-                if matches!(*error, rel::AdjunctionError::ProductSizeExceeded { actual: 4, limit: 3, .. })
+                if matches!(*error, rel::AdjunctionError::ProductSizeExceeded { ref actual, limit: 3, .. } if actual == "4")
         ));
         // Row 8 joins no tuple, so Pi forgets it; its image disagrees on y.
         let mut extra = pi_input();

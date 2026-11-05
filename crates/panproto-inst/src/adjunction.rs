@@ -2804,7 +2804,7 @@ mod tests {
                     limit,
                 }) => Some(rel::KanError::ProductSizeExceeded {
                     vertex: vertex.clone(),
-                    actual: *actual,
+                    actual: actual.clone(),
                     limit: *limit,
                 }),
                 _ => None,
