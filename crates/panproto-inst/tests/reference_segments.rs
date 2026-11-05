@@ -2111,7 +2111,7 @@ mod randomized {
                     prop_assert_eq!(actual.canonical_bytes(), reference::canonical_manifest_bytes(&oracle));
                     let assembled = assemble_graph(actual_segments.into_iter().map(|segment| {
                         let AnySegment::Graph(graph) = segment else { panic!("graph expected") }; graph
-                    }).collect(), &partition).unwrap();
+                    }), &partition).unwrap();
                     prop_assert_eq!(canonical_ginstance_bytes(&assembled), canonical_ginstance_bytes(&graph_to_production(&case.graph)));
                 }
                 (Err(expected), Err(actual), Err(oracle)) => {
