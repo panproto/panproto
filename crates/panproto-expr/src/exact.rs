@@ -122,17 +122,17 @@ pub fn binary32_bits(x: f64) -> Option<u32> {
             match exponent {
                 -126..=127 => {
                     let field = u32::try_from(exponent + 127).ok()?;
-                    (low == 0).then_some(sign | (field << 23) | high)
+                    (low == 0).then_some(sign + (field << 23) + high)
                 }
                 -149..=-127 => {
                     // A binary32 subnormal: the significand with its implicit
                     // bit, shifted so that its unit is 2^-149, which needs the
                     // bits shifted out to be zero.
                     let shift = u32::try_from(-97 - exponent).ok()?;
-                    let significand = fraction | (1 << 52);
+                    let significand = fraction + (1 << 52);
                     let out = significand & ((1 << shift) - 1);
                     let field = u32::try_from(significand >> shift).ok()?;
-                    (out == 0).then_some(sign | field)
+                    (out == 0).then_some(sign + field)
                 }
                 _ => None,
             }

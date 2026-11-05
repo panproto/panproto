@@ -47,7 +47,7 @@ pub fn binary16_bits(x: f64) -> Option<u16> {
     let low = fraction & ((1 << 42) - 1);
     let high = u16::try_from(fraction >> 42).ok()?;
     match biased {
-        0x7ff => (low == 0).then_some(sign | 0x7c00 | high),
+        0x7ff => (low == 0).then_some(sign + 0x7c00 + high),
         // A zero; a non-zero binary64 subnormal is far below 2^-24.
         0 => (fraction == 0).then_some(sign),
         _ => {
@@ -55,14 +55,14 @@ pub fn binary16_bits(x: f64) -> Option<u16> {
             match exponent {
                 -14..=15 => {
                     let field = u16::try_from(exponent + 15).ok()?;
-                    (low == 0).then_some(sign | (field << 10) | high)
+                    (low == 0).then_some(sign + (field << 10) + high)
                 }
                 -24..=-15 => {
                     // A subnormal: the significand with its implicit bit,
                     // shifted so that its unit is 2^-24, which needs the
                     // bits shifted out to be zero.
                     let shift = u32::try_from(28 - exponent).ok()?;
-                    let significand = fraction | (1 << 52);
+                    let significand = fraction + (1 << 52);
                     let out = significand & ((1 << shift) - 1);
                     let field = u16::try_from(significand >> shift).ok()?;
                     (out == 0).then_some(sign + field)
@@ -90,14 +90,14 @@ pub fn binary16_widen(h: u16) -> f64 {
     let field = u64::from((h >> 10) & 0x1f);
     let fraction = u64::from(h & 0x3ff);
     match field {
-        0x1f => f64::from_bits(sign | (0x7ff << 52) | (fraction << 42)),
+        0x1f => f64::from_bits(sign + (0x7ff << 52) + (fraction << 42)),
         0 => {
             // Zero or a subnormal: fraction × 2^-24, exact in binary64.
             let magnitude = f64::from(u32::try_from(fraction).unwrap_or(0))
                 * f64::from_bits(0x3e70_0000_0000_0000);
             f64::from_bits(sign + magnitude.to_bits())
         }
-        _ => f64::from_bits(sign | ((field + 1008) << 52) | (fraction << 42)),
+        _ => f64::from_bits(sign + ((field + 1008) << 52) + (fraction << 42)),
     }
 }
 
