@@ -2490,3 +2490,222 @@ fn canonical_key_equality_envelope_has_the_exact_extended_role_byte() {
         assert_eq!(&encoded[prefix.len()..], expected.into_bytes());
     }
 }
+
+#[test]
+fn variable_binding_serialization_keeps_the_nondefault_selection_rule() {
+    let mut source = RefSource::Variable {
+        field: vec![],
+        binder_key: "binder".into(),
+        binding: VariableBinding::FirstDefines,
+    };
+    round_trips(&source);
+    assert_eq!(
+        json(&source),
+        r#"{"variable":{"field":[],"binder_key":"binder"}}"#
+    );
+    if let RefSource::Variable { binding, .. } = &mut source {
+        *binding = VariableBinding::NearestPreceding;
+    }
+    round_trips(&source);
+    assert_eq!(
+        json(&source),
+        r#"{"variable":{"field":[],"binder_key":"binder","binding":"nearest_preceding"}}"#
+    );
+}
+
+#[test]
+fn exact_float_reading_omits_only_the_default_serialized_field() {
+    use panproto_schema::{FloatReading, ScalarKind, ValueSpec};
+
+    let mut spec = ValueSpec::new(ScalarKind::Float { bits: 64 });
+    assert!(spec.float_reading.is_exact());
+    round_trips(&spec);
+    let exact = serde_json::to_value(&spec).unwrap();
+    assert!(exact.get("float_reading").is_none());
+    spec.float_reading = FloatReading::NearestKeepingLexeme;
+    assert!(!spec.float_reading.is_exact());
+    round_trips(&spec);
+    let nearest = serde_json::to_value(&spec).unwrap();
+    assert_eq!(nearest["float_reading"], "nearest_keeping_lexeme");
+}
+
+#[test]
+fn reference_extension_slots_round_trip_for_every_presence_pattern() {
+    use panproto_expr::Value;
+    use panproto_schema::{RefGuard, ScopeVia};
+
+    for mask in 0..16 {
+        let mut reference = empty_reference("r", "h", "t");
+        if mask & 1 != 0 {
+            reference.guard = Some(RefGuard {
+                field: vec![],
+                equals: Value::Int(3),
+            });
+        }
+        if mask & 2 != 0 {
+            reference.null_match = NullMatch::Full;
+        }
+        if mask & 4 != 0 {
+            reference.null_vertex = Some("null".into());
+        }
+        if mask & 8 != 0 {
+            reference.scope_via = Some(ScopeVia {
+                ancestor: "c".into(),
+                hops: vec!["hop".into()],
+            });
+        }
+        round_trips(&reference);
+        let encoded = serde_json::to_value(&reference).unwrap();
+        for (bit, field) in ["guard", "null_match", "null_vertex", "scope_via"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(encoded.get(field).is_some(), mask & (1 << bit) != 0);
+        }
+        if mask == 0 {
+            let legacy = (
+                &reference.id,
+                &reference.holder,
+                &reference.source,
+                &reference.target_vertex,
+                &reference.target_key,
+                &reference.edge,
+                &reference.cardinality,
+                reference.nullable,
+                &reference.on_unresolved,
+                &reference.mode,
+            );
+            assert_eq!(
+                rmp_serde::to_vec(&reference).unwrap(),
+                rmp_serde::to_vec(&legacy).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn standoff_extension_slots_round_trip_for_every_presence_pattern() {
+    for mask in 0..8 {
+        let source = RefSource::Standoff {
+            text: RefTextSource::Local(vec![]),
+            start: vec![],
+            end: vec![],
+            unit: OffsetUnit::Byte,
+            end_inclusive: false,
+            end_form: if mask & 1 == 0 {
+                SpanEnd::Offset
+            } else {
+                SpanEnd::Length
+            },
+            origin: if mask & 2 == 0 { 0 } else { 7 },
+            fragments: (mask & 4 != 0).then(|| prop("h", "t", "fragments")),
+        };
+        round_trips(&source);
+        let encoded = serde_json::to_value(&source).unwrap();
+        for (bit, field) in ["end_form", "origin", "fragments"].into_iter().enumerate() {
+            assert_eq!(
+                encoded["standoff"].get(field).is_some(),
+                mask & (1 << bit) != 0
+            );
+        }
+        if mask == 0 {
+            // Externally tagged variant with the original five positional fields.
+            let legacy = std::collections::BTreeMap::from([(
+                "standoff",
+                (
+                    RefTextSource::Local(vec![]),
+                    Vec::<Edge>::new(),
+                    Vec::<Edge>::new(),
+                    OffsetUnit::Byte,
+                    false,
+                ),
+            )]);
+            assert_eq!(
+                rmp_serde::to_vec(&source).unwrap(),
+                rmp_serde::to_vec(&legacy).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn value_spec_extension_slots_round_trip_for_every_presence_pattern() {
+    use panproto_expr::exact::TimeUnit;
+    use panproto_schema::{FloatReading, NumeralDialect, ScalarKind, ValueSpec};
+    use std::collections::BTreeMap;
+
+    for mask in 0..32 {
+        let mut spec = ValueSpec::new(ScalarKind::Float { bits: 64 });
+        if mask & 1 != 0 {
+            spec.float_reading = FloatReading::NearestKeepingLexeme;
+        }
+        if mask & 2 != 0 {
+            spec.numeral = Some(NumeralDialect::Json);
+        }
+        if mask & 4 != 0 {
+            spec.discriminators = Some(BTreeMap::from([("s".to_owned(), ScalarKind::Str)]));
+        }
+        if mask & 8 != 0 {
+            spec.time_unit = Some(TimeUnit::Millis);
+        }
+        if mask & 16 != 0 {
+            spec.time_zone = Some("UTC".to_owned());
+        }
+        round_trips(&spec);
+        let encoded = serde_json::to_value(&spec).unwrap();
+        for (bit, field) in [
+            "float_reading",
+            "numeral",
+            "discriminators",
+            "time_unit",
+            "time_zone",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(encoded.get(field).is_some(), mask & (1 << bit) != 0);
+        }
+        if mask == 0 {
+            let legacy = (
+                &spec.kind,
+                spec.precision,
+                spec.scale,
+                spec.max_length,
+                spec.with_time_zone,
+                spec.int_bits,
+                spec.unsigned,
+            );
+            assert_eq!(
+                rmp_serde::to_vec(&spec).unwrap(),
+                rmp_serde::to_vec(&legacy).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn declaration_report_extension_slots_round_trip_independently() {
+    for mask in 0..4 {
+        let mut report = DeclarationReport::default();
+        if mask & 1 != 0 {
+            report.dropped_target_set_members = vec![("set".into(), "v".into(), "k".into())];
+        }
+        if mask & 2 != 0 {
+            report.dropped_target_sets = vec!["set".into()];
+        }
+        round_trips(&report);
+        let encoded = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            encoded.get("dropped_target_set_members").is_some(),
+            mask & 1 != 0
+        );
+        assert_eq!(encoded.get("dropped_target_sets").is_some(), mask & 2 != 0);
+        if mask == 0 {
+            let legacy = (&report.dropped_keys, &report.dropped_references);
+            assert_eq!(
+                rmp_serde::to_vec(&report).unwrap(),
+                rmp_serde::to_vec(&legacy).unwrap()
+            );
+        }
+    }
+}

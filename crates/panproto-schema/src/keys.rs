@@ -7,13 +7,17 @@
 //! [`SchemaDeclarations`] value.
 //!
 //! Enums serialize externally tagged in `snake_case`; structs serialize with
-//! named fields in declaration order.
+//! named fields in declaration order. Extension-bearing types require
+//! human-readable serializers to encode struct fields by name. Use `MessagePack`'s
+//! default binary mode for positional structs; forcing a positional encoder into
+//! human-readable mode does not preserve omitted field positions.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use panproto_expr::Value;
 use panproto_gat::Name;
+use serde::ser::{SerializeStruct, SerializeStructVariant};
 use serde::{Deserialize, Serialize};
 
 use crate::error::SchemaError;
@@ -140,7 +144,11 @@ pub enum KeyScope {
 }
 
 /// A reference: a field of a holder element that names a target element.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Human-readable encodings omit default extensions. Binary encodings retain
+/// default slots before the last nondefault extension so positional decoding
+/// preserves field alignment. With no extensions, the legacy prefix is unchanged.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Reference {
     /// The reference's id, unique in the schema.
     pub id: Name,
@@ -177,6 +185,53 @@ pub struct Reference {
     pub scope_via: Option<ScopeVia>,
 }
 
+impl Serialize for Reference {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let human_readable = serializer.is_human_readable();
+        let emit_scope_via = self.scope_via.is_some();
+        let emit_null_vertex = self.null_vertex.is_some() || (!human_readable && emit_scope_via);
+        let emit_null_match =
+            !self.null_match.is_default() || (!human_readable && emit_null_vertex);
+        let emit_guard = self.guard.is_some() || (!human_readable && emit_null_match);
+        let extension_count = [
+            emit_guard,
+            emit_null_match,
+            emit_null_vertex,
+            emit_scope_via,
+        ]
+        .into_iter()
+        .filter(|emit| *emit)
+        .count();
+        let mut state = serializer.serialize_struct("Reference", 10 + extension_count)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("holder", &self.holder)?;
+        state.serialize_field("source", &self.source)?;
+        state.serialize_field("target_vertex", &self.target_vertex)?;
+        state.serialize_field("target_key", &self.target_key)?;
+        state.serialize_field("edge", &self.edge)?;
+        state.serialize_field("cardinality", &self.cardinality)?;
+        state.serialize_field("nullable", &self.nullable)?;
+        state.serialize_field("on_unresolved", &self.on_unresolved)?;
+        state.serialize_field("mode", &self.mode)?;
+        if emit_guard {
+            state.serialize_field("guard", &self.guard)?;
+        }
+        if emit_null_match {
+            state.serialize_field("null_match", &self.null_match)?;
+        }
+        if emit_null_vertex {
+            state.serialize_field("null_vertex", &self.null_vertex)?;
+        }
+        if emit_scope_via {
+            state.serialize_field("scope_via", &self.scope_via)?;
+        }
+        state.end()
+    }
+}
+
 /// A value selector that enables a reference only on matching holders.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RefGuard {
@@ -195,7 +250,10 @@ impl PartialEq for RefGuard {
 impl Eq for RefGuard {}
 
 /// How a [`Reference`] reads its referencing value.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Binary standoff extensions retain intervening default slots; human-readable
+/// encodings omit those defaults. The legacy form has no extension slots.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RefSource {
     /// Key values held by the holder, aligned positionally with the target
@@ -250,6 +308,92 @@ pub enum RefSource {
         /// Field whose target is the occurrence.
         field: Vec<Edge>,
     },
+}
+
+impl Serialize for RefSource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let human_readable = serializer.is_human_readable();
+        match self {
+            Self::KeyValue { parts } => {
+                let mut state =
+                    serializer.serialize_struct_variant("RefSource", 0, "key_value", 1)?;
+                state.serialize_field("parts", parts)?;
+                state.end()
+            }
+            Self::Path { field, syntax } => {
+                let mut state = serializer.serialize_struct_variant("RefSource", 1, "path", 2)?;
+                state.serialize_field("field", field)?;
+                state.serialize_field("syntax", syntax)?;
+                state.end()
+            }
+            Self::Standoff {
+                text,
+                start,
+                end,
+                unit,
+                end_inclusive,
+                end_form,
+                origin,
+                fragments,
+            } => {
+                let emit_fragments = fragments.is_some();
+                let emit_origin = !is_zero(origin) || (!human_readable && emit_fragments);
+                let emit_end_form = !end_form.is_default() || (!human_readable && emit_origin);
+                let extension_count = [emit_end_form, emit_origin, emit_fragments]
+                    .into_iter()
+                    .filter(|emit| *emit)
+                    .count();
+                let mut state = serializer.serialize_struct_variant(
+                    "RefSource",
+                    2,
+                    "standoff",
+                    5 + extension_count,
+                )?;
+                state.serialize_field("text", text)?;
+                state.serialize_field("start", start)?;
+                state.serialize_field("end", end)?;
+                state.serialize_field("unit", unit)?;
+                state.serialize_field("end_inclusive", end_inclusive)?;
+                if emit_end_form {
+                    state.serialize_field("end_form", end_form)?;
+                }
+                if emit_origin {
+                    state.serialize_field("origin", origin)?;
+                }
+                if emit_fragments {
+                    state.serialize_field("fragments", fragments)?;
+                }
+                state.end()
+            }
+            Self::Variable {
+                field,
+                binder_key,
+                binding,
+            } => {
+                let emit_binding = !binding.is_default();
+                let mut state = serializer.serialize_struct_variant(
+                    "RefSource",
+                    3,
+                    "variable",
+                    2 + usize::from(emit_binding),
+                )?;
+                state.serialize_field("field", field)?;
+                state.serialize_field("binder_key", binder_key)?;
+                if emit_binding {
+                    state.serialize_field("binding", binding)?;
+                }
+                state.end()
+            }
+            Self::Inline { field } => {
+                let mut state = serializer.serialize_struct_variant("RefSource", 4, "inline", 1)?;
+                state.serialize_field("field", field)?;
+                state.end()
+            }
+        }
+    }
 }
 
 /// How a variable occurrence selects its defining occurrence.
@@ -949,7 +1093,10 @@ impl SchemaDeclarations {
 
 /// The declarations an operation on schemas dropped because a vertex or an
 /// edge they name did not survive it.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Binary encodings retain the empty member list when dropped target-set ids
+/// follow it. Human-readable encodings omit each empty extension independently.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct DeclarationReport {
     /// The dropped keys, as `(vertex, key id)` in the source schema, sorted.
     pub dropped_keys: Vec<(Name, Name)>,
@@ -961,6 +1108,34 @@ pub struct DeclarationReport {
     /// Target-set ids dropped because no member survived, sorted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dropped_target_sets: Vec<Name>,
+}
+
+impl Serialize for DeclarationReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let emit_dropped_target_sets = !self.dropped_target_sets.is_empty();
+        let emit_dropped_target_set_members = !self.dropped_target_set_members.is_empty()
+            || (!serializer.is_human_readable() && emit_dropped_target_sets);
+        let extension_count = [emit_dropped_target_set_members, emit_dropped_target_sets]
+            .into_iter()
+            .filter(|emit| *emit)
+            .count();
+        let mut state = serializer.serialize_struct("DeclarationReport", 2 + extension_count)?;
+        state.serialize_field("dropped_keys", &self.dropped_keys)?;
+        state.serialize_field("dropped_references", &self.dropped_references)?;
+        if emit_dropped_target_set_members {
+            state.serialize_field(
+                "dropped_target_set_members",
+                &self.dropped_target_set_members,
+            )?;
+        }
+        if emit_dropped_target_sets {
+            state.serialize_field("dropped_target_sets", &self.dropped_target_sets)?;
+        }
+        state.end()
+    }
 }
 
 impl DeclarationReport {

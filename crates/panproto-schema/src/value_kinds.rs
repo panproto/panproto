@@ -5,12 +5,15 @@
 //! a [`ValueSpec`] combines that kind with a vertex's value parameters.
 //!
 //! Enums serialize externally tagged in `snake_case`; structs serialize with
-//! named fields in declaration order.
+//! named fields in declaration order. `ValueSpec` requires human-readable
+//! serializers to encode struct fields by name. `MessagePack`'s default binary mode
+//! preserves extension positions in both positional and named structs.
 
 use std::collections::BTreeMap;
 
 use panproto_expr::exact::TimeUnit;
 use panproto_gat::Name;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
 use crate::constraint_semantics::{ConstraintSemantics, ValueParameter};
@@ -76,8 +79,9 @@ pub enum BytesText {
 
 /// How a float column reads a finite numeral.
 ///
-/// Serialized as `"exact"` or `"nearest_keeping_lexeme"`; a spec with the
-/// default reading omits the field.
+/// Serialized as `"exact"` or `"nearest_keeping_lexeme"`. A spec with the
+/// default reading omits the field in human-readable encodings; binary encodings
+/// retain it when later extensions require its positional slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FloatReading {
@@ -134,10 +138,11 @@ pub enum NumeralDialect {
 
 /// A scalar kind together with the value parameters of one vertex.
 ///
-/// The fields after `unsigned` default to their absent forms and are left
-/// out of the serialized spec when absent, so a spec without them reads and
+/// The fields after `unsigned` default to their absent forms. Human-readable
+/// encodings omit them independently; binary encodings retain default slots
+/// before the last nondefault extension. A spec with no extensions reads and
 /// writes as it did before they existed.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize)]
 pub struct ValueSpec {
     /// The scalar kind.
     pub kind: ScalarKind,
@@ -171,6 +176,56 @@ pub struct ValueSpec {
     /// numeric offset, kept byte for byte), if declared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_zone: Option<String>,
+}
+
+impl Serialize for ValueSpec {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let human_readable = serializer.is_human_readable();
+        let emit_time_zone = self.time_zone.is_some();
+        let emit_time_unit = self.time_unit.is_some() || (!human_readable && emit_time_zone);
+        let emit_discriminators =
+            self.discriminators.is_some() || (!human_readable && emit_time_unit);
+        let emit_numeral = self.numeral.is_some() || (!human_readable && emit_discriminators);
+        let emit_float_reading =
+            !self.float_reading.is_exact() || (!human_readable && emit_numeral);
+        let extension_count = [
+            emit_float_reading,
+            emit_numeral,
+            emit_discriminators,
+            emit_time_unit,
+            emit_time_zone,
+        ]
+        .into_iter()
+        .filter(|emit| *emit)
+        .count();
+        let mut state = serializer.serialize_struct("ValueSpec", 7 + extension_count)?;
+        state.serialize_field("kind", &self.kind)?;
+        state.serialize_field("precision", &self.precision)?;
+        state.serialize_field("scale", &self.scale)?;
+        state.serialize_field("max_length", &self.max_length)?;
+        state.serialize_field("with_time_zone", &self.with_time_zone)?;
+        state.serialize_field("int_bits", &self.int_bits)?;
+        state.serialize_field("unsigned", &self.unsigned)?;
+        if emit_float_reading {
+            state.serialize_field("float_reading", &self.float_reading)?;
+        }
+        if emit_numeral {
+            state.serialize_field("numeral", &self.numeral)?;
+        }
+        if emit_discriminators {
+            state.serialize_field("discriminators", &self.discriminators)?;
+        }
+        if emit_time_unit {
+            state.serialize_field("time_unit", &self.time_unit)?;
+        }
+        if emit_time_zone {
+            state.serialize_field("time_zone", &self.time_zone)?;
+        }
+        state.end()
+    }
 }
 
 impl ValueSpec {
