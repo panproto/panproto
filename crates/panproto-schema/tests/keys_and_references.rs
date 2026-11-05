@@ -1637,3 +1637,856 @@ fn induce_drops_a_key_whose_scope_stops_being_an_ancestor() {
         }
     );
 }
+fn declaration_matrix_schema() -> Schema {
+    with_graph(
+        &[
+            ("c", "object"),
+            ("h", "object"),
+            ("t", "object"),
+            ("u", "object"),
+            ("v", "scalar"),
+        ],
+        &[
+            prop("c", "h", "h"),
+            prop("c", "t", "t"),
+            prop("h", "v", "value"),
+            prop("t", "v", "value"),
+            prop("u", "v", "value"),
+        ],
+    )
+    .build()
+    .unwrap()
+}
+
+fn empty_target_key(id: &str, role: KeyRole) -> Key {
+    plain_key(id, vec![], role, KeyScope::Document)
+}
+
+fn empty_reference(id: &str, holder: &str, target: &str) -> Reference {
+    plain_reference(id, holder, RefSource::KeyValue { parts: vec![] }, target)
+}
+
+fn standoff_source(text: RefTextSource) -> RefSource {
+    RefSource::Standoff {
+        text,
+        start: vec![],
+        end: vec![],
+        unit: OffsetUnit::Byte,
+        end_inclusive: false,
+        end_form: SpanEnd::Offset,
+        origin: 0,
+        fragments: None,
+    }
+}
+
+#[test]
+fn extended_reference_equality_and_serde_keep_nondefault_coordinates() {
+    use panproto_expr::Value;
+    use panproto_schema::RefGuard;
+    let first = RefGuard {
+        field: vec![],
+        equals: Value::Int(1),
+    };
+    let other_value = RefGuard {
+        field: vec![],
+        equals: Value::Int(2),
+    };
+    let other_field = RefGuard {
+        field: vec![prop("h", "v", "value")],
+        equals: Value::Int(1),
+    };
+    assert_eq!(
+        first,
+        RefGuard {
+            field: vec![],
+            equals: Value::Int(1)
+        }
+    );
+    assert_ne!(first, other_value);
+    assert_ne!(first, other_field);
+    let mut reference = empty_reference("r", "h", "t");
+    reference.null_match = NullMatch::Full;
+    reference.source = standoff_source(RefTextSource::Local(vec![]));
+    if let RefSource::Standoff { origin, .. } = &mut reference.source {
+        *origin = 7;
+    }
+    round_trips(&reference);
+    let encoded = serde_json::to_value(&reference).unwrap();
+    assert_eq!(encoded["null_match"], "full");
+    assert_eq!(encoded["source"]["standoff"]["origin"], 7);
+}
+
+#[test]
+fn target_set_merging_and_mapping_keep_the_abstract_target() {
+    use panproto_schema::TargetSet;
+    let set = TargetSet {
+        members: vec![("t".into(), "pk".into())],
+        scope: KeyScope::Document,
+    };
+    let mut declarations = SchemaDeclarations::default();
+    declarations
+        .merge_target_set("targets".into(), set.clone())
+        .unwrap();
+    assert_eq!(declarations.target_set("targets"), Some(&set));
+    declarations
+        .merge_target_set("targets".into(), set.clone())
+        .unwrap();
+    let changed = TargetSet {
+        scope: KeyScope::Global,
+        ..set.clone()
+    };
+    assert!(matches!(
+        declarations.merge_target_set("targets".into(), changed),
+        Err(SchemaError::TargetSetConflict { .. })
+    ));
+    assert_eq!(declarations.target_set("targets"), Some(&set));
+    declarations
+        .keys
+        .insert("t".into(), vec![empty_target_key("pk", KeyRole::Primary)]);
+    let mut reference = empty_reference("r", "h", "targets");
+    reference.edge = Some(prop("h", "targets", "resolved"));
+    declarations.references.insert("r".into(), reference);
+    let (mapped, report) = declarations
+        .map_through(
+            |name| Some(format!("mapped-{name}").into()),
+            |edge| {
+                (edge.tgt.as_ref() != "targets").then(|| Edge {
+                    src: format!("mapped-{}", edge.src).into(),
+                    tgt: format!("mapped-{}", edge.tgt).into(),
+                    ..edge.clone()
+                })
+            },
+        )
+        .unwrap();
+    assert!(report.is_empty());
+    let reference = &mapped.references["r"];
+    assert_eq!(reference.holder.as_ref(), "mapped-h");
+    assert_eq!(reference.target_vertex.as_ref(), "targets");
+    assert_eq!(
+        reference.edge,
+        Some(prop("mapped-h", "targets", "resolved"))
+    );
+    assert_eq!(
+        mapped.target_sets["targets"].members,
+        vec![("mapped-t".into(), "pk".into())]
+    );
+}
+
+#[test]
+fn reports_observe_each_drop_family_and_primary_selection_skips_other_roles() {
+    let reports = [
+        DeclarationReport {
+            dropped_keys: vec![("t".into(), "k".into())],
+            ..DeclarationReport::default()
+        },
+        DeclarationReport {
+            dropped_references: vec!["r".into()],
+            ..DeclarationReport::default()
+        },
+        DeclarationReport {
+            dropped_target_set_members: vec![("s".into(), "t".into(), "k".into())],
+            ..DeclarationReport::default()
+        },
+        DeclarationReport {
+            dropped_target_sets: vec!["s".into()],
+            ..DeclarationReport::default()
+        },
+    ];
+    assert!(DeclarationReport::default().is_empty());
+    for report in reports {
+        assert!(!report.is_empty());
+    }
+    let mut declarations = SchemaDeclarations::default();
+    declarations.keys.insert(
+        "t".into(),
+        vec![
+            empty_target_key("index", KeyRole::Index),
+            empty_target_key("primary", KeyRole::Primary),
+        ],
+    );
+    assert_eq!(
+        declarations
+            .resolving_key(&empty_reference("r", "h", "t"))
+            .map(|key| key.id.as_ref()),
+        Some("primary")
+    );
+    assert_eq!(
+        KeyRefError::UnknownVertex {
+            vertex: "missing".into()
+        }
+        .to_string(),
+        "declaration names unknown vertex missing"
+    );
+}
+
+#[test]
+fn protocol_and_declaration_gates_report_each_independent_failure() {
+    let schema = declaration_matrix_schema();
+    let mut object_only = protocol();
+    object_only.obj_kinds = vec!["scalar".into()];
+    assert!(
+        panproto_schema::validate(&schema, &object_only)
+            .iter()
+            .any(|error| matches!(
+                error,
+                panproto_schema::ValidationError::InvalidVertexKind { .. }
+            ))
+    );
+    for missing_source in [false, true] {
+        let mut changed = schema.clone();
+        let required = if missing_source {
+            prop("missing", "t", "required")
+        } else {
+            prop("h", "missing", "required")
+        };
+        changed.required.insert("h".into(), vec![required]);
+        assert!(
+            panproto_schema::validate(&changed, &protocol())
+                .iter()
+                .any(|error| matches!(
+                    error,
+                    panproto_schema::ValidationError::DanglingRequiredEdge { .. }
+                ))
+        );
+    }
+    assert!(panproto_schema::validate_declarations(&schema).is_ok());
+    let mut invalid = schema;
+    invalid.declarations.keys.insert(
+        "absent".into(),
+        vec![empty_target_key("k", KeyRole::Primary)],
+    );
+    assert_eq!(
+        panproto_schema::validate_declarations(&invalid),
+        Err(vec![KeyRefError::UnknownVertex {
+            vertex: "absent".into()
+        }])
+    );
+}
+
+#[test]
+fn position_and_sort_keys_require_the_exact_ordered_carrier() {
+    for within in [prop("h", "v", "value"), prop("c", "t", "missing")] {
+        let mut schema = declaration_matrix_schema();
+        schema.orderings.insert(within.clone(), 0);
+        schema.declarations.keys.insert(
+            "t".into(),
+            vec![plain_key(
+                "position",
+                vec![KeyPart::Position {
+                    within: within.clone(),
+                }],
+                KeyRole::Unique,
+                KeyScope::Document,
+            )],
+        );
+        assert_eq!(
+            findings(&schema, &protocol()),
+            vec![KeyRefError::PathDoesNotResolve {
+                owner: "t".into(),
+                path: vec![within]
+            }]
+        );
+    }
+    for ordered in [false, true] {
+        let mut schema = declaration_matrix_schema();
+        schema.declarations.keys.insert(
+            "t".into(),
+            vec![plain_key(
+                "sort",
+                vec![],
+                KeyRole::SortKey,
+                KeyScope::Within("c".into()),
+            )],
+        );
+        if ordered {
+            schema.orderings.insert(prop("c", "t", "t"), 0);
+        }
+        let errors = findings(&schema, &protocol());
+        assert_eq!(errors.is_empty(), ordered);
+    }
+    // An ordered edge into another vertex cannot order the keyed vertex.
+    let mut schema = declaration_matrix_schema();
+    schema.orderings.insert(prop("c", "h", "h"), 0);
+    schema.declarations.keys.insert(
+        "t".into(),
+        vec![plain_key(
+            "sort",
+            vec![],
+            KeyRole::SortKey,
+            KeyScope::Within("c".into()),
+        )],
+    );
+    assert_eq!(
+        findings(&schema, &protocol()),
+        vec![KeyRefError::SortKeyNotOrdered {
+            key: "sort".into(),
+            vertex: "t".into()
+        }]
+    );
+}
+
+#[test]
+fn optional_null_vertices_and_named_missing_targets_are_checked() {
+    for null_vertex in ["t", "missing"] {
+        let mut schema = declaration_matrix_schema();
+        let mut reference = empty_reference("r", "h", "t");
+        reference.null_vertex = Some(null_vertex.into());
+        schema.declarations.references.insert("r".into(), reference);
+        assert_eq!(
+            findings(&schema, &protocol()),
+            if null_vertex == "t" {
+                vec![]
+            } else {
+                vec![KeyRefError::UnknownVertex {
+                    vertex: "missing".into(),
+                }]
+            }
+        );
+    }
+    for source in [
+        RefSource::Path {
+            field: vec![],
+            syntax: PathSyntax::JsonPointer,
+        },
+        standoff_source(RefTextSource::Local(vec![])),
+    ] {
+        let mut schema = declaration_matrix_schema();
+        let mut reference = plain_reference("r", "h", source, "t");
+        reference.target_key = Some("missing".into());
+        schema.declarations.references.insert("r".into(), reference);
+        assert_eq!(
+            findings(&schema, &protocol()),
+            vec![KeyRefError::UnknownTargetKey {
+                reference: "r".into(),
+                key: "missing".into()
+            }]
+        );
+    }
+}
+
+#[test]
+fn standoff_end_and_fragment_requirements_are_independent() {
+    for (length, inclusive) in [(false, true), (true, false), (true, true)] {
+        let mut schema = declaration_matrix_schema();
+        let mut source = standoff_source(RefTextSource::Local(vec![]));
+        if let RefSource::Standoff {
+            end_form,
+            end_inclusive,
+            ..
+        } = &mut source
+        {
+            *end_form = if length {
+                SpanEnd::Length
+            } else {
+                SpanEnd::Offset
+            };
+            *end_inclusive = inclusive;
+        }
+        schema
+            .declarations
+            .references
+            .insert("r".into(), plain_reference("r", "h", source, "t"));
+        assert_eq!(
+            findings(&schema, &protocol()),
+            if length && inclusive {
+                vec![KeyRefError::LengthInclusive {
+                    reference: "r".into(),
+                }]
+            } else {
+                vec![]
+            }
+        );
+    }
+    for defect in 0..4 {
+        let mut schema = declaration_matrix_schema();
+        let carrier = if defect == 2 {
+            prop("t", "v", "value")
+        } else {
+            prop("h", "v", "value")
+        };
+        if defect != 3 {
+            schema.orderings.insert(carrier.clone(), 0);
+        }
+        let mut source = standoff_source(RefTextSource::Local(vec![]));
+        if let RefSource::Standoff { fragments, .. } = &mut source {
+            *fragments = Some(carrier);
+        }
+        let mut reference = plain_reference("r", "h", source, "t");
+        reference.cardinality = if defect == 1 {
+            Cardinality::One
+        } else {
+            Cardinality::Many
+        };
+        schema.declarations.references.insert("r".into(), reference);
+        assert_eq!(
+            findings(&schema, &protocol()),
+            if defect == 0 {
+                vec![]
+            } else {
+                vec![KeyRefError::InvalidFragments {
+                    reference: "r".into(),
+                }]
+            }
+        );
+    }
+}
+
+#[test]
+fn guard_groups_require_equal_holder_source_and_field() {
+    use panproto_expr::Value;
+    use panproto_schema::RefGuard;
+    for coordinate in 0..3 {
+        let mut schema = declaration_matrix_schema();
+        for (id, value) in [("a", 0), ("b", 1), ("c", 1)] {
+            let mut reference = empty_reference(id, "h", "t");
+            let mut field = vec![];
+            if id != "a" {
+                match coordinate {
+                    0 => reference.holder = "u".into(),
+                    1 => {
+                        reference.source = RefSource::Path {
+                            field: vec![],
+                            syntax: PathSyntax::JsonPointer,
+                        }
+                    }
+                    _ => field = vec![prop("h", "v", "value")],
+                }
+            }
+            reference.guard = Some(RefGuard {
+                field,
+                equals: Value::Int(value),
+            });
+            schema.declarations.references.insert(id.into(), reference);
+        }
+        assert_eq!(
+            findings(&schema, &protocol()),
+            vec![KeyRefError::DuplicateGuard {
+                references: vec!["b".into(), "c".into()]
+            }]
+        );
+    }
+    let mut schema = declaration_matrix_schema();
+    let mut reference = empty_reference("single", "h", "t");
+    reference.guard = Some(RefGuard {
+        field: vec![],
+        equals: Value::Int(1),
+    });
+    schema
+        .declarations
+        .references
+        .insert("single".into(), reference);
+    assert!(findings(&schema, &protocol()).is_empty());
+}
+
+fn binder_matrix_schema() -> Schema {
+    let mut schema = declaration_matrix_schema();
+    schema.declarations.keys.insert(
+        "t".into(),
+        vec![
+            empty_target_key("binder", KeyRole::Identifier),
+            empty_target_key("other", KeyRole::Identifier),
+        ],
+    );
+    schema.declarations.keys.insert(
+        "u".into(),
+        vec![empty_target_key("binder", KeyRole::Identifier)],
+    );
+    let reference = plain_reference(
+        "variable",
+        "h",
+        RefSource::Variable {
+            field: vec![],
+            binder_key: "binder".into(),
+            binding: VariableBinding::FirstDefines,
+        },
+        "t",
+    );
+    schema
+        .declarations
+        .references
+        .insert("variable".into(), reference);
+    schema
+}
+
+#[test]
+fn binder_conflicts_require_both_target_coordinates_and_a_nonvariable_use() {
+    use panproto_schema::TargetSet;
+    for (vertex, key, conflict) in [
+        ("t", "binder", true),
+        ("t", "other", false),
+        ("u", "binder", false),
+    ] {
+        for through_set in [false, true] {
+            let mut schema = binder_matrix_schema();
+            let target = if through_set {
+                schema.declarations.target_sets.insert(
+                    "targets".into(),
+                    TargetSet {
+                        members: vec![(vertex.into(), key.into())],
+                        scope: KeyScope::Document,
+                    },
+                );
+                "targets"
+            } else {
+                vertex
+            };
+            let mut reference = empty_reference("ordinary", "h", target);
+            if !through_set {
+                reference.target_key = Some(key.into());
+            }
+            schema
+                .declarations
+                .references
+                .insert("ordinary".into(), reference);
+            assert_eq!(
+                findings(&schema, &protocol()),
+                if conflict {
+                    vec![KeyRefError::BinderModeConflict {
+                        key: "binder".into(),
+                        references: vec!["variable".into()],
+                    }]
+                } else {
+                    vec![]
+                }
+            );
+        }
+    }
+    let mut schema = binder_matrix_schema();
+    let reference = plain_reference(
+        "nearest",
+        "h",
+        RefSource::Variable {
+            field: vec![],
+            binder_key: "binder".into(),
+            binding: VariableBinding::NearestPreceding,
+        },
+        "t",
+    );
+    schema
+        .declarations
+        .references
+        .insert("nearest".into(), reference);
+    assert_eq!(
+        findings(&schema, &protocol()),
+        vec![KeyRefError::BinderModeConflict {
+            key: "binder".into(),
+            references: vec!["nearest".into(), "variable".into()]
+        }]
+    );
+}
+
+fn text_reference_matrix_schema() -> Schema {
+    let mut schema = declaration_matrix_schema();
+    schema.declarations.references.insert(
+        "inner".into(),
+        plain_reference(
+            "inner",
+            "h",
+            RefSource::Path {
+                field: vec![],
+                syntax: PathSyntax::JsonPointer,
+            },
+            "t",
+        ),
+    );
+    schema.declarations.references.insert(
+        "outer".into(),
+        plain_reference(
+            "outer",
+            "h",
+            standoff_source(RefTextSource::Referenced {
+                reference: "inner".into(),
+                text: vec![],
+                external: None,
+            }),
+            "u",
+        ),
+    );
+    schema
+}
+
+#[test]
+fn text_references_check_holder_cardinality_kind_and_acyclicity() {
+    use panproto_schema::TargetSet;
+    for defect in 0..6 {
+        let mut schema = text_reference_matrix_schema();
+        match defect {
+            1 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("inner")
+                    .unwrap()
+                    .holder = "u".into()
+            }
+            2 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("inner")
+                    .unwrap()
+                    .cardinality = Cardinality::Many
+            }
+            3 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("inner")
+                    .unwrap()
+                    .source = standoff_source(RefTextSource::Local(vec![]))
+            }
+            4 => {
+                schema
+                    .declarations
+                    .keys
+                    .insert("t".into(), vec![empty_target_key("pk", KeyRole::Primary)]);
+                schema.declarations.target_sets.insert(
+                    "targets".into(),
+                    TargetSet {
+                        members: vec![("t".into(), "pk".into())],
+                        scope: KeyScope::Document,
+                    },
+                );
+                schema
+                    .declarations
+                    .references
+                    .get_mut("inner")
+                    .unwrap()
+                    .target_vertex = "targets".into();
+            }
+            5 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("inner")
+                    .unwrap()
+                    .source = standoff_source(RefTextSource::Span {
+                    reference: "outer".into(),
+                });
+                schema
+                    .declarations
+                    .references
+                    .get_mut("outer")
+                    .unwrap()
+                    .source = standoff_source(RefTextSource::Span {
+                    reference: "inner".into(),
+                });
+            }
+            _ => {}
+        }
+        let errors = findings(&schema, &protocol());
+        let outer_invalid = errors.iter().any(|error| matches!(error, KeyRefError::TextReferenceInvalid { reference, .. } if reference.as_ref() == "outer"));
+        assert_eq!(outer_invalid, defect != 0, "case {defect}: {errors:?}");
+    }
+    let mut schema = text_reference_matrix_schema();
+    schema
+        .declarations
+        .references
+        .get_mut("inner")
+        .unwrap()
+        .source = standoff_source(RefTextSource::Local(vec![]));
+    schema
+        .declarations
+        .references
+        .get_mut("outer")
+        .unwrap()
+        .source = standoff_source(RefTextSource::Span {
+        reference: "inner".into(),
+    });
+    assert!(findings(&schema, &protocol()).is_empty());
+}
+
+fn scope_via_matrix_schema() -> Schema {
+    use panproto_schema::ScopeVia;
+    let mut schema = with_graph(
+        &[
+            ("c", "object"),
+            ("h", "object"),
+            ("t", "object"),
+            ("u", "object"),
+        ],
+        &[
+            prop("c", "h", "h"),
+            prop("u", "h", "h"),
+            prop("u", "t", "t"),
+        ],
+    )
+    .build()
+    .unwrap();
+    schema.declarations.keys.insert(
+        "t".into(),
+        vec![plain_key(
+            "scoped",
+            vec![],
+            KeyRole::Primary,
+            KeyScope::Within("u".into()),
+        )],
+    );
+    schema.declarations.references.insert(
+        "hop".into(),
+        plain_reference(
+            "hop",
+            "c",
+            RefSource::Path {
+                field: vec![],
+                syntax: PathSyntax::JsonPointer,
+            },
+            "u",
+        ),
+    );
+    let mut reference = empty_reference("r", "h", "t");
+    reference.scope_via = Some(ScopeVia {
+        ancestor: "c".into(),
+        hops: vec!["hop".into()],
+    });
+    schema.declarations.references.insert("r".into(), reference);
+    schema
+}
+
+#[test]
+fn scope_via_requires_a_nonempty_single_valued_chain_from_a_proper_ancestor() {
+    use panproto_schema::ScopeVia;
+    for defect in 0..6 {
+        let mut schema = scope_via_matrix_schema();
+        match defect {
+            1 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("r")
+                    .unwrap()
+                    .scope_via = Some(ScopeVia {
+                    ancestor: "u".into(),
+                    hops: vec![],
+                })
+            }
+            2 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("r")
+                    .unwrap()
+                    .scope_via
+                    .as_mut()
+                    .unwrap()
+                    .ancestor = "h".into();
+                schema
+                    .declarations
+                    .references
+                    .get_mut("hop")
+                    .unwrap()
+                    .holder = "h".into();
+            }
+            3 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("hop")
+                    .unwrap()
+                    .cardinality = Cardinality::Many
+            }
+            4 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("hop")
+                    .unwrap()
+                    .holder = "t".into()
+            }
+            5 => {
+                schema
+                    .declarations
+                    .references
+                    .get_mut("hop")
+                    .unwrap()
+                    .target_vertex = "c".into()
+            }
+            _ => {}
+        }
+        assert_eq!(
+            findings(&schema, &protocol()),
+            if defect == 0 {
+                vec![]
+            } else {
+                vec![KeyRefError::ScopeViaInvalid {
+                    reference: "r".into(),
+                }]
+            },
+            "case {defect}"
+        );
+    }
+}
+
+#[test]
+fn empty_target_sets_never_resolve_by_the_keyless_reference_exception() {
+    use panproto_schema::TargetSet;
+    for named_key in [false, true] {
+        let mut schema = declaration_matrix_schema();
+        schema.declarations.target_sets.insert(
+            "targets".into(),
+            TargetSet {
+                members: vec![],
+                scope: KeyScope::Document,
+            },
+        );
+        let mut reference = empty_reference("r", "h", "targets");
+        if named_key {
+            reference.target_key = Some("unused".into());
+        }
+        schema.declarations.references.insert("r".into(), reference);
+        let mut expected = vec![KeyRefError::EmptyTargetSet {
+            set: "targets".into(),
+        }];
+        if named_key {
+            expected.push(KeyRefError::TargetSetHasKey {
+                reference: "r".into(),
+            });
+        }
+        expected.push(KeyRefError::UnknownTarget {
+            reference: "r".into(),
+        });
+        assert_eq!(findings(&schema, &protocol()), expected);
+    }
+}
+
+#[test]
+fn canonical_key_equality_envelope_has_the_exact_extended_role_byte() {
+    use panproto_schema::KeyEquality;
+    let bare = declaration_matrix_schema();
+    let bare_bytes = canonical_bytes(&bare);
+    let mut empty_tail = CanonicalWriter::new();
+    empty_tail.len(0);
+    empty_tail.len(0);
+    let empty_tail = empty_tail.into_bytes();
+    assert!(bare_bytes.ends_with(&empty_tail));
+    let prefix = &bare_bytes[..bare_bytes.len() - empty_tail.len()];
+    for (role, byte) in [
+        (KeyRole::Primary, 128),
+        (KeyRole::Unique, 129),
+        (KeyRole::Identifier, 130),
+        (KeyRole::SortKey, 131),
+        (KeyRole::Index, 132),
+    ] {
+        let mut schema = bare.clone();
+        let mut key = empty_target_key("k", role);
+        key.parts = vec![KeyPart::Path(vec![])];
+        key.equality = vec![KeyEquality::Representation];
+        schema.declarations.keys.insert("t".into(), vec![key]);
+        let mut expected = CanonicalWriter::new();
+        expected.len(1);
+        expected.name(&"t".into());
+        expected.len(1);
+        expected.name(&"k".into());
+        expected.len(1);
+        expected.tag(0);
+        expected.len(0);
+        expected.tag(byte);
+        expected.tag(0);
+        expected.len(1);
+        expected.tag(0);
+        expected.len(0);
+        let encoded = canonical_bytes(&schema);
+        assert!(encoded.starts_with(prefix));
+        assert_eq!(&encoded[prefix.len()..], expected.into_bytes());
+    }
+}

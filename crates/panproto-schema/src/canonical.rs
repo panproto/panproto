@@ -426,7 +426,8 @@ fn push_key(out: &mut CanonicalWriter, key: &Key) {
     out.tag(if key.equality.is_empty() {
         role
     } else {
-        role | 0x80
+        // Roles are 0..=4, so adding the envelope bit cannot carry.
+        role + 0x80
     });
     push_key_scope(out, &key.scope);
     if !key.equality.is_empty() {

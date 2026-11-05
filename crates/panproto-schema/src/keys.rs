@@ -1519,3 +1519,86 @@ impl fmt::Display for KeyRefError {
 }
 
 impl std::error::Error for KeyRefError {}
+#[cfg(test)]
+mod target_set_pruning_tests {
+    use super::*;
+
+    fn reference(id: &str, target: &str) -> Reference {
+        Reference {
+            id: id.into(),
+            holder: "holder".into(),
+            source: RefSource::KeyValue { parts: vec![] },
+            target_vertex: target.into(),
+            target_key: None,
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: NullMatch::Simple,
+            null_vertex: None,
+            scope_via: None,
+        }
+    }
+
+    #[test]
+    fn dropping_keys_prunes_only_their_members_and_references_to_emptied_sets() {
+        let mut declarations = SchemaDeclarations::default();
+        for vertex in ["a", "b"] {
+            declarations.keys.insert(
+                vertex.into(),
+                vec![Key {
+                    id: "k".into(),
+                    parts: vec![],
+                    role: KeyRole::Primary,
+                    scope: KeyScope::Document,
+                    equality: vec![],
+                }],
+            );
+        }
+        declarations.target_sets.insert(
+            "both".into(),
+            TargetSet {
+                members: vec![("a".into(), "k".into()), ("b".into(), "k".into())],
+                scope: KeyScope::Document,
+            },
+        );
+        declarations.target_sets.insert(
+            "only-a".into(),
+            TargetSet {
+                members: vec![("a".into(), "k".into())],
+                scope: KeyScope::Document,
+            },
+        );
+        for (id, target) in [("keep", "both"), ("drop", "only-a"), ("unrelated", "b")] {
+            declarations
+                .references
+                .insert(id.into(), reference(id, target));
+        }
+        let report = declarations.drop_keys(&BTreeSet::from([("a".into(), "k".into())]));
+        assert_eq!(
+            declarations.target_sets["both"].members,
+            vec![("b".into(), "k".into())]
+        );
+        assert!(!declarations.target_sets.contains_key("only-a"));
+        assert_eq!(
+            declarations
+                .references
+                .keys()
+                .map(AsRef::<str>::as_ref)
+                .collect::<Vec<_>>(),
+            vec!["keep", "unrelated"]
+        );
+        assert_eq!(report.dropped_keys, vec![("a".into(), "k".into())]);
+        assert_eq!(report.dropped_references, vec![Name::from("drop")]);
+        assert_eq!(report.dropped_target_sets, vec![Name::from("only-a")]);
+        assert_eq!(
+            report.dropped_target_set_members,
+            vec![
+                ("both".into(), "a".into(), "k".into()),
+                ("only-a".into(), "a".into(), "k".into())
+            ]
+        );
+    }
+}
