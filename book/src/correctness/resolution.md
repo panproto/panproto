@@ -50,6 +50,9 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 - Evidence scope: `panproto_reference::enumerate::resolution::indexed_sources; bound: targets=3, sources=8, deferred_declarations=80`
 - Production certificate: `declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope)'`
 - Independent reference anchor: `deferred_forms_are_refused_by_production_exactly_where_the_reference_declares_them; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=deferred_forms_are_refused_by_production_exactly_where_the_reference_declares_them)'`
+- Property differential test: `randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates)'`
+- Property scope: `eight indexed source subsets and their 48 edit candidates, sampled by source and candidate slot; indexed and declared tree carriers, stale and coherent edits, exact source preservation, canonical reget and gated repeat; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/mod.rs`
@@ -101,6 +104,9 @@ The finite differentials execute both halves. The bounded model checks `equivale
 - Evidence scope: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48`
 - Production certificate: `all_five_resolution_laws_agree_on_the_exact_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_resolution_scope)'`
 - Independent reference anchor: `declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope)'`
+- Property differential test: `randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates)'`
+- Property scope: `eight indexed source subsets and their 48 edit candidates, sampled by source and candidate slot; indexed and declared tree carriers, stale and coherent edits, exact source preservation, canonical reget and gated repeat; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -145,6 +151,9 @@ The model's `indexed_put` returns its source exactly when `check_put_domain` rep
 - Evidence scope: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48`
 - Production certificate: `all_five_resolution_laws_agree_on_the_exact_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_resolution_scope)'`
 - Independent reference anchor: `the_reference_put_domain_is_not_defined_by_reference_put; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=the_reference_put_domain_is_not_defined_by_reference_put)'`
+- Property differential test: `randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates)'`
+- Property scope: `eight indexed source subsets and their 48 edit candidates, sampled by source and candidate slot; indexed and declared tree carriers, stale and coherent edits, exact source preservation, canonical reget and gated repeat; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -244,6 +253,9 @@ The raw form, with $c'$ untransported, is false, and the tests show why. On the 
 - Evidence scope: `panproto_reference::enumerate::resolution::single_step_basis; bound: targets=3, candidates=48, admitted=24`
 - Production certificate: `all_five_resolution_laws_agree_on_the_exact_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=all_five_resolution_laws_agree_on_the_exact_resolution_scope)'`
 - Independent reference anchor: `reference_gated_put_twice_is_exact_where_raw_put_twice_fails; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=reference_gated_put_twice_is_exact_where_raw_put_twice_fails)'`
+- Property differential test: `randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates)'`
+- Property scope: `eight indexed source subsets and their 48 edit candidates, sampled by source and candidate slot; indexed and declared tree carriers, stale and coherent edits, exact source preservation, canonical reget and gated repeat; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -286,6 +298,9 @@ The fold visits the directives in slice order and updates only the base and the 
 - Evidence scope: `panproto_reference::enumerate::resolution::uri_directive_sequences; bound: length=3, directives=5, sequences=156, written_forms=4, suffixes=6`
 - Production certificate: `uri_environment_uses_only_the_preceding_directive_prefix; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_environment_uses_only_the_preceding_directive_prefix)'`
 - Independent reference anchor: `uri_environment_uses_only_the_preceding_directive_prefix; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_environment_uses_only_the_preceding_directive_prefix)'`
+- Property differential test: `randomized::uri_environment_matches_on_generated_directive_prefixes; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::uri_environment_matches_on_generated_directive_prefixes)'`
+- Property scope: `156 directive prefixes and four written forms; complete base and prefix environments and resolved output; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
@@ -328,6 +343,9 @@ The branches of `rfc3986` correspond to the component cases in the Statement. `r
 - Evidence scope: `RFC 3986 section 5.4 normal and abnormal vectors, http:g read strictly; normal=23, abnormal=19, cases=42`
 - Production certificate: `uri_resolution_matches_the_rfc_3986_section_5_4_vectors; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_resolution_matches_the_rfc_3986_section_5_4_vectors)'`
 - Independent reference anchor: `uri_resolution_matches_the_rfc_3986_section_5_4_vectors; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=uri_resolution_matches_the_rfc_3986_section_5_4_vectors)'`
+- Property differential test: `randomized::rfc3986_matches_on_generated_published_vectors; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::rfc3986_matches_on_generated_published_vectors)'`
+- Property scope: `the existing 42 RFC section 5.4 vectors; both implementations compared to the published expected result; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
@@ -370,6 +388,9 @@ The two constructor branches copy only `node` and `field`. The external tuple is
 - Evidence scope: `field-qualified local/external identity carrier; holders=1, fields=2, contexts=2`
 - Production certificate: `referenced_text_identity_is_field_qualified_and_value_independent; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=referenced_text_identity_is_field_qualified_and_value_independent)'`
 - Independent reference anchor: `referenced_text_identity_is_field_qualified_and_value_independent; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=referenced_text_identity_is_field_qualified_and_value_independent)'`
+- Property differential test: `randomized::text_identity_matches_on_generated_field_and_locality_pairs; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::text_identity_matches_on_generated_field_and_locality_pairs)'`
+- Property scope: `holder seven, two field names and local/external pairs; identity equality, locality and exact value sites; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
@@ -412,6 +433,9 @@ The helper scans in declaration order and returns the first representation-equal
 - Evidence scope: `guard carrier; declarations=2, observed_values=3`
 - Production certificate: `guarded_occurrences_select_the_first_representation_equal_guard; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=guarded_occurrences_select_the_first_representation_equal_guard)'`
 - Independent reference anchor: `guarded_occurrences_select_the_first_representation_equal_guard; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=guarded_occurrences_select_the_first_representation_equal_guard)'`
+- Property differential test: `randomized::guarded_selection_matches_on_generated_existing_literals; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::guarded_selection_matches_on_generated_existing_literals)'`
+- Property scope: `the existing left, right and other literals; selected edges, preserved unselected record and exact GetPut source; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
@@ -544,6 +568,9 @@ Reference `get` first checks every declared reference, in id order, and returns 
 - Evidence scope: `index-key declaration under both unresolved policies; policies=2`
 - Production certificate: `index_fields_never_resolve_targets; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
 - Independent reference anchor: `index_fields_never_resolve_targets; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
+- Property differential test: `randomized::index_refusal_matches_under_generated_unresolved_policy; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::index_refusal_matches_under_generated_unresolved_policy)'`
+- Property scope: `the existing index-target declaration under Error and Complement unresolved policies; typed key and reference refusal fields; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/compile.rs`
@@ -586,6 +613,9 @@ By induction on the chain, the fold after $k$ entries is the base of the $k$-th 
 - Evidence scope: `panproto_reference::enumerate::resolution::inherited_base_chains; bound: depth=3, bases=4, chains=84, trees=148, pointer_forms=3`
 - Production certificate: `inherited_base_folds_the_ancestor_or_self_chain; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=inherited_base_folds_the_ancestor_or_self_chain)'`
 - Independent reference anchor: `inherited_base_folds_the_ancestor_or_self_chain; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=inherited_base_folds_the_ancestor_or_self_chain)'`
+- Property differential test: `randomized::inherited_base_matches_on_generated_ancestor_chains; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::inherited_base_matches_on_generated_ancestor_chains)'`
+- Property scope: `84 existing ancestor-or-self chains and three pointer forms; exact resolved URI or absence; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
@@ -628,6 +658,9 @@ Declared key equality is [`key_equivalence`](./keys-and-registration.md), re-exp
 - Evidence scope: `key-equality product; equalities=6, values=7, ordered_pairs=49`
 - Production certificate: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
 - Independent reference anchor: `declared_key_equality_refusals_propagate_through_resolution; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_key_equality_refusals_propagate_through_resolution)'`
+- Property differential test: `randomized::declared_key_kernel_matches_on_generated_existing_pairs; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::declared_key_kernel_matches_on_generated_existing_pairs)'`
+- Property scope: `six declared equalities and all pairs of seven values from the existing 294-pair kernel carrier; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
@@ -672,6 +705,9 @@ The binding predicate first filters by strict position and exact name. It then a
 - Evidence scope: `ordered variable carrier; definitions=4, names=2, policies=2`
 - Production certificate: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - Independent reference anchor: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
+- Property differential test: `randomized::variable_bindings_match_on_generated_bounded_holder_sequences; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::variable_bindings_match_on_generated_bounded_holder_sequences)'`
+- Property scope: `one to five holders over each existing three-value alphabet, both binding modes and both equalities; ordered binding edges and GetPut source; configured successful cases per seed=256`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`

@@ -31,6 +31,8 @@ Partition validation sorts all ranges by their lower endpoint and rejects the fi
 - Enumerator: `panproto_reference::enumerate::segments::graph_partition_cases; bound: graphs=25, partitions=290`
 - Exhaustive differential test: `bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively)'`
 - Property differential test: `segment::tests::partition::every_generated_partition_is_valid; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::partition::every_generated_partition_is_valid)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Property scope: `five documented shape witnesses; paired partition, glue, segment bytes, manifest bytes, digest and authenticated verification; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/partition.rs`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
@@ -76,6 +78,7 @@ Partitioning visits each edge once. A crossing edge inserts its target into the 
 - Exhaustive differential test: `graph_table_and_tree_artifacts_match_the_reference_exactly; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=graph_table_and_tree_artifacts_match_the_reference_exactly)'`
 - Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
 - Fixed regression certificate: `segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles)'`
+
 - File: `crates/panproto-inst/src/segment/body.rs`
 - File: `crates/panproto-inst/src/segment/check.rs`
 - File: `crates/panproto-inst/src/segment/split.rs`
@@ -129,6 +132,8 @@ Fan order needs its own argument, because a segment lists its fans by fan node i
 - Enumerator: `panproto_reference::enumerate::segments::partition_cases; bound: graphs=25, fan_trees=2, partitions=330`
 - Exhaustive differential test: `bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively)'`
 - Property differential test: `segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Property scope: `five documented shape witnesses; paired partition, glue, segment bytes, manifest bytes, digest and authenticated verification; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
@@ -180,6 +185,10 @@ Every byte writer traverses fields in declaration order and ordered collections 
 - Production certificate: `manifest_cross_refusal_precedes_root_and_identity_refusals; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=manifest_cross_refusal_precedes_root_and_identity_refusals)'`
 - Production certificate: `manifest_root_refusal_precedes_identity_refusal_when_cross_pairs_agree; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=manifest_root_refusal_precedes_identity_refusal_when_cross_pairs_agree)'`
 - Production certificate: `malformed_manifests_preserve_the_complete_structural_refusal_order; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=malformed_manifests_preserve_the_complete_structural_refusal_order)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Property scope: `five documented shape witnesses; paired partition, glue, segment bytes, manifest bytes, digest and authenticated verification; configured successful cases per seed=256`
+- Property differential test: `randomized::manifest_refusals_match_on_generated_structural_mutations; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::manifest_refusals_match_on_generated_structural_mutations)'`
+- Property scope: `six existing malformed-manifest cases with rebuilt roots and the original trusted identity; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/bytes.rs`
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/src/segment/stream.rs`
@@ -226,6 +235,8 @@ The Rust declarations determine the serde tags. `TaskKey` carries an optional se
 - Production certificate: `storage_vocabulary_serde_layout_and_run_identity_are_stable; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=storage_vocabulary_serde_layout_and_run_identity_are_stable)'`
 - Independent reference anchor: `bounded_task_input_digest_and_journal_reuse_match_the_reference; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_task_input_digest_and_journal_reuse_match_the_reference)'`
 - Exhaustive differential test: `bounded_task_input_digest_and_journal_reuse_match_the_reference; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_task_input_digest_and_journal_reuse_match_the_reference)'`
+- Property differential test: `randomized::task_digest_and_reuse_match_the_reference_on_generated_carrier_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::task_digest_and_reuse_match_the_reference_on_generated_carrier_choices)'`
+- Property scope: `six phases, three segment choices, five input lists and two lens digests; matching, changed-input, changed-output and absent-task reuse queries; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/store.rs`
 - File: `crates/panproto-inst/src/segment/partition.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
@@ -422,6 +433,8 @@ The reference run validates every segment, assembles the family by checked glue,
 - Enumerator: `panproto_reference::enumerate::segments::allocated_graph_partition_cases; bound: graphs=25, partitions=290, allocations=3`
 - Exhaustive differential test: `segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal)'`
 - Property differential test: `segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition)'`
+- Property differential test: `randomized::segmented_observation_matches_on_generated_allocated_partitions; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::segmented_observation_matches_on_generated_allocated_partitions)'`
+- Property scope: `870 documented allocated graph partitions; exact assembled bytes or typed seal-floor refusal; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`

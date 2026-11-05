@@ -27,6 +27,12 @@
               "crate": "panproto-expr",
               "binary": "panproto-expr::reference_values",
               "test": "randomized_values_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
             }
           ]
         },
@@ -806,6 +812,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_coercion",
               "test": "float16_coercion_agrees_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_coercion",
+              "test": "randomized_coercion_differential"
             }
           ]
         },
@@ -1030,6 +1042,18 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::schema_v2",
               "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_scalar_emission_and_round_trip"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_numeric_emission_and_round_trip"
             }
           ]
         },
@@ -1064,6 +1088,18 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::schema_v2",
               "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_scalar_emission_and_round_trip"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_numeric_emission_and_round_trip"
             }
           ]
         },
@@ -1089,6 +1125,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
               "test": "i12_default_routes_distinguish_null_from_absence"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_presence_outcomes"
             }
           ]
         },
@@ -1126,6 +1168,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::schema_v2",
               "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_canonical_scalar_reading"
             }
           ]
         },
@@ -1148,6 +1196,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::schema_v2",
               "test": "value_io_oracles_are_independent_and_toml_rejects_reduced_years"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_temporal_route_representability"
             }
           ]
         },
@@ -1170,6 +1224,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
               "test": "i4_byte_paths_compare_both_directions_and_blob_layout_is_exact"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io",
+              "test": "json_pathway::tests::randomized_byte_text_route_writer"
             }
           ]
         },
@@ -1186,6 +1246,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_decimal_writer_spellings_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_numeric_emission_and_round_trip"
             }
           ]
         },
@@ -1210,6 +1276,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_duplicate_member_refusals_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_duplicate_member_refusals"
             }
           ]
         },
@@ -1238,6 +1310,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
               "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_canonical_encoding"
             }
           ]
         },
@@ -1254,6 +1332,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_decimal_writer_spellings_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_numeric_emission_and_round_trip"
             }
           ]
         },
@@ -1271,6 +1355,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_xml_entity_expansion_matches_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_xml_entity_expansion"
             }
           ]
         },
@@ -1293,6 +1383,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
               "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_canonical_encoding"
             }
           ]
         },
@@ -1309,6 +1405,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_tabular_observables_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_tabular_observables"
             }
           ]
         },
@@ -1325,6 +1427,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_tabular_observables_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_tabular_observables"
             }
           ]
         },
@@ -1341,6 +1449,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_tabular_observables_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_tabular_observables"
             }
           ]
         },
@@ -1357,6 +1471,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_tabular_observables_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_tabular_observables"
             }
           ]
         },
@@ -1373,6 +1493,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "bounded_xml_expanded_names_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_xml_expanded_names"
             }
           ]
         },
@@ -1401,6 +1527,12 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
               "test": "i4_byte_paths_compare_both_directions_and_blob_layout_is_exact"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "randomized_blob_writer"
             }
           ]
         },
@@ -1813,6 +1945,18 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "validation_identifies_exact_parallel_position_edges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::position_key_values_and_buckets_match_on_generated_sibling_orders"
             }
           ]
         },
@@ -1847,6 +1991,18 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "values_without_canonical_bytes_are_a_typed_keying_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::position_key_values_and_buckets_match_on_generated_sibling_orders"
             }
           ]
         },
@@ -1887,6 +2043,18 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "extension_markers_separate_the_audit_counterexample"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::canonical_bytes_distinguish_generated_descriptor_schemas"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::extension_declarations_match_and_decode_on_generated_pairs"
             }
           ]
         },
@@ -1909,6 +2077,18 @@
               "crate": "panproto-check",
               "binary": "panproto-check::reference_classify",
               "test": "non_key_classification_axes_match_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "randomized_key_change_classification"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "randomized_reference_change_classification"
             }
           ]
         },
@@ -1944,6 +2124,12 @@
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::reference_registration",
               "test": "registered_theories_agree_with_the_reference_typecheck_compose_and_recompose"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::reference_registration",
+              "test": "randomized_registered_recipe_differential"
             }
           ]
         },
@@ -1984,6 +2170,12 @@
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "registration_reproduces_the_frozen_0_74_4_theories"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::reference_registration",
+              "test": "randomized_registered_recipe_differential"
             }
           ]
         },
@@ -2007,6 +2199,12 @@
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "cross_process::compose_bytes_are_identical_across_processes"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_theory_canonical",
+              "test": "randomized_theory_and_composition_canonical_bytes"
             }
           ]
         },
@@ -2023,6 +2221,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "equality_carrier_executes_all_pairs_and_triples"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::key_kernels_and_typed_refusals_match_on_generated_pairs"
             }
           ]
         },
@@ -2045,6 +2249,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "named_collation_has_the_exact_typed_refusal_boundary"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::key_kernels_and_typed_refusals_match_on_generated_pairs"
             }
           ]
         },
@@ -2061,6 +2271,12 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "extended_declaration_bytes_match_reference_on_every_sum_variant"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::equality_declaration_words_match_and_decode"
             }
           ]
         },
@@ -2077,6 +2293,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "sort_preorder_and_adjacent_descent_match_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::sort_order_and_adjacent_descent_match_on_generated_words"
             }
           ]
         },
@@ -2093,6 +2315,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "sort_preorder_and_adjacent_descent_match_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::sort_order_and_adjacent_descent_match_on_generated_words"
             }
           ]
         },
@@ -2115,6 +2343,12 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "target_set_members_need_a_well_formed_equality_and_a_resolving_role"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::target_set_admission_matches_on_generated_member_words"
             }
           ]
         },
@@ -2131,6 +2365,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "xml_kernel_executes_the_exact_key_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::key_kernels_and_typed_refusals_match_on_generated_pairs"
             }
           ]
         },
@@ -2171,6 +2411,18 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "declaration_bytes_decode_back_on_every_extension_combination"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::extension_declarations_match_and_decode_on_generated_pairs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::key_and_reference_admission_match_on_generated_coordinates"
             }
           ]
         },
@@ -2193,6 +2445,18 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "index_fields_never_resolve_targets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::index_refusal_matches_under_generated_unresolved_policy"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::null_match_outcomes_match_on_generated_existing_occurrences"
             }
           ]
         },
@@ -2209,6 +2473,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "lexical_space_outcomes_match_the_datatype_table_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::lexical_space_admission_and_preservation_match_on_generated_literals"
             }
           ]
         },
@@ -2226,6 +2496,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "annotated_formats_match_the_independent_recognizer"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_keys",
+              "test": "randomized::annotated_format_admission_and_preservation_match_on_generated_strings"
             }
           ]
         }
@@ -3560,6 +3836,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "whole_validation_agrees_exactly_on_the_compact_three_shape_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::compact_reports_match_on_generated_shape_and_case"
             }
           ]
         },
@@ -3588,6 +3870,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_laws",
               "test": "reference_validation_anchors_are_stable_on_compact_native_carriers"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::compact_reports_match_on_generated_shape_and_case"
             }
           ]
         },
@@ -3617,6 +3905,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
               "test": "reference_incremental_witness_anchor_verifies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits"
             }
           ]
         },
@@ -3646,6 +3940,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
               "test": "reference_incremental_witness_anchor_verifies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits"
             }
           ]
         },
@@ -3674,6 +3974,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
               "test": "reference_incremental_witness_anchor_verifies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::committed_sequences_match_reference_reports_and_admission"
             }
           ]
         },
@@ -3702,6 +4008,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
               "test": "reference_incremental_witness_anchor_verifies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits"
             }
           ]
         },
@@ -3724,6 +4036,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "finite_budget_cuts_are_the_same_ordered_suffix"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::budget_refusals_match_on_generated_existing_limits"
             }
           ]
         },
@@ -3760,6 +4078,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_laws",
               "test": "reference_required_value_shape_square"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::compact_reports_match_on_generated_shape_and_case"
             }
           ]
         },
@@ -3782,6 +4106,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::restrict_boundary",
               "test": "restrict_boundary_errors_carry_the_side_and_report"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::restrict_boundary",
+              "test": "randomized_restriction_boundary_matches_on_all_status_pairs"
             }
           ]
         },
@@ -3810,6 +4140,12 @@
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
               "test": "v10_endpoint_coherence_agrees_on_anchor_families"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
+              "test": "randomized_endpoint_findings_match_the_reference_and_theory"
             }
           ]
         },
@@ -3838,6 +4174,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_laws",
               "test": "reference_validation_anchors_are_stable_on_compact_native_carriers"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::key_and_reference_reports_match_on_generated_person_values"
             }
           ]
         },
@@ -3854,6 +4196,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
               "test": "admission_policies_agree_with_their_predicates_on_three_bundles"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::validation_incremental",
+              "test": "randomized_admission_matches_reference_on_the_complete_bundle_carrier"
             }
           ]
         },
@@ -3882,6 +4230,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "resolution_uses_the_exact_declared_key_equality_operation"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::declared_key_kernel_matches_on_generated_existing_pairs"
             }
           ]
         },
@@ -3904,6 +4258,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "nearest_preceding_binding_ignores_later_and_other_named_definitions"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::variable_bindings_match_on_generated_bounded_holder_sequences"
             }
           ]
         },
@@ -3927,6 +4287,18 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "declaration_validation_matches_reference_on_every_common_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::target_set_admission_matches_on_generated_member_words"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::key_and_reference_admission_match_on_generated_coordinates"
             }
           ]
         },
@@ -3951,6 +4323,24 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "every_index_target_is_refused_under_both_unresolved_policies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::index_refusal_matches_under_generated_unresolved_policy"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::null_match_outcomes_match_on_generated_existing_occurrences"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "randomized::key_and_reference_admission_match_on_generated_coordinates"
             }
           ]
         },
@@ -3992,6 +4382,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation",
               "test": "lexical_space_ambiguous_tag_remains_a_required_declaration_failure"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::lexical_advisory_matches_on_generated_existing_literals"
             }
           ]
         },
@@ -4008,6 +4404,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::annotated_parse_matches_on_generated_existing_numeric_forms"
             }
           ]
         },
@@ -4024,6 +4426,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::annotated_advisory_matches_on_generated_existing_values"
             }
           ]
         },
@@ -4040,6 +4448,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::assertion_acceptance_matches_on_generated_existing_numeric_forms"
             }
           ]
         }
@@ -4066,6 +4480,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::boundary_cut_matches_the_reference_on_generated_shape_choices"
             }
           ]
         },
@@ -4105,6 +4525,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::boundary_cut_matches_the_reference_on_generated_shape_choices"
             }
           ]
         },
@@ -4154,6 +4580,18 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "malformed_manifests_preserve_the_complete_structural_refusal_order"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::boundary_cut_matches_the_reference_on_generated_shape_choices"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::manifest_refusals_match_on_generated_structural_mutations"
             }
           ]
         },
@@ -4177,6 +4615,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "bounded_task_input_digest_and_journal_reuse_match_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::task_digest_and_reuse_match_the_reference_on_generated_carrier_choices"
             }
           ]
         },
@@ -4287,6 +4731,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::segmented_observation_matches_on_generated_allocated_partitions"
             }
           ]
         },
@@ -5055,6 +5505,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "deferred_forms_are_refused_by_production_exactly_where_the_reference_declares_them"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates"
             }
           ]
         },
@@ -5082,6 +5538,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates"
             }
           ]
         },
@@ -5106,6 +5568,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "the_reference_put_domain_is_not_defined_by_reference_put"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates"
             }
           ]
         },
@@ -5157,6 +5625,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "reference_gated_put_twice_is_exact_where_raw_put_twice_fails"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates"
             }
           ]
         },
@@ -5173,6 +5647,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "uri_environment_uses_only_the_preceding_directive_prefix"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::uri_environment_matches_on_generated_directive_prefixes"
             }
           ]
         },
@@ -5189,6 +5669,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "uri_resolution_matches_the_rfc_3986_section_5_4_vectors"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::rfc3986_matches_on_generated_published_vectors"
             }
           ]
         },
@@ -5205,6 +5691,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "referenced_text_identity_is_field_qualified_and_value_independent"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::text_identity_matches_on_generated_field_and_locality_pairs"
             }
           ]
         },
@@ -5221,6 +5713,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "guarded_occurrences_select_the_first_representation_equal_guard"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::guarded_selection_matches_on_generated_existing_literals"
             }
           ]
         },
@@ -5283,6 +5781,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "index_fields_never_resolve_targets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::index_refusal_matches_under_generated_unresolved_policy"
             }
           ]
         },
@@ -5299,6 +5803,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "inherited_base_folds_the_ancestor_or_self_chain"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::inherited_base_matches_on_generated_ancestor_chains"
             }
           ]
         },
@@ -5321,6 +5831,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "declared_key_equality_refusals_propagate_through_resolution"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
+              "test": "randomized::declared_key_kernel_matches_on_generated_existing_pairs"
             }
           ]
         },
@@ -5337,6 +5853,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "nearest_preceding_binding_ignores_later_and_other_named_definitions"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_resolution",
+              "test": "randomized::variable_bindings_match_on_generated_bounded_holder_sequences"
             }
           ]
         },

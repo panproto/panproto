@@ -554,3 +554,32 @@ fn v10_endpoint_coherence_agrees_on_anchor_families() {
         "{incoherent} of {graphs} graphs incoherent"
     );
 }
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(256))]
+
+    #[test]
+    fn randomized_endpoint_findings_match_the_reference_and_theory(
+        anchors in proptest::collection::vec(0_usize..3, 0..=3),
+        edges in proptest::collection::vec((0_usize..3, 0_usize..3, 0_usize..3), 0..=3),
+    ) {
+        let schema = schema();
+        let plan = ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+        let labels = [edge("a", "b", "ab"), edge("a", "a", "aa"), edge("z", "b", "zb")];
+        let mut graph = GInstance::new();
+        for (id, anchor) in anchors.iter().enumerate() {
+            graph = graph.with_node(Node::new(u32::try_from(id).unwrap(), ["a", "b", "z"][*anchor]));
+        }
+        if !anchors.is_empty() {
+            for (source, target, label) in edges {
+                graph = graph.with_edge(u32::try_from(source % anchors.len()).unwrap(),
+                    u32::try_from(target % anchors.len()).unwrap(), labels[label].clone());
+            }
+        }
+        let actual = reported(&plan, &graph);
+        let (theory, complete) = refuted(&graph, &schema);
+        proptest::prop_assert!(complete);
+        proptest::prop_assert_eq!(&actual, &theory);
+        proptest::prop_assert_eq!(actual, reference_reported(&schema, &graph));
+    }
+}

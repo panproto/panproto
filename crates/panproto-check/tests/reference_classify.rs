@@ -566,3 +566,45 @@ fn every_key_change_classifies_through_the_factorization_certificate() {
         "classification certificate: 148 structural graphs; every directed descriptor-axis change; 816,223,680 full-carrier classifications"
     );
 }
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_key_change_classification(
+        vertices in 1_usize..=3,
+        graph_pick in proptest::prelude::any::<usize>(),
+        transition_pick in proptest::prelude::any::<usize>(),
+        other_pick in proptest::option::of(proptest::prelude::any::<usize>()),
+        slot in 0_usize..2,
+    ) {
+        let graphs = enumerate::structural_schemas(vertices);
+        let transitions = enumerate::axis_transitions(vertices);
+        let descriptors = enumerate::key_descriptors(vertices);
+        let graph = &graphs[graph_pick % graphs.len()];
+        let transition = &transitions[transition_pick % transitions.len()];
+        let other = other_pick.map(|index| &descriptors[index % descriptors.len()]);
+        let (before, after) = contextual_schemas(graph, slot, transition, other);
+        proptest::prop_assert_eq!(production_change(&before, &after), reference::classify_change(&before, &after));
+    }
+
+    #[test]
+    fn randomized_reference_change_classification(
+        nullable in proptest::prelude::any::<bool>(),
+        many in proptest::prelude::any::<bool>(),
+        complement in proptest::prelude::any::<bool>(),
+        remove in proptest::prelude::any::<bool>(),
+        reverse in proptest::prelude::any::<bool>(),
+    ) {
+        let before = classification_base();
+        let mut after = before.clone();
+        if remove { after.references.clear(); } else {
+            let declaration = after.references.get_mut("r").expect("base reference");
+            declaration.nullable = nullable;
+            declaration.cardinality = if many { reference::Cardinality::Many } else { reference::Cardinality::One };
+            declaration.on_unresolved = if complement { reference::OnUnresolved::Complement } else { reference::OnUnresolved::Error };
+        }
+        let (before, after) = if reverse { (after, before) } else { (before, after) };
+        proptest::prop_assert_eq!(production_change(&before, &after), reference::classify_change(&before, &after));
+    }
+}

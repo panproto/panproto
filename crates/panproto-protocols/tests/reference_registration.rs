@@ -623,3 +623,134 @@ fn registered_theories_agree_with_the_reference_typecheck_compose_and_recompose(
         theories.len()
     );
 }
+
+fn production_diagram_of(
+    step: &panproto_gat::CompositionStep,
+    registry: &HashMap<String, panproto_gat::Theory>,
+) -> (panproto_gat::TheoryDiagram, panproto_gat::ComposeOptions) {
+    use panproto_gat::{
+        CompositionStep, DiagramEdge, DiagramNode, OpAssignment, RecipeOpImage, TheoryMorphism,
+    };
+    let CompositionStep::Diagram {
+        nodes,
+        edges,
+        mode,
+        clash,
+        rewrite_budget,
+        inline,
+    } = step
+    else {
+        panic!("registration requires a diagram step");
+    };
+    let theory = |name: &str| {
+        inline
+            .iter()
+            .find(|theory| theory.name.as_ref() == name)
+            .or_else(|| registry.get(name))
+            .cloned()
+            .expect("registered or inline theory")
+    };
+    let diagram = panproto_gat::TheoryDiagram {
+        nodes: nodes
+            .iter()
+            .map(|label| DiagramNode {
+                label: label.as_str().into(),
+                theory: theory(label),
+            })
+            .collect(),
+        edges: edges
+            .iter()
+            .map(|edge| DiagramEdge {
+                src: edge.src.as_str().into(),
+                tgt: edge.tgt.as_str().into(),
+                morphism: TheoryMorphism {
+                    name: format!("{}->{}", edge.src, edge.tgt).into(),
+                    domain: theory(&edge.src).name,
+                    codomain: theory(&edge.tgt).name,
+                    sort_map: edge
+                        .sorts
+                        .iter()
+                        .map(|(a, b)| (a.as_str().into(), b.as_str().into()))
+                        .collect(),
+                    op_map: edge
+                        .ops
+                        .iter()
+                        .map(|(name, image)| {
+                            (
+                                name.as_str().into(),
+                                match image {
+                                    RecipeOpImage::Op(op) => OpAssignment::Op(op.as_str().into()),
+                                    RecipeOpImage::Term(term) => OpAssignment::Term(term.clone()),
+                                },
+                            )
+                        })
+                        .collect(),
+                },
+            })
+            .collect(),
+    };
+    (
+        diagram,
+        panproto_gat::ComposeOptions {
+            mode: *mode,
+            result_name: "".into(),
+            clash: *clash,
+            rewrite_budget: *rewrite_budget,
+        },
+    )
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_registered_recipe_differential(
+        protocol_index in 0_usize..descriptors().len(),
+        instance in proptest::prelude::any::<bool>(),
+        rotation in proptest::prelude::any::<usize>(),
+    ) {
+        let descriptor = &descriptors()[protocol_index];
+        let protocol = (descriptor.protocol)();
+        let mut registered = HashMap::new();
+        (descriptor.register_theories)(&mut registered).expect("registered theories");
+        let mut entries: Vec<_> = registered.into_iter().collect();
+        entries.sort_by(|a,b| a.0.cmp(&b.0));
+        let offset = rotation % entries.len();
+        entries.rotate_left(offset);
+        let registry: HashMap<_, _> = entries.into_iter().collect();
+        let reference_registry: BTreeMap<_, _> = registry.iter()
+            .map(|(name, theory)| (name.clone(), convert::back_theory(theory))).collect();
+        let (name, spec) = if instance { (&protocol.instance_theory, &protocol.instance_composition) }
+            else { (&protocol.schema_theory, &protocol.schema_composition) };
+        let spec = spec.as_ref().expect("registered recipe");
+        let reference_spec = convert::back_spec(spec);
+        let theory = &registry[name.as_str()];
+        let reference = &reference_registry[name.as_str()];
+        proptest::prop_assert_eq!(panproto_gat::typecheck_signature(theory), Ok(()));
+        proptest::prop_assert_eq!(r::typecheck_signature(reference), Ok(()));
+        let production_replay = panproto_gat::recompose(spec, &registry).expect("production replay");
+        let reference_replay = r::recompose(&reference_spec, &reference_registry).expect("reference replay");
+        proptest::prop_assert_eq!(canonical_theory_bytes(&production_replay), r::canonical_theory_bytes(&reference_replay));
+        proptest::prop_assert_eq!(canonical_theory_bytes(&production_replay), canonical_theory_bytes(theory));
+        proptest::prop_assert_eq!(spec.steps.len(), 1);
+        let (production_diagram, mut production_options) = production_diagram_of(&spec.steps[0], &registry);
+        production_options.result_name = spec.result_name.as_str().into();
+        let (reference_diagram, mut reference_options) = diagram_of(&reference_spec.steps[0], &reference_registry);
+        reference_options.result_name.clone_from(&reference_spec.result_name);
+        let production = panproto_gat::compose(&production_diagram, &production_options).expect("production composition");
+        let reference = r::compose(&reference_diagram, &reference_options).expect("reference composition");
+        proptest::prop_assert_eq!(production.report.status, panproto_gat::CheckStatus::Passed);
+        proptest::prop_assert_eq!(reference.report.status, r::CheckStatus::Passed);
+        proptest::prop_assert!(production.report.checks.iter().all(|check| matches!(check.outcome,
+            panproto_gat::CheckOutcome::Passed | panproto_gat::CheckOutcome::PassedByEquation { .. })), "production total report");
+        proptest::prop_assert!(reference.report.checks.iter().all(|check| matches!(check.outcome,
+            r::CheckOutcome::Passed | r::CheckOutcome::PassedByEquation { .. })), "reference total report");
+        proptest::prop_assert_eq!(canonical_theory_bytes(&production.theory), r::canonical_theory_bytes(&reference.theory));
+        for check in [panproto_gat::CompositionCheckKind::InclusionIsMorphism, panproto_gat::CompositionCheckKind::UniversalIdentity] {
+            proptest::prop_assert!(production.report.checks.iter().any(|record| record.check == check));
+        }
+        for check in [r::CompositionCheckKind::InclusionIsMorphism, r::CompositionCheckKind::UniversalIdentity] {
+            proptest::prop_assert!(reference.report.checks.iter().any(|record| record.check == check));
+        }
+    }
+}

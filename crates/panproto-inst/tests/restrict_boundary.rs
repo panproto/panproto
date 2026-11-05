@@ -576,3 +576,74 @@ proptest! {
         }
     }
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+    #[test]
+    fn randomized_restriction_boundary_matches_on_all_status_pairs(
+        input_choice in 0_usize..3, output_choice in 0_usize..3,
+    ) {
+    use panproto_reference::validation::{
+        CheckStatus as ReferenceCheckStatus, ValidationBoundarySide, restriction_boundary,
+    };
+
+    let reference_status = |status: CheckStatus| match status {
+        CheckStatus::Passed => ReferenceCheckStatus::Passed,
+        CheckStatus::Failed => ReferenceCheckStatus::Failed,
+        CheckStatus::Incomplete => ReferenceCheckStatus::Incomplete,
+    };
+    let p = Protocol::default();
+    let c = e("r", "c", "c");
+    let d = e("r", "c", "d");
+    let (_, required_tgt, m) = required_child();
+    let plain_src = schema(&["r", "c"], &[&c, &d], &[]);
+    let failing_src = schema(&["r", "c"], &[&c, &d], &[("r", &d)]);
+    let incomplete_src = with_static_finding(plain_src.clone(), "r");
+    let plain_tgt = schema(&["r", "c"], &[&c], &[]);
+    let incomplete_tgt = with_static_finding(plain_tgt.clone(), "r");
+    let statuses = [
+        CheckStatus::Passed,
+        CheckStatus::Failed,
+        CheckStatus::Incomplete,
+    ];
+        let input = statuses[input_choice];
+        let output = statuses[output_choice];
+            let src = match input {
+                CheckStatus::Passed => &plain_src,
+                CheckStatus::Failed => &failing_src,
+                CheckStatus::Incomplete => &incomplete_src,
+            };
+            let (tgt, graph) = match output {
+                CheckStatus::Passed => (&plain_tgt, rc_graph(1)),
+                CheckStatus::Failed => (&required_tgt, rc_graph(5)),
+                CheckStatus::Incomplete => (&incomplete_tgt, rc_graph(1)),
+            };
+            let observed_input = panproto_inst::validate_graph(&graph, src, &p).status;
+            assert_eq!(observed_input, input, "input realization of {input:?}");
+            let plan = RestrictPlan::compile_with_protocols(src, tgt, &m, both(&p))
+                .expect("the boundary carrier compiles");
+            let (view, _) = graph_restrict_with_plan(&graph, &plan).expect("the engine runs");
+            let observed_output = panproto_inst::validate_graph(&view, tgt, &p).status;
+            assert_eq!(observed_output, output, "output realization of {output:?}");
+            let expected = restriction_boundary(
+                reference_status(observed_input),
+                reference_status(observed_output),
+            );
+            let actual = match graph_restrict(&graph, src, tgt, &m, both(&p)) {
+                Ok(_) => Ok(()),
+                Err(RestrictError::Validation { side, report }) => {
+                    let boundary = match side {
+                        BoundarySide::Input => observed_input,
+                        BoundarySide::Output => observed_output,
+                    };
+                    assert_eq!(report.status, boundary, "{input:?}/{output:?}");
+                    Err(match side {
+                        BoundarySide::Input => ValidationBoundarySide::Input,
+                        BoundarySide::Output => ValidationBoundarySide::Output,
+                    })
+                }
+                Err(other) => panic!("{input:?}/{output:?}: unexpected {other}"),
+            };
+            assert_eq!(actual, expected, "{input:?}/{output:?}");
+    }
+}

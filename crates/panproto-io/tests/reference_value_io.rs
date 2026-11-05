@@ -3244,3 +3244,357 @@ fn every_single_scalar_blob_field_matches_the_reference_layout() {
     });
     assert_eq!(checked, 1_112_064);
 }
+
+fn generated_io_temporal_lexemes() -> &'static [String] {
+    static LEXEMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LEXEMES.get_or_init(scope::temporal_lexemes)
+}
+
+// Randomized inputs use the same independent observables as the finite scopes.
+// Config::default consumes PROPTEST_RNG_SEED and PROPTEST_CASES; proptest retains
+// shrunk failures. A sampled case is an input, never an entire fixed test.
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_scalar_emission_and_round_trip(
+        character in proptest::option::of(proptest::prelude::any::<char>()),
+        route_index in 0_usize..4,
+    ) {
+        let route = [Route::Json, Route::Xml, Route::Csv, Route::Tsv][route_index];
+        let text = character.map_or_else(String::new, |c| c.to_string());
+        let schema = one_text_column(if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" });
+        let production_value = Value::Str(text.clone());
+        let reference_value = ReferenceValue::Str(text);
+        let (actual, reread) = production_scalar(route, &schema, &production_value);
+        let expected = reference_emission(
+            panproto_reference::value_io::emit(route, &reference_value), "generated scalar",
+        );
+        proptest::prop_assert_eq!(actual, expected);
+        proptest::prop_assert_eq!(
+            panproto_reference::value_io::round_trip(route, &reference_value),
+            reread.is_some_and(|value| same_value(&value, &production_value)),
+        );
+    }
+
+    #[test]
+    fn randomized_numeric_emission_and_round_trip(
+        negative in proptest::prelude::any::<bool>(),
+        coefficient in 0_u8..100,
+        exponent in -1_i8..=1,
+        numeric_class in 0_usize..3,
+        special_index in 0_usize..10,
+        integer_index in 0_usize..13,
+        route_index in 0_usize..5,
+    ) {
+        let finite = format!("{}{coefficient}e{exponent}", if negative { "-" } else { "" });
+        let (kind, production_value, reference_value) = if numeric_class == 2 {
+            let lexemes = scope::exact_integer_lexemes();
+            let text = lexemes[integer_index];
+            let production = coerce(&Lexeme::new(text, LexClass::Number), &ValueSpec::new(ScalarKind::Any))
+                .test_unwrap("generated exact integer");
+            let integer = panproto_reference::exact::parse_numeral(text)
+                .and_then(|n| panproto_reference::exact::integer_of_numeral(&n))
+                .expect("reference integer");
+            let (kind, reference) = match integer {
+                panproto_reference::exact::ExactInteger::Int(value) => ("bigint", ReferenceValue::Int(value)),
+                panproto_reference::exact::ExactInteger::Big(value) => ("varint", ReferenceValue::BigInt(value)),
+            };
+            (kind, production, reference)
+        } else {
+            let specials = scope::special_decimal_lexemes();
+            let text = if numeric_class == 0 { finite.as_str() } else { specials[special_index] };
+            ("decimal", Value::Decimal(DecimalValue::parse(text).test_unwrap("generated decimal")),
+             ReferenceValue::Decimal(panproto_reference::exact::parse_decimal(text).expect("reference decimal")))
+        };
+        let route = CANONICAL_EMIT_ROUTES[route_index];
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = one_kind_column(root, "value", kind);
+        let (actual, reread) = production_scalar(route, &schema, &production_value);
+        let expected = reference_emission(panproto_reference::value_io::emit(route, &reference_value), "generated number");
+        proptest::prop_assert_eq!(&actual, &expected);
+        if route != Route::Toml {
+            proptest::prop_assert_eq!(panproto_reference::value_io::round_trip(route, &reference_value),
+                reread.is_some_and(|value| same_value(&value, &production_value)));
+        } else if let (ScalarEmission::Emitted(token), ScalarEmission::Emitted(reference_token)) = (actual, expected) {
+            let token = std::str::from_utf8(&token).expect("TOML scalar is UTF-8");
+            let text = match &production_value {
+                Value::Decimal(value) => value.to_string(),
+                Value::Int(value) => value.to_string(),
+                Value::BigInt(value) => value.to_string(),
+                _ => unreachable!("generated numeric carrier"),
+            };
+            let reference_kind = if kind == "decimal" { panproto_reference::coerce::ScalarKind::Decimal }
+                else { panproto_reference::coerce::ScalarKind::BigInt };
+            proptest::prop_assert!(panproto_reference::value_io::toml_scalar(&reference_kind, &text, token));
+            proptest::prop_assert!(panproto_reference::value_io::decimal(std::str::from_utf8(&reference_token).expect("reference token"), token));
+        }
+    }
+
+    #[test]
+    fn randomized_canonical_scalar_reading(
+        input in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..=2),
+        route_index in 0_usize..4,
+    ) {
+        let route = [Route::Json, Route::Xml, Route::Csv, Route::Tsv][route_index];
+        let expected = reference_parse_outcome(panproto_reference::value_io::parse(route, &input));
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = scalar_schema(root, &expected);
+        let wrapped = wrap_scalar(route, &input);
+        let actual = if matches!(route, Route::Csv | Route::Tsv) {
+            let delimiter = if route == Route::Csv { b',' } else { b'\t' };
+            match parse_tsv(&schema, &wrapped, "cassandra", "rows", delimiter, None) {
+                Ok(instance) if scalar_occupies_one_cell(route, &input) => production_one_cell_scalar(&instance),
+                Ok(_) => ScalarParseOutcome::Malformed,
+                Err(error) => production_parse_error(error),
+            }
+        } else {
+            let parsed = if route == Route::Json { parse_json_bytes(&schema, "root", &wrapped, "cassandra") }
+                else { parse_xml_bytes(&schema, &wrapped, "cassandra") };
+            parsed.map_or_else(production_parse_error, |instance| ScalarParseOutcome::Parsed(production_tree_scalar(&instance)))
+        };
+        proptest::prop_assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn randomized_presence_outcomes(
+        route_index in 0_usize..5,
+        is_null in proptest::prelude::any::<bool>(),
+    ) {
+        let route = CANONICAL_EMIT_ROUTES[route_index];
+        let presence = if is_null { ReferencePresence::Null } else { ReferencePresence::Absent };
+        let expected = panproto_reference::value_io::presence(route, presence);
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = one_text_column(root);
+        let field = if is_null { FieldPresence::Null } else { FieldPresence::Absent };
+        let emitted = match route {
+            Route::Json => emit_json_bytes(&schema, &one_tree_value(root, field), "cassandra"),
+            Route::Toml => emit_toml_bytes(&schema, &one_tree_value(root, field), "cassandra"),
+            Route::Xml => emit_xml_bytes(&schema, &one_xml_tree_value(root, field), "cassandra"),
+            Route::Csv | Route::Tsv => {
+                let instance = if is_null { one_table_scalar(Value::Null) }
+                    else { FInstance::new().with_table("rows", vec![HashMap::new()]).test_unwrap("absent row") };
+                emit_tsv_with_schema(&schema, &instance, "cassandra", root, if route == Route::Csv { b',' } else { b'\t' })
+            }
+            Route::Yaml => unreachable!("default compiled routes"),
+        };
+        let actual = match emitted {
+            Ok(bytes) => {
+                let text = std::str::from_utf8(&bytes).expect("UTF-8 presence document");
+                if text.contains("null") || text.contains("xsi:nil=\"true\"") { PresenceOutcome::NullSyntax }
+                else {
+                    proptest::prop_assert!(!text.contains("value"));
+                    PresenceOutcome::Omitted
+                }
+            }
+            Err(EmitInstanceError::Value(error)) if error.reason == EmitValueReason::NullNotRepresentable => PresenceOutcome::NullNotRepresentable,
+            Err(EmitInstanceError::Value(error)) if error.reason == EmitValueReason::AbsentNotRepresentable => PresenceOutcome::AbsentNotRepresentable,
+            Err(error) => panic!("unexpected presence refusal: {error:?}"),
+        };
+        proptest::prop_assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn randomized_temporal_route_representability(
+        index in 0_usize..generated_io_temporal_lexemes().len(),
+        route_index in 0_usize..5,
+    ) {
+        let text = &generated_io_temporal_lexemes()[index];
+        let reference = panproto_reference::temporal::parse_union(text);
+        let production = Temporal::parse_union(text);
+        proptest::prop_assert_eq!(reference.is_ok(), production.is_ok());
+        if let (Ok(reference), Ok(production)) = (reference, production) {
+            let route = CANONICAL_EMIT_ROUTES[route_index];
+            let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+            let kind = match production.lexical_form().expect("temporal descriptor").kind {
+                TemporalForm::Date => "date", TemporalForm::Time => "time", TemporalForm::DateTime => "timestamp",
+            };
+            let schema = one_temporal_column(root, kind);
+            let actual = production_representable(production_document(route, &schema, &Value::Temporal(production)), "generated temporal");
+            proptest::prop_assert_eq!(actual, panproto_reference::value_io::temporal(route, &reference));
+        }
+    }
+
+    #[test]
+    fn randomized_tabular_observables(
+        comment in "[#x]{0,2}",
+        missing in "[_x]{0,2}",
+        empty_line in "x{0,2}",
+        columns in 1_usize..=2,
+        quote in "[\"\t\r\n]{0,2}",
+        csv in proptest::prelude::any::<bool>(),
+    ) {
+        let schema = one_text_column("rows");
+        let tsv = DelimitedRoute::TSV;
+        let codec = if csv { DelimitedRoute::CSV } else { tsv };
+        let parsed = tsv.parse_functor(&schema, format!("value\n{comment}\n").as_bytes()).test_unwrap("comment input");
+        let actual = !comment.is_empty() && table_text(&parsed) == Some(comment.as_str());
+        proptest::prop_assert_eq!(actual, panproto_reference::value_io::tsv_comment(&comment));
+        let parsed = codec.parse_functor(&schema, format!("value\n{missing}\n").as_bytes()).test_unwrap("missing token input");
+        proptest::prop_assert_eq!(table_text(&parsed) == Some("_"), panproto_reference::value_io::tabular_missing(&missing));
+        let pair = two_text_columns("rows", "value", "other");
+        let (row_schema, header) = if columns == 1 { (&schema, "value".to_owned()) }
+            else { (&pair, format!("value{}other", if csv { ',' } else { '\t' })) };
+        let parsed = codec.parse_functor(row_schema, format!("{header}\n{empty_line}\n").as_bytes());
+        let actual = parsed.as_ref().is_ok_and(|instance| {
+            let rows = instance.rows("rows");
+            rows.len() == 1 && rows[0].1.len() == 1 && rows[0].1.get("value") == Some(&Value::Str(String::new()))
+        });
+        proptest::prop_assert_eq!(actual, panproto_reference::value_io::tabular_empty_row(columns, &empty_line));
+        if columns == 1 {
+            let parsed = parsed.test_unwrap("one-column empty row");
+            proptest::prop_assert_eq!(codec.emit_functor(row_schema, &parsed).test_unwrap("empty row emit"), format!("value\n{empty_line}\n").into_bytes());
+        }
+        let actual = tsv.emit_functor(&schema, &one_table_value(&quote));
+        match actual {
+            Ok(bytes) => {
+                proptest::prop_assert!(panproto_reference::value_io::tsv_quote(&quote));
+                proptest::prop_assert_eq!(&bytes, &format!("value\n{quote}\n").into_bytes());
+                let parsed = tsv.parse_functor(&schema, &bytes).test_unwrap("quote reread");
+                proptest::prop_assert_eq!(table_text(&parsed), Some(quote.as_str()));
+            }
+            Err(EmitInstanceError::Value(error)) if error.reason == EmitValueReason::NotRepresentable => {
+                proptest::prop_assert!(!panproto_reference::value_io::tsv_quote(&quote));
+            }
+            Err(error) => panic!("unexpected quote refusal: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn randomized_duplicate_member_refusals(
+        members in proptest::collection::vec(0_usize..3, 0..=2),
+        xml in proptest::prelude::any::<bool>(),
+    ) {
+        let schema = one_text_column("root");
+        let spellings = if xml { [("a", "a"), ("{urn:u}a", "p:a"), ("{urn:u}a", "q:a")] }
+            else { [("a", "\"a\""), ("a", "\"\\u0061\""), ("b", "\"b\"")] };
+        let decoded: Vec<_> = members.iter().enumerate().map(|(i, index)| (spellings[*index].0.to_owned(), i)).collect();
+        let mut input = if xml { "<root xmlns:p=\"urn:u\" xmlns:q=\"urn:u\"".to_owned() } else { "{".to_owned() };
+        let mut offsets = Vec::new();
+        for (i, index) in members.iter().enumerate() {
+            if xml { input.push(' '); } else if i > 0 { input.push(','); }
+            offsets.push(input.len());
+            input.push_str(spellings[*index].1);
+            input.push_str(if xml { "=\"x\"" } else { ":\"x\"" });
+        }
+        input.push_str(if xml { "><value>x</value></root>" } else { "}" });
+        let production = if xml { parse_xml_bytes(&schema, input.as_bytes(), "cassandra") }
+            else { parse_json_bytes(&schema, "root", input.as_bytes(), "cassandra") };
+        if panproto_reference::value_io::duplicate_member(&decoded) {
+            proptest::prop_assert!(matches!(production,
+                Err(ParseInstanceError::DuplicateMember { ref protocol, ref name, byte_offset })
+                if protocol == "cassandra" && name == spellings[members[1]].0 && byte_offset == u64::try_from(offsets[1]).ok()),
+                "input={:?}, outcome={:?}", input, production);
+        } else {
+            proptest::prop_assert!(!matches!(production, Err(ParseInstanceError::DuplicateMember { .. })), "{:?}", production);
+        }
+    }
+
+    #[test]
+    fn randomized_xml_entity_expansion(
+        a in 0_usize..5, b in 0_usize..5,
+        atoms in proptest::collection::vec(0_usize..2, 0..=2),
+    ) {
+        let choices = [None, Some("x"), Some("&a;"), Some("&b;"), Some("&amp;")];
+        let declarations: BTreeMap<_, _> = [("a", choices[a]), ("b", choices[b])].into_iter()
+            .filter_map(|(name, text)| text.map(|text| (name.to_owned(), text.to_owned()))).collect();
+        let source: String = atoms.iter().map(|i| ["&a;", "&b;"][*i]).collect();
+        let expected = reference_entity_outcome(panproto_reference::value_io::xml_entity(&source, &declarations));
+        proptest::prop_assert_eq!(production_entity_outcome(expand_xml_entities(&source, &declarations)), expected);
+        let wrapped = format!("L{source}R");
+        let document = format!("<!DOCTYPE root [{}]><root><value>{wrapped}</value></root>", xml_entity_declarations(&declarations));
+        let expected = reference_entity_outcome(panproto_reference::value_io::xml_entity(&wrapped, &declarations));
+        let schema = one_text_column("root");
+        proptest::prop_assert_eq!(production_xml_document_entity_outcome(parse_xml_bytes(&schema, document.as_bytes(), "cassandra")), expected);
+    }
+
+    #[test]
+    fn randomized_blob_writer(
+        reference_text in ".{0,4}", mime in ".{0,4}", size in proptest::prelude::any::<u64>(),
+    ) {
+        let protocol = panproto_schema::Protocol {
+            name: "reference-value-io".into(), schema_theory: "ThReferenceValueIoSchema".into(),
+            instance_theory: "ThReferenceValueIoInstance".into(), obj_kinds: vec!["object".into()], ..Default::default()
+        };
+        let schema = SchemaBuilder::new(&protocol).vertex("root", "object", None)
+            .test_unwrap("blob root").build().test_unwrap("blob schema");
+        let blob = Value::Blob { ref_: reference_text.clone(), mime: mime.clone(), size };
+        let mut root = Node::new(0, "root");
+        root.extra_fields.insert("blob".to_owned(), blob.clone());
+        let instance = WInstance::new(HashMap::from([(0, root)]), Vec::new(), Vec::new(), 0, "root".into());
+        let actual = emit_json_bytes(&schema, &instance, "reference-value-io").test_unwrap("blob emit");
+        let expected = [br#"{"blob":"#.as_slice(), &panproto_reference::value_io::blob_writer(&reference_text, &mime, size), b"}"].concat();
+        proptest::prop_assert_eq!(&actual, &expected);
+        let parsed = parse_json_bytes(&schema, "root", &actual, "reference-value-io").test_unwrap("blob reread");
+        proptest::prop_assert_eq!(parsed.node(parsed.root).and_then(|node| node.extra_fields.get("blob")), Some(&blob));
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_canonical_encoding(
+        text in "[ab0-9]{1,8}", encoding in 0_u8..5, route_index in 0_usize..4,
+    ) {
+        let route = [Route::Json, Route::Xml, Route::Csv, Route::Tsv][route_index];
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = one_text_column(root);
+        let value = Value::Str(text.clone());
+        let canonical = production_document(route, &schema, &value).test_unwrap("generated source document");
+        let source = if route == Route::Xml {
+            let declaration = match encoding { 0 => "UTF-8", 1 | 2 => "UTF-16", 3 => "ISO-8859-1", _ => "US-ASCII" };
+            let document = format!("<?xml version=\"1.0\" encoding=\"{declaration}\"?><root><value>{text}</value></root>");
+            if encoding == 1 || encoding == 2 {
+                let mut bytes = if encoding == 1 { vec![0xff, 0xfe] } else { vec![0xfe, 0xff] };
+                for unit in document.encode_utf16() {
+                    bytes.extend_from_slice(&if encoding == 1 { unit.to_le_bytes() } else { unit.to_be_bytes() });
+                }
+                bytes
+            } else { document.into_bytes() }
+        } else { [b"\xef\xbb\xbf".as_slice(), canonical.as_slice()].concat() };
+        let actual = production_reread(route, &schema, &source).expect("accepted generated encoding");
+        proptest::prop_assert!(same_value(&actual, &value));
+        let emitted = production_document(route, &schema, &actual).test_unwrap("normalized generated source");
+        proptest::prop_assert!(panproto_reference::value_io::encoding(&emitted));
+        if route == Route::Xml {
+            proptest::prop_assert!(panproto_reference::value_io::xml_encoding(&emitted));
+        }
+        proptest::prop_assert_eq!(emitted, canonical);
+    }
+
+    #[test]
+    fn randomized_xml_expanded_names(
+        first in 0_usize..6, second in 0_usize..6,
+        p in proptest::prelude::any::<bool>(), q in proptest::prelude::any::<bool>(),
+    ) {
+        let attributes = [(None, "a"), (None, "b"), (Some("p"), "a"), (Some("p"), "b"), (Some("q"), "a"), (Some("q"), "b")];
+        let first = attributes[first];
+        let second = attributes[second];
+        let p_namespace = if p { "urn:a" } else { "urn:b" };
+        let q_namespace = if q { "urn:a" } else { "urn:b" };
+        let expanded = |(prefix, local): (Option<&str>, &str)| {
+            let namespace = match prefix { None => "", Some("p") => p_namespace, Some(_) => q_namespace };
+            panproto_reference::value_io::xml_expanded_name(namespace, local)
+        };
+        let clark = |(namespace, local): &(String, String)| if namespace.is_empty() { local.clone() } else { format!("{{{namespace}}}{local}") };
+        let spelled = |(prefix, local): (Option<&str>, &str)| prefix.map_or_else(|| local.to_owned(), |prefix| format!("{prefix}:{local}"));
+        let head = format!("<root xmlns:p=\"{p_namespace}\" xmlns:q=\"{q_namespace}\" {}=\"1\" ", spelled(first));
+        let offset = u64::try_from(head.len()).expect("bounded offset");
+        let document = format!("{head}{}=\"2\"><value>x</value></root>", spelled(second));
+        let schema = one_text_column("root");
+        let actual = parse_xml_bytes(&schema, document.as_bytes(), "cassandra");
+        let first = expanded(first);
+        let second = expanded(second);
+        if first == second {
+            proptest::prop_assert!(matches!(actual,
+                Err(ParseInstanceError::DuplicateMember { ref protocol, ref name, byte_offset: Some(actual_offset) })
+                if protocol == "cassandra" && name == &clark(&second) && actual_offset == offset), "outcome={:?}", actual);
+        } else {
+            let parsed = actual.test_unwrap("distinct generated XML names");
+            let root = parsed.node(parsed.root).expect("XML root");
+            proptest::prop_assert_eq!(root.extra_fields.get(&clark(&first)), Some(&Value::Str("1".to_owned())));
+            proptest::prop_assert_eq!(root.extra_fields.get(&clark(&second)), Some(&Value::Str("2".to_owned())));
+        }
+    }
+}

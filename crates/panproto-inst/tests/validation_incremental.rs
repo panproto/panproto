@@ -7655,3 +7655,41 @@ fn admission_plan_with_static_finding() -> Arc<ValidationPlan> {
     }
     Arc::new(plan)
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn randomized_admission_matches_reference_on_the_complete_bundle_carrier(
+        before in 0_usize..ADMISSION_STATES,
+        after in 0_usize..ADMISSION_STATES,
+        with_static in proptest::bool::ANY,
+    ) {
+        let base_plan = admission_plan();
+        let key = |requirement| base_plan.checks().iter()
+            .find(|(key, spec)| key.kind == CheckKind::External && spec.requirement == requirement)
+            .map(|(key, _)| key.clone()).unwrap();
+        let schedule = admission_schedule(key(Requirement::Required), key(Requirement::Advisory));
+        let states = every_abstract_state(&schedule, &base_plan);
+        prop_assert_eq!(states.len(), ADMISSION_STATES);
+        let plan = if with_static { admission_plan_with_static_finding() } else { base_plan };
+        let actual_before = realize(&plan, &schedule, &states[before]);
+        let actual_after = realize(&plan, &schedule, &states[after]);
+        let (mut reference_before, cut, _) = reference_state(&states[before]);
+        let (_, _, mut reference_after) = reference_state(&states[after]);
+        if with_static {
+            let count = plan.static_findings().iter()
+                .filter(|finding| finding.requirement == Requirement::Required).count();
+            prop_assert_eq!(count, 2);
+            for finding in 0..count {
+                let bytes = vec![3, u8::try_from(finding).unwrap()];
+                reference_before.insert(STATIC_BUNDLE + finding, bytes.clone());
+                reference_after.insert(STATIC_BUNDLE + finding, bytes);
+            }
+        }
+        for (required, policy) in [(true, AdmissionPolicy::RequirePassed), (false, AdmissionPolicy::NoNewFailures)] {
+            prop_assert_eq!(policy.admits(&plan, &actual_before, &actual_after),
+                reference_validation::admits(required, &reference_before, &cut, &reference_after));
+        }
+    }
+}

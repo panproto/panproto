@@ -49,6 +49,7 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 - Enumerator: `panproto_reference::enumerate::values::canonical_values; bound: values=1997`
 - Exhaustive differential test: `representation_is_canonical_byte_equality_on_every_pair; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=representation_is_canonical_byte_equality_on_every_pair)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
+- Supplemental property differential test: `randomized_coercion_differential; command: cargo nextest run --locked -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/value.rs`
 - File: `crates/panproto-inst/src/value.rs`
 - File: `crates/panproto-inst/src/identity.rs`
@@ -2195,6 +2196,7 @@ A rational that does not satisfy Premise P is outside the proved reference domai
 - Property differential test: `randomized_exact_reading_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_exact_reading_differential)'`
 - Supplemental exhaustive test: `nearest_reading_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=nearest_reading_coercion_agrees_with_the_reference)'` (items 1 and 2 at widths 32 and 64, both classes, under the exact reading beside the nearest one)
 - Supplemental exhaustive test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'` (items 1 and 2 at width 16)
+- Supplemental property differential test: `randomized_coercion_differential; command: cargo nextest run --locked -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`

@@ -1945,6 +1945,36 @@ impl DeclarationReader<'_> {
         }
     }
 
+    fn equality(&mut self) -> reference_keys::KeyEquality {
+        use reference_keys::{KeyEquality, NumericPrimitive, SqlCollation, SqlPad};
+        match self.tag() {
+            0 => KeyEquality::Representation,
+            1 => KeyEquality::NumericValue,
+            2 => KeyEquality::NumericValueWithinKind(match self.tag() {
+                0 => NumericPrimitive::Decimal,
+                1 => NumericPrimitive::Float(self.tag()),
+                2 => NumericPrimitive::Any,
+                tag => panic!("numeric primitive tag {tag}"),
+            }),
+            3 => {
+                let collation = match self.tag() {
+                    0 => SqlCollation::Binary,
+                    1 => SqlCollation::AsciiCaseInsensitive,
+                    2 => SqlCollation::Named(self.str()),
+                    tag => panic!("SQL collation tag {tag}"),
+                };
+                let pad = match self.tag() {
+                    0 => SqlPad::NoPad,
+                    1 => SqlPad::PadSpace,
+                    tag => panic!("SQL padding tag {tag}"),
+                };
+                KeyEquality::Sql { collation, pad }
+            }
+            4 => KeyEquality::XmlNonCdata,
+            tag => panic!("equality tag {tag}"),
+        }
+    }
+
     fn key(&mut self) -> reference::Key {
         let id = self.str();
         let parts = (0..self.len())
@@ -1969,14 +1999,7 @@ impl DeclarationReader<'_> {
         let equality = if role_byte & 0x80 == 0 {
             Vec::new()
         } else {
-            (0..self.len())
-                .map(|_| match self.tag() {
-                    0 => reference_keys::KeyEquality::Representation,
-                    1 => reference_keys::KeyEquality::NumericValue,
-                    4 => reference_keys::KeyEquality::XmlNonCdata,
-                    tag => panic!("equality tag outside the decoded carrier: {tag}"),
-                })
-                .collect()
+            (0..self.len()).map(|_| self.equality()).collect()
         };
         reference::Key {
             id,

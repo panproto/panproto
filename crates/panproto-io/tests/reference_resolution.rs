@@ -2388,6 +2388,8 @@ proptest::proptest! {
     ) {
         let source = indexed_sources().remove(usize::from(bits));
         let (view, index) = indexed_get(&source);
+        let (resolution, picked) = picks();
+        let (production_view, production_complement) = production_get(&resolution, &source);
         for step in single_step_basis(&view) {
             let candidate = apply_single_step(&view, &step);
             let ids: Vec<u32> = candidate
@@ -2408,6 +2410,29 @@ proptest::proptest! {
                 .collect();
             let (renamed, renamed_index) = coherent_rename(&candidate, &index, &renaming);
             proptest::prop_assert_eq!(reference_domain(&renamed, &renamed_index), expected);
+            let production_candidate = production_edit(&production_view, &view, &picked, &step);
+            let edge_ids: BTreeSet<_> = pick_edges(&production_candidate, &picked).into_values()
+                .map(|id| id.0).chain(production_complement.occurrences.keys().filter_map(|carrier|
+                    match carrier { ViewRef::Edge(id) => Some(id.0), _ => None })).collect();
+            let production_renaming: BTreeMap<_, _> = edge_ids.into_iter().enumerate()
+                .map(|(rank, id)| (id, offset + u32::try_from(rank).unwrap())).collect();
+            let (production_renamed, transported) = rename_production(&production_candidate,
+                &production_complement, &production_renaming);
+            let mut expected_production: Vec<_> = production_violations(&resolution,
+                &production_candidate, &production_complement).iter()
+                .map(|error| renamed_production_violation(error, &production_renaming)).collect();
+            expected_production.sort_by(|left, right| left.sort_key().cmp(&right.sort_key()));
+            expected_production.dedup();
+            proptest::prop_assert_eq!(production_violations(&resolution, &production_renamed, &transported),
+                expected_production);
+            let before = resolution.put(&AnyInstance::Graph(production_candidate),
+                &production_complement, &ResolveContext::empty());
+            let after = resolution.put(&AnyInstance::Graph(production_renamed),
+                &transported, &ResolveContext::empty());
+            proptest::prop_assert_eq!(before.is_ok(), after.is_ok());
+            if let (Ok(before), Ok(after)) = (before, after) {
+                proptest::prop_assert!(same_instance(&before, &after));
+            }
             // Admitted renamed states put to the same source: the renaming
             // moves only synthesized ids, which put discards.
             proptest::prop_assert_eq!(
@@ -4319,5 +4344,420 @@ fn a_key_value_without_canonical_bytes_is_refused_by_resolution() {
         }) => assert_eq!(key.as_ref(), "cid"),
         Err(other) => panic!("expected a canonical-bytes refusal, found {other:?}"),
         Ok(_) => panic!("expected a canonical-bytes refusal, found a resolution"),
+    }
+}
+
+mod randomized {
+    use super::*;
+    use panproto_io::resolution::{
+        fold_uri_environment, resolution_text_identity, resolve_inherited_uri_base,
+        resolve_uri_reference,
+    };
+    use panproto_reference::resolution::{
+        check_put_domain as reference_domain, coherent_rekey, declared_key_equality, equivalent,
+        gated_put_twice, get as reference_get, guarded_partition, indexed_get, indexed_put,
+        inherited_base, nearest_preceding, put as reference_put, rfc3986, text_identity,
+        uri_environment,
+    };
+    use proptest::prelude::*;
+
+    fn assert_generated_indexed_case(source: &IndexedSource, choice: usize) {
+        let (resolution, picked) = picks();
+        let (view, index) = indexed_get(source);
+        let (actual_view, complement) = production_get(&resolution, source);
+        let restored = resolution
+            .put(
+                &AnyInstance::Graph(actual_view.clone()),
+                &complement,
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        assert_eq!(indexed_put(&view, &index), Ok(source.clone()));
+        assert!(same_instance(
+            &restored,
+            &AnyInstance::Table(picks_table(source))
+        ));
+        let steps = single_step_basis(&view);
+        let step = &steps[choice % steps.len()];
+        let candidate = apply_single_step(&view, step);
+        let actual_candidate = production_edit(&actual_view, &view, &picked, step);
+        let expected_refusal = reference_domain(&candidate, &index);
+        let actual_refusal = production_violations(&resolution, &actual_candidate, &complement);
+        assert_eq!(actual_refusal.is_empty(), expected_refusal.is_empty());
+        let expected = indexed_put(&candidate, &index);
+        let actual = resolution.put(
+            &AnyInstance::Graph(actual_candidate.clone()),
+            &complement,
+            &ResolveContext::empty(),
+        );
+        assert_eq!(actual.is_ok(), expected.is_ok());
+        if let Ok(expected_source) = expected {
+            let actual_source = actual.unwrap();
+            assert!(same_instance(
+                &actual_source,
+                &AnyInstance::Table(picks_table(&expected_source))
+            ));
+            let (again, next) = indexed_get(&expected_source);
+            assert!(equivalent(
+                &candidate,
+                &coherent_rekey(&next, &candidate),
+                &again,
+                &next
+            ));
+            let (actual_again, actual_next) = resolution
+                .get(
+                    &actual_source,
+                    &ResolveOptions::default(),
+                    &ResolveContext::empty(),
+                )
+                .unwrap();
+            let AnyInstance::Graph(actual_again) = actual_again else {
+                panic!("graph expected")
+            };
+            assert!(production_put_get_equal(
+                &actual_candidate,
+                &actual_again,
+                &picked
+            ));
+            assert_eq!(
+                candidate == again,
+                GInstance::identical(&actual_candidate, &actual_again)
+            );
+            assert!(gated_put_twice(&candidate, &index));
+            let rekeyed = rekeyed_complement(&actual_next, &actual_candidate, &picked);
+            let twice = resolution
+                .put(
+                    &AnyInstance::Graph(actual_candidate),
+                    &rekeyed,
+                    &ResolveContext::empty(),
+                )
+                .unwrap();
+            assert!(same_instance(&twice, &actual_source));
+        }
+    }
+
+    fn assert_source_get_put(
+        resolution: &Resolution,
+        source: &AnyInstance,
+    ) -> (AnyInstance, ResolutionComplement) {
+        let (view, complement) = resolution
+            .get(source, &ResolveOptions::default(), &ResolveContext::empty())
+            .unwrap();
+        let restored = resolution
+            .put(&view, &complement, &ResolveContext::empty())
+            .unwrap();
+        assert!(same_instance(&restored, source));
+        (view, complement)
+    }
+
+    fn assert_generated_declared_case(source: &IndexedSource, choice: usize) {
+        let (schema, tree, picked) = reference_pick_tree(source);
+        let (view, complement) = reference_get(&schema, &tree, false).unwrap();
+        assert_eq!(reference_put(&schema, &view, &complement), Ok(tree.clone()));
+        let (resolution, actual_picked) = tree_picks();
+        let actual_tree = production_pick_tree(source);
+        let (actual_view, actual_complement) =
+            assert_source_get_put(&resolution, &AnyInstance::Tree(actual_tree.clone()));
+        let AnyInstance::Graph(actual_view) = actual_view else {
+            panic!("graph expected")
+        };
+        assert_eq!(
+            production_tree_targets(&actual_view, &actual_picked),
+            reference_tree_targets(&view, &picked)
+        );
+        let (indexed, _) = indexed_get(source);
+        let steps = single_step_basis(&indexed);
+        let step = &steps[choice % steps.len()];
+        let mut candidate = reference_tree_edit(&view, &picked, step, &indexed);
+        let mut actual_candidate =
+            production_tree_edit(&actual_view, &actual_picked, step, &indexed);
+        assert!(reference_put(&schema, &candidate, &complement).is_err());
+        assert!(
+            resolution
+                .check_put_domain(
+                    &AnyInstance::Graph(actual_candidate.clone()),
+                    &actual_complement,
+                    &ResolveContext::empty()
+                )
+                .is_err()
+        );
+        let sequence: Vec<_> = apply_single_step(&indexed, step).into_values().collect();
+        candidate.nodes.get_mut(&1).unwrap().fields.insert(
+            "customer".to_owned(),
+            ReferenceValue::List(sequence.iter().cloned().map(ReferenceValue::Str).collect()),
+        );
+        actual_candidate.node_mut(1).unwrap().extra_fields.insert(
+            "customer".to_owned(),
+            Value::List(sequence.iter().map(|target| text(target)).collect()),
+        );
+        let expected = reference_put(&schema, &candidate, &complement).unwrap();
+        assert!(
+            resolution
+                .check_put_domain(
+                    &AnyInstance::Graph(actual_candidate.clone()),
+                    &actual_complement,
+                    &ResolveContext::empty()
+                )
+                .is_ok()
+        );
+        let actual = resolution
+            .put(
+                &AnyInstance::Graph(actual_candidate),
+                &actual_complement,
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        let expected_sequence = reference_tree_sequence(&expected);
+        let mut transported = actual_tree;
+        transported.nodes.get_mut(&1).unwrap().extra_fields.insert(
+            "customer".to_owned(),
+            Value::List(
+                expected_sequence
+                    .iter()
+                    .map(|target| text(target))
+                    .collect(),
+            ),
+        );
+        assert!(same_instance(&actual, &AnyInstance::Tree(transported)));
+        let (again, next) = reference_get(&schema, &expected, false).unwrap();
+        let (actual_again, actual_next) = resolution
+            .get(
+                &actual,
+                &ResolveOptions::default(),
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        let AnyInstance::Graph(actual_again) = actual_again else {
+            panic!("graph expected")
+        };
+        assert_eq!(
+            production_tree_targets(&actual_again, &actual_picked),
+            reference_tree_targets(&again, &picked)
+        );
+        assert_eq!(reference_put(&schema, &again, &next), Ok(expected));
+        let twice = resolution
+            .put(
+                &AnyInstance::Graph(actual_again),
+                &actual_next,
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        assert!(same_instance(&twice, &actual));
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn indexed_get_put_domain_and_gated_put_match_on_generated_candidates(
+            source in 0_usize..8,
+            choice in 0_usize..12,
+        ) {
+            assert_generated_indexed_case(&indexed_sources().remove(source), choice);
+            assert_generated_declared_case(&indexed_sources().remove(source), choice);
+        }
+
+        #[test]
+        fn uri_environment_matches_on_generated_directive_prefixes(
+            choice in 0_usize..156,
+            form_choice in 0_usize..4,
+        ) {
+            let directives = uri_directive_sequences().remove(choice);
+            let forms = uri_written_forms();
+            let expected = uri_environment(&directives);
+            let actual = fold_uri_environment(&directives.iter().map(production_directive).collect::<Vec<_>>());
+            prop_assert_eq!(&actual.base, &expected.base);
+            prop_assert_eq!(&actual.prefixes, &expected.prefixes);
+            prop_assert_eq!(actual.resolve(forms[form_choice]), expected.resolve(forms[form_choice]));
+        }
+
+        #[test]
+        fn inherited_base_matches_on_generated_ancestor_chains(
+            choice in 0_usize..84,
+            form_choice in 0_usize..3,
+        ) {
+            let chain = inherited_base_chains().remove(choice);
+            let form = ["#w1", "c", "http://e/f"][form_choice];
+            prop_assert_eq!(resolve_inherited_uri_base(&chain, form), inherited_base(&chain, form));
+        }
+
+        #[test]
+        fn text_identity_matches_on_generated_field_and_locality_pairs(
+            left_field in proptest::bool::ANY,
+            right_field in proptest::bool::ANY,
+            left_external in proptest::bool::ANY,
+            right_external in proptest::bool::ANY,
+        ) {
+            let field = |right| if right { "right" } else { "left" };
+            let site = |right| panproto_inst::ResolutionValueSite::Field {
+                holder: ViewRef::Node(7), field: field(right).to_owned(),
+            };
+            let left = text_identity(7, field(left_field),
+                left_external.then_some(("route-a", b"key-a".as_slice())));
+            let right = text_identity(7, field(right_field),
+                right_external.then_some(("route-b", b"key-b".as_slice())));
+            let production_left = resolution_text_identity(site(left_field), left_external);
+            let production_right = resolution_text_identity(site(right_field), right_external);
+            prop_assert_eq!(production_left.is_local(), !left_external);
+            prop_assert_eq!(production_right.is_local(), !right_external);
+            prop_assert_eq!(production_left.site(), &site(left_field));
+            prop_assert_eq!(production_right.site(), &site(right_field));
+            prop_assert_eq!(production_left == production_right, left == right);
+        }
+
+        #[test]
+        fn rfc3986_matches_on_generated_published_vectors(choice in 0_usize..42) {
+    let vectors = [
+        ("g:h", "g:h"),
+        ("g", "http://a/b/c/g"),
+        ("./g", "http://a/b/c/g"),
+        ("g/", "http://a/b/c/g/"),
+        ("/g", "http://a/g"),
+        ("//g", "http://g"),
+        ("?y", "http://a/b/c/d;p?y"),
+        ("g?y", "http://a/b/c/g?y"),
+        ("#s", "http://a/b/c/d;p?q#s"),
+        ("g#s", "http://a/b/c/g#s"),
+        ("g?y#s", "http://a/b/c/g?y#s"),
+        (";x", "http://a/b/c/;x"),
+        ("g;x", "http://a/b/c/g;x"),
+        ("g;x?y#s", "http://a/b/c/g;x?y#s"),
+        ("", "http://a/b/c/d;p?q"),
+        (".", "http://a/b/c/"),
+        ("./", "http://a/b/c/"),
+        ("..", "http://a/b/"),
+        ("../", "http://a/b/"),
+        ("../g", "http://a/b/g"),
+        ("../..", "http://a/"),
+        ("../../", "http://a/"),
+        ("../../g", "http://a/g"),
+        ("../../../g", "http://a/g"),
+        ("../../../../g", "http://a/g"),
+        ("/./g", "http://a/g"),
+        ("/../g", "http://a/g"),
+        ("g.", "http://a/b/c/g."),
+        (".g", "http://a/b/c/.g"),
+        ("g..", "http://a/b/c/g.."),
+        ("..g", "http://a/b/c/..g"),
+        ("./../g", "http://a/b/g"),
+        ("./g/.", "http://a/b/c/g/"),
+        ("g/./h", "http://a/b/c/g/h"),
+        ("g/../h", "http://a/b/c/h"),
+        ("g;x=1/./y", "http://a/b/c/g;x=1/y"),
+        ("g;x=1/../y", "http://a/b/c/y"),
+        ("g?y/./x", "http://a/b/c/g?y/./x"),
+        ("g?y/../x", "http://a/b/c/g?y/../x"),
+        ("g#s/./x", "http://a/b/c/g#s/./x"),
+        ("g#s/../x", "http://a/b/c/g#s/../x"),
+        // Section 5.4.2 reads this example strictly: a scheme makes the
+        // reference absolute, so the base is not consulted.
+        ("http:g", "http:g"),
+    ];
+            let (form, expected) = vectors[choice];
+            let actual = resolve_uri_reference("http://a/b/c/d;p?q", form);
+            prop_assert_eq!(actual.as_deref(), Some(expected));
+            prop_assert_eq!(actual, rfc3986("http://a/b/c/d;p?q", form));
+        }
+
+        #[test]
+        fn guarded_selection_matches_on_generated_existing_literals(choice in 0_usize..3) {
+            let kind = ["left", "right", "other"][choice];
+            let guards = vec![("left".to_owned(), ReferenceValue::Str("left".to_owned())),
+                ("right".to_owned(), ReferenceValue::Str("right".to_owned()))];
+            let selected = guarded_partition(&guards, &ReferenceValue::Str(kind.to_owned()));
+            let (resolution, left, right) = guarded_picks();
+            let source = guarded_pick_tree(kind);
+            let (view, complement) = resolution.get(&AnyInstance::Tree(source.clone()),
+                &ResolveOptions::default(), &ResolveContext::empty()).unwrap();
+            let AnyInstance::Graph(view) = view else { panic!("graph expected") };
+            prop_assert_eq!(view.edges_sorted().any(|(_, edge)| edge.edge == left), selected == Some("left"));
+            prop_assert_eq!(view.edges_sorted().any(|(_, edge)| edge.edge == right), selected == Some("right"));
+            match selected {
+                Some(_) => prop_assert!(complement.unresolved.is_empty()),
+                None => prop_assert!(matches!(complement.unresolved.as_slice(), [record]
+                    if record.reference == "left" && record.literal.canonical_cmp(&text(kind)).is_eq()
+                    && matches!(&record.reason, UnresolvedReason::Unselected { value }
+                        if value.canonical_cmp(&text(kind)).is_eq())), "unselected literal is preserved"),
+            }
+            let restored = resolution.put(&AnyInstance::Graph(view), &complement,
+                &ResolveContext::empty()).unwrap();
+            prop_assert!(same_instance(&restored, &AnyInstance::Tree(source)));
+        }
+
+        #[test]
+        fn index_refusal_matches_under_generated_unresolved_policy(complement in proptest::bool::ANY) {
+            let (actual, expected) = if complement {
+                (OnUnresolved::Complement, reference_schema::OnUnresolved::Complement)
+            } else { (OnUnresolved::Error, reference_schema::OnUnresolved::Error) };
+            prop_assert_eq!(reference_index_get(expected), Err(
+                panproto_reference::resolution::ResolveError::KeyNotResolvable {
+                    reference: "index-reference".to_owned(), key: "index".to_owned(),
+                }));
+            assert_production_index_refusal(actual);
+        }
+
+        #[test]
+        fn null_match_outcomes_match_on_generated_existing_occurrences(
+            choice in 0_usize..5,
+            full in proptest::bool::ANY,
+        ) {
+            let cases = [(Value::Int(1), Value::Int(2), ReferenceValue::Int(1), ReferenceValue::Int(2)),
+                (Value::Int(1), Value::Int(3), ReferenceValue::Int(1), ReferenceValue::Int(3)),
+                (Value::Null, Value::Null, ReferenceValue::Null, ReferenceValue::Null),
+                (Value::Int(1), Value::Null, ReferenceValue::Int(1), ReferenceValue::Null),
+                (Value::Null, Value::Int(2), ReferenceValue::Null, ReferenceValue::Int(2))];
+            let (left, right, rleft, rright) = cases[choice].clone();
+            let (actual_mode, expected_mode) = if full { (NullMatch::Full, reference_schema::NullMatch::Full) }
+                else { (NullMatch::Simple, reference_schema::NullMatch::Simple) };
+            let actual = production_null_outcome(actual_mode, left.clone(), right.clone());
+            let expected = reference_null_outcome(expected_mode, rleft.clone(), rright.clone());
+            prop_assert_eq!(&actual.0, &expected.0);
+            if actual.0 == NullOutcome::Dangling {
+                prop_assert_eq!(actual.1, Some(Value::List(vec![left, right])));
+                prop_assert_eq!(expected.1, Some(ReferenceValue::List(vec![rleft, rright])));
+            } else { prop_assert_eq!(actual.1, None); prop_assert_eq!(expected.1, None); }
+        }
+
+        #[test]
+        fn variable_bindings_match_on_generated_bounded_holder_sequences(
+            picks in proptest::collection::vec(0_usize..3, 1..=5),
+            numeric in proptest::bool::ANY,
+            nearest in proptest::bool::ANY,
+        ) {
+            use panproto_reference::keys::KeyEquality as ReferenceEquality;
+            let (equality, reference_equality, values) = if numeric {
+                (vec![KeyEquality::NumericValue], ReferenceEquality::NumericValue,
+                    [(Value::Int(1), ReferenceValue::Int(1)),
+                     (Value::Float(1.0), ReferenceValue::Float(1.0_f64.to_bits())),
+                     (Value::Int(2), ReferenceValue::Int(2))])
+            } else {
+                (Vec::new(), ReferenceEquality::Representation,
+                    [(text("a"), ReferenceValue::Str("a".to_owned())),
+                     (text("b"), ReferenceValue::Str("b".to_owned())),
+                     (Value::Int(1), ReferenceValue::Int(1))])
+            };
+            let class = |index: usize| (0..values.len()).find(|&first|
+                declared_key_equality(&reference_equality, &values[first].1, &values[index].1) == Some(true))
+                .map_or_else(|| index.to_string(), |first| first.to_string());
+            let definitions: Vec<_> = picks.iter().enumerate().map(|(position, pick)|
+                (position, class(*pick), u32::try_from(position + 1).unwrap())).collect();
+            let mut expected: Vec<_> = definitions.iter().filter_map(|(position, name, id)|
+                nearest_preceding(&definitions, *position, name, nearest).map(|target| (*id, target))).collect();
+            expected.sort_unstable();
+            let variables: Vec<_> = picks.iter().map(|pick| values[*pick].0.clone()).collect();
+            let source = holder_sequence_tree(&variables);
+            let policy = if nearest { VariableBinding::NearestPreceding } else { VariableBinding::FirstDefines };
+            let (resolution, binding) = variable_resolution_with(policy, equality);
+            let (view, complement) = resolution.get(&AnyInstance::Tree(source.clone()),
+                &ResolveOptions::default(), &ResolveContext::empty()).unwrap();
+            let AnyInstance::Graph(view) = view else { panic!("graph expected") };
+            let mut actual: Vec<_> = view.edges_sorted().filter(|(_, edge)| edge.edge == binding)
+                .map(|(_, edge)| (edge.src, edge.tgt)).collect();
+            actual.sort_unstable();
+            prop_assert_eq!(actual, expected);
+            let restored = resolution.put(&AnyInstance::Graph(view), &complement,
+                &ResolveContext::empty()).unwrap();
+            prop_assert!(same_instance(&restored, &AnyInstance::Tree(source)));
+        }
     }
 }

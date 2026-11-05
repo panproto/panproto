@@ -619,6 +619,21 @@ fn reference_violation(violation: &reference::Violation) -> String {
         reference::Violation::MistypedAttribute(key, expected, found) => {
             format!("mistyped-attribute:{key}:{expected}:{found}")
         }
+        reference::Violation::DuplicateKey(key) => format!(
+            "duplicate:{:?}",
+            key.iter()
+                .map(|(name, value)| (name, value_observation(value)))
+                .collect::<Vec<_>>()
+        ),
+        reference::Violation::DanglingReference(name, key) => format!(
+            "dangling:{name}:{:?}",
+            key.iter().map(value_observation).collect::<Vec<_>>()
+        ),
+        reference::Violation::AmbiguousReference(name, key, candidates) => format!(
+            "ambiguous:{name}:{:?}:{:?}",
+            key.iter().map(value_observation).collect::<Vec<_>>(),
+            candidates.iter().map(reference_view).collect::<Vec<_>>()
+        ),
         other => panic!("unexpected compact reference violation: {other:?}"),
     }
 }
@@ -660,6 +675,29 @@ fn production_violation(violation: &panproto_inst::validation::Violation) -> Str
             expected,
             found,
         } => format!("mistyped-attribute:{key}:{expected}:{found}"),
+        Violation::DuplicateKey { key, .. } => format!(
+            "duplicate:{:?}",
+            key.iter()
+                .map(|(name, value)| (name, production_value_observation(value)))
+                .collect::<Vec<_>>()
+        ),
+        Violation::DanglingReference { reference, key } => format!(
+            "dangling:{reference}:{:?}",
+            key.iter()
+                .map(production_value_observation)
+                .collect::<Vec<_>>()
+        ),
+        Violation::AmbiguousReference {
+            reference,
+            key,
+            candidates,
+        } => format!(
+            "ambiguous:{reference}:{:?}:{:?}",
+            key.iter()
+                .map(production_value_observation)
+                .collect::<Vec<_>>(),
+            candidates.iter().map(production_view).collect::<Vec<_>>()
+        ),
         other => panic!("unexpected compact production violation: {other:?}"),
     }
 }
@@ -706,6 +744,12 @@ fn reference_declaration(check: &reference::CheckKey) -> String {
 }
 
 fn production_diagnostic(diagnostic: &Diagnostic) -> DiagnosticObservation {
+    if let ProductionViolation::DuplicateKey { elems, .. } = &diagnostic.violation {
+        assert_eq!(
+            elems, &diagnostic.elements,
+            "duplicate-key population is retained in both coordinates"
+        );
+    }
     assert_eq!(
         diagnostic.source, None,
         "the compact carrier has no source map"
@@ -2546,4 +2590,526 @@ fn supplemental_validation_definitions_have_bounded_production_witnesses() {
             + assertion_count,
         SUPPLEMENTAL_OBSERVATION_COUNT
     );
+}
+
+mod randomized {
+    use super::*;
+    use panproto_reference::validation as reference;
+    use proptest::prelude::*;
+
+    fn required_bundles(report: &reference::Report) -> BTreeMap<String, Vec<u8>> {
+        let mut bundles: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        for diagnostic in &report.diagnostics {
+            if diagnostic.requirement == reference::Requirement::Required {
+                bundles
+                    .entry(format!("{:?}", (&diagnostic.check, &diagnostic.subject)))
+                    .or_default()
+                    .extend(format!("{diagnostic:?}\n").bytes());
+            }
+        }
+        assert!(
+            report.incomplete.is_empty(),
+            "compact unlimited carrier is decided"
+        );
+        bundles
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn compact_reports_match_on_generated_shape_and_case(
+            shape in 0_usize..SHAPES,
+            choice in 0_usize..CASES_PER_SHAPE,
+        ) {
+            let (reference_schema, semantics) = fixture_schema();
+            let (schema, protocol) = production_fixture_schema(&reference_schema);
+            let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+            let edge = reference_schema.edges.iter().next().unwrap();
+            let budget = ValidationBudget::default();
+            let external = ExternalVerdicts::default();
+            let (expected, actual, repeated) = match shape {
+                0 => {
+                    let instance = graph_cases(edge).remove(choice);
+                    let source = production_graph(&instance);
+                    (reference::validate(&reference_schema, &semantics, &instance),
+                        plan.validate_graph(&source, &budget, &external),
+                        plan.validate_graph(&source, &budget, &external))
+                }
+                1 => {
+                    let instance = table_cases(edge).remove(choice);
+                    let source = production_table(&instance);
+                    (reference::validate_table(&reference_schema, &semantics, &instance).unwrap(),
+                        plan.validate_table(&source, &budget, &external),
+                        plan.validate_table(&source, &budget, &external))
+                }
+                _ => {
+                    let instance = tree_cases(edge).remove(choice);
+                    let source = production_tree(&instance);
+                    (reference::validate_tree(&reference_schema, &semantics, &instance).unwrap(),
+                        plan.validate_tree(&source, &budget, &external),
+                        plan.validate_tree(&source, &budget, &external))
+                }
+            };
+            compare_reports("generated compact carrier", &expected, &actual);
+            prop_assert_eq!(actual.canonical_bytes(), repeated.canonical_bytes());
+        }
+
+        #[test]
+        fn annotated_parse_matches_on_generated_existing_numeric_forms(
+            choice in 0_usize..9,
+            kind_choice in 0_usize..7,
+        ) {
+            let grid = ["0", "1.0", "1e1", "1.5", "2147483648", "1099511627776",
+                "9223372036854775808", "0.1", "1e39"];
+            let lexeme = grid[choice];
+            let (vertex, kind, format) = if kind_choice < 4 {
+                ("integer", ScalarKind::Int { bits: 64, signed: true },
+                    [None, Some("int32"), Some("int64"), Some("x-unknown")][kind_choice])
+            } else {
+                ("number", ScalarKind::Float { bits: 64 },
+                    [None, Some("float"), Some("double")][kind_choice - 4])
+            };
+            let protocol = format_parse_protocol();
+            let bare = format_parse_spec(&protocol, vertex, None, None);
+            let annotated = format_parse_spec(&protocol, vertex, format, None);
+            prop_assert_eq!(&annotated, &bare);
+            let actual = panproto_inst::value::coerce::coerce(
+                &panproto_inst::value::coerce::Lexeme::new(lexeme,
+                    panproto_inst::value::coerce::LexClass::Number), &annotated);
+            let expected = reference::annotated_format_parse(lexeme,
+                &panproto_reference::coerce::LexClass::Number, reference_kind(&kind), format);
+            prop_assert_eq!(coerced_observation(actual.as_ref().ok()),
+                reference_coerced_observation(&expected));
+        }
+
+        #[test]
+        fn annotated_advisory_matches_on_generated_existing_values(
+            value_choice in 0_usize..8,
+            format_choice in 0_usize..6,
+        ) {
+            let values = [ReferenceValue::Int(0), ReferenceValue::Int(2_147_483_648),
+                ReferenceValue::Int(1_099_511_627_776), ReferenceValue::Float(1.5_f64.to_bits()),
+                ReferenceValue::Float(0.1_f64.to_bits()), ReferenceValue::Float(1e39_f64.to_bits()),
+                ReferenceValue::Str("550e8400-e29b-41d4-a716-446655440000".to_owned()),
+                ReferenceValue::Str("not-a-uuid".to_owned())];
+            let format = ["int32", "int64", "float", "double", "uuid", "x-unknown"][format_choice];
+            let (passed, reported, compiled) = production_annotated_observation(&values[value_choice], format);
+            prop_assert!(passed);
+            match reference::annotated_format_advisory(&values[value_choice], format) {
+                Some(expected) => { prop_assert!(compiled); prop_assert_eq!(reported, expected); }
+                None => prop_assert!(!compiled && !reported),
+            }
+        }
+
+        #[test]
+        fn assertion_acceptance_matches_on_generated_existing_numeric_forms(
+            choice in 0_usize..9,
+            width in proptest::bool::ANY,
+        ) {
+            let grid = ["0", "1.0", "1e1", "1.5", "2147483648", "1099511627776",
+                "9223372036854775808", "0.1", "1e39"];
+            let (format, bits) = if width { ("int32", "32") } else { ("int64", "64") };
+            let spec = format_parse_spec(&format_parse_protocol(), "integer", None, Some(bits));
+            let actual = panproto_inst::value::coerce::coerce(
+                &panproto_inst::value::coerce::Lexeme::new(grid[choice],
+                    panproto_inst::value::coerce::LexClass::Number), &spec).is_ok();
+            prop_assert_eq!(Some(actual), reference::format_assertion_acceptance(grid[choice],
+                &panproto_reference::coerce::LexClass::Number,
+                reference_kind(&ScalarKind::Int { bits: 64, signed: true }), format));
+        }
+
+        #[test]
+        fn lexical_advisory_matches_on_generated_existing_literals(choice in 0_usize..23) {
+            use panproto_reference::coerce::{NumeralDialect, ValueSpec as ReferenceSpec};
+            let kinds: BTreeMap<&str, ScalarKind> = xsd_kinds().into_iter().collect();
+    let cases = [
+        ("integer", "42"),
+        ("integer", "-0"),
+        ("integer", "abc"),
+        ("integer", "1.0"),
+        ("decimal", "1."),
+        ("decimal", ".5"),
+        ("decimal", "1e3"),
+        ("double", "INF"),
+        ("double", "-INF"),
+        ("double", "inf"),
+        ("double", "1.5e3"),
+        ("boolean", "true"),
+        ("boolean", "True"),
+        ("date", "2026-02-28"),
+        ("date", "2026-02-30"),
+        ("date", "2024-02-29"),
+        ("dateTime", "2026-01-01T23:59:59Z"),
+        ("dateTime", "2026-01-01T23:59:60Z"),
+        ("dateTime", "2026-01-01T24:00:00Z"),
+        ("gYear", "1999"),
+        ("gYear", "01999"),
+        ("QName", "x"),
+        ("unknownType", "x"),
+    ];
+            let (local, text) = cases[choice];
+        let datatype = format!("{XSD}{local}");
+        let (passed, reported, incomplete) = production_lexical_observation(text, &datatype);
+        assert!(passed, "{local} {text}: lexical-space entries are advisory");
+        match (reference::lexical_space(text, &datatype), kinds.get(local)) {
+            (Some(inside), Some(kind)) => {
+                let spec = ReferenceSpec {
+                    numeral: Some(NumeralDialect::Xsd),
+                    ..ReferenceSpec::of(reference_kind(kind))
+                };
+                let coerces = matches!(
+                    panproto_reference::coerce::coerce_value(
+                        &ReferenceValue::Str(text.to_owned()),
+                        &spec
+                    ),
+                    Some(Ok(_))
+                );
+                assert_eq!(
+                    reported,
+                    !inside || !coerces,
+                    "{local} {text}: inside {inside}, coerces {coerces}"
+                );
+                assert!(!incomplete, "{local} {text}");
+            }
+            (None, None) => {
+                assert!(!reported && incomplete, "{local} {text}: unknown datatype");
+            }
+            other => panic!("{local}: the carrier covers each datatype on both sides: {other:?}"),
+        }
+        }
+
+        #[test]
+        fn declared_key_kernel_matches_on_generated_existing_pairs(
+            equality in 0_usize..6,
+            left in 0_usize..7,
+            right in 0_usize..7,
+        ) {
+            use panproto_reference::keys::{KeyEquality, SqlCollation, SqlPad};
+            use panproto_reference::resolution::declared_key_equality;
+    let equalities = [
+        KeyEquality::Representation,
+        KeyEquality::NumericValue,
+        KeyEquality::Sql {
+            collation: SqlCollation::Binary,
+            pad: SqlPad::NoPad,
+        },
+        KeyEquality::Sql {
+            collation: SqlCollation::AsciiCaseInsensitive,
+            pad: SqlPad::NoPad,
+        },
+        KeyEquality::Sql {
+            collation: SqlCollation::Binary,
+            pad: SqlPad::PadSpace,
+        },
+        KeyEquality::Sql {
+            collation: SqlCollation::Named("utf8mb4_0900_ai_ci".to_owned()),
+            pad: SqlPad::NoPad,
+        },
+    ];
+    let values = [
+        ReferenceValue::Int(1),
+        ReferenceValue::Float(1.0_f64.to_bits()),
+        ReferenceValue::Str("a".to_owned()),
+        ReferenceValue::Str("A".to_owned()),
+        ReferenceValue::Str("a ".to_owned()),
+        ReferenceValue::Bool(true),
+        ReferenceValue::Null,
+    ];
+            let equality = &equalities[equality];
+            let left = &values[left];
+            let right = &values[right];
+            let key = one_part_key(production_equality(equality));
+            let kappa = |value: &ReferenceValue| production_key::canonical_key_bytes(&key, &[keyed_value(value)]).ok();
+            let actual = match (kappa(left), kappa(right)) { (Some(a), Some(b)) => Some(a == b), _ => None };
+            let expected = match (declared_key_equality(equality, left, left), declared_key_equality(equality, right, right)) {
+                (Some(true), Some(true)) => declared_key_equality(equality, left, right), _ => None,
+            };
+            prop_assert_eq!(actual, expected);
+        }
+
+        #[test]
+        fn incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits(
+            choice in 0_usize..CASES_PER_SHAPE,
+            edit_choice in 0_usize..3,
+        ) {
+            let (reference_schema, semantics) = fixture_schema();
+            let (schema, protocol) = production_fixture_schema(&reference_schema);
+            let plan = std::sync::Arc::new(ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default()));
+            let edge = reference_schema.edges.iter().next().unwrap();
+            let base = graph_cases(edge).remove(choice);
+            let (name, edit, target) = carrier_edits(&base, edge).remove(edit_choice);
+            let input = |instance: &reference_model::Graph| reference::ValidationInput::Graph {
+                schema: reference_schema.clone(), semantics: semantics.clone(), instance: instance.clone(),
+            };
+            let trust = reference::ValidationTrust::default();
+            let before = reference::trusted_schedule(&input(&base), &trust);
+            let after = reference::trusted_schedule(&input(&target), &trust);
+            let target_witness = reference::witness_with_trust(input(&target), trust).unwrap();
+            prop_assert_eq!(target_witness.verify(), Ok(()));
+            prop_assert_eq!(target_witness.evaluation.report,
+                reference::validate(&reference_schema, &semantics, &target));
+            let model = reference::incremental_footprint(&before, &after);
+            let none = ExternalVerdicts::default();
+            let (validated, _) = panproto_inst::validation::ValidatedGraph::new(plan,
+                production_graph(&base), &ValidationBudget::default(), &none);
+            let footprint = validated.footprint(&edit, &none).unwrap();
+            prop_assert_eq!(names(&footprint.created), reference_names(&model.created));
+            prop_assert_eq!(names(&footprint.retired), reference_names(&model.retired));
+            let rerun = names(&footprint.rerun);
+            prop_assert!(reference_names(&model.changed).is_subset(&rerun));
+            let reference_rerun = before.instances().into_iter().chain(after.instances())
+                .filter(|instance| rerun.contains(&reference_instance(instance))).collect();
+            prop_assert_eq!(footprint.reads.iter().map(production_view).collect::<BTreeSet<_>>(),
+                reference::footprint_reads(&before, &after, &reference_rerun).iter().map(reference_view).collect::<BTreeSet<_>>());
+            let transition = Transition { label: &name, before: &before, after: &after,
+                reference_rerun: &reference_rerun, target: &target };
+            assert_incremental_report(&transition, &validated, &edit, &reference_schema, &semantics);
+            assert_transition_witness(&name, &validated, &edit, &footprint, &after);
+        }
+
+        #[test]
+        fn budget_refusals_match_on_generated_existing_limits(limit in 0_u64..=2) {
+            let (reference_schema, semantics, graph) = budget_fixture();
+            let (schema, protocol) = production_fixture_schema(&reference_schema);
+            let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+            let input = reference::ValidationInput::Graph { schema: reference_schema, semantics, instance: graph.clone() };
+            let expected = reference::witness_with_trust(input, reference::ValidationTrust {
+                budget: reference::ValidationBudget { max_reads: Some(limit) },
+                ..reference::ValidationTrust::default()
+            }).unwrap();
+            prop_assert_eq!(expected.verify(), Ok(()));
+            let actual = plan.validate_graph(&production_graph(&graph),
+                &ValidationBudget { max_reads: Some(limit) }, &ExternalVerdicts::default());
+            prop_assert_eq!(production_status_observation(actual.status), status_observation(expected.evaluation.report.status));
+            prop_assert_eq!(actual.diagnostics.iter().map(production_diagnostic).collect::<Vec<_>>(),
+                expected.evaluation.report.diagnostics.iter().map(reference_diagnostic).collect::<Vec<_>>());
+            prop_assert_eq!(actual.incomplete.iter().map(production_incomplete).collect::<Vec<_>>(),
+                expected.evaluation.report.incomplete.iter().map(reference_incomplete).collect::<Vec<_>>());
+        }
+
+        #[test]
+        fn committed_sequences_match_reference_reports_and_admission(
+            choice in 0_usize..CASES_PER_SHAPE,
+            steps in proptest::collection::vec((0_usize..4, proptest::bool::ANY), 0..=4),
+        ) {
+            let (reference_schema, semantics) = fixture_schema();
+            let (schema, protocol) = production_fixture_schema(&reference_schema);
+            let plan = std::sync::Arc::new(ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default()));
+            let edge = reference_schema.edges.iter().next().unwrap();
+            let mut current = graph_cases(edge).remove(choice);
+            let none = ExternalVerdicts::default();
+            let budget = ValidationBudget::default();
+            let (mut actual, _) = panproto_inst::validation::ValidatedGraph::new(plan.clone(),
+                production_graph(&current), &budget, &none);
+            for (choice, require_passed) in steps {
+                let mut candidates = carrier_edits(&current, edge);
+                let (_, edit, target) = candidates.remove(choice % candidates.len());
+                let expected = reference::witness_with_trust(reference::ValidationInput::Graph {
+                    schema: reference_schema.clone(), semantics: semantics.clone(), instance: target.clone(),
+                }, reference::ValidationTrust::default()).unwrap();
+                prop_assert_eq!(expected.verify(), Ok(()));
+                let before = reference::validate(&reference_schema, &semantics, &current);
+                let checked = actual.check_edit(&edit, &budget, &none).unwrap();
+                compare_reports("generated sequence target", &expected.evaluation.report, &checked.report);
+                let admitted = reference::admits(require_passed, &required_bundles(&before),
+                    &BTreeMap::new(), &required_bundles(&expected.evaluation.report));
+                let prior_instance = panproto_inst::canonical_ginstance_bytes(actual.instance());
+                let prior_state = actual.state().canonical_bytes();
+                let policy = if require_passed { AdmissionPolicy::RequirePassed } else { AdmissionPolicy::NoNewFailures };
+                let outcome = actual.apply_edit(&edit, policy, &budget, &none);
+                prop_assert_eq!(outcome.is_ok(), admitted);
+                if admitted {
+                    current = target;
+                    prop_assert_eq!(panproto_inst::canonical_ginstance_bytes(actual.instance()),
+                        panproto_inst::canonical_ginstance_bytes(&production_graph(&current)));
+                    compare_reports("generated sequence commit", &expected.evaluation.report, &actual.report());
+                    prop_assert!(panproto_inst::validation::ValidatedGraph::from_parts(plan.clone(),
+                        actual.instance().clone(), actual.state().clone()).is_ok());
+                } else {
+                    prop_assert_eq!(panproto_inst::canonical_ginstance_bytes(actual.instance()), prior_instance);
+                    prop_assert_eq!(actual.state().canonical_bytes(), prior_state);
+                }
+            }
+        }
+        #[test]
+        fn key_and_reference_reports_match_on_generated_person_values(
+            ids in proptest::array::uniform4(0_usize..4),
+            bosses in proptest::array::uniform4(0_usize..4),
+        ) {
+            let (reference_schema, mut graph) = reference_person_carrier();
+            let values = [10_i64, 20, 30, 99];
+            for index in 0_usize..4 {
+                let node = u32::try_from(index).unwrap();
+                graph.nodes.get_mut(&(10 + node)).unwrap().value =
+                    Some(ReferencePresence::Present(ReferenceValue::Int(values[ids[index]])));
+                graph.nodes.get_mut(&(20 + node)).unwrap().value =
+                    Some(ReferencePresence::Present(ReferenceValue::Int(values[bosses[index]])));
+            }
+            let (schema, protocol) = production_person_schema(&reference_schema);
+            let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+            prop_assert!(plan.static_findings().is_empty());
+            let expected = reference::validate(&reference_schema, &BTreeMap::new(), &graph);
+            let actual = plan.validate_graph(&production_graph(&graph),
+                &ValidationBudget::default(), &ExternalVerdicts::default());
+            compare_reports("generated person keys and references", &expected, &actual);
+        }
+
+    }
+}
+
+fn reference_person_carrier() -> (
+    panproto_reference::schema::Schema,
+    panproto_reference::model::Graph,
+) {
+    use panproto_reference::model::{GEdge as ReferenceEdge, Graph, Node as ReferenceNode, SEdge};
+    use panproto_reference::schema::{
+        Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
+        Reference, ResolveMode, Schema as ReferenceSchema,
+    };
+    use panproto_reference::value::Value as ReferenceValue;
+
+    let id = SEdge::new("person", "person.id", "prop", Some("id"));
+    let boss = SEdge::new("person", "person.boss", "prop", Some("boss"));
+    let mut schema = ReferenceSchema::default()
+        .vertex("person", "object")
+        .vertex("person.id", "integer")
+        .vertex("person.boss", "integer")
+        .edge("person", "person.id", "prop", Some("id"))
+        .edge("person", "person.boss", "prop", Some("boss"));
+    schema.keys.insert(
+        "person".to_owned(),
+        vec![Key {
+            id: "pk".to_owned(),
+            parts: vec![KeyPart::Path(vec![id.clone()])],
+            role: KeyRole::Identifier,
+            scope: KeyScope::Document,
+            equality: Vec::new(),
+        }],
+    );
+    schema.references.insert(
+        "boss".to_owned(),
+        Reference {
+            id: "boss".to_owned(),
+            holder: "person".to_owned(),
+            source: RefSource::KeyValue {
+                parts: vec![vec![boss.clone()]],
+            },
+            target_vertex: "person".to_owned(),
+            target_key: Some("pk".to_owned()),
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode: ResolveMode::AddEdge,
+            guard: None,
+            null_match: NullMatch::Simple,
+            null_vertex: None,
+            scope_via: None,
+        },
+    );
+
+    let ids = [10_i64, 20, 10, 30];
+    let bosses = [20_i64, 20, 99, 10];
+    let mut nodes = BTreeMap::new();
+    let mut edges = BTreeMap::new();
+    for index in 0_u32..4 {
+        nodes.insert(index, ReferenceNode::new(index, "person"));
+        nodes.insert(
+            10 + index,
+            ReferenceNode::new(10 + index, "person.id")
+                .with_value(ReferenceValue::Int(ids[index as usize])),
+        );
+        nodes.insert(
+            20 + index,
+            ReferenceNode::new(20 + index, "person.boss")
+                .with_value(ReferenceValue::Int(bosses[index as usize])),
+        );
+        edges.insert(
+            index,
+            ReferenceEdge {
+                src: index,
+                tgt: 10 + index,
+                label: id.clone(),
+                position: None,
+            },
+        );
+        edges.insert(
+            4 + index,
+            ReferenceEdge {
+                src: index,
+                tgt: 20 + index,
+                label: boss.clone(),
+                position: None,
+            },
+        );
+    }
+    (schema, Graph { nodes, edges })
+}
+
+fn production_person_schema(reference: &reference_schema::Schema) -> (Schema, Protocol) {
+    use panproto_schema::{
+        Cardinality, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, RefSource,
+        Reference, ResolveMode,
+    };
+    let id = reference_model::SEdge::new("person", "person.id", "prop", Some("id"));
+    let boss = reference_model::SEdge::new("person", "person.boss", "prop", Some("boss"));
+    let protocol = Protocol {
+        name: "reference-person-validation".to_owned(),
+        edge_rules: vec![EdgeRule {
+            edge_kind: "prop".to_owned(),
+            src_kinds: vec!["object".to_owned()],
+            tgt_kinds: vec!["integer".to_owned()],
+        }],
+        obj_kinds: vec!["object".to_owned()],
+        value_kinds: BTreeMap::from([(
+            "integer".to_owned(),
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: BTreeSet::from(["object".to_owned()]),
+        syntactic_shape: InstanceShapeKind::Graph,
+        semantic_shape: InstanceShapeKind::Graph,
+        ..Protocol::default()
+    };
+    let mut builder = SchemaBuilder::new(&protocol);
+    for (name, kind) in &reference.vertices {
+        builder = builder.vertex(name, kind, None).unwrap();
+    }
+    for edge in &reference.edges {
+        builder = builder
+            .edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+            .unwrap();
+    }
+    builder = builder.key(
+        "person",
+        Key {
+            id: "pk".into(),
+            parts: vec![KeyPart::Path(vec![production_edge(&id)])],
+            role: KeyRole::Identifier,
+            scope: KeyScope::Document,
+            equality: Vec::new(),
+        },
+    );
+    builder = builder.reference(Reference {
+        id: "boss".into(),
+        holder: "person".into(),
+        source: RefSource::KeyValue {
+            parts: vec![vec![production_edge(&boss)]],
+        },
+        target_vertex: "person".into(),
+        target_key: Some("pk".into()),
+        edge: None,
+        cardinality: Cardinality::One,
+        nullable: false,
+        on_unresolved: OnUnresolved::Error,
+        mode: ResolveMode::AddEdge,
+        guard: None,
+        null_match: NullMatch::Simple,
+        null_vertex: None,
+        scope_via: None,
+    });
+    (builder.build().unwrap(), protocol)
 }

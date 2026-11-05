@@ -1930,10 +1930,57 @@ fn malformed_manifests_preserve_the_complete_structural_refusal_order() {
 
 mod randomized {
     use super::*;
+    use panproto_inst::segment::TaskRecord;
+    use panproto_reference::segment as reference;
     use proptest::prelude::*;
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn task_digest_and_reuse_match_the_reference_on_generated_carrier_choices(
+            phase in 0_usize..6,
+            segment in 0_usize..3,
+            input_choice in 0_usize..5,
+            lens_choice in 0_usize..2,
+            reuse_choice in 0_usize..4,
+        ) {
+            let phases = [Phase::Validate, Phase::Export, Phase::Summarize,
+                Phase::Assemble, Phase::Emit, Phase::Seal];
+            let task = TaskKey {
+                phase: phases[phase],
+                segment: [None, Some(SegmentId(0)), Some(SegmentId(u32::MAX))][segment],
+            };
+            let a = Digest([11; 32]);
+            let b = Digest([12; 32]);
+            let inputs = [vec![], vec![a], vec![a, b], vec![b, a], vec![a, a]];
+            let lens = [Digest([21; 32]), Digest([22; 32])][lens_choice];
+            let reference_inputs: Vec<_> = inputs[input_choice].iter()
+                .map(|digest| reference::Digest(digest.0)).collect();
+            let digest = TaskRecord::inputs_digest(&lens, task, &inputs[input_choice]);
+            let expected = reference::task_inputs_digest(
+                &reference::Digest(lens.0), task_key_to_reference(task), &reference_inputs);
+            prop_assert_eq!(digest.0, expected.0);
+            let output = Digest([110; 32]);
+            let production = RunJournal {
+                run: Digest([140; 32]),
+                tasks: BTreeMap::from([(task, TaskRecord { inputs: digest, output, bytes: 17 })]),
+            };
+            let oracle = reference::RunJournal {
+                run: reference::Digest([140; 32]),
+                tasks: BTreeMap::from([(task_key_to_reference(task), reference::TaskRecord {
+                    inputs: expected, output: reference::Digest(output.0), bytes: 17,
+                })]),
+            };
+            let queried = if reuse_choice == 3 {
+                TaskKey { phase: Phase::Seal, segment: Some(SegmentId(1)) }
+            } else { task };
+            let input = if reuse_choice == 1 { Digest([240; 32]) } else { digest };
+            let output = if reuse_choice == 2 { Digest([241; 32]) } else { output };
+            prop_assert_eq!(production.reusable(&queried, &input, &output),
+                reference::journal_task_reusable(&oracle, &task_key_to_reference(queried),
+                    &reference::Digest(input.0), &reference::Digest(output.0)));
+        }
 
         #[test]
         fn boundary_cut_matches_the_reference_on_generated_shape_choices(
@@ -1944,6 +1991,20 @@ mod randomized {
             let production_partition = partition_to_production(&partition);
             let actual = partition_and_assemble_shape(&whole, &production_partition);
             assert_segment_bytes_agree(&expected, &actual, &partition, &production_partition);
+            prop_assert_eq!(reference::glue(&expected, &partition), Ok(whole.clone()));
+            prop_assert_eq!(reference::segmented(&expected, &partition,
+                &|value: &reference::AnyInstance| value.clone()), Ok(whole));
+            let (reference_schema, production_schema) = schema_digest();
+            let oracle = reference::seal_manifest(&expected, &partition, reference_schema,
+                reference::ManifestRole::Source, None).unwrap();
+            let production = seal_production_manifest(&actual, &production_partition, production_schema);
+            prop_assert_eq!(production.canonical_bytes(), reference::canonical_manifest_bytes(&oracle));
+            let trusted = reference::Digest::derive(reference::MANIFEST_CONTEXT,
+                &reference::canonical_manifest_bytes(&oracle));
+            prop_assert_eq!(production.digest().0, trusted.0);
+            prop_assert_eq!(reference::verify_manifest(&oracle, trusted), Ok(()));
+            prop_assert_eq!(verify_manifest(&production, production.digest()), Ok(()));
+            for segment in &actual { prop_assert_eq!(verify_segment(&production, segment), Ok(())); }
         }
 
         #[test]
@@ -2008,6 +2069,57 @@ mod randomized {
             let actual = IdAllocator::from_source(IdRange { lo, hi }, source.iter().copied())
                 .fresh(used.iter().copied());
             prop_assert_eq!(actual.ok(), expected);
+        }
+
+        #[test]
+        fn manifest_refusals_match_on_generated_structural_mutations(case in 0_u32..6) {
+            let (mut oracle, mut actual) = manifests_for_schema_header_regression().remove(0);
+            let trusted = reference::Digest::derive(reference::MANIFEST_CONTEXT,
+                &reference::canonical_manifest_bytes(&oracle));
+            let actual_trusted = actual.digest();
+            let expected = if case <= 1 { mutate_manifest_cross_case(case, &mut oracle, &mut actual) }
+                else { mutate_manifest_structural_case(case, &mut oracle, &mut actual) };
+            let mut children = Vec::new();
+            for record in &oracle.segments { children.extend(reference::manifest_leaf(record).0); }
+            oracle.root = reference::Digest::derive(reference::MANIFEST_NODE_CONTEXT, &children);
+            actual.root = panproto_inst::segment::merkle_root(&actual.segments);
+            prop_assert_eq!(actual.root.0, oracle.root.0);
+            prop_assert_eq!(reference::verify_manifest(&oracle, trusted).map_err(|error| error_to_production(&error)),
+                Err(expected.clone()));
+            prop_assert_eq!(verify_manifest(&actual, actual_trusted), Err(expected));
+        }
+
+        #[test]
+        fn segmented_observation_matches_on_generated_allocated_partitions(
+            choice in 0_usize..ALLOCATED_GRAPH_PARTITION_CASES,
+        ) {
+            let case = carrier::allocated_graph_partition_cases().remove(choice);
+            let partition = partition_to_production(&case.partition);
+            let whole = reference::AnyInstance::Graph(case.graph.clone());
+            let expected_segments = reference::partition(&whole, &case.partition).unwrap();
+            let actual_segments: Vec<_> = partition_graph(&graph_to_production(&case.graph), &partition)
+                .unwrap().into_iter().map(AnySegment::Graph).collect();
+            let expected = reference::segmented(&expected_segments, &case.partition,
+                &|value: &reference::AnyInstance| value.clone());
+            let (reference_schema, production_schema) = schema_digest();
+            let actual = try_seal_production_manifest(&actual_segments, &partition, production_schema);
+            let oracle = reference::seal_manifest(&expected_segments, &case.partition, reference_schema,
+                reference::ManifestRole::Source, None);
+            match (expected, actual, oracle) {
+                (Ok(result), Ok(actual), Ok(oracle)) => {
+                    prop_assert_eq!(result, whole);
+                    prop_assert_eq!(actual.canonical_bytes(), reference::canonical_manifest_bytes(&oracle));
+                    let assembled = assemble_graph(actual_segments.into_iter().map(|segment| {
+                        let AnySegment::Graph(graph) = segment else { panic!("graph expected") }; graph
+                    }).collect(), &partition).unwrap();
+                    prop_assert_eq!(canonical_ginstance_bytes(&assembled), canonical_ginstance_bytes(&graph_to_production(&case.graph)));
+                }
+                (Err(expected), Err(actual), Err(oracle)) => {
+                    prop_assert_eq!(&expected, &oracle);
+                    prop_assert_eq!(actual, error_to_production(&expected));
+                }
+                other => prop_assert!(false, "segmented outcomes disagree: {:?}", other),
+            }
         }
     }
 }

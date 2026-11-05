@@ -51,6 +51,9 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 - Independent reference anchor: `validation_reconstructs_position_buckets; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_reconstructs_position_buckets)'`
 - Parallel-edge regression test: `validation_identifies_exact_parallel_position_edges; command: cargo test --release -p panproto-inst --test reference_keys validation_identifies_exact_parallel_position_edges -- --exact --nocapture`
 - Regression differential test: `path_fallback_is_decided_per_last_hop_frontier_node; command: cargo test --release -p panproto-inst --test reference_keys path_fallback_is_decided_per_last_hop_frontier_node -- --exact --nocapture`
+- Property differential test: `randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs)'`
+- Property differential test: `randomized::position_key_values_and_buckets_match_on_generated_sibling_orders; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::position_key_values_and_buckets_match_on_generated_sibling_orders)'`
+- Randomized input scope: Generated twin graphs vary three groups of two nodes over six value presences, three connectivity bits, three scopes, and own-value or one-edge paths. Generated sibling graphs vary two positions, each absent or zero through three, across two lists under document or global scope. Complete duplicate-key tuples and members, NULL omissions, and outside-scope diagnostics are reconstructed from public validation and compared with reference key values and buckets.
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -98,6 +101,9 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 - Independent reference anchor: `validation_preserves_both_reference_keying_refusals; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_preserves_both_reference_keying_refusals)'`
 - Regression differential test: `within_scope_does_not_traverse_fan_incidence; command: cargo test --release -p panproto-inst --test reference_keys within_scope_does_not_traverse_fan_incidence -- --exact --nocapture`
 - Canonical-bytes refusal test: `values_without_canonical_bytes_are_a_typed_keying_refusal; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=values_without_canonical_bytes_are_a_typed_keying_refusal)'`
+- Property differential test: `randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs)'`
+- Property differential test: `randomized::position_key_values_and_buckets_match_on_generated_sibling_orders; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::position_key_values_and_buckets_match_on_generated_sibling_orders)'`
+- Randomized input scope: Generated twin graphs vary three groups of two nodes over six value presences, three connectivity bits, three scopes, and own-value or one-edge paths. Generated sibling graphs vary two positions, each absent or zero through three, across two lists under document or global scope. Complete duplicate-key tuples and members, NULL omissions, and outside-scope diagnostics are reconstructed from public validation and compared with reference key values and buckets.
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -146,6 +152,9 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 - Independent reference anchor: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=canonical_declaration_factorization_reconciles_the_exact_carrier)'`
 - Extension decoding test: `declaration_bytes_decode_back_on_every_extension_combination; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_bytes_decode_back_on_every_extension_combination)'`
 - Marker regression test: `extension_markers_separate_the_audit_counterexample; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extension_markers_separate_the_audit_counterexample)'`
+- Property differential test: `randomized::canonical_bytes_distinguish_generated_descriptor_schemas; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::canonical_bytes_distinguish_generated_descriptor_schemas)'`
+- Property differential test: `randomized::extension_declarations_match_and_decode_on_generated_pairs; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::extension_declarations_match_and_decode_on_generated_pairs)'`
+- Randomized input scope: Generated structural schemas have one through three vertices and two independently chosen key slots; declaration bytes are compared and decoded. A separate generated pair from the 194 extension carriers compares equality with equality of both encodings.
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
@@ -195,6 +204,9 @@ The five roles make different uniqueness, identity, ordering, and resolution pro
 - Evidence scope: `816,223,680 key classifications and 28 additional non-key cases`
 - Production certificate: `every_key_change_classifies_through_the_factorization_certificate; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=every_key_change_classifies_through_the_factorization_certificate)'`
 - Independent reference anchor: `non_key_classification_axes_match_the_reference; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=non_key_classification_axes_match_the_reference)'`
+- Property differential test: `randomized_key_change_classification; command: cargo nextest run --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=randomized_key_change_classification)'`
+- Property differential test: `randomized_reference_change_classification; command: cargo nextest run --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=randomized_reference_change_classification)'`
+- Randomized input scope: Generated coordinates choose a structural graph, a directed descriptor transition, a changed slot and an optional other descriptor. A second family varies reference cardinality, nullability, unresolved policy, removal and transition direction; each compares production classification with the reference.
 - File: `crates/panproto-check/src/diff.rs`
 - File: `crates/panproto-check/src/classify.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
@@ -244,6 +256,8 @@ A theory is *closed* when every sort and operation used by its declarations and 
 - Independent reference anchor: `composition_agrees_with_the_reference_on_every_span; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=composition_agrees_with_the_reference_on_every_span)'`
 - Registered-theory reference test: `registered_theories_agree_with_the_reference_typecheck_compose_and_recompose; command: cargo nextest run --release --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=registered_theories_agree_with_the_reference_typecheck_compose_and_recompose)'`
 - Signature differential test: `signature_checking_agrees_with_the_reference_on_every_signature; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=signature_checking_agrees_with_the_reference_on_every_signature)'`
+- Property differential test: `randomized_registered_recipe_differential; command: cargo nextest run --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=randomized_registered_recipe_differential)'`
+- Randomized input scope: Generated cases choose one of the 57 protocol registrations, its schema or instance recipe, and a registry insertion rotation. Both signature checks must accept; both compositions must contain inclusion and universal-identity checks, with every report record passed, and their result theory bytes must agree.
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-gat/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
@@ -292,6 +306,8 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 - Compatibility surface test: `registration_equivalence; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=registration_equivalence)'`
 - Frozen 0.74.4 test: `registration_reproduces_the_frozen_0_74_4_theories; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=registration_reproduces_the_frozen_0_74_4_theories)'`
 - Diagram form test: `every_registered_protocol_records_a_diagram_step; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=every_registered_protocol_records_a_diagram_step)'`
+- Property differential test: `randomized_registered_recipe_differential; command: cargo nextest run --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=randomized_registered_recipe_differential)'`
+- Randomized input scope: Generated protocol/recipe coordinates and registry insertion rotations compare production and reference replay bytes with the registered theory. The frozen compatibility comparison remains the separate exhaustive certificate.
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
@@ -340,6 +356,8 @@ The law concerns canonical identities, not the incidental bytes of Rust's ordina
 - Production certificate: `canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures; command: cargo nextest run --release --locked -p panproto-schema --test reference_theory_canonical --no-tests=fail -E 'test(=canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures)'`
 - Independent reference anchor: `cross_process::compose_bytes_are_identical_across_processes; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=cross_process::compose_bytes_are_identical_across_processes)'`
 - Frozen-corpus regression test: `theory_composition_fixtures_recompose_to_their_bytes_and_digests; command: cargo test --release -p panproto-protocols --test registration_equivalence theory_composition_fixtures_recompose_to_their_bytes_and_digests -- --exact --nocapture`
+- Property differential test: `randomized_theory_and_composition_canonical_bytes; command: cargo nextest run --locked -p panproto-schema --test reference_theory_canonical --no-tests=fail -E 'test(=randomized_theory_and_composition_canonical_bytes)'`
+- Randomized input scope: Generated names and declaration reversal vary the three paired theory carriers under either composition mode. Complete theory and composition bytes are compared; the independent-process obligation remains the separate process certificate.
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-schema/src/canonical_theory.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
@@ -386,6 +404,7 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 - Evidence scope: `37 values under 12 configurations, 16,428 ordered pairs, and 607,836 ordered triples`
 - Production certificate: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
 - Independent reference anchor: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
+- Supplemental property differential test: `randomized::key_kernels_and_typed_refusals_match_on_generated_pairs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_kernels_and_typed_refusals_match_on_generated_pairs)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -430,6 +449,7 @@ For propositions $P$ and $Q$, implication $P \Rightarrow Q$ is $\neg P \lor Q$. 
 - Evidence scope: `37 values under 12 equality configurations, for 16,428 ordered pairs`
 - Production certificate: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
 - Independent reference anchor: `named_collation_has_the_exact_typed_refusal_boundary; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=named_collation_has_the_exact_typed_refusal_boundary)'`
+- Supplemental property differential test: `randomized::key_kernels_and_typed_refusals_match_on_generated_pairs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_kernels_and_typed_refusals_match_on_generated_pairs)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -474,6 +494,8 @@ The legacy role tags are 0 for primary, 1 for unique, 2 for identifier, 3 for so
 - Evidence scope: `10 equality forms: legacy empty, representation, numeric value, decimal/float/any within-kind, binary/ascii-folded/named SQL, and XML non-CDATA`
 - Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
 - Independent reference anchor: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
+- Property differential test: `randomized::equality_declaration_words_match_and_decode; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::equality_declaration_words_match_and_decode)'`
+- Randomized input scope: Generated equality words of length at most three use all twelve configurations; production and reference declaration bytes agree and decode to the input declaration.
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -519,6 +541,7 @@ A total preorder is reflexive, transitive, and total; antisymmetry is not requir
 - Evidence scope: `the seven values {0, 1, 1.5, "a", "ab", "b", NaN}; exact ordered pairs=49, triples=343`
 - Production certificate: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
 - Independent reference anchor: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
+- Supplemental property differential test: `randomized::sort_order_and_adjacent_descent_match_on_generated_words; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::sort_order_and_adjacent_descent_match_on_generated_words)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -563,6 +586,7 @@ An *adjacent descent* is an index $i$ with `sort_order(x_i, x_{i+1}) = Greater`.
 - Evidence scope: `all 2,801 sequences of length at most four over {0, 1, 1.5, "a", "ab", "b", NaN}`
 - Production certificate: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
 - Independent reference anchor: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
+- Supplemental property differential test: `randomized::sort_order_and_adjacent_descent_match_on_generated_words; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::sort_order_and_adjacent_descent_match_on_generated_words)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -609,6 +633,8 @@ The *signature* of a member key is its part count and effective equality vector.
 - Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Member condition test: `target_set_members_need_a_well_formed_equality_and_a_resolving_role; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_set_members_need_a_well_formed_equality_and_a_resolving_role)'`
+- Property differential test: `randomized::target_set_admission_matches_on_generated_member_words; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::target_set_admission_matches_on_generated_member_words)'`
+- Randomized input scope: Generated member words of length at most four use eight declared, mismatched, scoped or missing member coordinates. Complete declaration diagnostic-class multisets and member mismatch records agree; the local signature predicate is compared on its all-document subdomain.
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
@@ -653,6 +679,7 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 - Evidence scope: `the 341 strings of length at most four over {a, b, U+0020, U+0009}, all 116,281 ordered pairs, 184 normalization classes and 1,171 equivalent ordered pairs (counted independently), with LF, CR, TAB and token-order units`
 - Production certificate: `xml_kernel_executes_the_exact_key_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_key_carrier)'`
 - Independent reference anchor: `xml_kernel_executes_the_exact_key_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_key_carrier)'`
+- Supplemental property differential test: `randomized::key_kernels_and_typed_refusals_match_on_generated_pairs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_kernels_and_typed_refusals_match_on_generated_pairs)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
@@ -701,6 +728,9 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 - Role differential test: `target_set_references_check_every_member_key_role; command: cargo test --release -p panproto-schema --test reference_keys target_set_references_check_every_member_key_role -- --exact --nocapture`
 - Marker regression test: `extension_markers_separate_the_audit_counterexample; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extension_markers_separate_the_audit_counterexample)'`
 - Extension decoding test: `declaration_bytes_decode_back_on_every_extension_combination; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_bytes_decode_back_on_every_extension_combination)'`
+- Property differential test: `randomized::extension_declarations_match_and_decode_on_generated_pairs; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::extension_declarations_match_and_decode_on_generated_pairs)'`
+- Property differential test: `randomized::key_and_reference_admission_match_on_generated_coordinates; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::key_and_reference_admission_match_on_generated_coordinates)'`
+- Randomized input scope: Generated pairs from the 194 extension carriers compare complete declaration bytes, decoding and injectivity. Generated key/reference coordinates additionally compare declaration diagnostic-class multisets, with no structural findings discarded.
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-schema/src/keys.rs`
 - File: `crates/panproto-schema/src/validate.rs`
@@ -748,6 +778,9 @@ A *resolution occurrence* is a holder element together with the tuple read from 
 - Evidence scope: `five two-part tuples (equal, unequal, all NULL, and both partial-NULL orientations) under Simple and Full; all 16 optional-index pairs for the Index refusal`
 - Production certificate: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
 - Independent reference anchor: `index_fields_never_resolve_targets; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
+- Property differential test: `randomized::index_refusal_matches_under_generated_unresolved_policy; command: cargo nextest run --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::index_refusal_matches_under_generated_unresolved_policy)'`
+- Property differential test: `randomized::null_match_outcomes_match_on_generated_existing_occurrences; command: cargo nextest run --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::null_match_outcomes_match_on_generated_existing_occurrences)'`
+- Randomized input scope: Generated cases vary the unresolved policy for an index-target declaration and compare its typed refusal. Five composite tuple pairs under either null-match mode compare actual resolution outcomes and the complete dangling literal or its absence; the fixed index matrix remains a separate exhaustive control.
 - File: `crates/panproto-io/src/resolution/compile.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
@@ -793,6 +826,8 @@ A *known datatype* is one present in the protocol's value-kind table. A *derived
 - Evidence scope: `12 lexemes (signed, zero-padded, space-padded, fractional, exponent, both 64-bit boundaries, non-numeric, and empty) under the integer and decimal datatypes of the table and one datatype absent from it, 36 cases; each case compares the outcome with the reference, checks advisory admission, and reads back the kept lexeme`
 - Production certificate: `lexical_space_outcomes_match_the_datatype_table_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=lexical_space_outcomes_match_the_datatype_table_reference)'`
 - Independent reference anchor: `lexical_space_outcomes_match_the_datatype_table_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=lexical_space_outcomes_match_the_datatype_table_reference)'`
+- Property differential test: `randomized::lexical_space_admission_and_preservation_match_on_generated_literals; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::lexical_space_admission_and_preservation_match_on_generated_literals)'`
+- Randomized input scope: Generated cases draw from twelve lexical forms and three datatype declarations; production advisory/unsupported outcomes and the unchanged lexical form are compared with the reference.
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
@@ -840,6 +875,8 @@ An *annotated format* is a named constraint whose semantics are `AnnotatedFormat
 - Evidence scope: `eight strings (two UUIDs, a short group, misplaced hyphens, braces, a non-hexadecimal digit, a non-UUID word, and the empty string) under uuid as annotation and as assertion and under one unrecognized annotation, 24 cases: 4 recognized, 6 advisory, 6 refused, 8 unchecked; each case reads back the kept string`
 - Production certificate: `annotated_formats_match_the_independent_recognizer; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=annotated_formats_match_the_independent_recognizer)'`
 - Independent reference anchor: `annotated_formats_match_the_independent_recognizer; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=annotated_formats_match_the_independent_recognizer)'`
+- Property differential test: `randomized::annotated_format_admission_and_preservation_match_on_generated_strings; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::annotated_format_admission_and_preservation_match_on_generated_strings)'`
+- Randomized input scope: Generated cases draw from eight strings and three format/assertion configurations; status, diagnostic presence and the unchanged string are compared with the reference.
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
