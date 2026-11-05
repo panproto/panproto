@@ -632,22 +632,6 @@ fn child_sequences(instance: &WInstance) -> std::collections::HashMap<u32, Vec<u
     seqs
 }
 
-/// Structural equivalence of two [`Complement`]s.
-///
-/// Complements do not derive `PartialEq` (their node/value payloads need
-/// the NaN-reflexive comparison used elsewhere in this crate). This is
-/// `true` exactly when [`complement_divergence`] finds no diverging
-/// field — dropped nodes (by id, anchor, value, and `extra_fields`),
-/// dropped arcs and fans (order-independent), contraction choices,
-/// parent maps, arc-edge disambiguators, snapshot `extra_fields`/values,
-/// synthesized-node sets, contracted-into fibres, arc order, original
-/// anchors, the identity envelope and the source fingerprint. The
-/// edit-lens complement-coherence checker ([`crate::edit_laws`]) adds
-/// exact metadata, order, bookkeeping, and historical-floor checks.
-pub(crate) fn complements_equivalent(a: &Complement, b: &Complement) -> bool {
-    complement_divergence(a, b).is_none()
-}
-
 /// Compare two `u32`-keyed maps for structural equivalence under `eq`,
 /// returning a divergence detail naming `field` (and the node id) on the
 /// first mismatch, or `None` when equivalent.
@@ -676,7 +660,6 @@ fn map_divergence<V>(
 /// On divergence the returned string names the field (and, where a
 /// per-node map diverges, the node id) so callers can report *which*
 /// component drifted rather than merely that the complements differ.
-/// The field ordering matches [`complements_equivalent`].
 pub(crate) fn complement_divergence(a: &Complement, b: &Complement) -> Option<String> {
     if a.source_fingerprint != b.source_fingerprint {
         return Some(format!(

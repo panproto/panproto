@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn coherence_detects_content_drift() {
         use crate::asymmetric::Complement;
-        use crate::laws::{complement_divergence, complements_equivalent};
+        use crate::laws::complement_divergence;
         use panproto_inst::Node;
 
         // Both complements drop exactly one node under id 5, so their
@@ -516,7 +516,7 @@ mod tests {
         c2.dropped_nodes.insert(5, Node::new(5, "beta"));
 
         assert!(
-            !complements_equivalent(&c1, &c2),
+            complement_divergence(&c1, &c2).is_some(),
             "complements differing only in dropped-node content must not compare equal"
         );
         let detail = complement_divergence(&c1, &c2).unwrap();

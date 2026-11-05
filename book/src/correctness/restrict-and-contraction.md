@@ -547,7 +547,7 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
 - Exact carrier: 38 get words, each also checked for get consistency, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal
 - Exhaustive differential tests: all four `tree_edit_lens_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
-- Dynamic result: all four tests pass
+- Dynamic result: verification of the endpoint guards and retained historical floor is pending
 - Evidence scope: `38 get words with get consistency, 27 put words, two typed lowering refusals, one common late refusal through both source editors and both get_edit implementations, and one production-only atomic late refusal`
 - Production certificate: `tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference)'`
 - Independent reference anchor: `tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference)'`
@@ -582,7 +582,7 @@ None. Reusing residue after delete-then-add is a semantic mutation, even if the 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit and post-repair verification are pending.
 
 ## Tree synthesis preserves source sibling order {#L-restrict-and-contraction-12}
 
