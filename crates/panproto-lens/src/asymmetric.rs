@@ -3699,6 +3699,75 @@ mod tests {
     use super::*;
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
 
+    /// A hidden predicate-false node is residue, not a visible survivor.
+    #[test]
+    fn put_restores_hidden_predicate_false_residue() {
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        lens.compiled.conditional_survival.insert(
+            "post:body.text".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(false)),
+        );
+        let source = three_node_instance();
+        let (view, complement) = get(&lens, &source).unwrap();
+        assert!(!view.nodes.contains_key(&1));
+        assert!(complement.dropped_nodes.contains_key(&1));
+        check_put_domain(&lens, &view, &complement).unwrap();
+        let restored = put(&lens, &view, &complement).unwrap();
+        assert!(crate::instances_equivalent(&source, &restored));
+        let plan =
+            RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled).unwrap();
+        let verdicts = panproto_inst::tree_survival_verdicts(&restored, &plan);
+        assert!(matches!(verdicts.get(&1), Some(Ok(false))));
+    }
+
+    /// An output without an inverse may change with an independent input
+    /// when forward replay reproduces the complete edited view.
+    #[test]
+    fn put_accepts_consistent_changed_derived_output_without_inverse() {
+        use panproto_inst::{FieldTransform, Value};
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        lens.compiled.field_transforms.insert(
+            "post:body".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "createdAt".into(),
+                expr: panproto_expr::Expr::Var("text".into()),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Projection,
+            }],
+        );
+        let mut root = Node::new(0, "post:body");
+        root.extra_fields
+            .insert("text".into(), Value::Str("before".into()));
+        let source = WInstance::new(
+            HashMap::from([(0, root)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "post:body".into(),
+        );
+        let (mut view, complement) = get(&lens, &source).unwrap();
+        assert_eq!(
+            view.nodes[&0].extra_fields["createdAt"],
+            Value::Str("before".into())
+        );
+        let root = view.nodes.get_mut(&0).unwrap();
+        root.extra_fields
+            .insert("text".into(), Value::Str("after".into()));
+        root.extra_fields
+            .insert("createdAt".into(), Value::Str("after".into()));
+        check_put_domain(&lens, &view, &complement).unwrap();
+        let restored = put(&lens, &view, &complement).unwrap();
+        assert_eq!(
+            restored.nodes[&0].extra_fields["text"],
+            Value::Str("after".into())
+        );
+        assert!(!restored.nodes[&0].extra_fields.contains_key("createdAt"));
+        let (replayed, _) = get(&lens, &restored).unwrap();
+        assert!(crate::instances_equivalent(&view, &replayed));
+    }
+
     #[test]
     fn collision_residue_reindexes_surviving_expansions_for_all_collisions() {
         let mut complement = Complement::empty();
