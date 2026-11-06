@@ -1218,6 +1218,44 @@ fn bounded_canonical_scalar_parsing_matches_reference() {
     }
 }
 
+/// Law 4's quote delimiter boundary on the always-compiled JSON reader.
+#[test]
+fn json_interior_quote_refusals_and_escapes_match_reference() {
+    let tree_text = scalar_schema(
+        "root",
+        &ScalarParseOutcome::Parsed(ParsedScalar::Str(String::new())),
+    );
+    for (token, value) in [
+        ("\"\"\"", None),
+        ("\"a\"b\"", None),
+        ("\"\" \"\"", None),
+        ("\"\\\\\"\"", None),
+        ("\"\"", Some("")),
+        ("\"\\\"\"", Some("\"")),
+        ("\"a\\\"b\"", Some("a\"b")),
+        ("\"\\\\\"", Some("\\")),
+        ("\"\\u0022\"", Some("\"")),
+    ] {
+        let pinned = value.map_or(ScalarParseOutcome::Malformed, |text| {
+            ScalarParseOutcome::Parsed(ParsedScalar::Str(text.to_owned()))
+        });
+        let expected = reference_parse_outcome(panproto_reference::value_io::parse(
+            Route::Json,
+            token.as_bytes(),
+        ));
+        assert_eq!(expected, pinned, "reference JSON quote boundary: {token:?}");
+        let wrapped = wrap_scalar(Route::Json, token.as_bytes());
+        let actual = parse_json_bytes(&tree_text, "root", &wrapped, "cassandra")
+            .map_or_else(production_parse_error, |instance| {
+                ScalarParseOutcome::Parsed(production_tree_scalar(&instance))
+            });
+        assert_eq!(
+            actual, expected,
+            "production JSON quote boundary: {token:?}"
+        );
+    }
+}
+
 /// Law 4's fixed witnesses beyond the two-byte scope: literal DEL, C1 and
 /// C0 characters inside JSON strings, signed and otherwise malformed XML
 /// character references, and XML line ends. Each production outcome on the

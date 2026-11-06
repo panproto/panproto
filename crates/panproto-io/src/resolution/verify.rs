@@ -769,12 +769,22 @@ fn read_violation(
     let at = |record_holder: &ViewRef, record_reference: &Name| {
         record_holder == holder && record_reference == reference
     };
-    let recorded = complement.occurrences.iter().find(|(carrier, records)| {
-        matches!(carrier, ViewRef::Edge(id) if view.edge(*id).is_some())
-            && records
+    // A read failure belongs to the first surviving source occurrence,
+    // independently of the presentation ids assigned to its edges.
+    let recorded = complement
+        .occurrences
+        .iter()
+        .filter(|(carrier, _)| matches!(carrier, ViewRef::Edge(id) if view.edge(*id).is_some()))
+        .filter_map(|(carrier, records)| {
+            records
                 .iter()
-                .any(|record| at(&record.holder, &record.reference))
-    });
+                .filter(|record| at(&record.holder, &record.reference))
+                .map(|record| record.index)
+                .min()
+                .map(|index| (index, carrier, records))
+        })
+        .min_by_key(|(index, carrier, _)| (*index, *carrier))
+        .map(|(_, carrier, records)| (carrier, records));
     let carrier = recorded.map_or_else(|| view_carrier(holder), |(carrier, _)| carrier.clone());
     let contextual = recorded.is_some_and(|(_, records)| {
         records

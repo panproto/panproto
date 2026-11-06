@@ -204,6 +204,9 @@ pub mod implementation {
         let mut out = String::new();
         let mut chars = text[1..text.len() - 1].chars().peekable();
         while let Some(character) = chars.next() {
+            if character == '"' {
+                return Err(ValueIoError::Malformed);
+            }
             if character != '\\' {
                 if !literal_in_double_quotes(route, character) {
                     return Err(ValueIoError::Malformed);
@@ -271,10 +274,11 @@ pub mod implementation {
     }
 
     /// Whether `character` may stand unescaped inside a double-quoted string:
-    /// RFC 8259's `unescaped` (every scalar from U+0020) on JSON, TOML 1.0's
+    /// RFC 8259's control-character range on JSON, TOML 1.0's
     /// `basic-unescaped` with its tab (no C0 control but tab, and no DEL) on
     /// TOML, and YAML 1.2.2's `nb-json` (tab or any scalar from U+0020) on
-    /// YAML. Quote and backslash never reach this test. A line break is
+    /// YAML. The caller separately refuses quote and handles backslash escapes,
+    /// so neither reaches this test. A line break is
     /// refused on YAML as well, since one scalar line is the modelled form.
     fn literal_in_double_quotes(route: Route, character: char) -> bool {
         let code = u32::from(character);
@@ -1176,8 +1180,8 @@ pub mod implementation {
 
         #[test]
         fn double_quoted_literals_follow_each_route_grammar() {
-            // RFC 8259 admits every scalar from U+0020 unescaped, DEL and the
-            // C1 controls included, and no C0 control.
+            // Outside quote and backslash, RFC 8259 admits every scalar from
+            // U+0020 unescaped, DEL and C1 included, and no C0 control.
             for (input, expected) in [
                 ("\"\u{7f}\"", Some("\u{7f}")),
                 ("\"\u{80}\u{9f}\"", Some("\u{80}\u{9f}")),

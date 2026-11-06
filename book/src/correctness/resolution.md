@@ -186,25 +186,32 @@ None.
 - Verdict: fail
 - Defects: Independent audit and post-commit verification are pending.
 
-## Resolution commutes with coherent carrier renaming {#L-resolution-4}
+## Resolution commutes with presentation renaming that fixes source coordinates {#L-resolution-4}
 
 ### Statement
 
-Let $\rho$ be an injective renaming of view node and edge ids, applied coherently to $(v,c)$. The original and renamed states have equal put-domain verdicts after locations are renamed, and, when admitted, their puts are equal up to the corresponding source-shape equivalence. The renaming reaches every complement coordinate that denotes a view carrier, including occurrence holders, recorded targets, span nodes, field-qualified text identities, and inline representatives. Exact syntactic residue is not renamed.
+Let $c$ be a complement produced by a successful get and $v$ an edited graph view. Let $\rho$ coherently rename only the recorded resolution edges and synthesized span nodes, fixing every source coordinate and every unindexed carrier. Require $\rho$ to be injective on the union of the view and complement supports, including hidden source nodes. Assume the consulted provider callbacks succeed and are pure and equivariant under this renaming. Then put succeeds on one state exactly when it succeeds on the other. Exact diagnostic transport is asserted only on the stated finite carriers and fixed regression cases. When admitted, the two puts return exactly the same source, including its literal spellings.
+
+The finite declared carrier also supports the broader retained-node permutations named under Executable counterpart. That bounded result does not assert a law for arbitrary retained-node renaming.
 
 ### Outside the domain
 
-Declarations that use a deferred form are outside every law of this page; production refuses them at compilation. A view-only renaming and a renaming that identifies two carriers are outside the law. Identity-envelope bytes are checked separately from complement divergence.
+Deferred declarations are refused at compilation. A view-only renaming, a collision with a hidden or visible carrier, a complement with fabricated duplicate source-occurrence records, and a provider that observes presentation ids in its results are outside the general statement. Operational provider failures are outside its successful-callback premise. Identity-envelope bytes are checked separately from complement divergence.
+
+Retained source ids are not arbitrary presentation coordinates: renaming a retained node onto a hidden node can prevent restoration, and moving a retained node to `u32::MAX - 1` can prevent allocation of one new holder even when the renaming remains injective on all existing source nodes. Source arc slots and fan-placement coordinates likewise stay fixed. These cases prevent extending the finite permutation result to every injective view map.
 
 ### Definitions used
 
-Two state pairs are *coherently renamed* when one injective map is applied to every occurrence of each view carrier and nowhere else. Source-shape equivalence is exact tree equality after transporting ids through the induced source map.
+A *source occurrence* has the coordinate `(holder, reference, index)`. A get-produced complement records each such occurrence once. A coherent presentation renaming moves its recorded edge or span id in the view and in every complement coordinate that denotes it, while preserving the occurrence coordinate, exact hidden residue, structural arc slots, retained fan coordinates, and unindexed edited carriers. Purity means that callback outputs depend only on their arguments and the fixed external context. Equivariance of provider callbacks means that related inputs yield the same literals and external context and related carrier outputs. It is a premise about callback observations, not about the success verdict being proved; the provider trait alone does not establish it. In this law, admission means that put returns a source: either a domain error or an operational error is a refusal. The public `check_put_domain` reports structural-domain diagnostics and does not certify operational success.
 
 ### Proof
 
-A coherent renaming moves view ids and nothing else. Put reads a view carrier only through its id and the complement coordinates that denote it, and it writes the source from occurrence literals, recorded fragments, and source coordinates, none of which is a view id. Every comparison put makes between a view carrier and a complement coordinate is an equality of ids, and $\rho$ is injective, so each comparison has the same outcome before and after renaming. The domain verdicts therefore agree with their locations renamed. Put also writes the same literals at the same source sites, and the only view ids that survive into the source are the retained source nodes, which $\rho$ moves through the induced source map. The renamed put is thus the original put transported through that map.
+1. Injectivity preserves every equality test between a recorded presentation carrier and its occurrences in the view or complement. Fixing the remaining support preserves structural classification, hidden-fragment restoration sites, new-occurrence identities, and synthesis keys. Thus the same semantic occurrences are retained, removed, or edited.
+2. Source ids, arc slots and fan coordinates are fixed. The source allocation floors, the demand for new holders, their order, and fan restoration are consequently identical. No renaming changes available source capacity.
+3. Recorded callbacks and literal writes run in source-occurrence order. Equivariant successful callbacks therefore provide the same choices in the same order; choosing and applying a form has the same result, including when two declarations write the same source field. Recorded edge ids locate failures but do not decide the last writer. An unreadable many-valued occurrence is located by its first surviving source index, independently of its edge id.
+4. Reconstruction hence produces identical source data. Re-resolution sees that same source and fixed external context. Its comparison with the edited view uses corresponding synthesis keys and fixed unindexed carriers, so admission agrees. A classification obstruction remains a refusal on both sides: reconstruction either returns its domain error or stops earlier with an operational error. Neither path returns a source, even when the error categories or secondary diagnostics differ. Admitted states return the identical reconstructed source. On the finite diagnostic carriers, comparisons transport locations and then apply the ordinary sorting and deduplication rules again.
 
-The executable halves check this on both models. The declared tree-to-graph test renames every view node id, by all 120 permutations of the five-node view, together with every resolution edge id, in the view and in each complement coordinate that denotes a view carrier (a structural edge id of a tree view is the source's arc slot, a source coordinate, and is not renamed): occurrence carriers and holders, definition targets and holders, child orders, spanning parents, span nodes with their nested text sites, and unresolved holders and candidates. For each of the 48 candidates the renamed put has the original verdict, and an admitted renamed put equals the original put with its node ids transported. The five-law test checks transported violation lists under every injective edge renaming. The reference property test checks, for generated states and offsets, that the model's renamed verdicts are the transported ones and that admitted renamed states put to the same source.
+The declared tree-to-graph certificate additionally checks all 120 retained-node permutations of its five-node view on each of the 48 candidates, together with coherent resolution-edge renaming and fixed structural arc slots. Its admitted results are the original results with source node ids transported. The bounded indexed reference property checks its generated states and offsets. These are explicit finite extensions of the general presentation law, with their own tested carriers.
 
 ### Executable counterpart
 
@@ -216,6 +223,11 @@ The executable halves check this on both models. The declared tree-to-graph test
 - Evidence scope: `panproto_reference::enumerate::resolution::injective_renamings; bound: image_ceiling=5, node_permutations=120`
 - Production certificate: `declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope)'`
 - Independent reference anchor: `coherent_reference_renaming_is_a_property_of_every_generated_state; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=coherent_reference_renaming_is_a_property_of_every_generated_state)'`
+- Fixed differential test: `synthesized_edge_order_preserves_exact_hidden_spelling; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=synthesized_edge_order_preserves_exact_hidden_spelling)'`
+- Fixed operational-order control: `redirect_callback_failures_follow_source_order_after_synthesis_swap; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=redirect_callback_failures_follow_source_order_after_synthesis_swap)'`
+- Fixed diagnostic-transport control: `unreadable_many_reference_blames_its_first_source_index_after_synthesis_swap; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=unreadable_many_reference_blames_its_first_source_index_after_synthesis_swap)'`
+- Outside-domain boundary control: `injective_retained_parent_renaming_can_exhaust_new_redirect_holder_ids; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=injective_retained_parent_renaming_can_exhaust_new_redirect_holder_ids)'`
+- File: `crates/panproto-io/tests/resolution_corpus.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
@@ -243,11 +255,11 @@ None.
 
 ### Statement
 
-Let $s'=\operatorname{put}_R(v,c)$ and let $(v',c')=\operatorname{get}_R(s')$. Transport $c'$ from the synthesized presentation of $v'$ to that of $v$ through the synthesis-index bijection produced by PutGet. When both puts are admitted, putting $v$ against the transported $c'$ returns $s'$ exactly. This is the gated PutTwice law. The raw form using untransported $c'$ is not asserted.
+Let $s'=\operatorname{put}_R(v,c)$ and let $(v',c')=\operatorname{get}_R(s')$. Transport $c'$ from the synthesized presentation of $v'$ to that of $v$ through the synthesis-index bijection produced by PutGet. Under the provider-equivariance premise of [L-resolution-4](#L-resolution-4), when both puts are admitted, putting $v$ against the transported $c'$ returns $s'$ exactly. This is the gated PutTwice law. The raw form using untransported $c'$ is not asserted.
 
 ### Outside the domain
 
-Declarations that use a deferred form are outside every law of this page; production refuses them at compilation. The gate applies only when the first put succeeds, get succeeds on its source, PutGet supplies the coherent presentation map, and the second state is admitted. A raw-id mismatch is not a law failure before transport.
+Declarations that use a deferred form are outside every law of this page; production refuses them at compilation. The gate applies only when the first put succeeds, get succeeds on its source, PutGet supplies a coherent presentation map satisfying the support and provider premises of L-resolution-4, and the second state is admitted. A raw-id mismatch is not a law failure before transport.
 
 ### Definitions used
 
@@ -255,7 +267,7 @@ The synthesis index and coherent transport are those of [L-resolution-2](#L-reso
 
 ### Proof
 
-Let $s'=\operatorname{put}_R(v,c)$, $(v'',c')=\operatorname{get}_R(s')$, and let $\rho$ be the coherent renaming from the synthesized presentation of $v''$ to that of $v$, so that $\rho(v'')=v$ by [L-resolution-2](#L-resolution-2). The route through GetPut and Congruence alone gives only that $\operatorname{put}_R(v,\rho(c'))$ is admitted and *equivalent* to $s'$, since Congruence asserts equivalence of puts. The missing step is that the equivalence is equality here. The renaming $\rho$ moves only synthesized carriers: resolution edges and span nodes. Put removes every resolution edge and every synthesized span node before it reconstructs the source, and it writes the source from occurrence literals and source coordinates, which $\rho$ fixes. The source map that $\rho$ induces is thus the identity. By the argument of [L-resolution-4](#L-resolution-4), putting the renamed state yields the original put transported through the identity, so
+Let $s'=\operatorname{put}_R(v,c)$ and $(v'',c')=\operatorname{get}_R(s')$. GetPut gives $\operatorname{put}_R(v'',c')=s'$. The synthesis-index bijection supplies a coherent map $\rho$ with $\rho(v'')=v$, fixing source coordinates. Under the support and provider premises of [L-resolution-4](#L-resolution-4), its presentation-renaming law gives exact equality of the puts, so
 
 $$\operatorname{put}_R(v,\rho(c'))=\operatorname{put}_R(\rho(v''),\rho(c'))=\operatorname{put}_R(v'',c')=s',$$
 

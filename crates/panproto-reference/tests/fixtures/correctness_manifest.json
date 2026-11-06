@@ -1174,6 +1174,18 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "randomized_canonical_scalar_reading"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::schema_v2",
+              "test": "double_quoted_readers_require_escaped_interior_quotes"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "json_interior_quote_refusals_and_escapes_match_reference"
             }
           ]
         },
@@ -5917,6 +5929,30 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "coherent_reference_renaming_is_a_property_of_every_generated_state"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::resolution_corpus",
+              "test": "synthesized_edge_order_preserves_exact_hidden_spelling"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io::resolution_corpus",
+              "test": "redirect_callback_failures_follow_source_order_after_synthesis_swap"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io::resolution_corpus",
+              "test": "unreadable_many_reference_blames_its_first_source_index_after_synthesis_swap"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io::resolution_corpus",
+              "test": "injective_retained_parent_renaming_can_exhaust_new_redirect_holder_ids"
             }
           ]
         },

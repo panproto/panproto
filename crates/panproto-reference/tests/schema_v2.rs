@@ -1163,3 +1163,30 @@ fn tabular_edge_cases_are_literal() {
     assert!(panproto_reference::value_io::tsv_quote("x\"y"));
     assert!(!panproto_reference::value_io::tsv_quote("x\ty"));
 }
+
+#[test]
+fn double_quoted_readers_require_escaped_interior_quotes() {
+    use panproto_reference::value_io::{Route, ValueIoError};
+    for route in [Route::Json, Route::Toml, Route::Yaml] {
+        for token in ["\"\"\"", "\"a\"b\"", "\"\" \"\"", "\"\\\\\"\""] {
+            assert_eq!(
+                panproto_reference::value_io::parse(route, token.as_bytes()),
+                Err(ValueIoError::Malformed),
+                "an interior quote cannot terminate a scalar prefix: {route:?} {token:?}"
+            );
+        }
+        for (token, expected) in [
+            ("\"\"", ""),
+            ("\"\\\"\"", "\""),
+            ("\"a\\\"b\"", "a\"b"),
+            ("\"\\\\\"", "\\"),
+            ("\"\\u0022\"", "\""),
+        ] {
+            assert_eq!(
+                panproto_reference::value_io::parse(route, token.as_bytes()),
+                Ok(Value::Str(expected.to_owned())),
+                "legal quote and backslash escapes remain admitted: {route:?} {token:?}"
+            );
+        }
+    }
+}

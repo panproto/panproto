@@ -804,7 +804,15 @@ impl Resolution {
         let targets = occurrence_targets(&regotten, &recomplement);
         let mut written = Vec::new();
         let mut failures = Vec::new();
-        for (id, record) in &classified.occurrences {
+        let mut occurrences: Vec<_> = classified.occurrences.iter().collect();
+        occurrences.sort_by(|(_, left), (_, right)| {
+            (&left.holder, &left.reference, left.index).cmp(&(
+                &right.holder,
+                &right.reference,
+                right.index,
+            ))
+        });
+        for (id, record) in occurrences {
             let (Some(compiled), ViewRef::Node(holder), Some(edge)) = (
                 self.compiled.get(&record.reference),
                 &record.holder,
@@ -1141,7 +1149,13 @@ fn write_literals<'h, 'r: 'h>(
             });
         }
     }
-    for (carrier, (holder, compiled, index, literal)) in rewrites {
+    // Presentation edge ids name failures, but source occurrence coordinates
+    // decide which writer runs last when declarations overlap.
+    let mut ordered: Vec<_> = rewrites.iter().collect();
+    ordered.sort_by(|(_, left), (_, right)| {
+        (left.0, &left.1.reference.id, left.2).cmp(&(right.0, &right.1.reference.id, right.2))
+    });
+    for (carrier, (holder, compiled, index, literal)) in ordered {
         if write_literal(candidate, *holder, compiled, *index, literal).is_err() {
             failures.push(ResolveDomainError::UnrepresentableReference {
                 carrier: ViewRef::Edge(*carrier),

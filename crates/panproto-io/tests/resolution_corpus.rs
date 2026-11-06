@@ -8551,3 +8551,601 @@ fn a_reconnect_after_a_removal_is_written_at_its_shifted_index() {
         ])))
     );
 }
+
+#[test]
+fn injective_retained_parent_renaming_can_exhaust_new_redirect_holder_ids() {
+    let (resolution, _) = posts_resolution(|reference| {
+        reference.cardinality = Cardinality::Many;
+        reference.mode = ResolveMode::Redirect;
+    });
+    let source = AnyInstance::Tree(posts_tree_with(
+        Value::List(vec![text("u1"), text("u1")]),
+        Value::List(vec![text("u2")]),
+    ));
+    let (mut view, complement) = get(&resolution, &source);
+    let copy = view
+        .edge(occurrence_edge(&complement, 5))
+        .expect("recorded post reference")
+        .clone();
+    view.insert_edge(panproto_inst::EdgeId(60), copy)
+        .expect("new redirect adds one holder");
+    assert_eq!(
+        resolution.check_put_domain(
+            &AnyInstance::Graph(view.clone()),
+            &complement,
+            &ResolveContext::empty()
+        ),
+        Ok(())
+    );
+    put_tree(&resolution, &view, &complement).expect("baseline candidate admits a new holder");
+
+    let high = u32::MAX - 1;
+    let rename = |id| if id == 0 { high } else { id };
+    let mut renamed_view = GInstance::new();
+    for (_, node) in view.nodes() {
+        let mut node = node.clone();
+        node.id = rename(node.id);
+        renamed_view
+            .insert_node(node)
+            .expect("injective on all retained IDs");
+    }
+    for (id, edge) in view.edges_sorted() {
+        let mut edge = edge.clone();
+        edge.src = rename(edge.src);
+        edge.tgt = rename(edge.tgt);
+        renamed_view
+            .insert_edge(id, edge)
+            .expect("source slots and reference IDs fixed");
+    }
+    let mut renamed_complement = complement.clone();
+    let children = renamed_complement.order.remove(&0).expect("root order");
+    assert!(renamed_complement.order.insert(high, children).is_none());
+    for fragment in renamed_complement.redirected.values_mut() {
+        let attachment = fragment.attachment.as_mut().expect("attachment");
+        assert_eq!(attachment.parent, 0);
+        attachment.parent = high;
+    }
+    let AnyInstance::Tree(source) = source else {
+        panic!("tree fixture")
+    };
+    let image: BTreeSet<_> = source.nodes.keys().copied().map(rename).collect();
+    assert_eq!(
+        image.len(),
+        source.nodes.len(),
+        "full source-support injection"
+    );
+    assert!(
+        matches!(
+            put_tree(&resolution, &renamed_view, &renamed_complement),
+            Err(ResolveError::IdExhausted {
+                kind: panproto_inst::segment::IdKind::Node
+            })
+        ),
+        "one small new holder requires an unavailable ID above the renamed parent"
+    );
+}
+
+fn overlapping_redirect_writers(fail_forms: bool) -> Resolution {
+    use panproto_schema::{KeyEquality, SqlCollation, SqlPad};
+    let base = protocol(
+        "overlapping-writers",
+        InstanceShapeKind::Tree,
+        InstanceShapeKind::Graph,
+    );
+    let first_edge = edge("link", "a", "ref", Some("first"));
+    let second_edge = edge("link", "b", "ref", Some("second"));
+    let mut first = reference(
+        "first",
+        "link",
+        RefSource::KeyValue {
+            parts: vec![Vec::new()],
+        },
+        "a",
+        first_edge.clone(),
+    );
+    first.mode = ResolveMode::Redirect;
+    let mut second = reference(
+        "second",
+        "link",
+        RefSource::KeyValue {
+            parts: vec![Vec::new()],
+        },
+        "b",
+        second_edge.clone(),
+    );
+    second.mode = ResolveMode::Redirect;
+    let mut insensitive = key(
+        "id",
+        vec![KeyPart::Path(Vec::new())],
+        KeyRole::Primary,
+        KeyScope::Document,
+    );
+    insensitive.equality = vec![KeyEquality::Sql {
+        collation: SqlCollation::AsciiCaseInsensitive,
+        pad: SqlPad::PadSpace,
+    }];
+    let schema = SchemaBuilder::new(&base)
+        .vertex("doc", "object", None)
+        .expect("doc")
+        .vertex("a", "string", None)
+        .expect("first target kind")
+        .vertex("b", "string", None)
+        .expect("second target kind")
+        .vertex("link", "string", None)
+        .expect("shared holder")
+        .edge("doc", "a", "prop", Some("a"))
+        .expect("first children")
+        .edge("doc", "b", "prop", Some("b"))
+        .expect("second children")
+        .edge("doc", "link", "prop", Some("links"))
+        .expect("holder child")
+        .edge("link", "a", "ref", Some("first"))
+        .expect("first resolution")
+        .edge("link", "b", "ref", Some("second"))
+        .expect("second resolution")
+        .entry("doc")
+        .key("a", insensitive.clone())
+        .key("b", insensitive)
+        .reference(first)
+        .reference(second)
+        .build()
+        .expect("valid declarations");
+    let writers = [(&first_edge, "first"), (&second_edge, "second")];
+    if fail_forms {
+        let provider = FailingQualifiedForms(Provider {
+            id: provider_id("overlapping-writers"),
+            protocol: base.clone(),
+            kind: ResolutionKind::TreeToGraph,
+            spec: spec_for(
+                "overlapping-writers",
+                ResolutionKind::TreeToGraph,
+                &schema,
+                &writers,
+                &[],
+            ),
+            paths: BTreeMap::new(),
+            context: None,
+        });
+        Resolution::for_protocol(&base, &schema, Arc::new(provider)).expect("failing forms fixture")
+    } else {
+        compile(
+            "overlapping-writers",
+            ResolutionKind::TreeToGraph,
+            &schema,
+            &writers,
+        )
+    }
+}
+
+#[test]
+fn synthesized_edge_order_preserves_exact_hidden_spelling() {
+    reference_overlapping_writers_preserve_source();
+    let resolution = overlapping_redirect_writers(false);
+    let source = overlapping_writer_source();
+    let (mut view, complement) = get(&resolution, &source);
+    assert_eq!(complement.redirected.len(), 1, "one shared hidden holder");
+    let occurrence = |name: &str| {
+        complement
+            .occurrences
+            .iter()
+            .find_map(|(carrier, records)| match carrier {
+                ViewRef::Edge(id) if records[0].reference.as_str() == name => Some(*id),
+                _ => None,
+            })
+            .expect("recorded declaration")
+    };
+    let first = occurrence("first");
+    let second = occurrence("second");
+    assert!(
+        first < second,
+        "the fixture establishes the original write order"
+    );
+    view.set_endpoints(first, 0, 2).expect("retarget first");
+    view.set_endpoints(second, 0, 4).expect("retarget second");
+    let baseline = put_tree(&resolution, &view, &complement).expect("both rewrites admitted");
+    let AnyInstance::Tree(mut expected) = source else {
+        panic!("tree fixture")
+    };
+    expected.nodes.get_mut(&5).expect("hidden holder").value =
+        Some(FieldPresence::Present(text("B")));
+    assert!(
+        same(
+            &AnyInstance::Tree(baseline.clone()),
+            &AnyInstance::Tree(expected)
+        ),
+        "production and independent reference restore the same complete source"
+    );
+    assert_eq!(
+        baseline.nodes[&5].value,
+        Some(FieldPresence::Present(text("B"))),
+        "second writer wins before renaming"
+    );
+
+    let rename = |id| {
+        if id == first {
+            second
+        } else if id == second {
+            first
+        } else {
+            id
+        }
+    };
+    let mut swapped = GInstance::new();
+    for (_, node) in view.nodes() {
+        swapped
+            .insert_node(node.clone())
+            .expect("source nodes fixed");
+    }
+    for (id, edge) in view.edges_sorted() {
+        swapped
+            .insert_edge(rename(id), edge.clone())
+            .expect("injective synthesized edge swap");
+    }
+    let mut swapped_complement = complement.clone();
+    swapped_complement.occurrences = complement
+        .occurrences
+        .iter()
+        .map(|(carrier, records)| {
+            let ViewRef::Edge(id) = carrier else {
+                panic!("only edge occurrences")
+            };
+            (ViewRef::Edge(rename(*id)), records.clone())
+        })
+        .collect();
+    assert_eq!(
+        resolution.check_put_domain(
+            &AnyInstance::Graph(swapped.clone()),
+            &swapped_complement,
+            &ResolveContext::empty()
+        ),
+        Ok(())
+    );
+    let after = put_tree(&resolution, &swapped, &swapped_complement)
+        .expect("swapped recorded edges remain admitted");
+    assert_eq!(
+        after.nodes[&5].value,
+        Some(FieldPresence::Present(text("B"))),
+        "source declaration order survives renaming"
+    );
+    assert!(
+        same(&AnyInstance::Tree(after), &AnyInstance::Tree(baseline)),
+        "all source nodes, values, arcs and fan records agree exactly"
+    );
+}
+
+#[test]
+fn unreadable_many_reference_blames_its_first_source_index_after_synthesis_swap() {
+    let mut declaration = Standoff::local("mention", OffsetUnit::Byte);
+    declaration.many = true;
+    let resolution = notes(&[declaration], &[]);
+    let source = AnyInstance::Tree(notes_tree(vec![note(
+        1,
+        &[
+            ("text", text("hello world")),
+            ("start", Value::List(vec![int(0), int(6)])),
+            ("end", Value::List(vec![int(5), int(11)])),
+        ],
+    )]));
+    let (mut view, complement) = get(&resolution, &source);
+    let mut occurrences: Vec<_> = complement
+        .occurrences
+        .iter()
+        .map(|(carrier, records)| {
+            let ViewRef::Edge(id) = carrier else {
+                panic!("edge occurrence")
+            };
+            assert_eq!(records.len(), 1);
+            (records[0].index, *id)
+        })
+        .collect();
+    occurrences.sort_unstable();
+    assert_eq!(occurrences.len(), 2, "two genuine source occurrences");
+    let first = occurrences[0].1;
+    let second = occurrences[1].1;
+    view.node_mut(1)
+        .expect("source holder")
+        .extra_fields
+        .insert(
+            "start".to_owned(),
+            Value::List(vec![text("invalid offset"), int(6)]),
+        );
+    assert_eq!(
+        violations_of(&resolution, &view, &complement, &ctx()),
+        vec![ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Edge(first),
+            reference: "mention".into(),
+        },]
+    );
+    let rename = |id| {
+        if id == first {
+            second
+        } else if id == second {
+            first
+        } else {
+            id
+        }
+    };
+    let mut swapped = GInstance::new();
+    for (_, node) in view.nodes() {
+        swapped.insert_node(node.clone()).expect("fixed nodes");
+    }
+    for (id, edge) in view.edges_sorted() {
+        swapped
+            .insert_edge(rename(id), edge.clone())
+            .expect("injective edge swap");
+    }
+    let mut transported = complement.clone();
+    transported.occurrences = complement
+        .occurrences
+        .iter()
+        .map(|(carrier, records)| {
+            let ViewRef::Edge(id) = carrier else {
+                panic!("edge occurrence")
+            };
+            (ViewRef::Edge(rename(*id)), records.clone())
+        })
+        .collect();
+    assert_eq!(
+        violations_of(&resolution, &swapped, &transported, &ctx()),
+        vec![ResolveDomainError::UnrepresentableReference {
+            carrier: ViewRef::Edge(second),
+            reference: "mention".into(),
+        },],
+        "the complete diagnostic transports the first source occurrence"
+    );
+}
+
+/// A pure provider with a distinct operational failure for each declaration.
+struct FailingQualifiedForms(Provider);
+
+impl ResolutionProvider for FailingQualifiedForms {
+    fn id(&self) -> ResolutionProviderId {
+        self.0.id()
+    }
+    fn kind(&self) -> ResolutionKind {
+        self.0.kind()
+    }
+    fn protocol(&self) -> &Protocol {
+        self.0.protocol()
+    }
+    fn spec(&self, protocol: &Protocol, schema: &Schema) -> Result<ResolutionSpec, ResolveError> {
+        self.0.spec(protocol, schema)
+    }
+    fn qualified_forms(
+        &self,
+        reference: &Reference,
+        _holder: ViewRef,
+        _target: ViewRef,
+        _first: &Value,
+        _view: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<Vec<Value>, ResolveError> {
+        Err(ResolveError::ProviderFailure {
+            provider: self.id(),
+            code: reference.id.clone(),
+            at: None,
+        })
+    }
+}
+
+#[test]
+fn redirect_callback_failures_follow_source_order_after_synthesis_swap() {
+    let resolution = overlapping_redirect_writers(true);
+    let source = overlapping_writer_source();
+    let (mut view, complement) = get(&resolution, &source);
+    for (carrier, records) in &complement.occurrences {
+        let ViewRef::Edge(id) = carrier else {
+            panic!("edge occurrence")
+        };
+        let target = if records[0].reference.as_str() == "first" {
+            2
+        } else {
+            4
+        };
+        view.set_endpoints(*id, 0, target).expect("changed target");
+    }
+    let ids: Vec<_> = complement
+        .occurrences
+        .keys()
+        .map(|carrier| {
+            let ViewRef::Edge(id) = carrier else {
+                panic!("edge occurrence")
+            };
+            *id
+        })
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert_first_writer_failure(put_tree(&resolution, &view, &complement));
+    let rename = |id| {
+        if id == ids[0] {
+            ids[1]
+        } else if id == ids[1] {
+            ids[0]
+        } else {
+            id
+        }
+    };
+    let mut swapped = GInstance::new();
+    for (_, node) in view.nodes() {
+        swapped.insert_node(node.clone()).expect("fixed nodes");
+    }
+    for (id, edge) in view.edges_sorted() {
+        swapped
+            .insert_edge(rename(id), edge.clone())
+            .expect("injective edge swap");
+    }
+    let mut transported = complement.clone();
+    transported.occurrences = complement
+        .occurrences
+        .iter()
+        .map(|(carrier, records)| {
+            let ViewRef::Edge(id) = carrier else {
+                panic!("edge occurrence")
+            };
+            (ViewRef::Edge(rename(*id)), records.clone())
+        })
+        .collect();
+    assert_first_writer_failure(put_tree(&resolution, &swapped, &transported));
+}
+
+fn overlapping_writer_source() -> AnyInstance {
+    AnyInstance::Tree(tree(
+        vec![
+            Node::new(0, "doc"),
+            leaf(1, "a", text("a")),
+            leaf(2, "a", text("b")),
+            leaf(3, "b", text("A")),
+            leaf(4, "b", text("B")),
+            leaf(5, "link", text("a")),
+        ],
+        vec![
+            (0, 1, prop("doc", "a", "a")),
+            (0, 2, prop("doc", "a", "a")),
+            (0, 3, prop("doc", "b", "b")),
+            (0, 4, prop("doc", "b", "b")),
+            (0, 5, prop("doc", "link", "links")),
+        ],
+        0,
+    ))
+}
+
+fn assert_first_writer_failure(result: Result<WInstance, ResolveError>) {
+    let Err(ResolveError::ProviderFailure { provider, code, at }) = result else {
+        panic!("expected the first source writer's provider failure, got {result:?}");
+    };
+    assert_eq!(provider, provider_id("overlapping-writers"));
+    assert_eq!(code.as_str(), "first");
+    assert_eq!(at, None);
+}
+
+fn reference_overlapping_writer_fixture() -> (
+    panproto_reference::schema::Schema,
+    panproto_reference::model::Tree,
+) {
+    use panproto_reference::keys::{KeyEquality, SqlCollation, SqlPad};
+    use panproto_reference::value::Value as V;
+    use panproto_reference::{model as m, schema as r};
+    let mut schema = r::Schema::default()
+        .vertex("doc", "object")
+        .vertex("a", "string")
+        .vertex("b", "string")
+        .vertex("link", "string");
+    for (name, target) in [("first", "a"), ("second", "b")] {
+        let label = m::SEdge::new("link", target, "ref", Some(name));
+        schema.edges.insert(label.clone());
+        schema.keys.insert(
+            target.to_owned(),
+            vec![r::Key {
+                id: "id".to_owned(),
+                parts: vec![r::KeyPart::Path(vec![])],
+                role: r::KeyRole::Primary,
+                scope: r::KeyScope::Document,
+                equality: vec![KeyEquality::Sql {
+                    collation: SqlCollation::AsciiCaseInsensitive,
+                    pad: SqlPad::PadSpace,
+                }],
+            }],
+        );
+        schema.references.insert(
+            name.to_owned(),
+            r::Reference {
+                id: name.to_owned(),
+                holder: "link".to_owned(),
+                source: r::RefSource::KeyValue {
+                    parts: vec![vec![]],
+                },
+                target_vertex: target.to_owned(),
+                target_key: None,
+                edge: Some(label),
+                cardinality: r::Cardinality::One,
+                nullable: false,
+                on_unresolved: r::OnUnresolved::Error,
+                mode: r::ResolveMode::Redirect,
+                guard: None,
+                null_match: r::NullMatch::Simple,
+                null_vertex: None,
+                scope_via: None,
+            },
+        );
+    }
+    schema.entries.push("doc".to_owned());
+    let mut nodes = BTreeMap::from([(0, m::Node::new(0, "doc"))]);
+    let mut arcs = Vec::new();
+    for (id, anchor, value, field) in [
+        (1, "a", "a", "a"),
+        (2, "a", "b", "a"),
+        (3, "b", "A", "b"),
+        (4, "b", "B", "b"),
+        (5, "link", "a", "links"),
+    ] {
+        nodes.insert(
+            id,
+            m::Node::new(id, anchor).with_value(V::Str(value.to_owned())),
+        );
+        let label = m::SEdge::new("doc", anchor, "prop", Some(field));
+        schema.edges.insert(label.clone());
+        arcs.push((0, id, label));
+    }
+    (
+        schema,
+        m::Tree {
+            nodes,
+            arcs,
+            fans: vec![],
+            root: 0,
+        },
+    )
+}
+
+fn reference_overlapping_writers_preserve_source() {
+    use panproto_reference::model::Presence;
+    use panproto_reference::resolution::{get, put};
+    use panproto_reference::value::Value as V;
+    let (schema, source) = reference_overlapping_writer_fixture();
+    let (mut view, complement) = get(&schema, &source, false).expect("independent get");
+    assert_eq!(complement.resolved.len(), 2);
+    for (id, record) in &complement.resolved {
+        view.edges.get_mut(id).expect("recorded edge").tgt =
+            if record.reference == "first" { 2 } else { 4 };
+    }
+    let mut expected = source;
+    expected.nodes.get_mut(&5).expect("hidden holder").value =
+        Some(Presence::Present(V::Str("B".to_owned())));
+    assert_eq!(
+        put(&schema, &view, &complement),
+        Ok(expected.clone()),
+        "independent source-key writer order before rekeying"
+    );
+    let ids: Vec<_> = complement.resolved.keys().copied().collect();
+    let rename = |id| {
+        if id == ids[0] {
+            ids[1]
+        } else if id == ids[1] {
+            ids[0]
+        } else {
+            id
+        }
+    };
+    let mut swapped = view;
+    swapped.edges = swapped
+        .edges
+        .into_iter()
+        .map(|(id, edge)| (rename(id), edge))
+        .collect();
+    let mut transported = complement;
+    transported.resolved = transported
+        .resolved
+        .into_iter()
+        .map(|(id, record)| (rename(id), record))
+        .collect();
+    transported.targets = transported
+        .targets
+        .into_iter()
+        .map(|(id, target)| (rename(id), target))
+        .collect();
+    assert_eq!(
+        put(&schema, &swapped, &transported),
+        Ok(expected),
+        "independent full source survives the same synthesized edge swap"
+    );
+}
