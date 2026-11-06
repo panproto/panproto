@@ -4453,7 +4453,7 @@ mod randomized {
     fn assert_generated_declared_case(source: &IndexedSource, choice: usize) {
         let (schema, tree, picked) = reference_pick_tree(source);
         let (view, complement) = reference_get(&schema, &tree, false).unwrap();
-        assert_eq!(reference_put(&schema, &view, &complement), Ok(tree.clone()));
+        assert_eq!(reference_put(&schema, &view, &complement), Ok(tree));
         let (resolution, actual_picked) = tree_picks();
         let actual_tree = production_pick_tree(source);
         let (actual_view, actual_complement) =

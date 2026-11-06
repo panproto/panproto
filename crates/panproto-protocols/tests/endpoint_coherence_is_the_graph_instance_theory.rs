@@ -564,11 +564,15 @@ proptest::proptest! {
         edges in proptest::collection::vec((0_usize..3, 0_usize..3, 0_usize..3), 0..=3),
     ) {
         let schema = schema();
-        let plan = ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+        let plan = ValidationPlan::compile(
+            &schema, &Protocol::default(), &ValidationOptions::default(),
+        );
         let labels = [edge("a", "b", "ab"), edge("a", "a", "aa"), edge("z", "b", "zb")];
         let mut graph = GInstance::new();
         for (id, anchor) in anchors.iter().enumerate() {
-            graph = graph.with_node(Node::new(u32::try_from(id).unwrap(), ["a", "b", "z"][*anchor]));
+            graph = graph.with_node(Node::new(
+                u32::try_from(id).unwrap(), ["a", "b", "z"][*anchor],
+            ));
         }
         if !anchors.is_empty() {
             for (source, target, label) in edges {

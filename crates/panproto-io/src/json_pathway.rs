@@ -3664,7 +3664,7 @@ mod tests {
             let expected = encode_bytes(&bytes, encoding);
             let mut actual = Vec::new();
             let emitted = write_json_value_at_depth(
-                &Value::Bytes(bytes.clone()), &ValueSpec::new(ScalarKind::Bytes(encoding.clone())),
+                &Value::Bytes(bytes), &ValueSpec::new(ScalarKind::Bytes(encoding.clone())),
                 &ValueSite::new("value", None), &mut actual, 0,
             );
             match expected {

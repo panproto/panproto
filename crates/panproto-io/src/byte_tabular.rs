@@ -113,7 +113,7 @@ impl ByteTabularCodec {
     /// [`ParseInstanceError::SchemaMismatch`] on parse and
     /// [`EmitInstanceError::Emit`] on emit, before reading or writing
     /// anything. This is the entry rule of a configured table vertex that
-    /// the TSV [`UnifiedCodec`](crate::unified_codec::UnifiedCodec)
+    /// the TSV `UnifiedCodec` under the `tree-sitter` feature
     /// applies, so a protocol registered with this codec in one build and
     /// with that one in another answers a schema the same way in both.
     #[must_use]
