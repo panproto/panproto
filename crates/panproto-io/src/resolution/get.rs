@@ -194,7 +194,14 @@ impl Resolution {
             node_of(&occurrence.holder).is_some_and(|holder| {
                 !inside.contains(&holder)
                     || (complement.redirected.contains_key(&holder)
-                        && redirects(occurrence, outcome))
+                        && (redirects(occurrence, outcome)
+                            || matches!(
+                                outcome,
+                                Outcome::Dangling
+                                    | Outcome::Ambiguous(_)
+                                    | Outcome::Unselected(_)
+                                    | Outcome::Definition
+                            )))
             })
         };
         let recorded: Vec<&Admitted<'_>> = admitted
@@ -490,6 +497,14 @@ fn record_definition(
     occurrence: &Occurrence<'_>,
     target: u32,
 ) {
+    complement.definition_occurrences.push(RefOccurrence {
+        holder: occurrence.holder.clone(),
+        reference: occurrence.compiled.reference.id.clone(),
+        index: occurrence.index,
+        literal: occurrence.literal.clone(),
+        form: None,
+        context: occurrence.context,
+    });
     complement.definitions.insert(
         DefinitionKey {
             reference: occurrence.compiled.reference.id.clone(),

@@ -6464,6 +6464,10 @@ fn public_layout_floors_include_actual_ids_without_reservation_sets() {
             );
         }
     }
+    assert_public_layout_floor_exhaustion(&table, &side);
+}
+
+fn assert_public_layout_floor_exhaustion(table: &model::Table, side: &encode::GraphSide) {
     for node_floor in [false, true] {
         let mut layout = encode::GraphLayout::default();
         if node_floor {
@@ -6480,7 +6484,7 @@ fn public_layout_floors_include_actual_ids_without_reservation_sets() {
             );
         }
         assert_eq!(
-            public_layout_decode_agrees(&table, &side, &layout),
+            public_layout_decode_agrees(table, side, &layout),
             Err(if node_floor {
                 encode::DecodeTableError::NodeIdsExhausted
             } else {

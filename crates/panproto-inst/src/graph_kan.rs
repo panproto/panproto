@@ -2651,10 +2651,14 @@ mod tests {
         let cell = CellLayout {
             root: 0,
             attribute: EdgeLayout::default(),
-            nodes: BTreeMap::from([(0, Node::new(0, "record")), (1, Node::new(1, "leaf"))]),
+            nodes: BTreeMap::from([
+                (0, Node::new(0, "record")),
+                (1, Node::new(1, "leaf")),
+                (2, Node::new(2, "leaf")),
+            ]),
             edges: BTreeMap::from([
                 (EdgeId(0), GEdge::new(0, 1, first)),
-                (EdgeId(1), GEdge::new(0, 1, second)),
+                (EdgeId(1), GEdge::new(0, 2, second)),
             ]),
         };
         let agreeing = present(move_cell(&cell, &Name::from("image"), |edge, source| {
@@ -2665,9 +2669,26 @@ mod tests {
                 name: edge.name.clone(),
             })
         }));
+        assert_eq!(agreeing.nodes[&0].anchor, Name::from("image"));
         assert_eq!(agreeing.nodes[&1].anchor, Name::from("shared"));
+        assert_eq!(agreeing.nodes[&2].anchor, Name::from("shared"));
+        assert_eq!(agreeing.edges.len(), 2);
+        assert!(move_cell(&cell, &Name::from("image"), |_, _| None).is_none());
 
-        let conflict = move_cell(&cell, &Name::from("image"), |edge, source| {
+        // A shared leaf is not a value subtree, even when both images agree.
+        let mut shared = cell;
+        shared.nodes.remove(&2);
+        present(shared.edges.get_mut(&EdgeId(1))).tgt = 1;
+        assert!(
+            move_cell(&shared, &Name::from("image"), |edge, source| Some(Edge {
+                src: source.clone(),
+                tgt: Name::from("shared"),
+                kind: edge.kind.clone(),
+                name: edge.name.clone(),
+            }))
+            .is_none()
+        );
+        let conflict = move_cell(&shared, &Name::from("image"), |edge, source| {
             Some(Edge {
                 src: source.clone(),
                 tgt: edge.name.clone()?,

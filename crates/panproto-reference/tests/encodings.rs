@@ -525,6 +525,7 @@ fn table_decode_ignores_a_cyclic_layout_instead_of_emitting_a_cyclic_cell() {
 fn table_decode_uses_max_minus_one_but_never_the_reserved_maximum() {
     let arrow = SEdge::new("a", "value", "prop", Some("x"));
     let side = GraphSide {
+        value_vertices: BTreeSet::from(["value".to_owned()]),
         tables: BTreeSet::from(["a".to_owned()]),
         columns: BTreeMap::from([("a".to_owned(), BTreeMap::from([("x".to_owned(), arrow)]))]),
         ..GraphSide::default()

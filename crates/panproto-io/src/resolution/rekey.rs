@@ -142,6 +142,16 @@ impl Renaming {
                 (key, self.view_ref(holder))
             })
             .collect();
+        let hidden: BTreeSet<_> = complement
+            .redirected
+            .values()
+            .flat_map(|fragment| fragment.nodes.keys().copied())
+            .collect();
+        for record in &mut next.definition_occurrences {
+            if !matches!(&record.holder, ViewRef::Node(node) if hidden.contains(node)) {
+                record.holder = self.view_ref(&record.holder);
+            }
+        }
         next.order = complement
             .order
             .iter()
@@ -216,6 +226,8 @@ impl Renaming {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use panproto_inst::resolution_complement::{
         DefinitionKey, RedirectedArc, RedirectedAttachment, RedirectedFragment, RefOccurrence,
         ResolutionComplement, ResolutionSpan, ResolutionTextId, ResolutionValueSite,
@@ -257,6 +269,14 @@ mod tests {
             },
             ViewRef::Node(holder),
         );
+        complement.definition_occurrences.push(RefOccurrence {
+            holder: ViewRef::Node(holder),
+            reference: "v".into(),
+            index: 3,
+            literal: Value::Str("definition".into()),
+            form: None,
+            context: None,
+        });
         complement.spanning.insert(holder, ViewRef::Edge(EdgeId(0)));
         complement.order.insert(0, vec![ViewRef::Node(holder)]);
         complement.unresolved.push(UnresolvedRef {
@@ -316,6 +336,56 @@ mod tests {
     }
 
     #[test]
+    fn definition_occurrences_transport_only_visible_holders()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut complement = redirect_complement(1, 2);
+        for (index, holder) in (0_u32..).zip([1, 2, 4, 5, 7]) {
+            complement.definition_occurrences.push(RefOccurrence {
+                holder: ViewRef::Node(holder),
+                reference: "variable".into(),
+                index,
+                literal: Value::Str(format!("name-{holder}")),
+                form: Some("original".into()),
+                context: Some(panproto_inst::Digest([7; 32])),
+            });
+        }
+        let renaming = Renaming {
+            nodes: [(1, 11), (2, 12), (4, 14), (5, 15), (7, 17)]
+                .into_iter()
+                .collect(),
+            edges: BTreeMap::new(),
+        };
+        let renamed = renaming.complement(&complement);
+        assert_eq!(renamed.definition_occurrences.len(), 5);
+        assert_eq!(
+            renamed
+                .definition_occurrences
+                .iter()
+                .map(|record| record.holder.clone())
+                .collect::<Vec<_>>(),
+            [11, 12, 4, 5, 7].map(ViewRef::Node)
+        );
+        for original in &complement.definition_occurrences {
+            let mut expected = original.clone();
+            expected.holder = match &original.holder {
+                ViewRef::Node(1) => ViewRef::Node(11),
+                ViewRef::Node(2) => ViewRef::Node(12),
+                other => other.clone(),
+            };
+            let found = renamed
+                .definition_occurrences
+                .iter()
+                .find(|record| record.index == original.index)
+                .ok_or("renaming lost a definition occurrence")?;
+            assert_eq!(
+                serde_json::to_value(found)?,
+                serde_json::to_value(expected)?
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn a_renaming_is_the_identity_off_its_domain() {
         let renaming = Renaming::default();
         assert_eq!(renaming.node(4), 4);
@@ -341,7 +411,7 @@ mod tests {
                 edge: edge.clone(),
                 source_slot,
             }),
-            nodes: [(root, Node::new(root, "link"))].into_iter().collect(),
+            nodes: std::iter::once((root, Node::new(root, "link"))).collect(),
             arcs: Vec::new(),
             fans: Vec::new(),
         };
@@ -367,8 +437,10 @@ mod tests {
                 .with_child("other-hidden", 5)
                 .with_child("retained", parent),
         );
-        let mut complement = ResolutionComplement::default();
-        complement.redirected = [(4, first), (7, second)].into_iter().collect();
+        let mut complement = ResolutionComplement {
+            redirected: [(4, first), (7, second)].into_iter().collect(),
+            ..ResolutionComplement::default()
+        };
         complement.order.insert(
             parent,
             vec![ViewRef::Node(retained), ViewRef::Node(4), ViewRef::Node(7)],

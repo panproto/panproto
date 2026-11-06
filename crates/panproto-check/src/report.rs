@@ -658,13 +658,7 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             tgt,
             kind,
             name,
-        } => json!({
-            "type": "added_edge",
-            "src": src,
-            "tgt": tgt,
-            "kind": kind,
-            "name": name,
-        }),
+        } => edge_json("added_edge", src, tgt, kind, name.as_deref()),
         NonBreakingChange::ConstraintRelaxed {
             vertex_id,
             sort,
@@ -687,13 +681,7 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             tgt,
             kind,
             name,
-        } => json!({
-            "type": "removed_edge_non_governed",
-            "src": src,
-            "tgt": tgt,
-            "kind": kind,
-            "name": name,
-        }),
+        } => edge_json("removed_edge_non_governed", src, tgt, kind, name.as_deref()),
         NonBreakingChange::AddedNsid { vertex_id, nsid } => json!({
             "type": "added_nsid",
             "vertex_id": vertex_id,
@@ -750,6 +738,23 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             target_set_json("target_set_relaxed", set_id)
         }
     }
+}
+
+/// The JSON of an edge change, retaining every endpoint and label field.
+fn edge_json(
+    change_kind: &str,
+    src: &str,
+    tgt: &str,
+    kind: &str,
+    name: Option<&str>,
+) -> serde_json::Value {
+    json!({
+        "type": change_kind,
+        "src": src,
+        "tgt": tgt,
+        "kind": kind,
+        "name": name,
+    })
 }
 
 /// The JSON of a change identified by one declaration id.

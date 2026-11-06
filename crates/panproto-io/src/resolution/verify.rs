@@ -420,7 +420,13 @@ impl Resolution {
         );
         violations.extend(self.span_violations(view, complement, source, ctx));
         violations.extend(self.context_violations(view, complement, &recomplement));
-        violations.extend(self.unresolved_violations(complement, &recomplement));
+        violations.extend(self.unresolved_violations(view, complement, &recomplement));
+        violations.extend(definition_violations(
+            view,
+            complement,
+            source,
+            &recomplement,
+        ));
         Ok(violations)
     }
 
@@ -713,17 +719,7 @@ fn local_text(source: &AnyInstance, site: &ResolutionValueSite) -> Option<Vec<u8
 /// leave the index.
 pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplement) -> SynthIndex {
     let mut index = complement.synth_index();
-    let mut removed: BTreeMap<(&ViewRef, &Name), Vec<u32>> = BTreeMap::new();
-    for (carrier, records) in &complement.occurrences {
-        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
-            && view.edge(*id).is_none()
-        {
-            removed
-                .entry((&record.holder, &record.reference))
-                .or_default()
-                .push(record.index);
-        }
-    }
+    let removed = removed_occurrence_indices(view, complement);
     let mut shifted = BTreeSet::new();
     for (carrier, records) in &complement.occurrences {
         let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) else {
@@ -756,6 +752,73 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
         }
     }
     index
+}
+
+/// Original indices of removed resolved occurrences, grouped by source word.
+/// Unresolved entries do not have visible edges and are never removed here.
+fn removed_occurrence_indices<'a>(
+    view: &GInstance,
+    complement: &'a ResolutionComplement,
+) -> BTreeMap<(&'a ViewRef, &'a Name), Vec<u32>> {
+    let mut removed: BTreeMap<(&ViewRef, &Name), Vec<u32>> = BTreeMap::new();
+    for (carrier, records) in &complement.occurrences {
+        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
+            && view.edge(*id).is_none()
+        {
+            removed
+                .entry((&record.holder, &record.reference))
+                .or_default()
+                .push(record.index);
+        }
+    }
+    removed
+}
+
+/// Retained definitions keep their literal and fate after resolved deletions.
+/// New definitions in visible source data are checked by re-resolution itself.
+fn definition_violations(
+    view: &GInstance,
+    complement: &ResolutionComplement,
+    source: &AnyInstance,
+    recomplement: &ResolutionComplement,
+) -> Vec<ResolveDomainError> {
+    let removed = removed_occurrence_indices(view, complement);
+    complement
+        .definition_occurrences
+        .iter()
+        .filter(|record| {
+            let retained = match (source, &record.holder) {
+                (AnyInstance::Tree(tree), ViewRef::Node(id)) => tree.nodes.contains_key(id),
+                (AnyInstance::Graph(graph), ViewRef::Node(id)) => graph.node(*id).is_some(),
+                (AnyInstance::Table(table), ViewRef::Row(id)) => table.row(*id).is_some(),
+                _ => false,
+            };
+            let below = removed
+                .get(&(&record.holder, &record.reference))
+                .map_or(0, |indices| {
+                    indices
+                        .iter()
+                        .filter(|index| **index < record.index)
+                        .count()
+                });
+            let index = u32::try_from(below)
+                .ok()
+                .and_then(|below| record.index.checked_sub(below));
+            retained
+                && !recomplement.definition_occurrences.iter().any(|current| {
+                    current.holder == record.holder
+                        && current.reference == record.reference
+                        && Some(current.index) == index
+                        && current.literal.canonical_cmp(&record.literal).is_eq()
+                        && current.context == record.context
+                        && current.form == record.form
+                })
+        })
+        .map(|record| ResolveDomainError::UnrepresentableReference {
+            carrier: view_carrier(&record.holder),
+            reference: record.reference.clone(),
+        })
+        .collect()
 }
 
 /// The violation one unreadable occurrence of the candidate stands for.
@@ -868,12 +931,21 @@ fn new_span_violation(
 }
 
 /// Whether two unresolved occurrences are the same: same holder, reference,
-/// index and reason.
-fn same_unresolved(a: &UnresolvedRef, b: &UnresolvedRef) -> bool {
+/// reason and source position after deleted resolved occurrences compact the
+/// word. An unselected guard describes the holder, not a word position.
+fn same_unresolved(a: &UnresolvedRef, b: &UnresolvedRef, removed: &[u32]) -> bool {
     use panproto_inst::resolution_complement::UnresolvedReason;
+    let below = if matches!(a.reason, UnresolvedReason::Unselected { .. }) {
+        0
+    } else {
+        removed.iter().filter(|index| **index < a.index).count()
+    };
+    let index = u32::try_from(below)
+        .ok()
+        .and_then(|below| a.index.checked_sub(below));
     a.holder == b.holder
         && a.reference == b.reference
-        && a.index == b.index
+        && index == Some(b.index)
         && match (&a.reason, &b.reason) {
             (UnresolvedReason::Dangling, UnresolvedReason::Dangling) => true,
             (
@@ -1081,9 +1153,11 @@ impl Resolution {
     /// that the complement does not already record unresolved.
     fn unresolved_violations(
         &self,
+        view: &GInstance,
         complement: &ResolutionComplement,
         recomplement: &ResolutionComplement,
     ) -> Vec<ResolveDomainError> {
+        let removed = removed_occurrence_indices(view, complement);
         recomplement
             .unresolved
             .iter()
@@ -1091,10 +1165,12 @@ impl Resolution {
                 self.compiled
                     .get(&record.reference)
                     .is_some_and(|compiled| compiled.reference.on_unresolved == OnUnresolved::Error)
-                    && !complement
-                        .unresolved
-                        .iter()
-                        .any(|recorded| same_unresolved(recorded, record))
+                    && !complement.unresolved.iter().any(|recorded| {
+                        let gone = removed
+                            .get(&(&recorded.holder, &recorded.reference))
+                            .map_or(&[][..], Vec::as_slice);
+                        same_unresolved(recorded, record, gone)
+                    })
             })
             .map(|record| ResolveDomainError::UnrepresentableReference {
                 carrier: view_carrier(&record.holder),
@@ -1112,6 +1188,73 @@ mod tests {
     use super::view_diff;
     use crate::resolution::cases::tests::{small_schema, small_view};
     use crate::resolution::cases::{Cases, Presentation, graph_cases};
+
+    #[test]
+    fn retained_definition_fates_compact_without_forbidding_new_definitions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
+        use panproto_inst::{AnyInstance, Digest, Value};
+        let mut view = small_view()?;
+        let record = RefOccurrence {
+            holder: ViewRef::Node(3),
+            reference: "variable".into(),
+            index: 2,
+            literal: Value::Str("defined".into()),
+            form: None,
+            context: Some(Digest([1; 32])),
+        };
+        let mut before = ResolutionComplement {
+            definition_occurrences: vec![record.clone()],
+            ..ResolutionComplement::default()
+        };
+        let mut removed = record.clone();
+        removed.index = 0;
+        before
+            .occurrences
+            .insert(ViewRef::Edge(EdgeId(4)), vec![removed]);
+        view.remove_edge(EdgeId(4))?;
+        let source = AnyInstance::Graph(view.clone());
+        let mut shifted = record;
+        shifted.index = 1;
+        let mut after = ResolutionComplement {
+            definition_occurrences: vec![shifted.clone()],
+            ..ResolutionComplement::default()
+        };
+        let check = |after: &ResolutionComplement| {
+            super::definition_violations(&view, &before, &source, after)
+        };
+        assert_eq!(check(&after).len(), 0);
+        let mut fresh = shifted;
+        fresh.index = 2;
+        fresh.literal = Value::Str("new".into());
+        after.definition_occurrences.push(fresh);
+        assert_eq!(check(&after).len(), 0);
+        for changed in 0..4 {
+            let mut bad = after.clone();
+            match changed {
+                0 => bad.definition_occurrences[0].index = 0,
+                1 => bad.definition_occurrences[0].literal = Value::Str("changed".into()),
+                2 => bad.definition_occurrences[0].context = None,
+                _ => {
+                    bad.definition_occurrences.remove(0);
+                }
+            }
+            assert_eq!(
+                check(&bad),
+                vec![super::ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Node(3),
+                    reference: "variable".into(),
+                }]
+            );
+        }
+        let gone = AnyInstance::Graph(panproto_inst::GInstance::new());
+        assert_eq!(
+            super::definition_violations(&view, &before, &gone, &ResolutionComplement::default())
+                .len(),
+            0
+        );
+        Ok(())
+    }
 
     fn key(index: u32) -> SynthKey {
         SynthKey::ResolutionReference {

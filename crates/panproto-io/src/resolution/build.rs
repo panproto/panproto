@@ -159,6 +159,53 @@ struct TreeParts<'c, 'r> {
     slot_floor: u32,
 }
 
+/// The next appended index follows every retained semantic word position.
+fn appended_index_count(
+    holder: u32,
+    reference: &Name,
+    classified: &Classified<'_>,
+    complement: &ResolutionComplement,
+    written: &[Written<'_>],
+) -> Result<usize, Refusal> {
+    let at = |record_holder: &ViewRef, record_reference: &Name| {
+        *record_holder == ViewRef::Node(holder) && record_reference == reference
+    };
+    let resolved = classified
+        .occurrences
+        .values()
+        .filter(|record| at(&record.holder, &record.reference))
+        .count();
+    let unresolved = complement
+        .unresolved
+        .iter()
+        .filter(|record| {
+            at(&record.holder, &record.reference)
+                && !matches!(
+                    record.reason,
+                    panproto_inst::resolution_complement::UnresolvedReason::Unselected { .. }
+                )
+        })
+        .count();
+    let definitions = complement
+        .definition_occurrences
+        .iter()
+        .filter(|record| at(&record.holder, &record.reference))
+        .count();
+    let added = written
+        .iter()
+        .filter(|record| record.holder == holder && &record.compiled.reference.id == reference)
+        .count();
+    [resolved, unresolved, definitions, added]
+        .into_iter()
+        .try_fold(0_usize, |count, more| {
+            count
+                .checked_add(more)
+                .ok_or(Refusal::Operational(ResolveError::IdExhausted {
+                    kind: panproto_inst::segment::IdKind::Edge,
+                }))
+        })
+}
+
 impl Resolution {
     /// The tree candidate of a view.
     ///
@@ -211,7 +258,7 @@ impl Resolution {
                 Err(refusal) => return Err(refusal),
             }
         }
-        written.extend(self.added_occurrences(&canvas, &classified)?);
+        written.extend(self.added_occurrences(&canvas, &classified, complement)?);
         refuse(failures)?;
         let first = self.assemble_written(&parts, &written, &vec![0; written.len()])?;
         written.extend(self.rewrites(&parts, &classified, complement, &first, &canvas)?);
@@ -229,14 +276,15 @@ impl Resolution {
 
     /// New `AddEdge` occurrences written at holders that already exist in the
     /// source tree. Their index is the number of retained occurrences at the
-    /// same holder and declaration, so a new Many occurrence appends after
-    /// the exact sequence that remains in the edited view.
+    /// same holder and declaration, including unresolved tuples and earlier
+    /// additions. Unindexed edited carriers are appended in edge-id order.
     fn added_occurrences<'r>(
         &'r self,
         canvas: &Canvas<'_>,
         classified: &Classified<'_>,
+        complement: &ResolutionComplement,
     ) -> Result<Vec<Written<'r>>, Refusal> {
-        let mut written = Vec::new();
+        let mut written: Vec<Written<'r>> = Vec::new();
         let mut failures = Vec::new();
         for (carrier, label) in &classified.new_references {
             let Ok(compiled) = self.writer(*carrier, label) else {
@@ -254,14 +302,13 @@ impl Resolution {
                     .view
                     .node(edge.src)
                     .is_some_and(|node| node.anchor == compiled.reference.holder);
-            let count = classified
-                .occurrences
-                .values()
-                .filter(|record| {
-                    record.holder == ViewRef::Node(edge.src)
-                        && record.reference == compiled.reference.id
-                })
-                .count();
+            let count = appended_index_count(
+                edge.src,
+                &compiled.reference.id,
+                classified,
+                complement,
+                &written,
+            )?;
             if !holder_is_writable
                 || (compiled.reference.cardinality == Cardinality::One && count != 0)
             {
@@ -1141,29 +1188,346 @@ fn write_literals<'h, 'r: 'h>(
             });
         }
     }
-    for removal in &parts.removed {
-        if remove_literal(candidate, removal.holder, removal.compiled, removal.index).is_err() {
-            failures.push(ResolveDomainError::UnrepresentableReference {
-                carrier: ViewRef::Edge(removal.carrier),
-                reference: removal.compiled.reference.id.clone(),
-            });
+    // Every declaration addresses its original word even when source sites
+    // overlap. Later writers still commit in source declaration order.
+    let groups: Vec<_> = literal_edit_groups(parts, rewrites)
+        .into_iter()
+        .map(|((holder, _), edits)| {
+            let word = keyed_word(candidate, holder, edits.compiled);
+            (holder, edits, word)
+        })
+        .collect();
+    for (holder, edits, word) in groups {
+        match write_keyed_word(candidate, holder, &edits, word) {
+            Ok(true) => continue,
+            Err(carrier) => {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(carrier),
+                    reference: edits.compiled.reference.id.clone(),
+                });
+                continue;
+            }
+            Ok(false) => {}
         }
-    }
-    // Presentation edge ids name failures, but source occurrence coordinates
-    // decide which writer runs last when declarations overlap.
-    let mut ordered: Vec<_> = rewrites.iter().collect();
-    ordered.sort_by(|(_, left), (_, right)| {
-        (left.0, &left.1.reference.id, left.2).cmp(&(right.0, &right.1.reference.id, right.2))
-    });
-    for (carrier, (holder, compiled, index, literal)) in ordered {
-        if write_literal(candidate, *holder, compiled, *index, literal).is_err() {
-            failures.push(ResolveDomainError::UnrepresentableReference {
-                carrier: ViewRef::Edge(*carrier),
-                reference: compiled.reference.id.clone(),
-            });
+        for (index, carrier) in edits.removed {
+            if remove_literal(candidate, holder, edits.compiled, index).is_err() {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(carrier),
+                    reference: edits.compiled.reference.id.clone(),
+                });
+            }
+        }
+        for (index, carrier, literal) in edits.rewritten {
+            if write_literal(candidate, holder, edits.compiled, index, literal).is_err() {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(carrier),
+                    reference: edits.compiled.reference.id.clone(),
+                });
+            }
         }
     }
     refuse(failures)
+}
+
+/// Changes to one declaration, with removals in original coordinates and
+/// rewrites in the retained word's coordinates.
+struct LiteralEdits<'a> {
+    compiled: &'a CompiledRef,
+    removed: Vec<(u32, EdgeId)>,
+    rewritten: Vec<(u32, EdgeId, &'a Value)>,
+}
+
+/// Source coordinates, rather than presentation edge ids, order writers.
+fn literal_edit_groups<'a>(
+    parts: &'a TreeParts<'_, '_>,
+    rewrites: &'a BTreeMap<EdgeId, Rewrite<'_>>,
+) -> BTreeMap<(u32, Name), LiteralEdits<'a>> {
+    let mut groups = BTreeMap::new();
+    for removal in &parts.removed {
+        groups
+            .entry((removal.holder, removal.compiled.reference.id.clone()))
+            .or_insert_with(|| LiteralEdits {
+                compiled: removal.compiled,
+                removed: Vec::new(),
+                rewritten: Vec::new(),
+            })
+            .removed
+            .push((removal.index, removal.carrier));
+    }
+    for (carrier, (holder, compiled, index, literal)) in rewrites {
+        groups
+            .entry((*holder, compiled.reference.id.clone()))
+            .or_insert_with(|| LiteralEdits {
+                compiled,
+                removed: Vec::new(),
+                rewritten: Vec::new(),
+            })
+            .rewritten
+            .push((*index, *carrier, literal));
+    }
+    for edits in groups.values_mut() {
+        edits
+            .removed
+            .sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        edits
+            .rewritten
+            .sort_by_key(|(index, carrier, _)| (*index, *carrier));
+    }
+    groups
+}
+
+/// A writable own value or named field in the original source tree.
+type TreeValueSite = (u32, Option<String>);
+/// Original presence at one writable source site.
+type OriginalSite = (TreeValueSite, Option<Value>);
+/// One compatible value replacement at a source site.
+type SiteReplacement = (TreeValueSite, Value);
+
+/// One part's original sites and flattened values, before any writer mutates them.
+struct KeyedPart {
+    sites: Vec<OriginalSite>,
+    values: Vec<Value>,
+}
+
+/// The original site partition and null-filtered semantic occurrence word.
+struct KeyedWord {
+    parts: Vec<KeyedPart>,
+    rows: Vec<usize>,
+    tuples: Vec<Vec<Value>>,
+}
+
+/// Read the keyed reader's flattened zip and null filter, retaining raw rows.
+fn keyed_word(
+    tree: &WInstance,
+    holder: u32,
+    compiled: &CompiledRef,
+) -> Result<Option<KeyedWord>, ()> {
+    if compiled.reference.cardinality != Cardinality::Many {
+        return Ok(None);
+    }
+    let (parts, keyed): (&[Vec<Edge>], bool) = match &compiled.form {
+        RefForm::KeyValue { parts, .. } => (parts, true),
+        RefForm::Variable { field, .. } => (std::slice::from_ref(field), true),
+        RefForm::Path { field } => (std::slice::from_ref(field), false),
+        RefForm::Standoff { .. } => return Ok(None),
+    };
+    let mut columns = Vec::new();
+    for path in parts {
+        let sites: Vec<_> = write_sites(tree, holder, path)
+            .into_iter()
+            .map(|site| {
+                let value = site_value(tree, &site).cloned();
+                (site, value)
+            })
+            .collect();
+        let values = sites
+            .iter()
+            .flat_map(|(_, value)| match value {
+                Some(Value::List(values)) => values.clone(),
+                Some(value) => vec![value.clone()],
+                None => Vec::new(),
+            })
+            .collect();
+        columns.push(KeyedPart { sites, values });
+    }
+    let length = columns.first().map_or(0, |part| part.values.len());
+    if columns.iter().any(|part| part.values.len() != length)
+        || (length == 0 && !compiled.reference.nullable)
+    {
+        return Err(());
+    }
+    let mut rows = Vec::new();
+    let mut tuples = Vec::new();
+    for index in 0..length {
+        let tuple: Vec<_> = columns
+            .iter()
+            .map(|part| part.values[index].clone())
+            .collect();
+        let present = !keyed
+            || match compiled.reference.null_match {
+                panproto_schema::NullMatch::Simple => {
+                    tuple.iter().all(|value| *value != Value::Null)
+                }
+                panproto_schema::NullMatch::Full => tuple.iter().any(|value| *value != Value::Null),
+            };
+        if present {
+            rows.push(index);
+            tuples.push(tuple);
+        }
+    }
+    Ok(Some(KeyedWord {
+        parts: columns,
+        rows,
+        tuples,
+    }))
+}
+
+/// Requested tuples paired with their original raw rows; appends have no row.
+fn edited_keyed_rows(
+    word: &KeyedWord,
+    edits: &LiteralEdits<'_>,
+) -> Result<Vec<(Option<usize>, Vec<Value>)>, EdgeId> {
+    let mut requested: Vec<_> = word
+        .rows
+        .iter()
+        .copied()
+        .zip(word.tuples.iter().cloned())
+        .map(|(row, tuple)| (Some(row), tuple))
+        .collect();
+    for (index, carrier) in &edits.removed {
+        let index = usize::try_from(*index).map_err(|_| *carrier)?;
+        if index >= requested.len() {
+            return Err(*carrier);
+        }
+        requested.remove(index);
+    }
+    for (index, carrier, literal) in &edits.rewritten {
+        let tuple = match (word.parts.len(), *literal) {
+            (1, value) => vec![value.clone()],
+            (count, Value::List(values)) if values.len() == count => values.clone(),
+            _ => return Err(*carrier),
+        };
+        let index = usize::try_from(*index).map_err(|_| *carrier)?;
+        if index == requested.len() {
+            requested.push((None, tuple));
+        } else if let Some((_, old)) = requested.get_mut(index) {
+            *old = tuple;
+        } else {
+            return Err(*carrier);
+        }
+    }
+    Ok(requested)
+}
+
+/// Reconstruct one original multi-site part, preserving unobserved null slots.
+fn partitioned_part(
+    part: &KeyedPart,
+    column: usize,
+    original_rows: &BTreeSet<usize>,
+    retained: &BTreeMap<usize, &Vec<Value>>,
+) -> Result<Vec<SiteReplacement>, ()> {
+    let mut replacements = Vec::new();
+    let mut row = 0usize;
+    for (site, value) in &part.sites {
+        let Some(value) = value else { continue };
+        let replacement = match value {
+            Value::List(values) => {
+                let mut result = Vec::new();
+                for value in values {
+                    if let Some(tuple) = retained.get(&row) {
+                        result.push(tuple[column].clone());
+                    } else if !original_rows.contains(&row) {
+                        result.push(value.clone());
+                    }
+                    row += 1;
+                }
+                Value::List(result)
+            }
+            value => {
+                let replacement = if let Some(tuple) = retained.get(&row) {
+                    tuple[column].clone()
+                } else if original_rows.contains(&row) {
+                    return Err(());
+                } else {
+                    value.clone()
+                };
+                row += 1;
+                replacement
+            }
+        };
+        replacements.push((site.clone(), replacement));
+    }
+    Ok(replacements)
+}
+
+/// Gather compatible writes before mutating an aliased site.
+fn keyed_replacements(
+    word: &KeyedWord,
+    requested: &[(Option<usize>, Vec<Value>)],
+) -> Result<BTreeMap<TreeValueSite, Value>, ()> {
+    let single = word.parts.iter().all(|part| part.sites.len() == 1);
+    let original_rows = word.rows.iter().copied().collect();
+    let retained: BTreeMap<_, _> = requested
+        .iter()
+        .filter_map(|(row, tuple)| row.map(|row| (row, tuple)))
+        .collect();
+    if !single && requested.iter().any(|(row, _)| row.is_none()) {
+        return Err(());
+    }
+    let mut writes: BTreeMap<TreeValueSite, Value> = BTreeMap::new();
+    for (column, part) in word.parts.iter().enumerate() {
+        let replacements = if single {
+            vec![(
+                part.sites[0].0.clone(),
+                Value::List(
+                    requested
+                        .iter()
+                        .map(|(_, tuple)| tuple[column].clone())
+                        .collect(),
+                ),
+            )]
+        } else {
+            partitioned_part(part, column, &original_rows, &retained)?
+        };
+        for (site, value) in replacements {
+            if writes
+                .get(&site)
+                .is_some_and(|previous| !previous.canonical_cmp(&value).is_eq())
+            {
+                return Err(());
+            }
+            writes.insert(site, value);
+        }
+    }
+    Ok(writes)
+}
+
+/// Equal words retain exact sites; changed words follow their source partition.
+fn write_keyed_word(
+    tree: &mut WInstance,
+    holder: u32,
+    edits: &LiteralEdits<'_>,
+    original: Result<Option<KeyedWord>, ()>,
+) -> Result<bool, EdgeId> {
+    let carrier = edits
+        .removed
+        .first()
+        .map(|(_, carrier)| *carrier)
+        .or_else(|| edits.rewritten.first().map(|(_, carrier, _)| *carrier));
+    let Some(carrier) = carrier else {
+        return Ok(false);
+    };
+    let Some(word) = original.map_err(|()| carrier)? else {
+        return Ok(false);
+    };
+    let requested = edited_keyed_rows(&word, edits)?;
+    let current = keyed_word(tree, holder, edits.compiled)
+        .map_err(|()| carrier)?
+        .ok_or(carrier)?;
+    let unchanged = current.tuples.len() == requested.len()
+        && current
+            .tuples
+            .iter()
+            .zip(&requested)
+            .all(|(left, (_, right))| {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right)
+                        .all(|(left, right)| left.canonical_cmp(right).is_eq())
+            });
+    if !unchanged {
+        let writes = keyed_replacements(&word, &requested).map_err(|()| carrier)?;
+        for ((node, field), value) in writes {
+            let node = tree.nodes.get_mut(&node).ok_or(carrier)?;
+            if let Some(field) = field {
+                node.extra_fields.insert(field, value);
+            } else {
+                node.value = Some(FieldPresence::Present(value));
+            }
+        }
+    }
+    Ok(true)
 }
 
 /// Remove occurrence `index` of a `Many` reference at `holder`: the
@@ -1578,6 +1942,56 @@ mod tests {
 
     use super::{holder_ids_from, merge_fans, tree_node_floor};
     use crate::resolution::error::ResolveError;
+
+    #[test]
+    fn appended_indices_include_each_definition_position() {
+        use panproto_inst::resolution_complement::{
+            RefOccurrence, ResolutionComplement, UnresolvedReason, UnresolvedRef,
+        };
+        use panproto_inst::{EdgeId, Value, ViewRef};
+        let record = |holder, reference: &str, index| RefOccurrence {
+            holder: ViewRef::Node(holder),
+            reference: reference.into(),
+            index,
+            literal: Value::Str(format!("name-{index}")),
+            form: None,
+            context: None,
+        };
+        let resolved = record(1, "variable", 1);
+        let mut classified = super::Classified::default();
+        classified.occurrences.insert(EdgeId(7), &resolved);
+        let mut complement = ResolutionComplement {
+            definition_occurrences: vec![
+                record(1, "variable", 0),
+                record(1, "variable", 2),
+                record(2, "variable", 0),
+                record(1, "other", 0),
+            ],
+            ..ResolutionComplement::default()
+        };
+        for reason in [
+            UnresolvedReason::Dangling,
+            UnresolvedReason::Unselected { value: Value::Null },
+        ] {
+            complement.unresolved.push(UnresolvedRef {
+                holder: ViewRef::Node(1),
+                reference: "variable".into(),
+                index: 3,
+                literal: Value::Str("missing".into()),
+                reason,
+                context: None,
+            });
+        }
+        assert_eq!(
+            super::appended_index_count(1, &"variable".into(), &classified, &complement, &[]).ok(),
+            Some(4)
+        );
+        classified.occurrences.clear();
+        assert_eq!(
+            super::appended_index_count(1, &"variable".into(), &classified, &complement, &[]).ok(),
+            Some(3)
+        );
+    }
 
     const TOP: u32 = u32::MAX;
 

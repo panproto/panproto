@@ -853,3 +853,34 @@ fn identified_inline_nested_field_conflicts_are_refused() {
         })
     );
 }
+
+#[test]
+fn recorded_inline_slots_restore_but_unrecorded_hidden_slots_refuse() {
+    let (schema, tree) = nested_inline_fixture(1);
+    let (mut view, complement) = resolution::get(&schema, &tree, false).unwrap();
+    let (&recorded, occurrence) = complement
+        .inline
+        .iter()
+        .find(|(_, occurrence)| occurrence.redirected)
+        .unwrap();
+    let fragment = &complement.inline_fragments[&occurrence.node];
+    assert!(complement.source_edges.contains(&recorded));
+    assert!(fragment.edges.contains_key(&recorded));
+    assert!(view.edges.contains_key(&recorded));
+    assert_eq!(resolution::put(&schema, &view, &complement), Ok(tree));
+
+    let hidden = *fragment
+        .edges
+        .keys()
+        .find(|id| !complement.inline.contains_key(id) && !view.edges.contains_key(id))
+        .unwrap();
+    assert!(complement.source_edges.contains(&hidden));
+    view.edges.insert(hidden, view.edges[&recorded].clone());
+    assert_eq!(
+        resolution::put(&schema, &view, &complement),
+        Err(ResolveError::UnrepresentableReference {
+            carrier: panproto_reference::lens::ViewRef::Edge(hidden),
+            reference: None,
+        })
+    );
+}

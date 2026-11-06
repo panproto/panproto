@@ -1,14 +1,18 @@
 # Reference resolution
 
-Reference resolution turns literals, paths, variables, inline identities, and standoff coordinates into graph edges. Put runs in the other direction: an edited edge rewrites the source occurrence that produced it. The complement makes this bidirectional reading possible by retaining occurrence identities, unresolved literals, redirected fragments, inline fragments, span identities, external context, and the original tree root.
+Reference resolution turns literals, paths, variables, inline identities, and standoff coordinates into graph edges. Put runs in the other direction: an edited edge rewrites the source occurrence that produced it. The complement makes this bidirectional reading possible by retaining occurrence identities, unresolved literals, variable-definition occurrences, redirected fragments, inline fragments, span identities, external context, and the original tree root.
 
 Sixteen laws govern the construction. [L-resolution-1](#L-resolution-1) through [L-resolution-5](#L-resolution-5) are the five state laws. The remaining blocks fix URI environments, RFC 3986 joining, text identity, guard partitioning, standoff coordinates, index nonresolution, inherited bases, key equality, variable binding, and preserving-route products. The first five laws are executed against two reference forms. The declared operations `get` and `put` act on trees and graphs; the bounded state model (`indexed_get`, `indexed_put`, `check_put_domain`, `coherent_rekey`, `coherent_rename`, `equivalent`, and `gated_put_twice`) carries the synthesis index, the independent put-domain predicate, and the single-step basis. Each block names the operations its tests call. Laws 1 through 15 are the phase-three release inventory; law 16 belongs to the later preserving-route gate.
 
 The phase-three laws quantify over declarations that use none of eight *deferred forms*: identified inline occurrences, targets that are declared target sets, null vertices, scopes reached through references, standoff fragments, and standoff text that is span-relative, reached through another reference, or named by a URI. Their semantics belong to the format releases. Production refuses a declaration that uses one when the resolution compiles, with its own `ResolutionFeature` (`InlineReference`, `TargetSet`, `NullVertex`, `ScopeVia`, `StandoffFragments`, `SpanText`, `ReferencedText`, or `ExternalUriText`), before checking the declaration's well-formedness. The reference states the same domain as `deferred_form`, which returns the first deferred form of a declaration in a fixed order, and a differential test checks that production's refusal is exactly that form on every combination of the eight.
 
-Let $R$ be a declaration-valid reference schema and let $s$ be a rooted tree with a graph encoding. A *resolution occurrence* is identified by a holder id, reference name, and occurrence index. Cardinality `One` contributes index zero when all required source parts are present. Cardinality `Many` zips the part sequences positionally. A successful target lookup uses the target key's declared equality and, for a `Within` key, only the holder's scope bucket. `AddEdge` retains the holder and adds an edge to the target; `Redirect` removes the holder's maximal redirected subtree, records it, and adds the edge from the subtree's parent.
+Let $R$ be a declaration-valid reference schema and let $s$ be a rooted tree with a graph encoding. A *resolution occurrence* is identified by a holder id, reference name, and occurrence index. Cardinality `One` requires exactly one terminal value per key part, retaining explicit nulls for the null-presence test and treating a list as one value. A nullable declaration with no values at any part contributes no occurrence; other part-count mismatches are refused. A surviving tuple contributes index zero. Cardinality `Many` zips the part sequences positionally. A successful target lookup uses the target key's declared equality and, for a `Within` key, only the holder's scope bucket. `AddEdge` retains the holder and adds an edge to the target; `Redirect` removes the holder's maximal redirected subtree, records it, and adds the edge from the subtree's parent.
+
+For a many-valued key part, the *source word* concatenates the values at every terminal site in path order, flattening each list once. Each path hop follows source arc order. An empty source path selects the holder's own value for both reading and writing. If the final hop reaches any nodes, their own values supply the sites; otherwise, the named fields at the frontier supply them. Absent and scalar-null sites contribute no values. The part words are then zipped before null-presence filtering. A zero-part key-value source with no selected target key uses the empty tuple as a document-scoped key. When such a source contributes an occurrence, a single target resolves that tuple, while multiple targets make it ambiguous.
 
 Composite foreign keys use the *null-presence rule*. Under `Simple`, a tuple is an occurrence only when every part is non-null. Under `Full`, an all-null tuple is still absent, while a partly null tuple is an occurrence and thus becomes dangling when no target key matches it. The production/reference differential covers equal and unequal present tuples, all-null tuples under both rules, and partly null tuples in both coordinate orders.
+
+Variable sources use the same cardinality and null-presence rules as key-value sources. Path sources also read every terminal site and flatten lists under `Many`, but retain each written path literal separately from the target lookup. The reference interprets each literal according to its declared path syntax, using the holder's URI environment when that syntax requires it, before key lookup; production providers supply their declared path interpretation. Standoff sources zip the raw start and end words before converting each pair to a normalized span. Cardinality is checked before loading text; an empty word contributes no spans and requires no text lookup. Each occurrence keeps its written coordinate pair separately from its normalized byte interval and text context. Put preserves that pair for an unchanged target; a retargeted span is rendered back through the source holder's unit, origin, end form, and inclusive-end convention before its coordinate words are written. Path and standoff reads omit scalar-null sites without applying the composite-key null-presence filter to list elements.
 
 The reference operations live in [`panproto_reference::resolution`](https://docs.rs/panproto-reference/latest/panproto_reference/resolution/). The principal phase-three carrier contains all eight subsets of targets `{a,b,c}` and every one-step add, delete, and retarget candidate induced by each subset. This gives eight source states and 48 candidate edits, of which 24 lie in the independent put domain. Separate finite carriers cover URI directives, standoff coordinates, inherited bases, key equalities, guarded declarations, and variable definitions. These bounds support exhaustive comparison; the statements themselves are not restricted to the finite carriers.
 
@@ -28,16 +32,16 @@ The *unchanged view* is byte-for-byte the graph returned by get. The complement 
 
 ### Proof
 
-Get records every resolution edge under the occurrence that produced it, together with its original target, and stores every removed maximal redirect fragment, exact inline duplicate fragment, unresolved literal, synthesized span, span context, and the root. Reference `put` then runs eight steps on the unchanged view, and none of them can refuse.
+Get records every resolution edge under the occurrence that produced it, together with its original target, and stores every removed maximal redirect fragment, exact inline duplicate fragment, unresolved literal, self-binding definition literal and source position, synthesized span, span context, and the root. Reference `put` then runs eight steps on the unchanged view, and none of them can refuse.
 
 1. Original structural arcs retain their recorded source-edge identity, even when their labels equal a reference label. Every synthesized resolution edge is recorded and unchanged, so `record_existing_edge` keeps its literal and its target; no edge reaches `new_occurrence`.
-2. The list of appended occurrences is therefore empty, and no target tuple is computed for one.
-3. `verify_visible_sequences` checks the view after synthesized resolution edges have been removed, preserving original structural arcs. This projection prevents a synthesized edge from shadowing a source field with the same path label. It rewrites each touched holder's sequence at its key sites in a copy of that projection and requires exact equality. A holder that get kept (`AddEdge`) still yields the same occurrence tuple sequence when its sites are read independently. The writer preserves those exact sites when that sequence agrees, including a scalar spelling of one many-valued occurrence, absent or empty sites, and null slots that produced no occurrence. A holder that get removed (`Redirect`) is absent from the view and is skipped. The copy thus equals the syntactic projection, and the check accepts.
-4. `restore_fragments` reinserts the recorded fragments of the kept redirects.
-5. `write_sequences` rereads the restored sites and finds the same occurrence tuples. It thus preserves their exact representations. A guard site exists with its recorded value because get read it there, so checking and restoring that value also preserves the source.
+2. The list of appended occurrences is thus empty, and no target tuple is computed for one.
+3. `verify_visible_sequences` checks the view after synthesized resolution edges have been removed, preserving original structural arcs. This projection prevents a synthesized edge from shadowing a source field with the same path label. It seeds each touched holder's word with its retained unresolved and definition literals, then rewrites that word at its source sites in a copy of the projection and requires exact equality. A holder that get kept (`AddEdge`) still yields the same occurrence tuple sequence when its sites are read independently. The writer preserves those exact sites when that sequence agrees, including a scalar spelling of one many-valued occurrence, absent or empty sites, and null slots that produced no occurrence. A holder that get removed (`Redirect`) is absent from the view and is skipped. The copy thus equals the syntactic projection, and the check accepts.
+4. `restore_fragments` reinserts the recorded fragments of the kept redirects, including every source site that supplied a retained definition.
+5. `write_sequences` rereads the restored sites and finds the same occurrence tuples, including the saved definitions at their original positions. It thus preserves their exact representations. A guard site exists with its recorded value because get read it there, so checking and restoring that value also preserves the source.
 6. `restore_inline_occurrences` rebuilds each recorded inline occurrence from its recorded field set. Every representative and every recorded field is present in the unchanged view, so it cannot refuse.
 7. Removing the synthesized span nodes and reading the graph back with the recorded root inverts get's tree-to-graph encoding.
-8. `verify_sequences` re-resolves every written occurrence on that tree, which is $s$, so each reaches the target get recorded.
+8. `verify_sequences` re-resolves every written resolved occurrence on that tree, which is $s$, so each reaches the target get recorded. The complete reread repeats the same resolved-occurrence map, span nodes and contexts, unresolved fates, and retained definition literals and fates. These final comparisons thus accept the unchanged source.
 
 Put thus returns $s$ exactly. The differential executes these steps in the reference and production implementations on all eight release sources, and both reconstruct the exact source.
 
@@ -60,6 +64,20 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 - Production test: `synthesized_reference_edges_do_not_shadow_original_source_sites; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=synthesized_reference_edges_do_not_shadow_original_source_sites)'`
 - Production test: `original_structural_reference_labels_keep_their_source_edge_slots; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=original_structural_reference_labels_keep_their_source_edge_slots)'`
 - Production test: `redirected_source_edge_slots_are_distinguished_from_resolution_carriers; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=redirected_source_edge_slots_are_distinguished_from_resolution_carriers)'`
+- Production test: `implicit_primary_selection_matches_explicit_keys_and_stored_order; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=implicit_primary_selection_matches_explicit_keys_and_stored_order)'`
+- Production test: `many_key_reader_flattens_all_sites_in_source_order; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_key_reader_flattens_all_sites_in_source_order)'`
+- Production test: `many_key_reader_uses_global_final_hop_fallback; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_key_reader_uses_global_final_hop_fallback)'`
+- Production test: `empty_key_source_obeys_target_count_null_match_and_cardinality; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=empty_key_source_obeys_target_count_null_match_and_cardinality)'`
+- Production test: `one_key_reader_counts_sites_before_null_filtering; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=one_key_reader_counts_sites_before_null_filtering)'`
+- Production test: `one_composite_key_reader_reports_each_part_length; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=one_composite_key_reader_reports_each_part_length)'`
+- Production test: `redirect_roots_retain_unresolved_records_but_hidden_descendants_do_not; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=redirect_roots_retain_unresolved_records_but_hidden_descendants_do_not)'`
+- Production test: `many_variable_lists_preserve_each_occurrence_and_exact_source; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_variable_lists_preserve_each_occurrence_and_exact_source)'`
+- Production test: `many_idref_lists_preserve_each_path_literal_and_exact_source; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_idref_lists_preserve_each_path_literal_and_exact_source)'`
+- Production test: `many_variable_definitions_remain_in_the_exact_source_word; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_variable_definitions_remain_in_the_exact_source_word)'`
+- Production test: `standoff_raw_coordinate_words_match_units_origins_and_end_forms; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=standoff_raw_coordinate_words_match_units_origins_and_end_forms)'`
+- Production test: `empty_standoff_words_do_not_read_missing_text; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=empty_standoff_words_do_not_read_missing_text)'`
+- Production test: `resolution_complement::tests::definition_occurrences_extend_the_legacy_complement_prefix; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=resolution_complement::tests::definition_occurrences_extend_the_legacy_complement_prefix)'`
+- Production test: `standoff_malformed_words_refuse_before_becoming_empty_occurrence_sets; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=standoff_malformed_words_refuse_before_becoming_empty_occurrence_sets)'`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
@@ -69,6 +87,14 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 - File: `crates/panproto-io/src/resolution/get.rs`
 - File: `crates/panproto-io/src/resolution/put.rs`
 - File: `crates/panproto-io/src/resolution/verify.rs`
+- File: `crates/panproto-schema/src/keys.rs`
+- File: `crates/panproto-io/src/resolution/compile.rs`
+- File: `crates/panproto-io/src/resolution/occur.rs`
+- File: `crates/panproto-io/src/resolution/source.rs`
+- File: `crates/panproto-io/tests/resolution_corpus.rs`
+- File: `crates/panproto-inst/src/resolution_complement.rs`
+- File: `crates/panproto-io/src/resolution/rekey.rs`
+- File: `crates/panproto-io/src/resolution/standoff.rs`
 
 ### Mutation equivalences
 
@@ -97,11 +123,17 @@ Declarations that use a deferred form are outside every law of this page; produc
 
 A *synthesis index* maps each synthesized view carrier to a stable key. A resolution-edge key contains holder, declaration, and occurrence index. A span key contains its field-qualified text identity and half-open interval. A *coherent renaming* is an injective carrier map applied to the view and every complement coordinate that denotes the same view carrier.
 
+For a many-valued key-value, variable, or path reference, put treats its occurrence tuples as an ordered word. Each key part is read from all its source sites in path order: a list contributes its elements, a present non-null scalar contributes one element, and an absent or null scalar contributes none. The parts are zipped before null-presence filtering; retained unresolved tuples and self-binding variable definitions remain in the word. Path words retain their raw path literals and do not apply the keyed null-presence filter. The source-slot map records the original site and, for a list, the local element index of each surviving tuple component. Removals and rewrites address original occurrence indices, while newly appended occurrences have no original source slot. This distinction remains even when an appended occurrence receives the same final index as a removed occurrence. Newly added reference edges follow the complete retained occurrence word, including retained unresolved tuples and variable definitions. New edges are appended in ascending edge-id order; the nth new edge receives the retained word length plus n. These unindexed edited carriers are fixed by the coherent renamings of [L-resolution-4](#L-resolution-4).
+
+Before any overlapping declaration writes, put snapshots each declaration's source word and source-slot map from the candidate after redirect fragments are restored. Put compares the requested word with a fresh reading of the current sites when that declaration is written. Equal words preserve those sites exactly. A changed word with one writable site per part is written as one dense list per part. If any part has multiple sites, put instead reconstructs the original site partition: retained components keep their original sites, a rewrite replaces the corresponding scalar or list element, and a removal deletes the corresponding list element. Null slots omitted by matching, retained unresolved components, and other unedited slots keep their original representation. Deleting a scalar component is refused. An append requires exactly one writable site for every part; multiple possible sites are refused. Declarations write in `(holder, reference)` order, and the final candidate must still satisfy the guards, target and context checks, and complete reread comparison.
+
+A standoff word uses two raw coordinate parts. Recorded rewrites and removals preserve their original physical slots even when each part has only one site; scalar deletion is refused. An append requires one writable site per coordinate and writes the requested coordinate words as dense lists. Multiple possible append sites are refused. Every reconstructed word remains subject to the complete reread check.
+
 ### Proof
 
-Let $(v,c)=\operatorname{get}_R(s)$, let $v'$ be admitted, and let $s'=\operatorname{put}_R(v',c)$, which exists by [L-resolution-3](#L-resolution-3). Put writes, for every holder and declaration, the sequence that $v'$ shows: a kept occurrence keeps its literal, a retargeted one takes its new target's key tuple, a removed one leaves the sequence, and an added one is appended. Its final step, `verify_sequences`, re-resolves every written occurrence on $s'$ and accepts only if each reaches exactly the target named by the edge of $v'$ it was written from. Get on $s'$ therefore produces one resolution edge per written occurrence, from the same holder (for a redirect, the same fragment parent), with the same label and target, and in the same position of its holder's sequence. Put changes no source carrier except the written key sites, and `verify_visible_sequences` requires those sites to hold the written values already in $v'$. Every node, field, value, position, and non-resolution edge of $v''$ is thus that of $v'$, so the two views can differ only in the ids of synthesized carriers.
+Let $(v,c)=\operatorname{get}_R(s)$, let $v'$ be admitted, and let $s'=\operatorname{put}_R(v',c)$ be the successful put assumed in the statement. Put writes, for every holder and declaration, the sequence determined by the resolution edges of $v'$, the retained unresolved records of $c$, and its retained definition records: a kept occurrence keeps its literal, a retargeted one takes its new target's key tuple, a removed one leaves the sequence, and an added one is appended. The target check re-resolves every written resolved occurrence on $s'$ and requires the target named by its edge in $v'$. A complete get of $s'$ then supplies an independent resolved-occurrence map: its keys and targets must match the requested map exactly, including occurrence positions after removals. This comparison also refuses a retained unresolved tuple, activated guard, or newly introduced holder that would create an extra edge. Unresolved occurrences under the lenient `Error` policy must retain their recorded reason and candidate set; `Complement` permits a change of unresolved reason. Get on $s'$ thus produces one resolution edge per written resolved occurrence, from the same holder (for a redirect, the same fragment parent), with the same label and target, and in the same position of its holder's sequence. Put changes no source carrier except the written key sites, and `verify_visible_sequences` requires those sites to hold the written values already in $v'$. Every node, field, value, position, and non-resolution edge of $v''$ is thus that of $v'$, so the two views can differ only in the ids of synthesized carriers.
 
-Each synthesized carrier is named by its synthesis key: holder, declaration, and occurrence index for an edge; text identity and interval for a span node. The correspondence just built preserves keys and is a bijection, since put writes one occurrence per key and get allocates one carrier per occurrence. The id map that preserves synthesis keys is thus the unique coherent renaming, and it carries $v'$ onto $v''$.
+Each synthesized carrier is named by its synthesis key: holder, declaration, and occurrence index for an edge; text identity and interval for a span node. For resolution edges, the correspondence preserves keys and is a bijection: put retains one resolved occurrence per resolution-edge key, and get allocates one edge for each resolved occurrence. For span nodes, get allocates one node per distinct field-qualified text identity and interval, sharing that node among occurrences with the same span key. The final comparison requires the surviving candidate span nodes and reread span nodes to correspond in both directions, with equal contexts and complete payloads after coherent id renaming. Retained unresolved tuples and definitions remain in the occurrence word and complement without producing resolution edges. The id map that preserves synthesis keys is thus the unique coherent renaming, and it carries $v'$ onto $v''$.
 
 The finite differentials execute both halves. The bounded model checks `equivalent` after `coherent_rekey` on every admitted candidate. The production half compares, for each of the 24 admitted candidates, every node with its fields, values, and positions, every structural edge by id, and the resolution edges as the multiset of their endpoints and positions; because the carrier has one occurrence per holder, that multiset comparison is the comparison modulo the coherent renaming. Raw ids coincide on 14 of the 24 in both implementations. The declared tree-to-graph test repeats the target comparison after put on the declared operations.
 
@@ -119,6 +151,24 @@ The finite differentials execute both halves. The bounded model checks `equivale
 - Independent reference anchor: `declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope)'`
 - Property differential test: `randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates)'`
 - Property scope: `eight indexed source subsets and their 48 edit candidates, sampled by source and candidate slot; indexed and declared tree carriers, stale and coherent edits, exact source preservation, canonical reget and gated repeat; configured successful cases per seed=256`
+- Production test: `changed_many_key_words_preserve_indices_and_unresolved_literals; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=changed_many_key_words_preserve_indices_and_unresolved_literals)'`
+- Production test: `overlapping_many_key_writers_use_each_original_word; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=overlapping_many_key_writers_use_each_original_word)'`
+- Production test: `changed_composite_many_key_words_zip_before_null_filtering; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=changed_composite_many_key_words_zip_before_null_filtering)'`
+- Production test: `retained_unresolved_tuples_cannot_be_captured_by_edited_targets; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=retained_unresolved_tuples_cannot_be_captured_by_edited_targets)'`
+- Production test: `materialized_span_nodes_preserve_visible_payload_and_presence; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=materialized_span_nodes_preserve_visible_payload_and_presence)'`
+- Production test: `changed_many_key_words_preserve_original_site_partitions; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=changed_many_key_words_preserve_original_site_partitions)'`
+- Production test: `multi_site_scalar_removal_has_no_list_slot; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=multi_site_scalar_removal_has_no_list_slot)'`
+- Production test: `multi_site_composite_writes_keep_each_parts_distinct_boundaries; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=multi_site_composite_writes_keep_each_parts_distinct_boundaries)'`
+- Production test: `multi_site_additions_preserve_coherent_sites_and_refuse_unplaced_words; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=multi_site_additions_preserve_coherent_sites_and_refuse_unplaced_words)'`
+- Production test: `multi_site_shared_part_slots_require_compatible_values; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=multi_site_shared_part_slots_require_compatible_values)'`
+- Production test: `new_key_edges_append_after_unresolved_and_earlier_additions; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=new_key_edges_append_after_unresolved_and_earlier_additions)'`
+- Production test: `many_variable_retarget_uses_filtered_occurrence_positions; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_variable_retarget_uses_filtered_occurrence_positions)'`
+- Production test: `deleting_a_definition_only_holder_removes_its_residue; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=deleting_a_definition_only_holder_removes_its_residue)'`
+- Production test: `standoff_retarget_renders_raw_coordinates_in_each_declared_form; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=standoff_retarget_renders_raw_coordinates_in_each_declared_form)'`
+- Production test: `redirected_standoff_retarget_preserves_multiple_scalar_coordinate_sites; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=redirected_standoff_retarget_preserves_multiple_scalar_coordinate_sites)'`
+- Production test: `resolution::verify::tests::retained_definition_fates_compact_without_forbidding_new_definitions; command: cargo nextest run -p panproto-io --lib --no-tests=fail -E 'test(=resolution::verify::tests::retained_definition_fates_compact_without_forbidding_new_definitions)'`
+- Production test: `resolution::build::tests::appended_indices_include_each_definition_position; command: cargo nextest run -p panproto-io --lib --no-tests=fail -E 'test(=resolution::build::tests::appended_indices_include_each_definition_position)'`
+- Production test: `empty_source_paths_retarget_the_holders_own_value; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=empty_source_paths_retarget_the_holders_own_value)'`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
@@ -128,6 +178,14 @@ The finite differentials execute both halves. The bounded model checks `equivale
 - File: `crates/panproto-io/src/resolution/get.rs`
 - File: `crates/panproto-io/src/resolution/put.rs`
 - File: `crates/panproto-io/src/resolution/verify.rs`
+- File: `crates/panproto-schema/src/keys.rs`
+- File: `crates/panproto-io/src/resolution/compile.rs`
+- File: `crates/panproto-io/src/resolution/occur.rs`
+- File: `crates/panproto-io/src/resolution/source.rs`
+- File: `crates/panproto-inst/src/resolution_complement.rs`
+- File: `crates/panproto-io/src/resolution/rekey.rs`
+- File: `crates/panproto-io/tests/resolution_corpus.rs`
+- File: `crates/panproto-io/src/resolution/standoff.rs`
 
 ### Mutation equivalences
 
@@ -235,6 +293,8 @@ The declared tree-to-graph certificate additionally checks all 120 retained-node
 - Fixed operational-order control: `redirect_callback_failures_follow_source_order_after_synthesis_swap; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=redirect_callback_failures_follow_source_order_after_synthesis_swap)'`
 - Fixed diagnostic-transport control: `unreadable_many_reference_blames_its_first_source_index_after_synthesis_swap; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=unreadable_many_reference_blames_its_first_source_index_after_synthesis_swap)'`
 - Outside-domain boundary control: `injective_retained_parent_renaming_can_exhaust_new_redirect_holder_ids; command: cargo nextest run --locked -p panproto-io --test resolution_corpus --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=injective_retained_parent_renaming_can_exhaust_new_redirect_holder_ids)'`
+- Production test: `implicit_primary_selection_matches_explicit_keys_and_stored_order; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=implicit_primary_selection_matches_explicit_keys_and_stored_order)'`
+- Production test: `resolution::rekey::tests::definition_occurrences_transport_only_visible_holders; command: cargo nextest run -p panproto-io --lib --no-tests=fail -E 'test(=resolution::rekey::tests::definition_occurrences_transport_only_visible_holders)'`
 - File: `crates/panproto-io/tests/resolution_corpus.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
@@ -245,6 +305,11 @@ The declared tree-to-graph certificate additionally checks all 120 retained-node
 - File: `crates/panproto-io/src/resolution/put.rs`
 - File: `crates/panproto-io/src/resolution/rekey.rs`
 - File: `crates/panproto-io/src/resolution/verify.rs`
+- File: `crates/panproto-schema/src/keys.rs`
+- File: `crates/panproto-io/src/resolution/compile.rs`
+
+- File: `crates/panproto-io/tests/reference_resolution.rs`
+- File: `crates/panproto-inst/src/resolution_complement.rs`
 
 ### Mutation equivalences
 
@@ -306,6 +371,11 @@ The raw form, with $c'$ untransported, is false, and the tests show why. On the 
 - File: `crates/panproto-io/src/resolution/put.rs`
 - File: `crates/panproto-io/src/resolution/rekey.rs`
 - File: `crates/panproto-io/src/resolution/verify.rs`
+- File: `crates/panproto-schema/src/keys.rs`
+- File: `crates/panproto-io/src/resolution/compile.rs`
+- File: `crates/panproto-io/src/resolution/occur.rs`
+- File: `crates/panproto-io/src/resolution/source.rs`
+- File: `crates/panproto-inst/src/resolution_complement.rs`
 
 ### Mutation equivalences
 
@@ -529,6 +599,7 @@ For fixed $o$, $w_s=s+o$ uniquely. In offset form $w_e=e+o$ uniquely; in length 
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 
 ### Mutation equivalences
 
@@ -576,6 +647,7 @@ The test checks the converse on every admitted pair of the carrier of [L-resolut
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 
 ### Mutation equivalences
 
@@ -714,6 +786,7 @@ Declared key equality is [`key_equivalence`](./keys-and-registration.md), re-exp
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-io/src/resolution/source.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
+- File: `crates/panproto-io/tests/reference_resolution.rs`
 
 ### Mutation equivalences
 
@@ -740,26 +813,37 @@ Definitions at or after the occurrence do not qualify. Ties in position are outs
 
 ### Definitions used
 
-Document positions are the order indices assigned by the finite graph traversal. Name equality is equality under the binder key's declared equality, which is representation equality when none is declared; the helper's carrier uses representation-distinct names. Resolution partitions definitions and occurrences by that equality's key function, and keying text under a named collation is refused with `KeyEquality`.
+A variable declaration is self-binding when its holder and target vertices coincide and its binder key has exactly the source field as its single path part. Other variable declarations use ordinary key lookup, including its ambiguity refusal. For self-binding variables, document positions are pairs of a holder's finite-traversal rank and its source occurrence index, ordered lexicographically. The scalar helper uses one occurrence per position. Each declaration and scope bucket is processed in this order: its first occurrence of a name defines that name; a later occurrence binds the first preceding holder under `FirstDefines` or the most recent preceding holder under `NearestPreceding`. A later occurrence in the same holder may thus produce a self-edge. The complement records definition occurrences separately from unresolved occurrences, retaining their holder, declaration, original index, and exact literal. Put preserves these definition positions when reconstructing the source word, and its final reread requires each retained original definition to keep its literal and definition fate. Additional definitions introduced by visible source data may be admitted when the complete source, resolved-edge, unresolved-fate, and span comparisons also accept. A definition whose holder was removed with its source fragment has no retained position. Name equality is equality under the binder key's declared equality, which is representation equality when none is declared; the helper's carrier uses representation-distinct names. Resolution partitions definitions and occurrences by that equality's key function, and keying text under a named collation is refused with `KeyEquality`.
 
 ### Proof
 
-The binding predicate first filters by strict position and exact name. It then applies `min_by_key` for first-defines and `max_by_key` for nearest-preceding. These are the two selections in the Statement. Resolution candidate lookup subsequently restricts the target set to the selected node. The production differential runs both policies, `FirstDefines` and `NearestPreceding`.
+The binding predicate first filters by strict position and exact name. It then applies `min_by_key` for first-defines and `max_by_key` for nearest-preceding. These are the two selections in the Statement. For a self-binding declaration, the reference independently folds the prefix of source positions before the current `(holder rank, occurrence index)`, comparing each name under the binder key. It keeps the first matching holder or replaces it at each later match, according to the policy. Both constructions thus select the same preceding holder. Non-self-binding declarations retain ordinary key lookup. The production differential runs both policies, `FirstDefines` and `NearestPreceding`.
 
 ### Executable counterpart
 
 - Law ID: `resolution.nearest-preceding-binding`
 - Reference: `panproto_reference::resolution::nearest_preceding`
+- Reference: `panproto_reference::resolution::get`
 - Evidence scope: `ordered variable carrier; definitions=4, names=2, policies=2`
 - Production certificate: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - Independent reference anchor: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - Property differential test: `randomized::variable_bindings_match_on_generated_bounded_holder_sequences; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::variable_bindings_match_on_generated_bounded_holder_sequences)'`
 - Property scope: `one to five holders over each existing three-value alphabet, both binding modes and both equalities; ordered binding edges and GetPut source; configured successful cases per seed=256`
+- Production test: `many_variable_binding_uses_occurrence_positions; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_variable_binding_uses_occurrence_positions)'`
+- Production test: `many_variable_binding_policies_distinguish_the_nearest_holder; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_variable_binding_policies_distinguish_the_nearest_holder)'`
+- Production test: `non_self_binding_variable_retains_ordinary_lookup_ambiguity; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=non_self_binding_variable_retains_ordinary_lookup_ambiguity)'`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
+- File: `crates/panproto-inst/src/resolution_complement.rs`
+- File: `crates/panproto-io/src/resolution/get.rs`
+- File: `crates/panproto-io/src/resolution/verify.rs`
+- File: `crates/panproto-io/src/resolution/rekey.rs`
+- File: `crates/panproto-io/src/resolution/compile.rs`
+- File: `crates/panproto-io/src/resolution/source.rs`
+- File: `crates/panproto-io/src/resolution/build.rs`
 
 ### Mutation equivalences
 
