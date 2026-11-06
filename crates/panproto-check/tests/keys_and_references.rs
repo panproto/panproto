@@ -172,6 +172,34 @@ fn verdict(old: &Schema, new: &Schema) -> (Vec<BreakingChange>, Vec<NonBreakingC
     (report.breaking, report.non_breaking)
 }
 
+fn assert_new_vertex_key_is_nonbreaking(bare: &Schema) {
+    let mut grown = with(&[], &[]);
+    grown.vertices.insert(
+        Name::from("actor"),
+        panproto_schema::Vertex {
+            id: Name::from("actor"),
+            kind: Name::from("table"),
+            nsid: None,
+        },
+    );
+    grown.declarations.insert_key(
+        Name::from("actor"),
+        Key {
+            id: Name::from("pk"),
+            parts: vec![],
+            role: KeyRole::Primary,
+            scope: KeyScope::Document,
+            equality: vec![],
+        },
+    );
+    let (breaking, non_breaking) = verdict(bare, &grown);
+    assert_eq!(breaking, vec![]);
+    assert!(non_breaking.contains(&NonBreakingChange::KeyAdded {
+        vertex_id: "actor".to_owned(),
+        key_id: "pk".to_owned(),
+    }));
+}
+
 #[test]
 fn key_changes_are_classified() {
     let key_added = || BreakingChange::KeyAdded {
@@ -220,31 +248,7 @@ fn key_changes_are_classified() {
     }
 
     // A key on a vertex the new schema adds constrains no existing data.
-    let mut grown = with(&[], &[]);
-    grown.vertices.insert(
-        Name::from("actor"),
-        panproto_schema::Vertex {
-            id: Name::from("actor"),
-            kind: Name::from("table"),
-            nsid: None,
-        },
-    );
-    grown.declarations.insert_key(
-        Name::from("actor"),
-        Key {
-            id: Name::from("pk"),
-            parts: vec![],
-            role: KeyRole::Primary,
-            scope: KeyScope::Document,
-            equality: vec![],
-        },
-    );
-    let (breaking, non_breaking) = verdict(&bare, &grown);
-    assert_eq!(breaking, vec![]);
-    assert!(non_breaking.contains(&NonBreakingChange::KeyAdded {
-        vertex_id: "actor".to_owned(),
-        key_id: "pk".to_owned(),
-    }));
+    assert_new_vertex_key_is_nonbreaking(&bare);
 
     // Every role-to-role change fails closed in both directions because the
     // roles impose different uniqueness, ordering, identity, and resolution

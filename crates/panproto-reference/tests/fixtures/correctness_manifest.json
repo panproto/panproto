@@ -6162,6 +6162,12 @@
               "crate": "panproto-io",
               "binary": "panproto-io::resolution_corpus",
               "test": "empty_source_paths_retarget_the_holders_own_value"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-io",
+              "binary": "panproto-io",
+              "test": "resolution::verify::tests::deleted_occurrence_keys_do_not_reserve_appended_ordinals"
             }
           ]
         },

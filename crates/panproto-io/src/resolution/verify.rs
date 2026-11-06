@@ -720,7 +720,6 @@ fn local_text(source: &AnyInstance, site: &ResolutionValueSite) -> Option<Vec<u8
 pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplement) -> SynthIndex {
     let mut index = complement.synth_index();
     let removed = removed_occurrence_indices(view, complement);
-    let mut shifted = BTreeSet::new();
     for (carrier, records) in &complement.occurrences {
         let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) else {
             continue;
@@ -732,7 +731,6 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
         if view.edge(*id).is_none() || below == 0 {
             continue;
         }
-        shifted.insert((&record.holder, &record.reference));
         let index_below = u32::try_from(below).unwrap_or(record.index);
         index.edges.insert(
             *id,
@@ -744,9 +742,8 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
         );
     }
     for (carrier, records) in &complement.occurrences {
-        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
+        if let (ViewRef::Edge(id), [_]) = (carrier, records.as_slice())
             && view.edge(*id).is_none()
-            && shifted.contains(&(&record.holder, &record.reference))
         {
             index.edges.remove(id);
         }
@@ -1262,6 +1259,61 @@ mod tests {
             reference: "author".into(),
             index,
         }
+    }
+
+    #[test]
+    fn deleted_occurrence_keys_do_not_reserve_appended_ordinals()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::Value;
+        use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
+        for count in [1_u32, 2] {
+            let mut original = small_view()?;
+            let edge = original.edge(EdgeId(4)).unwrap().clone();
+            let mut complement = ResolutionComplement::default();
+            for index in 0..count {
+                let id = EdgeId(4 + u64::from(index));
+                if index > 0 {
+                    original.insert_edge(id, edge.clone())?;
+                }
+                complement.occurrences.insert(
+                    ViewRef::Edge(id),
+                    vec![RefOccurrence {
+                        holder: ViewRef::Node(3),
+                        reference: "author".into(),
+                        index,
+                        literal: Value::Str("u1".into()),
+                        form: None,
+                        context: None,
+                    }],
+                );
+            }
+            let removed = EdgeId(3 + u64::from(count));
+            let mut edited = original.clone();
+            edited.remove_edge(removed)?;
+            let compacted = super::compacted_index(&edited, &complement);
+            assert!(
+                !compacted.edges.contains_key(&removed),
+                "deleted carrier has no key"
+            );
+            let reindex = complement.synth_index();
+            let unmatched = super::extend_index(&edited, &compacted, &original, &reindex);
+            assert_eq!(
+                view_diff(&edited, &unmatched, &original, &reindex),
+                vec![super::Diff::RightEdge(removed)]
+            );
+            edited.insert_edge(EdgeId(40), edge)?;
+            let extended = super::extend_index(&edited, &compacted, &original, &reindex);
+            assert_eq!(extended.edges.get(&EdgeId(40)), Some(&key(count - 1)));
+            assert_eq!(view_diff(&edited, &extended, &original, &reindex), []);
+            if count == 2 {
+                let mut shifted = original;
+                shifted.remove_edge(EdgeId(4))?;
+                let compacted = super::compacted_index(&shifted, &complement);
+                assert_eq!(compacted.edges.len(), 1);
+                assert_eq!(compacted.edges.get(&EdgeId(5)), Some(&key(0)));
+            }
+        }
+        Ok(())
     }
 
     /// The index restricted to the carriers `view` holds.

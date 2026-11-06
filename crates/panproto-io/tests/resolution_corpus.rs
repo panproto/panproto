@@ -9840,6 +9840,21 @@ fn standoff_word_resolution_with_mode(
     format: StandoffWordFormat,
     redirect: bool,
 ) -> (Resolution, panproto_reference::schema::Schema) {
+    let (fixture, reference) = standoff_word_schemas(many, format, redirect);
+    let resolution = compile(
+        "notes",
+        ResolutionKind::TreeToGraph,
+        &fixture.schema,
+        &[(&fixture.labels[0], "mention")],
+    );
+    (resolution, reference)
+}
+
+fn standoff_word_schemas(
+    many: bool,
+    format: StandoffWordFormat,
+    redirect: bool,
+) -> (Notes, panproto_reference::schema::Schema) {
     use panproto_reference::schema as r;
     let (unit, reference_unit) = match format.unit {
         0 => (OffsetUnit::Byte, r::OffsetUnit::Byte),
@@ -9876,12 +9891,6 @@ fn standoff_word_resolution_with_mode(
     } else {
         SpanEnd::Offset
     };
-    let resolution = compile(
-        "notes",
-        ResolutionKind::TreeToGraph,
-        &fixture.schema,
-        &[(&fixture.labels[0], "mention")],
-    );
     let mut reference = reference_standoff_word_schema(many);
     reference.references.get_mut("mention").unwrap().mode = if redirect {
         r::ResolveMode::Redirect
@@ -9906,7 +9915,39 @@ fn standoff_word_resolution_with_mode(
         r::SpanEnd::Offset
     };
     *end_inclusive = format.inclusive;
-    (resolution, reference)
+    (fixture, reference)
+}
+
+fn assert_inclusive_length_refused(many: bool, format: StandoffWordFormat) {
+    use panproto_reference::schema::{DeclarationError, validate_declarations};
+    let (fixture, reference) = standoff_word_schemas(many, format, false);
+    assert_eq!(
+        validate_declarations(&reference),
+        Err(vec![DeclarationError::LengthInclusive {
+            reference: "mention".to_owned()
+        }]),
+        "independent declaration refusal: many={many}, format={format:?}"
+    );
+    let base = protocol("notes", InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let provider = Provider {
+        id: provider_id("notes"),
+        protocol: base.clone(),
+        kind: ResolutionKind::TreeToGraph,
+        spec: spec_for(
+            "notes",
+            ResolutionKind::TreeToGraph,
+            &fixture.schema,
+            &[(&fixture.labels[0], "mention")],
+            &[],
+        ),
+        paths: BTreeMap::new(),
+        context: None,
+    };
+    let result = Resolution::for_protocol(&base, &fixture.schema, Arc::new(provider));
+    assert!(
+        matches!(result, Err(ResolveError::Schema(panproto_schema::KeyRefError::LengthInclusive { reference })) if reference.as_str() == "mention"),
+        "production rejects the same invalid declaration: many={many}, format={format:?}"
+    );
 }
 
 fn standoff_raw_pairs(format: StandoffWordFormat, many: bool) -> Vec<(i64, i64)> {
@@ -10041,6 +10082,10 @@ fn assert_standoff_word_observations(
 
 fn assert_standoff_word_format(many: bool, format: StandoffWordFormat) {
     use panproto_reference::resolution as r;
+    if format.length && format.inclusive {
+        assert_inclusive_length_refused(many, format);
+        return;
+    }
     let (resolution, schema) = standoff_word_resolution(many, format);
     let pairs = standoff_raw_pairs(format, many);
     let (source, expected_source) = standoff_word_source(&pairs, many);
@@ -10084,6 +10129,10 @@ fn standoff_raw_coordinate_words_match_units_origins_and_end_forms() {
 
 fn assert_standoff_word_retarget(format: StandoffWordFormat) {
     use panproto_reference::resolution as r;
+    if format.length && format.inclusive {
+        assert_inclusive_length_refused(true, format);
+        return;
+    }
     let (resolution, schema) = standoff_word_resolution(true, format);
     let pairs = standoff_raw_pairs(format, true);
     let (source, expected_source) = standoff_word_source(&pairs, true);
@@ -10257,7 +10306,7 @@ fn redirected_standoff_retarget_preserves_multiple_scalar_coordinate_sites() {
     let format = StandoffWordFormat {
         unit: 2,
         origin: 4,
-        length: true,
+        length: false,
         inclusive: true,
     };
     let (resolution, schema) = standoff_word_resolution_with_mode(true, format, true);

@@ -168,6 +168,7 @@ The finite differentials execute both halves. The bounded model checks `equivale
 - Production test: `redirected_standoff_retarget_preserves_multiple_scalar_coordinate_sites; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=redirected_standoff_retarget_preserves_multiple_scalar_coordinate_sites)'`
 - Production test: `resolution::verify::tests::retained_definition_fates_compact_without_forbidding_new_definitions; command: cargo nextest run -p panproto-io --lib --no-tests=fail -E 'test(=resolution::verify::tests::retained_definition_fates_compact_without_forbidding_new_definitions)'`
 - Production test: `resolution::build::tests::appended_indices_include_each_definition_position; command: cargo nextest run -p panproto-io --lib --no-tests=fail -E 'test(=resolution::build::tests::appended_indices_include_each_definition_position)'`
+- Production test: `resolution::verify::tests::deleted_occurrence_keys_do_not_reserve_appended_ordinals; command: cargo nextest run -p panproto-io --lib --no-tests=fail -E 'test(=resolution::verify::tests::deleted_occurrence_keys_do_not_reserve_appended_ordinals)'`
 - Production test: `empty_source_paths_retarget_the_holders_own_value; command: cargo nextest run -p panproto-io --test resolution_corpus --no-tests=fail -E 'test(=empty_source_paths_retarget_the_holders_own_value)'`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`

@@ -1282,6 +1282,8 @@ type TreeValueSite = (u32, Option<String>);
 type OriginalSite = (TreeValueSite, Option<Value>);
 /// One compatible value replacement at a source site.
 type SiteReplacement = (TreeValueSite, Value);
+/// One requested tuple and its optional original raw row.
+type RequestedRow = (Option<usize>, Vec<Value>);
 
 /// One part's original sites and flattened values, before any writer mutates them.
 struct KeyedPart {
@@ -1366,7 +1368,7 @@ fn keyed_word(
 fn edited_keyed_rows(
     word: &KeyedWord,
     edits: &LiteralEdits<'_>,
-) -> Result<Vec<(Option<usize>, Vec<Value>)>, EdgeId> {
+) -> Result<Vec<RequestedRow>, EdgeId> {
     let mut requested: Vec<_> = word
         .rows
         .iter()
