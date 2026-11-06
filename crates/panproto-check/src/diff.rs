@@ -5,11 +5,12 @@
 //! purely structural; it does not yet classify changes as breaking or
 //! non-breaking (that is handled by [`crate::classify()`]).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_schema::{
-    Constraint, Edge, Key, RecursionPoint, Reference, Schema, TargetSet, UsageMode, Variant,
+    Constraint, Edge, Key, KeyRole, RecursionPoint, Reference, Schema, TargetSet, UsageMode,
+    Variant,
 };
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -185,6 +186,13 @@ pub struct SchemaDiff {
     /// addition for the pair.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub renamed_vertices: Vec<(String, String)>,
+
+    /// Changed stored key-id sequences, preserving absent versus empty owners.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_sequence_changes: Vec<KeySequenceChange>,
+    /// Changed first-primary selections, including changes caused by key roles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub primary_key_changes: Vec<PrimaryKeyChange>,
 }
 
 /// Rewrite a [`SchemaDiff`] to recognise vertex renames.
@@ -296,6 +304,28 @@ pub struct KeyChange {
     pub old: Key,
     /// The key as the new schema declares it.
     pub new: Key,
+}
+
+/// A change in one owner's stored key-id sequence.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeySequenceChange {
+    /// The keyed vertex ID.
+    pub vertex_id: String,
+    /// The previous sequence; `None` means the owner entry was absent.
+    pub old: Option<Vec<Name>>,
+    /// The new sequence; `None` means the owner entry is absent.
+    pub new: Option<Vec<Name>>,
+}
+
+/// A change in the first primary key selected in stored order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrimaryKeyChange {
+    /// The keyed vertex ID.
+    pub vertex_id: String,
+    /// The previously selected primary, if any.
+    pub old: Option<Name>,
+    /// The newly selected primary, if any.
+    pub new: Option<Name>,
 }
 
 /// Records a reference, declared with the same id in both schemas, that
@@ -516,6 +546,7 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
 
 /// Diff the keys two schemas declare, matching them by `(vertex, key id)`.
 fn diff_keys(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    diff_key_sequences(old, new, result);
     let index = |schema: &Schema| -> BTreeMap<(String, String), Key> {
         schema
             .declarations
@@ -544,6 +575,44 @@ fn diff_keys(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
     for ((vertex, id), key) in &old_keys {
         if !new_keys.contains_key(&(vertex.clone(), id.clone())) {
             result.removed_keys.push((vertex.clone(), key.clone()));
+        }
+    }
+}
+
+/// Preserve owner presence, stored order, and first-primary selection.
+fn diff_key_sequences(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let owners: BTreeSet<_> = old
+        .declarations
+        .keys
+        .keys()
+        .chain(new.declarations.keys.keys())
+        .collect();
+    for owner in owners {
+        let previous = old.declarations.keys.get(owner);
+        let current = new.declarations.keys.get(owner);
+        let sequence = |keys: &Vec<Key>| keys.iter().map(|key| key.id.clone()).collect();
+        let old_sequence = previous.map(sequence);
+        let new_sequence = current.map(sequence);
+        if old_sequence != new_sequence {
+            result.key_sequence_changes.push(KeySequenceChange {
+                vertex_id: owner.to_string(),
+                old: old_sequence,
+                new: new_sequence,
+            });
+        }
+        let primary = |keys: &Vec<Key>| {
+            keys.iter()
+                .find(|key| key.role == KeyRole::Primary)
+                .map(|key| key.id.clone())
+        };
+        let old_primary = previous.and_then(primary);
+        let new_primary = current.and_then(primary);
+        if old_primary != new_primary {
+            result.primary_key_changes.push(PrimaryKeyChange {
+                vertex_id: owner.to_string(),
+                old: old_primary,
+                new: new_primary,
+            });
         }
     }
 }
@@ -1051,6 +1120,8 @@ impl SchemaDiff {
             && self.removed_target_sets.is_empty()
             && self.modified_target_sets.is_empty()
             && self.renamed_vertices.is_empty()
+            && self.key_sequence_changes.is_empty()
+            && self.primary_key_changes.is_empty()
     }
 }
 

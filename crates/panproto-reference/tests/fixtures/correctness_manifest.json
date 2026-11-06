@@ -2119,6 +2119,30 @@
               "crate": "panproto-check",
               "binary": "panproto-check::reference_classify",
               "test": "randomized_reference_change_classification"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "stored_key_order_and_primary_removal_match_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "key_owner_presence_and_role_selection_are_recorded"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "randomized_stored_key_sequence_classification"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-check",
+              "binary": "panproto-check::reference_classify",
+              "test": "isolated_primary_selection_metadata_is_classified_and_rendered"
             }
           ]
         },
@@ -3509,6 +3533,18 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "randomized_ordered_child_binding_differential"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "scalar_child_bindings_respect_independent_parent_field_shadows"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "graph_scalar_child_bindings_follow_positions_then_edge_ids"
             }
           ]
         },

@@ -2345,13 +2345,19 @@ pub mod schema {
     ///
     /// Adding a primary, unique, or identifier key on an existing vertex is
     /// breaking; adding a sort key or index is a relaxation because neither
-    /// admits fewer instances. Removing any key is a relaxation. A changed key
+    /// admits fewer instances. Removing a primary key is breaking; removing other
+    /// keys is a relaxation. Changing the first primary id in stored order
+    /// is breaking when one was selected before. Owner presence and harmless
+    /// order changes remain nonidentical. A changed key
     /// is breaking exactly when it adds or changes parts, changes role, widens
     /// its scope, or moves between two distinct `Within` scopes. Reference
     /// changes follow the corresponding cardinality, nullability and
     /// unresolved-value rules. An entry-point change fails closed as
     /// breaking. Other structural schema changes belong to the production
     /// classifier's larger domain and are outside this declaration oracle.
+    /// The oracle requires distinct key ids within each owner in both schemas;
+    /// duplicate ids lose their identity in the keyed maps. Other declaration
+    /// validity is not required by the finite descriptor carrier.
     ///
     /// Book anchors: `L-keys-and-registration-4`.
     #[must_use]
@@ -2368,6 +2374,19 @@ pub mod schema {
                     declaration.role,
                     KeyRole::Primary | KeyRole::Unique | KeyRole::Identifier
                 )
+        });
+        let removed_primary_breaks = before_keys
+            .iter()
+            .any(|(key, old)| old.role == KeyRole::Primary && !after_keys.contains_key(key));
+        let selected_primary_breaks = before.keys.iter().any(|(owner, keys)| {
+            let selected = keys.iter().find(|key| key.role == KeyRole::Primary);
+            selected.is_some_and(|old| {
+                after
+                    .keys
+                    .get(owner)
+                    .and_then(|keys| keys.iter().find(|key| key.role == KeyRole::Primary))
+                    .is_none_or(|new| old.id != new.id)
+            })
         });
         let changed_key_breaks = before_keys.iter().any(|(key, old)| {
             after_keys
@@ -2396,6 +2415,8 @@ pub mod schema {
             })
         });
         if added_key_breaks
+            || removed_primary_breaks
+            || selected_primary_breaks
             || changed_key_breaks
             || added_reference_breaks
             || changed_reference_breaks

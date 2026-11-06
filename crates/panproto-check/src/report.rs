@@ -263,6 +263,16 @@ fn format_breaking(change: &BreakingChange) -> String {
         BreakingChange::KeyAdded { vertex_id, key_id } => {
             format!("Key added: {vertex_id} {key_id}")
         }
+        BreakingChange::PrimaryKeyRemoved { vertex_id, key_id } => {
+            format!("Primary key removed: {vertex_id} {key_id}")
+        }
+        BreakingChange::PrimaryKeySelectionChanged {
+            vertex_id,
+            old_key_id,
+            new_key_id,
+        } => {
+            format!("Primary key selection changed: {vertex_id} {old_key_id} -> {new_key_id:?}")
+        }
         BreakingChange::KeyTightened { vertex_id, key_id } => {
             format!("Key tightened: {vertex_id} {key_id}")
         }
@@ -347,6 +357,13 @@ fn format_non_breaking(change: &NonBreakingChange) -> String {
         }
         NonBreakingChange::KeyAdded { vertex_id, key_id } => {
             format!("Key added: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::KeySequenceChanged {
+            vertex_id,
+            old,
+            new,
+        } => {
+            format!("Stored key sequence changed: {vertex_id} {old:?} -> {new:?}")
         }
         NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
             format!("Key removed: {vertex_id} {key_id}")
@@ -597,6 +614,17 @@ fn breaking_to_json(change: &BreakingChange) -> serde_json::Value {
             "new_id": new_id,
         }),
         BreakingChange::KeyAdded { vertex_id, key_id } => key_json("key_added", vertex_id, key_id),
+        BreakingChange::PrimaryKeyRemoved { vertex_id, key_id } => {
+            key_json("primary_key_removed", vertex_id, key_id)
+        }
+        BreakingChange::PrimaryKeySelectionChanged {
+            vertex_id,
+            old_key_id,
+            new_key_id,
+        } => json!({
+            "type": "primary_key_selection_changed", "vertex_id": vertex_id,
+            "old_key_id": old_key_id, "new_key_id": new_key_id,
+        }),
         BreakingChange::KeyTightened { vertex_id, key_id } => {
             key_json("key_tightened", vertex_id, key_id)
         }
@@ -693,6 +721,13 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
         NonBreakingChange::KeyAdded { vertex_id, key_id } => {
             key_json("key_added", vertex_id, key_id)
         }
+        NonBreakingChange::KeySequenceChanged {
+            vertex_id,
+            old,
+            new,
+        } => json!({
+            "type": "key_sequence_changed", "vertex_id": vertex_id, "old": old, "new": new,
+        }),
         NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
             key_json("key_removed", vertex_id, key_id)
         }

@@ -50,6 +50,7 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
 - Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
+- File: `crates/panproto-inst/src/restrict_plan.rs`
 
 ### Mutation equivalences
 
@@ -259,6 +260,7 @@ The differential builds both plans from the same schemas and migration and check
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
 - Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 
 ### Mutation equivalences
 
@@ -329,7 +331,7 @@ None.
 
 ### Statement
 
-When several non-self outgoing children of one element have the same field name, the transform environment treats that name as repeated and binds it to a list in carrier order. A scalar demand on that binding is refused as `AmbiguousChildField`. Tree and graph nodes contribute child-node scalar values; a table relation contributes its child rows, which have no node scalar value, so the repeated list may be empty. The common claim is repetition, order, duplicate preservation, and typed scalar refusal, not equality of payloads that one shape cannot represent.
+When several non-self outgoing children of one element have the same field name and no own field shadows it, the child environment treats that name as repeated and binds it to a list in carrier order. An expression whose free variables include that repeated name is refused before evaluation as `AmbiguousChildField`. An own field takes precedence: shadowed child names contribute neither a child binding nor repetition. Tree and graph nodes contribute child-node scalar values; a table relation contributes its child rows, which have no node scalar value, so the repeated list may be empty. The common claim is repetition, order, duplicate preservation, and typed scalar refusal, not equality of payloads that one shape cannot represent.
 
 A binding read through a child does not move the attribute. When an expression rewrites a field the element does not hold, reading its value from the one child the field names, the tree engines write the result back onto that child's scalar value; the element gains no field of that name. Thus the view holds one value for the attribute, at the child where the source held it, and never a second copy among the element's own fields.
 
@@ -339,11 +341,11 @@ Self-loops do not contribute child values. A structural child that cannot be rea
 
 ### Definitions used
 
-For graphs, *edge order* is ascending edge id. For trees it is sibling order; for tables it is the order fixed by the compiled relation carrier. The list preserves duplicates.
+For graphs, *edge order* is `ordered_out_edges`, ordered by position with edge id as the tie-breaker. For trees it is sibling arc order; for tables it is ascending target row id within the relation. The list preserves duplicates.
 
 ### Proof
 
-`scalar_child_bindings` walks the stored structural children, excludes self-loops and absent values, and collects repeated names into ordered lists without removing duplicates. The differential constructs the same word as a production tree and a reference tree, then compares the complete binding map. The carrier contains every word of length zero through three over the eight binding-slot states, for 585 cases. A separate two-child `x,x` witness runs through tree, graph, table, and the table's graph form; each engine then evaluates a transform that demands scalar `x` and returns the real `AmbiguousChildField` refusal. For the write-back location, `declared_read_of_a_child_attribute_writes_it_back_to_the_child` runs an invertible read of a child-held attribute through production and reference tree get and put: the view keeps the value on the child and none on the element, and an edit of the child value is put back onto the child.
+`scalar_child_bindings` walks the stored structural children, excludes self-loops and names shadowed by the parent's own fields, and counts the remaining arcs by name. It collects present scalar values in arc order, with a repeated name binding the list even when some of its children contribute no value. This preserves both arc multiplicity and duplicate values. The differential constructs the same word as a production tree and a reference tree, then compares the complete binding map. The carrier contains every word of length zero through three over the eight binding-slot states, for 585 cases. A separate two-child `x,x` witness runs through tree, graph, table, and the table's graph form; each engine then evaluates a transform that demands scalar `x` and returns the real `AmbiguousChildField` refusal. For the write-back location, `declared_read_of_a_child_attribute_writes_it_back_to_the_child` runs an invertible read of a child-held attribute through production and reference tree get and put: the view keeps the value on the child and none on the element, and an edit of the child value is put back onto the child.
 
 ### Executable counterpart
 
@@ -354,6 +356,10 @@ For graphs, *edge order* is ascending edge id. For trees it is sibling order; fo
 - Evidence scope: `585 ordered child-binding words`
 - Production certificate: `repeated_child_bindings_agree_and_preserve_order_and_duplicates; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=repeated_child_bindings_agree_and_preserve_order_and_duplicates)'`
 - Independent reference anchor: `repeated_child_bindings_agree_and_preserve_order_and_duplicates; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=repeated_child_bindings_agree_and_preserve_order_and_duplicates)'`
+- Fixed differential test: `scalar_child_bindings_respect_independent_parent_field_shadows; command: cargo nextest run --locked -p panproto-inst --test reference_restrict --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=scalar_child_bindings_respect_independent_parent_field_shadows)'`
+- Fixed differential test: `graph_scalar_child_bindings_follow_positions_then_edge_ids; command: cargo nextest run --locked -p panproto-inst --test reference_restrict --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=graph_scalar_child_bindings_follow_positions_then_edge_ids)'`
+- Additional scope: eight independent parent-field shadow and duplicate-value cases, and six graph-position order cases including absent positions, ties and the maximum position.
+- File: `crates/panproto-inst/src/ginstance/mod.rs`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/element_ops.rs`
@@ -411,6 +417,8 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
 - Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
+- File: `crates/panproto-lens/src/dispatch.rs`
 
 ### Mutation equivalences
 
@@ -467,6 +475,8 @@ The *restored node* is the source candidate obtained from the view node plus rec
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - Property differential test: `randomized_graph_square_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
 - Randomized evidence scope: `randomized_graph_square_differential`: Generated stage/source and edit indices select individual cases and single-step basis edits from the bounded graph/tree conversion carrier; paired unedited and edited graph/tree squares include refusal observations. Empty edit bases and refusing gets remain observations. Current candidate execution is pending.
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
+- File: `crates/panproto-reference/src/pages/lenses/laws.rs`
 
 ### Mutation equivalences
 
@@ -518,6 +528,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
 - Randomized evidence scope: `randomized_lens_law_differential`: Generated case and edit indices exercise every core bounded graph/tree/table law family per case, plus one generated additional family; production and independent reference law reports are compared on the declared common basis. Current candidate execution is pending.
+- File: `crates/panproto-reference/src/pages/lenses/laws.rs`
 
 ### Mutation equivalences
 
@@ -655,6 +666,7 @@ For the re-encoding clause, graph encoding numbers a tree's arcs $0,1,\ldots$ in
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
 - Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
+- File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 
 ### Mutation equivalences
 

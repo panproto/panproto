@@ -1428,6 +1428,123 @@ struct RepeatedChildInstances {
     table_graph: GInstance,
 }
 
+fn shadowed_child_binding_tree(shadowed: u8, duplicate: bool) -> RefTree {
+    let mut tree = RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "r"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    for (bit, column, first) in [(1, "x", 1), (2, "y", 3)] {
+        if shadowed & bit != 0 {
+            tree.nodes
+                .get_mut(&0)
+                .unwrap()
+                .fields
+                .insert(column.to_owned(), RefValue::Int(40 + i64::from(first)));
+        }
+        for slot in 0..2 {
+            let id = first + slot;
+            let value = if duplicate { first } else { id };
+            tree.nodes.insert(
+                id,
+                RefNode::new(id, "v").with_value(RefValue::Int(i64::from(value))),
+            );
+            tree.arcs
+                .push((0, id, RefEdge::new("r", "v", "prop", Some(column))));
+        }
+    }
+    tree
+}
+
+#[test]
+fn scalar_child_bindings_respect_independent_parent_field_shadows() {
+    for shadowed in 0..4 {
+        for duplicate in [false, true] {
+            let reference = shadowed_child_binding_tree(shadowed, duplicate);
+            let tree = prod_tree(&reference);
+            let graph = GInstance::from_wtype(&tree).unwrap();
+            let mut pinned = BTreeMap::new();
+            for (bit, column, first) in [(1, "x", 1), (2, "y", 3)] {
+                if shadowed & bit == 0 {
+                    pinned.insert(
+                        column.to_owned(),
+                        RefValue::List(vec![
+                            RefValue::Int(first),
+                            RefValue::Int(if duplicate { first } else { first + 1 }),
+                        ]),
+                    );
+                }
+            }
+            let expected = restrict::scalar_child_bindings(&reference, 0);
+            assert_eq!(
+                expected, pinned,
+                "shadow mask {shadowed}, duplicate={duplicate}"
+            );
+            assert_eq!(
+                ref_fields(&collect_scalar_child_values(&tree, 0)),
+                expected,
+                "tree child bindings: shadow mask {shadowed}, duplicate={duplicate}"
+            );
+            pinned.extend(reference.nodes[&0].fields.clone());
+            assert_eq!(
+                ref_fields(&tree.attributes(0)),
+                pinned,
+                "own tree fields win: shadow mask {shadowed}, duplicate={duplicate}"
+            );
+            assert_eq!(
+                ref_fields(&graph.attributes(0)),
+                pinned,
+                "own graph fields win: shadow mask {shadowed}, duplicate={duplicate}"
+            );
+        }
+    }
+}
+
+#[test]
+fn graph_scalar_child_bindings_follow_positions_then_edge_ids() {
+    for (positions, order) in [
+        ([None, None], [0, 1]),
+        ([Some(1), Some(0)], [1, 0]),
+        ([Some(0), Some(0)], [0, 1]),
+        ([Some(0), None], [1, 0]),
+        ([None, Some(0)], [0, 1]),
+        ([Some(u32::MAX), Some(0)], [1, 0]),
+    ] {
+        let mut instances = repeated_child_instances();
+        for (id, position) in positions.into_iter().enumerate() {
+            instances
+                .graph
+                .set_edge_position(EdgeId(u32::try_from(id).unwrap()), position)
+                .unwrap();
+        }
+        let expected_ids = order.map(EdgeId).to_vec();
+        assert_eq!(
+            instances.graph.ordered_out_edges(0),
+            expected_ids,
+            "positions={positions:?}"
+        );
+        let mut reference = ref_tree(&instances.tree);
+        let source_arcs = reference.arcs.clone();
+        reference.arcs = order
+            .map(|id| source_arcs[usize::try_from(id).unwrap()].clone())
+            .to_vec();
+        let expected = restrict::scalar_child_bindings(&reference, 0);
+        assert_eq!(
+            expected.get("x"),
+            Some(&RefValue::List(
+                order.map(|id| RefValue::Int(i64::from(id + 1))).to_vec()
+            )),
+            "reference arc order pins positional graph order: {positions:?}"
+        );
+        assert_eq!(
+            ref_fields(&instances.graph.attributes(0)),
+            expected,
+            "graph child binding order: {positions:?}"
+        );
+    }
+}
+
 fn repeated_child_instances() -> RepeatedChildInstances {
     let repeated_edge = Edge {
         src: "r".into(),

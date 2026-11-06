@@ -149,7 +149,7 @@ fn variant_of<T: Serialize>(value: &T) -> (u32, &'static str) {
     cell.get().expect("an enum value")
 }
 
-fn boundary_variants() -> [(u32, &'static str, BreakingChange); 8] {
+fn boundary_variants() -> [(u32, &'static str, BreakingChange); 10] {
     [
         (
             27,
@@ -211,6 +211,23 @@ fn boundary_variants() -> [(u32, &'static str, BreakingChange); 8] {
                 set_id: "items".into(),
             },
         ),
+        (
+            35,
+            "PrimaryKeyRemoved",
+            BreakingChange::PrimaryKeyRemoved {
+                vertex_id: "item".into(),
+                key_id: "id".into(),
+            },
+        ),
+        (
+            36,
+            "PrimaryKeySelectionChanged",
+            BreakingChange::PrimaryKeySelectionChanged {
+                vertex_id: "item".into(),
+                old_key_id: "id".into(),
+                new_key_id: Some("other".into()),
+            },
+        ),
     ]
 }
 
@@ -232,6 +249,8 @@ fn breaking_change_names_and_payloads_round_trip() {
         serde_json::json!({"ReferenceTightened": {"reference_id": "owner"}}),
         serde_json::json!({"TargetSetAdded": {"set_id": "items"}}),
         serde_json::json!({"TargetSetTightened": {"set_id": "items"}}),
+        serde_json::json!({"PrimaryKeyRemoved": {"vertex_id": "item", "key_id": "id"}}),
+        serde_json::json!({"PrimaryKeySelectionChanged": {"vertex_id": "item", "old_key_id": "id", "new_key_id": "other"}}),
     ];
     for ((_, name, change), fixture) in boundary_variants().into_iter().zip(fixtures) {
         assert_eq!(
