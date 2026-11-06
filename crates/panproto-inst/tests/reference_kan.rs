@@ -6300,7 +6300,7 @@ fn public_cell_fixture() -> (model::Table, encode::GraphSide, encode::CellLayout
         inner_edges: BTreeSet::from([inner]),
     };
     let mut leaf = model::Node::new(4, "value");
-    leaf.value = Some(model::Presence::Present(rvalue::Value::Int(7)));
+    leaf.value = Some(rvalue::Presence::Present(rvalue::Value::Int(7)));
     let cell = encode::CellLayout {
         root: 4,
         nodes: BTreeMap::from([(4, leaf)]),
@@ -6532,7 +6532,7 @@ fn shared_or_malformed_cell_hints_fall_back_to_the_cell_value() {
         side.inner_edges = BTreeSet::from([left.clone(), right.clone()]);
         cell.nodes.get_mut(&4).expect("root").value = None;
         let mut leaf = model::Node::new(5, "value");
-        leaf.value = Some(model::Presence::Present(rvalue::Value::Int(7)));
+        leaf.value = Some(rvalue::Presence::Present(rvalue::Value::Int(7)));
         cell.nodes.insert(5, leaf.clone());
         leaf.id = 6;
         if case != 1 {
@@ -6565,7 +6565,7 @@ fn shared_or_malformed_cell_hints_fall_back_to_the_cell_value() {
         );
         if case == 2 {
             cell.nodes.get_mut(&4).expect("root").value =
-                Some(model::Presence::Present(rvalue::Value::Int(0)));
+                Some(rvalue::Presence::Present(rvalue::Value::Int(0)));
         }
         if case == 3 {
             cell.nodes.remove(&6);

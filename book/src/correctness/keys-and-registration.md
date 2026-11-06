@@ -57,6 +57,7 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
+- File: `crates/panproto-inst/src/validation/checks.rs`
 
 ### Mutation equivalences
 
@@ -107,6 +108,8 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
+- File: `crates/panproto-inst/src/validation/checks.rs`
+- File: `crates/panproto-inst/src/key.rs`
 
 ### Mutation equivalences
 
@@ -269,6 +272,8 @@ A theory is *closed* when every sort and operation used by its declarations and 
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-gat/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
+- File: `crates/panproto-gat/src/typecheck.rs`
+- File: `crates/panproto-reference/src/enumerate/theories.rs`
 
 ### Mutation equivalences
 
@@ -319,6 +324,8 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
+- File: `crates/panproto-gat/src/composition.rs`
+- File: `crates/panproto-reference/src/enumerate/theories.rs`
 
 ### Mutation equivalences
 
@@ -370,6 +377,7 @@ The law concerns canonical identities, not the incidental bytes of Rust's ordina
 - File: `crates/panproto-schema/src/canonical_theory.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
+- File: `crates/panproto-schema/src/canonical.rs`
 
 ### Mutation equivalences
 

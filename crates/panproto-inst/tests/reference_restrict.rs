@@ -2723,7 +2723,7 @@ fn generated_graph_restriction_agrees(
     }
 }
 
-fn generated_column_fates_agree(states: &[ColumnState; 2]) {
+fn generated_column_fates_agree(states: [ColumnState; 2]) {
     let protocol = table_protocol();
     let source = SchemaBuilder::new(&protocol)
         .vertex("t", "record", None)
@@ -2744,7 +2744,7 @@ fn generated_column_fates_agree(states: &[ColumnState; 2]) {
         (RefEdge::new("t", "t.b", "prop", Some("b")), "b".to_owned()),
     ]);
     let (target, reference_target, migration, reference_migration, target_columns) =
-        column_case_target(&protocol, states);
+        column_case_target(&protocol, &states);
     let production = RestrictPlan::compile_with_protocols(
         &source,
         &target,
@@ -2779,14 +2779,7 @@ fn generated_column_fates_agree(states: &[ColumnState; 2]) {
         .map(prod_column_fate_text)
         .collect::<Vec<_>>();
     assert_eq!(actual, expected, "{states:?}");
-    assert_column_runtime(
-        &protocol,
-        &source,
-        &target,
-        &migration,
-        &production,
-        *states,
-    );
+    assert_column_runtime(&protocol, &source, &target, &migration, &production, states);
 }
 
 fn generated_tree_restriction_agrees(case: &TreeRestrictCase) {
@@ -2853,7 +2846,7 @@ proptest::proptest! {
         let mut graph = RefGraph::default();
         for (index,anchor) in ["a","b","c"].iter().enumerate() {
             let id = u32::try_from(index).unwrap();
-            let mut node = RefNode::new(id,*anchor);
+            let mut node = RefNode::new(id,anchor);
             node.fields.insert("payload".into(),RefValue::Int(payloads[index]));
             node.annotations.insert("annotation".into(),RefValue::Int(payloads[index]));
             graph.nodes.insert(id,node);
@@ -2885,7 +2878,7 @@ proptest::proptest! {
     #[test]
     fn randomized_column_fate_differential(left in 0_usize..3,right in 0_usize..3) {
         let states=[ColumnState::Drop,ColumnState::Keep,ColumnState::Rename];
-        generated_column_fates_agree(&[states[left],states[right]]);
+        generated_column_fates_agree([states[left],states[right]]);
     }
 
     #[test]

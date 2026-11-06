@@ -24,17 +24,17 @@ A declaration that uses a deferred form is refused when the resolution compiles,
 
 ### Definitions used
 
-The *unchanged view* is byte-for-byte the graph returned by get. A redirected fragment includes its nodes, its attachment edge, its internal edges, and every fan edge removed with it. A standoff context is distinct from span identity and contains the external route, key, and loaded bytes.
+The *unchanged view* is byte-for-byte the graph returned by get. The complement records the original structural edge ids separately from synthesized resolution edges; a shared schema label does not make a source arc a new resolution occurrence. A redirected fragment includes its nodes, its attachment edge, its internal edges, and every fan edge removed with it. A standoff context is distinct from span identity and contains the external route, key, and loaded bytes.
 
 ### Proof
 
 Get records every resolution edge under the occurrence that produced it, together with its original target, and stores every removed maximal redirect fragment, exact inline duplicate fragment, unresolved literal, synthesized span, span context, and the root. Reference `put` then runs eight steps on the unchanged view, and none of them can refuse.
 
-1. Every view edge that carries a declared reference's label is a recorded resolution edge whose source is unchanged, so `record_existing_edge` keeps its literal and its target; no edge reaches `new_occurrence`.
+1. Original structural arcs retain their recorded source-edge identity, even when their labels equal a reference label. Every synthesized resolution edge is recorded and unchanged, so `record_existing_edge` keeps its literal and its target; no edge reaches `new_occurrence`.
 2. The list of appended occurrences is therefore empty, and no target tuple is computed for one.
-3. `verify_visible_sequences` rewrites each touched holder's sequence at its key sites in a copy of the view and requires the copy to equal the view. A holder that get kept (`AddEdge`) still holds, at exactly those sites and in index order, the literals get read there; a holder that get removed (`Redirect`) is absent from the view and is skipped. The copy thus equals the view, and the check accepts.
+3. `verify_visible_sequences` checks the view after synthesized resolution edges have been removed, preserving original structural arcs. This projection prevents a synthesized edge from shadowing a source field with the same path label. It rewrites each touched holder's sequence at its key sites in a copy of that projection and requires exact equality. A holder that get kept (`AddEdge`) still yields the same occurrence tuple sequence when its sites are read independently. The writer preserves those exact sites when that sequence agrees, including a scalar spelling of one many-valued occurrence, absent or empty sites, and null slots that produced no occurrence. A holder that get removed (`Redirect`) is absent from the view and is skipped. The copy thus equals the syntactic projection, and the check accepts.
 4. `restore_fragments` reinserts the recorded fragments of the kept redirects.
-5. `write_sequences` writes the same sequences at the same sites. Its only refusal is a missing write site for a guard, and every such site exists because get read the guard there.
+5. `write_sequences` rereads the restored sites and finds the same occurrence tuples. It thus preserves their exact representations. A guard site exists with its recorded value because get read it there, so checking and restoring that value also preserves the source.
 6. `restore_inline_occurrences` rebuilds each recorded inline occurrence from its recorded field set. Every representative and every recorded field is present in the unchanged view, so it cannot refuse.
 7. Removing the synthesized span nodes and reading the graph back with the recorded root inverts get's tree-to-graph encoding.
 8. `verify_sequences` re-resolves every written occurrence on that tree, which is $s$, so each reaches the target get recorded.
@@ -47,11 +47,19 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 - Reference: `panproto_reference::resolution::get`
 - Reference: `panproto_reference::resolution::put`
 - Reference: `panproto_reference::resolution::deferred_form`
-- Evidence scope: `panproto_reference::enumerate::resolution::indexed_sources; bound: targets=3, sources=8, deferred_declarations=80`
+- Evidence scope: `panproto_reference::enumerate::resolution::indexed_sources; bound: targets=3, sources=8, deferred_declarations=80; fixed source-syntax controls: 22 scalar/list/null/absent cases, 12 composite-null cases, path and variable scalar sites, three nullable standoff sites, source-path label overlap, original structural reference labels, and first/last redirect attachment slots; changed-edge controls retain admission and refusal checks`
 - Production certificate: `declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope)'`
 - Independent reference anchor: `deferred_forms_are_refused_by_production_exactly_where_the_reference_declares_them; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=deferred_forms_are_refused_by_production_exactly_where_the_reference_declares_them)'`
 - Property differential test: `randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::indexed_get_put_domain_and_gated_put_match_on_generated_candidates)'`
 - Property scope: `eight indexed source subsets and their 48 edit candidates, sampled by source and candidate slot; indexed and declared tree carriers, stale and coherent edits, exact source preservation, canonical reget and gated repeat; configured successful cases per seed=256`
+- Production test: `many_resolution_get_put_preserves_scalar_lists_and_null_slots; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_resolution_get_put_preserves_scalar_lists_and_null_slots)'`
+- Production test: `many_resolution_preservation_still_checks_changed_edges; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_resolution_preservation_still_checks_changed_edges)'`
+- Production test: `many_composite_null_matching_preserves_each_original_part; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_composite_null_matching_preserves_each_original_part)'`
+- Production test: `many_path_and_variable_scalar_sites_round_trip_exactly; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=many_path_and_variable_scalar_sites_round_trip_exactly)'`
+- Production test: `nullable_standoff_source_sites_round_trip_exactly; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nullable_standoff_source_sites_round_trip_exactly)'`
+- Production test: `synthesized_reference_edges_do_not_shadow_original_source_sites; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=synthesized_reference_edges_do_not_shadow_original_source_sites)'`
+- Production test: `original_structural_reference_labels_keep_their_source_edge_slots; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=original_structural_reference_labels_keep_their_source_edge_slots)'`
+- Production test: `redirected_source_edge_slots_are_distinguished_from_resolution_carriers; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=redirected_source_edge_slots_are_distinguished_from_resolution_carriers)'`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`

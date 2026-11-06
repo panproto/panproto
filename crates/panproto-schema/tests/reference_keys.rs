@@ -1809,12 +1809,14 @@ fn missing_target_obligations_fixture(
         target_set_schema()
     };
     if carrier == MissingTargetCarrier::MissingMemberSet {
-        schema
-            .target_sets
-            .get_mut("targets")
-            .expect("target set")
-            .members[0]
-            .1 = "missing_member".to_owned();
+        "missing_member".clone_into(
+            &mut schema
+                .target_sets
+                .get_mut("targets")
+                .expect("target set")
+                .members[0]
+                .1,
+        );
     }
     if binder.is_some() {
         schema.keys.get_mut("target").expect("target keys")[0].role =

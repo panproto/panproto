@@ -118,6 +118,58 @@ impl ResolutionProvider for Provider {
     }
 }
 
+/// A fixture provider whose IDREF reader independently searches customer keys.
+struct IdRefProvider(Provider);
+
+impl ResolutionProvider for IdRefProvider {
+    fn id(&self) -> ResolutionProviderId {
+        self.0.id()
+    }
+
+    fn kind(&self) -> ResolutionKind {
+        self.0.kind()
+    }
+
+    fn protocol(&self) -> &Protocol {
+        self.0.protocol()
+    }
+
+    fn spec(
+        &self,
+        protocol: &Protocol,
+        syntactic: &Schema,
+    ) -> Result<ResolutionSpec, ResolveError> {
+        self.0.spec(protocol, syntactic)
+    }
+
+    fn resolve_path(
+        &self,
+        reference: &Reference,
+        _holder: ViewRef,
+        literal: &Value,
+        source: &AnyInstance,
+        _ctx: &ResolveContext<'_>,
+    ) -> Result<panproto_io::resolution::PathResolution, ResolveError> {
+        let AnyInstance::Tree(source) = source else {
+            panic!("the IDREF fixture resolves against its syntactic tree");
+        };
+        let mut candidates: Vec<_> = source
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.anchor == reference.target_vertex
+                    && node.extra_fields.get("cid") == Some(literal)
+            })
+            .map(|(id, _)| ViewRef::Node(*id))
+            .collect();
+        candidates.sort_unstable();
+        Ok(panproto_io::resolution::PathResolution {
+            candidates,
+            context: None,
+        })
+    }
+}
+
 fn picks() -> (Resolution, Edge) {
     let protocol = protocol("reference-picks");
     let picked = edge("pick", "customer", "ref", Some("picked"));
@@ -186,6 +238,28 @@ fn tree_picks_with_equality(equality: Vec<KeyEquality>) -> (Resolution, Edge) {
 fn try_tree_picks_with_equality(
     equality: Vec<KeyEquality>,
 ) -> Result<(Resolution, Edge), ResolveError> {
+    try_tree_picks_with_equality_and_mode(equality, ResolveMode::AddEdge)
+}
+
+fn try_tree_picks_with_equality_and_mode(
+    equality: Vec<KeyEquality>,
+    mode: ResolveMode,
+) -> Result<(Resolution, Edge), ResolveError> {
+    tree_picks_with_source(equality, mode, None)
+}
+
+fn tree_picks_with_source(
+    equality: Vec<KeyEquality>,
+    mode: ResolveMode,
+    source: Option<RefSource>,
+) -> Result<(Resolution, Edge), ResolveError> {
+    let uses_idref = matches!(
+        &source,
+        Some(RefSource::Path {
+            syntax: panproto_schema::PathSyntax::IdRef,
+            ..
+        })
+    );
     let mut protocol = protocol("reference-tree-picks");
     protocol.syntactic_shape = InstanceShapeKind::Tree;
     let picked = edge("pick", "customer", "ref", Some("picked"));
@@ -222,6 +296,8 @@ fn try_tree_picks_with_equality(
         .reference(Reference {
             cardinality: Cardinality::Many,
             nullable: true,
+            mode,
+            source: source.unwrap_or_else(|| reference(picked.clone()).source),
             ..reference(picked.clone())
         })
         .build()
@@ -237,6 +313,17 @@ fn try_tree_picks_with_equality(
             equality,
         },
     );
+    let provider = tree_pick_provider(&protocol, &schema, &picked);
+    let provider: Arc<dyn ResolutionProvider> = if uses_idref {
+        Arc::new(IdRefProvider(provider))
+    } else {
+        Arc::new(provider)
+    };
+    let resolution = Resolution::for_protocol(&protocol, &schema, provider)?;
+    Ok((resolution, picked))
+}
+
+fn tree_pick_provider(protocol: &Protocol, schema: &Schema, picked: &Edge) -> Provider {
     let provider_id = ResolutionProviderId {
         name: "reference-tree-picks".into(),
         version: 1,
@@ -249,20 +336,18 @@ fn try_tree_picks_with_equality(
         structural_edges: schema
             .edges
             .keys()
-            .filter(|candidate| **candidate != picked)
+            .filter(|candidate| *candidate != picked)
             .cloned()
             .collect(),
         reference_writers: BTreeMap::from([(picked.clone(), "pick".into())]),
         context_requirements: BTreeSet::new(),
         assembly: None,
     };
-    let provider = Provider {
+    Provider {
         protocol: protocol.clone(),
         spec,
         kind: ResolutionKind::TreeToGraph,
-    };
-    let resolution = Resolution::for_protocol(&protocol, &schema, Arc::new(provider))?;
-    Ok((resolution, picked))
+    }
 }
 
 fn variable_resolution(binding: VariableBinding) -> (Resolution, Edge) {
@@ -273,6 +358,14 @@ fn variable_resolution(binding: VariableBinding) -> (Resolution, Edge) {
 fn variable_resolution_with(
     binding: VariableBinding,
     equality: Vec<KeyEquality>,
+) -> (Resolution, Edge) {
+    variable_resolution_with_cardinality(binding, equality, Cardinality::One)
+}
+
+fn variable_resolution_with_cardinality(
+    binding: VariableBinding,
+    equality: Vec<KeyEquality>,
+    cardinality: Cardinality,
 ) -> (Resolution, Edge) {
     let mut protocol = protocol("reference-variable-binding");
     protocol.syntactic_shape = InstanceShapeKind::Tree;
@@ -314,7 +407,7 @@ fn variable_resolution_with(
             target_vertex: "concept".into(),
             target_key: None,
             edge: Some(binding_edge.clone()),
-            cardinality: Cardinality::One,
+            cardinality,
             nullable: false,
             on_unresolved: OnUnresolved::Error,
             mode: ResolveMode::AddEdge,
@@ -517,6 +610,14 @@ fn numeric_pick_tree() -> WInstance {
 }
 
 fn null_match_resolution(null_match: NullMatch) -> (Resolution, Edge) {
+    null_match_resolution_with(null_match, Cardinality::One, ResolveMode::AddEdge)
+}
+
+fn null_match_resolution_with(
+    null_match: NullMatch,
+    cardinality: Cardinality,
+    mode: ResolveMode,
+) -> (Resolution, Edge) {
     let mut protocol = protocol("reference-null-match");
     protocol.syntactic_shape = InstanceShapeKind::Tree;
     let picked = edge("pick", "customer", "ref", Some("picked"));
@@ -559,10 +660,10 @@ fn null_match_resolution(null_match: NullMatch) -> (Resolution, Edge) {
             target_vertex: "customer".into(),
             target_key: Some("pair".into()),
             edge: Some(picked.clone()),
-            cardinality: Cardinality::One,
-            nullable: false,
+            nullable: cardinality == Cardinality::Many,
+            cardinality,
             on_unresolved: OnUnresolved::Error,
-            mode: ResolveMode::AddEdge,
+            mode,
             guard: None,
             null_match,
             null_vertex: None,
@@ -3838,6 +3939,597 @@ fn composite_foreign_key_null_matching_uses_real_resolution_occurrences() {
                 assert_eq!(reference.1, None);
             }
         }
+    }
+}
+
+/// Convert only the literal carriers used by the syntax-preservation matrix.
+fn syntax_literal(value: &ReferenceValue) -> Value {
+    match value {
+        ReferenceValue::Null => Value::Null,
+        ReferenceValue::Int(value) => Value::Int(*value),
+        ReferenceValue::Str(value) => text(value),
+        ReferenceValue::List(values) => Value::List(values.iter().map(syntax_literal).collect()),
+        _ => panic!("the syntax matrix uses null, integer, string and list literals"),
+    }
+}
+
+fn assert_many_syntax_round_trip(literal: Option<ReferenceValue>, redirect: bool) {
+    let seed = IndexedSource::from(["a".to_owned()]);
+    let (mut schema, mut expected_source, _) = reference_pick_tree(&seed);
+    schema.references.get_mut("pick").unwrap().mode = if redirect {
+        reference_schema::ResolveMode::Redirect
+    } else {
+        reference_schema::ResolveMode::AddEdge
+    };
+    let mut actual_source = production_pick_tree(&seed);
+    match literal {
+        Some(value) => {
+            actual_source
+                .nodes
+                .get_mut(&1)
+                .unwrap()
+                .extra_fields
+                .insert("customer".to_owned(), syntax_literal(&value));
+            expected_source
+                .nodes
+                .get_mut(&1)
+                .unwrap()
+                .fields
+                .insert("customer".to_owned(), value);
+        }
+        None => {
+            actual_source
+                .nodes
+                .get_mut(&1)
+                .unwrap()
+                .extra_fields
+                .remove("customer");
+            expected_source
+                .nodes
+                .get_mut(&1)
+                .unwrap()
+                .fields
+                .remove("customer");
+        }
+    }
+    let (view, complement) = reference_get(&schema, &expected_source, true).unwrap();
+    assert_eq!(
+        reference_put(&schema, &view, &complement),
+        Ok(expected_source)
+    );
+    let mode = if redirect {
+        ResolveMode::Redirect
+    } else {
+        ResolveMode::AddEdge
+    };
+    let (resolution, _) = try_tree_picks_with_equality_and_mode(Vec::new(), mode).unwrap();
+    let (view, complement) = resolution
+        .get(
+            &AnyInstance::Tree(actual_source.clone()),
+            &ResolveOptions { lenient: true },
+            &ResolveContext::empty(),
+        )
+        .unwrap();
+    let restored = resolution
+        .put(&view, &complement, &ResolveContext::empty())
+        .unwrap();
+    assert!(same_instance(&restored, &AnyInstance::Tree(actual_source)));
+}
+
+#[test]
+fn many_resolution_get_put_preserves_scalar_lists_and_null_slots() {
+    use ReferenceValue::{List, Null, Str};
+    let a = || Str("a".to_owned());
+    let b = || Str("b".to_owned());
+    let cases = [
+        None,
+        Some(Null),
+        Some(List(vec![])),
+        Some(a()),
+        Some(List(vec![a()])),
+        Some(List(vec![Null, a()])),
+        Some(List(vec![a(), Null])),
+        Some(List(vec![Null, a(), Null, b()])),
+        Some(List(vec![a(), a()])),
+        Some(List(vec![Null, Null])),
+        Some(List(vec![Null, Str("missing".to_owned()), a()])),
+    ];
+    assert_eq!(cases.len(), 11);
+    for redirect in [false, true] {
+        for value in &cases {
+            assert_many_syntax_round_trip(value.clone(), redirect);
+        }
+    }
+}
+
+#[test]
+fn many_resolution_preservation_still_checks_changed_edges() {
+    let seed = IndexedSource::from(["a".to_owned()]);
+    for redirect in [false, true] {
+        let (mut schema, mut source, _) = reference_pick_tree(&seed);
+        schema.references.get_mut("pick").unwrap().mode = if redirect {
+            reference_schema::ResolveMode::Redirect
+        } else {
+            reference_schema::ResolveMode::AddEdge
+        };
+        let (mut view, complement) = reference_get(&schema, &source, false).unwrap();
+        let carrier = *complement.resolved.keys().next().unwrap();
+        view.edges.get_mut(&carrier).unwrap().tgt = 3;
+        let expected = reference_put(&schema, &view, &complement);
+        let mode = if redirect {
+            ResolveMode::Redirect
+        } else {
+            ResolveMode::AddEdge
+        };
+        let (resolution, _) = try_tree_picks_with_equality_and_mode(Vec::new(), mode).unwrap();
+        let actual_source = production_pick_tree(&seed);
+        let (actual_view, actual_complement) = resolution
+            .get(
+                &AnyInstance::Tree(actual_source.clone()),
+                &ResolveOptions::default(),
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        let AnyInstance::Graph(mut actual_view) = actual_view else {
+            panic!("graph expected")
+        };
+        let actual_carrier = actual_complement
+            .occurrences
+            .keys()
+            .find_map(|carrier| match carrier {
+                ViewRef::Edge(id) => Some(*id),
+                _ => None,
+            })
+            .unwrap();
+        let parent = actual_view.edge(actual_carrier).unwrap().src;
+        actual_view
+            .set_endpoints(actual_carrier, parent, 3)
+            .unwrap();
+        let actual = resolution.put(
+            &AnyInstance::Graph(actual_view),
+            &actual_complement,
+            &ResolveContext::empty(),
+        );
+        if redirect {
+            source.nodes.get_mut(&1).unwrap().fields.insert(
+                "customer".to_owned(),
+                ReferenceValue::List(vec![ReferenceValue::Str("b".to_owned())]),
+            );
+            assert_eq!(expected, Ok(source));
+            let mut rewritten = actual_source;
+            rewritten
+                .nodes
+                .get_mut(&1)
+                .unwrap()
+                .extra_fields
+                .insert("customer".to_owned(), Value::List(vec![text("b")]));
+            assert!(same_instance(
+                &actual.unwrap(),
+                &AnyInstance::Tree(rewritten)
+            ));
+        } else {
+            assert!(matches!(
+                expected,
+                Err(panproto_reference::resolution::ResolveError::UnrepresentableReference { .. })
+            ));
+            assert!(matches!(actual, Err(ResolveError::PutDomain(_))));
+            view.edges.remove(&carrier);
+            assert!(reference_put(&schema, &view, &complement).is_err());
+        }
+    }
+}
+
+#[test]
+fn many_composite_null_matching_preserves_each_original_part() {
+    use ReferenceValue::{Int, List, Null};
+    let cases = [
+        (Int(1), Int(2)),
+        (
+            List(vec![Null, Int(1), Null, Int(1)]),
+            List(vec![Null, Int(2), Int(2), Null]),
+        ),
+        (List(vec![Null, Null]), List(vec![Null, Null])),
+    ];
+    for full in [false, true] {
+        for redirect in [false, true] {
+            for (left, right) in &cases {
+                let reference_mode = if full {
+                    reference_schema::NullMatch::Full
+                } else {
+                    reference_schema::NullMatch::Simple
+                };
+                let (mut schema, source, _) =
+                    reference_null_match(reference_mode, left.clone(), right.clone());
+                let declaration = schema.references.get_mut("pair").unwrap();
+                declaration.cardinality = reference_schema::Cardinality::Many;
+                declaration.nullable = true;
+                declaration.mode = if redirect {
+                    reference_schema::ResolveMode::Redirect
+                } else {
+                    reference_schema::ResolveMode::AddEdge
+                };
+                let (view, complement) = reference_get(&schema, &source, true).unwrap();
+                assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+                let mode = if redirect {
+                    ResolveMode::Redirect
+                } else {
+                    ResolveMode::AddEdge
+                };
+                let null_match = if full {
+                    NullMatch::Full
+                } else {
+                    NullMatch::Simple
+                };
+                let (resolution, _) =
+                    null_match_resolution_with(null_match, Cardinality::Many, mode);
+                let source = null_match_tree(syntax_literal(left), syntax_literal(right));
+                let (view, complement) = resolution
+                    .get(
+                        &AnyInstance::Tree(source.clone()),
+                        &ResolveOptions { lenient: true },
+                        &ResolveContext::empty(),
+                    )
+                    .unwrap();
+                let restored = resolution
+                    .put(&view, &complement, &ResolveContext::empty())
+                    .unwrap();
+                assert!(same_instance(&restored, &AnyInstance::Tree(source)));
+            }
+        }
+    }
+}
+
+#[test]
+fn many_path_and_variable_scalar_sites_round_trip_exactly() {
+    let seed = IndexedSource::from(["a".to_owned()]);
+    let (mut schema, mut source, _) = reference_pick_tree(&seed);
+    source
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("customer".to_owned(), ReferenceValue::Str("a".to_owned()));
+    schema.references.get_mut("pick").unwrap().source = reference_schema::RefSource::Path {
+        field: vec![reference_model::SEdge::new(
+            "pick",
+            "label",
+            "prop",
+            Some("customer"),
+        )],
+        syntax: reference_schema::PathSyntax::IdRef,
+    };
+    let (view, complement) = reference_get(&schema, &source, false).unwrap();
+    assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+    let (resolution, _) = tree_picks_with_source(
+        Vec::new(),
+        ResolveMode::AddEdge,
+        Some(RefSource::Path {
+            field: vec![prop("pick", "label", "customer")],
+            syntax: panproto_schema::PathSyntax::IdRef,
+        }),
+    )
+    .unwrap();
+    let mut source = production_pick_tree(&seed);
+    source
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .extra_fields
+        .insert("customer".to_owned(), text("a"));
+    let (view, complement) = resolution
+        .get(
+            &AnyInstance::Tree(source.clone()),
+            &ResolveOptions::default(),
+            &ResolveContext::empty(),
+        )
+        .unwrap();
+    assert!(same_instance(
+        &resolution
+            .put(&view, &complement, &ResolveContext::empty())
+            .unwrap(),
+        &AnyInstance::Tree(source)
+    ));
+
+    let (mut schema, source, _) = reference_variable_tree(
+        &["x", "x"],
+        reference_schema::VariableBinding::FirstDefines,
+        Vec::new(),
+    );
+    schema.references.get_mut("variable").unwrap().cardinality =
+        reference_schema::Cardinality::Many;
+    let (view, complement) = reference_get(&schema, &source, false).unwrap();
+    assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+    let (resolution, _) = variable_resolution_with_cardinality(
+        VariableBinding::FirstDefines,
+        Vec::new(),
+        Cardinality::Many,
+    );
+    let source = production_variable_tree(&["x", "x"]);
+    let (view, complement) = resolution
+        .get(
+            &AnyInstance::Tree(source.clone()),
+            &ResolveOptions::default(),
+            &ResolveContext::empty(),
+        )
+        .unwrap();
+    assert!(same_instance(
+        &resolution
+            .put(&view, &complement, &ResolveContext::empty())
+            .unwrap(),
+        &AnyInstance::Tree(source)
+    ));
+}
+
+fn syntax_standoff_resolution() -> (Resolution, reference_schema::Schema) {
+    let (declarations, mut reference_schema) =
+        deferred_declaration(DeclaredSource::Standoff(false, 0), false, false, false);
+    let mut protocol = protocol("syntax-standoff");
+    protocol.syntactic_shape = InstanceShapeKind::Tree;
+    let mut builder = SchemaBuilder::new(&protocol);
+    for (id, kind) in [
+        ("doc", "object"),
+        ("note", "object"),
+        ("label", "scalar"),
+        ("target", "object"),
+    ] {
+        builder = builder.vertex(id, kind, None).unwrap();
+        reference_schema
+            .vertices
+            .insert(id.to_owned(), kind.to_owned());
+    }
+    for (src, tgt, kind, name) in [
+        ("doc", "note", "prop", "note"),
+        ("note", "label", "prop", "text"),
+        ("note", "label", "prop", "start"),
+        ("note", "label", "prop", "end"),
+        ("note", "target", "ref", "mention"),
+    ] {
+        builder = builder.edge(src, tgt, kind, Some(name)).unwrap();
+        reference_schema
+            .edges
+            .insert(reference_model::SEdge::new(src, tgt, kind, Some(name)));
+    }
+    let schema = builder
+        .entry("doc")
+        .reference(declarations.declarations.references["mention"].clone())
+        .build()
+        .unwrap();
+    reference_schema.entries.push("doc".to_owned());
+    let mention = edge("note", "target", "ref", Some("mention"));
+    let provider = Provider {
+        protocol: protocol.clone(),
+        kind: ResolutionKind::TreeToGraph,
+        spec: ResolutionSpec {
+            kind: ResolutionKind::TreeToGraph,
+            provider: ResolutionProviderId {
+                name: "syntax-standoff".into(),
+                version: 1,
+            },
+            semantic_schema: schema.clone(),
+            protocol_references: BTreeMap::new(),
+            structural_edges: schema
+                .edges
+                .keys()
+                .filter(|edge| **edge != mention)
+                .cloned()
+                .collect(),
+            reference_writers: BTreeMap::from([(mention, "mention".into())]),
+            context_requirements: BTreeSet::new(),
+            assembly: None,
+        },
+    };
+    (
+        Resolution::for_protocol(&protocol, &schema, Arc::new(provider)).unwrap(),
+        reference_schema,
+    )
+}
+
+#[test]
+fn nullable_standoff_source_sites_round_trip_exactly() {
+    let (resolution, schema) = syntax_standoff_resolution();
+    for coordinates in [
+        None,
+        Some((ReferenceValue::Null, ReferenceValue::Null)),
+        Some((ReferenceValue::Int(0), ReferenceValue::Int(1))),
+    ] {
+        let mut note = reference_model::Node::new(1, "note")
+            .with_field("text", ReferenceValue::Str("abc".to_owned()));
+        let mut actual_note = Node::new(1, "note");
+        actual_note
+            .extra_fields
+            .insert("text".to_owned(), text("abc"));
+        if let Some((start, end)) = coordinates {
+            for (name, value) in [("start", start), ("end", end)] {
+                actual_note
+                    .extra_fields
+                    .insert(name.to_owned(), syntax_literal(&value));
+                note.fields.insert(name.to_owned(), value);
+            }
+        }
+        let source = reference_model::Tree {
+            nodes: BTreeMap::from([(0, reference_model::Node::new(0, "doc")), (1, note)]),
+            arcs: vec![(
+                0,
+                1,
+                reference_model::SEdge::new("doc", "note", "prop", Some("note")),
+            )],
+            fans: Vec::new(),
+            root: 0,
+        };
+        let actual_source = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (1, actual_note)]),
+            vec![(0, 1, prop("doc", "note", "note"))],
+            Vec::new(),
+            0,
+            "doc".into(),
+        );
+        let (view, complement) = reference_get(&schema, &source, false).unwrap();
+        assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+        let (view, complement) = resolution
+            .get(
+                &AnyInstance::Tree(actual_source.clone()),
+                &ResolveOptions::default(),
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        let restored = resolution
+            .put(&view, &complement, &ResolveContext::empty())
+            .unwrap();
+        assert!(same_instance(&restored, &AnyInstance::Tree(actual_source)));
+    }
+}
+
+#[test]
+fn synthesized_reference_edges_do_not_shadow_original_source_sites() {
+    let seed = IndexedSource::from(["a".to_owned()]);
+    let (mut schema, mut source, picked) = reference_pick_tree(&seed);
+    schema.references.get_mut("pick").unwrap().source = reference_schema::RefSource::KeyValue {
+        parts: vec![vec![picked]],
+    };
+    let holder = source.nodes.get_mut(&1).unwrap();
+    let value = holder.fields.remove("customer").unwrap();
+    holder.fields.insert("picked".to_owned(), value);
+    let (view, complement) = reference_get(&schema, &source, false).unwrap();
+    assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+    let picked = edge("pick", "customer", "ref", Some("picked"));
+    let (resolution, _) = tree_picks_with_source(
+        Vec::new(),
+        ResolveMode::AddEdge,
+        Some(RefSource::KeyValue {
+            parts: vec![vec![picked]],
+        }),
+    )
+    .unwrap();
+    let mut source = production_pick_tree(&seed);
+    let holder = source.nodes.get_mut(&1).unwrap();
+    let value = holder.extra_fields.remove("customer").unwrap();
+    holder.extra_fields.insert("picked".to_owned(), value);
+    let (view, complement) = resolution
+        .get(
+            &AnyInstance::Tree(source.clone()),
+            &ResolveOptions::default(),
+            &ResolveContext::empty(),
+        )
+        .unwrap();
+    let restored = resolution
+        .put(&view, &complement, &ResolveContext::empty())
+        .unwrap();
+    assert!(same_instance(&restored, &AnyInstance::Tree(source)));
+}
+
+#[test]
+fn original_structural_reference_labels_keep_their_source_edge_slots() {
+    let seed = IndexedSource::from(["a".to_owned()]);
+    let (schema, mut source, picked) = reference_pick_tree(&seed);
+    source.arcs.retain(|(_, target, _)| *target != 2);
+    source.arcs.push((1, 2, picked));
+    let (encoded, _) = panproto_reference::encode::tree_to_graph(&source, Some(&schema)).unwrap();
+    let (view, complement) = reference_get(&schema, &source, false).unwrap();
+    assert_eq!(
+        complement.source_edges,
+        encoded.edges.keys().copied().collect::<BTreeSet<_>>()
+    );
+    assert!(
+        complement
+            .resolved
+            .keys()
+            .all(|id| !complement.source_edges.contains(id))
+    );
+    assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+    let (resolution, picked) = tree_picks_with_equality(Vec::new());
+    let mut source = production_pick_tree(&seed);
+    source.arcs.retain(|(_, target, _)| *target != 2);
+    source.arcs.push((1, 2, picked));
+    let source = WInstance::new(
+        source.nodes,
+        source.arcs,
+        source.fans,
+        source.root,
+        source.schema_root,
+    );
+    let (view, complement) = resolution
+        .get(
+            &AnyInstance::Tree(source.clone()),
+            &ResolveOptions::default(),
+            &ResolveContext::empty(),
+        )
+        .unwrap();
+    let restored = resolution
+        .put(&view, &complement, &ResolveContext::empty())
+        .unwrap();
+    assert!(same_instance(&restored, &AnyInstance::Tree(source)));
+}
+
+#[test]
+fn redirected_source_edge_slots_are_distinguished_from_resolution_carriers() {
+    for attachment_last in [false, true] {
+        let seed = IndexedSource::from(["a".to_owned()]);
+        let (mut schema, mut source, _) = reference_pick_tree(&seed);
+        schema.references.get_mut("pick").unwrap().mode = reference_schema::ResolveMode::Redirect;
+        if attachment_last {
+            // The removed largest slot can be reused by a recorded resolution carrier.
+            let attachment = source.arcs.remove(0);
+            source.arcs.push(attachment);
+        }
+        let (encoded, _) =
+            panproto_reference::encode::tree_to_graph(&source, Some(&schema)).unwrap();
+        let (mut view, complement) = reference_get(&schema, &source, false).unwrap();
+        assert_eq!(
+            complement.source_edges,
+            encoded.edges.keys().copied().collect::<BTreeSet<_>>()
+        );
+        let source_slot = *complement.redirected[&1].edges.keys().next().unwrap();
+        let synthesized = *complement.resolved.keys().next().unwrap();
+        assert_eq!(source_slot == synthesized, attachment_last);
+        assert_eq!(reference_put(&schema, &view, &complement), Ok(source));
+        if !attachment_last {
+            // Reusing an unrecorded hidden slot cannot turn it into a structural edge.
+            view.edges
+                .insert(source_slot, view.edges[&synthesized].clone());
+            assert_eq!(
+                reference_put(&schema, &view, &complement),
+                Err(
+                    panproto_reference::resolution::ResolveError::UnrepresentableReference {
+                        carrier: panproto_reference::lens::ViewRef::Edge(source_slot),
+                        reference: None,
+                    }
+                )
+            );
+        }
+        let (resolution, _) =
+            try_tree_picks_with_equality_and_mode(Vec::new(), ResolveMode::Redirect).unwrap();
+        let mut source = production_pick_tree(&seed);
+        if attachment_last {
+            let attachment = source.arcs.remove(0);
+            source.arcs.push(attachment);
+        }
+        let source = WInstance::new(
+            source.nodes,
+            source.arcs,
+            source.fans,
+            source.root,
+            source.schema_root,
+        );
+        let (view, complement) = resolution
+            .get(
+                &AnyInstance::Tree(source.clone()),
+                &ResolveOptions::default(),
+                &ResolveContext::empty(),
+            )
+            .unwrap();
+        let carrier = complement
+            .occurrences
+            .keys()
+            .find_map(|carrier| match carrier {
+                ViewRef::Edge(id) => Some(id.0),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(carrier, synthesized);
+        let restored = resolution
+            .put(&view, &complement, &ResolveContext::empty())
+            .unwrap();
+        assert!(same_instance(&restored, &AnyInstance::Tree(source)));
     }
 }
 

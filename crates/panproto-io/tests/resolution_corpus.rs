@@ -9098,8 +9098,8 @@ fn reference_overlapping_writer_fixture() -> (
 }
 
 fn reference_overlapping_writers_preserve_source() {
-    use panproto_reference::model::Presence;
     use panproto_reference::resolution::{get, put};
+    use panproto_reference::value::Presence;
     use panproto_reference::value::Value as V;
     let (schema, source) = reference_overlapping_writer_fixture();
     let (mut view, complement) = get(&schema, &source, false).expect("independent get");

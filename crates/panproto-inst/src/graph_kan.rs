@@ -926,7 +926,7 @@ fn decode_with_trace(
     let mut state = DecodeState {
         graph: GInstance::new(),
         pending_edges: Vec::new(),
-        claimed_nodes: row_ids.clone(),
+        claimed_nodes: row_ids,
         claimed_edges: BTreeSet::new(),
         node_allocator,
         edge_allocator,

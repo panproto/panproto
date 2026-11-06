@@ -337,8 +337,8 @@ fn push_indices(out: &mut CanonicalWriter, schema: &Schema) {
 /// Nonempty target sets use an optional trailing extension, so declarations
 /// with no target set retain their established bytes.
 ///
-/// Both maps are written in ascending key order and each vertex's keys in
-/// ascending key id order. Every field of [`Key`], [`KeyPart`], [`Reference`]
+/// Both maps are written in ascending key order; each vertex's key sequence
+/// retains its stored order. Every field of [`Key`], [`KeyPart`], [`Reference`]
 /// and [`RefSource`] is written in declaration order, and every sum behind a
 /// one-byte discriminant in declaration order of its variants.
 fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclarations) {

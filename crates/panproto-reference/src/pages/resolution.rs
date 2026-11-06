@@ -123,6 +123,10 @@ pub mod implementation {
     /// The resolution complement.
     #[derive(Clone, Debug, PartialEq, Eq, Default)]
     pub struct ResComplement {
+        /// Edge slots of the encoded source before resolution adds or removes carriers.
+        /// A recorded resolved occurrence takes priority when its carrier reuses
+        /// a removed source slot; other retained slots remain structural.
+        pub source_edges: BTreeSet<u32>,
         /// Resolved occurrences by their edge id.
         pub resolved: BTreeMap<u32, Occurrence>,
         /// The target each resolved occurrence's edge reached at get.
@@ -1808,6 +1812,7 @@ pub mod implementation {
         let (mut g, _) = tree_to_graph(t, Some(schema)).map_err(|_| ResolveError::NotATree)?;
         let base = g.clone();
         let mut c = ResComplement {
+            source_edges: base.edges.keys().copied().collect(),
             root: t.root,
             ..ResComplement::default()
         };
@@ -2344,8 +2349,12 @@ pub mod implementation {
 
     /// Definition: Resolution put.
     ///
-    /// Every view edge labelled with a reference's edge is a resolution edge:
-    /// one the complement records, with its source unchanged (the holder, or
+    /// Recorded original structural edges retain their role even when their
+    /// label also names a reference. A recorded resolution occurrence takes
+    /// priority if its synthesized carrier reuses a removed source slot; an
+    /// unrecorded edge reusing a hidden fragment's slot is refused. Among the
+    /// remaining reference-labelled edges, one the complement records, with
+    /// its source unchanged (the holder, or
     /// for a redirect the fragment's parent), keeps its occurrence, written
     /// with its literal when its target is unchanged and with the new target's
     /// key otherwise; one the complement does not record is a new occurrence of
@@ -2354,8 +2363,10 @@ pub mod implementation {
     /// is `UnrepresentableReference`. A recorded occurrence whose edge the view
     /// removed is removed from its holder's sequence, and its fragment is not
     /// restored. The fragments of kept redirected occurrences are restored,
-    /// each holder's sequences are written at its key sites (for `One` the one
-    /// tuple or none; for `Many` each part's list). Those written sites must
+    /// each holder's sequences are written at its key sites when their current
+    /// observation differs (for `One` the one tuple or none; for `Many` each
+    /// part's list). Equal observations retain exact source syntax, including
+    /// scalar/list distinctions and null slots. Those written sites must
     /// already have the same values in the candidate view because they remain
     /// visible beside the synthesized resolution edges. The result is read
     /// back as the tree with the recorded root, and every written occurrence
@@ -2377,6 +2388,20 @@ pub mod implementation {
         let mut kept_fragments: BTreeSet<u32> = BTreeSet::new();
         let mut appended: Vec<(u32, Name, u32)> = Vec::new();
         for (id, edge) in &view.edges {
+            if comp.source_edges.contains(id) && !comp.resolved.contains_key(id) {
+                if comp
+                    .redirected
+                    .values()
+                    .chain(comp.inline_fragments.values())
+                    .any(|fragment| fragment.edges.contains_key(id))
+                {
+                    return Err(ResolveError::UnrepresentableReference {
+                        carrier: ViewRef::Edge(*id),
+                        reference: None,
+                    });
+                }
+                continue;
+            }
             if !declared
                 .iter()
                 .any(|reference| edge_matches_reference(schema, view, reference, edge))
@@ -2425,7 +2450,7 @@ pub mod implementation {
                 },
             );
         }
-        verify_visible_sequences(schema, view, comp, &sequences)?;
+        verify_visible_sequences(schema, &graph, comp, &sequences)?;
         restore_fragments(&mut graph, comp, &kept_fragments);
         write_sequences(schema, comp, &mut graph, &sequences)?;
         restore_inline_occurrences(view, comp, &mut graph)?;
@@ -2441,9 +2466,10 @@ pub mod implementation {
     }
 
     /// Require every source representation rewritten by put to agree already
-    /// with the candidate view. Resolution edges and their declared source
-    /// sites are both observable in that view; accepting a stale source site
-    /// would therefore violate `PutGet` even when the edge itself is writable.
+    /// with the candidate's syntactic projection, after resolution edges have
+    /// been removed. Those edges can share a source-path label and must not
+    /// shadow the original value sites. Accepting a stale source site would
+    /// violate `PutGet` even when its resolution edge is writable.
     fn verify_visible_sequences(
         schema: &Schema,
         view: &Graph,
@@ -3704,7 +3730,8 @@ pub mod implementation {
 
     /// Write each holder's occurrence sequences at its key sites: for `One`
     /// the one tuple's values (none removes the sites), for `Many` each part's
-    /// list of the tuples' values in index order.
+    /// list of the tuples' values in index order. A site that already reads as
+    /// the requested occurrence word retains its exact representation.
     fn write_sequences(
         schema: &Schema,
         comp: &ResComplement,
@@ -3745,6 +3772,25 @@ pub mod implementation {
             let site = path_site(graph, holder, &guard.field)
                 .ok_or_else(|| unrepresentable(holder, reference_name))?;
             write_site(graph, &site, Some(guard.equals.clone()));
+        }
+        // Reading can forget source syntax: a scalar and a singleton list
+        // have the same Many observation, and null matching omits some slots.
+        // Keep the actual sites when they already encode the requested word.
+        // Guards above and target/context verification after reconstruction
+        // still apply; a changed observation takes the ordinary writer below.
+        if !matches!(reference.source, RefSource::Inline { .. }) {
+            let observed = tuples(schema, graph, holder, reference)
+                .map_err(|_| unrepresentable(holder, reference_name))?;
+            if observed.len() == sequence.len()
+                && observed.iter().zip(&sequence).all(|(values, written)| {
+                    tuple_of(
+                        &occurrence_literal(graph, holder, reference, values),
+                        parts_len(schema, reference_name),
+                    ) == written.tuple
+                })
+            {
+                return Ok(());
+            }
         }
         match &reference.source {
             RefSource::KeyValue { parts } => {
