@@ -2721,3 +2721,89 @@ fn declaration_report_extension_slots_round_trip_independently() {
         }
     }
 }
+
+#[test]
+fn protocol_edge_rules_distinguish_empty_allowed_and_forbidden_endpoint_kinds() {
+    use panproto_schema::{EdgeRule, ValidationError};
+
+    let schema = with_graph(
+        &[("source", "object"), ("target", "scalar")],
+        &[prop("source", "target", "value")],
+    )
+    .build()
+    .expect("fixture graph");
+    for source_rule in [vec![], vec!["object".to_owned()], vec!["scalar".to_owned()]] {
+        for target_rule in [vec![], vec!["scalar".to_owned()], vec!["object".to_owned()]] {
+            let mut protocol = protocol();
+            protocol.obj_kinds = vec!["object".to_owned(), "scalar".to_owned()];
+            protocol.edge_rules = vec![EdgeRule {
+                edge_kind: "prop".to_owned(),
+                src_kinds: source_rule.clone(),
+                tgt_kinds: target_rule.clone(),
+            }];
+            let mut expected = Vec::new();
+            if source_rule == ["scalar"] {
+                expected.push(ValidationError::InvalidEdge {
+                    src: "source".to_owned(),
+                    tgt: "target".to_owned(),
+                    kind: "prop".to_owned(),
+                    reason: "source kind 'object' not in permitted: [\"scalar\"]".to_owned(),
+                });
+            }
+            if target_rule == ["object"] {
+                expected.push(ValidationError::InvalidEdge {
+                    src: "source".to_owned(),
+                    tgt: "target".to_owned(),
+                    kind: "prop".to_owned(),
+                    reason: "target kind 'scalar' not in permitted: [\"object\"]".to_owned(),
+                });
+            }
+            assert_eq!(panproto_schema::validate(&schema, &protocol), expected);
+        }
+    }
+}
+
+#[test]
+fn target_set_virtual_edges_require_the_declared_holder_and_each_member_edge() {
+    use panproto_schema::TargetSet;
+
+    for source in ["h", "other"] {
+        for member_edge_present in [false, true] {
+            let edges = if member_edge_present {
+                vec![prop("h", "t", "picked"), prop("other", "t", "picked")]
+            } else {
+                vec![]
+            };
+            let mut schema = with_graph(
+                &[("h", "object"), ("other", "object"), ("t", "object")],
+                &edges,
+            )
+            .build()
+            .expect("fixture graph");
+            schema
+                .declarations
+                .keys
+                .insert("t".into(), vec![empty_target_key("key", KeyRole::Primary)]);
+            schema.declarations.target_sets.insert(
+                "targets".into(),
+                TargetSet {
+                    members: vec![("t".into(), "key".into())],
+                    scope: KeyScope::Document,
+                },
+            );
+            let virtual_edge = prop(source, "targets", "picked");
+            let mut reference = empty_reference("r", "h", "targets");
+            reference.edge = Some(virtual_edge.clone());
+            schema.declarations.references.insert("r".into(), reference);
+            let expected = if source == "h" && member_edge_present {
+                vec![]
+            } else {
+                vec![KeyRefError::EdgeMismatch {
+                    reference: "r".into(),
+                    edge: virtual_edge,
+                }]
+            };
+            assert_eq!(findings(&schema, &protocol()), expected);
+        }
+    }
+}

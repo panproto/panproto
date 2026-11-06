@@ -1782,4 +1782,39 @@ mod target_set_pruning_tests {
             ]
         );
     }
+
+    #[test]
+    fn dropping_an_absent_key_reports_no_removal_and_preserves_the_declarations() {
+        let mut declarations = SchemaDeclarations::default();
+        declarations.keys.insert(
+            "a".into(),
+            vec![Key {
+                id: "present".into(),
+                parts: vec![],
+                role: KeyRole::Primary,
+                scope: KeyScope::Document,
+                equality: vec![],
+            }],
+        );
+        let original = declarations.clone();
+        for doomed in [
+            BTreeSet::new(),
+            BTreeSet::from([("a".into(), "absent".into())]),
+            BTreeSet::from([("absent-owner".into(), "present".into())]),
+        ] {
+            assert_eq!(
+                declarations.drop_keys(&doomed),
+                DeclarationReport::default()
+            );
+            assert_eq!(declarations, original);
+        }
+        assert_eq!(
+            declarations.drop_keys(&BTreeSet::from([("a".into(), "present".into())])),
+            DeclarationReport {
+                dropped_keys: vec![("a".into(), "present".into())],
+                ..DeclarationReport::default()
+            }
+        );
+        assert_eq!(declarations, SchemaDeclarations::default());
+    }
 }
