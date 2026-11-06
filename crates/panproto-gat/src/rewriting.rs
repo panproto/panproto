@@ -1043,6 +1043,23 @@ mod tests {
         assert!(!lpo_greater(&Term::Hole { name: None }, &leaf, &precedence));
     }
 
+    #[test]
+    fn unification_reflexive_variables_need_no_binding() {
+        let x = Term::var("x");
+        let y = Term::var("y");
+        assert_eq!(first_order_unify(&x, &x), Some(FxHashMap::default()));
+        assert_eq!(
+            first_order_unify(&x, &y),
+            Some(FxHashMap::from_iter([(Arc::from("x"), y)]))
+        );
+        let containing_x = Term::app("f", vec![x.clone()]);
+        assert_eq!(first_order_unify(&x, &containing_x), None);
+        assert_eq!(
+            first_order_unify(&containing_x, &containing_x),
+            Some(FxHashMap::default())
+        );
+    }
+
     mod property {
         use super::*;
         use proptest::prelude::*;
