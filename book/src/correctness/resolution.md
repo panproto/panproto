@@ -56,6 +56,11 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/mod.rs`
+- File: `crates/panproto-io/src/resolution/build.rs`
+- File: `crates/panproto-io/src/resolution/error.rs`
+- File: `crates/panproto-io/src/resolution/get.rs`
+- File: `crates/panproto-io/src/resolution/put.rs`
+- File: `crates/panproto-io/src/resolution/verify.rs`
 
 ### Mutation equivalences
 
@@ -110,6 +115,11 @@ The finite differentials execute both halves. The bounded model checks `equivale
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
+- File: `crates/panproto-io/src/resolution/build.rs`
+- File: `crates/panproto-io/src/resolution/error.rs`
+- File: `crates/panproto-io/src/resolution/get.rs`
+- File: `crates/panproto-io/src/resolution/put.rs`
+- File: `crates/panproto-io/src/resolution/verify.rs`
 
 ### Mutation equivalences
 
@@ -157,6 +167,11 @@ The model's `indexed_put` returns its source exactly when `check_put_domain` rep
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
+- File: `crates/panproto-io/src/resolution/build.rs`
+- File: `crates/panproto-io/src/resolution/error.rs`
+- File: `crates/panproto-io/src/resolution/get.rs`
+- File: `crates/panproto-io/src/resolution/put.rs`
+- File: `crates/panproto-io/src/resolution/verify.rs`
 
 ### Mutation equivalences
 
@@ -204,6 +219,12 @@ The executable halves check this on both models. The declared tree-to-graph test
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
+- File: `crates/panproto-io/src/resolution/build.rs`
+- File: `crates/panproto-io/src/resolution/error.rs`
+- File: `crates/panproto-io/src/resolution/get.rs`
+- File: `crates/panproto-io/src/resolution/put.rs`
+- File: `crates/panproto-io/src/resolution/rekey.rs`
+- File: `crates/panproto-io/src/resolution/verify.rs`
 
 ### Mutation equivalences
 
@@ -259,6 +280,12 @@ The raw form, with $c'$ untransported, is false, and the tests show why. On the 
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/laws.rs`
+- File: `crates/panproto-io/src/resolution/build.rs`
+- File: `crates/panproto-io/src/resolution/error.rs`
+- File: `crates/panproto-io/src/resolution/get.rs`
+- File: `crates/panproto-io/src/resolution/put.rs`
+- File: `crates/panproto-io/src/resolution/rekey.rs`
+- File: `crates/panproto-io/src/resolution/verify.rs`
 
 ### Mutation equivalences
 

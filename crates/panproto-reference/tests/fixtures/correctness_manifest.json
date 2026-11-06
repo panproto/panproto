@@ -1361,6 +1361,18 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_value_io",
               "test": "randomized_xml_entity_expansion"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "xml_entity_literals_and_replacements_obey_the_character_domain"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_value_io",
+              "test": "xml_entity_character_refusals_keep_append_stage_precedence"
             }
           ]
         },
@@ -3107,6 +3119,48 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_kan",
               "test": "encoding_accepts_exactly_the_five_pass_domain"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "public_row_layouts_and_reserved_relations_refuse_unencodable_outputs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "public_cell_hints_require_a_complete_rooted_tree_and_encodable_decorations"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "public_layout_floors_include_actual_ids_without_reservation_sets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "reserved_attribute_kinds_refuse_only_populated_outputs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "shared_or_malformed_cell_hints_fall_back_to_the_cell_value"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "public_layout_retained_ids_cannot_collide_with_later_fresh_allocations"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_kan",
+              "test": "decoder_node_exhaustion_precedes_competing_edge_exhaustion"
             }
           ]
         },

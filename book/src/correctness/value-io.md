@@ -187,7 +187,7 @@ The route dialects are JSON for JSON, CSV and TSV; TOML for TOML; YAML 1.2 for Y
 
 ### Proof
 
-1. `parse` applies `from_utf8`, then the route-dependent whitespace rule.
+1. `parse` applies `from_utf8`, then the route-dependent whitespace rule. For YAML it refuses a carriage return or line feed remaining in the trimmed scalar, enforcing the one-line model before dispatch; escaped line breaks contain no such literal byte and remain available to the quoted-string reader.
 2. Its ordered match gives null and Boolean literals precedence over quoted strings, TOML temporals, YAML's number-or-text choice, and route-valid numeral tokens.
 3. `parse_string` dispatches XML, CSV, TSV, single-quoted and double-quoted grammars. The XML arm replaces each carriage return line feed pair, then each remaining carriage return, by a line feed before it expands references, so a reference such as `&#13;` still yields a carriage return. `parse_double_quoted` admits a literal scalar exactly when `literal_in_double_quotes` holds for the route, which is the literal set stated above. Each helper consumes the whole string or returns `Malformed`.
 4. `parse_number` supplies the route dialect to exact coercion and preserves its typed fidelity refusal. The YAML caller handles a failed numeric reading by returning the original plain scalar as text. These cases exhaust the function.
@@ -566,6 +566,9 @@ XML 1.0 `Char` contains tab, line feed, carriage return, U+0020 through U+D7FF, 
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
+
+- Fixed differential test: `xml_entity_literals_and_replacements_obey_the_character_domain; command: cargo nextest run --locked -p panproto-io --test reference_value_io --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=xml_entity_literals_and_replacements_obey_the_character_domain)'`
+- Fixed differential test: `xml_entity_character_refusals_keep_append_stage_precedence; command: cargo nextest run --locked -p panproto-io --test reference_value_io --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=xml_entity_character_refusals_keep_append_stage_precedence)'`
 
 ### Mutation equivalences
 

@@ -318,6 +318,78 @@ fn reference_entity_outcome(
     }
 }
 
+fn assert_entity_character_outcome(
+    source: &str,
+    declarations: &BTreeMap<String, String>,
+    expected: &EntityOutcome,
+) {
+    let reference = reference_entity_outcome(panproto_reference::value_io::xml_entity(
+        source,
+        declarations,
+    ));
+    let production = production_entity_outcome(expand_xml_entities(source, declarations));
+    assert_eq!(&reference, expected, "independent XML character outcome");
+    assert_eq!(&production, expected, "production XML character outcome");
+}
+
+#[test]
+fn xml_entity_literals_and_replacements_obey_the_character_domain() {
+    let empty = BTreeMap::new();
+    for character in [
+        '\0', '\u{8}', '\u{b}', '\u{c}', '\u{1f}', '\u{fffe}', '\u{ffff}',
+    ] {
+        let text = format!("a{character}b");
+        assert_entity_character_outcome(&text, &empty, &EntityOutcome::Malformed);
+        let declarations = BTreeMap::from([("a".to_owned(), text)]);
+        assert_entity_character_outcome("&a;", &declarations, &EntityOutcome::Malformed);
+    }
+    for character in [
+        '\t',
+        '\n',
+        '\r',
+        ' ',
+        '\u{d7ff}',
+        '\u{e000}',
+        '\u{fffd}',
+        '\u{10000}',
+        '\u{10ffff}',
+    ] {
+        let text = format!("a{character}b");
+        let expected = EntityOutcome::Expanded(text.clone());
+        assert_entity_character_outcome(&text, &empty, &expected);
+        let declarations = BTreeMap::from([("a".to_owned(), text)]);
+        assert_entity_character_outcome("&a;", &declarations, &expected);
+    }
+}
+
+#[test]
+fn xml_entity_character_refusals_keep_append_stage_precedence() {
+    let empty = BTreeMap::new();
+    let at_limit = "x".repeat(MAX_XML_ENTITY_EXPANSION_BYTES);
+    assert_entity_character_outcome(
+        &at_limit,
+        &empty,
+        &EntityOutcome::Expanded(at_limit.clone()),
+    );
+    let over_limit = format!("{at_limit}x");
+    assert_entity_character_outcome(&over_limit, &empty, &EntityOutcome::Bytes);
+    let malformed_and_long = format!("{over_limit}\0");
+    assert_entity_character_outcome(&malformed_and_long, &empty, &EntityOutcome::Malformed);
+    let declarations = BTreeMap::from([("a".to_owned(), malformed_and_long)]);
+    assert_entity_character_outcome("&a;", &declarations, &EntityOutcome::Malformed);
+    assert_entity_character_outcome(
+        &format!("{over_limit}&amp;\0"),
+        &empty,
+        &EntityOutcome::Bytes,
+    );
+    assert_entity_character_outcome("\0&missing;", &empty, &EntityOutcome::Malformed);
+    assert_entity_character_outcome(
+        "&missing;\0",
+        &empty,
+        &EntityOutcome::Undeclared("missing".to_owned()),
+    );
+}
+
 fn production_xml_document_entity_outcome(
     result: Result<WInstance, ParseInstanceError>,
 ) -> EntityOutcome {

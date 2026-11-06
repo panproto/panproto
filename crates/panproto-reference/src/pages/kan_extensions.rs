@@ -655,6 +655,8 @@ pub mod encode {
         MalformedTable,
         /// The table does not conform to the relational side.
         NonConforming(Box<rel::NonConforming>),
+        /// The completed graph fails the ordinary encoding predicate.
+        NotEncodable(Box<NotEncodable>),
         /// No non-reserved node id remains for a cell-value node.
         NodeIdsExhausted,
         /// No non-reserved edge id remains for a cell or relation edge.
@@ -679,7 +681,8 @@ pub mod encode {
     /// [`DecodeTableError::MalformedTable`] when a pair names an absent row,
     /// [`DecodeTableError::NonConforming`] for the first table, cell or pair
     /// outside the side, then an allocation error before an allocation would
-    /// use the reserved id `u32::MAX`.
+    /// use the reserved id `u32::MAX`, then the completed graph's first
+    /// [`DecodeTableError::NotEncodable`] reason.
     ///
     /// Book anchors: `L-kan-extensions-8`.
     pub fn decode_table(
@@ -695,18 +698,17 @@ pub mod encode {
         let mut claimed_nodes: BTreeSet<u32> = t.rows.keys().copied().collect();
         let mut claimed_edges = BTreeSet::new();
         let mut created_edges = BTreeSet::new();
+        let (layout_nodes, layout_edges) = layout_identifiers(layout);
         let mut next_node = t
             .rows
             .keys()
             .copied()
-            .chain(layout.reserved_node_ids.iter().copied())
+            .chain(layout_nodes)
             .max()
             .map_or(Some(0), |id| id.checked_add(1))
             .filter(|id| *id != u32::MAX);
-        let mut next_edge = layout
-            .reserved_edge_ids
-            .iter()
-            .next_back()
+        let mut next_edge = layout_edges
+            .last()
             .map_or(Some(0), |id| id.checked_add(1))
             .filter(|id| *id != u32::MAX);
         preflight_allocations(
@@ -778,7 +780,36 @@ pub mod encode {
             &mut created_edges,
         )?;
         assign_created_positions(&mut g, &created_edges)?;
+        pass_nodes(&g, side)
+            .and_then(|()| pass_edges(&g, side))
+            .and_then(|()| pass_cells(&g, side))
+            .and_then(|()| pass_values(&g, side))
+            .map_err(|reason| DecodeTableError::NotEncodable(Box::new(reason)))?;
         Ok(g)
+    }
+
+    fn layout_identifiers(layout: &GraphLayout) -> (BTreeSet<u32>, BTreeSet<u32>) {
+        let mut nodes = layout.reserved_node_ids.clone();
+        let mut edges = layout.reserved_edge_ids.clone();
+        for (row, node) in &layout.table_nodes {
+            nodes.extend([*row, node.id]);
+        }
+        for ((row, _), cell) in &layout.cells {
+            nodes.extend([*row, cell.root]);
+            for (id, node) in &cell.nodes {
+                nodes.extend([*id, node.id]);
+            }
+            edges.extend(cell.attribute.id);
+            for (id, edge) in &cell.edges {
+                edges.insert(*id);
+                nodes.extend([edge.src, edge.tgt]);
+            }
+        }
+        for ((_, source, target), edge) in &layout.relations {
+            nodes.extend([*source, *target]);
+            edges.extend(edge.id);
+        }
+        (nodes, edges)
     }
 
     fn decode_table_nodes(table: &Table, layout: &GraphLayout, graph: &mut Graph) {
@@ -1206,6 +1237,7 @@ pub mod encode {
 
     fn graph_decode_error(error: DecodeTableError) -> GraphKanError {
         match error {
+            DecodeTableError::NotEncodable(reason) => GraphKanError::NotEncodable(reason),
             DecodeTableError::NodeIdsExhausted => GraphKanError::NodeIdsExhausted,
             DecodeTableError::EdgeIdsExhausted => GraphKanError::EdgeIdsExhausted,
             DecodeTableError::EdgePositionsExhausted { node } => {

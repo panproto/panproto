@@ -383,6 +383,10 @@ pub mod implementation {
         } else {
             raw.trim_matches([' ', '\t', '\r', '\n'])
         };
+        // This reference models one-line scalars, not YAML's multiline folding.
+        if route == Route::Yaml && text.contains(['\r', '\n']) {
+            return Err(ValueIoError::Malformed);
+        }
         if text.is_empty() && matches!(route, Route::Json | Route::Toml) {
             return Err(ValueIoError::Malformed);
         }
@@ -1058,6 +1062,41 @@ pub mod implementation {
         use super::{
             FidelityReason, Route, Value, ValueIoError, emit, json_number_token, parse, round_trip,
         };
+
+        #[test]
+        fn yaml_reading_obeys_the_one_line_scalar_domain() {
+            assert_eq!(
+                parse(Route::Yaml, b" \t\r\n "),
+                Ok(Value::Null),
+                "surrounding whitespace still leaves the empty plain scalar"
+            );
+            for body in ["a\nb", "a\rb", "a\r\nb"] {
+                for token in [body.to_owned(), format!("'{body}'"), format!("\"{body}\"")] {
+                    assert_eq!(
+                        parse(Route::Yaml, token.as_bytes()),
+                        Err(ValueIoError::Malformed),
+                        "a literal line break is outside the modelled YAML scalar: {token:?}"
+                    );
+                }
+            }
+            for (token, expected) in [
+                ("''", ""),
+                ("'a\tb'", "a\tb"),
+                ("'é𝄞'", "é𝄞"),
+                ("'it''s'", "it's"),
+                ("''''", "'"),
+                ("\r\n \tplain\r\n \t", "plain"),
+                ("\r\n \t'quoted'\r\n \t", "quoted"),
+                ("\"a\\nb\"", "a\nb"),
+                ("\"a\\rb\"", "a\rb"),
+            ] {
+                assert_eq!(
+                    parse(Route::Yaml, token.as_bytes()),
+                    Ok(Value::Str(expected.to_owned())),
+                    "legal one-line YAML remains admitted: {token:?}"
+                );
+            }
+        }
 
         #[test]
         fn json_number_grammar_precedes_exact_coercion() {

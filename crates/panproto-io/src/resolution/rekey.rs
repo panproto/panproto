@@ -6,10 +6,11 @@
 //! including every `ViewRef` nested in a complement coordinate that denotes
 //! a view carrier (occurrence holders, value sites of span texts, spanning
 //! and order coordinates, definitions, unresolved holders and candidates,
-//! assembly trace view coordinates). Ids that denote only syntactic residue
-//! (inside a redirected fragment) do not change.
+//! assembly trace view coordinates). A redirected fragment's attachment and
+//! saved fans also name retained view nodes at its boundary; those coordinates
+//! move. Ids of hidden nodes inside any redirected fragment do not change.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_inst::resolution_complement::{
     ResolutionComplement, ResolutionSpan, ResolutionTextId, ResolutionValueSite,
@@ -85,10 +86,38 @@ impl Renaming {
         }
     }
 
+    /// Transport retained endpoints without changing hidden source residue.
+    fn redirect_boundaries(&self, complement: &mut ResolutionComplement) {
+        let hidden: BTreeSet<u32> = complement
+            .redirected
+            .values()
+            .flat_map(|fragment| fragment.nodes.keys().copied())
+            .collect();
+        let boundary_node = |id| {
+            if hidden.contains(&id) {
+                id
+            } else {
+                self.node(id)
+            }
+        };
+        for fragment in complement.redirected.values_mut() {
+            if let Some(attachment) = &mut fragment.attachment {
+                attachment.parent = boundary_node(attachment.parent);
+            }
+            for fan in &mut fragment.fans {
+                fan.parent = boundary_node(fan.parent);
+                for child in fan.children.values_mut() {
+                    *child = boundary_node(*child);
+                }
+            }
+        }
+    }
+
     /// A complement with every view coordinate renamed.
     #[must_use]
     pub fn complement(&self, complement: &ResolutionComplement) -> ResolutionComplement {
         let mut next = complement.clone();
+        self.redirect_boundaries(&mut next);
         next.occurrences = complement
             .occurrences
             .iter()
@@ -188,10 +217,11 @@ impl Renaming {
 #[cfg(test)]
 mod tests {
     use panproto_inst::resolution_complement::{
-        DefinitionKey, RefOccurrence, ResolutionComplement, ResolutionSpan, ResolutionTextId,
-        ResolutionValueSite, UnresolvedReason, UnresolvedRef,
+        DefinitionKey, RedirectedArc, RedirectedAttachment, RedirectedFragment, RefOccurrence,
+        ResolutionComplement, ResolutionSpan, ResolutionTextId, ResolutionValueSite,
+        UnresolvedReason, UnresolvedRef,
     };
-    use panproto_inst::{EdgeId, SynthKey, Value, ViewRef};
+    use panproto_inst::{EdgeId, Fan, Node, SynthKey, Value, ViewRef};
 
     use super::Renaming;
 
@@ -294,5 +324,109 @@ mod tests {
             renaming.view_ref(&ViewRef::Row(panproto_inst::RowId(2))),
             ViewRef::Row(panproto_inst::RowId(2))
         );
+    }
+
+    fn redirect_complement(parent: u32, retained: u32) -> ResolutionComplement {
+        let edge = panproto_schema::Edge {
+            src: "doc".into(),
+            tgt: "link".into(),
+            kind: "prop".into(),
+            name: Some("links".into()),
+        };
+        let fragment = |root, parent, source_slot| RedirectedFragment {
+            root,
+            attachment: Some(RedirectedAttachment {
+                parent,
+                child: root,
+                edge: edge.clone(),
+                source_slot,
+            }),
+            nodes: [(root, Node::new(root, "link"))].into_iter().collect(),
+            arcs: Vec::new(),
+            fans: Vec::new(),
+        };
+        let mut first = fragment(4, parent, 3);
+        first.nodes.insert(5, Node::new(5, "link"));
+        first.arcs.push(RedirectedArc {
+            parent: 4,
+            child: 5,
+            edge: edge.clone(),
+            source_slot: 4,
+        });
+        first.fans = vec![
+            Fan::new("boundary", parent)
+                .with_child("hidden", 4)
+                .with_child("retained", retained),
+            Fan::new("cross-fragment", 4)
+                .with_child("other-hidden", 7)
+                .with_child("retained", retained),
+        ];
+        let mut second = fragment(7, retained, 6);
+        second.fans.push(
+            Fan::new("hidden-parent", 7)
+                .with_child("other-hidden", 5)
+                .with_child("retained", parent),
+        );
+        let mut complement = ResolutionComplement::default();
+        complement.redirected = [(4, first), (7, second)].into_iter().collect();
+        complement.order.insert(
+            parent,
+            vec![ViewRef::Node(retained), ViewRef::Node(4), ViewRef::Node(7)],
+        );
+        complement
+            .spanning
+            .insert(retained, ViewRef::Edge(EdgeId(0)));
+        complement
+    }
+
+    #[test]
+    fn retained_redirect_boundaries_follow_lawful_renaming_exactly() -> Result<(), serde_json::Error>
+    {
+        let complement = redirect_complement(0, 1);
+        let renaming = Renaming {
+            nodes: [(0, 10), (1, 11)].into_iter().collect(),
+            edges: std::collections::BTreeMap::new(),
+        };
+        let renamed = renaming.complement(&complement);
+        assert_eq!(
+            serde_json::to_value(&renamed)?,
+            serde_json::to_value(redirect_complement(10, 11))?,
+            "only retained attachment and fan endpoints move; all source residue stays exact"
+        );
+        let inverse = Renaming {
+            nodes: [(10, 0), (11, 1)].into_iter().collect(),
+            edges: std::collections::BTreeMap::new(),
+        };
+        assert_eq!(
+            serde_json::to_value(inverse.complement(&renamed))?,
+            serde_json::to_value(&complement)?,
+            "inverse transport restores every complement coordinate"
+        );
+        assert_eq!(
+            serde_json::to_value(Renaming::default().complement(&complement))?,
+            serde_json::to_value(complement)?,
+            "identity transport preserves redirected fragments"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn saved_fan_endpoints_use_the_union_of_hidden_fragment_ids() -> Result<(), serde_json::Error> {
+        let mut complement = redirect_complement(0, 1);
+        // Deliberately include hidden IDs to check the boundary helper's
+        // protection independently of the lawful visible-map precondition.
+        let renaming = Renaming {
+            nodes: [(0, 10), (1, 11), (4, 40), (5, 50), (7, 70)]
+                .into_iter()
+                .collect(),
+            edges: std::collections::BTreeMap::new(),
+        };
+        renaming.redirect_boundaries(&mut complement);
+        assert_eq!(
+            serde_json::to_value(&complement.redirected)?,
+            serde_json::to_value(redirect_complement(10, 11).redirected)?,
+            "an endpoint hidden in either fragment remains fixed in every saved fan"
+        );
+        Ok(())
     }
 }
