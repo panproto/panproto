@@ -1594,3 +1594,108 @@ fn rooted_multiple_parent_refusal_retains_the_complete_incoming_witness() {
         reason: NotTreeReason::MultipleParents { node: 3, edges }
     }) if edges == vec![EdgeId(1), EdgeId(5), EdgeId(9)]));
 }
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    /// Generated rooted trees vary parent choices, identifiers, integer fields,
+    /// annotations and optional fans; both encoders and the reification agree.
+    #[test]
+    fn randomized_tree_representation_differential(
+        offset in 0_u32..10_000,
+        choices in proptest::collection::vec((proptest::prelude::any::<u8>(), proptest::prelude::any::<i64>()), 1..7),
+        with_fan in proptest::prelude::any::<bool>(),
+    ) {
+        let mut tree = RefTree { nodes: BTreeMap::new(), arcs: Vec::new(), fans: Vec::new(), root: offset };
+        for (index, (parent, value)) in choices.iter().enumerate() {
+            let id = offset + u32::try_from(index).unwrap();
+            let mut node = RefNode::new(id, "a");
+            node.fields.insert("field".into(), RefValue::Int(*value));
+            node.annotations.insert("annotation".into(), RefValue::Int(*value));
+            tree.nodes.insert(id, node);
+            if index > 0 {
+                tree.arcs.push((offset + u32::try_from(usize::from(*parent) % index).unwrap(), id, RefEdge::new("a", "a", "e", None)));
+            }
+        }
+        if with_fan {
+            tree.fans.push(RefFan { parent: offset, hyper_edge: "h".into(), children: tree.nodes.keys().enumerate().map(|(i,id)| (format!("child{i}"), *id)).collect() });
+        }
+        let production_tree = prod_tree(&tree);
+        let (expected_graph, expected_embedding) = tree_to_graph(&tree, None).unwrap();
+        let (actual_graph, actual_embedding) = GInstance::from_wtype_embedded(&production_tree, None).unwrap();
+        assert_graph_bytes(&actual_graph, &expected_graph);
+        assert_tree_embedding(&actual_embedding, &expected_embedding);
+        assert_eq!(canonical_ginstance_bytes(&actual_graph), graph_bytes(&expected_graph));
+        assert_eq!(panproto_inst::segment::canonical_winstance_bytes(&production_tree), tree_bytes(&tree));
+        let actual = actual_graph.to_wtype(tree.root).unwrap();
+        assert_eq!(decode_tree(&panproto_inst::segment::canonical_winstance_bytes(&actual)), reify(&tree, None));
+    }
+
+    /// Generated multigraphs include loops, parallel edges, positioned edges,
+    /// fan nodes and missing proposed roots. Refusal enums retain their stated
+    /// separate taxonomies; decisions and successful outputs are compared.
+    #[test]
+    fn randomized_graph_representation_decisions(
+        count in 1_u32..6,
+        offset in 0_u32..10_000,
+        edges in proptest::collection::vec((proptest::prelude::any::<u8>(), proptest::prelude::any::<u8>(), proptest::prelude::any::<bool>()), 0..12),
+        root_choice in proptest::prelude::any::<u8>(),
+        fan_node in proptest::prelude::any::<bool>(),
+    ) {
+        let mut graph = RefGraph { nodes: (offset..offset+count).map(|id| (id, RefNode::new(id, "a"))).collect(), edges: BTreeMap::new() };
+        if fan_node { graph.nodes.get_mut(&offset).unwrap().shape = RefNodeShape::HyperEdge; }
+        for (index,(source,target,positioned)) in edges.iter().enumerate() {
+            graph.edges.insert(u32::try_from(index).unwrap(), RefGEdge { src: offset+u32::from(*source)%count, tgt: offset+u32::from(*target)%count, label: RefEdge::new("a", "a", "e", None), position: positioned.then_some(0) });
+        }
+        let production = prod_graph(&graph);
+        assert_eq!(canonical_ginstance_bytes(&production), graph_bytes(&graph));
+        let root = offset+u32::from(root_choice)%(count+1);
+        let expected_tree = graph_to_tree(&graph, root, &schema_parent_name(None));
+        let actual_tree = production.to_wtype(root);
+        assert_eq!(actual_tree.is_ok(), expected_tree.is_ok());
+        if let (Ok(actual), Ok(expected)) = (actual_tree, expected_tree) {
+            assert_eq!(decode_tree(&panproto_inst::segment::canonical_winstance_bytes(&actual)), Some(expected));
+        }
+        let expected_table = graph_to_table(&graph, &ref_graph_schema());
+        let actual_table = production.try_to_finstance(&graph_schema());
+        assert_eq!(actual_table.is_ok(), expected_table.is_some());
+        if let (Ok((actual,_)), Some(expected)) = (actual_table, expected_table) {
+            assert_eq!(decode_table(&canonical_finstance_bytes(&actual)), Some(expected));
+        }
+        assert_fan_violations(&graph, offset, None);
+        assert_fan_violations(&graph, offset, Some(&fan_schema()));
+    }
+
+    #[test]
+    fn randomized_table_representation_differential(
+        values in proptest::collection::vec(proptest::prelude::any::<i64>(), 1..7),
+        pairs in proptest::collection::vec((proptest::prelude::any::<u8>(),proptest::prelude::any::<u8>()), 0..12),
+        offset in 0_u32..10_000,
+    ) {
+        let count = u32::try_from(values.len()).unwrap();
+        let table = RefTable {
+            rows: values.iter().enumerate().map(|(index,value)| (offset+u32::try_from(index).unwrap(), ("t".into(), BTreeMap::from([("field".into(), RefValue::Int(*value))])))).collect(),
+            pairs: pairs.iter().map(|(a,b)| (RefEdge::new("t", "t", "e", None), offset+u32::from(*a)%count, offset+u32::from(*b)%count)).collect(),
+        };
+        let production = prod_table(&table).unwrap();
+        assert_eq!(canonical_finstance_bytes(&production), table_bytes(&table));
+        let (expected_graph,expected_embedding) = table_to_graph(&table).unwrap();
+        let (actual_graph,actual_embedding) = GInstance::from_finstance(&production).unwrap();
+        assert_graph_bytes(&actual_graph, &expected_graph);
+        assert_table_embedding(&actual_embedding, &expected_embedding);
+    }
+
+    #[test]
+    fn randomized_identity_envelope_differential(
+        source in proptest::prelude::any::<[u8;32]>(),
+        target in proptest::prelude::any::<[u8;32]>(),
+        lens in proptest::prelude::any::<[u8;32]>(),
+        shape_index in 0_usize..4,
+    ) {
+        let shape = ComplementShape::ALL[shape_index];
+        let envelope = IdentityEnvelope { version: IDENTITY_ENVELOPE_VERSION, source_schema: Digest(source), target_schema: Digest(target), lens: Digest(lens), complement_format: shape.current_format() };
+        let manifest = SegmentManifest { version: SEGMENT_MANIFEST_VERSION, shape: InstanceShapeKind::Graph, schema: Digest([0;32]), role: ManifestRole::View { source: Digest([0;32]), envelope: envelope.clone() }, binding: None, segments: Vec::new(), root: Digest([0;32]), instance_digest: None };
+        let expected = identity(&RefIdentityEnvelope { source_schema: source, target_schema: target, lens, shape: ref_complement_shape(shape), format_version: envelope.complement_format.version });
+        assert_eq!(&manifest.canonical_bytes()[68..169], &expected);
+    }
+}

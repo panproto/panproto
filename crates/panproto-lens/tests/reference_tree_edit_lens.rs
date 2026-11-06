@@ -112,8 +112,8 @@ fn production_source() -> WInstance {
             (HIDDEN, production_node(&hidden)),
         ]),
         vec![
-            (ROOT, KEPT, edge(Visibility::Visible)),
             (ROOT, HIDDEN, edge(Visibility::Hidden)),
+            (ROOT, KEPT, edge(Visibility::Visible)),
         ],
         Vec::new(),
         ROOT,
@@ -1022,7 +1022,7 @@ fn field_edit_translation_uses_only_the_edited_nodes_anchor() {
     let mut edited_source = source.clone();
     edit.apply(&mut edited_source).unwrap();
     let (expected, _) = panproto_lens::get(&lens, &edited_source).unwrap();
-    let mut edit_lens = EditLens::from_lens(lens, protocol);
+    let mut edit_lens = EditLens::from_lens(lens.clone(), protocol);
     edit_lens.initialize(&source).unwrap();
     edit_lens
         .get_edit(edit)
@@ -1055,26 +1055,53 @@ fn field_edit_translation_uses_only_the_edited_nodes_anchor() {
         })
         .unwrap();
     assert!(matches!(backward_removal, TreeEdit::RemoveField { field, .. } if field == "g"));
-    let sequence = edit_lens
-        .put_edit(TreeEdit::Sequence(vec![
-            TreeEdit::RelabelNode {
-                id: 0,
-                new_anchor: "b".into(),
-            },
-            TreeEdit::SetField {
-                node_id: 0,
-                field: "g".into(),
-                value: Value::Int(3),
-            },
-        ]))
-        .unwrap();
-    let TreeEdit::Sequence(steps) = sequence else {
-        panic!("expected relabel then field edit")
-    };
-    assert!(matches!(&steps[1], TreeEdit::SetField { field, .. } if field == "f"));
-    let tracked = edit_lens.pipeline.as_ref().unwrap().source();
-    assert_eq!(tracked.nodes[&0].anchor.as_ref(), "b");
-    assert_eq!(tracked.nodes[&0].extra_fields["f"], Value::Int(3));
+    let before_source = edit_lens.pipeline.as_ref().unwrap().source().clone();
+    let before_complement = format!("{:?}", edit_lens.complement);
+    let edit = TreeEdit::Sequence(vec![
+        TreeEdit::RelabelNode {
+            id: 0,
+            new_anchor: "b".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 0,
+            field: "g".into(),
+            value: Value::Int(3),
+        },
+    ]);
+    let (mut edited_view, _) = panproto_lens::get(&lens, &before_source).unwrap();
+    edit.apply(&mut edited_view).unwrap();
+    let expected = panproto_lens::put(&lens, &edited_view, &edit_lens.complement).unwrap();
+    let mut raw_candidate = before_source.clone();
+    TreeEdit::Sequence(vec![
+        TreeEdit::RelabelNode {
+            id: 0,
+            new_anchor: "b".into(),
+        },
+        TreeEdit::SetField {
+            node_id: 0,
+            field: "f".into(),
+            value: Value::Int(3),
+        },
+    ])
+    .apply(&mut raw_candidate)
+    .unwrap();
+    assert_eq!(raw_candidate.nodes[&0].anchor, expected.nodes[&0].anchor);
+    assert_eq!(
+        raw_candidate.nodes[&0].extra_fields,
+        expected.nodes[&0].extra_fields
+    );
+    assert_eq!(raw_candidate.schema_root.as_ref(), "a");
+    assert_eq!(expected.schema_root.as_ref(), "b");
+    let error = edit_lens.put_edit(edit).unwrap_err();
+    assert!(
+        matches!(error, panproto_lens::EditLensError::TranslationFailed(message)
+        if message == "the translated tree edit does not produce the whole-state put source")
+    );
+    assert_eq!(
+        format!("{:?}", edit_lens.pipeline.as_ref().unwrap().source()),
+        format!("{before_source:?}")
+    );
+    assert_eq!(format!("{:?}", edit_lens.complement), before_complement);
 }
 
 /// Diagnostic: an attribute loop is identity in the source and replacement in the view.
@@ -1230,4 +1257,174 @@ fn field_removal_recovers_a_shadowed_rename_destination() {
         actual.nodes[&0].extra_fields,
         expected.nodes[&0].extra_fields
     );
+}
+
+/// One generated leaf word is compared with the independent edit lens, both
+/// as an atomic word and as its individually admitted steps. This generator
+/// stays inside identity/static projection; it asserts no general composition
+/// law for conditional survival or synthesized incidence.
+fn generated_leaf_word_agrees(kind: LensKind, source: &WInstance, plan: &Plan, put: bool) {
+    let ref_source = reference_tree(source);
+    let ref_lens = reference_lens(kind);
+    let (ref_view, mut expected_complement) = ref_lens.initialize(&ref_source);
+    let state_lens = production_lens(kind);
+    let (view, _) = panproto_lens::get(&state_lens, source).unwrap();
+    assert_eq!(reference_tree(&view), ref_view);
+    let source_embedding = initial_embedding(source);
+    let view_embedding = initial_embedding(&view);
+    let ref_input =
+        reference::lower(if put { &ref_view } else { &ref_source }, &plan.atoms).unwrap();
+    if put {
+        let expected =
+            reference::Lens::put_edit(ref_lens, &ref_input, &mut expected_complement).unwrap();
+        let (whole, whole_lens) = translated_put(kind, source, &source_embedding, plan, false);
+        let (steps, steps_lens) = translated_put(kind, source, &source_embedding, plan, true);
+        assert_eq!(whole.delta, steps.delta);
+        assert_eq!(carrier(&whole.delta), expected);
+        assert_eq!(
+            complement_carrier(&whole_lens.complement),
+            expected_complement.hidden().clone()
+        );
+        assert!(
+            <TreeShape as LensShape>::complement_divergence(
+                &whole_lens.complement,
+                &steps_lens.complement
+            )
+            .is_none()
+        );
+        let mut expected_source = ref_source.clone();
+        reference::Delta::apply(&expected, &mut expected_source).unwrap();
+        assert_eq!(reference_tree(&whole.tree), expected_source);
+        let mut edited_view = view.clone();
+        production_edit(&plan.atoms)
+            .apply(&mut edited_view)
+            .unwrap();
+        let (fresh_view, _) = panproto_lens::get(&state_lens, &whole.tree).unwrap();
+        assert_eq!(reference_tree(&fresh_view), reference_tree(&edited_view));
+        let original = GInstance::from_wtype_under(source, &source_embedding, None).unwrap();
+        let mut restored = original.clone();
+        whole.delta.apply(&mut restored).unwrap();
+        whole.delta.invert().apply(&mut restored).unwrap();
+        assert!(GInstance::identical(&original, &restored));
+    } else {
+        let expected =
+            reference::Lens::get_edit(ref_lens, &ref_input, &mut expected_complement).unwrap();
+        let (whole, complement, edited_view) =
+            translated_get(kind, source, &view, &view_embedding, plan, false);
+        let (steps, steps_complement, steps_view) =
+            translated_get(kind, source, &view, &view_embedding, plan, true);
+        assert_eq!(whole, steps);
+        assert_eq!(carrier(&whole), expected);
+        assert_eq!(
+            complement_carrier(&complement),
+            expected_complement.hidden().clone()
+        );
+        assert!(
+            <TreeShape as LensShape>::complement_divergence(&complement, &steps_complement)
+                .is_none()
+        );
+        let mut expected_view = ref_view;
+        reference::Delta::apply(&expected, &mut expected_view).unwrap();
+        assert_eq!(reference_tree(&edited_view), expected_view);
+        assert_eq!(reference_tree(&steps_view), expected_view);
+        let mut edited_source = source.clone();
+        production_edit(&plan.atoms)
+            .apply(&mut edited_source)
+            .unwrap();
+        let (fresh_view, fresh_complement) =
+            panproto_lens::get(&state_lens, &edited_source).unwrap();
+        assert_eq!(reference_tree(&fresh_view), expected_view);
+        assert_eq!(
+            complement_carrier(&fresh_complement),
+            complement_carrier(&complement)
+        );
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_leaf_edit_lens_differential(
+        visible_payload in proptest::prelude::any::<u8>(),
+        hidden_payload in proptest::prelude::any::<u8>(),
+        new_payload in proptest::prelude::any::<u8>(),
+        fresh in 3_u32..10_000,
+        identity in proptest::prelude::any::<bool>(),
+        put in proptest::prelude::any::<bool>(),
+        hidden in proptest::prelude::any::<bool>(),
+        operation in 0_u8..5,
+    ) {
+        let kind=if identity {LensKind::Identity} else {LensKind::Projection};
+        let operation=if put && !identity {if operation==0 {0} else {3}} else {operation};
+        let mut source=production_source();
+        source.nodes.insert(KEPT,production_node(&leaf(KEPT,Visibility::Visible,visible_payload)));
+        source.nodes.insert(HIDDEN,production_node(&leaf(HIDDEN,Visibility::Hidden,hidden_payload)));
+        let visibility=if hidden && (!put || identity) {Visibility::Hidden} else {Visibility::Visible};
+        let id=if visibility==Visibility::Hidden {HIDDEN} else {KEPT};
+        let new=leaf(if operation==1 || operation==2 {fresh} else {id},visibility,new_payload);
+        let atoms=match operation {
+            0=>Vec::new(),
+            1=>vec![Atom::Insert(new)],
+            2=>vec![Atom::Insert(new),Atom::Delete{id:fresh}],
+            3=>vec![Atom::Delete{id}],
+            _=>vec![Atom::Delete{id},Atom::Insert(new)],
+        };
+        generated_leaf_word_agrees(kind,&source,&Plan{name:"generated".into(),atoms},put);
+    }
+}
+
+/// The finite admitted carrier fixes hidden-before-visible arc order. The
+/// reversed presentation exposes a strict endpoint difference on replacement.
+#[test]
+fn visible_first_leaf_replacement_is_an_atomic_endpoint_refusal() {
+    let original = production_source();
+    let mut arcs = original.arcs;
+    arcs.reverse();
+    let source = WInstance::new(
+        original.nodes,
+        arcs,
+        original.fans,
+        original.root,
+        original.schema_root,
+    );
+    let lens = production_lens(LensKind::Projection);
+    let (mut edited_view, complement) = panproto_lens::get(&lens, &source).unwrap();
+    let edit = production_edit(&[
+        Atom::Delete { id: KEPT },
+        Atom::Insert(leaf(KEPT, Visibility::Visible, 0)),
+    ]);
+    edit.apply(&mut edited_view).unwrap();
+    let expected = panproto_lens::put(&lens, &edited_view, &complement).unwrap();
+    let mut raw_candidate = source.clone();
+    edit.apply(&mut raw_candidate).unwrap();
+    assert_eq!(reference_tree(&raw_candidate), reference_tree(&expected));
+    assert_eq!(
+        raw_candidate
+            .arcs
+            .iter()
+            .map(|(_, child, _)| *child)
+            .collect::<Vec<_>>(),
+        [HIDDEN, KEPT]
+    );
+    assert_eq!(
+        expected
+            .arcs
+            .iter()
+            .map(|(_, child, _)| *child)
+            .collect::<Vec<_>>(),
+        [KEPT, HIDDEN]
+    );
+    let mut translator = edit_lens(LensKind::Projection, &source);
+    let before_complement = format!("{:?}", translator.complement);
+    let error = translator.put_edit(edit).unwrap_err();
+    assert!(
+        matches!(error, panproto_lens::EditLensError::TranslationFailed(message)
+        if message == "the translated tree edit does not produce the whole-state put source")
+    );
+    assert_eq!(
+        format!("{:?}", translator.pipeline.as_ref().unwrap().source()),
+        format!("{source:?}")
+    );
+    assert_eq!(format!("{:?}", translator.complement), before_complement);
 }

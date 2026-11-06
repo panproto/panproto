@@ -41,6 +41,9 @@ The reserved fan kinds are `hyper_parent` and `hyper_label`. The *node floor* is
 - File: `crates/panproto-inst/src/ginstance/embedding.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_tree_representation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_tree_representation_differential)'`
+- Randomized evidence scope: `randomized_tree_representation_differential`: Rooted trees with 1–6 nodes, generated parent choices, node-id offset below 10,000, arbitrary i64 fields and annotations, and an optional ordered fan; paired graph encodings, embedding maps and floors, tree/graph canonical bytes, and reification. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -53,7 +56,7 @@ None. The bounded differential compares every observable field, and every typed 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## A graph has a tree form exactly under the stated decision procedure {#L-representation-2}
 
@@ -66,6 +69,8 @@ On success, ordinary edges become arcs in ascending edge-id order, fan nodes bec
 ### Outside the domain
 
 The reference returns the first local `NotATree` witness in this order: `MissingRoot`; then, by ascending edge id, `DanglingEdge`, `PositionedEdge`, `FanLabel`, `ReservedArc`, `ArcIntoFan`, `RootHasParent`, or `SecondParent`; then, by ascending fan-node id, `FanData` or the first `Fan` violation; then, by ascending ordinary-node id, `Unreached`. Production preserves that success domain and edge-local order but aggregates some global failures. In particular, a disconnected two-node graph is reference `Unreached { node: 1 }` and production `NotATree { reason: NoRoot }`. Thus the law identifies the decision and successful output, not literal equality between the two refusal enums. Explicit witnesses pin each side's deterministic reason.
+
+The stated edge-first precedence applies to conversion with a proposed root, including production `to_wtype` and `to_wtype_with_schema_root`. Production `tree_shape` and `try_to_wtype` infer the root and check fan data before the edge-local conditions. A graph with both a positioned edge and a data-bearing fan can thus receive different deterministic reasons from these two groups of APIs.
 
 ### Definitions used
 
@@ -90,6 +95,9 @@ A tree is *rooted at its stored root* when the root is a node, no arc enters it,
 - File: `crates/panproto-inst/src/ginstance/tree_shape.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_graph_representation_decisions; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_graph_representation_decisions)'`
+- Randomized evidence scope: `randomized_graph_representation_decisions`: Graphs with 1–5 nodes and 0–11 generated directed edges, loops and parallel edges, optional edge positions and a fan node, and present or missing proposed roots; paired tree/table decisions, successful canonical outputs, graph bytes, and ordered fan violations with and without a schema. Refusal enum taxonomies remain distinct. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -102,7 +110,7 @@ The bounded differential compares success or failure and every field of successf
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Reification is exactly the common tree-graph image round trip {#L-representation-3}
 
@@ -135,6 +143,9 @@ The schema-induced parent-name function returns a declared hyper-edge's `parent_
 - File: `crates/panproto-inst/src/ginstance/reify.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_tree_representation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_tree_representation_differential)'`
+- Randomized evidence scope: `randomized_tree_representation_differential`: Rooted trees with 1–6 nodes, generated parent choices, node-id offset below 10,000, arbitrary i64 fields and annotations, and an optional ordered fan; paired graph encodings, embedding maps and floors, tree/graph canonical bytes, and reification. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -147,7 +158,7 @@ None. The bounded differential compares every observable field, and checks that 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Canonical bytes are injective and decode exactly on their image {#L-representation-4}
 
@@ -186,6 +197,13 @@ Every variable-length sequence begins with its `u64` length. Strings, optional v
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_tree_representation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_tree_representation_differential)'`
+- Randomized evidence scope: `randomized_tree_representation_differential`: Rooted trees with 1–6 nodes, generated parent choices, node-id offset below 10,000, arbitrary i64 fields and annotations, and an optional ordered fan; paired graph encodings, embedding maps and floors, tree/graph canonical bytes, and reification. Current candidate execution is pending.
+- Property differential test: `randomized_graph_representation_decisions; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_graph_representation_decisions)'`
+- Randomized evidence scope: `randomized_graph_representation_decisions`: Graphs with 1–5 nodes and 0–11 generated directed edges, loops and parallel edges, optional edge positions and a fan node, and present or missing proposed roots; paired tree/table decisions, successful canonical outputs, graph bytes, and ordered fan violations with and without a schema. Refusal enum taxonomies remain distinct. Current candidate execution is pending.
+- Property differential test: `randomized_table_representation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_table_representation_differential)'`
+- Randomized evidence scope: `randomized_table_representation_differential`: One-table instances with 1–6 rows, arbitrary i64 cells, generated relation pairs and row-id offsets below 10,000; paired canonical bytes, graph encodings and embedding maps. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -198,7 +216,7 @@ None. The bounded differential compares every observable field, and checks the d
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## The identity envelope has one injective version-two layout {#L-representation-5}
 
@@ -231,6 +249,9 @@ A digest is a 32-byte array. Little-endian `u16` writes the low byte before the 
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_identity_envelope_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_identity_envelope_differential)'`
+- Randomized evidence scope: `randomized_identity_envelope_differential`: Three arbitrary 32-byte digests and all four complement shapes, using each shape’s current format version; production manifest envelope bytes against the independent 101-byte writer. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -243,7 +264,7 @@ None. The bounded differential compares every observable field and typed refusal
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Every well-formed table has the specified graph form or one typed refusal {#L-representation-6}
 
@@ -276,6 +297,9 @@ A table is *coherent* when every pair's source row belongs to its label's source
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_table_representation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_table_representation_differential)'`
+- Randomized evidence scope: `randomized_table_representation_differential`: One-table instances with 1–6 rows, arbitrary i64 cells, generated relation pairs and row-id offsets below 10,000; paired canonical bytes, graph encodings and embedding maps. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -288,7 +312,7 @@ None. The bounded differential compares every observable field and both malforme
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## A graph has a table form exactly when it is table-shaped {#L-representation-7}
 
@@ -322,6 +346,9 @@ A well-formed graph has node-map keys equal to the stored node ids and has both 
 - File: `crates/panproto-inst/src/ginstance/table_embed.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_graph_representation_decisions; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_graph_representation_decisions)'`
+- Randomized evidence scope: `randomized_graph_representation_decisions`: Graphs with 1–5 nodes and 0–11 generated directed edges, loops and parallel edges, optional edge positions and a fan node, and present or missing proposed roots; paired tree/table decisions, successful canonical outputs, graph bytes, and ordered fan violations with and without a schema. Refusal enum taxonomies remain distinct. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -334,7 +361,7 @@ None. The bounded differential compares every field of each accepted table, and 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Fan-domain violations are complete and deterministically ordered {#L-representation-8}
 
@@ -369,6 +396,9 @@ A *fan node* has shape `HyperEdge`. A parent edge has kind `hyper_parent`; exact
 - File: `crates/panproto-inst/src/fan_violation.rs`
 - File: `crates/panproto-reference/src/pages/representation.rs`
 - File: `crates/panproto-reference/src/enumerate/representation.rs`
+- File: `crates/panproto-inst/tests/reference_representation.rs`
+- Property differential test: `randomized_graph_representation_decisions; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_representation --no-tests=fail -E 'test(=randomized_graph_representation_decisions)'`
+- Randomized evidence scope: `randomized_graph_representation_decisions`: Graphs with 1–5 nodes and 0–11 generated directed edges, loops and parallel edges, optional edge positions and a fan node, and present or missing proposed roots; paired tree/table decisions, successful canonical outputs, graph bytes, and ordered fan violations with and without a schema. Refusal enum taxonomies remain distinct. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -381,4 +411,4 @@ None. The bounded differential compares every observable field and typed refusal
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.

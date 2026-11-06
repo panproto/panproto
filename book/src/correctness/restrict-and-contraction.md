@@ -40,13 +40,16 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - Enumerator: `panproto_reference::enumerate::restrict_and_contraction::release_schemas` and `survival_classifications`; exact carrier: 1,539 schema/classification cases, plus 6 explicit nonidentity branch witnesses
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers` in `crates/panproto-inst/tests/reference_restrict.rs`
 - Boundary pins: production `restrict_plan_compile` and reference `lenses` accept 65,536 hops and refuse 65,537
-- Dynamic result: all seven tests of the production/reference suite pass
+- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `1,539 schema/classification cases, six nonidentity branch witnesses, and the 65,536/65,537-hop boundary`
 - Production certificate: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -59,7 +62,7 @@ None. Mutating direct-image precedence, endpoint coherence, unresolved-hop reten
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## The contraction plan is the trimmed dropped-interior relation {#L-restrict-and-contraction-2}
 
@@ -92,6 +95,9 @@ The forward search `reach(a, interior, succ)` computes $F_a$ by the usual visite
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -104,7 +110,7 @@ None. In particular, replacing the walk region by an endpoint-induced subgraph, 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Pair resolution has one fixed precedence order {#L-restrict-and-contraction-3}
 
@@ -137,6 +143,9 @@ The *unique target edge* is the sole member of `edges_between(a', b')`, regardle
 - File: `crates/panproto-reference/src/pages/restrict_and_contraction.rs`
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_pair_resolution_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_pair_resolution_differential)'`
+- Randomized evidence scope: `randomized_pair_resolution_differential`: Independently generated direct, first-hop and second-hop states from five alternatives, and three expansion states; paired resolution and first failing hop over the 375-case bounded input space. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -149,7 +158,7 @@ None. Resolver-first selection, unique-edge fallback, and the prohibition on rec
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Graph restriction is staged Delta followed by contraction {#L-restrict-and-contraction-4}
 
@@ -193,6 +202,9 @@ After compilation has checked declarations and output fields, `get_with_plan` va
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-reference/tests/transform_declarations.rs`
 - File: `crates/panproto-inst/src/restrict_plan.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -205,7 +217,7 @@ None. The stage order, id retention, set semantics for realized pairs, and separ
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree restriction uses the compiled edge image {#L-restrict-and-contraction-5}
 
@@ -244,6 +256,9 @@ The differential builds both plans from the same schemas and migration and check
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
+- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -256,7 +271,7 @@ None. Recomputing a tree-only fate is forbidden even when it agrees on current f
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Column fate is derived from the schema plan {#L-restrict-and-contraction-6}
 
@@ -293,6 +308,9 @@ An *attribute arrow* is a schema edge from an entity vertex to its value vertex.
 - File: `crates/panproto-inst/src/restrict_plan.rs`
 - File: `crates/panproto-inst/src/table_restrict.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_column_fate_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_column_fate_differential)'`
+- Randomized evidence scope: `randomized_column_fate_differential`: Two independently generated Drop/Keep/Rename column states; paired schema-plan fates and runtime table/graph/tree checks for two fixed integer cells. Transform-output collisions remain covered by separate fixed certificates. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -305,7 +323,7 @@ None. Instance-level label matching is not equivalent to consuming the compiled 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes after correction of the reference-only result-order defect.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Repeated child names bind an ordered list {#L-restrict-and-contraction-7}
 
@@ -340,6 +358,9 @@ For graphs, *edge order* is ascending edge id. For trees it is sibling order; fo
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/element_ops.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_ordered_child_binding_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_ordered_child_binding_differential)'`
+- Randomized evidence scope: `randomized_ordered_child_binding_differential`: Generated ordered words of length 0–8 over eight self-loop, missing-value and zero/one child slots; paired bindings preserve duplicate values, label order and self-loop exclusion. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -352,7 +373,7 @@ None. Last-wins, first-wins, set-valued, and self-loop-inclusive collection are 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree synthesis uses the graph synthesis keys and floor {#L-restrict-and-contraction-8}
 
@@ -378,7 +399,7 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - Reference: `panproto_reference::lens::tree_get`
 - Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases plus 5 structural-key observations and one fan-plus-expansion case
 - Exhaustive differential tests: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`, `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier`, and `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors`; census: 43 successes and 27 typed exhaustion refusals on the enumerated carrier, plus 5 successful structural-key observations
-- Dynamic result: both lens-level conversion tests pass
+- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `70 route/floor cases, five successful structural-key observations, and one fan-plus-expansion case in tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`
 - Production certificate: `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier)'`
 - Independent reference anchor: `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors)'`
@@ -387,6 +408,9 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-inst/src/complement.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
+- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -399,7 +423,7 @@ None. Renumbering by traversal order is not equivalent, since synthesis ids and 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree put checks predicates and transforms before restoration {#L-restrict-and-contraction-9}
 
@@ -441,6 +465,8 @@ The *restored node* is the source candidate obtained from the view node plus rec
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
+- Property differential test: `randomized_graph_square_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
+- Randomized evidence scope: `randomized_graph_square_differential`: Generated stage/source and edit indices select individual cases and single-step basis edits from the bounded graph/tree conversion carrier; paired unedited and edited graph/tree squares include refusal observations. Empty edit bases and refusing gets remain observations. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -453,7 +479,7 @@ None. Checking predicates during restoration is not equivalent to checking the c
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree restriction participates in the complete lens-law gates {#L-restrict-and-contraction-10}
 
@@ -481,7 +507,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - Reference: `panproto_reference::lens::TreeShape::single_step_basis`
 - Exhaustive differential tests: `lens_laws_agree_with_the_reference_exhaustively` and `graph_square_agrees_with_the_reference_exhaustively`
 - Exact observations: 200,606 heterogeneous law cases, plus the 31,422-observation graph square
-- Dynamic result: all three focused tests pass
+- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `200,606 heterogeneous law cases and the 31,422-observation graph square`
 - Production certificate: `lens_laws_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_laws_agree_with_the_reference_exhaustively)'`
 - Independent reference anchor: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
@@ -490,6 +516,8 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - File: `crates/panproto-lens/src/laws.rs`
 - File: `crates/panproto-lens/src/dispatch.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
+- Property differential test: `randomized_lens_law_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
+- Randomized evidence scope: `randomized_lens_law_differential`: Generated case and edit indices exercise every core bounded graph/tree/table law family per case, plus one generated additional family; production and independent reference law reports are compared on the declared common basis. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -502,7 +530,7 @@ None. A graph-only gate is not an observational substitute for a tree gate.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree edit translations commute with whole-state operations {#L-restrict-and-contraction-11}
 
@@ -522,7 +550,7 @@ The guard checks a sequence as one atomic word. Its admitted domain need not be 
 
 ### Definitions used
 
-The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially carrying payload 0, fresh id 3, and payloads 0 or 1. The identity lens keeps both leaf kinds; the static projection drops the hidden kind. Its 19 source words are identity, two deletions, four insertions, four insert/delete cancellations, and eight delete/reinsert replacements. Both lenses give 38 get cases. All 19 words are put cases for identity; the eight all-visible words are put cases for projection, giving 27 put cases. These words contain only leaf insertion and deletion under the fixed root. They have no conditional survival, field transforms, contraction, synthesis, fans, moves, or attribute updates.
+The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially carrying payload 0, fresh id 3, and payloads 0 or 1. Its source arc sequence is hidden leaf 2 followed by visible leaf 1, so the initial durable embedding assigns arc ids 0 and 1 in that order. The identity lens keeps both leaf kinds; the static projection drops the hidden kind. Its 19 source words are identity, two deletions, four insertions, four insert/delete cancellations, and eight delete/reinsert replacements. Both lenses give 38 get cases. All 19 words are put cases for identity; the eight all-visible words are put cases for projection, giving 27 put cases. The arc order is part of this certificate: reversing it makes visible-leaf replacement produce a different source arc sequence from whole-state put, and the raw endpoint guard refuses that word atomically. These words contain only leaf insertion and deletion under the fixed root. They have no conditional survival, field transforms, contraction, synthesis, fans, moves, or attribute updates.
 
 *Residue agreement* here compares the whole-state complement after replacing its floor by the translator's retained historical floor. It does not discard that floor from later allocation or assert equality with the original complement after cancellation. *Strict composition on the finite carrier* compares translating the same word whole with translating its primitives in order under durable embeddings. The independent oracle additionally composes canonical per-leaf changes. This does not assert that general production translation factors through canonical source-delta equality.
 
@@ -532,7 +560,7 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 2. Raw put applies the input to a cloned current view and computes whole-state put with the incoming complement. It applies the staged candidate translation to the original source and compares that result with whole-state put. It then recomputes get and compares the replayed view with the edited view. These checks give both put equations. Its commit and refusal behavior is the same as get's. This argument checks a whole word, not each prefix independently.
 3. The independent leaf oracle represents a canonical change by optional before and after leaves at one id. Identity keeps each change. Projection filters each endpoint by its fixed leaf kind and records hidden leaves in the complement. Composition keeps the first before-leaf and the last after-leaf. Filtering thus commutes with composition in this structural carrier, including a hidden intermediate leaf. An empty/empty change disappears; a present/present change remains a replacement even when its payloads agree.
 4. The oracle acts independently at each id, so it introduces no new touched id. A filtered replacement has both endpoints only if the input has both. Its put admits all-visible changes and returns them unchanged; inversion exchanges their endpoints and get returns the inverse. These arguments concern structural leaf changes, not attribute changes that alter a survival predicate.
-5. The production differential compares all 38 get words and 27 put words with that oracle. Whole-word and primitive-by-primitive translations are lowered under durable embeddings and compared exactly; their threaded complements are compared separately. Get endpoints and residue are recomputed from edited sources. Undo checks 15 exact tree-edit inverses and 12 cases whose exact inverse requires the canonical graph carrier. Cancellation and undo compare restored residue while retaining the historical floor.
+5. The production differential compares all 38 get words and 27 put words with that oracle. Whole-word and primitive-by-primitive translations are lowered under durable embeddings and compared exactly; their threaded complements are compared separately. Get endpoints and residue are recomputed from edited sources. Undo distinguishes exact tree-edit inverses from cases whose exact inverse requires the canonical graph carrier. Cancellation and undo compare restored residue while retaining the historical floor.
 6. This finite certificate does not extend to general strict composition. With a value-dependent predicate, a retained node can become hidden and then retained again while two source attribute updates compose to identity. The sequential view edits delete and add the node, hence compose to replacement. Direct translation of source identity yields identity. Both routes reach the same view, but replacement semantics distinguishes their deltas. The conditional-survival boundary tests preserve this distinction. Incidence closure in [L-edits-8](edits.md#L-edits-8) supplies the general graph translation square; it does not repair this composition obstruction.
 
 ### Executable counterpart
@@ -547,7 +575,7 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
 - Exact carrier: 38 get words, each also checked for get consistency, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal
 - Exhaustive differential tests: all four `tree_edit_lens_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
-- Dynamic result: verification of the endpoint guards and retained historical floor is pending
+- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `38 get words with get consistency, 27 put words, two typed lowering refusals, one common late refusal through both source editors and both get_edit implementations, and one production-only atomic late refusal`
 - Production certificate: `tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference)'`
 - Independent reference anchor: `tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference)'`
@@ -558,6 +586,10 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 - Production certificate: `edit_lens::tests::strict_guard_comparison_keeps_global_arc_and_fan_order; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_lens::tests::strict_guard_comparison_keeps_global_arc_and_fan_order)'`
 - Production certificate: `edit_lens::tests::raw_nonidentity_edits_require_initialization; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_lens::tests::raw_nonidentity_edits_require_initialization)'`
 - Production certificate: `conditional_survival_loop_exposes_strict_functoriality_obstruction; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=conditional_survival_loop_exposes_strict_functoriality_obstruction)'`
+- Production certificate: `edits::contracted_same_parent_move_refuses_order_drift_atomically; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test tree_lenses_through_contraction --no-tests=fail -E 'test(=edits::contracted_same_parent_move_refuses_order_drift_atomically)'`
+- Production certificate: `edits::kept_insertion_before_contracted_arcs_refuses_order_drift_atomically; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test tree_lenses_through_contraction --no-tests=fail -E 'test(=edits::kept_insertion_before_contracted_arcs_refuses_order_drift_atomically)'`
+- Production certificate: `visible_first_leaf_replacement_is_an_atomic_endpoint_refusal; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=visible_first_leaf_replacement_is_an_atomic_endpoint_refusal)'`
+- Production certificate: `field_edit_translation_uses_only_the_edited_nodes_anchor; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=field_edit_translation_uses_only_the_edited_nodes_anchor)'`
 - Production certificate: `field_removal_recovers_a_shadowed_rename_destination; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=field_removal_recovers_a_shadowed_rename_destination)'`
 - Production certificate: `edit_laws::tests::edit_law_checkers_require_the_matching_initialized_source; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_laws::tests::edit_law_checkers_require_the_matching_initialized_source)'`
 - Production certificate: `edit_laws::tests::retained_complement_comparison_checks_floor_metadata_and_bookkeeping; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_laws::tests::retained_complement_comparison_checks_floor_metadata_and_bookkeeping)'`
@@ -570,6 +602,9 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 - File: `crates/panproto-lens/src/edit_pipeline.rs`
 - File: `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
 - File: `crates/panproto-lens/src/edit_laws.rs`
+- Property differential test: `randomized_leaf_edit_lens_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=randomized_leaf_edit_lens_differential)'`
+- Randomized evidence scope: `randomized_leaf_edit_lens_differential`: Identity and static leaf projection with hidden-before-visible source arcs: arbitrary u8 source and replacement payloads, fresh ids from 3 through 9,999, get or put, and identity, insertion, insertion/deletion, deletion or replacement get/identity-lens words; projection puts are limited to identity/deletion. Paired deltas, endpoints and hidden residue, atomic-word versus admitted-step composition, and canonical source undo; no conditional-survival composition claim. Current candidate execution is pending.
+- File: `crates/panproto-lens/tests/tree_lenses_through_contraction.rs`
 
 ### Mutation equivalences
 
@@ -582,7 +617,7 @@ None. Reusing residue after delete-then-add is a semantic mutation, even if the 
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-repair verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree synthesis preserves source sibling order {#L-restrict-and-contraction-12}
 
@@ -617,6 +652,9 @@ For the re-encoding clause, graph encoding numbers a tree's arcs $0,1,\ldots$ in
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-inst/src/complement.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
+- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -629,7 +667,7 @@ None. Equal unordered graph carriers do not witness equality of ordered trees.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Contraction preserves and reflects dropped-interior reachability {#L-restrict-and-contraction-13}
 
@@ -663,6 +701,9 @@ For preservation, let such a source walk exist. The per-source breadth-first sea
 - File: `crates/panproto-reference/src/enumerate/restrict_and_contraction.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-inst/src/contraction_plan.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
+- Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -675,4 +716,4 @@ None. Admitting fan nodes as interior nodes or omitting any realized pair change
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit is pending; the bounded production/reference differential passes.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.

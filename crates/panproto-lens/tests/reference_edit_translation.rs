@@ -40,8 +40,8 @@ fn source() -> WInstance {
             (HIDDEN, Node::new(HIDDEN, "hidden")),
         ]),
         vec![
-            (ROOT, VISIBLE, edge("visible")),
             (ROOT, HIDDEN, edge("hidden")),
+            (ROOT, VISIBLE, edge("visible")),
         ],
         Vec::new(),
         ROOT,
@@ -348,7 +348,11 @@ fn translation_fixture() -> TranslationFixture {
     let reference_source = graph_to_reference(&source_graph);
     let lens = state_lens();
     let (view, initial_complement) = panproto_lens::get(&lens, &source).unwrap();
-    let view_embedding = embedding(&view);
+    // Preserve source edge ids in the projected graph presentation.
+    let mut view_embedding = source_embedding.clone();
+    view_embedding
+        .arcs
+        .retain(|child, _| view.nodes.contains_key(child));
     let view_graph = GInstance::from_wtype_under(&view, &view_embedding, None).unwrap();
     let reference_view = graph_to_reference(&view_graph);
     let (expected_view, reference_complement) = project(&reference_source);
@@ -421,7 +425,11 @@ fn assert_get_case(fixture: &TranslationFixture, case: &carrier::EditTranslation
 
     let mut edited_source = fixture.source.clone();
     edit.apply(&mut edited_source).unwrap();
-    let (_, whole_complement) = panproto_lens::get(&fixture.lens, &edited_source).unwrap();
+    let (_, mut whole_complement) = panproto_lens::get(&fixture.lens, &edited_source).unwrap();
+    let (_, incoming_complement) = panproto_lens::get(&fixture.lens, &fixture.source).unwrap();
+    whole_complement.id_floor = whole_complement.id_floor.max(incoming_complement.id_floor);
+    assert_eq!(graph_lens.complement.id_floor, whole_complement.id_floor);
+    assert_eq!(tree_lens.complement.id_floor, whole_complement.id_floor);
     assert!(
         <TreeShape as LensShape>::complement_divergence(&graph_lens.complement, &whole_complement)
             .is_none(),
@@ -545,4 +553,70 @@ fn graph_get_keeps_same_payload_replacements_of_the_input() {
         complement_to_reference(&lens.complement, &fixture.source_embedding),
         expected.complement
     );
+}
+
+fn generated_translation_fixture(source: WInstance) -> TranslationFixture {
+    let source_embedding = embedding(&source);
+    let source_graph = GInstance::from_wtype_under(&source, &source_embedding, None).unwrap();
+    let reference_source = graph_to_reference(&source_graph);
+    let lens = state_lens();
+    let (view, initial_complement) = panproto_lens::get(&lens, &source).unwrap();
+    // Preserve source edge ids in the projected graph presentation.
+    let mut view_embedding = source_embedding.clone();
+    view_embedding
+        .arcs
+        .retain(|child, _| view.nodes.contains_key(child));
+    let view_graph = GInstance::from_wtype_under(&view, &view_embedding, None).unwrap();
+    let reference_view = graph_to_reference(&view_graph);
+    let (expected_view, reference_complement) = project(&reference_source);
+    assert_eq!(reference_view, expected_view);
+    assert_eq!(
+        complement_to_reference(&initial_complement, &source_embedding),
+        reference_complement
+    );
+    TranslationFixture {
+        source,
+        source_embedding,
+        reference_source,
+        lens,
+        view,
+        view_embedding,
+        reference_view,
+        reference_complement,
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_whole_state_edit_translation_differential(
+        visible in 1_u32..10_000,
+        hidden_count in 1_u32..7,
+        choose_hidden in proptest::prelude::any::<bool>(),
+        put in proptest::prelude::any::<bool>(),
+        operation in 0_u8..3,
+    ) {
+        let mut nodes=HashMap::from([(ROOT,Node::new(ROOT,"root")),(visible,Node::new(visible,"visible"))]);
+        let mut arcs=Vec::new();
+        for offset in 1..=hidden_count {
+            let id=visible+offset;
+            nodes.insert(id,Node::new(id,"hidden"));
+            arcs.push((ROOT,id,edge("hidden")));
+        }
+        arcs.push((ROOT,visible,edge("visible")));
+        let fixture=generated_translation_fixture(WInstance::new(nodes,arcs,Vec::new(),ROOT,"root".into()));
+        let hidden=choose_hidden && !put;
+        let id=if hidden {visible+hidden_count} else {visible};
+        let anchor=if hidden {"hidden"} else {"visible"};
+        let operation=if put {operation % 2} else {operation};
+        let edit=match operation {
+            0=>reference::TreeEdit::Identity,
+            1=>reference::TreeEdit::DeleteNode{id},
+            _=>reference::TreeEdit::Sequence(vec![reference::TreeEdit::DeleteNode{id},reference::TreeEdit::InsertNode {parent:ROOT,child_id:id,node:reference_model::Node::new(id,anchor),edge:reference_model::SEdge::new("root",anchor,"prop",Some(anchor))}]),
+        };
+        let direction=if put {carrier::EditTranslationDirection::Put} else {carrier::EditTranslationDirection::Get};
+        let case=carrier::EditTranslationCase {name:"generated",direction,edit};
+        if put {assert_put_case(&fixture,&case);} else {assert_get_case(&fixture,&case);}
+    }
 }

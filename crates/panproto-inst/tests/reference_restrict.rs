@@ -2491,3 +2491,296 @@ fn column_fate_many_to_one_is_outside_the_common_tree_image() {
         "the documented tree boundary must name the merged edge and both arcs: {error:?}"
     );
 }
+
+fn generated_structural_plan_agrees(source: &RefSchema, migration: &RefMigration) {
+    let production_schema = prod_schema(source);
+    let production_migration = prod_migration(migration);
+    let reference_image = restrict::edge_image(source, source, migration).unwrap();
+    let production_image = EdgeImage::compile(
+        &production_schema,
+        &production_schema,
+        &production_migration,
+    )
+    .unwrap();
+    assert_eq!(reference_image.len(), production_image.fates.len());
+    for (edge, expected) in &reference_image {
+        let actual = production_image
+            .fate(&prod_edge(edge))
+            .expect("total production edge image");
+        let expected = ref_fate_without_hop(expected);
+        let actual = prod_fate(actual);
+        assert_eq!(actual, expected, "edge {edge:?} under {migration:?}");
+    }
+
+    let optimized = restrict::contraction_plan(source, source, migration).unwrap();
+    let walked = restrict::contraction_plan_by_walks(source, source, migration);
+    assert_eq!(optimized, walked, "walk oracle under {migration:?}");
+    let production = ContractionPlan::compile(
+        &production_schema,
+        &production_schema,
+        &production_migration,
+    )
+    .unwrap();
+    assert_eq!(optimized.len(), production.pairs.len());
+    for (key, expected) in &optimized {
+        let actual = production
+            .pairs
+            .get(&(key.0.as_str().into(), key.1.as_str().into()))
+            .expect("same pair domain");
+        assert_eq!(
+            actual.target,
+            (
+                expected.target.0.as_str().into(),
+                expected.target.1.as_str().into()
+            )
+        );
+        assert_eq!(
+            actual.region.iter().map(ref_edge).collect::<BTreeSet<_>>(),
+            expected.region
+        );
+        assert_eq!(actual.bounded, expected.bounded);
+        assert_eq!(
+            prod_resolution(&actual.resolution),
+            ref_resolution(&expected.resolution)
+        );
+    }
+}
+
+fn generated_graph_restriction_agrees(
+    source: &RefSchema,
+    migration: &RefMigration,
+    graph: &RefGraph,
+) {
+    let production_schema = prod_schema(source);
+    let production_migration = prod_migration(migration);
+    let production_plan = RestrictPlan::compile(
+        &production_schema,
+        &production_schema,
+        &production_migration,
+    )
+    .unwrap();
+    let reference = restrict::get(source, source, migration, &NoValueLayer, graph);
+    let production = graph_restrict_with_plan(&prod_graph(graph), &production_plan);
+    match (reference, production) {
+        (Ok((reference_view, reference_complement)), Ok((view, complement))) => {
+            assert_eq!(
+                ref_graph(&view),
+                reference_view,
+                "{graph:?} under {migration:?}"
+            );
+            assert_eq!(
+                ref_complement(&complement),
+                reference_complement,
+                "complement for {graph:?} under {migration:?}"
+            );
+            for (id, node) in &reference_view.nodes {
+                if let Some(original) = graph.nodes.get(id) {
+                    assert_eq!(
+                        (&node.value, &node.fields, &node.annotations),
+                        (&original.value, &original.fields, &original.annotations),
+                        "a kept node keeps its payload without a value program"
+                    );
+                }
+            }
+            let surviving = reference_view.nodes.keys().copied().collect();
+            let walked = restrict::realized_pairs_by_walks(graph, &surviving);
+            let synthesized: BTreeSet<(u32, u32)> = reference_complement
+                .synthesized_edges
+                .values()
+                .filter_map(|key| match key {
+                    RefSynthKey::Contract { src, tgt, .. }
+                    | RefSynthKey::ContractExpand { src, tgt, .. } => Some((*src, *tgt)),
+                    RefSynthKey::Expand { .. } => None,
+                })
+                .collect();
+            assert_eq!(synthesized, walked, "realized pair census for {graph:?}");
+        }
+        (Err(reference), Err(production)) => assert_eq!(
+            production_error(&production),
+            reference_error(&reference),
+            "refusal for {graph:?} under {migration:?}"
+        ),
+        (reference, production) => panic!(
+            "engines disagree for {graph:?} under {migration:?}: {reference:?} / {production:?}"
+        ),
+    }
+}
+
+fn generated_column_fates_agree(states: &[ColumnState; 2]) {
+    let protocol = table_protocol();
+    let source = SchemaBuilder::new(&protocol)
+        .vertex("t", "record", None)
+        .and_then(|builder| builder.vertex("t.a", "int", None))
+        .and_then(|builder| builder.vertex("t.b", "int", None))
+        .and_then(|builder| builder.edge("t", "t.a", "prop", Some("a")))
+        .and_then(|builder| builder.edge("t", "t.b", "prop", Some("b")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let reference_source = RefSchema::default()
+        .vertex("t", "record")
+        .vertex("t.a", "int")
+        .vertex("t.b", "int")
+        .edge("t", "t.a", "prop", Some("a"))
+        .edge("t", "t.b", "prop", Some("b"));
+    let source_columns = BTreeMap::from([
+        (RefEdge::new("t", "t.a", "prop", Some("a")), "a".to_owned()),
+        (RefEdge::new("t", "t.b", "prop", Some("b")), "b".to_owned()),
+    ]);
+    let (target, reference_target, migration, reference_migration, target_columns) =
+        column_case_target(&protocol, states);
+    let production = RestrictPlan::compile_with_protocols(
+        &source,
+        &target,
+        &migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let reference_plan =
+        restrict::compile(&reference_source, &reference_target, &reference_migration).unwrap();
+    let expected = restrict::column_fates(
+        &reference_plan,
+        &reference_migration,
+        &source_columns,
+        &target_columns,
+    );
+    let expected = expected
+        .get("t")
+        .into_iter()
+        .flatten()
+        .map(ref_column_fate_text)
+        .collect::<Vec<_>>();
+    let actual = production
+        .boundary
+        .as_ref()
+        .and_then(|boundary| boundary.cells.as_ref())
+        .and_then(|cells| cells.fates.get("t"))
+        .into_iter()
+        .flatten()
+        .map(prod_column_fate_text)
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected, "{states:?}");
+    assert_column_runtime(
+        &protocol,
+        &source,
+        &target,
+        &migration,
+        &production,
+        *states,
+    );
+}
+
+fn generated_tree_restriction_agrees(case: &TreeRestrictCase) {
+    let source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "c", "prop", Some("expand"));
+    let target = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "b", "prop", Some("ab"))
+        .edge("b", "c", "prop", Some("bc"));
+    let mut migration = RefMigration {
+        surviving_verts: ["a", "c", "d"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    migration
+        .expansion_path
+        .insert(("a".to_owned(), "c".to_owned()), vec!["b".to_owned()]);
+    let production_schema = prod_schema(&source);
+    let production_target = prod_schema(&target);
+    let production_migration = prod_migration(&migration);
+    let production_plan = RestrictPlan::compile(
+        &production_schema,
+        &production_target,
+        &production_migration,
+    )
+    .unwrap();
+    let reference_plan = restrict::compile(&source, &target, &migration).unwrap();
+    let semantics = BTreeMap::new();
+    let reference_lens = RefGraphLens::new(
+        &source,
+        &target,
+        &migration,
+        &reference_plan,
+        &semantics,
+        &NoValueLayer,
+    )
+    .unwrap();
+    tree_case_is_success(case, &reference_lens, &production_plan);
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    /// Schemas and survival classes are independently sampled; edge presence,
+    /// node fields and annotations are generated before either engine runs.
+    #[test]
+    fn randomized_restriction_plan_and_graph_differential(
+        schema_index in 0_usize..57,
+        classification in 0_usize..27,
+        edge_bits in proptest::prelude::any::<u8>(),
+        payloads in proptest::prelude::any::<[i64;3]>(),
+    ) {
+        let source = &release_schemas()[schema_index];
+        let migration = &survival_classifications(source)[classification];
+        generated_structural_plan_agrees(source, migration);
+        let mut graph = RefGraph::default();
+        for (index,anchor) in ["a","b","c"].iter().enumerate() {
+            let id = u32::try_from(index).unwrap();
+            let mut node = RefNode::new(id,*anchor);
+            node.fields.insert("payload".into(),RefValue::Int(payloads[index]));
+            node.annotations.insert("annotation".into(),RefValue::Int(payloads[index]));
+            graph.nodes.insert(id,node);
+        }
+        for (index,edge) in source.edges.iter().enumerate() {
+            if edge_bits & (1_u8 << index) != 0 {
+                let node = |anchor: &str| u32::try_from(["a","b","c"].iter().position(|candidate| *candidate==anchor).unwrap()).unwrap();
+                graph.edges.insert(u32::try_from(index).unwrap(),RefGEdge { src:node(&edge.src),tgt:node(&edge.tgt),label:edge.clone(),position:Some(u32::try_from(index).unwrap()) });
+            }
+        }
+        generated_graph_restriction_agrees(source,migration,&graph);
+    }
+
+    #[test]
+    fn randomized_pair_resolution_differential(
+        direct in 0_usize..5, first in 0_usize..5, second in 0_usize..5, expansion in 0_usize..3,
+    ) {
+        let case = PairResolutionCase { direct:PairState::ALL[direct], first:PairState::ALL[first], second:PairState::ALL[second], expansion:[ExpansionState::Absent,ExpansionState::Empty,ExpansionState::ViaC][expansion] };
+        let (target,migration)=resolution_case(case);
+        let expected=restrict::resolve_pair(&target,&migration,"a","b");
+        let actual=resolve_pair(&prod_schema(&target),&prod_migration(&migration),&"a".into(),&"b".into());
+        assert_eq!(prod_resolution(&actual),ref_resolution(&expected));
+        if let RefPairResolution::Unresolved(source,target_anchor,_) = expected {
+            let actual=panproto_inst::contraction_plan::failing_hop(&prod_schema(&target),&prod_migration(&migration),&"a".into(),&"b".into());
+            assert_eq!((actual.0.to_string(),actual.1.to_string()),(source,target_anchor));
+        }
+    }
+
+    #[test]
+    fn randomized_column_fate_differential(left in 0_usize..3,right in 0_usize..3) {
+        let states=[ColumnState::Drop,ColumnState::Keep,ColumnState::Rename];
+        generated_column_fates_agree(&[states[left],states[right]]);
+    }
+
+    #[test]
+    fn randomized_ordered_child_binding_differential(word in proptest::collection::vec(0_usize..8,0..9)) {
+        let slots=[ChildBindingSlot::SelfX,ChildBindingSlot::SelfY,ChildBindingSlot::MissingX,ChildBindingSlot::ZeroX,ChildBindingSlot::OneX,ChildBindingSlot::MissingY,ChildBindingSlot::ZeroY,ChildBindingSlot::OneY];
+        let word:Vec<_>=word.into_iter().map(|index|slots[index]).collect();
+        assert_child_binding_word(&word);
+    }
+
+    #[test]
+    fn randomized_tree_restriction_differential(routes in proptest::collection::vec(proptest::prelude::any::<bool>(),1..7),floor in 0_usize..5) {
+        let case=TreeRestrictCase { routes:routes.into_iter().map(|expand|if expand {TreeRoute::Expand} else {TreeRoute::Keep}).collect(),floor:[TreeFloorCase::Compact,TreeFloorCase::Gapped,TreeFloorCase::LastFree,TreeFloorCase::Saturated,TreeFloorCase::AlreadyMax][floor] };
+        generated_tree_restriction_agrees(&case);
+    }
+}

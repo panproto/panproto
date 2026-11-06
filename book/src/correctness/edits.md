@@ -44,11 +44,14 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 - Reference: `panproto_reference::edit::merge`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_graph_words; bound: word_length=3`
 - Exhaustive differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope)'`
+- Production certificate: `graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope)'`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`
 - File: `crates/panproto-inst/src/graph_edit/independence.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-reference/src/enumerate/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -61,7 +64,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Inversion and the table delta algebra preserve both legs {#L-edits-2}
 
@@ -98,11 +101,16 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 - Reference: `panproto_reference::edit::diff_table`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_table_words; bound: word_length=3`
 - Exhaustive differential test: `table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
+- Production certificate: `e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
 - Outside-domain test: `e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables; witness: row 0 in table a with pair (a -e-> b, 0, 0)`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
+- Property differential test: `randomized_table_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_table_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -115,7 +123,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Composition and tree lowering compute one normalized delta {#L-edits-3}
 
@@ -149,11 +157,16 @@ The *per-element action* is one of none, deletion, addition, replacement, or a f
 - Reference: `panproto_reference::edit::graph_delta_from_tree_edit`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_tree_words; bound: word_length=3`
 - Exhaustive differential test: `tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
+- Production certificate: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-inst/src/tree_edit.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
+- Property differential test: `randomized_tree_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_tree_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -166,7 +179,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Canonical edit bytes encode normalized parts in one order {#L-edits-4}
 
@@ -200,12 +213,19 @@ A *canonical part order* is the field order stated above, followed by the derive
 - Reference: `panproto_reference::edit::canonical_tree_edit_bytes`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_graph_words; bound: word_length=3`
 - Exhaustive differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence)'`
+- Production certificate: `e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e3a_tree_edit_bytes_match_reference_for_every_primitive_and_sequence)'`
 - Outside-domain test: `e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain; witness: InsertNode child_id=1, node.id=2`
 - File: `crates/panproto-inst/src/graph_edit/canonical.rs`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/src/tree_edit.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
+- Property differential test: `randomized_table_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_table_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes. Current candidate execution is pending.
+- Property differential test: `randomized_tree_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_tree_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -218,7 +238,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Table edits are checked compare-and-set deltas {#L-edits-5}
 
@@ -256,11 +276,14 @@ A row payload is its table name together with its complete cell map. A relation 
 - Reference: `panproto_reference::edit::delete_row_delta`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_table_words; bound: word_length=3`
 - Exhaustive differential test: `table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `t5_surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=t5_surface_table_edits_lower_check_and_invert_like_the_reference)'`
+- Production certificate: `t5_surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=t5_surface_table_edits_lower_check_and_invert_like_the_reference)'`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/src/table_edit.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-reference/src/enumerate/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_table_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_table_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -273,7 +296,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Joining tree features reparents every surviving child {#L-edits-6}
 
@@ -307,10 +330,13 @@ The *incoming arc* of a nonroot tree node is its unique parent arc. *Joined-node
 - Reference: `panproto_reference::edit::graph_delta_from_tree_edit`
 - Enumerator: `panproto_reference::enumerate::edits::join_cases; bound: cases=9`
 - Exhaustive differential test: `tree_lowering_and_application_match_reference_for_every_primitive; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_lowering_and_application_match_reference_for_every_primitive)'`
-- Property differential test: `tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged)'`
+- Production certificate: `tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=tree_join_refusals_match_reference_and_leave_tree_and_embedding_unchanged)'`
 - File: `crates/panproto-inst/src/tree_edit.rs`
 - File: `crates/panproto-inst/src/delta_convert.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_tree_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_tree_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -323,7 +349,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Delete followed by add is replacement, even for equal payloads {#L-edits-7}
 
@@ -352,11 +378,14 @@ A *replacement* is one id present in both the deleted and added structural maps.
 - Reference: `panproto_reference::edit::Delta::compose`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_graph_words; bound: word_length=3`
 - Exhaustive differential test: `graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope)'`
-- Property differential test: `decision_9_delete_then_add_is_replacement_even_for_equal_payloads; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=decision_9_delete_then_add_is_replacement_even_for_equal_payloads)'`
+- Production certificate: `decision_9_delete_then_add_is_replacement_even_for_equal_payloads; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=decision_9_delete_then_add_is_replacement_even_for_equal_payloads)'`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/graph_edit/apply.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-reference/src/enumerate/edits.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -369,7 +398,7 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Edit translation preserves endpoints and closes replacements under incidence {#L-edits-8}
 
@@ -399,7 +428,7 @@ The reference requires valid endpoint graphs. If the incoming delta does not app
 4. Replacement seeds implement the occurrence identity policy of [L-edits-7](edits.md#L-edits-7). A state differ cannot recover an equal-payload replacement. Preserving such a seed is a stated translation policy, not a consequence of an unrestricted functoriality theorem. For identity input and equal endpoints, the differ and seeds are empty, so the closure is identity. This yields identity translation when the underlying state operations obey their identity round trips.
 5. The reference translators compute their stated endpoints and call this closure; Step 3 gives both squares, and their returned complements belong to the corresponding whole-state operations. Production graph get computes graph restriction before and after, applies the replacement/incidence closure, and then renames the old view edge ids into the supplied view namespace. This coherent edge-id renaming preserves incidence and endpoint payloads. It checks application of the resulting delta and strict agreement of the reconstructed tree with whole-state get before committing source and complement.
 6. Consider a retained root 0, hidden intermediate node 1, and retained descendant 2, with restriction contracting the path to a synthesized edge. Replacing node 2 and its source incoming edge leaves the synthesized view edge payload unchanged. The output must still delete and re-add that edge because its old endpoint occurrence is deleted. The input need not name the synthesized edge id. This is why the earlier claim that every translated id is input-touched is false in the general domain, and why endpoint incidence, rather than arbitrary neighboring source edits, defines the repair.
-7. The finite projection differential compares exact deltas and residue for retained and hidden leaf deletions and replacements. The equal-payload graph witness distinguishes a replacement from a state diff; the synthesized-incidence helper witness checks closure against supplied source and view graphs. The conditional-survival loop distinguishes endpoint agreement from strict composition. These bounded witnesses supplement the closure argument without extending the finite strict-composition certificate.
+7. The finite projection differential compares exact deltas and residue for retained and hidden leaf deletions and replacements. Its source places hidden arcs before visible arcs; the projected durable embedding retains the visible arcs’ source ids and the source allocation floors. The equal-payload graph witness distinguishes a replacement from a state diff; the synthesized-incidence helper witness checks closure against supplied source and view graphs. The conditional-survival loop distinguishes endpoint agreement from strict composition. These bounded witnesses supplement the closure argument without extending the finite strict-composition certificate.
 
 ### Executable counterpart
 
@@ -410,7 +439,7 @@ The reference requires valid endpoint graphs. If the incoming delta does not app
 - Reference: `panproto_reference::edit::put_edit`
 - Enumerator: `panproto_reference::enumerate::edits::edit_translation_cases; bound: cases=8`
 - Exhaustive differential test: `generic_whole_state_edit_oracles_match_actual_tree_lens_translation; command: cargo nextest run -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=generic_whole_state_edit_oracles_match_actual_tree_lens_translation)'`
-- Property differential test: `graph_get_keeps_same_payload_replacements_of_the_input; command: cargo nextest run -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=graph_get_keeps_same_payload_replacements_of_the_input)'`
+- Production certificate: `graph_get_keeps_same_payload_replacements_of_the_input; command: cargo nextest run -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=graph_get_keeps_same_payload_replacements_of_the_input)'`
 - Production certificate: `edit_lens::tests::graph_edit_guard_refuses_metadata_drift_in_the_supplied_view; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_lens::tests::graph_edit_guard_refuses_metadata_drift_in_the_supplied_view)'`
 - Production certificate: `edit_lens::tests::strict_guard_comparison_keeps_global_arc_and_fan_order; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_lens::tests::strict_guard_comparison_keeps_global_arc_and_fan_order)'`
 - Production certificate: `edit_lens::tests::synthetic_incidence_is_replaced_without_touching_unrelated_edges; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-lens --lib --no-tests=fail -E 'test(=edit_lens::tests::synthetic_incidence_is_replaced_without_touching_unrelated_edges)'`
@@ -423,6 +452,8 @@ The reference requires valid endpoint graphs. If the incoming delta does not app
 - File: `crates/panproto-lens/src/edit_pipeline.rs`
 - File: `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
 - File: `crates/panproto-lens/tests/reference_edit_translation.rs`
+- Property differential test: `randomized_whole_state_edit_translation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=randomized_whole_state_edit_translation_differential)'`
+- Randomized evidence scope: `randomized_whole_state_edit_translation_differential`: Static projection with hidden arcs before visible arcs and a durable view embedding retaining source edge ids and floors; a root, one visible leaf at an id from 1 through 9,999 and 1–6 hidden leaves; generated get/put direction, identity or deletion in both directions, and equal-payload replacement for get. Production raw/canonical get and raw put are compared with independent whole-state projection/restore edit oracles, deltas and residue; fresh tree arc ids use the existing ordered-renaming comparison. Current candidate execution is pending.
 
 ### Mutation equivalences
 
@@ -435,4 +466,4 @@ None recorded. Mutation closure is pending.
 - Date: 2026-10-26
 - Commit: 0000000
 - Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
+- Defects: Independent audit closure and current candidate runtime evidence are pending.
