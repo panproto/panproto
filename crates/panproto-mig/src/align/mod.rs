@@ -441,7 +441,7 @@ mod required_tiebreak_tests {
             }],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -655,7 +655,7 @@ mod constraint_compat_tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into()],
             constraint_sorts: vec!["format".into(), "knownValues".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -799,9 +799,9 @@ mod tests {
 
     /// The inversion the bands remove.
     ///
-    /// Confidence used to be the primary key, so a `TokenSimilarity` anchor at
-    /// 0.8 took the slot from an `Exact` anchor at 0.4 and the documented
-    /// priority ordering was consulted only on bit-exact ties. Under the bands
+    /// With confidence as the primary key, a `TokenSimilarity` anchor at 0.8
+    /// would take the slot from an `Exact` anchor at 0.4 and the documented
+    /// priority ordering would be consulted only on bit-exact ties. Under the bands
     /// the ordering is literally true: `Exact` owns `[0.8571, 0.9286]` and
     /// `TokenSimilarity` owns `[0.4286, 0.5000]`, so no confidence can cross
     /// between them.
@@ -850,13 +850,12 @@ mod tests {
         );
     }
 
-    /// Many-to-one is no longer a selector mode.
+    /// Many-to-one is not a selector mode.
     ///
-    /// The old resolver took a `monic` flag and, when it was false, let several
-    /// sources share a target. Sharing a target is a property of the *morphism*
-    /// the search returns, decided by `SearchOptions::monic` against the whole
-    /// objective, so no cardinality here reproduces it: the strictly weaker
-    /// claim on a contested target loses under every mode.
+    /// Sharing a target is a property of the *morphism* the search returns,
+    /// decided by `SearchOptions::monic` against the whole objective, so no
+    /// cardinality here lets several sources share a target: the strictly
+    /// weaker claim on a contested target loses under every mode.
     #[test]
     fn select_never_reproduces_the_old_many_to_one_fan_out() {
         let anchors = vec![

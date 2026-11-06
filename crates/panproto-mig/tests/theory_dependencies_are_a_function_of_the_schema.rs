@@ -3,9 +3,9 @@
 //! `dependencies_from_theory` turns each equation into a row-existence
 //! dependency between the vertex tables of the two sides' sorts. Choosing
 //! which vertex stands for a sort is a real choice whenever a schema holds
-//! several vertices of one kind, and it used to be made by taking the first
-//! match out of the vertex table — that is, by the process's hash seed. The
-//! dependency list then differs run to run, and so does everything the chase
+//! several vertices of one kind. Made by taking the first match out of the
+//! vertex table, it would be decided by the process's hash seed: the
+//! dependency list would differ run to run, and so would everything the chase
 //! derives from it.
 //!
 //! Run the child directly with `PP_CHASE_DEPS_DUMP=1` to see one process's
@@ -66,6 +66,7 @@ fn schema_with_repeated_kinds() -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 

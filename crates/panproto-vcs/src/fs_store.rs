@@ -281,10 +281,10 @@ impl Store for FsStore {
             }
             let rest = entry.file_name().to_string_lossy().to_string();
             let hex = format!("{fan}{rest}");
-            if hex.starts_with(prefix) {
-                if let Ok(id) = hex.parse::<ObjectId>() {
-                    matches.push(id);
-                }
+            if hex.starts_with(prefix)
+                && let Ok(id) = hex.parse::<ObjectId>()
+            {
+                matches.push(id);
             }
         }
         matches.sort_unstable();
@@ -492,6 +492,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

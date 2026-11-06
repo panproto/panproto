@@ -45,9 +45,11 @@ struct TheoryFixtureTests {
     func colimitTheoryReplays() throws {
         let theory = try replayed(Theory.self, from: "theory-graph-labelled-colimit")
         #expect(theory.name == "ThGraph_ThLabelled_colimit")
-        #expect(theory.sorts.map(\.name) == ["Vertex", "Edge", "Label"])
-        #expect(theory.ops.map(\.name) == ["src", "tgt", "label"])
-        #expect(theory.ops.last?.output == .name("Label"))
+        // The colimit lists its symbols by name, whatever the order of its
+        // inputs.
+        #expect(theory.sorts.map(\.name) == ["Edge", "Label", "Vertex"])
+        #expect(theory.ops.map(\.name) == ["label", "src", "tgt"])
+        #expect(theory.ops.first?.output == .name("Label"))
     }
 
     @Test("a theory decoded from the engine survives a hop through a morphism payload")

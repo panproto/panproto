@@ -778,25 +778,24 @@ mod tests {
         // only), and FloatToInt recovers -2^63. `GetPut` holds.
         //
         // i64::MAX == 2^63 - 1 is NOT exactly representable in f64;
-        // IntToFloat rounds up to 2^63. Rust's `as i64` saturates on
-        // out-of-range floats, so FloatToInt clamps back to i64::MAX,
-        // and `GetPut` appears to hold — via saturation masking the
-        // precision loss. That saturation is a panproto-expr choice in
-        // the FloatToInt builtin, not a panproto-mig concern; this test
-        // pins the observed behaviour so a later switch to non-
-        // saturating / panicking cast semantics must update it.
+        // IntToFloat rounds up to 2^63, which no i64 holds, so
+        // FloatToInt refuses it (it truncates exactly and never
+        // saturates) and the inverse evaluation fails: the precision
+        // loss surfaces as an error instead of a spurious round trip.
         //
         // i64::MIN + 1 == -(2^63 - 1) is the negative analogue: not
         // exactly representable, IntToFloat rounds down to -2^63,
-        // FloatToInt returns i64::MIN (saturation is a no-op here since
-        // -2^63 is in range), which is NOT equal to i64::MIN + 1. That
-        // asymmetry (MIN+1 violates GetPut while MAX spuriously passes)
-        // is pinned below.
+        // FloatToInt returns i64::MIN exactly (-2^63 is in range), which
+        // is NOT equal to i64::MIN + 1, a `GetPut` violation pinned below.
         let w = int_to_float_witness();
         witness_satisfies_lens_laws(&w, &[Literal::Int(i64::MIN)], &[])
             .expect("i64::MIN is an exact power of two and must round-trip");
-        witness_satisfies_lens_laws(&w, &[Literal::Int(i64::MAX)], &[]).expect(
-            "i64::MAX round-trips under saturating FloatToInt even though IntToFloat rounds up",
+        let err = witness_satisfies_lens_laws(&w, &[Literal::Int(i64::MAX)], &[]).expect_err(
+            "i64::MAX must not round-trip: IntToFloat rounds it to 2^63, which FloatToInt refuses",
+        );
+        assert!(
+            err.contains("not representable as integer"),
+            "the refusal of 2^63 surfaces as the inverse's error: {err}"
         );
         let err = witness_satisfies_lens_laws(&w, &[Literal::Int(i64::MIN + 1)], &[]).expect_err(
             "i64::MIN + 1 must not round-trip: IntToFloat rounds to -2^63, \

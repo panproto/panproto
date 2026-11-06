@@ -13,6 +13,10 @@ name: Corpus Gate
 #     pair in sixteen separate processes and compares the whole span, so a
 #     result that varied with the hash seed would show up as a second digest.
 #     ~7 minutes unoptimised.
+#
+# The `exhaustive-reference` job runs the exhaustive reference agreements that
+# exceed the ordinary per-test bound even in the optimised `ci-test` build (see
+# `.config/nextest.toml`). Dispatch this workflow before tagging a release.
 on:
   schedule:
     - cron: "0 6 * * *"
@@ -56,3 +60,107 @@ jobs:
         run: |
           cargo nextest run -p panproto-mig \
             -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'
+
+  exhaustive-reference:
+    name: Exhaustive reference agreement (${{ matrix.test }}${{ matrix.shard && format(' shard {0}', matrix.shard) || '' }})
+    runs-on: ubuntu-latest
+    # Each agreement runs in a job of its own, so each has the whole runner and
+    # its own six hours, and one failure does not cancel the others. The
+    # bounded lens law sweep needs about twenty hours of a four-core runner, so
+    # it runs as twelve shards: an entry's `shard` value `i/n` becomes
+    # `PANPROTO_TEST_SHARD`, and the job compares the cases whose position in
+    # the full enumeration is `i` modulo `n`. Every shard still enumerates and
+    # counts the whole scope, and the twelve together compare every case.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: panproto-gat
+            binary: reference_theories
+            test: composition_agrees_with_the_reference_on_every_discrete_pair
+          - package: panproto-inst
+            binary: reference_coercion
+            test: nearest_reading_coercion_agrees_with_the_reference
+          - package: panproto-inst
+            binary: reference_coercion
+            test: coerce_value_agrees_with_the_reference_over_the_values_scope
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 0/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 1/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 2/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 3/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 4/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 5/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 6/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 7/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 8/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 9/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 10/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_laws_agree_with_the_reference_exhaustively
+            shard: 11/12
+          - package: panproto-lens
+            binary: reference_lenses
+            test: lens_path_law_certificate
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: exhaustive-reference-${{ matrix.package }}
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
+      # The default nextest profile has no per-test bound, and the `ci-test`
+      # cargo profile keeps debug assertions and overflow checks live.
+      - name: Run the exhaustive reference agreement
+        env:
+          PACKAGE: ${{ matrix.package }}
+          BINARY: ${{ matrix.binary }}
+          TEST: ${{ matrix.test }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -n "$SHARD" ]; then
+            export PANPROTO_TEST_SHARD="$SHARD"
+          fi
+          cargo nextest run --locked --cargo-profile ci-test --no-tests=fail \
+            -p "$PACKAGE" --test "$BINARY" -E "test(=$TEST)"

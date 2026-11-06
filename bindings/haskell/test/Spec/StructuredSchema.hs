@@ -11,17 +11,31 @@
 -- preserved across the boundary.
 module Spec.StructuredSchema (tests) where
 
+import Codec.CBOR.Encoding qualified as Enc
+import Codec.CBOR.Read qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit ((@?=), assertFailure, testCase)
 
+import Panproto.Check
+    ( KeyChange (..)
+    , ReferenceChange (..)
+    , SchemaDiff (..)
+    , TargetSetChange (..)
+    , decodeSchemaDiff
+    , emptySchemaDiff
+    , encodeSchemaDiff
+    )
 import Panproto.Schema
     ( Constraint (..)
     , Edge (..)
     , HyperEdge (..)
     , RecursionPoint (..)
     , Schema (..)
+    , SchemaDeclarations (..)
     , Span (..)
     , Variant (..)
     , Vertex (..)
@@ -38,6 +52,7 @@ import Panproto.Schema
     , vertex
     , vertexCount
     )
+import Panproto.Wire (WireTerm, decodeWireTerm)
 
 tests :: TestTree
 tests =
@@ -49,6 +64,7 @@ tests =
         , testCase "builder accessors" builderAccessors
         , testCase "derived adjacency" derivedAdjacency
         , testCase "field text accessor" fieldTextAccessor
+        , testCase "schema diff preserves entry and declaration changes" declarationDiffRoundTrip
         ]
 
 sampleSchema :: Schema
@@ -87,6 +103,12 @@ fullSchema =
         , mergers = HM.fromList [("post", object ["mode" .= String "strict"])]
         , defaults = HM.fromList [("text", String ""), ("createdAt", Null)]
         , policies = HM.fromList [("post", toJSON ([String "a", Bool True, Number 2] :: [Value]))]
+        , declarations =
+            SchemaDeclarations
+                { keys = HM.fromList [("post", [wire (Enc.encodeMapLen 1 <> Enc.encodeString "id" <> Enc.encodeString "primary")])]
+                , references = HM.fromList [("author", wire (Enc.encodeMapLen 1 <> Enc.encodeString "id" <> Enc.encodeString "author"))]
+                , targetSets = HM.fromList [("entity", wire (Enc.encodeMapLen 1 <> Enc.encodeString "members" <> Enc.encodeListLen 0))]
+                }
         }
   where
     base = buildSchema "atproto" $ do
@@ -98,6 +120,13 @@ fullSchema =
         constraint "text" Constraint {sort = "maxLength", value = "3000"}
     postText = Edge {src = "post", tgt = "text", kind = "prop", name = Just "text"}
     postCreated = Edge {src = "post", tgt = "createdAt", kind = "prop", name = Just "createdAt"}
+
+wire :: Enc.Encoding -> WireTerm
+wire encoding =
+    case CBOR.deserialiseFromBytes decodeWireTerm (CBOR.toLazyByteString encoding) of
+        Right (rest, term) | LBS.null rest -> term
+        Right _ -> error "wire fixture left trailing bytes"
+        Left err -> error (show err)
 
 roundTrip :: Schema -> IO ()
 roundTrip s =
@@ -123,4 +152,24 @@ fieldTextAccessor :: IO ()
 fieldTextAccessor = do
     fieldText sampleSchema "post" "op" @?= Just "+"
     fieldText sampleSchema "post" "missing" @?= Nothing
+
+declarationDiffRoundTrip :: IO ()
+declarationDiffRoundTrip = do
+    let oldDecl = wire (Enc.encodeMapLen 1 <> Enc.encodeString "id" <> Enc.encodeString "old")
+        newDecl = wire (Enc.encodeMapLen 1 <> Enc.encodeString "id" <> Enc.encodeString "new")
+        diff =
+            emptySchemaDiff
+                { entryChange = Just (["old-root"], ["new-root"])
+                , addedKeys = [("post", newDecl)]
+                , removedKeys = [("post", oldDecl)]
+                , modifiedKeys = [KeyChange "post" oldDecl newDecl]
+                , addedReferences = [newDecl]
+                , removedReferences = [oldDecl]
+                , modifiedReferences = [ReferenceChange "ref" oldDecl newDecl]
+                , addedTargetSets = [("targets", newDecl)]
+                , removedTargetSets = [("targets", oldDecl)]
+                , modifiedTargetSets = [TargetSetChange "targets" oldDecl newDecl]
+                , renamedVertices = [("old", "new")]
+                }
+    decodeSchemaDiff (encodeSchemaDiff diff) @?= Right diff
     length (constraintsFor sampleSchema "text") @?= 1

@@ -1,13 +1,13 @@
 //! Regression: `emit_pretty` does not insert whitespace inside a
 //! `signed_number` (or any other tight unary-prefix) production.
 //!
-//! Pre-fix, `f(-1.0)` rendered as `f(- 1.0)` because the layout pass
-//! treated `-` and `1.0` as adjacent operator-run-then-operand tokens
-//! and inserted the default separator between them. The result parsed
+//! A layout pass that treats `-` and `1.0` as adjacent
+//! operator-run-then-operand tokens inserts the default separator
+//! between them and renders `f(-1.0)` as `f(- 1.0)`. The result parses
 //! as a different AST: unary-minus applied to a positive literal,
 //! rather than a single negative literal.
 //!
-//! The fix tracks an `expecting_operand` flag through the layout pass.
+//! The layout pass therefore tracks an `expecting_operand` flag through the layout pass.
 //! When the previous token was emitted while the cursor expected an
 //! operand (start of stream / line, after `(` / `[` / `{` / `,` / `;`,
 //! or after another binary or assignment operator), and that previous
@@ -43,6 +43,6 @@ fn emit_pretty_keeps_signed_number_tight_inside_call() {
     );
     assert!(
         !text.contains("- 1.0"),
-        "whitespace inserted between '-' and '1.0' (pre-fix bug): {text:?}"
+        "whitespace inserted between '-' and '1.0' (unary-prefix regression): {text:?}"
     );
 }

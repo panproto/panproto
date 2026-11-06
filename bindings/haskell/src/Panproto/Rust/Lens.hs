@@ -124,6 +124,8 @@ import Panproto.Rust.FFI
     , pp_lens_compile_document_at
     , pp_lens_compose
     , pp_lens_get_record_at
+    , pp_lens_align_view_at
+    , pp_lens_put_json_at
     , pp_lens_put_record_at
     , pp_lens_symmetric_from_schemas
     , pp_lens_symmetric_sync_at
@@ -220,6 +222,26 @@ instance LensBackend Rust where
         case decodeInstance bs of
             Right i -> ingestInstance proxyRust i
             Left err -> throwIO $ hostDecodeError "pp_lens_put_record" err
+
+    lensPutJson (RustLensRep (RustLens h)) viewJson complement = do
+        bs <-
+            withSliceIn (utf8 viewJson) $ \viewPtr viewLen ->
+                withSliceIn (encodeComplement complement) $ \compPtr compLen ->
+                    callVecOut (pp_lens_put_json_at h viewPtr viewLen compPtr compLen)
+        -- The buffer is the restored record as raw JSON text, not CBOR.
+        case TE.decodeUtf8' (LBS.toStrict bs) of
+            Right t -> pure t
+            Left err -> throwIO $ hostDecodeError "pp_lens_put_json" (show err)
+
+    lensAlignView (RustLensRep (RustLens h)) viewRep complement = do
+        view <- reifyInstance viewRep
+        bs <-
+            withSliceIn (encodeInstance view) $ \viewPtr viewLen ->
+                withSliceIn (encodeComplement complement) $ \compPtr compLen ->
+                    callVecOut (pp_lens_align_view_at h viewPtr viewLen compPtr compLen)
+        case decodeInstance bs of
+            Right i -> ingestInstance proxyRust i
+            Left err -> throwIO $ hostDecodeError "pp_lens_align_view" err
 
     checkLaws lensRep instRep =
         runLawCheck "pp_lens_check_laws" pp_lens_check_laws_at lensRep instRep
@@ -359,7 +381,9 @@ stringencyBytes = utf8 . tierText
         Exploratory -> "exploratory"
 
 -- | Free a slab handle, turning a non-@Ok@ status into a 'PanprotoError'.
--- Idempotent at the slab level (double free is a no-op on the Rust side).
+-- This is a one-shot ownership action. A repeated call is harmless only
+-- while the slot remains free; after slot reuse, the stale numeric handle
+-- aliases and frees the new resource.
 freeHandle :: Word32 -> IO ()
 freeHandle h = do
     status <- pp_handle_free h

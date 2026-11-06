@@ -1,0 +1,687 @@
+{
+  "diagram": {
+    "nodes": [
+      {
+        "label": "ThGraph",
+        "theory": {
+          "name": "ThGraph",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThConstraint",
+        "theory": {
+          "name": "ThConstraint",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Constraint",
+              "params": [
+                {
+                  "name": "v",
+                  "sort": "Vertex"
+                }
+              ],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "target",
+              "inputs": [
+                [
+                  "c",
+                  "Constraint",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThMulti",
+        "theory": {
+          "name": "ThMulti",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "EdgeLabel",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "edge_label",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "EdgeLabel"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThVertex",
+        "theory": {
+          "name": "ThVertex",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThVertexEdge",
+        "theory": {
+          "name": "ThVertexEdge",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "src": "ThVertex",
+        "tgt": "ThGraph",
+        "morphism": {
+          "name": "ThVertex_to_ThGraph",
+          "domain": "ThVertex",
+          "codomain": "ThGraph",
+          "sort_map": {
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      },
+      {
+        "src": "ThVertex",
+        "tgt": "ThConstraint",
+        "morphism": {
+          "name": "ThVertex_to_ThConstraint",
+          "domain": "ThVertex",
+          "codomain": "ThConstraint",
+          "sort_map": {
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      },
+      {
+        "src": "ThVertexEdge",
+        "tgt": "ThGraph",
+        "morphism": {
+          "name": "ThVertexEdge_to_ThGraph",
+          "domain": "ThVertexEdge",
+          "codomain": "ThGraph",
+          "sort_map": {
+            "Edge": "Edge",
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      },
+      {
+        "src": "ThVertexEdge",
+        "tgt": "ThMulti",
+        "morphism": {
+          "name": "ThVertexEdge_to_ThMulti",
+          "domain": "ThVertexEdge",
+          "codomain": "ThMulti",
+          "sort_map": {
+            "Edge": "Edge",
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      }
+    ]
+  },
+  "options": {
+    "mode": "explicit_identity",
+    "result_name": "tree_schema_constrained_multigraph",
+    "clash": "reject",
+    "rewrite_budget": 512
+  },
+  "composition": {
+    "theory": {
+      "name": "tree_schema_constrained_multigraph",
+      "extends": [],
+      "sorts": [
+        {
+          "name": "Constraint",
+          "params": [
+            {
+              "name": "v",
+              "sort": "Vertex"
+            }
+          ],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Edge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "EdgeLabel",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Vertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        }
+      ],
+      "ops": [
+        {
+          "name": "edge_label",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "EdgeLabel"
+        },
+        {
+          "name": "src",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "target",
+          "inputs": [
+            [
+              "c",
+              "Constraint",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "tgt",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        }
+      ],
+      "eqs": [],
+      "directed_eqs": [],
+      "policies": []
+    },
+    "inclusions": [
+      {
+        "name": "incl_ThGraph_tree_schema_constrained_multigraph",
+        "domain": "ThGraph",
+        "codomain": "tree_schema_constrained_multigraph",
+        "sort_map": {
+          "Edge": "Edge",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "src": "src",
+          "tgt": "tgt"
+        }
+      },
+      {
+        "name": "incl_ThConstraint_tree_schema_constrained_multigraph",
+        "domain": "ThConstraint",
+        "codomain": "tree_schema_constrained_multigraph",
+        "sort_map": {
+          "Constraint": "Constraint",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "target": "target"
+        }
+      },
+      {
+        "name": "incl_ThMulti_tree_schema_constrained_multigraph",
+        "domain": "ThMulti",
+        "codomain": "tree_schema_constrained_multigraph",
+        "sort_map": {
+          "Edge": "Edge",
+          "EdgeLabel": "EdgeLabel",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "edge_label": "edge_label"
+        }
+      },
+      {
+        "name": "incl_ThVertex_tree_schema_constrained_multigraph",
+        "domain": "ThVertex",
+        "codomain": "tree_schema_constrained_multigraph",
+        "sort_map": {
+          "Vertex": "Vertex"
+        },
+        "op_map": {}
+      },
+      {
+        "name": "incl_ThVertexEdge_tree_schema_constrained_multigraph",
+        "domain": "ThVertexEdge",
+        "codomain": "tree_schema_constrained_multigraph",
+        "sort_map": {
+          "Edge": "Edge",
+          "Vertex": "Vertex"
+        },
+        "op_map": {}
+      }
+    ],
+    "provenance": {
+      "sorts": [
+        [
+          {
+            "node": "ThConstraint",
+            "name": "Constraint"
+          },
+          "Constraint"
+        ],
+        [
+          {
+            "node": "ThConstraint",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThGraph",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "ThGraph",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThMulti",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "ThMulti",
+            "name": "EdgeLabel"
+          },
+          "EdgeLabel"
+        ],
+        [
+          {
+            "node": "ThMulti",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThVertex",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThVertexEdge",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "ThVertexEdge",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ]
+      ],
+      "ops": [
+        [
+          {
+            "node": "ThConstraint",
+            "name": "target"
+          },
+          "target"
+        ],
+        [
+          {
+            "node": "ThGraph",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "ThGraph",
+            "name": "tgt"
+          },
+          "tgt"
+        ],
+        [
+          {
+            "node": "ThMulti",
+            "name": "edge_label"
+          },
+          "edge_label"
+        ]
+      ],
+      "eqs": [],
+      "directed_eqs": [],
+      "policies": [],
+      "added_eqs": {}
+    },
+    "report": {
+      "mode": "explicit_identity",
+      "status": "passed",
+      "name_clash_free": true,
+      "checks": [
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 2
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 3
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThConstraint"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThGraph"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThMulti"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThVertex"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThVertexEdge"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "class_signatures_agree",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 2
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 3
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThConstraint"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThGraph"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThMulti"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThVertex"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThVertexEdge"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThConstraint"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThGraph"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThMulti"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThVertex"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThVertexEdge"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "universal_identity",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "result_well_typed",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "name_clash_free",
+          "subject": "diagram",
+          "outcome": "passed"
+        }
+      ],
+      "freshened": []
+    }
+  }
+}

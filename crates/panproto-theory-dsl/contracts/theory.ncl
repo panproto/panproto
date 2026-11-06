@@ -86,11 +86,30 @@
     tgt_kind | String,
   },
 
+  # How a composition step identifies the symbols its shared lists do not
+  # name: "amalgamate" (the default) identifies every other same-name
+  # symbol, "explicit_identity" refuses one as a name clash.
+  CompositionModeSpec = std.contract.from_predicate (fun m =>
+    m == "amalgamate" || m == "explicit_identity"
+  ),
+
+  IdentifyKindSpec = std.contract.from_predicate (fun k => k == "sort" || k == "op"),
+
+  # An explicit identification: the left theory's symbol `left` and the
+  # right theory's symbol `right` are one symbol of the result.
+  IdentifySpec = {
+    kind | IdentifyKindSpec,
+    left | String,
+    right | String,
+  },
+
   ColimitStepSpec = {
     left | String,
     right | String,
     shared_sorts | Array String,
     shared_ops | Array String | optional,
+    mode | CompositionModeSpec | optional,
+    identify | Array IdentifySpec | optional,
   },
 
   # ═══════════════════════════════════════════════════════════════════
@@ -255,6 +274,17 @@
     left = _left, right = _right,
     shared_sorts = _shared_sorts, shared_ops = _shared_ops,
   },
+
+  # A step in explicit-identity mode: only the shared lists and the
+  # identifications are identified.
+  explicit = fun _step => _step & { mode = "explicit_identity" },
+
+  # A step that also identifies the given differently named symbols.
+  identifying = fun _identify _step => _step & { identify = _identify },
+
+  identify_sort = fun _left _right => { kind = "sort", left = _left, right = _right },
+
+  identify_op = fun _left _right => { kind = "op", left = _left, right = _right },
 
   # ═══════════════════════════════════════════════════════════════════
   # Edge rule combinators

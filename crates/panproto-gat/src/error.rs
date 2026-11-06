@@ -566,6 +566,13 @@ pub enum GatError {
         rule: String,
     },
 
+    /// A theory's signature is ill formed; every defect found is listed.
+    #[error("ill-typed signature: {}", render_defects(defects))]
+    IllTypedSignature {
+        /// The defects, as [`crate::typecheck_signature`] reports them.
+        defects: Vec<crate::typecheck::SignatureDefect>,
+    },
+
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]
     QuotientIncompatible {
@@ -577,26 +584,9 @@ pub enum GatError {
         detail: String,
     },
 
-    /// A colimit inclusion leg induces a non-injective rename: two shared
-    /// elements are identified with the same element in one input theory
-    /// while their images in the other input theory differ. The pushout
-    /// rejects this rather than choosing one image, since the underlying
-    /// span is not the disjoint identification the construction assumes.
-    #[error(
-        "non-injective colimit leg on {kind} `{shared_image}`: it is the shared image of two elements mapped to the distinct targets `{first}` and `{second}`"
-    )]
-    NonInjectiveIdentification {
-        /// Whether this is a `sort` or an `op`.
-        kind: &'static str,
-        /// The element in the second theory that both shared elements
-        /// map onto.
-        shared_image: String,
-        /// One of the two conflicting first-theory targets, ordered
-        /// deterministically with `second` so the message is stable.
-        first: String,
-        /// The other conflicting first-theory target.
-        second: String,
-    },
+    /// A composition of theories was refused.
+    #[error("composition failed: {0}")]
+    Composition(Box<crate::compose::CompositionError>),
 
     /// Model equation checking enumerated more variable assignments for a
     /// single equation than the configured per-equation bound allows, so
@@ -614,4 +604,25 @@ pub enum GatError {
         /// The configured per-equation assignment bound.
         limit: usize,
     },
+
+    /// A diagram step of a composition recipe carries two inline theories
+    /// with one name, so a node of that name has no single theory to
+    /// resolve to. Replay refuses the step before resolving any node.
+    #[error("recipe step {step} carries two inline theories named `{name}`")]
+    DuplicateInlineTheory {
+        /// The step's index in the recipe.
+        step: usize,
+        /// The repeated name: that of the first inline theory, in order,
+        /// whose name an earlier inline theory of the step carries.
+        name: String,
+    },
+}
+
+/// Render a list of signature defects for an error message.
+fn render_defects(defects: &[crate::typecheck::SignatureDefect]) -> String {
+    defects
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
 }

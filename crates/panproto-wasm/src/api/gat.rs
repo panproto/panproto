@@ -13,7 +13,7 @@ use crate::slab::{self, Resource};
 use super::helpers::MorphismCheckResult;
 
 // ---------------------------------------------------------------------------
-// Phase 5: GAT operations
+// GAT operations
 // ---------------------------------------------------------------------------
 
 /// Create a theory from a `MessagePack` spec. Returns handle.

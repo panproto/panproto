@@ -1,7 +1,7 @@
 //! Integration test for the edge-label anchoring strategy.
 //!
 //! Uses the same two vendored lexicons as
-//! `issue_48_cross_nsid_suffix_anchors.rs` to verify that edge-label
+//! `cross_namespace_prop_alignment.rs` to verify that edge-label
 //! anchoring seeds shared labeled-edge targets at Balanced stringency.
 //! Suffix and edge-label are complementary: suffix keys on vertex-id
 //! tails, edge-label keys on (edge name, edge kind). Together they

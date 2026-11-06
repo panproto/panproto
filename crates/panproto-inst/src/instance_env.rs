@@ -1,7 +1,7 @@
 //! Instance-aware expression evaluation.
 //!
-//! The graph traversal builtins (`edge`, `children`, `has_edge`, `edge_count`,
-//! `anchor`) read an instance, which `panproto_expr::eval` does not hold. This
+//! The graph traversal builtins (`edge`, `edges`, `children`, `has_edge`,
+//! `edge_count`, `anchor`) read an instance, which `panproto_expr::eval` does not hold. This
 //! module supplies it as a [`panproto_expr::BuiltinResolver`], so those
 //! builtins answer wherever they appear in an expression rather than only at
 //! its root:
@@ -24,6 +24,7 @@ const fn is_graph_builtin(op: BuiltinOp) -> bool {
     matches!(
         op,
         BuiltinOp::Edge
+            | BuiltinOp::Edges
             | BuiltinOp::Children
             | BuiltinOp::HasEdge
             | BuiltinOp::EdgeCount
@@ -85,8 +86,8 @@ impl<T: ElementOps> BuiltinResolver for ElementOpsResolver<'_, T> {
 
 /// Evaluate an expression with access to an instance graph.
 ///
-/// Graph traversal builtins (`edge`, `children`, `has_edge`, `edge_count`,
-/// `anchor`) are resolved against the provided instance at every depth; all
+/// Graph traversal builtins (`edge`, `edges`, `children`, `has_edge`,
+/// `edge_count`, `anchor`) are resolved against the provided instance at every depth; all
 /// other expressions evaluate exactly as `panproto_expr::eval` evaluates them.
 ///
 /// The `context_node_id` determines which node is the "current" node
@@ -153,6 +154,24 @@ fn apply_graph_builtin(
                 }
             }
             Ok(Literal::Null)
+        }
+        BuiltinOp::Edges => {
+            // edges(node_ref, edge_kind) yields every child across a matching
+            // arc, in arc order
+            let node_id = resolve_node_ref(&args[0], context_node_id)?;
+            let edge_kind = args[1].as_str().ok_or_else(|| ExprError::TypeError {
+                expected: "string".into(),
+                got: args[1].type_name().into(),
+            })?;
+            let edge_name = Name::from(edge_kind);
+            Ok(Literal::List(
+                instance
+                    .arcs
+                    .iter()
+                    .filter(|(src, _, edge)| *src == node_id && edge.kind == edge_name)
+                    .map(|&(_, tgt, _)| node_to_literal(instance, tgt))
+                    .collect(),
+            ))
         }
         BuiltinOp::Children => {
             // children(node_ref) yields every child value
@@ -227,7 +246,8 @@ fn resolve_node_ref(lit: &Literal, context_node_id: Option<u32>) -> Result<u32, 
 
 /// Convert a node's data to a Literal for expression evaluation.
 ///
-/// Produces a Record with the node's `extra_fields`, anchor, and id.
+/// Produces a Record with the node's id, anchor, and `extra_fields` in
+/// ascending key order.
 fn node_to_literal(instance: &WInstance, node_id: u32) -> Literal {
     let Some(node) = instance.nodes.get(&node_id) else {
         return Literal::Null;
@@ -238,15 +258,16 @@ fn node_to_literal(instance: &WInstance, node_id: u32) -> Literal {
         Arc::from("_anchor"),
         Literal::Str(node.anchor.as_ref().into()),
     ));
-    for (key, val) in &node.extra_fields {
-        fields.push((Arc::from(key.as_str()), value_to_literal(val)));
+    let mut extra: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
+    extra.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    // A field whose value has no expression literal is left out rather than
+    // given an invented one.
+    for (key, val) in extra {
+        if let Ok(lit) = crate::wtype::value_to_expr_literal(val) {
+            fields.push((Arc::from(key.as_str()), lit));
+        }
     }
     Literal::Record(fields)
-}
-
-/// Convert an instance Value to a Literal.
-fn value_to_literal(val: &Value) -> Literal {
-    crate::wtype::value_to_expr_literal(val)
 }
 
 #[cfg(test)]

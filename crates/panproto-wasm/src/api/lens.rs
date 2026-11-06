@@ -16,7 +16,7 @@ use crate::slab::{self, Resource};
 
 use super::helpers::{
     FactorizationStepInfo, LawCheckResult, ProtolensStepInfo, ProtolensStepSpec,
-    build_chain_from_step_spec, default_protocol, extract_migration_owned, lookup_builtin_protocol,
+    build_chain_from_step_spec, extract_migration_owned,
 };
 
 /// Map a JS-side stringency string into the engine [`Stringency`].
@@ -62,8 +62,22 @@ fn compiled_lens_doc_resource(
     }))
 }
 
+/// Allocate a directional compiled-document resource after ruling out the
+/// symmetric body shape, whose two legs cannot be represented by this handle.
+fn alloc_directional_compiled_lens(
+    compiled: panproto_core::lens_dsl::CompiledLens,
+) -> Result<u32, WasmError> {
+    if compiled.symmetric.is_some() {
+        return Err(WasmError::LensConstructionFailed {
+            reason: "symmetric lens documents are not accepted by the directional lens-document compile boundary (compile_lens_document or compile_lens_document_with_refs); use symmetric_lens_from_schemas and symmetric_lens_sync"
+                .to_owned(),
+        });
+    }
+    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+}
+
 // ---------------------------------------------------------------------------
-// Phase 3: Lens & migration enhancements
+// Lens & migration enhancements
 // ---------------------------------------------------------------------------
 
 /// Auto-generate up to `top_n` ranked candidate lenses with per-step
@@ -90,8 +104,7 @@ pub fn auto_generate_candidates(
 ) -> Result<Vec<u8>, JsError> {
     let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let mut config = lens::AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency.as_deref())? {
@@ -190,8 +203,7 @@ pub fn auto_generate_protolens(
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
 
     // Extract protocol from schema name and look it up
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let mut config = lens::AutoLensConfig::default();
     if let Some(s) = parse_stringency(stringency.as_deref())? {
@@ -265,8 +277,7 @@ pub fn auto_generate_span(
 
     let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+    let protocol = super::helpers::protocol_of(&src);
 
     let opts = mig::hom_search::SearchOptions {
         hard_pins: hints
@@ -320,10 +331,12 @@ pub fn auto_generate_span(
     })
 }
 
-/// Check both `GetPut` and `PutGet` lens laws on a test instance.
+/// Run the five strict lens gates on a test instance.
 ///
 /// The `instance` bytes are `MessagePack`-encoded `WInstance`.
 /// Returns `MessagePack`-encoded result: `{ "holds": bool, "violation": string | null }`.
+/// The gates run in order: `GetPut`, `PutGet`, totality over the finite
+/// single-step basis, `PutTwice`, and congruence.
 ///
 /// # Errors
 ///
@@ -504,9 +517,11 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
         ))
     })?;
 
-    let composed = lens::compose(&lens1, &lens2).map_err(|e| WasmError::ComposeFailed {
-        reason: e.to_string(),
-    })?;
+    let composed = lens::compose(&lens1, &lens2)
+        .and_then(lens::LensPath::into_single)
+        .map_err(|e| WasmError::ComposeFailed {
+            reason: e.to_string(),
+        })?;
 
     Ok(slab::alloc(Resource::MigrationWithSchemas {
         compiled: composed.compiled,
@@ -516,16 +531,18 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 9: Protolens operations
+// Protolens operations
 // ---------------------------------------------------------------------------
 
 /// Instantiate a protolens chain at a specific schema.
 ///
-/// When `chain` is a handle from [`compile_lens_document`] (a
-/// `CompiledLensDoc`), its ordered stages are instantiated at their running
-/// schemas. A subsequent [`get_record`](crate::get_record) thus applies each
-/// value transform in the field-name frame established by the preceding
-/// structural steps. A plain `ProtolensChain` instantiates unchanged.
+/// When `chain` is a handle from [`compile_lens_document`] (a directional
+/// `CompiledLensDoc`), this uses the accepted document's authoritative ordered
+/// stages, instantiates each stage at its running schema, and normalizes the
+/// resulting lens path. This single-lens API accepts the result only when
+/// normalization produces one group; callers that need multiple ordered
+/// groups must retain the compiled document until a path-aware API is used.
+/// A plain `ProtolensChain` instantiates unchanged.
 ///
 /// Returns a handle to the resulting compiled lens (stored as
 /// `MigrationWithSchemas`).
@@ -535,17 +552,22 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 /// Returns `JsError` if handles are invalid or instantiation fails.
 #[wasm_bindgen]
 pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
-    let (chain_val, compiled_doc) = slab::with_resource(chain, |r| match r {
+    instantiate_protolens_engine(chain, schema).map_err(Into::into)
+}
+
+fn instantiate_protolens_engine(chain: u32, schema: u32) -> Result<u32, WasmError> {
+    let (chain_val, compiled_doc) = slab::try_get(chain, |r| match r {
         Resource::CompiledLensDoc(compiled) => Ok((None, Some((**compiled).clone()))),
         _ => Ok((Some(slab::as_protolens_chain(r)?.clone()), None)),
     })?;
-    let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let schema_val = slab::try_get(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
 
-    let protocol = lookup_builtin_protocol(&schema_val.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+    let protocol = super::helpers::protocol_of(&schema_val);
 
     let lens_obj = if let Some(compiled) = compiled_doc {
-        compiled.instantiate(&schema_val, &protocol)
+        compiled
+            .instantiate(&schema_val, &protocol)
+            .and_then(lens::LensPath::into_single)
     } else {
         chain_val
             .ok_or_else(|| WasmError::LensConstructionFailed {
@@ -566,6 +588,10 @@ pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
 
 /// Get the complement spec for a protolens chain at a schema.
 ///
+/// A `CompiledLensDoc` is accepted through its structural compatibility
+/// chain. Value-level transforms and their position among structural stages
+/// do not contribute to this result.
+///
 /// Returns `MessagePack`-encoded [`ComplementSpec`](panproto_core::lens::ComplementSpec).
 ///
 /// # Errors
@@ -579,8 +605,7 @@ pub fn protolens_complement_spec(chain: u32, schema: u32) -> Result<Vec<u8>, JsE
         Ok((chain_val, schema_val))
     })?;
 
-    let protocol = lookup_builtin_protocol(&schema_val.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+    let protocol = super::helpers::protocol_of(&schema_val);
 
     let result = lens::chain_complement_spec(&chain_val, &schema_val, &protocol);
 
@@ -623,13 +648,15 @@ pub fn protolens_from_diff(diff_bytes: &[u8], schema1: u32, schema2: u32) -> Res
     Ok(slab::alloc(Resource::ProtolensChain(Box::new(chain))))
 }
 
-/// Compose two protolens chains.
+/// Compose two chain-shaped lens resources.
 ///
-/// Any value-level field transforms carried by either operand are
-/// carried into the result, `chain1`'s ahead of `chain2`'s at a shared
-/// vertex, matching the order the steps run in.
+/// The operands' structural compatibility chains are concatenated. Ordered
+/// stages and value-level field transforms are also preserved in the
+/// `CompiledLensDoc` result, with `chain1`'s stages before `chain2`'s and
+/// `chain1`'s transforms before `chain2`'s at a shared vertex. Original
+/// document metadata is not retained.
 ///
-/// Returns a handle to the composed lens.
+/// Returns a handle to the composed `CompiledLensDoc`.
 ///
 /// # Errors
 ///
@@ -677,7 +704,8 @@ pub fn protolens_compose(chain1: u32, chain2: u32) -> Result<u32, JsError> {
 /// A lens DSL document's `apply_expr` and `compute_field` steps compile to
 /// field transforms rather than structural chain steps, so they do not appear in
 /// [`protolens_chain_to_json`]. This export is how a caller confirms
-/// such a step survived compilation.
+/// such a step survived compilation. The map is an aggregate compatibility
+/// view and does not represent the transforms' order among structural stages.
 ///
 /// Returns `MessagePack`-encoded `HashMap<String, Vec<FieldTransform>>`.
 /// A plain `ProtolensChain` handle yields an empty map.
@@ -705,8 +733,14 @@ pub fn protolens_field_transforms(chain: u32) -> Result<Vec<u8>, JsError> {
 
 /// Serialize a protolens chain to JSON.
 ///
-/// Returns JSON bytes describing each step in the chain (name,
-/// source/target endofunctor names, complement type, lossless flag).
+/// A `CompiledLensDoc` is accepted through its structural compatibility
+/// chain. Its value-level transforms and ordered stage boundaries are omitted.
+/// Use [`protolens_field_transforms`] to inspect the aggregate transforms.
+///
+/// Returns JSON bytes describing each step's name, source and target
+/// endofunctor names, and lossless flag. This is a lossy inspection summary,
+/// not the serialized `ProtolensChain` shape accepted by
+/// [`protolens_from_json`].
 ///
 /// # Errors
 ///
@@ -802,8 +836,7 @@ pub fn symmetric_lens_from_schemas(schema1: u32, schema2: u32) -> Result<u32, Js
         Ok((s1.clone(), s2.clone()))
     })?;
 
-    let protocol =
-        lookup_builtin_protocol(&left.protocol).unwrap_or_else(|| default_protocol(&left.protocol));
+    let protocol = super::helpers::protocol_of(&left);
     let config = lens::AutoLensConfig::default();
 
     let sym =
@@ -840,10 +873,7 @@ pub fn symmetric_lens_sync(
             reason: format!("view: {e}"),
         })?;
 
-    let comp: lens::Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let (result_view, _result_complement) = slab::with_resource(sym_lens, |r| {
         let sym = slab::as_symmetric_lens(r)?;
@@ -898,8 +928,7 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
     };
 
     let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol = lookup_builtin_protocol(&schema_val.protocol)
-        .unwrap_or_else(|| default_protocol(&schema_val.protocol));
+    let protocol = super::helpers::protocol_of(&schema_val);
 
     let lens_obj = chain.instantiate(&schema_val, &protocol).map_err(|e| {
         WasmError::LensConstructionFailed {
@@ -915,7 +944,7 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
 }
 
 /// Compile a lens DSL document (JSON or YAML source) into a
-/// `ProtolensChain` resource.
+/// `CompiledLensDoc` resource.
 ///
 /// `source_bytes` is UTF-8 DSL source in the specified `format`:
 /// `"json"` or `"yaml"`. Nickel (`"ncl"`) is not supported in the WASM
@@ -926,19 +955,39 @@ pub fn apply_protolens_step(protolens_bytes: &[u8], schema: u32) -> Result<u32, 
 /// (e.g. `rename_field`, `add_field`) attach; typically the record's
 /// `:body` object, such as `"com.example.thing:body"`.
 ///
-/// Returns a handle to the compiled `ProtolensChain`.
+/// This directional boundary accepts one directed body and rejects the DSL's
+/// `symmetric` body. Use [`symmetric_lens_from_schemas`] and
+/// [`symmetric_lens_sync`] for the existing symmetric-lens boundary.
+///
+/// An accepted resource retains the directional document's authoritative
+/// ordered structural and value-level stages. It also supplies a structural
+/// `ProtolensChain` and an aggregate field-transform map as compatibility
+/// summaries for chain-shaped exports. [`instantiate_protolens`] observes all
+/// ordered stages of that accepted directional document; exports documented as
+/// compatibility-chain operations do not.
+///
+/// Returns a chain-compatible handle to the compiled lens document.
 ///
 /// # Errors
 ///
 /// Returns `JsError` if `format` is unknown, the source fails to parse,
-/// or compilation fails (e.g. references an unknown sort or has
-/// inconsistent step metadata).
+/// compilation fails (e.g. references an unknown sort or has inconsistent
+/// step metadata), or the document has a `symmetric` body.
 #[wasm_bindgen]
 pub fn compile_lens_document(
     source_bytes: &[u8],
     format: &str,
     body_vertex: &str,
 ) -> Result<u32, JsError> {
+    compile_lens_document_engine(source_bytes, format, body_vertex).map_err(Into::into)
+}
+
+/// Host-testable implementation of [`compile_lens_document`].
+fn compile_lens_document_engine(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+) -> Result<u32, WasmError> {
     let source =
         std::str::from_utf8(source_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("invalid UTF-8: {e}"),
@@ -950,8 +999,7 @@ pub fn compile_lens_document(
         other => {
             return Err(WasmError::DeserializationFailed {
                 reason: format!("unsupported lens DSL format '{other}'; expected 'json' or 'yaml'"),
-            }
-            .into());
+            });
         }
     }
     .map_err(|e| WasmError::DeserializationFailed {
@@ -964,7 +1012,7 @@ pub fn compile_lens_document(
         }
     })?;
 
-    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+    alloc_directional_compiled_lens(compiled)
 }
 
 /// Compile a lens DSL document, resolving `compose` named references
@@ -977,12 +1025,20 @@ pub fn compile_lens_document(
 /// `format`). A `compose` body's `ref` entries are resolved against this
 /// map, so named-reference composition works without a filesystem.
 ///
-/// Returns a handle to the compiled `ProtolensChain`.
+/// As with [`compile_lens_document`], this directional boundary rejects a
+/// `symmetric` body. A directed `compose` also rejects a referenced symmetric
+/// document rather than discarding one of its two legs. An accepted
+/// `CompiledLensDoc` retains the directional document's authoritative ordered
+/// structural and value-level stages while exposing a structural chain as a
+/// compatibility summary.
+///
+/// Returns a chain-compatible handle to the compiled lens document.
 ///
 /// # Errors
 ///
 /// Returns `JsError` if `format` is unknown, any source fails to parse,
-/// a reference is unresolved, or compilation fails.
+/// a reference is unresolved or symmetric, compilation fails, or the root
+/// document has a `symmetric` body.
 #[wasm_bindgen]
 pub fn compile_lens_document_with_refs(
     source_bytes: &[u8],
@@ -990,6 +1046,17 @@ pub fn compile_lens_document_with_refs(
     body_vertex: &str,
     refs_bytes: &[u8],
 ) -> Result<u32, JsError> {
+    compile_lens_document_with_refs_engine(source_bytes, format, body_vertex, refs_bytes)
+        .map_err(Into::into)
+}
+
+/// Host-testable implementation of [`compile_lens_document_with_refs`].
+fn compile_lens_document_with_refs_engine(
+    source_bytes: &[u8],
+    format: &str,
+    body_vertex: &str,
+    refs_bytes: &[u8],
+) -> Result<u32, WasmError> {
     let parse = |bytes: &[u8]| -> Result<panproto_core::lens_dsl::LensDocument, WasmError> {
         let text = std::str::from_utf8(bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("invalid UTF-8: {e}"),
@@ -1027,7 +1094,7 @@ pub fn compile_lens_document_with_refs(
             reason: e.to_string(),
         })?;
 
-    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
+    alloc_directional_compiled_lens(compiled)
 }
 
 /// Deserialize a protolens chain from JSON bytes.
@@ -1054,7 +1121,10 @@ pub fn protolens_from_json(json_bytes: &[u8]) -> Result<u32, JsError> {
 /// Fuse a protolens chain into a single protolens.
 ///
 /// Composes all steps into a single step with a composite complement.
-/// Returns a handle to a new `ProtolensChain` containing the fused step.
+/// A `CompiledLensDoc` is fused through its structural compatibility chain;
+/// document-carried value-level transforms and ordered stage boundaries are
+/// discarded. Returns a handle to a new plain `ProtolensChain` containing the
+/// fused step.
 ///
 /// # Errors
 ///
@@ -1075,7 +1145,10 @@ pub fn protolens_fuse(chain: u32) -> Result<u32, JsError> {
 /// Lift a protolens chain along a theory morphism.
 ///
 /// Given a chain and a `MessagePack`-encoded `TheoryMorphism`, produces
-/// a new chain that operates on schemas of the codomain theory.
+/// a new chain that operates on schemas of the codomain theory. A
+/// `CompiledLensDoc` is lifted through its structural compatibility chain;
+/// document-carried value-level transforms and ordered stage boundaries are
+/// discarded from the returned plain `ProtolensChain`.
 ///
 /// # Errors
 ///
@@ -1093,6 +1166,12 @@ pub fn protolens_lift(chain: u32, morphism_bytes: &[u8]) -> Result<u32, JsError>
 
 /// Check applicability of a protolens chain against a schema.
 ///
+/// Every structural step is checked against the running schema produced by the
+/// preceding step. A directional `CompiledLensDoc` is checked through its
+/// structural compatibility chain. Success does not establish that all
+/// ordered stages of the accepted document normalize to one group; call
+/// [`instantiate_protolens`] for that stronger check.
+///
 /// Returns `MessagePack`-encoded JSON: `{ "applicable": bool, "reasons": string[] }`.
 ///
 /// # Errors
@@ -1102,7 +1181,8 @@ pub fn protolens_lift(chain: u32, morphism_bytes: &[u8]) -> Result<u32, JsError>
 pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>, JsError> {
     let chain_obj = slab::with_resource(chain, |r| Ok(slab::as_protolens_chain(r)?.clone()))?;
     let schema_obj = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let result = chain_obj.check_applicability(&schema_obj);
+    let protocol = super::helpers::protocol_of(&schema_obj);
+    let result = chain_obj.check_applicability_with(&schema_obj, &protocol);
     let response = match result {
         Ok(()) => serde_json::json!({ "applicable": true, "reasons": Vec::<String>::new() }),
         Err(reasons) => serde_json::json!({ "applicable": false, "reasons": reasons }),
@@ -1117,8 +1197,13 @@ pub fn protolens_check_applicability(chain: u32, schema: u32) -> Result<Vec<u8>,
 
 /// Apply a protolens chain to a fleet of schemas.
 ///
-/// The `schema_handles` are slab handles to `Schema` resources.
-/// Each schema's name is taken from its `protocol` field.
+/// A `CompiledLensDoc` is applied through its structural compatibility chain;
+/// document-carried value-level transforms and ordered stage boundaries are
+/// not executed.
+///
+/// The `schema_handles` are slab handles to `Schema` resources. Results use
+/// the synthetic positional identifiers `schema_0`, `schema_1`, and so on,
+/// matching the input order.
 ///
 /// Returns `MessagePack`-encoded fleet result:
 /// `{ "applied": [name, ...], "skipped": [[name, [reasons]], ...] }`.
@@ -1140,8 +1225,7 @@ pub fn protolens_fleet(chain: u32, schema_handles: &[u32]) -> Result<Vec<u8>, Js
 
     // Determine protocol from first schema.
     let protocol = if let Some((_, first)) = schemas.first() {
-        lookup_builtin_protocol(&first.protocol)
-            .unwrap_or_else(|| default_protocol(&first.protocol))
+        super::helpers::protocol_of(first)
     } else {
         return rmp_serde::to_vec_named(&serde_json::json!({
             "applied": Vec::<String>::new(),
@@ -1223,8 +1307,7 @@ pub fn auto_generate_protolens_with_hints(
 
     let s1 = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let s2 = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
+    let protocol = super::helpers::protocol_of(&s1);
 
     let mut hard_pins = std::collections::HashMap::new();
     for (src, tgt) in &hints {
@@ -1274,8 +1357,7 @@ pub fn auto_generate_protolens_with_hint_spec(
 
     let s1 = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
     let s2 = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
-    let protocol =
-        lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
+    let protocol = super::helpers::protocol_of(&s1);
 
     let parts = lens::hint::HintParts {
         anchors: hint_spec.anchors.clone(),
@@ -1324,6 +1406,7 @@ pub fn auto_generate_protolens_with_hint_spec(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::api::helpers::default_protocol;
 
     #[test]
     fn parse_stringency_accepts_tiers_case_insensitive() {
@@ -1416,6 +1499,134 @@ mod tests {
         assert_eq!(decoded.stringency, Some(HintStringency::Lenient));
     }
 
+    fn symmetric_document_source() -> String {
+        serde_json::json!({
+            "id": "symmetric-demo",
+            "source": "left",
+            "target": "right",
+            "symmetric": {
+                "left": [{ "remove_field": "left-only" }],
+                "right": [{ "remove_field": "right-only" }]
+            }
+        })
+        .to_string()
+    }
+
+    fn directional_compose_document_source() -> String {
+        serde_json::json!({
+            "id": "directional-root",
+            "source": "left",
+            "target": "right",
+            "compose": {
+                "mode": "vertical",
+                "lenses": [{ "ref": "symmetric-demo" }]
+            }
+        })
+        .to_string()
+    }
+
+    fn assert_directional_boundary_rejects_symmetric(error: &WasmError) {
+        assert!(
+            matches!(
+                error,
+                WasmError::LensConstructionFailed { reason }
+                    if reason.contains("symmetric lens documents")
+                        && reason.contains("symmetric_lens_from_schemas")
+                        && reason.contains("symmetric_lens_sync")
+            ),
+            "{error}"
+        );
+    }
+
+    fn assert_directional_compose_rejects_symmetric_reference(error: &WasmError) {
+        assert!(
+            matches!(
+                error,
+                WasmError::LensConstructionFailed { reason }
+                    if reason.contains("symmetric-demo")
+                        && reason.contains("symmetric body")
+                        && reason.contains("directed compose")
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn directional_document_compile_rejects_a_symmetric_body_without_allocation() {
+        let doc = symmetric_document_source();
+        let live_before = slab::live_resource_count();
+        let error = compile_lens_document_engine(doc.as_bytes(), "json", "record")
+            .expect_err("a symmetric body has no directional document handle");
+
+        assert_directional_boundary_rejects_symmetric(&error);
+        assert_eq!(
+            slab::live_resource_count(),
+            live_before,
+            "rejection must not allocate a document handle"
+        );
+    }
+
+    #[test]
+    fn directional_document_compile_with_refs_rejects_a_symmetric_reference_without_allocation() {
+        let doc = directional_compose_document_source();
+        let refs = rmp_serde::to_vec_named(&std::collections::HashMap::from([(
+            "symmetric-demo".to_owned(),
+            symmetric_document_source(),
+        )]))
+        .expect("symmetric reference bundle encodes");
+        let live_before = slab::live_resource_count();
+        let error = compile_lens_document_with_refs_engine(doc.as_bytes(), "json", "record", &refs)
+            .expect_err("a directed compose cannot consume a symmetric reference");
+
+        assert_directional_compose_rejects_symmetric_reference(&error);
+        assert_eq!(
+            slab::live_resource_count(),
+            live_before,
+            "rejection must not allocate a document handle"
+        );
+    }
+
+    #[test]
+    fn applicability_checks_later_steps_at_the_running_schema() {
+        use panproto_core::lens::protolens::elementary::{drop_sort, rename_sort};
+
+        let protocol = default_protocol("applicability-test");
+        let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
+            .vertex("value", "string", None::<&str>)
+            .expect("string vertex")
+            .build()
+            .expect("schema builds");
+        let chain =
+            lens::ProtolensChain::new(vec![drop_sort("string"), rename_sort("string", "text")]);
+        assert!(
+            chain.check_applicability(&schema).is_ok(),
+            "the cheap first-step check demonstrates the old false positive"
+        );
+
+        let chain_handle = slab::alloc(Resource::ProtolensChain(Box::new(chain)));
+        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema)));
+        let bytes = protolens_check_applicability(chain_handle, schema_handle)
+            .expect("applicability response serializes");
+        let response: serde_json::Value =
+            rmp_serde::from_slice(&bytes).expect("applicability response decodes");
+
+        assert_eq!(response["applicable"].as_bool(), Some(false));
+        let reasons = response["reasons"]
+            .as_array()
+            .expect("failure reasons are an array");
+        assert!(!reasons.is_empty(), "the later-step failure is reported");
+        assert!(
+            reasons
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|reason| reason.contains("string")),
+            "the rejected running-schema precondition is named: {reasons:?}"
+        );
+
+        slab::free(chain_handle);
+        slab::free(schema_handle);
+    }
+
     /// A lens document whose only substantive step is a `compute_field`
     /// compiles to an empty *structural* chain; its content lives in the
     /// value-level field transforms. The compiled handle must carry
@@ -1496,7 +1707,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_document_instantiates_ordered_value_stages() {
+    fn a_compiled_document_with_multiple_groups_is_not_a_single_lens() {
         let protocol = default_protocol("test");
         let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
             .entry("post")
@@ -1504,11 +1715,17 @@ mod tests {
             .expect("record vertex")
             .vertex("post.text", "string", None::<&str>)
             .expect("field vertex")
+            .vertex("post.derived", "string", None::<&str>)
+            .expect("computed field vertex")
             .edge("post", "post.text", "prop", Some("text"))
             .expect("field edge")
+            .edge("post", "post.derived", "prop", Some("derived"))
+            .expect("computed field edge")
             .build()
             .expect("schema builds");
-        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema.clone())));
+        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema)));
+        // The schema declares `derived`, the attribute `compute_field`
+        // writes, so instantiation reaches the group refusal.
         let doc = serde_json::json!({
             "id": "ordered",
             "source": "s",
@@ -1525,36 +1742,245 @@ mod tests {
 
         let chain_handle =
             compile_lens_document(doc.as_bytes(), "json", "post").expect("document compiles");
-        let lens_handle = instantiate_protolens(chain_handle, schema_handle)
-            .expect("ordered document instantiates");
-        let lens_obj = slab::with_resource(lens_handle, |resource| match resource {
-            Resource::MigrationWithSchemas {
-                compiled,
-                src_schema,
-                tgt_schema,
-            } => Ok(lens::Lens {
-                compiled: compiled.clone(),
-                src_schema: (**src_schema).clone(),
-                tgt_schema: (**tgt_schema).clone(),
-            }),
-            _ => Err(WasmError::TypeMismatch {
-                expected: "MigrationWithSchemas",
-                actual: "non-migration resource",
-            }),
-        })
-        .expect("lens handle has schemas");
-        let source =
-            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
-                .expect("source parses");
-        let (view, _) = lens::get(&lens_obj, &source).expect("get succeeds");
-        let json = panproto_core::inst::to_json(&lens_obj.tgt_schema, &view);
+        let error = instantiate_protolens_engine(chain_handle, schema_handle)
+            .expect_err("two normal-form groups are not one lens");
+        assert!(
+            matches!(
+                error,
+                WasmError::LensConstructionFailed { ref reason }
+                    if reason.contains("lens path has 2 normal-form groups")
+            ),
+            "{error}"
+        );
 
-        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
-        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
-        assert!(json.get("text").is_none());
-
-        slab::free(lens_handle);
         slab::free(chain_handle);
         slab::free(schema_handle);
+    }
+
+    /// A computed field whose value is a record round-trips through the
+    /// JSON entry points: the view `get_json` writes is read back by
+    /// `put_json` under the protocol its schema was built with, which
+    /// classifies the field's `object` vertex as holding a value, so the
+    /// record is the field's value rather than a subtree the lens never
+    /// wrote.
+    #[test]
+    fn json_round_trip_keeps_a_record_valued_computed_field_a_value() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "demo-record-value".into(),
+            schema_theory: "ThConstrainedGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: ["record-schema", "prop"]
+                .into_iter()
+                .map(|kind| panproto_core::schema::EdgeRule {
+                    edge_kind: kind.into(),
+                    src_kinds: vec![],
+                    tgt_kinds: vec![],
+                })
+                .collect(),
+            obj_kinds: [
+                "rec",
+                "rec:body",
+                "rec:body.text",
+                "string",
+                "record",
+                "object",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+            value_kinds: std::collections::BTreeMap::from([(
+                "object".to_owned(),
+                panproto_core::schema::ScalarKind::Any,
+            )]),
+            ..Default::default()
+        };
+        let protocol_handle = super::super::schema::define_protocol(
+            &rmp_serde::to_vec_named(&protocol).expect("protocol encodes"),
+        )
+        .expect("protocol registers");
+        let ops = serde_json::json!([
+            { "op": "vertex", "id": "rec", "kind": "rec", "nsid": null },
+            { "op": "vertex", "id": "rec:body", "kind": "rec:body", "nsid": null },
+            { "op": "vertex", "id": "rec:body.text", "kind": "rec:body.text", "nsid": null },
+            { "op": "vertex", "id": "rec:body.g", "kind": "object", "nsid": null },
+            { "op": "edge", "src": "rec", "tgt": "rec:body", "kind": "record-schema", "name": null },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.text", "kind": "prop", "name": "text" },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.g", "kind": "prop", "name": "g" },
+        ]);
+        let schema_handle = super::super::schema::build_schema(
+            protocol_handle,
+            &rmp_serde::to_vec_named(&ops).expect("ops encode"),
+        )
+        .expect("schema builds");
+        let document = serde_json::json!({
+            "id": "demo.compute-roundtrip",
+            "source": "v1",
+            "target": "v2",
+            "steps": [{ "compute_field": { "target": "g", "expr": "{ a = text }" } }],
+        })
+        .to_string();
+        let chain_handle = compile_lens_document_engine(document.as_bytes(), "json", "rec:body")
+            .expect("document compiles");
+        let lens_handle =
+            instantiate_protolens_engine(chain_handle, schema_handle).expect("lens instantiates");
+
+        let got =
+            super::super::schema::get_json_engine(lens_handle, br#"{"text":"hello"}"#, "rec:body")
+                .expect("get succeeds");
+        let got: serde_json::Value = rmp_serde::from_slice(&got).expect("get result decodes");
+        assert_eq!(
+            got["view"],
+            serde_json::json!({ "text": "hello", "g": { "a": "hello" } })
+        );
+        let complement: Vec<u8> = got["complement"]
+            .as_array()
+            .expect("complement is bytes")
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64().expect("byte")).expect("byte fits"))
+            .collect();
+
+        let restored = super::super::schema::put_json_engine(
+            lens_handle,
+            &serde_json::to_vec(&got["view"]).expect("view encodes"),
+            &complement,
+            "rec:body",
+        )
+        .expect("putting back the unedited view succeeds");
+        let restored: serde_json::Value =
+            serde_json::from_slice(&restored).expect("restored record decodes");
+        assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+
+        for handle in [lens_handle, chain_handle, schema_handle, protocol_handle] {
+            slab::free(handle);
+        }
+    }
+
+    /// A lens that renames `text` to `amount` and computes `g` in one stage
+    /// round-trips through the JSON entry points. The rename moves `amount`
+    /// after `g` in the target schema's edge order, so `put_json` reads the
+    /// computed child `g` with the id the source child `text` holds in the
+    /// complement; the fold still recognizes it as the computed field.
+    /// Register the protocol `demo-rename-compute` and build over it the
+    /// body schema `rec:body { text, g }` with string leaves; return the
+    /// protocol and schema handles.
+    fn rename_compute_schema() -> (u32, u32) {
+        let protocol = panproto_core::schema::Protocol {
+            name: "demo-rename-compute".into(),
+            schema_theory: "ThConstrainedGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: ["record-schema", "prop"]
+                .into_iter()
+                .map(|kind| panproto_core::schema::EdgeRule {
+                    edge_kind: kind.into(),
+                    src_kinds: vec![],
+                    tgt_kinds: vec![],
+                })
+                .collect(),
+            obj_kinds: ["rec", "rec:body", "string"]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            ..Default::default()
+        };
+        let protocol_handle = super::super::schema::define_protocol(
+            &rmp_serde::to_vec_named(&protocol).expect("protocol encodes"),
+        )
+        .expect("protocol registers");
+        let ops = serde_json::json!([
+            { "op": "vertex", "id": "rec", "kind": "rec", "nsid": null },
+            { "op": "vertex", "id": "rec:body", "kind": "rec:body", "nsid": null },
+            { "op": "vertex", "id": "rec:body.text", "kind": "string", "nsid": null },
+            { "op": "vertex", "id": "rec:body.g", "kind": "string", "nsid": null },
+            { "op": "edge", "src": "rec", "tgt": "rec:body", "kind": "record-schema", "name": null },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.text", "kind": "prop", "name": "text" },
+            { "op": "edge", "src": "rec:body", "tgt": "rec:body.g", "kind": "prop", "name": "g" },
+        ]);
+        let schema_handle = super::super::schema::build_schema(
+            protocol_handle,
+            &rmp_serde::to_vec_named(&ops).expect("ops encode"),
+        )
+        .expect("schema builds");
+        (protocol_handle, schema_handle)
+    }
+
+    #[test]
+    fn json_round_trip_restores_a_renamed_field_beside_a_computed_field() {
+        let (protocol_handle, schema_handle) = rename_compute_schema();
+        let document = |steps: serde_json::Value| {
+            serde_json::json!({ "id": "demo", "source": "v1", "target": "v2", "steps": steps })
+                .to_string()
+        };
+        let rename = compile_lens_document_engine(
+            document(serde_json::json!([
+                { "rename_field": { "old": "text", "new": "amount" } }
+            ]))
+            .as_bytes(),
+            "json",
+            "rec:body",
+        )
+        .expect("the rename compiles");
+        let compute = compile_lens_document_engine(
+            document(serde_json::json!([
+                { "compute_field": { "target": "g", "expr": "text ++ \"!\"" } }
+            ]))
+            .as_bytes(),
+            "json",
+            "rec:body",
+        )
+        .expect("the computed field compiles");
+        let (chain, field_transforms) = slab::try_get_two(rename, compute, |r1, r2| {
+            Ok((
+                slab::as_protolens_chain(r1)?.clone(),
+                slab::as_field_transforms(r2)?,
+            ))
+        })
+        .expect("both documents are lens documents");
+        let one_stage = slab::alloc(compiled_lens_doc_resource(
+            chain.clone(),
+            field_transforms.clone(),
+            vec![panproto_core::lens_dsl::steps::CompiledStage {
+                chain,
+                field_transforms,
+            }],
+        ));
+        let lens_handle =
+            instantiate_protolens_engine(one_stage, schema_handle).expect("lens instantiates");
+
+        let got =
+            super::super::schema::get_json_engine(lens_handle, br#"{"text":"hello"}"#, "rec:body")
+                .expect("get succeeds");
+        let got: serde_json::Value = rmp_serde::from_slice(&got).expect("get result decodes");
+        assert_eq!(
+            got["view"],
+            serde_json::json!({ "amount": "hello", "g": "hello!" })
+        );
+        let complement: Vec<u8> = got["complement"]
+            .as_array()
+            .expect("complement is bytes")
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64().expect("byte")).expect("byte fits"))
+            .collect();
+
+        let restored = super::super::schema::put_json_engine(
+            lens_handle,
+            &serde_json::to_vec(&got["view"]).expect("view encodes"),
+            &complement,
+            "rec:body",
+        )
+        .expect("putting back the unedited view succeeds");
+        let restored: serde_json::Value =
+            serde_json::from_slice(&restored).expect("restored record decodes");
+        assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+
+        for handle in [
+            lens_handle,
+            one_stage,
+            compute,
+            rename,
+            schema_handle,
+            protocol_handle,
+        ] {
+            slab::free(handle);
+        }
     }
 }

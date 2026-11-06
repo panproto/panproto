@@ -350,6 +350,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 

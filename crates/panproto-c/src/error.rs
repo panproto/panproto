@@ -37,7 +37,7 @@ pub enum PpStatus {
     Err = 1,
     /// A panic was caught at the FFI boundary.
     Panic = 2,
-    /// A handle was out of range or already freed.
+    /// A handle was out of range or its slot is currently free.
     InvalidHandle = 3,
     /// A handle pointed at a resource of the wrong type.
     TypeMismatch = 4,
@@ -47,6 +47,9 @@ pub enum PpStatus {
     Internal = 6,
     /// A domain operation (migration, lens, VCS, parse) failed.
     Operation = 7,
+    /// A lens path has more than one normal-form group where the entry
+    /// point returns one concrete lens.
+    NotSingleStage = 8,
 }
 
 impl From<PpStatus> for i32 {
@@ -74,6 +77,7 @@ impl TryFrom<i32> for PpStatus {
             5 => Ok(Self::Serialization),
             6 => Ok(Self::Internal),
             7 => Ok(Self::Operation),
+            8 => Ok(Self::NotSingleStage),
             other => Err(other),
         }
     }
@@ -123,6 +127,39 @@ pub enum FfiError {
     /// failing operation and underlying cause.
     #[error("operation error: {0}")]
     Operation(String),
+
+    /// A lens path normalized to more than one group where the entry point
+    /// returns one concrete lens.
+    ///
+    /// The stages of such a path cannot be collapsed into one lens without
+    /// changing what get and put observe, so the entry point refuses rather
+    /// than fusing them.
+    #[error("{operation}: the lens path has {stages} normal-form groups, and one lens is required")]
+    NotSingleStage {
+        /// The entry point's operation name, e.g. `"compose"`.
+        operation: &'static str,
+        /// The number of normal-form groups.
+        stages: usize,
+    },
+}
+
+impl FfiError {
+    /// Map a lens error from an operation that must return one lens: a
+    /// multi-group path is [`FfiError::NotSingleStage`], and every other
+    /// error is an [`FfiError::Operation`] prefixed with `operation`.
+    #[must_use]
+    pub fn from_single_lens_error(
+        operation: &'static str,
+        error: &panproto_core::lens::LensError,
+    ) -> Self {
+        match error {
+            panproto_core::lens::LensError::NotSingleStage { stages } => Self::NotSingleStage {
+                operation,
+                stages: *stages,
+            },
+            other => Self::Operation(format!("{operation}: {other}")),
+        }
+    }
 }
 
 impl FfiError {
@@ -136,6 +173,7 @@ impl FfiError {
             Self::Panic(_) => PpStatus::Panic,
             Self::Internal(_) => PpStatus::Internal,
             Self::Operation(_) => PpStatus::Operation,
+            Self::NotSingleStage { .. } => PpStatus::NotSingleStage,
         }
     }
 }
@@ -160,6 +198,7 @@ impl From<&FfiError> for ErrorEnvelope {
             FfiError::Panic(_) => "panic",
             FfiError::Internal(_) => "internal",
             FfiError::Operation(_) => "operation",
+            FfiError::NotSingleStage { .. } => "not_single_stage",
         };
         Self {
             status: err.status() as i32,
@@ -169,28 +208,56 @@ impl From<&FfiError> for ErrorEnvelope {
     }
 }
 
-static LAST_ERROR: Mutex<Option<ErrorEnvelope>> = Mutex::new(None);
+/// A last-error slot: one envelope, the most recent write winning.
+struct ErrorSlot(Mutex<Option<ErrorEnvelope>>);
 
-/// Lock the global last-error slot, recovering the guard if a previous
-/// holder panicked. `Option<ErrorEnvelope>` has no invariant a panic can
-/// break, so the recovered slot is sound and stays usable for subsequent
-/// calls; leaving it poisoned would instead make every later error
-/// report fail.
-fn lock_slot() -> MutexGuard<'static, Option<ErrorEnvelope>> {
-    LAST_ERROR
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+impl ErrorSlot {
+    const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// Lock the slot, recovering the guard if a previous holder panicked.
+    /// `Option<ErrorEnvelope>` has no invariant a panic can break, so the
+    /// recovered slot is sound and stays usable for subsequent calls;
+    /// leaving it poisoned would instead make every later error report
+    /// fail.
+    fn lock(&self) -> MutexGuard<'_, Option<ErrorEnvelope>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn set(&self, err: &FfiError) {
+        *self.lock() = Some(ErrorEnvelope::from(err));
+    }
+
+    fn take(&self) -> Option<ErrorEnvelope> {
+        self.lock().take()
+    }
 }
+
+/// The process-global slot every entry point reports into.
+///
+/// The crate's unit tests share this one slot as they run in parallel, so
+/// a drain there can see another test's envelope. No unit test checks
+/// what an entry point leaves in the slot: those checks live in the
+/// integration test `tests/error_envelopes.rs`, which links the library
+/// as released and runs its checks one at a time. The one unit test that
+/// drains the slot, `the_entry_point_slot_is_shared_across_threads`, looks
+/// only for an envelope carrying its own marker and retries when a drain
+/// finds another test's instead, and draining that envelope cannot fail
+/// the test that set it, since no other unit test reads the slot.
+static LAST_ERROR: ErrorSlot = ErrorSlot::new();
 
 /// Stash the last error for retrieval by the host.
 pub fn set_last_error(err: &FfiError) {
-    *lock_slot() = Some(ErrorEnvelope::from(err));
+    LAST_ERROR.set(err);
 }
 
 /// Take the last error, clearing the slot.
 #[must_use]
 pub fn take_last_error() -> Option<ErrorEnvelope> {
-    lock_slot().take()
+    LAST_ERROR.take()
 }
 
 #[cfg(test)]
@@ -209,6 +276,7 @@ mod tests {
             PpStatus::Serialization,
             PpStatus::Internal,
             PpStatus::Operation,
+            PpStatus::NotSingleStage,
         ] {
             let n: i32 = status.into();
             assert_eq!(n, status as i32, "status {status:?} mismatched i32");
@@ -253,6 +321,14 @@ mod tests {
             FfiError::Internal("kaput".into()).status(),
             PpStatus::Internal
         );
+        assert_eq!(
+            FfiError::NotSingleStage {
+                operation: "compose",
+                stages: 2
+            }
+            .status(),
+            PpStatus::NotSingleStage
+        );
     }
 
     #[test]
@@ -265,27 +341,66 @@ mod tests {
     }
 
     #[test]
-    fn last_error_set_take_clears_slot() {
-        let _ = take_last_error(); // drain whatever may be left
-        assert!(take_last_error().is_none());
+    fn an_error_slot_set_then_take_clears_it() {
+        let slot = ErrorSlot::new();
+        assert!(slot.take().is_none());
 
-        set_last_error(&FfiError::Internal("under test".into()));
-        let env = take_last_error().expect("envelope present");
+        slot.set(&FfiError::Internal("under test".into()));
+        let env = slot.take().expect("envelope present");
         assert_eq!(env.tag, "internal");
 
         // After take, slot is empty.
-        assert!(take_last_error().is_none());
+        assert!(slot.take().is_none());
     }
 
     #[test]
-    fn last_error_crosses_thread_boundaries() {
-        let _ = take_last_error();
-        std::thread::spawn(|| set_last_error(&FfiError::Internal("from a worker".into())))
-            .join()
-            .expect("worker thread did not panic");
-        let env = take_last_error().expect("envelope set on another thread is visible here");
+    fn an_error_slot_keeps_the_most_recent_write() {
+        let slot = ErrorSlot::new();
+        slot.set(&FfiError::Internal("first".into()));
+        slot.set(&FfiError::InvalidHandle { handle: 7 });
+        let env = slot.take().expect("envelope present");
+        assert_eq!(env.tag, "invalid_handle");
+        assert!(slot.take().is_none());
+    }
+
+    #[test]
+    fn an_error_slot_is_shared_across_threads() {
+        let slot = ErrorSlot::new();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| slot.set(&FfiError::Internal("from a worker".into())))
+                .join()
+                .expect("worker thread did not panic");
+        });
+        let env = slot
+            .take()
+            .expect("envelope set on another thread is visible here");
         assert_eq!(env.tag, "internal");
         assert!(env.message.contains("from a worker"));
+        assert!(slot.take().is_none(), "a take clears the slot");
+    }
+
+    /// The slot entry points report into is the one the released library
+    /// has, so a unit test sees an error stashed on another thread, just as
+    /// a host that drains on a different OS thread does.
+    ///
+    /// Other unit tests running in parallel may stash their own failures in
+    /// the same slot between the worker's write and the drain here, so the
+    /// write is retried until the drain returns it. A slot that did not
+    /// cross threads would never return it.
+    #[test]
+    fn the_entry_point_slot_is_shared_across_threads() {
+        const MARKER: &str = "stashed on a worker for the shared-slot test";
+        let crossed = (0..100).any(|_| {
+            std::thread::spawn(|| set_last_error(&FfiError::Internal(MARKER.into())))
+                .join()
+                .expect("worker thread did not panic");
+            take_last_error().is_some_and(|env| env.message.contains(MARKER))
+        });
+        assert!(
+            crossed,
+            "an error stashed on a worker thread never reached this one"
+        );
     }
 
     #[test]
@@ -312,6 +427,10 @@ mod tests {
             ErrorEnvelope::from(&FfiError::Panic("p".into())),
             ErrorEnvelope::from(&FfiError::Internal("i".into())),
             ErrorEnvelope::from(&FfiError::Operation("o".into())),
+            ErrorEnvelope::from(&FfiError::NotSingleStage {
+                operation: "compose",
+                stages: 2,
+            }),
         ];
         let tags: Vec<&str> = envs.iter().map(|e| e.tag.as_str()).collect();
         let unique: std::collections::HashSet<&str> = tags.iter().copied().collect();

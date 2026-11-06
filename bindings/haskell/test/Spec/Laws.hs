@@ -19,8 +19,12 @@ module Spec.Laws (tests) where
 
 import Control.Category qualified as Cat
 import Control.Exception (Exception, fromException, toException)
+import Codec.CBOR.Encoding qualified as Enc
+import Codec.CBOR.Read qualified as CBOR
+import Codec.CBOR.Write qualified as CBOR
 import Data.Aeson (Value (String))
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -36,6 +40,7 @@ import Panproto.Expr
     , encodeExpr
     )
 import Panproto.Gat qualified as Gat
+import Panproto.Wire (WireTerm, decodeWireTerm)
 
 import Panproto.Errors
     ( CheckError (..)
@@ -135,11 +140,30 @@ bigExpr =
                     , (PVar "v", List [Index (Var "v") (Lit (LInt 0)), Field (Record [("a", Lit (LBool True))]) "a"])
                     , (PLit (LStr "s"), Lit (LFloat 3.5))
                     , (PRecord [("k", PVar "kv")], Lit (LBytes (BS.pack [0, 1, 255])))
-                    , (PList [PWildcard, PVar "tl"], Lit (LList [LBool False, LNull, LInt 9]))
+                    ,
+                        ( PList [PWildcard, PVar "tl"]
+                        , Lit
+                            ( LList
+                                [ LBool False
+                                , LNull
+                                , LInt 9
+                                , LDecimal (wire (Enc.encodeMapLen 0))
+                                , LBigInt (wire (Enc.encodeMapLen 0))
+                                , LTemporal (wire (Enc.encodeMapLen 0))
+                                ]
+                            )
+                        )
                     , (PConstructor "Just" [PVar "inner"], Builtin OpAdd [Lit (LInt 1), Lit (LRecord [("f", LInt 2)])])
                     ]
             )
             (Lit (LClosure "p" (Var "p") [("cap", LInt 7)]))
+
+wire :: Enc.Encoding -> WireTerm
+wire encoding =
+    case CBOR.deserialiseFromBytes decodeWireTerm (CBOR.toLazyByteString encoding) of
+        Right (rest, term) | LBS.null rest -> term
+        Right _ -> error "wire fixture left trailing bytes"
+        Left err -> error (show err)
 
 exprCodecLaws :: TestTree
 exprCodecLaws =

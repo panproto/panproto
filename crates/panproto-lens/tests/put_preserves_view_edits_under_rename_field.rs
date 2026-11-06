@@ -1,10 +1,12 @@
 //! A flat user record's fields live on the record node itself as
-//! `extra_fields` (no per-field schema vertices). The forward lens
-//! renames `name -> displayName`. The user edits the view's
-//! `displayName` to a new value and calls `put`. The restored source
-//! must carry the edit back to `name` with the other three original
-//! fields intact. A prior put path clobbered the view's edit with the
-//! pre-get snapshot whenever the anchor had any `field_transforms`.
+//! `extra_fields` (no per-field source schema vertices). The forward lens
+//! renames `name -> displayName`, and the target declares `displayName`
+//! as an attribute of `user`, as every transform output must be. The
+//! user edits the view's `displayName` to a new value and calls `put`.
+//! The restored source must carry the edit back to `name` with the
+//! other three original fields intact. A prior put path clobbered the
+//! view's edit with the pre-get snapshot whenever the anchor had any
+//! `field_transforms`.
 
 #![allow(
     clippy::unwrap_used,
@@ -32,7 +34,7 @@ fn generic_protocol() -> Protocol {
             "array".into(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -51,9 +53,18 @@ fn put_preserves_view_edit_on_renamed_record_field() {
         .unwrap()
         .build()
         .unwrap();
-    // Target schema is structurally identical at the graph level; the
-    // rename happens at the FieldTransform layer (not edge labels).
-    let tgt_schema = src_schema.clone();
+    // The rename happens at the FieldTransform layer (not edge labels), so
+    // the target keeps the bare `user` record and declares only the
+    // attribute the rename writes: a leaf edge labelled `displayName`.
+    let tgt_schema = SchemaBuilder::new(&protocol)
+        .vertex("user", "record", None::<&str>)
+        .unwrap()
+        .vertex("user.displayName", "string", None::<&str>)
+        .unwrap()
+        .edge("user", "user.displayName", "prop", Some("displayName"))
+        .unwrap()
+        .build()
+        .unwrap();
 
     // Parse source JSON.
     let source_json = serde_json::json!({
@@ -62,7 +73,7 @@ fn put_preserves_view_edit_on_renamed_record_field() {
         "email": "alice@example.com",
         "joinedAt": "2023-06-15",
     });
-    let instance = parse_json(&src_schema, "user", &source_json).expect("parse source");
+    let instance = parse_json(&src_schema, &protocol, "user", &source_json).expect("parse source");
 
     // Build a compiled migration with a RenameField transform on the
     // `user` vertex. This is how `auto_lens::derive_field_transforms`
@@ -115,7 +126,7 @@ fn put_preserves_view_edit_on_renamed_record_field() {
     // Put back.
     let restored = asymmetric::put(&lens, &view, &complement).expect("put should succeed");
 
-    let restored_json = to_json(&src_schema, &restored);
+    let restored_json = to_json(&src_schema, &restored).unwrap();
     let obj = restored_json
         .as_object()
         .expect("restored root should be an object");

@@ -510,28 +510,21 @@ pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
             return true;
         }
     }
-    match t {
-        Term::Var(x) => s_subs.iter().any(|a| contains_var(a, x)),
-        Term::Hole { .. } => false,
-        _ => {
-            // Non-leaf t: compare heads.
-            let (Some(f), Some(g)) = (structural_head(s), structural_head(t)) else {
+    // Variable occurrences already matched through the subterm case. Leaves
+    // have no structural head, so comparisons not settled above are false.
+    let (Some(f), Some(g)) = (structural_head(s), structural_head(t)) else {
+        return false;
+    };
+    let t_subs = subterms(t);
+    match prec.compare(&f, &g) {
+        Some(std::cmp::Ordering::Greater) => t_subs.iter().all(|tj| lpo_greater(s, tj, prec)),
+        Some(std::cmp::Ordering::Equal) => {
+            if !t_subs.iter().all(|tj| lpo_greater(s, tj, prec)) {
                 return false;
-            };
-            let t_subs = subterms(t);
-            match prec.compare(&f, &g) {
-                Some(std::cmp::Ordering::Greater) => {
-                    t_subs.iter().all(|tj| lpo_greater(s, tj, prec))
-                }
-                Some(std::cmp::Ordering::Equal) => {
-                    if !t_subs.iter().all(|tj| lpo_greater(s, tj, prec)) {
-                        return false;
-                    }
-                    lex_greater(&s_subs, &t_subs, prec)
-                }
-                _ => false,
             }
+            lex_greater(&s_subs, &t_subs, prec)
         }
+        _ => false,
     }
 }
 
@@ -569,21 +562,6 @@ fn structural_head(t: &Term) -> Option<Arc<str>> {
     }
 }
 
-fn contains_var(t: &Term, var: &Arc<str>) -> bool {
-    match t {
-        Term::Var(v) => v == var,
-        Term::Hole { .. } => false,
-        Term::Let { name, bound, body } => {
-            contains_var(bound, var) || (name != var && contains_var(body, var))
-        }
-        Term::App { args, .. } => args.iter().any(|a| contains_var(a, var)),
-        Term::Case {
-            scrutinee,
-            branches,
-        } => contains_var(scrutinee, var) || branches.iter().any(|b| contains_var(&b.body, var)),
-    }
-}
-
 fn lex_greater(a: &[Term], b: &[Term], prec: &OpPrecedence) -> bool {
     for (ai, bi) in a.iter().zip(b.iter()) {
         if ai == bi {
@@ -613,7 +591,7 @@ impl ConfluenceReport {
 impl TerminationReport {
     /// Returns `true` if every rule passed the LPO check.
     #[must_use]
-    pub fn is_lpo_terminating(&self) -> bool {
+    pub const fn is_lpo_terminating(&self) -> bool {
         self.violations.is_empty()
     }
 }
@@ -817,7 +795,7 @@ mod tests {
         let theory = trivial_theory(vec![r1, r2]);
         let report = validate_rewrite_system(&theory)?;
         assert!(!report.is_sound());
-        assert!(!report.warnings().is_empty());
+        assert_ne!(report.warnings(), Vec::<String>::new());
         Ok(())
     }
 
@@ -926,6 +904,160 @@ mod tests {
         let report = check_termination_via_lpo(&theory, &prec)?;
         assert!(!report.is_lpo_terminating());
         Ok(())
+    }
+
+    #[test]
+    fn let_positions_select_and_replace_both_children() -> Result<(), GatError> {
+        let make = |bound, body| Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        };
+        let bound = Term::constant("bound");
+        let body = Term::app("f", vec![Term::var("x")]);
+        let term = make(bound.clone(), body.clone());
+        assert_eq!(term_at_position(&term, &[0]), Some(bound.clone()));
+        assert_eq!(term_at_position(&term, &[1]), Some(body.clone()));
+        assert_eq!(term_at_position(&term, &[1, 0]), Some(Term::var("x")));
+        assert_eq!(term_at_position(&term, &[2]), None);
+        let replacement = Term::constant("replacement");
+        assert_eq!(
+            replace_at_position(&term, &[0], replacement.clone())?,
+            make(replacement.clone(), body)
+        );
+        assert_eq!(
+            replace_at_position(&term, &[1], replacement.clone())?,
+            make(bound, replacement)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn case_positions_replace_only_the_selected_child() -> Result<(), GatError> {
+        let branch = |name, body| crate::eq::CaseBranch {
+            constructor: Arc::from(name),
+            binders: vec![Arc::from("x")],
+            body,
+        };
+        let make = |scrutinee, first, second| Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![branch("first", first), branch("second", second)],
+        };
+        let term = make(
+            Term::constant("scrutinee"),
+            Term::constant("first_body"),
+            Term::constant("second_body"),
+        );
+        for (position, expected) in [
+            (
+                0,
+                make(
+                    Term::var("new"),
+                    Term::constant("first_body"),
+                    Term::constant("second_body"),
+                ),
+            ),
+            (
+                1,
+                make(
+                    Term::constant("scrutinee"),
+                    Term::var("new"),
+                    Term::constant("second_body"),
+                ),
+            ),
+            (
+                2,
+                make(
+                    Term::constant("scrutinee"),
+                    Term::constant("first_body"),
+                    Term::var("new"),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                replace_at_position(&term, &[position], Term::var("new"))?,
+                expected,
+                "position {position}"
+            );
+        }
+        assert!(matches!(
+            replace_at_position(&term, &[3], Term::var("new")),
+            Err(GatError::InvalidRewritePosition { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn equal_head_lpo_requires_strict_lexicographic_descent() {
+        let precedence = OpPrecedence::new(["a", "b", "f"]);
+        let smaller = Term::app("f", vec![Term::constant("a")]);
+        let larger = Term::app("f", vec![Term::constant("b")]);
+        assert!(lpo_greater(&larger, &smaller, &precedence));
+        assert!(!lpo_greater(&smaller, &larger, &precedence));
+        assert!(!lpo_greater(&larger, &larger, &precedence));
+        assert!(!lpo_greater(
+            &larger,
+            &Term::app("f", vec![Term::var("absent")]),
+            &precedence
+        ));
+    }
+
+    #[test]
+    fn lpo_variable_occurrences_are_found_through_structural_subterms() {
+        let leaf = Term::var("x");
+        let absent = Term::var("absent");
+        let constant = Term::constant("constant");
+        let branch = |body| crate::eq::CaseBranch {
+            constructor: Arc::from("constructor"),
+            binders: vec![Arc::from("x")],
+            body,
+        };
+        let terms = [
+            Term::app("f", vec![Term::app("g", vec![leaf.clone()])]),
+            Term::Let {
+                name: Arc::from("x"),
+                bound: Box::new(leaf.clone()),
+                body: Box::new(constant.clone()),
+            },
+            Term::Let {
+                name: Arc::from("x"),
+                bound: Box::new(constant.clone()),
+                body: Box::new(leaf.clone()),
+            },
+            Term::Case {
+                scrutinee: Box::new(leaf.clone()),
+                branches: vec![branch(constant.clone())],
+            },
+            Term::Case {
+                scrutinee: Box::new(constant),
+                branches: vec![branch(leaf.clone())],
+            },
+        ];
+        let precedence = OpPrecedence::new(Vec::<Arc<str>>::new());
+        for term in terms {
+            assert!(lpo_greater(&term, &leaf, &precedence), "{term:?}");
+            assert!(!lpo_greater(&term, &absent, &precedence), "{term:?}");
+            assert!(!lpo_greater(&leaf, &term, &precedence), "{term:?}");
+        }
+        assert!(!lpo_greater(&leaf, &leaf, &precedence));
+        assert!(!lpo_greater(&Term::Hole { name: None }, &leaf, &precedence));
+    }
+
+    #[test]
+    fn unification_reflexive_variables_need_no_binding() {
+        let x = Term::var("x");
+        let y = Term::var("y");
+        assert_eq!(first_order_unify(&x, &x), Some(FxHashMap::default()));
+        assert_eq!(
+            first_order_unify(&x, &y),
+            Some(FxHashMap::from_iter([(Arc::from("x"), y)]))
+        );
+        let containing_x = Term::app("f", vec![x.clone()]);
+        assert_eq!(first_order_unify(&x, &containing_x), None);
+        assert_eq!(
+            first_order_unify(&containing_x, &containing_x),
+            Some(FxHashMap::default())
+        );
     }
 
     mod property {

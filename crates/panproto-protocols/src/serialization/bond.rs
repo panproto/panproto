@@ -22,7 +22,7 @@ use crate::theories;
 /// Returns the Bond protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "bond".into(),
         schema_theory: "ThBondSchema".into(),
         instance_theory: "ThBondInstance".into(),
@@ -62,8 +62,10 @@ pub fn protocol() -> Protocol {
         ],
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Bond with a theory registry.

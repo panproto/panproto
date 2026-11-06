@@ -79,9 +79,10 @@ struct TheoryDomainTests {
         )
         #expect(amalgamated == expected)
         // The shared sort is identified rather than duplicated, and
-        // everything either side declares survives.
-        #expect(amalgamated.sorts.map(\.name) == ["Vertex", "Edge", "Label"])
-        #expect(amalgamated.ops.map(\.name) == ["src", "tgt", "label"])
+        // everything either side declares survives, listed by name: the
+        // colimit's output does not depend on the order of its inputs.
+        #expect(amalgamated.sorts.map(\.name) == ["Edge", "Label", "Vertex"])
+        #expect(amalgamated.ops.map(\.name) == ["label", "src", "tgt"])
     }
 
     @Test("the builder reaches every field of a theory the engine accepts")

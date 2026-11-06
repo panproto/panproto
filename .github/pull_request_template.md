@@ -27,9 +27,8 @@ any that don't apply. The reviewer's checklist is at the bottom.
 
 ## Affected surfaces
 
-<!-- Tick every layer this PR touches. The release skill assumes a
-     change to any of these except "Internal" requires version-bump
-     coordination. -->
+<!-- Tick every layer this PR touches. A change to any of these except
+     "Internal" requires version-bump coordination at release time. -->
 
 - [ ] Rust crates (`crates/`) — list which:
 - [ ] WASM boundary (`crates/panproto-wasm`)
@@ -89,11 +88,11 @@ any that don't apply. The reviewer's checklist is at the bottom.
 
 ## Release coordination
 
-<!-- Most PRs should not bump versions; the /release skill handles
-     that as a separate step. Tick only if this PR itself is a
-     release-shape change. -->
+<!-- Most PRs should not bump versions; a release bumps them as a
+     separate step with `.github/scripts/bump_version.py`. Tick only
+     if this PR itself is a release-shape change. -->
 
-- [ ] This PR bumps versions (`Cargo.toml`, `sdk/*/package.json`, etc.)
+- [ ] This PR bumps versions (`Cargo.toml`, `bindings/typescript/package.json`, etc.)
 - [ ] This PR adds, modifies, or removes a published-surface API and a CHANGELOG entry was added
 - [ ] CI workflow change requires a one-time setup step on a third-party service (npm, crates.io, PyPI) — describe below
 

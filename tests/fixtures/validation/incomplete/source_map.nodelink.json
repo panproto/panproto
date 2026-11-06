@@ -1,0 +1,21 @@
+{
+  "edges": [],
+  "nodes": [
+    {
+      "anchor": "name",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "toolong"
+        }
+      }
+    }
+  ]
+}

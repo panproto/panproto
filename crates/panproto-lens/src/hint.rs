@@ -86,10 +86,10 @@ pub fn derive_anchors(
                     }
 
                     // Check for conflict: another derivation path pointing elsewhere
-                    if let Some(existing) = result.get(child) {
-                        if existing != tgt_child {
-                            continue;
-                        }
+                    if let Some(existing) = result.get(child)
+                        && existing != tgt_child
+                    {
+                        continue;
                     }
                     result.insert(child.clone(), tgt_child.clone());
                     changed = true;
@@ -126,10 +126,10 @@ pub fn derive_anchors(
                         continue;
                     }
 
-                    if let Some(existing) = result.get(parent) {
-                        if existing != tgt_parent {
-                            continue;
-                        }
+                    if let Some(existing) = result.get(parent)
+                        && existing != tgt_parent
+                    {
+                        continue;
                     }
                     result.insert(parent.clone(), tgt_parent.clone());
                     changed = true;
@@ -299,7 +299,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -555,11 +555,10 @@ mod tests {
     ///
     /// A total morphism maps every source vertex, so a request for one that
     /// also asks to omit part of its domain has no answer, and
-    /// `find_morphisms_constrained` says so by returning empty. That is the
-    /// honest reading, and it used to be answered with a partial map called a
-    /// morphism. `find_span_constrained` is the entry point for the question
-    /// actually being asked, and it returns the sub-schema the exclusion
-    /// leaves.
+    /// `find_morphisms_constrained` says so by returning empty rather than
+    /// answering with a partial map called a morphism.
+    /// `find_span_constrained` is the entry point for the question actually
+    /// being asked, and it returns the sub-schema the exclusion leaves.
     #[test]
     fn an_excluded_source_is_answered_by_the_span() {
         use panproto_mig::{SearchOptions, find_morphisms_constrained, find_span_constrained};

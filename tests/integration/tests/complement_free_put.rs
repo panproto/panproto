@@ -15,9 +15,16 @@
 //!
 //! The `residue_is_trivial` / `is_empty` distinction matters throughout. A
 //! complement's fields split into the residue (information in `S` and not
-//! in `V`, which *is* `C`) and the reassembly bookkeeping (`original_parent`,
-//! `arc_order`, `arc_edges`, a function of the view's shape). Only the
-//! residue bears on whether `C ≅ 1`.
+//! in `V`, which *is* `C`) and the reassembly bookkeeping (`original_parent`
+//! and `arc_order`, which are functions of the view's shape). An `arc_edges`
+//! entry is residue exactly when the view does not determine the source edge.
+//! Only the residue bears on whether `C ≅ 1`.
+//!
+//! The tree isomorphism classifier is certified on the transform-free
+//! fragment: a value transform is an obstruction even when it declares an
+//! inverse, since nothing checks that the declared inverse inverts it. So
+//! the reconstruction tests below use a transform-free lens, and a
+//! transform with a declared inverse is refused like any other.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -79,6 +86,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -129,8 +137,8 @@ fn lens_with(schema: &Schema, transforms: Vec<FieldTransform>) -> Lens {
     }
 }
 
-/// `v -> v + 1`, inverse `v - 1`: a bijection on the integers, so the
-/// complement it produces is terminal.
+/// `v -> v + 1`, with the declared inverse `v - 1`: a bijection on the
+/// integers, though the classifier does not certify the declared inverse.
 fn shift_lens(schema: &Schema) -> Lens {
     lens_with(
         schema,
@@ -150,7 +158,13 @@ fn shift_lens(schema: &Schema) -> Lens {
 }
 
 fn instance(schema: &Schema, v: i64, w: i64) -> WInstance {
-    parse_json(schema, "root", &serde_json::json!({"v": v, "w": w})).expect("parse")
+    parse_json(
+        schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({"v": v, "w": w}),
+    )
+    .expect("parse")
 }
 
 // ---------------------------------------------------------------------------
@@ -183,20 +197,20 @@ fn an_identity_lens_has_a_terminal_complement() {
 #[test]
 fn reconstruction_recovers_the_source() {
     let schema = pair_schema();
-    let lens = shift_lens(&schema);
+    let lens = lens_with(&schema, vec![]);
     let source = instance(&schema, 5, 7);
 
     let (view, _) = get(&lens, &source).expect("get");
     assert_eq!(
-        to_json(&schema, &view),
-        serde_json::json!({"v": 6, "w": 7}),
-        "the forward direction shifts v"
+        to_json(&schema, &view).unwrap(),
+        serde_json::json!({"v": 5, "w": 7}),
+        "the forward direction keeps both fields"
     );
 
     let restored = put_without_complement(&lens, &view).expect("the lens is an isomorphism");
     assert_eq!(
-        to_json(&schema, &restored),
-        to_json(&schema, &source),
+        to_json(&schema, &restored).unwrap(),
+        to_json(&schema, &source).unwrap(),
         "and the view alone determines the source it came from"
     );
 }
@@ -206,7 +220,7 @@ fn reconstruction_recovers_the_source() {
 #[test]
 fn reconstruction_is_a_two_sided_inverse() {
     let schema = pair_schema();
-    let lens = shift_lens(&schema);
+    let lens = lens_with(&schema, vec![]);
 
     for (v, w) in [(0, 0), (5, 7), (-3, 12), (i64::MAX - 1, 0)] {
         let source = instance(&schema, v, w);
@@ -232,7 +246,7 @@ fn reconstruction_is_a_two_sided_inverse() {
 #[test]
 fn reconstruction_agrees_with_the_complement_carrying_put() {
     let schema = pair_schema();
-    let lens = shift_lens(&schema);
+    let lens = lens_with(&schema, vec![]);
     let source = instance(&schema, 5, 7);
 
     let (view, complement) = get(&lens, &source).expect("get");
@@ -300,8 +314,8 @@ fn a_non_injective_transform_defeats_reconstruction() {
 
     match put_without_complement(&lens, &view) {
         Err(LensError::NotAnIsomorphism { detail }) => assert!(
-            detail.contains("Retraction"),
-            "the refusal names the coercion class that is not injective: {detail}"
+            detail.contains("`root`") && detail.contains("value transforms"),
+            "the refusal names the vertex whose transform obstructs: {detail}"
         ),
         other => panic!("expected a refusal naming the transform, got {other:?}"),
     }
@@ -343,6 +357,33 @@ fn refusal_does_not_depend_on_the_particular_record() {
     }
 }
 
+/// A transform with a declared inverse is still outside the certified
+/// transform-free fragment, so complement-free put refuses it, naming the
+/// vertex, while the complement-carrying put still restores the source.
+#[test]
+fn a_declared_inverse_is_not_certified_for_reconstruction() {
+    let schema = pair_schema();
+    let lens = shift_lens(&schema);
+    assert!(!lens.is_isomorphism());
+
+    let source = instance(&schema, 5, 7);
+    let (view, complement) = get(&lens, &source).expect("get");
+    assert_eq!(
+        to_json(&schema, &view).unwrap(),
+        serde_json::json!({"v": 6, "w": 7}),
+        "the forward direction shifts v"
+    );
+    match put_without_complement(&lens, &view) {
+        Err(LensError::NotAnIsomorphism { detail }) => assert!(
+            detail.contains("`root`") && detail.contains("value transforms"),
+            "the refusal names the vertex whose transform obstructs: {detail}"
+        ),
+        other => panic!("expected a refusal naming the transform, got {other:?}"),
+    }
+    let restored = put(&lens, &view, &complement).expect("put");
+    assert!(panproto_lens::instances_equivalent(&source, &restored));
+}
+
 // ---------------------------------------------------------------------------
 // `put` on inputs outside the image of `get`
 // ---------------------------------------------------------------------------
@@ -365,7 +406,7 @@ fn put_refuses_a_complement_outside_the_image_of_get() {
         ),
         Ok(restored) => panic!(
             "expected a refusal, got a silent reconstruction: {}",
-            to_json(&schema, &restored)
+            to_json(&schema, &restored).unwrap()
         ),
         other => panic!("expected ComplementMismatch, got {other:?}"),
     }
@@ -377,7 +418,13 @@ fn put_refuses_a_complement_outside_the_image_of_get() {
 fn put_accepts_an_empty_complement_for_a_structureless_view() {
     let schema = make_schema(&[("root", "object")], &[]);
     let lens = lens_with(&schema, vec![]);
-    let source = parse_json(&schema, "root", &serde_json::json!({})).expect("parse");
+    let source = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({}),
+    )
+    .expect("parse");
     let (view, _) = get(&lens, &source).expect("get");
 
     assert!(

@@ -1,0 +1,1 @@
+{"format_version":3,"mutation":"remove_edge","expected":"ran","observation":{"ran":2,"shape_cannot_express":0,"no_candidate":4,"in_domain":8,"in_domain_ok":8,"negative":0,"negative_ok":0},"refusal":null,"certificates":[]}

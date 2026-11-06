@@ -169,10 +169,10 @@ fn th_gat_can_model_itself() -> Result<(), Box<dyn std::error::Error>> {
     // op_output: Op -> Sort: map each op name to its output sort name.
     let ops_owned = gat.ops;
     model.add_op("op_output", move |args: &[ModelValue]| {
-        if let ModelValue::Str(name) = &args[0] {
-            if let Some(op) = ops_owned.iter().find(|o| &*o.name == name.as_str()) {
-                return Ok(ModelValue::Str(op.output.to_string()));
-            }
+        if let ModelValue::Str(name) = &args[0]
+            && let Some(op) = ops_owned.iter().find(|o| &*o.name == name.as_str())
+        {
+            return Ok(ModelValue::Str(op.output.to_string()));
         }
         panic!("unexpected input to op_output op: {args:?}")
     });

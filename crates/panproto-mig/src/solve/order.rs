@@ -194,7 +194,7 @@ impl Graph {
     /// How many vertices the graph has.
     #[inline]
     #[must_use]
-    pub fn n_vertices(&self) -> usize {
+    pub const fn n_vertices(&self) -> usize {
         self.adjacency.len()
     }
 
@@ -1421,7 +1421,7 @@ mod tests {
             .unwrap()
             .build();
         let (order, width) = choose_order(&cfn);
-        assert!(order.is_empty());
+        assert_eq!(order, []);
         assert_eq!(width, 0);
     }
 

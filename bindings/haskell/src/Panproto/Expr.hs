@@ -101,6 +101,7 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32, castWord32ToFloat, doub
 import GHC.Generics (Generic)
 import Panproto.Class (SchemaBackend (..))
 import Panproto.Instance (InstanceBackend (..))
+import Panproto.Wire (WireTerm, decodeWireTerm, encodeWireTerm)
 
 -- ---------------------------------------------------------------------------
 -- Literal
@@ -133,6 +134,12 @@ data Literal
       -- are the bound parameter name, the body expression, and the
       -- bindings captured at closure-creation time.
       LClosure !Text !Expr ![(Text, Literal)]
+    | -- | An exact decimal, including its written scale.
+      LDecimal !WireTerm
+    | -- | An integer outside the range of @Int64@.
+      LBigInt !WireTerm
+    | -- | A date, time, or date-time with its written form.
+      LTemporal !WireTerm
     deriving stock (Show, Generic)
     deriving anyclass (NFData)
 
@@ -149,6 +156,9 @@ instance Eq Literal where
     LRecord a == LRecord b = a == b
     LList a == LList b = a == b
     LClosure p1 b1 e1 == LClosure p2 b2 e2 = p1 == p2 && b1 == b2 && e1 == e2
+    LDecimal a == LDecimal b = a == b
+    LBigInt a == LBigInt b = a == b
+    LTemporal a == LTemporal b = a == b
     _ == _ = False
 
 -- ---------------------------------------------------------------------------
@@ -215,8 +225,8 @@ data Pattern
 -- grouped by domain. Each has a fixed arity (see 'builtinArity'). All
 -- operations are pure and deterministic.
 --
--- The graph-traversal builtins ('OpEdge', 'OpChildren', 'OpHasEdge',
--- 'OpEdgeCount', 'OpAnchor') require an instance context and only do
+-- The graph-traversal builtins ('OpEdge', 'OpEdges', 'OpChildren',
+-- 'OpHasEdge', 'OpEdgeCount', 'OpAnchor') require an instance context and only do
 -- useful work under instance-aware evaluation; the standard evaluator
 -- returns 'LNull' for them.
 data BuiltinOp
@@ -285,12 +295,17 @@ data BuiltinOp
       OpTypeOf
     | OpIsNull
     | OpIsList
-    | -- Graph traversal (5)
+    | -- Graph traversal (6)
       OpEdge
     | OpChildren
     | OpHasEdge
     | OpEdgeCount
     | OpAnchor
+    | OpEdges
+    | -- Exact values (3)
+      OpToString
+    | OpParseDecimal
+    | OpDecimalToFloat
     deriving stock (Eq, Show, Bounded, Enum, Generic)
     deriving anyclass (NFData)
 
@@ -359,6 +374,10 @@ builtinTag = \case
     OpHasEdge -> "HasEdge"
     OpEdgeCount -> "EdgeCount"
     OpAnchor -> "Anchor"
+    OpEdges -> "Edges"
+    OpToString -> "ToString"
+    OpParseDecimal -> "ParseDecimal"
+    OpDecimalToFloat -> "DecimalToFloat"
 
 -- | Resolve a serde variant tag back to a 'BuiltinOp'. Returns 'Nothing'
 -- for an unrecognized tag (a builtin a newer Rust release added).
@@ -432,6 +451,10 @@ builtinName = \case
     OpHasEdge -> "has_edge"
     OpEdgeCount -> "edge_count"
     OpAnchor -> "anchor"
+    OpEdges -> "edges"
+    OpToString -> "to_string"
+    OpParseDecimal -> "parse_decimal"
+    OpDecimalToFloat -> "decimal_to_float"
 
 -- | The expected number of arguments for a builtin. Mirrors
 -- @BuiltinOp::arity@ in @crates\/panproto-expr\/src\/expr.rs@.
@@ -466,6 +489,9 @@ builtinArity = \case
     OpChildren -> 1
     OpEdgeCount -> 1
     OpAnchor -> 1
+    OpToString -> 1
+    OpParseDecimal -> 1
+    OpDecimalToFloat -> 1
     -- Binary.
     OpRange -> 2
     OpAdd -> 2
@@ -492,6 +518,7 @@ builtinArity = \case
     OpContains -> 2
     OpFlatMap -> 2
     OpEdge -> 2
+    OpEdges -> 2
     OpHasEdge -> 2
     OpDefaultVal -> 2
     OpTruncateStr -> 2
@@ -528,6 +555,9 @@ encLiteral = \case
                 <> encExpr bdy
                 <> Enc.encodeString "env"
                 <> encNamedPairs encLiteral env
+    LDecimal d -> variant1 "Decimal" (encodeWireTerm d)
+    LBigInt n -> variant1 "BigInt" (encodeWireTerm n)
+    LTemporal t -> variant1 "Temporal" (encodeWireTerm t)
 
 -- | The Rust @Vec<u8>@ for @Literal::Bytes@ is serialized by @ciborium@
 -- as a CBOR array of integers (serde's default for byte vectors), not as
@@ -671,6 +701,9 @@ litDecoder = decodeExternallyTagged unitLit taggedLit
         "Record" -> Just (LRecord <$> decodeNamedPairs litDecoder)
         "List" -> Just (LList <$> decodeArray litDecoder)
         "Closure" -> Just decodeClosure
+        "Decimal" -> Just (LDecimal <$> decodeWireTerm)
+        "BigInt" -> Just (LBigInt <$> decodeWireTerm)
+        "Temporal" -> Just (LTemporal <$> decodeWireTerm)
         _ -> Nothing
 
 decodeClosure :: Decoder s Literal
@@ -1277,6 +1310,9 @@ writeLiteral = \case
     LList items -> chunk "[" <> commaSep (map writeLiteral items) <> chunk "]"
     LClosure param bdy _ ->
         chunk "\\" <> chunk param <> chunk " -> " <> writeExpr bdy PrecTop
+    LDecimal _ -> chunk "<decimal>"
+    LBigInt _ -> chunk "<bigint>"
+    LTemporal _ -> chunk "<temporal>"
 
 -- | Format a float so the parser reads it back as a float: ensure a
 -- decimal point is present. Mirrors @write_literal@'s float branch.

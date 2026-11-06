@@ -402,10 +402,10 @@ where
         last_id = commit_id;
     }
 
-    if commits.is_empty() {
-        if let Some(&id) = known.get(&head_git_oid) {
-            last_id = id;
-        }
+    if commits.is_empty()
+        && let Some(&id) = known.get(&head_git_oid)
+    {
+        last_id = id;
     }
 
     Ok(ImportResult {

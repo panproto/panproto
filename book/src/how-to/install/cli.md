@@ -32,7 +32,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/panproto/panproto/
 cargo install panproto-cli
 ```
 
-Requires a Rust toolchain (1.85 or newer).
+Requires a Rust toolchain (1.97 or newer).
 
 ## Verification
 
@@ -44,7 +44,7 @@ prints the installed version. The full subcommand list is at [Reference: CLI](..
 
 ## Common mistakes
 
-- Installing through `cargo install` without an up-to-date toolchain. panproto requires Rust 1.85 or later.
+- Installing through `cargo install` without an up-to-date toolchain. panproto requires Rust 1.97 or later.
 - Mixing the Homebrew install with a from-source install on the same machine: only one `schema` ends up first on `PATH`.
 
 ## See also

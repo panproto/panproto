@@ -11,7 +11,7 @@ Choose a surface according to where the schema enters the project. The CLI loads
 | Haskell SDK | [From Haskell](./haskell.md) |
 | Swift SDK | [From Swift](./swift.md) |
 
-The CLI's schema-checking commands currently accept panproto's internal schema JSON and resolve only the `atproto` protocol. Its shared loaders can parse an ATProto Lexicon when a manifest selects `atproto`, and its full-AST commands parse supported source files as syntax trees. Use a language SDK's `parseSchemaDocument` or `parseSchemaSource` dispatch for the other external schema languages in the protocol catalog. Start with a language SDK when the application constructs the schema programmatically.
+The CLI's schema-checking commands accept panproto's internal schema JSON and resolve registered protocol descriptors. The shared loader sends a declared external JSON document through its descriptor's document parser; non-JSON files go through the tree-sitter source-file registry. Use the corresponding SDK parser when an application needs either semantic-protocol parser directly: `parseSchemaDocument` or `parseSchemaSource` in TypeScript, and `parse_schema_document` or `parse_schema_source` in Python. Start with a language SDK when the application constructs the schema programmatically.
 
 ## See also
 

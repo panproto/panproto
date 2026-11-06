@@ -34,7 +34,7 @@ impl InstanceParser for ConlluCodec {
     }
 
     fn native_repr(&self) -> NativeRepr {
-        NativeRepr::Functor
+        NativeRepr::Table
     }
 
     fn parse_wtype(
@@ -44,8 +44,8 @@ impl InstanceParser for ConlluCodec {
     ) -> Result<WInstance, ParseInstanceError> {
         Err(ParseInstanceError::UnsupportedRepresentation {
             protocol: "conllu".into(),
-            requested: NativeRepr::WType,
-            native: NativeRepr::Functor,
+            requested: NativeRepr::Tree,
+            native: NativeRepr::Table,
         })
     }
 
@@ -71,8 +71,8 @@ impl InstanceEmitter for ConlluCodec {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         Err(EmitInstanceError::UnsupportedRepresentation {
             protocol: "conllu".into(),
-            requested: NativeRepr::WType,
-            native: NativeRepr::Functor,
+            requested: NativeRepr::Tree,
+            native: NativeRepr::Table,
         })
     }
 

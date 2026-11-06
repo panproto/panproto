@@ -50,13 +50,12 @@ use crate::coerce::{SortLensWitness, WitnessLibrary};
 /// consumers, which may manually prepend a `CoerceSort` endofunctor
 /// and re-run the migration.
 ///
-/// The fix for end-to-end emission is either (a) relax
+/// End-to-end emission would need either (a) relaxing
 /// `kinds_compatible` in `hom_search::new_constrained` when a witness
-/// exists and thread the witness through factorization, or (b)
-/// post-process the morphism in `auto_lens`: when a source sort has
-/// no assigned target, consult `coerce_proposals`, synthesize a
-/// `CoerceSort` step, and re-factorize. Neither path is implemented
-/// in this tier; treat this function as authoritative for *which*
+/// exists and threading the witness through factorization, or (b)
+/// post-processing the morphism in `auto_lens`: when a source sort has
+/// no assigned target, consulting `coerce_proposals`, synthesizing a
+/// `CoerceSort` step, and re-factorizing. Neither path is implemented; treat this function as authoritative for *which*
 /// witness would bridge which kind pair, but NOT as a guarantee that
 /// the auto-generated lens contains the corresponding `CoerceSort`
 /// step.
@@ -221,7 +220,7 @@ mod tests {
                 "float".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

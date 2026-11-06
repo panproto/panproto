@@ -12,7 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use panproto_gat::{Name, Sort, Theory, pushout_by_name};
+use panproto_gat::{Name, Theory};
 use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder};
 use smallvec::SmallVec;
 
@@ -25,7 +25,7 @@ use crate::theories;
 /// Instance theory: `ThWType + ThMeta`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "atproto".into(),
         schema_theory: "ThATProtoSchema".into(),
         instance_theory: "ThATProtoInstance".into(),
@@ -68,82 +68,101 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `ATProto` with a theory registry.
 ///
 /// Registers `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`,
-/// and the composed `ThATProtoSchema` and `ThATProtoInstance`.
+/// and the composed `ThATProtoSchema` and `ThATProtoInstance`, replacing
+/// any theory `registry` already holds under one of these names. Each
+/// composed theory is one diagram composed with explicit identity: the
+/// schema is [`theories::constrained_multigraph_diagram`], and the instance
+/// is `ThWType` and `ThMeta` sharing `Node` and `Value` through `ThNode`.
+/// Their compositions, and the one-node composition of each building
+/// block, are then available from [`theories::registered_composition`].
 ///
-/// Registration is atomic. The two composed theories are built by
-/// pushout before anything is written, so a failure leaves `registry`
-/// untouched rather than populated with the components and missing a
-/// composite. A caller that ignored the error would otherwise hold a
-/// registry that looks initialized and silently validates nothing.
+/// Registration is atomic. Both composed theories are built before
+/// anything is written, so a failure leaves `registry` untouched rather
+/// than populated with the components and missing a composite. A caller
+/// that ignored the error would otherwise hold a registry that looks
+/// initialized and silently validates nothing.
 ///
 /// # Errors
 ///
 /// Returns [`ProtocolError::TheoryRegistration`] naming the composition
 /// stage that failed and the error it failed with.
+///
+/// # Panics
+///
+/// Panics if a building block does not compose on its own, or if a name
+/// was recorded before with another composition. Both are defects in the
+/// building blocks, not runtime input errors.
 pub fn register_theories<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
 ) -> Result<(), ProtocolError> {
-    let th_graph = theories::th_graph();
-    let th_constraint = theories::th_constraint();
-    let th_multi = theories::th_multi();
-    let th_wtype = theories::th_wtype();
-    let th_meta = theories::th_meta();
+    register_diagrams(
+        registry,
+        &theories::constrained_multigraph_diagram(),
+        &theories::wtype_meta_diagram("ThNode"),
+    )
+}
 
-    // Compose both derived theories before writing anything. A pushout
-    // that fails then leaves `registry` exactly as it was, rather than
-    // holding the five component theories with one or both composites
-    // silently absent.
+/// The name `ATProto` registers its schema theory under.
+const SCHEMA_THEORY: &str = "ThATProtoSchema";
 
-    // Schema theory, step 1: colimit(ThGraph, ThConstraint) over shared Vertex.
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = pushout_by_name(&th_graph, &th_constraint, &shared_vertex)
-        .map(|r| r.theory)
-        .map_err(|source| ProtocolError::TheoryRegistration {
-            stage: "ThGraph and ThConstraint over ThVertex".into(),
-            source: Box::new(source),
-        })?;
+/// The name `ATProto` registers its instance theory under.
+const INSTANCE_THEORY: &str = "ThATProtoInstance";
 
-    // Schema theory, step 2: colimit(gc, ThMulti) over shared {Vertex, Edge}.
-    let shared_ve = Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-        vec![],
-        vec![],
+/// [`register_theories`] over the given schema and instance diagrams.
+fn register_diagrams<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    schema: &theories::RegistrationDiagram,
+    instance: &theories::RegistrationDiagram,
+) -> Result<(), ProtocolError> {
+    let stage = |what: &str, diagram: &theories::RegistrationDiagram| {
+        let blocks: Vec<&str> = diagram.blocks.iter().map(|t| &*t.name).collect();
+        let shared: Vec<&str> = diagram.shared.iter().map(|(t, _)| &*t.name).collect();
+        format!(
+            "the {what} theory from {} over {}",
+            blocks.join(", "),
+            shared.join(", ")
+        )
+    };
+    let fail = |what: &str, diagram: &theories::RegistrationDiagram| {
+        let stage = stage(what, diagram);
+        move |error: panproto_gat::CompositionError| ProtocolError::TheoryRegistration {
+            stage,
+            source: Box::new(error.into()),
+        }
+    };
+    let schema_composition = schema
+        .compose(SCHEMA_THEORY)
+        .map_err(fail("schema", schema))?;
+    let instance_composition = instance
+        .compose(INSTANCE_THEORY)
+        .map_err(fail("instance", instance))?;
+
+    // Everything constructed; commit the whole set, replacing what the
+    // registry holds under these names and recording each building
+    // block's own composition as the other helpers do.
+    schema.register_blocks(registry, theories::ExistingBlock::Replace);
+    instance.register_blocks(registry, theories::ExistingBlock::Replace);
+    theories::record(
+        SCHEMA_THEORY,
+        &schema_composition,
+        schema.recipe(SCHEMA_THEORY),
     );
-    let mut schema_theory = pushout_by_name(&gc, &th_multi, &shared_ve)
-        .map(|r| r.theory)
-        .map_err(|source| ProtocolError::TheoryRegistration {
-            stage: "ThGraph+ThConstraint and ThMulti over ThVertexEdge".into(),
-            source: Box::new(source),
-        })?;
-    schema_theory.name = "ThATProtoSchema".into();
-
-    // Instance theory: colimit(ThWType, ThMeta) over shared Node.
-    let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    let mut inst_theory = pushout_by_name(&th_wtype, &th_meta, &shared_node)
-        .map(|r| r.theory)
-        .map_err(|source| ProtocolError::TheoryRegistration {
-            stage: "ThWType and ThMeta over ThNode".into(),
-            source: Box::new(source),
-        })?;
-    inst_theory.name = "ThATProtoInstance".into();
-
-    // Everything constructed; commit the whole set.
-    registry.insert("ThGraph".into(), th_graph);
-    registry.insert("ThConstraint".into(), th_constraint);
-    registry.insert("ThMulti".into(), th_multi);
-    registry.insert("ThWType".into(), th_wtype);
-    registry.insert("ThMeta".into(), th_meta);
-    registry.insert("ThATProtoSchema".into(), schema_theory);
-    registry.insert("ThATProtoInstance".into(), inst_theory);
-
+    theories::record(
+        INSTANCE_THEORY,
+        &instance_composition,
+        instance.recipe(INSTANCE_THEORY),
+    );
+    registry.insert(SCHEMA_THEORY.into(), schema_composition.theory);
+    registry.insert(INSTANCE_THEORY.into(), instance_composition.theory);
     Ok(())
 }
 
@@ -153,10 +172,11 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(
 /// and edges for structural relationships (properties, array items,
 /// union variants, references).
 ///
-/// A `$ref` to a def in another lexicon document resolves to an opaque
-/// `"ref"`-kind placeholder vertex, because this entry point sees only
-/// the one document. To resolve refs across a set of documents, use
-/// [`parse_lexicon_bundle`].
+/// A `$ref` to a def in another lexicon document resolves to an
+/// `"unknown"`-kind placeholder vertex, because this entry point sees
+/// only the one document: the placeholder holds the referenced data as
+/// one opaque value of any shape, as a Lexicon `unknown` field does. To
+/// resolve refs across a set of documents, use [`parse_lexicon_bundle`].
 ///
 /// # Errors
 ///
@@ -172,7 +192,7 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 /// Every document's defs are registered as vertices before any
 /// document's structure is parsed, so a `nsid#frag` ref into a *sibling*
 /// document lands on that def's real, typed vertex instead of on an
-/// opaque `"ref"` placeholder. A ref whose target is in no document of
+/// opaque `"unknown"` placeholder. A ref whose target is in no document of
 /// the bundle still becomes a placeholder, which is what marks it as
 /// genuinely external.
 ///
@@ -184,6 +204,8 @@ pub fn parse_lexicon(json: &serde_json::Value) -> Result<Schema, ProtocolError> 
 /// or `defs`, [`ProtocolError::Parse`] if two documents declare the
 /// same `id`, or a construction error from the schema builder.
 pub fn parse_lexicon_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::all_in_key_order(docs);
+    let docs = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -394,6 +416,7 @@ fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -614,18 +637,26 @@ fn parse_def_bodies(
 }
 
 /// Resolve a lexicon `ref` string (`"#frag"`, `"nsid"`, or `"nsid#frag"`)
-/// to the full vertex id used by the schema graph.
+/// to the full vertex id used by the schema graph, which is also the
+/// `$type` a value of the referenced def carries. A `main` def is named
+/// by its bare NSID, so a `#main` fragment resolves to the NSID: the
+/// Lexicon specification names a `main` def in `$type` "as just the
+/// NSID, not including a `#main` suffix".
 fn resolve_ref_target(lexicon_id: &str, ref_target: &str) -> String {
-    if let Some(frag) = ref_target.strip_prefix('#') {
+    let full = if let Some(frag) = ref_target.strip_prefix('#') {
         format!("{lexicon_id}#{frag}")
     } else {
         ref_target.to_owned()
+    };
+    match full.strip_suffix("#main") {
+        Some(nsid) => nsid.to_owned(),
+        None => full,
     }
 }
 
 /// Emit the structural morphism for a `ref` property: resolve the
-/// target, ensure a placeholder vertex exists for cross-lexicon
-/// targets, and add a `ref` edge `src_vertex_id --ref--> resolved`.
+/// target, ensure a placeholder vertex exists for a target no parsed
+/// document defines, and add a `ref` edge `src_vertex_id --ref--> resolved`.
 ///
 /// Keeps the signature of the schema graph complete: every semantic
 /// reference in the lexicon becomes an edge in `C_S`, so the referenced
@@ -639,13 +670,14 @@ fn add_ref_edge(
 ) -> Result<SchemaBuilder, ProtocolError> {
     let resolved = resolve_ref_target(lexicon_id, ref_target);
 
-    // Ensure the target vertex exists. Cross-lexicon refs and forward
-    // refs to yet-unparsed defs need a placeholder; mirrors how
-    // `parse_union_def` handles unresolved variants. Using `"ref"` kind
-    // for placeholders marks them as opaque pointers rather than
-    // typed structures.
+    // Every def of every parsed document is registered before any ref
+    // is added, so a missing target is defined in no parsed document.
+    // Its shape is unknown here, so the placeholder is an `"unknown"`
+    // vertex: a record's data at it is one opaque value of any shape,
+    // exactly as at a Lexicon `unknown` field. A non-scalar kind would
+    // leave that data no declared place to go.
     if !builder.has_vertex(&resolved) {
-        builder = builder.vertex(&resolved, "ref", None)?;
+        builder = builder.vertex(&resolved, "unknown", None)?;
     }
 
     builder = builder.edge(src_vertex_id, &resolved, "ref", None)?;
@@ -801,36 +833,51 @@ fn parse_array_def(
     Ok(builder)
 }
 
-/// Parse a union definition, creating variant edges.
+/// Parse a union definition, creating its variant arms.
 ///
 /// A lexicon union is a coproduct `⊔_i T_i` where each `T_i` is the
-/// sort referenced by `refs[i]`. In the schema graph we realize the
-/// coproduct injections as pairs: a synthetic variant vertex carrying
-/// the discriminant, and a `ref` morphism from that vertex to the
-/// referenced sort. The variant edge remembers the lexicon discriminant
-/// string in its `name`, and the ref edge restores reachability from
-/// the union to the underlying sort so downstream machinery sees a
-/// connected signature.
+/// sort referenced by `refs[i]`. Each coproduct injection is a synthetic
+/// variant vertex of kind `"ref"` with a `ref` morphism to the
+/// referenced sort, so the variant stands for that sort, and a `variant`
+/// edge from the union named by the lexicon ref string, so the union
+/// reaches every sort and the lexicon emits back. Each arm is declared
+/// a variant of the union, tagged with the `$type` a value of that sort
+/// carries: the referenced def's full name, a `main` def by its bare
+/// NSID.
+///
+/// A union is open unless it sets `closed: true`. The Lexicon
+/// specification has an open union admit types beyond its refs, since a
+/// later revision of the schema may add them, and has implementations
+/// "be permissive when validating" such data; a union with no refs is
+/// "similar to `unknown`". An open union therefore also has an untagged
+/// arm of kind `"unknown"`, which reads a value whose `$type` names no
+/// ref as one opaque value, as an `unknown` field does.
 fn parse_union_def(
     mut builder: SchemaBuilder,
     union_id: &str,
     def: &serde_json::Value,
     lexicon_id: &str,
 ) -> Result<SchemaBuilder, ProtocolError> {
+    let closed = def.get("closed").and_then(serde_json::Value::as_bool);
+    if let Some(closed) = closed {
+        builder = builder.constraint(union_id, "closed", if closed { "true" } else { "false" });
+    }
     if let Some(refs) = def.get("refs").and_then(serde_json::Value::as_array) {
         for (i, ref_val) in refs.iter().enumerate() {
             if let Some(ref_str) = ref_val.as_str() {
                 let variant_id = format!("{union_id}:variant{i}");
-                // The variant vertex is a stand-in for the coproduct
-                // injection. Kind `"object"` reflects that in the
-                // absence of resolution it exposes the same observables
-                // as an object; the `ref` edge below then ties it to
-                // the actual target sort.
-                builder = builder.vertex(&variant_id, "object", None)?;
+                builder = builder.vertex(&variant_id, "ref", None)?;
                 builder = builder.edge(union_id, &variant_id, "variant", Some(ref_str))?;
                 builder = add_ref_edge(builder, &variant_id, lexicon_id, ref_str)?;
+                let tag = resolve_ref_target(lexicon_id, ref_str);
+                builder = builder.variant(union_id, &variant_id, Some(&tag));
             }
         }
+    }
+    if closed != Some(true) {
+        let open_id = format!("{union_id}:open");
+        builder = builder.vertex(&open_id, "unknown", None)?;
+        builder = builder.variant(union_id, &open_id, None);
     }
     Ok(builder)
 }
@@ -862,60 +909,60 @@ fn parse_query_procedure_def(
     }
 
     // Parse input schema (used by procedures).
-    if let Some(input) = def.get("input") {
-        if let Some(input_schema) = input.get("schema") {
-            let input_id = format!("{vertex_id}:input");
-            let input_type = input_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("object");
-            let input_kind = lexicon_type_to_kind(input_type);
-            builder = builder.vertex(&input_id, &input_kind, None)?;
-            builder = builder.edge(vertex_id, &input_id, "prop", Some("input"))?;
-            if input_type == "object" {
-                builder = parse_object_def(builder, &input_id, input_schema, lexicon_id)?;
-            } else {
-                builder = parse_constraints(builder, &input_id, input_schema);
-            }
+    if let Some(input) = def.get("input")
+        && let Some(input_schema) = input.get("schema")
+    {
+        let input_id = format!("{vertex_id}:input");
+        let input_type = input_schema
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+        let input_kind = lexicon_type_to_kind(input_type);
+        builder = builder.vertex(&input_id, &input_kind, None)?;
+        builder = builder.edge(vertex_id, &input_id, "prop", Some("input"))?;
+        if input_type == "object" {
+            builder = parse_object_def(builder, &input_id, input_schema, lexicon_id)?;
+        } else {
+            builder = parse_constraints(builder, &input_id, input_schema);
         }
     }
 
     // Parse output schema.
-    if let Some(output) = def.get("output") {
-        if let Some(output_schema) = output.get("schema") {
-            let output_id = format!("{vertex_id}:output");
-            let output_type = output_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("object");
-            let output_kind = lexicon_type_to_kind(output_type);
-            builder = builder.vertex(&output_id, &output_kind, None)?;
-            builder = builder.edge(vertex_id, &output_id, "prop", Some("output"))?;
-            if output_type == "object" {
-                builder = parse_object_def(builder, &output_id, output_schema, lexicon_id)?;
-            } else {
-                builder = parse_constraints(builder, &output_id, output_schema);
-            }
+    if let Some(output) = def.get("output")
+        && let Some(output_schema) = output.get("schema")
+    {
+        let output_id = format!("{vertex_id}:output");
+        let output_type = output_schema
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+        let output_kind = lexicon_type_to_kind(output_type);
+        builder = builder.vertex(&output_id, &output_kind, None)?;
+        builder = builder.edge(vertex_id, &output_id, "prop", Some("output"))?;
+        if output_type == "object" {
+            builder = parse_object_def(builder, &output_id, output_schema, lexicon_id)?;
+        } else {
+            builder = parse_constraints(builder, &output_id, output_schema);
         }
     }
 
     // Parse message (used by subscriptions).
-    if let Some(message) = def.get("message") {
-        if let Some(msg_schema) = message.get("schema") {
-            let msg_id = format!("{vertex_id}:message");
-            let msg_type = msg_schema
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("object");
-            let msg_kind = lexicon_type_to_kind(msg_type);
-            builder = builder.vertex(&msg_id, &msg_kind, None)?;
-            builder = builder.edge(vertex_id, &msg_id, "prop", Some("message"))?;
-            if msg_type == "object" {
-                builder = parse_object_def(builder, &msg_id, msg_schema, lexicon_id)?;
-            } else {
-                builder = parse_constraints(builder, &msg_id, msg_schema);
-            }
-        }
+    if let Some(message) = def.get("message")
+        && let Some(msg_schema) = message.get("schema")
+    {
+        let msg_id = format!("{vertex_id}:message");
+        let msg_type = msg_schema
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("object");
+        let msg_kind = lexicon_type_to_kind(msg_type);
+        builder = builder.vertex(&msg_id, &msg_kind, None)?;
+        builder = builder.edge(vertex_id, &msg_id, "prop", Some("message"))?;
+        builder = match msg_type {
+            "object" => parse_object_def(builder, &msg_id, msg_schema, lexicon_id)?,
+            "union" => parse_union_def(builder, &msg_id, msg_schema, lexicon_id)?,
+            _ => parse_constraints(builder, &msg_id, msg_schema),
+        };
     }
 
     Ok(builder)
@@ -1066,6 +1113,11 @@ fn emit_lexicon_def(
             if !refs.is_empty() {
                 obj.insert("refs".to_string(), serde_json::Value::Array(refs));
             }
+            for c in crate::emit::vertex_constraints(schema, &vertex.id) {
+                if c.sort.as_ref() == "closed" {
+                    obj.insert("closed".to_string(), emit_constraint_value(c));
+                }
+            }
 
             Ok(serde_json::Value::Object(obj))
         }
@@ -1192,6 +1244,58 @@ fn edge_rules() -> Vec<EdgeRule> {
 mod tests {
     use super::*;
 
+    /// The instance span shares `Value` as well as `Node`: `ThWType` and
+    /// `ThMeta` both declare it, and registration identifies only what a
+    /// shared theory lists, so without it the two `Value`s clash and
+    /// registration fails, as a typed error, leaving the registry as it
+    /// was.
+    #[test]
+    fn atproto_registration_failure_is_a_theory_registration_error() {
+        let mut node_only = theories::wtype_meta_diagram("ThNode");
+        node_only.shared[0].0 = Theory::new(
+            "ThNode",
+            vec![panproto_gat::Sort::simple("Node")],
+            vec![],
+            vec![],
+        );
+        let mut registry: HashMap<String, Theory> = HashMap::new();
+        let Err(error) = register_diagrams(
+            &mut registry,
+            &theories::constrained_multigraph_diagram(),
+            &node_only,
+        ) else {
+            panic!("a clash of Value is refused");
+        };
+        let ProtocolError::TheoryRegistration { stage, source } = error else {
+            panic!("expected TheoryRegistration, got {error:?}");
+        };
+        assert_eq!(
+            stage,
+            "the instance theory from ThWType, ThMeta over ThNode"
+        );
+        let panproto_gat::GatError::Composition(composition) = *source else {
+            panic!("expected a composition error, got {source:?}");
+        };
+        assert!(
+            matches!(
+                *composition,
+                panproto_gat::CompositionError::NameClash {
+                    kind: panproto_gat::SymKind::Sort,
+                    ref name,
+                    ..
+                } if &**name == "Value"
+            ),
+            "{composition:?}"
+        );
+        assert!(registry.is_empty(), "{:?}", registry.keys());
+
+        register_theories(&mut registry)
+            .unwrap_or_else(|e| panic!("the declared span registers: {e}"));
+        let instance = theories::registered_composition(INSTANCE_THEORY)
+            .unwrap_or_else(|| panic!("the instance composition is recorded"));
+        assert!(instance.report.name_clash_free);
+    }
+
     /// A bundle's hyper-edges, spans, coercions, and policies describe
     /// the bundle. Each per-file schema must carry only its own share of
     /// them, not a copy of the whole set.
@@ -1233,6 +1337,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         monolith.hyper_edges.insert(
             Name::from("fan"),
@@ -1306,7 +1411,7 @@ mod tests {
         assert_eq!(p.name, "atproto");
         assert_eq!(p.schema_theory, "ThATProtoSchema");
         assert_eq!(p.instance_theory, "ThATProtoInstance");
-        assert!(!p.edge_rules.is_empty());
+        assert_ne!(p.edge_rules, []);
         assert!(p.find_edge_rule("record-schema").is_some());
         assert!(p.find_edge_rule("prop").is_some());
         assert!(p.find_edge_rule("items").is_some());
@@ -1485,13 +1590,155 @@ mod tests {
             .keys()
             .any(|e| &*e.src == items_vertex && &*e.tgt == item_def && &*e.kind == "ref");
         assert!(has_edge, "items vertex must have a ref morphism to #item");
-        assert!(!schema.incoming_edges(item_def).is_empty());
+        assert_ne!(schema.incoming_edges(item_def), []);
     }
 
     /// Each variant of a lexicon union must emit a `ref` edge to the
     /// branch's target sort. The union-as-coproduct `⊔ᵢ Tᵢ` is
     /// realized by injection-labelled variant vertices plus a
     /// morphism from each variant to its branch.
+    #[test]
+    fn subscription_message_unions_register_their_tagged_variants() -> Result<(), ProtocolError> {
+        for closed in [false, true] {
+            let lexicon = serde_json::json!({
+                "lexicon": 1,
+                "id": "com.example.events",
+                "defs": {
+                    "main": {
+                        "type": "subscription",
+                        "message": {"schema": {
+                            "type": "union",
+                            "refs": ["#change", "com.example.other#main"],
+                            "closed": closed
+                        }}
+                    },
+                    "change": {"type": "object", "properties": {
+                        "sequence": {"type": "integer"}
+                    }}
+                }
+            });
+            let schema = parse_lexicon(&lexicon)?;
+            let union = "com.example.events:message";
+            let tags: Vec<_> = schema
+                .variants_of(union)
+                .iter()
+                .map(|arm| arm.tag.as_deref())
+                .collect();
+            let mut expected = vec![Some("com.example.events#change"), Some("com.example.other")];
+            if !closed {
+                expected.push(None);
+            }
+            assert_eq!(tags, expected);
+            assert_eq!(
+                schema
+                    .variant_for_tag(union, "com.example.future")
+                    .is_some(),
+                !closed
+            );
+            for index in 0..2 {
+                let variant = format!("{union}:variant{index}");
+                assert!(
+                    schema
+                        .outgoing_edges(&variant)
+                        .iter()
+                        .any(|edge| edge.kind == "ref")
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Each union arm is declared a variant tagged with the `$type` its
+    /// values carry, a `main` def by its bare NSID; its vertex is a `ref`
+    /// standing for the referenced def. An open union also has an untagged
+    /// `unknown` arm and a closed one has none, and both emit back with
+    /// their `closed` flag.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn union_arms_are_tagged_variants_and_only_open_unions_have_an_open_arm() {
+        let lexicon = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.msg",
+            "defs": {
+                "main": {"type": "record", "record": {"type": "object", "properties": {
+                    "open": {"type": "union", "refs": ["#a", "com.example.other#main", "com.example.other#b"]},
+                    "shut": {"type": "union", "refs": ["#a"], "closed": true}
+                }}},
+                "a": {"type": "object", "properties": {}}
+            }
+        });
+        let schema = parse_lexicon(&lexicon).expect("parse");
+        let tags = |union: &str| {
+            schema
+                .variants_of(union)
+                .iter()
+                .map(|arm| {
+                    (
+                        arm.id.to_string(),
+                        arm.tag.as_ref().map(ToString::to_string),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let open = "com.example.msg:body.open";
+        assert_eq!(
+            tags(open),
+            vec![
+                (
+                    format!("{open}:variant0"),
+                    Some("com.example.msg#a".to_owned())
+                ),
+                (
+                    format!("{open}:variant1"),
+                    Some("com.example.other".to_owned())
+                ),
+                (
+                    format!("{open}:variant2"),
+                    Some("com.example.other#b".to_owned())
+                ),
+                (format!("{open}:open"), None),
+            ]
+        );
+        let shut = "com.example.msg:body.shut";
+        assert_eq!(
+            tags(shut),
+            vec![(
+                format!("{shut}:variant0"),
+                Some("com.example.msg#a".to_owned())
+            )]
+        );
+        for i in 0..3 {
+            assert_eq!(
+                &*schema.vertices[format!("{open}:variant{i}").as_str()].kind,
+                "ref"
+            );
+        }
+        assert_eq!(
+            &*schema.vertices[format!("{open}:open").as_str()].kind,
+            "unknown"
+        );
+        assert!(
+            schema.has_vertex("com.example.other"),
+            "`#main` names the bare NSID"
+        );
+        assert_eq!(
+            schema
+                .variant_for_tag(open, "com.example.unnamed")
+                .map(|arm| arm.id.to_string()),
+            Some(format!("{open}:open"))
+        );
+        assert!(
+            schema
+                .variant_for_tag(shut, "com.example.unnamed")
+                .is_none()
+        );
+
+        let emitted = emit_lexicon(&schema).expect("emit");
+        let properties = &emitted["defs"]["main"]["record"]["properties"];
+        assert_eq!(properties["shut"]["closed"], serde_json::json!(true));
+        assert!(properties["open"].get("closed").is_none());
+    }
+
     #[test]
     #[allow(clippy::expect_used)]
     fn union_variants_emit_ref_morphisms() {
@@ -1536,8 +1783,8 @@ mod tests {
             ref_edge_exists(&variant_b, "com.example.msg#b"),
             "variant1 must have a ref morphism to #b"
         );
-        assert!(!schema.incoming_edges("com.example.msg#a").is_empty());
-        assert!(!schema.incoming_edges("com.example.msg#b").is_empty());
+        assert_ne!(schema.incoming_edges("com.example.msg#a"), []);
+        assert_ne!(schema.incoming_edges("com.example.msg#b"), []);
     }
 
     /// A cross-lexicon ref must create an opaque placeholder vertex
@@ -1773,7 +2020,7 @@ mod tests {
     }
 
     /// Parsing one document alone leaves its cross-document ref target
-    /// an opaque `"ref"` placeholder: this is the behavior
+    /// an opaque `"unknown"` placeholder: this is the behavior
     /// `parse_lexicon_bundle` exists to improve on.
     #[test]
     #[allow(clippy::expect_used)]
@@ -1783,7 +2030,7 @@ mod tests {
 
         let anchor_def = &schema.vertices["pub.layers.defs#spatioTemporalAnchor"];
         assert_eq!(
-            &*anchor_def.kind, "ref",
+            &*anchor_def.kind, "unknown",
             "a lone document cannot type its cross-file ref target"
         );
     }
@@ -1836,7 +2083,7 @@ mod tests {
 
         assert_eq!(
             &*schema.vertices["pub.layers.defs#spatioTemporalAnchor"].kind,
-            "ref"
+            "unknown"
         );
     }
 

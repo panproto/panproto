@@ -5,10 +5,12 @@
 //! one its forward expression *reads* and the one it *writes*. `ComputeField`
 //! separates them, and `put` has to send the inverse's result to the read
 //! coordinate while leaving no trace of the written one, which the source
-//! never carried. `ApplyExpr` keeps them together on one key, but only when
-//! that key is an `extra_fields` entry; over a child scalar it reads the
-//! child and writes a shadowing entry on the parent, so the two part company
-//! again.
+//! never carried. `ApplyExpr` keeps them together on one key: over an
+//! `extra_fields` entry it rewrites that entry, and over a child scalar it
+//! reads the child and writes its result back to that child.
+//!
+//! Every field a transform writes is declared as an attribute (a leaf edge)
+//! of its target vertex, as compilation requires.
 //!
 //! The tests here pin both the round-trip laws and the propagation itself:
 //! a law can hold because an edit was correctly propagated, or because it
@@ -17,7 +19,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use panproto_expr::{BuiltinOp, Expr};
+use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_gat::{CoercionClass, Name};
 use panproto_inst::value::Value;
 use panproto_inst::{CompiledMigration, FieldTransform, WInstance, parse_json};
@@ -75,32 +77,58 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
-/// `user { a: string }` with `a` as a schema-defined child vertex.
-fn schema_with_child() -> Schema {
-    let edge = Edge {
-        src: "user".into(),
-        tgt: "user.a".into(),
-        kind: "prop".into(),
-        name: Some("a".into()),
-    };
-    make_schema(&[("user", "object"), ("user.a", "string")], &[edge])
+/// `user` with one string attribute, a child vertex `user.<name>` under a
+/// `prop` edge labelled `<name>`, for each of `attributes`.
+fn user_schema(attributes: &[&str]) -> Schema {
+    let mut verts = vec![("user".to_owned(), "object")];
+    let mut edges = Vec::new();
+    for name in attributes {
+        verts.push((format!("user.{name}"), "string"));
+        edges.push(Edge {
+            src: "user".into(),
+            tgt: Name::from(format!("user.{name}")),
+            kind: "prop".into(),
+            name: Some(Name::from(*name)),
+        });
+    }
+    let verts: Vec<(&str, &str)> = verts
+        .iter()
+        .map(|(id, kind)| (id.as_str(), *kind))
+        .collect();
+    make_schema(&verts, &edges)
 }
 
-/// `user` with no declared properties, so `a` parses into `extra_fields`.
-fn schema_without_child() -> Schema {
-    make_schema(&[("user", "object")], &[])
+/// `user { a: string }` with `a` as a schema-defined child vertex, also
+/// declaring the attributes `extra` that a transform writes.
+fn schema_with_child(extra: &[&str]) -> Schema {
+    let mut attributes = vec!["a"];
+    attributes.extend_from_slice(extra);
+    user_schema(&attributes)
+}
+
+/// `user` without an `a` property, so `a` parses into `extra_fields`;
+/// it declares only the attributes `extra` that a transform writes.
+fn schema_without_child(extra: &[&str]) -> Schema {
+    user_schema(extra)
 }
 
 fn lens_with(schema: &Schema, transforms: Vec<FieldTransform>) -> Lens {
+    lens_between(schema, schema, transforms)
+}
+
+/// A lens from `source` to `target` that keeps every source vertex and
+/// edge and runs `transforms` at `user`.
+fn lens_between(source: &Schema, target: &Schema, transforms: Vec<FieldTransform>) -> Lens {
     let mut field_transforms = HashMap::new();
     field_transforms.insert(Name::from("user"), transforms);
     Lens {
         compiled: CompiledMigration {
-            surviving_verts: schema.vertices.keys().cloned().collect(),
-            surviving_edges: schema.edges.keys().cloned().collect(),
+            surviving_verts: source.vertices.keys().cloned().collect(),
+            surviving_edges: source.edges.keys().cloned().collect(),
             vertex_remap: HashMap::new(),
             edge_remap: HashMap::new(),
             resolver: HashMap::new(),
@@ -110,8 +138,8 @@ fn lens_with(schema: &Schema, transforms: Vec<FieldTransform>) -> Lens {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         },
-        src_schema: schema.clone(),
-        tgt_schema: schema.clone(),
+        src_schema: source.clone(),
+        tgt_schema: target.clone(),
     }
 }
 
@@ -133,7 +161,13 @@ fn root_fields(instance: &WInstance) -> &HashMap<String, Value> {
 }
 
 fn instance_of(schema: &Schema) -> WInstance {
-    parse_json(schema, "user", &serde_json::json!({"a": "hello"})).expect("parse")
+    parse_json(
+        schema,
+        &panproto_schema::Protocol::default(),
+        "user",
+        &serde_json::json!({"a": "hello"}),
+    )
+    .expect("parse")
 }
 
 /// The computed key belongs to the view, not the source. `put` must not
@@ -141,8 +175,8 @@ fn instance_of(schema: &Schema) -> WInstance {
 #[test]
 fn put_does_not_reinstate_the_computed_key() {
     for (label, schema) in [
-        ("child scalar", schema_with_child()),
-        ("extra field", schema_without_child()),
+        ("child scalar", schema_with_child(&["up"])),
+        ("extra field", schema_without_child(&["up"])),
     ] {
         let instance = instance_of(&schema);
         let lens = lens_with(&schema, vec![compute_upper()]);
@@ -164,13 +198,83 @@ fn put_does_not_reinstate_the_computed_key() {
     }
 }
 
+/// A field no transform writes is an independent coordinate the view
+/// carries under its own name, so an edit to it reaches the source even
+/// when the complement holds a snapshot of the source's fields.
+#[test]
+fn an_edit_to_an_untransformed_field_reaches_the_source() {
+    let schema = schema_without_child(&["k"]);
+    let instance = instance_of(&schema);
+    let lens = lens_with(
+        &schema,
+        vec![FieldTransform::AddField {
+            key: "k".into(),
+            value: Value::Int(1),
+        }],
+    );
+
+    let (mut view, complement) = get(&lens, &instance).expect("get");
+    let root = view.root;
+    view.nodes
+        .get_mut(&root)
+        .expect("the view has its root")
+        .extra_fields
+        .insert("a".into(), Value::Str("edited".into()));
+
+    let restored = put(&lens, &view, &complement).expect("put");
+    assert_eq!(
+        root_fields(&restored).get("a"),
+        Some(&Value::Str("edited".into())),
+        "the edit to `a` must reach the source"
+    );
+    assert!(
+        !root_fields(&restored).contains_key("k"),
+        "`k` is added by the lens, not carried by the source"
+    );
+    let put_get = panproto_lens::laws::check_put_get(&lens, &instance);
+    assert!(put_get.is_ok(), "PutGet must hold: {put_get:?}");
+}
+
+/// Editing the source of a computed field that stays beside it is an edit
+/// to the independent coordinate. The inverse of the stale computed value
+/// must not overwrite it, so the edited view, whose computed field no
+/// longer matches its source, is refused as outside the put domain rather
+/// than put with the edit silently undone.
+#[test]
+fn an_edit_to_a_derived_fields_source_is_not_overwritten_by_the_inverse() {
+    let schema = schema_without_child(&["up"]);
+    let instance = instance_of(&schema);
+    let lens = lens_with(&schema, vec![compute_upper()]);
+
+    let (mut view, complement) = get(&lens, &instance).expect("get");
+    let root = view.root;
+    view.nodes
+        .get_mut(&root)
+        .expect("the view has its root")
+        .extra_fields
+        .insert("a".into(), Value::Str("edited".into()));
+
+    let domain = panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement);
+    assert!(
+        matches!(
+            domain.as_ref().map_err(Vec::as_slice),
+            Err([panproto_inst::PutDomainError::DerivedCellEdited { field, .. }]) if field == "up"
+        ),
+        "a view whose computed field is stale is outside the put domain: {domain:?}"
+    );
+    assert!(
+        put(&lens, &view, &complement).is_err(),
+        "put refuses the view instead of undoing the edit to `a`"
+    );
+}
+
 /// Both laws hold for an invertible `ComputeField` whichever side its
 /// source sits on.
 #[test]
 fn invertible_compute_field_satisfies_both_laws() {
     for (label, schema) in [
-        ("child scalar", schema_with_child()),
-        ("extra field", schema_without_child()),
+        ("child scalar", schema_with_child(&["up"])),
+        ("extra field", schema_without_child(&["up"])),
     ] {
         let instance = instance_of(&schema);
         let lens = lens_with(&schema, vec![compute_upper()]);
@@ -189,7 +293,7 @@ fn invertible_compute_field_satisfies_both_laws() {
 /// recomputes it from `a` regardless of what the inverse would say.
 #[test]
 fn a_computed_field_beside_its_source_is_derived() {
-    let schema = schema_without_child();
+    let schema = schema_without_child(&["up"]);
     let lens = lens_with(&schema, vec![compute_upper()]);
 
     let derived = panproto_lens::collect_derived_fields(&lens.compiled);
@@ -207,7 +311,7 @@ fn a_computed_field_beside_its_source_is_derived() {
 /// to reach `a` in the source.
 #[test]
 fn a_computed_field_replacing_its_source_round_trips_edits() {
-    let schema = schema_without_child();
+    let schema = schema_without_child(&["up"]);
     let instance = instance_of(&schema);
     let lens = lens_with(
         &schema,
@@ -260,31 +364,56 @@ fn a_computed_field_replacing_its_source_round_trips_edits() {
     assert!(panproto_lens::laws::check_put_get(&lens, &instance).is_ok());
 }
 
-/// An `ApplyExpr` over a child scalar reads the child but writes a
-/// shadowing `extra_fields` entry, so the source has no entry to restore.
-/// `put` must not invent one.
+/// An `ApplyExpr` over a child scalar reads the child and writes its result
+/// back to that child, so the parent holds no shadowing `extra_fields`
+/// entry in the view, and `put` must not invent one in the source. The
+/// child is then the coordinate a view edit reaches, so the transform is a
+/// bijection on it: `a := "x:" ++ a` with inverse `slice(a, 2, len(a))`.
 #[test]
 fn apply_expr_over_a_child_scalar_leaves_no_shadow_field() {
-    let schema = schema_with_child();
+    let schema = schema_with_child(&[]);
     let instance = instance_of(&schema);
     let lens = lens_with(
         &schema,
         vec![FieldTransform::ApplyExpr {
             key: "a".into(),
-            expr: Expr::Builtin(BuiltinOp::Upper, vec![Expr::Var(Arc::from("a"))]),
+            expr: Expr::Builtin(
+                BuiltinOp::Concat,
+                vec![
+                    Expr::Lit(Literal::Str("x:".into())),
+                    Expr::Var(Arc::from("a")),
+                ],
+            ),
             inverse: Some(Expr::Builtin(
-                BuiltinOp::Lower,
-                vec![Expr::Var(Arc::from("a"))],
+                BuiltinOp::Slice,
+                vec![
+                    Expr::Var(Arc::from("a")),
+                    Expr::Lit(Literal::Int(2)),
+                    Expr::Builtin(BuiltinOp::Len, vec![Expr::Var(Arc::from("a"))]),
+                ],
             )),
             coercion_class: CoercionClass::Iso,
         }],
     );
 
     let (view, complement) = get(&lens, &instance).expect("get");
+    assert!(
+        !root_fields(&view).contains_key("a"),
+        "the forward pass leaves no shadowing field on the parent: {:?}",
+        root_fields(&view)
+    );
+    let child_values: Vec<_> = view
+        .nodes
+        .values()
+        .filter(|node| node.anchor == "user.a")
+        .map(|node| node.value.clone())
+        .collect();
     assert_eq!(
-        root_fields(&view).get("a"),
-        Some(&Value::Str("HELLO".into())),
-        "the forward pass shadows the child with its transformed value"
+        child_values,
+        vec![Some(panproto_inst::value::FieldPresence::Present(
+            Value::Str("x:hello".into())
+        ))],
+        "the forward pass writes the transformed value back to the child"
     );
 
     let restored = put(&lens, &view, &complement).expect("put");
@@ -304,12 +433,15 @@ fn apply_expr_over_a_child_scalar_leaves_no_shadow_field() {
 
 /// An `ApplyExpr` over an `extra_fields` entry does read and write the same
 /// slot, so it stays an independent coordinate and its inverse still runs.
+/// The source carries `a` as an extra field; the target declares the `a`
+/// the transform writes.
 #[test]
 fn apply_expr_over_an_extra_field_still_inverts_in_place() {
-    let schema = schema_without_child();
+    let schema = schema_without_child(&[]);
     let instance = instance_of(&schema);
-    let lens = lens_with(
+    let lens = lens_between(
         &schema,
+        &schema_without_child(&["a"]),
         vec![FieldTransform::ApplyExpr {
             key: "a".into(),
             expr: Expr::Builtin(BuiltinOp::Upper, vec![Expr::Var(Arc::from("a"))]),
@@ -351,7 +483,7 @@ fn apply_expr_over_an_extra_field_still_inverts_in_place() {
 /// under another key, so the computed field remains redundant with it.
 #[test]
 fn renaming_the_source_does_not_make_the_computation_independent() {
-    let schema = schema_without_child();
+    let schema = schema_without_child(&["up", "moved"]);
     let lens = lens_with(
         &schema,
         vec![
@@ -377,7 +509,7 @@ fn renaming_the_source_does_not_make_the_computation_independent() {
 /// to, so the target stays derived whatever `coercion_class` claims.
 #[test]
 fn a_multi_source_computation_is_not_invertible() {
-    let schema = schema_without_child();
+    let schema = schema_without_child(&["joined"]);
     let lens = lens_with(
         &schema,
         vec![

@@ -21,7 +21,7 @@ use crate::theories;
 /// Returns the `FlatBuffers` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "flatbuffers".into(),
         schema_theory: "ThFlatBuffersSchema".into(),
         instance_theory: "ThFlatBuffersInstance".into(),
@@ -53,8 +53,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `FlatBuffers` with a theory registry.

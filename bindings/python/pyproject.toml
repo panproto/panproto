@@ -18,7 +18,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 authors = [
-    { name = "Aaron Steven White", email = "aaron.steven.white@gmail.com" },
+    { name = "Aaron Steven White", email = "aaronstevenwhite@gmail.com" },
 ]
 keywords = ["schema", "migration", "gat", "lens", "category-theory"]
 classifiers = [

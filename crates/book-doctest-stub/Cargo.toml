@@ -19,7 +19,7 @@ panproto-parse = { workspace = true }
 panproto-protocols = { workspace = true }
 miette = { workspace = true }
 anyhow = "1"
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true }
 smallvec = { workspace = true }
 
 [lints]

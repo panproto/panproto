@@ -244,6 +244,19 @@ pub enum ExistenceError {
         /// `check_morphism`.
         detail: String,
     },
+
+    /// A label of a mapped hyper-edge cannot be carried onto the attribute
+    /// arrows of the two schemas: the label has more than one arrow, its
+    /// renamed label has no arrow in the target or is no label of the target
+    /// hyper-edge, the edge map sends its arrow elsewhere, or a removed
+    /// label's arrow keeps a same-named image.
+    #[error("label {label} of hyper-edge {hyper_edge} does not match the attribute arrows")]
+    LabelArrowMismatch {
+        /// The source hyper-edge.
+        hyper_edge: String,
+        /// The source label.
+        label: String,
+    },
 }
 
 /// Errors from the lift (record migration) operation.
@@ -279,6 +292,18 @@ pub enum LiftError {
         /// The labeled-null ceiling the chase was given.
         max_nulls: usize,
     },
+
+    /// A Kan extension of table instances failed: the functor the
+    /// migration states could not be built, the instance does not conform
+    /// to its schema, or the extension is undefined there (for `Pi_F`, a
+    /// target column outside the image of the column map) or exceeds its
+    /// bound.
+    #[error("Kan extension failed: {0}")]
+    Adjunction(#[from] panproto_inst::AdjunctionError),
+
+    /// A Kan extension of graph instances failed.
+    #[error("graph Kan extension failed: {0}")]
+    GraphKan(#[from] panproto_inst::GraphKanError),
 }
 
 impl LiftError {

@@ -1,0 +1,46 @@
+{
+  "name": "anchors/dangling_edge.rejection",
+  "shape": "graph",
+  "instance": {
+    "edges": {
+      "0": {
+        "edge": {
+          "kind": "prop",
+          "name": "ab",
+          "src": "a",
+          "tgt": "b"
+        },
+        "position": null,
+        "src": 0,
+        "tgt": 99
+      }
+    },
+    "nodes": {
+      "0": {
+        "anchor": "a",
+        "annotations": {},
+        "discriminator": null,
+        "extra_fields": {},
+        "id": 0,
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "value": null
+      },
+      "1": {
+        "anchor": "b",
+        "annotations": {},
+        "discriminator": null,
+        "extra_fields": {},
+        "id": 1,
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "value": null
+      }
+    }
+  },
+  "error": "edge 0 names node 99, which is not in the instance"
+}

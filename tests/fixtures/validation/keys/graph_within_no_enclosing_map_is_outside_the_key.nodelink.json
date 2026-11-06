@@ -1,0 +1,162 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "key",
+        "src": "entry",
+        "tgt": "key"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 1
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "value",
+        "src": "entry",
+        "tgt": "map"
+      },
+      "id": 1,
+      "position": null,
+      "src": 0,
+      "tgt": 2
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "entries",
+        "src": "map",
+        "tgt": "entry"
+      },
+      "id": 2,
+      "position": null,
+      "src": 2,
+      "tgt": 3
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "key",
+        "src": "entry",
+        "tgt": "key"
+      },
+      "id": 3,
+      "position": null,
+      "src": 3,
+      "tgt": 4
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "key",
+        "src": "entry",
+        "tgt": "key"
+      },
+      "id": 4,
+      "position": null,
+      "src": 5,
+      "tgt": 6
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "entry",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "key",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "a"
+        }
+      }
+    },
+    {
+      "anchor": "map",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "entry",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 3,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "key",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 4,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "a"
+        }
+      }
+    },
+    {
+      "anchor": "entry",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 5,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "key",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 6,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "a"
+        }
+      }
+    }
+  ]
+}

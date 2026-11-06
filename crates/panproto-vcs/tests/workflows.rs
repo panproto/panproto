@@ -53,6 +53,7 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -425,7 +426,7 @@ fn delete_tag() -> Result<(), Box<dyn std::error::Error>> {
     refs::create_tag(repo.store_mut(), "v1.0", c1)?;
     refs::delete_tag(repo.store_mut(), "v1.0")?;
     let tags = refs::list_tags(repo.store())?;
-    assert!(tags.is_empty());
+    assert_eq!(tags, []);
     Ok(())
 }
 
@@ -1207,6 +1208,7 @@ fn cherry_pick_no_commit() -> Result<(), Box<dyn std::error::Error>> {
         feature_commit,
         "alice",
         &opts,
+        &HashMap::new(),
     )?;
 
     // HEAD should NOT have advanced.
@@ -1700,7 +1702,7 @@ fn gc_after_reset() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run GC.
     let report = repo.gc()?;
-    assert!(!report.deleted.is_empty());
+    assert_ne!(report.deleted, []);
     assert!(!repo.store().has(&c2));
     Ok(())
 }
@@ -1945,7 +1947,7 @@ fn reset_then_recommit_then_gc() -> Result<(), Box<dyn std::error::Error>> {
 
     // c2 and c3 should be unreachable now.
     let report = repo.gc()?;
-    assert!(!report.deleted.is_empty());
+    assert_ne!(report.deleted, []);
     assert!(!repo.store().has(&c2));
     assert!(!repo.store().has(&c3));
 
@@ -2194,7 +2196,7 @@ fn gc_dry_run_reports_but_preserves() -> Result<(), Box<dyn std::error::Error>> 
     // Dry-run GC: should report c2 as deletable but not actually delete.
     let options = panproto_vcs::gc::GcOptions { dry_run: true };
     let report = panproto_vcs::gc::gc_with_options(repo.store_mut(), &options)?;
-    assert!(!report.deleted.is_empty());
+    assert_ne!(report.deleted, []);
     // Objects should still exist.
     assert!(repo.store().has(&c2));
     Ok(())
@@ -2259,6 +2261,7 @@ fn cherry_pick_record_origin() -> Result<(), Box<dyn std::error::Error>> {
         feature_commit,
         "alice",
         &options,
+        &HashMap::new(),
     )?;
 
     // Load the new commit and check its message.

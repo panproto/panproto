@@ -107,7 +107,7 @@ Grammar-pack crates select subsets of `panproto-grammars` for native and Python 
 
 ## Development
 
-The workspace requires Rust 1.85 or newer.
+The workspace requires Rust 1.97 or newer.
 
 ```sh
 cargo build --workspace

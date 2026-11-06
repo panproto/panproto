@@ -51,14 +51,13 @@ pub fn delete_branch(store: &mut dyn Store, name: &str) -> Result<(), VcsError> 
         })?;
 
     // Check if branch is merged into HEAD.
-    if let Ok(Some(head_id)) = crate::store::resolve_head(store) {
-        if head_id != branch_id
-            && !crate::dag::is_ancestor(store, branch_id, head_id).unwrap_or(false)
-        {
-            return Err(VcsError::BranchNotMerged {
-                name: name.to_owned(),
-            });
-        }
+    if let Ok(Some(head_id)) = crate::store::resolve_head(store)
+        && head_id != branch_id
+        && !crate::dag::is_ancestor(store, branch_id, head_id).unwrap_or(false)
+    {
+        return Err(VcsError::BranchNotMerged {
+            name: name.to_owned(),
+        });
     }
 
     store.delete_ref(&ref_name)
@@ -120,10 +119,10 @@ pub fn rename_branch(
     }
 
     // If HEAD points at the old branch, update it.
-    if let Ok(HeadState::Branch(current)) = store.get_head() {
-        if current == old_name {
-            store.set_head(HeadState::Branch(new_name.to_owned()))?;
-        }
+    if let Ok(HeadState::Branch(current)) = store.get_head()
+        && current == old_name
+    {
+        store.set_head(HeadState::Branch(new_name.to_owned()))?;
     }
 
     Ok(())
@@ -305,10 +304,10 @@ pub fn create_and_checkout_branch(
 /// a named ref and returns [`VcsError::RefNotFound`] when absent.
 pub fn resolve_ref(store: &dyn Store, target: &str) -> Result<ObjectId, VcsError> {
     // Try as a full object ID.
-    if target.len() == 64 {
-        if let Ok(id) = target.parse::<ObjectId>() {
-            return Ok(id);
-        }
+    if target.len() == 64
+        && let Ok(id) = target.parse::<ObjectId>()
+    {
+        return Ok(id);
     }
 
     // Try as HEAD.
@@ -433,7 +432,7 @@ mod tests {
         assert!(create_branch(&mut store, "feature", id).is_err());
 
         delete_branch(&mut store, "feature")?;
-        assert!(list_branches(&store)?.is_empty());
+        assert_eq!(list_branches(&store)?, []);
         Ok(())
     }
 
@@ -448,7 +447,7 @@ mod tests {
         assert_eq!(tags[0].0, "v1.0");
 
         delete_tag(&mut store, "v1.0")?;
-        assert!(list_tags(&store)?.is_empty());
+        assert_eq!(list_tags(&store)?, []);
         Ok(())
     }
 

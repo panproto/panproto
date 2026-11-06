@@ -5,14 +5,67 @@
 //! projection migration with reachability filtering drops nested
 //! children correctly.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
-use panproto_inst::{CompiledMigration, Node, Value, WInstance};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, Node, Value, WInstance};
 use panproto_mig::lift_wtype;
-use panproto_schema::{Edge, Schema, Vertex};
+use panproto_protocols::atproto;
+use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder, Vertex};
 use smallvec::SmallVec;
+
+fn test_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+        non_value_kinds: BTreeSet::from(["object".to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+/// The schema of `vertices` and `edges` under the protocol named
+/// `protocol`: each edge keyed by its kind, the adjacency indexes built from
+/// the edges, and every other field empty.
+fn schema_of(protocol: &str, vertices: HashMap<Name, Vertex>, edges: &[Edge]) -> Schema {
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
+    for e in edges {
+        outgoing.entry(e.src.clone()).or_default().push(e.clone());
+        incoming.entry(e.tgt.clone()).or_default().push(e.clone());
+        between
+            .entry((e.src.clone(), e.tgt.clone()))
+            .or_default()
+            .push(e.clone());
+    }
+    Schema {
+        protocol: protocol.into(),
+        vertices,
+        edges: edges.iter().map(|e| (e.clone(), e.kind.clone())).collect(),
+        outgoing,
+        incoming,
+        between,
+        ..Default::default()
+    }
+}
+
+/// The migration that keeps exactly `surviving_verts` and
+/// `surviving_edges` and remaps, resolves and transforms nothing.
+fn keeping(surviving_verts: HashSet<Name>, surviving_edges: HashSet<Edge>) -> CompiledMigration {
+    CompiledMigration {
+        surviving_verts,
+        surviving_edges,
+        vertex_remap: HashMap::new(),
+        edge_remap: HashMap::new(),
+        resolver: HashMap::new(),
+        hyper_resolver: HashMap::new(),
+        field_transforms: HashMap::new(),
+        conditional_survival: HashMap::new(),
+        op_term_assignments: HashMap::new(),
+        expansion_path: HashMap::new(),
+    }
+}
 
 /// Build a recursive threadViewPost schema.
 ///
@@ -141,6 +194,12 @@ fn thread_view_post_schema() -> Schema {
             name: None,
         },
         Edge {
+            src: "tvp.replies:items:v0".into(),
+            tgt: "tvp.replies:items:v0".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        },
+        Edge {
             src: "tvp".into(),
             tgt: "tvp.parent".into(),
             kind: "prop".into(),
@@ -151,6 +210,12 @@ fn thread_view_post_schema() -> Schema {
             tgt: "tvp.parent:v0".into(),
             kind: "variant".into(),
             name: None,
+        },
+        Edge {
+            src: "tvp.parent:v0".into(),
+            tgt: "tvp.parent:v0".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
         },
     ];
 
@@ -191,6 +256,7 @@ fn thread_view_post_schema() -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -383,65 +449,25 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
     // Build a target schema with only the surviving elements.
     let tgt_vertices: HashMap<Name, Vertex> = full_schema
         .vertices
+        .clone()
         .into_iter()
         .filter(|(k, _)| surviving_verts.contains(k))
         .collect();
+    let tgt_edges: Vec<Edge> = surviving_edges.iter().cloned().collect();
+    let tgt_schema = schema_of("atproto", tgt_vertices, &tgt_edges);
+    let compiled = keeping(surviving_verts, surviving_edges);
 
-    let tgt_edges: HashMap<Edge, Name> = surviving_edges
-        .iter()
-        .map(|e| (e.clone(), e.kind.clone()))
-        .collect();
-
-    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
-    for e in &surviving_edges {
-        outgoing.entry(e.src.clone()).or_default().push(e.clone());
-        incoming.entry(e.tgt.clone()).or_default().push(e.clone());
-        between
-            .entry((e.src.clone(), e.tgt.clone()))
-            .or_default()
-            .push(e.clone());
-    }
-
-    let tgt_schema = Schema {
-        protocol: "atproto".into(),
-        vertices: tgt_vertices,
-        edges: tgt_edges,
-        hyper_edges: HashMap::new(),
-        constraints: HashMap::new(),
-        required: HashMap::new(),
-        nsids: HashMap::new(),
-        entries: Vec::new(),
-        variants: HashMap::new(),
-        orderings: HashMap::new(),
-        recursion_points: HashMap::new(),
-        spans: HashMap::new(),
-        usage_modes: HashMap::new(),
-        nominal: HashMap::new(),
-        coercions: HashMap::new(),
-        mergers: HashMap::new(),
-        defaults: HashMap::new(),
-        policies: HashMap::new(),
-        outgoing,
-        incoming,
-        between,
-    };
-
-    let compiled = CompiledMigration {
-        surviving_verts,
-        surviving_edges,
-        vertex_remap: HashMap::new(),
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
-    };
-
-    let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+    let protocol = atproto::protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &full_schema,
+        &tgt_schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
 
     // Should keep only the root + post subtree (4 nodes max, but
     // reachability may further prune depending on anchor survival).
@@ -488,6 +514,15 @@ fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Err
         },
     ];
 
+    let protocol = test_protocol();
+    let src_schema = SchemaBuilder::new(&protocol)
+        .vertex("root", "object", None)?
+        .vertex("mid", "object", None)?
+        .vertex("leaf", "string", None)?
+        .edge("root", "mid", "prop", Some("child"))?
+        .edge("mid", "leaf", "prop", Some("data"))?
+        .build()?;
+
     let mut nodes = HashMap::new();
     nodes.insert(0, Node::new(0, "root"));
     nodes.insert(1, Node::new(1, "mid"));
@@ -532,47 +567,22 @@ fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Err
     ]);
 
     // Target schema has a direct root->leaf edge (the contracted edge).
-    let tgt_schema = Schema {
-        protocol: "test".into(),
-        vertices: tgt_vertices,
-        edges: HashMap::from([(edge_root_leaf.clone(), "prop".into())]),
-        hyper_edges: HashMap::new(),
-        constraints: HashMap::new(),
-        required: HashMap::new(),
-        nsids: HashMap::new(),
-        entries: Vec::new(),
-        variants: HashMap::new(),
-        orderings: HashMap::new(),
-        recursion_points: HashMap::new(),
-        spans: HashMap::new(),
-        usage_modes: HashMap::new(),
-        nominal: HashMap::new(),
-        coercions: HashMap::new(),
-        mergers: HashMap::new(),
-        defaults: HashMap::new(),
-        policies: HashMap::new(),
-        outgoing: HashMap::from([("root".into(), SmallVec::from([edge_root_leaf.clone()]))]),
-        incoming: HashMap::from([("leaf".into(), SmallVec::from([edge_root_leaf.clone()]))]),
-        between: HashMap::from([(
-            ("root".into(), "leaf".into()),
-            SmallVec::from([edge_root_leaf.clone()]),
-        )]),
-    };
+    let tgt_schema = schema_of("test", tgt_vertices, std::slice::from_ref(&edge_root_leaf));
+    let compiled = keeping(
+        HashSet::from(["root".into(), "leaf".into()]),
+        HashSet::from([edge_root_leaf]),
+    );
 
-    let compiled = CompiledMigration {
-        surviving_verts: HashSet::from(["root".into(), "leaf".into()]),
-        surviving_edges: HashSet::from([edge_root_leaf]),
-        vertex_remap: HashMap::new(),
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
-    };
-
-    let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+    let lifted = lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
 
     // The restrict pipeline should handle ancestor contraction:
     // leaf's parent (mid) is dropped, so leaf should be re-parented

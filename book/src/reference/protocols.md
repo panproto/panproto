@@ -4,11 +4,11 @@ A [protocol](../glossary.md#protocol) names a schema language together with its 
 
 ## Semantic protocols
 
-The generic dispatch functions accept 54 semantic protocols. Names in this table are the canonical hyphenated strings accepted by [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). Underscore spellings are normalized before dispatch.
+The protocol registry lists 57 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The three generic text formats, `csv`, `toml` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`.
 
 | Category module | Protocol names |
 |---|---|
-| `annotation` | `amr`, `bead`, `brat`, `concrete`, `conllu`, `decomp`, `elan`, `folia`, `fovea`, `iso-space`, `laf-graf`, `naf`, `nif`, `paula`, `tei`, `timeml`, `ucca`, `uima-cas`, `web-annotation` |
+| `annotation` | `amr`, `bead`, `brat`, `concrete`, `conllu`, `decomp`, `elan`, `folia`, `fovea`, `iso-space`, `laf-graf`, `naf`, `nif`, `paula`, `tei`, `timeml`, `ucca`, `uima`, `web-annotation` |
 | `api` | `asyncapi`, `graphql`, `jsonapi`, `openapi`, `raml` |
 | `config` | `ansible`, `cloudformation`, `k8s-crd` |
 | `data_schema` | `bson`, `cddl`, `json-schema` |
@@ -16,6 +16,7 @@ The generic dispatch functions accept 54 semantic protocols. Names in this table
 | `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `sql` |
 | `domain` | `edi-x12`, `fhir`, `geojson`, `rss-atom`, `swift-mt`, `vcard-ical` |
 | `serialization` | `asn1`, `avro`, `bond`, `flatbuffers`, `msgpack-schema`, `protobuf` |
+| `text` | `csv`, `toml`, `yaml` |
 | `web_document` | `atproto`, `docx`, `odf` |
 
 The `raw_file` module is the text-or-binary fallback used during project assembly. It is a protocol implementation, but is not listed by either generic schema-dispatch function.
@@ -29,20 +30,21 @@ The `raw_file` module is the text-or-binary fallback used during project assembl
 | `parse_schema_bundle` | JSON document bundle | `atproto` only |
 | `parse_schema_bundle_project` | path and JSON pairs with per-file provenance | `atproto` only |
 
-The exported `document_parser_protocols`, `source_parser_protocols`, `bundle_parser_protocols`, and `bundle_project_protocols` arrays are the lookup sources for these sets.
+The exported `document_parser_protocols`, `source_parser_protocols`, `bundle_parser_protocols`, and `bundle_project_protocols` listings are the lookup sources for these sets.
 
-Protocol availability also depends on the surface. The current `schema` CLI resolves protocol theories only for `atproto`. The C and WebAssembly theory-registry helpers recognize `atproto`, `json-schema`, `graphql`, `sql`, and `protobuf`, while their protocol lookup tables expose the 54 names above.
+The `schema` CLI and the C and WebAssembly theory-registry helpers resolve every descriptor through the shared registry by canonical name or alias. The generic document and source parser listings expose the 54 protocols that read schema documents.
 
 ## Registration behavior
 
 Each semantic protocol module exposes `protocol()` and `register_theories()`. Most registrars call shared theory-group constructors. Those constructors panic if a named pushout fails, rewrite analysis cannot complete, two rewrite paths fail to rejoin (a non-joining critical pair), or the lexicographic-path-order termination check fails. Registration thus treats these outcomes as internal theory-definition defects, not recoverable input errors.
 
-The ATProto registrar is different. It inserts its five component theories first, then inserts each composed schema or instance theory only when the corresponding `pushout_by_name` call succeeds. Its `register_theories()` function has no `Result`, so a failed composition is omitted rather than returned to the caller. [What panproto verifies](../explanation/what-is-verified.md#schemas-theories-and-migrations) gives the boundary between these construction-time gates and checks on user schemas.
+The ATProto registrar instead uses atomic registration for the schema and instance theories that it composes from five component theories. The registrar builds both compositions before mutating the destination registry. A failed composition returns `ProtocolError::TheoryRegistration` naming the stage and leaves the registry unchanged; callers propagate that error rather than proceeding with a missing composite. [What panproto verifies](../explanation/what-is-verified.md#schemas-theories-and-migrations) gives the boundary between these construction-time gates and checks on user schemas.
 
 The source tree is the catalog authority:
 
 | Contract | Source |
 |---|---|
+| Shared descriptors, canonical names, lookup, and theory registrars | [`crates/panproto-protocols/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/registry.rs) |
 | Protocol modules and parser dispatch | [`crates/panproto-protocols/src/lib.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/lib.rs) |
 | Reusable theories and pushout helpers | [`crates/panproto-protocols/src/theories.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/theories.rs) |
 | CLI theory lookup | [`crates/panproto-cli/src/cmd/helpers.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-cli/src/cmd/helpers.rs) |
@@ -63,7 +65,7 @@ The verified set currently contains 255 names. [Source-code emission](../explana
 
 ## Defining a protocol
 
-[Build a custom protocol](../how-to/build-protocol.md) covers theory declaration, registration, parsing, and emission. Adding a Rust module to `panproto-protocols` does not automatically extend the CLI, C, or WebAssembly lookup matches. Each exposed surface needs its own dispatch arm.
+[Build a custom protocol](../how-to/build-protocol.md) covers theory declaration, registration, parsing, and emission. Adding a Rust module to `panproto-protocols` does not make the protocol available through the public lookup surfaces. Availability also requires a descriptor in the shared registry, which the CLI, C, and WebAssembly lookup surfaces resolve.
 
 ## See also
 

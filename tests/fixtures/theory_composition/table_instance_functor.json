@@ -1,0 +1,613 @@
+{
+  "diagram": {
+    "nodes": [
+      {
+        "label": "ThFunctor",
+        "theory": {
+          "name": "ThFunctor",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Table",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Row",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "ForeignKey",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "table_vertex",
+              "inputs": [
+                [
+                  "t",
+                  "Table",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "fk_src",
+              "inputs": [
+                [
+                  "fk",
+                  "ForeignKey",
+                  "No"
+                ]
+              ],
+              "output": "Row"
+            },
+            {
+              "name": "fk_tgt",
+              "inputs": [
+                [
+                  "fk",
+                  "ForeignKey",
+                  "No"
+                ]
+              ],
+              "output": "Row"
+            },
+            {
+              "name": "row_table",
+              "inputs": [
+                [
+                  "r",
+                  "Row",
+                  "No"
+                ]
+              ],
+              "output": "Table"
+            },
+            {
+              "name": "fk_edge",
+              "inputs": [
+                [
+                  "fk",
+                  "ForeignKey",
+                  "No"
+                ]
+              ],
+              "output": "Edge"
+            },
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [
+            {
+              "name": "fk_src_anchor",
+              "lhs": {
+                "App": {
+                  "op": "src",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "fk_edge",
+                        "args": [
+                          {
+                            "Var": "k"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "App": {
+                  "op": "table_vertex",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "row_table",
+                        "args": [
+                          {
+                            "App": {
+                              "op": "fk_src",
+                              "args": [
+                                {
+                                  "Var": "k"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "fk_tgt_anchor",
+              "lhs": {
+                "App": {
+                  "op": "tgt",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "fk_edge",
+                        "args": [
+                          {
+                            "Var": "k"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "App": {
+                  "op": "table_vertex",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "row_table",
+                        "args": [
+                          {
+                            "App": {
+                              "op": "fk_tgt",
+                              "args": [
+                                {
+                                  "Var": "k"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "directed_eqs": [],
+          "policies": []
+        }
+      }
+    ],
+    "edges": []
+  },
+  "options": {
+    "mode": "explicit_identity",
+    "result_name": "table_instance_functor",
+    "clash": "reject",
+    "rewrite_budget": 512
+  },
+  "composition": {
+    "theory": {
+      "name": "table_instance_functor",
+      "extends": [],
+      "sorts": [
+        {
+          "name": "Edge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "ForeignKey",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Row",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Table",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Vertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        }
+      ],
+      "ops": [
+        {
+          "name": "fk_edge",
+          "inputs": [
+            [
+              "fk",
+              "ForeignKey",
+              "No"
+            ]
+          ],
+          "output": "Edge"
+        },
+        {
+          "name": "fk_src",
+          "inputs": [
+            [
+              "fk",
+              "ForeignKey",
+              "No"
+            ]
+          ],
+          "output": "Row"
+        },
+        {
+          "name": "fk_tgt",
+          "inputs": [
+            [
+              "fk",
+              "ForeignKey",
+              "No"
+            ]
+          ],
+          "output": "Row"
+        },
+        {
+          "name": "row_table",
+          "inputs": [
+            [
+              "r",
+              "Row",
+              "No"
+            ]
+          ],
+          "output": "Table"
+        },
+        {
+          "name": "src",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "table_vertex",
+          "inputs": [
+            [
+              "t",
+              "Table",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "tgt",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        }
+      ],
+      "eqs": [
+        {
+          "name": "fk_src_anchor",
+          "lhs": {
+            "App": {
+              "op": "src",
+              "args": [
+                {
+                  "App": {
+                    "op": "fk_edge",
+                    "args": [
+                      {
+                        "Var": "k"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "rhs": {
+            "App": {
+              "op": "table_vertex",
+              "args": [
+                {
+                  "App": {
+                    "op": "row_table",
+                    "args": [
+                      {
+                        "App": {
+                          "op": "fk_src",
+                          "args": [
+                            {
+                              "Var": "k"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "fk_tgt_anchor",
+          "lhs": {
+            "App": {
+              "op": "tgt",
+              "args": [
+                {
+                  "App": {
+                    "op": "fk_edge",
+                    "args": [
+                      {
+                        "Var": "k"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "rhs": {
+            "App": {
+              "op": "table_vertex",
+              "args": [
+                {
+                  "App": {
+                    "op": "row_table",
+                    "args": [
+                      {
+                        "App": {
+                          "op": "fk_tgt",
+                          "args": [
+                            {
+                              "Var": "k"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "directed_eqs": [],
+      "policies": []
+    },
+    "inclusions": [
+      {
+        "name": "incl_ThFunctor_table_instance_functor",
+        "domain": "ThFunctor",
+        "codomain": "table_instance_functor",
+        "sort_map": {
+          "Edge": "Edge",
+          "ForeignKey": "ForeignKey",
+          "Row": "Row",
+          "Table": "Table",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "fk_edge": "fk_edge",
+          "fk_src": "fk_src",
+          "fk_tgt": "fk_tgt",
+          "row_table": "row_table",
+          "src": "src",
+          "table_vertex": "table_vertex",
+          "tgt": "tgt"
+        }
+      }
+    ],
+    "provenance": {
+      "sorts": [
+        [
+          {
+            "node": "ThFunctor",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "ForeignKey"
+          },
+          "ForeignKey"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "Row"
+          },
+          "Row"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "Table"
+          },
+          "Table"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ]
+      ],
+      "ops": [
+        [
+          {
+            "node": "ThFunctor",
+            "name": "fk_edge"
+          },
+          "fk_edge"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "fk_src"
+          },
+          "fk_src"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "fk_tgt"
+          },
+          "fk_tgt"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "row_table"
+          },
+          "row_table"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "table_vertex"
+          },
+          "table_vertex"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "tgt"
+          },
+          "tgt"
+        ]
+      ],
+      "eqs": [
+        [
+          {
+            "node": "ThFunctor",
+            "name": "fk_src_anchor"
+          },
+          "fk_src_anchor"
+        ],
+        [
+          {
+            "node": "ThFunctor",
+            "name": "fk_tgt_anchor"
+          },
+          "fk_tgt_anchor"
+        ]
+      ],
+      "directed_eqs": [],
+      "policies": [],
+      "added_eqs": {}
+    },
+    "report": {
+      "mode": "explicit_identity",
+      "status": "passed",
+      "name_clash_free": true,
+      "checks": [
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThFunctor"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "class_signatures_agree",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThFunctor"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThFunctor"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "universal_identity",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "result_well_typed",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "name_clash_free",
+          "subject": "diagram",
+          "outcome": "passed"
+        }
+      ],
+      "freshened": []
+    }
+  }
+}

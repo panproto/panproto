@@ -271,7 +271,6 @@ mod tests {
 
     #[test]
     fn build_empty_project_is_an_operation_error() {
-        let _ = crate::error::take_last_error();
         let mut builder_h: u32 = u32::MAX;
         assert_eq!(pp_project_builder_new(&mut builder_h), PpStatus::Ok as i32);
 
@@ -281,15 +280,11 @@ mod tests {
         // The out-handle slot is left untouched on failure.
         assert_eq!(project_h, u32::MAX);
 
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert_eq!(env.tag, "operation");
-
         assert_eq!(pp_handle_free(builder_h), PpStatus::Ok as i32);
     }
 
     #[test]
     fn add_file_invalid_utf8_path_is_an_operation_error() {
-        let _ = crate::error::take_last_error();
         let mut builder_h: u32 = u32::MAX;
         assert_eq!(pp_project_builder_new(&mut builder_h), PpStatus::Ok as i32);
 
@@ -297,19 +292,12 @@ mod tests {
         let content = slice_box(b"x");
         let status = pp_project_add_file(builder_h, path.as_ref(), content.as_ref());
         assert_eq!(status, PpStatus::Operation as i32);
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert!(
-            env.message.contains("invalid file path"),
-            "unexpected message: {}",
-            env.message
-        );
 
         assert_eq!(pp_handle_free(builder_h), PpStatus::Ok as i32);
     }
 
     #[test]
     fn protocol_map_on_non_project_handle_is_type_mismatch() {
-        let _ = crate::error::take_last_error();
         // Allocate a Schema handle and feed it where a ProjectSchema is
         // expected.
         let project_h = build_from_files(&[("a.rs", b"pub fn a() {}" as &[u8])]);

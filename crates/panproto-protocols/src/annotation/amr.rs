@@ -32,7 +32,7 @@ use crate::theories;
 /// Returns the AMR protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "amr".into(),
         schema_theory: "ThAmrSchema".into(),
         instance_theory: "ThAmrInstance".into(),
@@ -54,8 +54,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for AMR.
@@ -125,6 +127,8 @@ const RELATION_EDGES: &[&str] = &[
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_amr_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -168,11 +172,11 @@ pub fn parse_amr_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
                     }
                     serde_json::Value::Array(arr) => {
                         for (i, item) in arr.iter().enumerate() {
-                            if let Some(tgt) = item.as_str() {
-                                if types.contains_key(tgt) {
-                                    let label = format!("{edge_kind}.{i}");
-                                    builder = builder.edge(name, tgt, edge_kind, Some(&label))?;
-                                }
+                            if let Some(tgt) = item.as_str()
+                                && types.contains_key(tgt)
+                            {
+                                let label = format!("{edge_kind}.{i}");
+                                builder = builder.edge(name, tgt, edge_kind, Some(&label))?;
                             }
                         }
                     }

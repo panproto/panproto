@@ -79,7 +79,11 @@ extension BuiltinOp {
         case .children: "children"
         case .hasEdge: "has_edge"
         case .edgeCount: "edge_count"
+        case .edges: "edges"
         case .anchor: "anchor"
+        case .toString: "to_string"
+        case .parseDecimal: "parse_decimal"
+        case .decimalToFloat: "decimal_to_float"
         }
     }
 
@@ -94,11 +98,11 @@ extension BuiltinOp {
         case .neg, .abs, .floor, .ceil, .round, .not, .upper, .lower, .trim, .head, .tail,
             .reverse, .keys, .values, .intToFloat, .floatToInt, .intToStr, .floatToStr,
             .strToInt, .strToFloat, .typeOf, .isNull, .isList, .len, .length, .children,
-            .edgeCount, .anchor:
+            .edgeCount, .anchor, .toString, .parseDecimal, .decimalToFloat:
             1
         case .add, .sub, .mul, .div, .mod, .eq, .neq, .lt, .lte, .gt, .gte, .and, .or, .concat,
             .split, .join, .append, .map, .filter, .hasField, .mergeRecords, .contains, .flatMap,
-            .edge, .hasEdge, .defaultVal, .range, .truncateStr:
+            .edge, .edges, .hasEdge, .defaultVal, .range, .truncateStr:
             2
         case .slice, .replace, .fold, .clamp:
             3
@@ -502,6 +506,12 @@ extension Literal {
         case .closure(let param, let body, _):
             out += "\\" + param + " -> "
             out += body.prettyPrinted
+        case .decimal(let value):
+            out += "Decimal(\(value))"
+        case .bigInt(let value):
+            out += "BigInt(\(value))"
+        case .temporal(let value):
+            out += "Temporal(\(value.representation))"
         }
     }
 

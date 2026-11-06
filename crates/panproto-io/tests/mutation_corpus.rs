@@ -39,7 +39,7 @@ fn open_schema(protocol_name: &str) -> Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -81,12 +81,13 @@ fn ast_summary(inst: &WInstance) -> String {
 /// A canonical rendering of a functor instance's tables.
 fn functor_summary(inst: &FInstance) -> String {
     let mut tables: Vec<String> = inst
-        .tables
-        .iter()
-        .map(|(name, rows)| {
-            let rendered: Vec<String> = rows
-                .iter()
-                .map(|row| {
+        .tables()
+        .into_iter()
+        .map(|(name, table)| {
+            let rendered: Vec<String> = table
+                .rows()
+                .into_iter()
+                .map(|(_, row)| {
                     let mut cells: Vec<String> =
                         row.iter().map(|(k, v)| format!("{k}={v:?}")).collect();
                     cells.sort();
@@ -186,11 +187,11 @@ fn assert_tabular_mutation_round_trip(
         .parse_functor_preserving(schema, input)
         .unwrap_or_else(|e| panic!("[{label}] parse failed: {e}"));
 
-    let mut coords: Vec<(String, usize, String)> = Vec::new();
-    for (table, rows) in &instance.tables {
-        for (r, row) in rows.iter().enumerate() {
+    let mut coords: Vec<(String, u32, String)> = Vec::new();
+    for (table, rows) in instance.tables() {
+        for (r, row) in rows.rows() {
             for key in row.keys() {
-                coords.push((table.clone(), r, key.clone()));
+                coords.push((table.to_string(), r.0, key.clone()));
             }
         }
     }
@@ -199,14 +200,16 @@ fn assert_tabular_mutation_round_trip(
 
     for (table, r, key) in coords {
         let mut mutated = instance.clone();
-        let rows = mutated.tables.get_mut(&table).expect("table");
-        let cell = rows[r].get(&key).expect("cell").clone();
+        let row = mutated
+            .row_mut(panproto_inst::RowId(r))
+            .expect("the row exists");
+        let cell = row.get(&key).expect("cell").clone();
         let Some(FieldPresence::Present(new_value)) =
             perturb(&FieldPresence::Present(cell.clone()))
         else {
             continue;
         };
-        rows[r].insert(key.clone(), new_value.clone());
+        row.insert(key.clone(), new_value.clone());
 
         let emitted = codec
             .emit_functor_preserving(schema, &mutated, &complement)
@@ -239,7 +242,7 @@ fn tabular_schema() -> Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("rows", "object", None)

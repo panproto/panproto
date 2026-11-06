@@ -1,7 +1,20 @@
 //! Generic XML-based codec for protocols whose instance data is XML.
 //!
-//! Used by NAF, FoLiA, TEI, TimeML, ELAN, ISO-Space, XSD instances,
+//! Deprecated: enable the `tree-sitter` feature and use `UnifiedCodec` instead.
+//!
+//! Used by NAF, `FoLiA`, TEI, `TimeML`, ELAN, ISO-Space, XSD instances,
 //! RSS/Atom, PAULA, LAF/GrAF, DOCX (inner XML), ODF (inner XML).
+//!
+//! ## Prop1 waiver list
+//!
+//! - A scalar whose written text would exceed the default 64 MiB output-byte
+//!   allowance is refused with a typed limit error.
+//!
+//! ## Departures from the format standard
+//!
+//! - The shared XML pathway writes a negative canonical NaN as `-NaN` to
+//!   retain its sign. This is a deliberate departure from XSD 1.1 Part 2,
+//!   Sections 3.3.4.1-3.3.4.2.
 
 use panproto_inst::{FInstance, WInstance};
 use panproto_schema::Schema;
@@ -44,7 +57,7 @@ impl InstanceParser for XmlCodec {
     }
 
     fn native_repr(&self) -> NativeRepr {
-        NativeRepr::WType
+        NativeRepr::Tree
     }
 
     fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
@@ -58,8 +71,8 @@ impl InstanceParser for XmlCodec {
     ) -> Result<FInstance, ParseInstanceError> {
         Err(ParseInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::Functor,
-            native: NativeRepr::WType,
+            requested: NativeRepr::Table,
+            native: NativeRepr::Tree,
         })
     }
 }
@@ -84,8 +97,8 @@ impl InstanceEmitter for XmlCodec {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         Err(EmitInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::Functor,
-            native: NativeRepr::WType,
+            requested: NativeRepr::Table,
+            native: NativeRepr::Tree,
         })
     }
 }

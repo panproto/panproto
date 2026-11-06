@@ -53,12 +53,16 @@ pub use chase::{
     dependencies_from_schema, dependencies_from_theory, saturate_row_existence,
     term_dependencies_from_theory,
 };
+pub use chase::{chase_with_hom, saturate_row_existence_with_hom};
 pub use compile::compile;
 pub use compose::compose;
 pub use compose::{
     ComposeReport, OnMissing, RelabelComposition, compose_relabeling, compose_with_report,
 };
-pub use coverage::{CoverageReport, PartialFailure, PartialReason, check_coverage};
+pub use coverage::{
+    CoverageReport, GraphCoverageReport, PartialFailure, PartialReason, check_coverage,
+    check_graph_coverage,
+};
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError, SpanError};
 pub use existence::{ExistenceReport, check_existence};
 pub use hom_search::{
@@ -69,8 +73,10 @@ pub use hom_search::{
 };
 pub use invert::invert;
 pub use lift::{
-    lift_functor, lift_functor_pi, lift_functor_sigma, lift_wtype, lift_wtype_pi, lift_wtype_sigma,
+    lift_functor, lift_functor_pi, lift_functor_sigma, lift_graph, lift_graph_pi, lift_graph_sigma,
+    lift_wtype, lift_wtype_pi, lift_wtype_sigma,
 };
+pub use lift::{lift_functor_pi_with_provenance, lift_functor_sigma_with_hom};
 pub use migration::{COERCION_INPUT, Migration, compose_coercions, invert_coercion};
 pub use overlap::discover_overlap;
 pub use schema_theory::{check_migration_morphism, induced_theory_morphism, schema_to_theory};

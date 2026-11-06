@@ -54,7 +54,7 @@ struct RecursionPointWireTests {
         let written = Raw.schemaToCbor(schemaHandle: loaded.handle)
         #expect(written.status == .ok)
 
-        // `mu_id` is the key this type used to carry. The marker is the map
+        // The value must not carry a `mu_id` key. The marker is the map
         // key, so repeating it inside the value would let the two disagree.
         let text = String(decoding: written.bytes, as: UTF8.self)
         #expect(!text.contains("mu_id"), "the engine wrote a key Swift does not declare")

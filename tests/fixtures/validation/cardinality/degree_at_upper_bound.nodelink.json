@@ -1,0 +1,66 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "child",
+        "src": "parent",
+        "tgt": "child"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 1
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "child",
+        "src": "parent",
+        "tgt": "child"
+      },
+      "id": 1,
+      "position": null,
+      "src": 0,
+      "tgt": 2
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "parent",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "child",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "child",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    }
+  ]
+}

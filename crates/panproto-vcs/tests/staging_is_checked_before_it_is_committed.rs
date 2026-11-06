@@ -52,6 +52,7 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -60,6 +61,15 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
 fn repo_with_schema() -> (tempfile::TempDir, Repository) {
     let dir = tempfile::tempdir().unwrap();
     let mut repo = Repository::init(dir.path()).unwrap();
+    // No registry declares the schemas' protocol "test", so it is
+    // registered by name.
+    repo.set_protocol(panproto_schema::Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+        ..Default::default()
+    });
     repo.add(&make_schema(&[("a", "object")])).unwrap();
     repo.commit("schema", "alice").unwrap();
     (dir, repo)
@@ -174,9 +184,8 @@ fn a_default_commit_refuses_pending_data() {
     assert!(what.contains("d.json"), "the error names what is pending");
 }
 
-/// The same for a schema, which is the case #269 reports: `add
-/// --skip-verify` alone was enough to get unverified material into an
-/// ordinary commit.
+/// The same for a schema: `add --skip-verify` alone must not be enough to
+/// get unverified material into an ordinary commit.
 #[test]
 fn a_default_commit_refuses_a_pending_schema() {
     let (_dir, mut repo) = repo_with_schema();

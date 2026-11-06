@@ -44,8 +44,11 @@ statusRoundTripPure = do
             , StatusTypeMismatch
             , StatusSerialization
             , StatusInternal
+            , StatusOperation
+            , StatusNotSingleStage
             ]
     mapM_ (\s -> statusFromInt (statusToInt s) @?= s) codes
+    statusFromInt 8 @?= StatusNotSingleStage
 
 unknownStatusPreserved :: IO ()
 unknownStatusPreserved = do

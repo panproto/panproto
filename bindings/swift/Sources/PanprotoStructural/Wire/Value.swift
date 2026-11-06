@@ -1,5 +1,272 @@
 import Foundation
 
+// MARK: - Exact scalar payloads
+
+/// An exact decimal as Rust serializes it.
+///
+/// The exponent is a decimal string because the engine's `WideInt` has no
+/// fixed-width bound. A finite value leaves `class` off the wire; infinities
+/// and NaNs carry it explicitly.
+public struct DecimalValue: Codable, Hashable, Sendable {
+    /// Whether the written value is negative.
+    public var negative: Bool
+    /// Canonical coefficient digits.
+    public var digits: String
+    /// The unbounded power of ten, as canonical decimal text.
+    public var exponent: String
+    /// Whether the value is finite, infinite, or a NaN.
+    public var decimalClass: DecimalClass
+
+    /// Assemble an exact decimal payload.
+    public init(
+        negative: Bool = false,
+        digits: String,
+        exponent: String,
+        decimalClass: DecimalClass = .finite
+    ) {
+        self.negative = negative
+        self.digits = digits
+        self.exponent = exponent
+        self.decimalClass = decimalClass
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case negative
+        case digits
+        case exponent
+        case decimalClass = "class"
+    }
+
+    /// Read the engine's named-field decimal representation.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let value = Self(
+            negative: try container.decode(Bool.self, forKey: .negative),
+            digits: try container.decode(String.self, forKey: .digits),
+            exponent: try container.decode(String.self, forKey: .exponent),
+            decimalClass: try container.decodeIfPresent(DecimalClass.self, forKey: .decimalClass)
+                ?? .finite
+        )
+        guard value.isWellFormed else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: container.codingPath, debugDescription: "noncanonical decimal"))
+        }
+        self = value
+    }
+
+    /// Write the engine's named-field decimal representation.
+    public func encode(to encoder: any Encoder) throws {
+        guard isWellFormed else {
+            throw EncodingError.invalidValue(
+                self,
+                .init(codingPath: encoder.codingPath, debugDescription: "noncanonical decimal"))
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(negative, forKey: .negative)
+        try container.encode(digits, forKey: .digits)
+        try container.encode(exponent, forKey: .exponent)
+        if decimalClass != .finite {
+            try container.encode(decimalClass, forKey: .decimalClass)
+        }
+    }
+
+    private var isWellFormed: Bool {
+        guard Self.isCanonicalUnsigned(digits), Self.isCanonicalInteger(exponent) else {
+            return false
+        }
+        switch decimalClass {
+        case .finite:
+            return true
+        case .infinite:
+            return digits == "0" && exponent == "0"
+        case .nan(_, let payload):
+            return digits == "0" && exponent == "0" && Self.isCanonicalUnsigned(payload)
+        }
+    }
+
+    private static func isCanonicalUnsigned(_ text: String) -> Bool {
+        !text.isEmpty && text.allSatisfy(\.isASCIIWholeNumber)
+            && (text == "0" || text.first != "0")
+    }
+
+    private static func isCanonicalInteger(_ text: String) -> Bool {
+        if let first = text.first, first == "-" {
+            let magnitude = String(text.dropFirst())
+            return magnitude != "0" && isCanonicalUnsigned(magnitude)
+        }
+        return isCanonicalUnsigned(text)
+    }
+}
+
+/// The General Decimal Arithmetic class of an exact decimal.
+public enum DecimalClass: Codable, Hashable, Sendable {
+    case finite
+    case infinite
+    case nan(signalling: Bool, payload: String)
+
+    private enum Tag: String, CodingKey { case naN = "na_n" }
+    private enum NaNKeys: String, CodingKey { case signalling, payload }
+
+    /// Read a unit class name or the `na_n` payload.
+    public init(from decoder: any Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+            let tag = try? single.decode(String.self)
+        {
+            switch tag {
+            case "finite": self = .finite
+            case "infinite": self = .infinite
+            default:
+                throw DecodingError.dataCorruptedError(
+                    in: single, debugDescription: "\(tag) is not a decimal class")
+            }
+            return
+        }
+        let container = try decoder.container(keyedBy: Tag.self)
+        guard container.allKeys == [.naN] else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "unknown decimal class"))
+        }
+        let payload = try container.nestedContainer(keyedBy: NaNKeys.self, forKey: .naN)
+        self = .nan(
+            signalling: try payload.decode(Bool.self, forKey: .signalling),
+            payload: try payload.decode(String.self, forKey: .payload)
+        )
+    }
+
+    /// Write a unit class name or the `na_n` payload.
+    public func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .finite, .infinite:
+            var single = encoder.singleValueContainer()
+            try single.encode(self == .finite ? "finite" : "infinite")
+        case .nan(let signalling, let diagnostic):
+            var container = encoder.container(keyedBy: Tag.self)
+            var payload = container.nestedContainer(keyedBy: NaNKeys.self, forKey: .naN)
+            try payload.encode(signalling, forKey: .signalling)
+            try payload.encode(diagnostic, forKey: .payload)
+        }
+    }
+}
+
+/// An integer outside the engine's `i64` carrier.
+public struct BigIntValue: Codable, Hashable, Sendable {
+    /// Whether the integer is negative.
+    public var negative: Bool
+    /// Magnitude digits with leading and trailing zeros removed.
+    public var significand: String
+    /// The unbounded trailing-zero count, as canonical decimal text.
+    public var zeros: String
+
+    /// Assemble an exact wide-integer payload.
+    public init(negative: Bool = false, significand: String, zeros: String = "0") {
+        self.negative = negative
+        self.significand = significand
+        self.zeros = zeros
+    }
+
+    private enum CodingKeys: String, CodingKey { case negative, significand, zeros }
+
+    /// Read and validate the engine's wide-integer representation.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let value = Self(
+            negative: try container.decode(Bool.self, forKey: .negative),
+            significand: try container.decode(String.self, forKey: .significand),
+            zeros: try container.decode(String.self, forKey: .zeros)
+        )
+        guard value.isWellFormed else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: container.codingPath, debugDescription: "noncanonical big integer"))
+        }
+        self = value
+    }
+
+    /// Write a validated wide-integer representation.
+    public func encode(to encoder: any Encoder) throws {
+        guard isWellFormed else {
+            throw EncodingError.invalidValue(
+                self,
+                .init(codingPath: encoder.codingPath, debugDescription: "noncanonical big integer"))
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(negative, forKey: .negative)
+        try container.encode(significand, forKey: .significand)
+        try container.encode(zeros, forKey: .zeros)
+    }
+
+    private var isWellFormed: Bool {
+        guard !significand.isEmpty, significand.allSatisfy(\.isASCIIWholeNumber),
+            significand.first != "0", significand.last != "0",
+            !zeros.isEmpty, zeros.allSatisfy(\.isASCIIWholeNumber),
+            zeros == "0" || zeros.first != "0"
+        else { return false }
+
+        let trailingZeroCount: Int
+        if zeros == "0" {
+            trailingZeroCount = 0
+        } else {
+            // Any count larger than nineteen necessarily puts the value
+            // outside i64; avoid converting an otherwise unbounded WideInt.
+            guard zeros.count <= 2, let count = Int(zeros), count <= 19 else { return true }
+            trailingZeroCount = count
+        }
+
+        let digitCount = significand.count + trailingZeroCount
+        if digitCount > 19 { return true }
+        if digitCount < 19 { return false }
+
+        let magnitude = significand + String(repeating: "0", count: trailingZeroCount)
+        let limit = negative ? "9223372036854775808" : "9223372036854775807"
+        return magnitude > limit
+    }
+}
+
+extension Character {
+    fileprivate var isASCIIWholeNumber: Bool {
+        unicodeScalars.count == 1
+            && (unicodeScalars.first.map { $0.value >= 48 && $0.value <= 57 } ?? false)
+    }
+}
+
+/// A date, time, date-time, or extended temporal payload.
+///
+/// Temporal syntax is deliberately retained as its exact serde value. The
+/// engine has a large, extensible temporal carrier; validating the external
+/// tag here prevents an unknown variant from being accepted while preserving
+/// every lexical-form field byte for byte across decode and encode.
+public struct TemporalValue: Codable, Hashable, Sendable {
+    /// The exact externally tagged temporal representation.
+    public var representation: CBORValue
+
+    /// Admit one known temporal variant.
+    public init(representation: CBORValue) throws {
+        try Self.validate(representation)
+        self.representation = representation
+    }
+
+    /// Read and validate a temporal representation.
+    public init(from decoder: any Decoder) throws {
+        try self.init(representation: decoder.singleValueContainer().decode(CBORValue.self))
+    }
+
+    /// Write the retained temporal representation.
+    public func encode(to encoder: any Encoder) throws {
+        var single = encoder.singleValueContainer()
+        try single.encode(representation)
+    }
+
+    private static func validate(_ value: CBORValue) throws {
+        guard case .map(let entries) = value.untagged, entries.count == 1,
+            case .textString(let tag) = entries[0].key,
+            ["date", "time", "date_time", "extended"].contains(tag)
+        else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "unknown temporal variant"))
+        }
+    }
+}
+
 // MARK: - Value
 
 /// A leaf datum carried by a W-type instance node.
@@ -57,6 +324,12 @@ public indirect enum Value: Codable, Hashable, Sendable {
     /// these. Two of them sharing an identity are the same unknown
     /// value, which is what distinguishes them from ``null``.
     case labeledNull(UInt64)
+    /// An exact decimal, including its written scale.
+    case decimal(DecimalValue)
+    /// An integer outside the range of `Int64`.
+    case bigInt(BigIntValue)
+    /// A date, time, or date-time with its written form.
+    case temporal(TemporalValue)
 }
 
 // MARK: - Value coding
@@ -76,6 +349,9 @@ extension Value {
         case unknown = "Unknown"
         case list = "List"
         case labeledNull = "LabeledNull"
+        case decimal = "Decimal"
+        case bigInt = "BigInt"
+        case temporal = "Temporal"
     }
 
     /// The fields of a ``blob(ref:mime:size:)`` payload, in Rust
@@ -166,6 +442,12 @@ extension Value {
             self = .list(try container.decode([Value].self, forKey: .list))
         case .labeledNull:
             self = .labeledNull(try container.decode(UInt64.self, forKey: .labeledNull))
+        case .decimal:
+            self = .decimal(try container.decode(DecimalValue.self, forKey: .decimal))
+        case .bigInt:
+            self = .bigInt(try container.decode(BigIntValue.self, forKey: .bigInt))
+        case .temporal:
+            self = .temporal(try container.decode(TemporalValue.self, forKey: .temporal))
         }
     }
 
@@ -211,6 +493,12 @@ extension Value {
             try container.encode(elements, forKey: .list)
         case .labeledNull(let identity):
             try container.encode(identity, forKey: .labeledNull)
+        case .decimal(let value):
+            try container.encode(value, forKey: .decimal)
+        case .bigInt(let value):
+            try container.encode(value, forKey: .bigInt)
+        case .temporal(let value):
+            try container.encode(value, forKey: .temporal)
         }
     }
 }

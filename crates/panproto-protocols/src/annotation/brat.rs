@@ -20,7 +20,7 @@ use crate::theories;
 /// Returns the brat standoff annotation protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "brat".into(),
         schema_theory: "ThBratSchema".into(),
         instance_theory: "ThBratInstance".into(),
@@ -51,8 +51,10 @@ pub fn protocol() -> Protocol {
             "text".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for brat.
@@ -66,6 +68,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_brat(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -258,10 +262,10 @@ pub fn emit_brat(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
                     }
                 }
                 let type_children = children_by_edge(schema, &root.id, "has-type");
-                if let Some((edge, _child)) = type_children.first() {
-                    if let Some(name) = &edge.name {
-                        obj.insert("type".into(), serde_json::json!(name));
-                    }
+                if let Some((edge, _child)) = type_children.first()
+                    && let Some(name) = &edge.name
+                {
+                    obj.insert("type".into(), serde_json::json!(name));
                 }
                 textbounds.insert(root.id.to_string(), serde_json::Value::Object(obj));
             }

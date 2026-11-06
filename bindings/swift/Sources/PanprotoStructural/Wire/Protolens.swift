@@ -309,7 +309,7 @@ extension ProtolensChain: ExpressibleByArrayLiteral {
 
 // MARK: - The elementary step vocabulary
 
-/// The seventeen constructors every protolens chain is built from.
+/// The nineteen constructors every protolens chain is built from.
 ///
 /// A chain is a list of steps, and each step is one application of a
 /// constructor named here. The engine derives a step's name from the
@@ -365,6 +365,20 @@ public enum ElementaryStep: String, Codable, Hashable, Sendable, CaseIterable {
     case sortCoerce = "sort_coerce"
     /// Apply an inner step within the sub-schema a focus vertex reaches.
     case scoped
+    /// Add one concrete schema vertex under its own id and kind, which a
+    /// chain generated between two schemas uses for a vertex only the
+    /// target has.
+    case addSchemaVertex = "add_schema_vertex"
+    /// Add one concrete schema edge, label included, between two schema
+    /// vertices.
+    case addSchemaEdge = "add_schema_edge"
+    /// Drop one concrete schema vertex by its id, capturing its data in
+    /// the complement, which a chain generated between two schemas uses
+    /// for a source vertex the alignment leaves out.
+    case dropSchemaVertex = "drop_schema_vertex"
+    /// Drop one concrete schema edge, label and kind included, capturing
+    /// it in the complement.
+    case dropSchemaEdge = "drop_schema_edge"
 
     /// The label a dropped edge takes in its step name where the edge
     /// carries none.
@@ -411,7 +425,7 @@ public enum ElementaryStep: String, Codable, Hashable, Sendable, CaseIterable {
         case .scoped: nil
         case .addSort, .addSortWithDefault, .dropSort, .addOp, .dropOp, .addEdge, .dropEdge,
             .addEquation, .dropEquation, .pullback, .directedEquation, .dropDirectedEquation,
-            .sortCoerce:
+            .sortCoerce, .addSchemaVertex, .addSchemaEdge, .dropSchemaVertex, .dropSchemaEdge:
             .lens
         }
     }
@@ -427,7 +441,8 @@ public enum ElementaryStep: String, Codable, Hashable, Sendable, CaseIterable {
         case .renameSort, .renameOp, .renameEdgeName, .addEquation, .dropEquation, .pullback,
             .dropDirectedEquation:
             true
-        case .addSort, .addSortWithDefault, .dropSort, .addOp, .dropOp, .addEdge, .dropEdge:
+        case .addSort, .addSortWithDefault, .dropSort, .addOp, .dropOp, .addEdge, .dropEdge,
+            .addSchemaVertex, .addSchemaEdge, .dropSchemaVertex, .dropSchemaEdge:
             false
         case .directedEquation, .sortCoerce, .scoped: nil
         }

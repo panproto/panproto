@@ -45,8 +45,10 @@ authoritative order in `stages`.
 `classification` property is a string and whose detailed changes are exposed
 as properties.
 
-`CompiledMigration.lift()` performs the implementation's source-to-target
-surviving-fragment transfer. It does not run the separate general source-to-target
+`CompiledMigration.lift(instance, src_protocol, tgt_protocol=None)` performs
+the implementation's source-to-target surviving-fragment transfer, validating
+both boundaries under the given protocols; `Instance.validate(protocol)`
+returns a `ValidationReport`. It does not run the separate general source-to-target
 `Sigma` transport described in [The vocabulary in plain terms](../../book/src/explanation/decoder-ring.md).
 `get()` produces a target-shaped view plus a complement, and `put()` uses both to
 reconstruct a source instance.

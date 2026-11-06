@@ -73,12 +73,11 @@ pub(crate) fn seq_bracket_triggers_indent(
                     let has_blank = alts.iter().any(|a| matches!(a, Production::Blank));
                     if has_blank {
                         for alt in alts {
-                            if let Production::Symbol { name } = alt {
-                                if let Some(rule) = _grammar.rules.get(name) {
-                                    if has_repeat_in(rule) {
-                                        return true;
-                                    }
-                                }
+                            if let Production::Symbol { name } = alt
+                                && let Some(rule) = _grammar.rules.get(name)
+                                && has_repeat_in(rule)
+                            {
+                                return true;
                             }
                         }
                     }
@@ -487,10 +486,10 @@ pub(crate) fn extract_line_comment_prefix(prod: &Production) -> Option<String> {
                 Production::Pattern { value } => fixed_literal_pattern(value),
                 _ => None,
             };
-            if let Some(prefix) = prefix {
-                if members[1..].iter().any(seq_member_is_line_rest) {
-                    return Some(prefix);
-                }
+            if let Some(prefix) = prefix
+                && members[1..].iter().any(seq_member_is_line_rest)
+            {
+                return Some(prefix);
             }
             None
         }

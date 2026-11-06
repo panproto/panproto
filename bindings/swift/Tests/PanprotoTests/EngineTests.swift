@@ -208,9 +208,11 @@ struct EngineTests {
         #expect(RawStatus(code: 42).code == 42)
         #expect(RawStatus(code: -1) == .unknown(-1))
         #expect(!RawStatus(code: 42).isOK)
-        for code in Int32(0)...7 {
+        for code in Int32(0)...8 {
             #expect(RawStatus(code: code).code == code)
         }
+        #expect(RawStatus(code: 8) == .notSingleStage)
+        #expect(RawStatus.notSingleStage.envelopeTag == "not_single_stage")
     }
 
     @Test("Building an error from a domain selects the matching case")

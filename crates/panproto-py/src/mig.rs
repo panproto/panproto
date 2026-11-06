@@ -10,15 +10,57 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 
 use panproto_core::gat::Name;
-use panproto_core::inst::CompiledMigration;
+use panproto_core::inst::{BoundaryProtocols, CompiledMigration};
 use panproto_core::lens::Lens;
 use panproto_core::mig::{self, Migration};
 use panproto_core::schema::{Edge, Schema};
 
 use crate::convert;
-use crate::inst::PyInstance;
+use crate::inst::{PyInstance, PyValidationReport, required_messages};
 use crate::lens::{PyComplement, PyLens};
 use crate::schema::{PyProtocol, PySchema};
+
+/// The `MigrationError` for a failed lift.
+///
+/// A boundary that did not validate carries its report: the exception's
+/// ``side`` is ``"input"`` or ``"output"``, its ``report`` is the
+/// `ValidationReport`, and its message lists the entries that decide the
+/// report's status. Every other failure leaves both attributes ``None``.
+fn lift_error(py: Python<'_>, error: &mig::LiftError) -> PyErr {
+    if let mig::LiftError::Restrict(restrict) = error
+        && let panproto_core::inst::RestrictError::Validation { side, report } =
+            restrict.unlocated()
+    {
+        let message = format!(
+            "lift failed: {error}: {}",
+            required_messages(report).join("; ")
+        );
+        let err = crate::error::MigrationError::new_err(message);
+        let attached = Py::new(
+            py,
+            PyValidationReport {
+                inner: (**report).clone(),
+            },
+        )
+        .and_then(|report| {
+            let value = err.value(py);
+            value.setattr("side", side.to_string())?;
+            value.setattr("report", report)
+        });
+        return attached.map_or_else(|e| e, |()| err);
+    }
+    crate::error::MigrationError::new_err(format!("lift failed: {error}"))
+}
+
+/// The boundary protocols of a restrict: `src` for the source schema, and
+/// `tgt` for the target schema, which defaults to `src` since most
+/// migrations stay within one protocol.
+fn boundary<'a>(src: &'a PyProtocol, tgt: Option<&'a PyProtocol>) -> BoundaryProtocols<'a> {
+    BoundaryProtocols {
+        src: &src.inner,
+        tgt: &tgt.unwrap_or(src).inner,
+    }
+}
 
 /// A migration specification mapping source to target schema elements.
 #[pyclass(
@@ -167,14 +209,46 @@ impl PyCompiledMigration {
 #[pymethods]
 impl PyCompiledMigration {
     /// Project the surviving source fragment into the target schema.
-    fn lift(&self, instance: &PyInstance) -> PyResult<PyInstance> {
-        let lifted = mig::lift_wtype(
-            &self.compiled,
-            &self.src_schema,
-            &self.tgt_schema,
-            &instance.inner,
-        )
-        .map_err(|e| crate::error::MigrationError::new_err(format!("lift failed: {e}")))?;
+    ///
+    /// Validates the instance against the source schema under
+    /// ``src_protocol`` before anything runs, and the result against the
+    /// target schema under ``tgt_protocol`` after the restrict.
+    ///
+    /// Parameters
+    /// ----------
+    /// instance : Instance
+    ///     The source instance.
+    /// `src_protocol` : Protocol
+    ///     The protocol the source schema is read under.
+    /// `tgt_protocol` : Protocol, optional
+    ///     The protocol the target schema is read under. Defaults to
+    ///     ``src_protocol``.
+    ///
+    /// Raises
+    /// ------
+    /// `MigrationError`
+    ///     If either boundary does not validate (the message names the
+    ///     side and the report's status) or the restrict fails.
+    #[pyo3(signature = (instance, src_protocol, tgt_protocol = None))]
+    fn lift(
+        &self,
+        py: Python<'_>,
+        instance: &PyInstance,
+        src_protocol: &PyProtocol,
+        tgt_protocol: Option<&PyProtocol>,
+    ) -> PyResult<PyInstance> {
+        let protocols = boundary(src_protocol, tgt_protocol);
+        let lifted = py
+            .detach(|| {
+                mig::lift_wtype(
+                    &self.compiled,
+                    &self.src_schema,
+                    &self.tgt_schema,
+                    &instance.inner,
+                    protocols,
+                )
+            })
+            .map_err(|e| lift_error(py, &e))?;
         Ok(PyInstance {
             inner: lifted,
             schema: Arc::clone(&self.tgt_schema),
@@ -209,12 +283,25 @@ impl PyCompiledMigration {
     /// Put: reconstruct the source from a view and the complement a prior
     /// ``get`` produced.
     ///
+    /// ``view`` must carry the node ids ``get`` gave it, since the
+    /// complement keys what the view dropped by those ids. A view read
+    /// back from JSON (``Instance.from_json``) is numbered afresh, and
+    /// putting it directly can lose a dropped field while reporting
+    /// success. Put a JSON view with ``put_json``, or pass a view you
+    /// parsed yourself through ``align_view`` first.
+    ///
     /// Parameters
     /// ----------
     /// view : Instance
-    ///     The (possibly modified) view.
+    ///     The (possibly modified) view, with the node ids ``get`` gave
+    ///     it.
     /// complement : Complement
     ///     The complement from a prior ``get`` call.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The reconstructed instance of the source schema.
     fn put(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
         let lens_obj = self.as_lens();
         let restored = panproto_core::lens::put(&lens_obj, &view.inner, &complement.inner)
@@ -223,6 +310,71 @@ impl PyCompiledMigration {
             inner: restored,
             schema: Arc::clone(&self.src_schema),
         })
+    }
+
+    /// Put: reconstruct the source from a JSON view and the complement a
+    /// prior ``get`` produced.
+    ///
+    /// As ``Lens.put_json``: the view is read under the target schema,
+    /// rooted where the view ``get`` returned was rooted, aligned to the
+    /// complement, its computed fields folded, and put. Use this, not
+    /// ``put``, for a view that went through JSON.
+    ///
+    /// Parameters
+    /// ----------
+    /// `view_json` : str
+    ///     The (possibly edited) view as JSON, as ``Instance.to_json``
+    ///     writes it.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///     The reconstructed source instance as JSON.
+    ///
+    /// Raises
+    /// ------
+    /// `IoError`
+    ///     If ``view_json`` is not JSON or does not parse under the target
+    ///     schema.
+    /// `MigrationError`
+    ///     If the view cannot be aligned to the complement or ``put``
+    ///     refuses it.
+    fn put_json(&self, view_json: &str, complement: &PyComplement) -> PyResult<String> {
+        crate::lens::put_json_view(&self.as_lens(), view_json, &complement.inner)
+            .map_err(|e| e.into_py(crate::error::MigrationError::new_err))
+    }
+
+    /// Align a view read from a serialization to the complement, ready
+    /// for ``put``.
+    ///
+    /// As ``Lens.align_view``: each node at a position ``get`` produced
+    /// takes the id ``get`` gave it, a node the view adds takes a fresh
+    /// one, and each computed field the reader read as a child moves back
+    /// among its node's fields.
+    ///
+    /// Parameters
+    /// ----------
+    /// view : Instance
+    ///     The view as a reader returned it, under the target schema.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The view with the ids ``put`` reads ``complement`` by.
+    ///
+    /// Raises
+    /// ------
+    /// `MigrationError`
+    ///     If the complement records no view positions, the view is rooted
+    ///     at another vertex than the view ``get`` returned, or no fresh id
+    ///     is left.
+    fn align_view(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
+        crate::lens::align_view(&self.as_lens(), view, &complement.inner)
+            .map_err(|e| e.into_py(crate::error::MigrationError::new_err))
     }
 
     /// View this migration as a ``Lens``.
@@ -240,14 +392,17 @@ impl PyCompiledMigration {
         }
     }
 
-    /// Check both `GetPut` and `PutGet` round-trip laws on a test instance.
+    /// Run the five strict lens gates on a test instance.
+    ///
+    /// The gates are `GetPut`, `PutGet`, totality over the finite single-step
+    /// basis, `PutTwice`, and congruence.
     ///
     /// Equivalent to ``self.to_lens().check_laws(instance)``.
     ///
     /// Raises
     /// ------
     /// `MigrationError`
-    ///     If either law is violated, with details in the message.
+    ///     If any gate is violated, with details in the message.
     fn check_laws(&self, instance: &PyInstance) -> PyResult<()> {
         panproto_core::lens::check_laws(&self.as_lens(), &instance.inner)
             .map_err(|e| crate::error::MigrationError::new_err(format!("law violation: {e}")))
@@ -379,21 +534,36 @@ pub fn invert_migration(
 ///     Source schema.
 /// `tgt_schema` : Schema
 ///     Target schema.
+/// `src_protocol` : Protocol
+///     The protocol the source schema is read under.
+/// `tgt_protocol` : Protocol, optional
+///     The protocol the target schema is read under. Defaults to
+///     ``src_protocol``.
+///
+/// Each instance is one record. A record succeeds when the restrict
+/// validates it against the source schema under ``src_protocol``, runs,
+/// and its result validates against the target schema under
+/// ``tgt_protocol``.
 ///
 /// Returns
 /// -------
 /// dict
-///     Coverage report with ``total_records``, ``successful``, and ``failed``.
+///     Coverage report with ``total_records``, ``successful``, ``failed``,
+///     and ``coverage_ratio``.
 #[pyfunction]
+#[pyo3(signature = (compiled, instances, src_schema, tgt_schema, src_protocol, tgt_protocol = None))]
 #[allow(clippy::needless_pass_by_value)]
 pub fn check_coverage(
     compiled: &PyCompiledMigration,
     instances: Vec<PyInstance>,
     src_schema: &PySchema,
     tgt_schema: &PySchema,
+    src_protocol: &PyProtocol,
+    tgt_protocol: Option<&PyProtocol>,
     py: Python<'_>,
 ) -> PyResult<Py<PyAny>> {
     let winstances: Vec<_> = instances.iter().map(|i| i.inner.clone()).collect();
+    let protocols = boundary(src_protocol, tgt_protocol);
     // One lift per record: released for the duration.
     let report = py.detach(|| {
         mig::check_coverage(
@@ -401,6 +571,7 @@ pub fn check_coverage(
             &winstances,
             &src_schema.inner,
             &tgt_schema.inner,
+            protocols,
         )
     });
     convert::to_python(py, &report)

@@ -80,7 +80,7 @@ pub enum ValidationStatus {
 impl Index {
     /// Returns `true` if something is staged.
     #[must_use]
-    pub fn has_staged(&self) -> bool {
+    pub const fn has_staged(&self) -> bool {
         self.staged.is_some() || !self.staged_data.is_empty() || self.staged_protocol.is_some()
     }
 

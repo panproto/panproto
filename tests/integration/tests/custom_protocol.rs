@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use panproto_gat::{Name, Operation, Sort, Theory};
 use panproto_inst::value::FieldPresence;
-use panproto_inst::{CompiledMigration, Node, Value, WInstance};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, Node, Value, WInstance};
 use panproto_mig::{Migration, compile, lift_wtype};
 use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder, Vertex};
 use smallvec::SmallVec;
@@ -37,7 +37,7 @@ fn config_protocol() -> Protocol {
         ],
         obj_kinds: vec!["root".into(), "section".into(), "key".into()],
         constraint_sorts: vec!["type".into(), "default".into()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -239,6 +239,7 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         outgoing,
         incoming,
         between,
+        ..Default::default()
     };
 
     // Build the instance.
@@ -288,7 +289,17 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         expansion_path: HashMap::new(),
     };
 
-    let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
+    let protocol = config_protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &schema,
+        &schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
     assert_eq!(
         lifted.node_count(),
         6,
@@ -396,6 +407,7 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         outgoing: out,
         incoming: inc,
         between: btw,
+        ..Default::default()
     };
 
     // Target schema: only database section.
@@ -452,6 +464,7 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         outgoing: tout,
         incoming: tinc,
         between: tbtw,
+        ..Default::default()
     };
 
     // Build migration.
@@ -557,7 +570,17 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         "root".into(),
     );
 
-    let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+    let protocol = config_protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
 
     // Should drop the logging section (2 nodes).
     assert!(

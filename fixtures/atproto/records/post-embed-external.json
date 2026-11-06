@@ -1,0 +1,24 @@
+{
+  "$type": "app.bsky.feed.post",
+  "createdAt": "2025-04-01T13:06:27.452Z",
+  "embed": {
+    "$type": "app.bsky.embed.external",
+    "external": {
+      "description": "You asked, we listened.",
+      "thumb": {
+        "$type": "blob",
+        "mimeType": "image/jpeg",
+        "ref": {
+          "$link": "bafkreif5bxpqjyyjmsqphbuvloo5c7ieqqs54i4wychem2ebvpw7uaxasy"
+        },
+        "size": 502451
+      },
+      "title": "New Character Limit Now Available! - Bluesky",
+      "uri": "https://bsky.social/about/blog/04-01-2025-april-fools"
+    }
+  },
+  "langs": [
+    "en"
+  ],
+  "text": "We're listening to your feedback and updating the character count for posts on Bluesky. \n\nPosts can now be 299 characters long!"
+}

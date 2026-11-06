@@ -394,7 +394,7 @@ mod tests {
 
         let (best, argmins) = brute_force(&cfn);
         assert_eq!(best, Cost::TOP_SENTINEL);
-        assert!(argmins.is_empty());
+        assert_eq!(argmins, []);
     }
 
     #[test]

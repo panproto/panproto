@@ -146,10 +146,10 @@ pub fn check_existence(
             TheoryKind::Schema => schema_theory,
             TheoryKind::Instance => inst_theory,
         };
-        if let Some(theory) = theory {
-            if theory.find_sort(entry.sort).is_some() {
-                errors.extend((entry.check)(src, tgt, migration));
-            }
+        if let Some(theory) = theory
+            && theory.find_sort(entry.sort).is_some()
+        {
+            errors.extend((entry.check)(src, tgt, migration));
         }
     }
 
@@ -229,17 +229,16 @@ fn check_kind_consistency(
         let src_vertex = src.vertex(src_id);
         let tgt_vertex = tgt.vertex(tgt_id);
 
-        if let (Some(sv), Some(tv)) = (src_vertex, tgt_vertex) {
-            if sv.kind != tv.kind
-                && !tgt
-                    .coercions
-                    .contains_key(&(sv.kind.clone(), tv.kind.clone()))
-            {
-                errors.push(ExistenceError::KindInconsistency {
-                    kind: sv.kind.to_string(),
-                    targets: vec![sv.kind.to_string(), tv.kind.to_string()],
-                });
-            }
+        if let (Some(sv), Some(tv)) = (src_vertex, tgt_vertex)
+            && sv.kind != tv.kind
+            && !tgt
+                .coercions
+                .contains_key(&(sv.kind.clone(), tv.kind.clone()))
+        {
+            errors.push(ExistenceError::KindInconsistency {
+                kind: sv.kind.to_string(),
+                targets: vec![sv.kind.to_string(), tv.kind.to_string()],
+            });
         }
     }
 
@@ -262,15 +261,15 @@ fn check_constraint_compatibility(
         if let (Some(src_cs), Some(tgt_cs)) = (src_constraints, tgt_constraints) {
             for tgt_c in tgt_cs {
                 // Find matching constraint in source by sort.
-                if let Some(src_c) = src_cs.iter().find(|c| c.sort == tgt_c.sort) {
-                    if is_constraint_tightened(&src_c.sort, &src_c.value, &tgt_c.value) {
-                        errors.push(ExistenceError::ConstraintTightened {
-                            vertex: tgt_id.to_string(),
-                            sort: tgt_c.sort.to_string(),
-                            src_val: src_c.value.clone(),
-                            tgt_val: tgt_c.value.clone(),
-                        });
-                    }
+                if let Some(src_c) = src_cs.iter().find(|c| c.sort == tgt_c.sort)
+                    && is_constraint_tightened(&src_c.sort, &src_c.value, &tgt_c.value)
+                {
+                    errors.push(ExistenceError::ConstraintTightened {
+                        vertex: tgt_id.to_string(),
+                        sort: tgt_c.sort.to_string(),
+                        src_val: src_c.value.clone(),
+                        tgt_val: tgt_c.value.clone(),
+                    });
                 }
             }
         }
@@ -354,25 +353,29 @@ fn check_signature_coherence(
         let tgt_he = tgt.hyper_edges.get(tgt_he_id);
 
         if let (Some(she), Some(the)) = (src_he, tgt_he) {
-            // Each label in the target signature must map to a surviving vertex.
-            for (label, tgt_vertex_id) in &the.signature {
-                // Determine the source label (via label_map or identity).
-                let src_label = migration
+            // Each source label lands on the target label `label_map` names
+            // for it (the map is keyed by the source label), or on itself;
+            // where that is a label of the target signature, the source
+            // vertex at the label must map to the target vertex there.
+            let mut labels: Vec<&Name> = she.signature.keys().collect();
+            labels.sort();
+            for src_label in labels {
+                let tgt_label = migration
                     .label_map
-                    .get(&(src_he_id.clone(), label.clone()))
-                    .cloned()
-                    .unwrap_or_else(|| label.clone());
-
-                if let Some(src_vertex_id) = she.signature.get(&src_label) {
-                    // Verify the vertex mapping is consistent.
-                    if let Some(mapped) = migration.vertex_map.get(src_vertex_id) {
-                        if mapped != tgt_vertex_id {
-                            errors.push(ExistenceError::SignatureCoherence {
-                                hyper_edge: tgt_he_id.to_string(),
-                                label: label.to_string(),
-                            });
-                        }
-                    }
+                    .get(&(src_he_id.clone(), src_label.clone()))
+                    .unwrap_or(src_label);
+                let (Some(src_vertex_id), Some(tgt_vertex_id)) =
+                    (she.signature.get(src_label), the.signature.get(tgt_label))
+                else {
+                    continue;
+                };
+                if let Some(mapped) = migration.vertex_map.get(src_vertex_id)
+                    && mapped != tgt_vertex_id
+                {
+                    errors.push(ExistenceError::SignatureCoherence {
+                        hyper_edge: tgt_he_id.to_string(),
+                        label: tgt_label.to_string(),
+                    });
                 }
             }
         }
@@ -432,7 +435,11 @@ fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
 /// — the check has nothing to measure reachability from and reports nothing.
 ///
 /// From the roots this performs a full BFS through the source schema's edge
-/// graph. Non-surviving intermediate vertices are traversed but not counted as
+/// graph and its coproduct declarations: each arm declared a variant of a
+/// reached vertex is reached too, since a value of the coproduct is anchored
+/// at one of its arms. An arm need not carry an edge from its coproduct; the
+/// untagged arm of an open union, for instance, is known only through its
+/// variant declaration. Non-surviving intermediate vertices are traversed but not counted as
 /// reachable; only surviving vertices reached through the BFS are considered
 /// reachable. A visited set prevents infinite loops in schemas with cycles.
 fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
@@ -477,9 +484,15 @@ fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec
     }
 
     while let Some(current) = queue.pop_front() {
-        // Follow outgoing edges from the current vertex
-        for edge in src.outgoing_edges(current) {
-            let target = &*edge.tgt;
+        // Follow outgoing edges from the current vertex, then its declared
+        // coproduct arms.
+        let edge_targets = src.outgoing_edges(current).iter().map(|edge| &*edge.tgt);
+        let arms = src
+            .variants_of(current)
+            .iter()
+            .map(|variant| &*variant.id)
+            .filter(|arm| src.has_vertex(arm));
+        for target in edge_targets.chain(arms) {
             if visited.insert(target) {
                 queue.push_back(target);
                 if surviving_src.contains(target) {
@@ -643,7 +656,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -704,6 +717,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -1059,6 +1073,72 @@ mod tests {
         assert!(
             risks.is_empty(),
             "identity migration on a recursive schema must report no reachability risk, got {risks:?}"
+        );
+    }
+
+    /// An open union's untagged arm is declared a variant of the union and
+    /// has no edge into it. The identity reaches it through the variant
+    /// declaration, so it is not a reachability risk.
+    #[test]
+    fn an_arm_known_only_by_its_variant_declaration_is_reachable() {
+        let protocol = test_protocol("ThGraph", "ThWType");
+        let embed = Edge {
+            src: "post".into(),
+            tgt: "post.embed".into(),
+            kind: "prop".into(),
+            name: Some("embed".into()),
+        };
+        let mut schema = test_schema(
+            &[
+                ("post", "object"),
+                ("post.embed", "union"),
+                ("post.embed:open", "unknown"),
+            ],
+            std::slice::from_ref(&embed),
+        );
+        schema.entries = vec![Name::from("post")];
+        schema.variants.insert(
+            Name::from("post.embed"),
+            vec![panproto_schema::Variant {
+                id: Name::from("post.embed:open"),
+                parent_vertex: Name::from("post.embed"),
+                tag: None,
+            }],
+        );
+        let mig = Migration {
+            vertex_map: HashMap::from([
+                (Name::from("post"), Name::from("post")),
+                (Name::from("post.embed"), Name::from("post.embed")),
+                (Name::from("post.embed:open"), Name::from("post.embed:open")),
+            ]),
+            edge_map: HashMap::from([(embed.clone(), embed)]),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+        let registry = HashMap::from([(
+            "ThWType".into(),
+            Theory::new(
+                "ThWType",
+                vec![panproto_gat::Sort::simple("Node")],
+                vec![],
+                vec![],
+            ),
+        )]);
+        let report = check_existence(&protocol, &schema, &schema, &mig, &registry);
+        let risks: Vec<&ExistenceError> = report
+            .errors
+            .iter()
+            .filter(|e| matches!(e, ExistenceError::ReachabilityRisk { .. }))
+            .collect();
+        assert!(
+            risks.is_empty(),
+            "a variant arm without an inbound edge is reached through its union, got {risks:?}"
         );
     }
 

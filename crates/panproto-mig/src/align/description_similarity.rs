@@ -148,7 +148,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["string".into(), "object".into()],
             constraint_sorts: vec!["description".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn exact_identifier_match_emits_anchor() {
         // Cross-schema same-id can legitimately denote different
-        // concepts, so the description strategy no longer skips it;
+        // concepts, so the description strategy does not skip it;
         // exact_anchors' higher priority overwrites this proposal when
         // the ids genuinely coincide.
         let src = schema(&[("a", "string", Some("desc"))]);

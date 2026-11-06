@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the K8s CRD protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "k8s-crd".into(),
         schema_theory: "ThK8sCrdSchema".into(),
         instance_theory: "ThK8sCrdInstance".into(),
@@ -37,8 +37,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for K8s CRD.
@@ -52,6 +54,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_k8s_crd_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut counter: usize = 0;
@@ -114,20 +118,20 @@ fn walk_k8s_schema(
             }
 
             // Handle array items.
-            if type_str == "array" {
-                if let Some(items) = prop_def.get("items") {
-                    *counter += 1;
-                    let items_id = format!("{prop_id}:items{counter}");
-                    let items_type = items
-                        .get("type")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("string");
-                    let items_kind = k8s_type_to_kind(items_type);
-                    builder = builder.vertex(&items_id, items_kind, None)?;
-                    builder = builder.edge(&prop_id, &items_id, "items", None)?;
-                    if items_type == "object" {
-                        builder = walk_k8s_schema(builder, items, &items_id, counter)?;
-                    }
+            if type_str == "array"
+                && let Some(items) = prop_def.get("items")
+            {
+                *counter += 1;
+                let items_id = format!("{prop_id}:items{counter}");
+                let items_type = items
+                    .get("type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("string");
+                let items_kind = k8s_type_to_kind(items_type);
+                builder = builder.vertex(&items_id, items_kind, None)?;
+                builder = builder.edge(&prop_id, &items_id, "items", None)?;
+                if items_type == "object" {
+                    builder = walk_k8s_schema(builder, items, &items_id, counter)?;
                 }
             }
         }
@@ -202,10 +206,10 @@ fn emit_k8s_schema_obj(schema: &Schema, vertex_id: &str) -> serde_json::Value {
 
         if child.kind == "object" {
             let nested = emit_k8s_schema_obj(schema, &child.id);
-            if let serde_json::Value::Object(nested_obj) = &nested {
-                if let Some(nested_props) = nested_obj.get("properties") {
-                    obj.insert("properties".into(), nested_props.clone());
-                }
+            if let serde_json::Value::Object(nested_obj) = &nested
+                && let Some(nested_props) = nested_obj.get("properties")
+            {
+                obj.insert("properties".into(), nested_props.clone());
             }
         }
 

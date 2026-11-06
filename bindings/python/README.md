@@ -71,8 +71,10 @@ migration = builder.build()
 compiled = panproto.compile_migration(migration, old_schema, new_schema)
 ```
 
-`CompiledMigration.lift(instance)` constructs a target instance from the
-mapped part of a source instance. This operation is the library's
+`CompiledMigration.lift(instance, src_protocol, tgt_protocol=None)` constructs
+a target instance from the mapped part of a source instance, validating the
+instance against the source schema under `src_protocol` and the result against
+the target schema under `tgt_protocol` (which defaults to `src_protocol`). This operation is the library's
 source-to-target surviving-fragment transfer. The categorical transports are
 separate: `Delta` reindexes a target instance back to the source, while a general
 left Kan extension computes the source-to-target `Sigma` transport. [The vocabulary

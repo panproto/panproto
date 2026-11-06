@@ -48,10 +48,20 @@ pub fn cmd_cherry_pick(
         no_commit,
         record_origin,
     };
+    let registered: std::collections::HashMap<String, panproto_core::schema::Protocol> =
+        panproto_core::protocols::registry::descriptors()
+            .iter()
+            .map(|descriptor| (descriptor.name.to_owned(), (descriptor.protocol)()))
+            .collect();
 
-    let new_id =
-        vcs::cherry_pick::cherry_pick_with_options(repo.store_mut(), commit_id, author, &opts)
-            .into_diagnostic()?;
+    let new_id = vcs::cherry_pick::cherry_pick_with_options(
+        repo.store_mut(),
+        commit_id,
+        author,
+        &opts,
+        &registered,
+    )
+    .into_diagnostic()?;
     println!("Cherry-picked {} -> {}", commit_id.short(), new_id.short());
     Ok(())
 }
@@ -318,8 +328,8 @@ pub fn cmd_gc(dry_run: bool) -> Result<()> {
 use panproto_xrpc::NodeClient;
 
 pub fn cmd_remote(_action: RemoteAction) -> Result<()> {
-    // Remote management (add/remove/list) stores URL mappings in .panproto/config.
-    // For Phase 0, remotes are specified directly via panproto:// URLs.
+    // Stored remotes (add/remove/list) are not implemented; remotes are
+    // specified directly via panproto:// URLs.
     miette::bail!(
         "remote add/remove/list not yet implemented. Use panproto:// URLs directly with push/pull."
     );

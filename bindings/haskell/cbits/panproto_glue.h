@@ -310,6 +310,24 @@ int32_t pp_lens_put_record_at(
     Vec_uint8_t *out
 );
 
+int32_t pp_lens_put_json_at(
+    uint32_t migration,
+    const uint8_t *view_json_ptr,
+    size_t view_json_len,
+    const uint8_t *complement_ptr,
+    size_t complement_len,
+    Vec_uint8_t *out
+);
+
+int32_t pp_lens_align_view_at(
+    uint32_t migration,
+    const uint8_t *view_ptr,
+    size_t view_len,
+    const uint8_t *complement_ptr,
+    size_t complement_len,
+    Vec_uint8_t *out
+);
+
 int32_t pp_protolens_complement_spec_at(
     uint32_t chain,
     uint32_t schema,

@@ -25,8 +25,9 @@
 -- lives in the slab as the opaque @Resource::AstRegistry@ that
 -- @pp_parse_registry_new@ allocates. 'ParserRegistryRep' 'Rust' is
 -- therefore 'RustParserRegistry', a newtype over the @u32@ slab handle.
--- 'releaseRegistry' frees the slot via @pp_handle_free@ and is idempotent
--- (a freed slot stays freed).
+-- 'releaseRegistry' frees the slot via @pp_handle_free@ as a one-shot
+-- ownership action. A repeated call is harmless only before slot reuse;
+-- afterward the stale numeric handle aliases and frees the new resource.
 --
 -- == Lens representation
 --
@@ -37,7 +38,7 @@
 -- own; it is 'RustParseEmitLens', a pure pairing of the registry handle
 -- and the bound protocol name that 'lensFor' packages and the two law
 -- checks unpack. 'releaseLens' holds no slab slot, so it is a no-op
--- (consistent with the idempotent-release contract).
+-- and may be called repeatedly.
 --
 -- == Schema bridging
 --
@@ -199,8 +200,7 @@ instance ParseBackend Rust where
         status <- pp_handle_free h
         checkStatus status
 
-    -- The Rust lens rep holds no slab slot, so release is a no-op (it
-    -- still honours the idempotent-release contract).
+    -- The Rust lens rep holds no slab slot, so release is a no-op.
     releaseLens _ = pure ()
 
 -- ---------------------------------------------------------------------------

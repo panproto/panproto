@@ -55,6 +55,21 @@ Derived from the two AppView responses, flat record-shaped fixtures:
 | File | Derivation |
 | --- | --- |
 | `post-0.json` … `post-4.json` | `feed-bsky.app.json[feed[0..5].post.record]` — bare `app.bsky.feed.post` records |
+
+Bare `app.bsky.feed.post` records with an `embed`, one per embed kind,
+captured from `com.atproto.repo.listRecords?repo=bsky.app&collection=app.bsky.feed.post`
+on the `bsky.social` PDS on 2026-10-30, each the smallest record of its kind
+whose top-level fields the committed post lexicon declares. Written with
+sorted keys and two-space indentation.
+
+| File | Record |
+| --- | --- |
+| `post-embed-images.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3lawynrmfzk2f` |
+| `post-embed-external.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3llqwu7r34c2e` |
+| `post-embed-record.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mxhdhodv222n` |
+| `post-embed-record-with-media.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3lkbqli7hlc25` |
+| `post-embed-video.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3larljiybf22v` |
+| `post-embed-gallery.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mnslrkd6ok2g` (an `app.bsky.embed.gallery` embed, a kind the committed lexicon's `embed` union does not name) |
 | `profile-record.json` | `profile-bsky.app.json` restricted to the `app.bsky.actor.profile` record fields (`displayName`, `description`, `avatar`, `banner`, `createdAt`) |
 
 ## jsonschema/

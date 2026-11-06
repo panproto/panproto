@@ -133,10 +133,10 @@ pub fn export_to_git<S: Store, H: std::hash::BuildHasher>(
     // Resolve parent git commits from the mapping.
     let mut parents: Vec<git2::Commit<'_>> = Vec::new();
     for parent_panproto_id in &commit.parents {
-        if let Some(parent_git_oid) = parent_map.get(parent_panproto_id) {
-            if let Ok(parent_commit) = git_repo.find_commit(*parent_git_oid) {
-                parents.push(parent_commit);
-            }
+        if let Some(parent_git_oid) = parent_map.get(parent_panproto_id)
+            && let Ok(parent_commit) = git_repo.find_commit(*parent_git_oid)
+        {
+            parents.push(parent_commit);
         }
     }
     let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();

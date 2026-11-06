@@ -1,13 +1,10 @@
 //! The one place a protocol's capabilities are written down.
 //!
-//! Protocol capabilities used to be described independently in several
-//! places: the parser dispatches in this crate, protocol and theory
-//! resolution in the CLI, hand-written lists and theory matches in the C
-//! API, parallel hand-written lists in the WASM API, and tables in the
-//! book. Those registries had already diverged. The C list advertised
-//! nine protocols under underscore spellings that are not their
-//! canonical names, omitted the `uima-cas` alias, and the dispatch
-//! accepted `uima` while no published list mentioned it.
+//! Capabilities described independently in several places (the parser
+//! dispatches in this crate, protocol and theory resolution in the CLI,
+//! the C and WASM APIs, and tables in the book) drift apart: lists come to
+//! advertise underscore spellings rather than canonical names, and aliases
+//! are represented inconsistently.
 //!
 //! A descriptor is the single record of what a protocol can do, and the
 //! listings and the dispatch both derive from it, so a protocol added
@@ -21,7 +18,7 @@ use panproto_schema::{Protocol, Schema};
 
 use crate::error::ProtocolError;
 use crate::{
-    annotation, api, config, data_schema, data_science, database, domain, serialization,
+    annotation, api, config, data_schema, data_science, database, domain, serialization, text,
     web_document,
 };
 
@@ -40,6 +37,11 @@ pub enum Parser {
     /// Reads text in the protocol's own syntax. Reached by
     /// [`parse_schema_source`](crate::parse_schema_source).
     Source(fn(&str) -> Result<Schema, ProtocolError>),
+    /// Reads no schema documents. The protocol is a generic data format
+    /// whose files carry no schema, so its schemas are built in code with
+    /// [`SchemaBuilder`](panproto_schema::SchemaBuilder), and both
+    /// dispatches refuse it with an error that says so.
+    Programmatic,
 }
 
 /// What one protocol supports.
@@ -308,6 +310,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         protocol: annotation::conllu::protocol,
         register_theories: |r| {
             annotation::conllu::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "csv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: text::csv::protocol,
+        register_theories: |r| {
+            text::csv::register_theories(r);
             Ok(())
         },
         bundle: false,
@@ -722,6 +736,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "toml",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: text::toml::protocol,
+        register_theories: |r| {
+            text::toml::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "ucca",
         aliases: &[],
         parser: Parser::Document(annotation::ucca::parse_ucca),
@@ -764,6 +790,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         protocol: annotation::web_annotation::protocol,
         register_theories: |r| {
             annotation::web_annotation::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "yaml",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: text::yaml::protocol,
+        register_theories: |r| {
+            text::yaml::register_theories(r);
             Ok(())
         },
         bundle: false,

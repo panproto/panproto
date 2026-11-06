@@ -10,7 +10,6 @@
 //!   `add_project`, `commit`, `log`, `merge`, `cherry_pick`, `rebase`,
 //!   `reset`, `amend`, `gc`) plus the plumbing needed by external tooling
 //!   (branches, tags, blame, bisect, stash, status, data migration).
-//!   Closes issue #56.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

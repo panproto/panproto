@@ -187,6 +187,7 @@ fn schema_with_entries(entries: &[&str]) -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 

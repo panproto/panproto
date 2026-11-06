@@ -1,0 +1,469 @@
+{
+  "diagram": {
+    "nodes": [
+      {
+        "label": "ThHypergraph",
+        "theory": {
+          "name": "ThHypergraph",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "HyperEdge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Label",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "incident",
+              "inputs": [
+                [
+                  "he",
+                  "HyperEdge",
+                  "No"
+                ],
+                [
+                  "l",
+                  "Label",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "parent_label",
+              "inputs": [
+                [
+                  "he",
+                  "HyperEdge",
+                  "No"
+                ]
+              ],
+              "output": "Label"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThConstraint",
+        "theory": {
+          "name": "ThConstraint",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Constraint",
+              "params": [
+                {
+                  "name": "v",
+                  "sort": "Vertex"
+                }
+              ],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "target",
+              "inputs": [
+                [
+                  "c",
+                  "Constraint",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThVertex",
+        "theory": {
+          "name": "ThVertex",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "src": "ThVertex",
+        "tgt": "ThHypergraph",
+        "morphism": {
+          "name": "ThVertex_to_ThHypergraph",
+          "domain": "ThVertex",
+          "codomain": "ThHypergraph",
+          "sort_map": {
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      },
+      {
+        "src": "ThVertex",
+        "tgt": "ThConstraint",
+        "morphism": {
+          "name": "ThVertex_to_ThConstraint",
+          "domain": "ThVertex",
+          "codomain": "ThConstraint",
+          "sort_map": {
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      }
+    ]
+  },
+  "options": {
+    "mode": "explicit_identity",
+    "result_name": "table_schema_constrained_hypergraph",
+    "clash": "reject",
+    "rewrite_budget": 512
+  },
+  "composition": {
+    "theory": {
+      "name": "table_schema_constrained_hypergraph",
+      "extends": [],
+      "sorts": [
+        {
+          "name": "Constraint",
+          "params": [
+            {
+              "name": "v",
+              "sort": "Vertex"
+            }
+          ],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "HyperEdge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Label",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Vertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        }
+      ],
+      "ops": [
+        {
+          "name": "incident",
+          "inputs": [
+            [
+              "he",
+              "HyperEdge",
+              "No"
+            ],
+            [
+              "l",
+              "Label",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "parent_label",
+          "inputs": [
+            [
+              "he",
+              "HyperEdge",
+              "No"
+            ]
+          ],
+          "output": "Label"
+        },
+        {
+          "name": "target",
+          "inputs": [
+            [
+              "c",
+              "Constraint",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        }
+      ],
+      "eqs": [],
+      "directed_eqs": [],
+      "policies": []
+    },
+    "inclusions": [
+      {
+        "name": "incl_ThHypergraph_table_schema_constrained_hypergraph",
+        "domain": "ThHypergraph",
+        "codomain": "table_schema_constrained_hypergraph",
+        "sort_map": {
+          "HyperEdge": "HyperEdge",
+          "Label": "Label",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "incident": "incident",
+          "parent_label": "parent_label"
+        }
+      },
+      {
+        "name": "incl_ThConstraint_table_schema_constrained_hypergraph",
+        "domain": "ThConstraint",
+        "codomain": "table_schema_constrained_hypergraph",
+        "sort_map": {
+          "Constraint": "Constraint",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "target": "target"
+        }
+      },
+      {
+        "name": "incl_ThVertex_table_schema_constrained_hypergraph",
+        "domain": "ThVertex",
+        "codomain": "table_schema_constrained_hypergraph",
+        "sort_map": {
+          "Vertex": "Vertex"
+        },
+        "op_map": {}
+      }
+    ],
+    "provenance": {
+      "sorts": [
+        [
+          {
+            "node": "ThConstraint",
+            "name": "Constraint"
+          },
+          "Constraint"
+        ],
+        [
+          {
+            "node": "ThConstraint",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThHypergraph",
+            "name": "HyperEdge"
+          },
+          "HyperEdge"
+        ],
+        [
+          {
+            "node": "ThHypergraph",
+            "name": "Label"
+          },
+          "Label"
+        ],
+        [
+          {
+            "node": "ThHypergraph",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThVertex",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ]
+      ],
+      "ops": [
+        [
+          {
+            "node": "ThConstraint",
+            "name": "target"
+          },
+          "target"
+        ],
+        [
+          {
+            "node": "ThHypergraph",
+            "name": "incident"
+          },
+          "incident"
+        ],
+        [
+          {
+            "node": "ThHypergraph",
+            "name": "parent_label"
+          },
+          "parent_label"
+        ]
+      ],
+      "eqs": [],
+      "directed_eqs": [],
+      "policies": [],
+      "added_eqs": {}
+    },
+    "report": {
+      "mode": "explicit_identity",
+      "status": "passed",
+      "name_clash_free": true,
+      "checks": [
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThConstraint"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThHypergraph"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThVertex"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "class_signatures_agree",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThConstraint"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThHypergraph"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThVertex"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThConstraint"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThHypergraph"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThVertex"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "universal_identity",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "result_well_typed",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "name_clash_free",
+          "subject": "diagram",
+          "outcome": "passed"
+        }
+      ],
+      "freshened": []
+    }
+  }
+}

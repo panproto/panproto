@@ -19,6 +19,10 @@ path = "src/bin/test-book.rs"
 name = "gen-grammar-packs"
 path = "src/bin/gen-grammar-packs.rs"
 
+[[bin]]
+name = "gen-complement-upgrade"
+path = "src/bin/gen-complement-upgrade.rs"
+
 [lints]
 workspace = true
 
@@ -26,3 +30,10 @@ workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }
+panproto-gat = { workspace = true }
+panproto-schema = { workspace = true }
+panproto-inst = { workspace = true }
+panproto-mig = { workspace = true }
+panproto-lens = { workspace = true }
+rmp-serde = { workspace = true }
+ciborium = { workspace = true }

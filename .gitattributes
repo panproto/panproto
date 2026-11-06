@@ -1,3 +1,8 @@
 # Mark vendored tree-sitter grammar sources as generated/vendored.
 # This keeps GitHub language stats clean and collapses diffs in PRs.
 grammars/** linguist-vendored linguist-generated
+
+# Some upstream AT Protocol syntax vectors use a final ASCII space as the
+# invalid byte under test. Preserve those bytes without treating them as
+# accidental source whitespace.
+tests/fixtures/atproto-interop/syntax/*.txt -whitespace

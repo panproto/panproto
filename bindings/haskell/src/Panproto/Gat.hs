@@ -660,7 +660,11 @@ class GatBackend back where
     reifyTheory :: TheoryRep back -> IO Theory
 
     -- | Release any resources held by the theory representation.
-    -- Idempotent at the slab level, as with the other backend reps.
+    -- A raw-backed representation must be discarded after this one-shot
+    -- release. Repeating the call is harmless only while the slot remains
+    -- free; after reuse, the stale numeric handle aliases and frees the new
+    -- resource. Rust callers should prefer
+    -- 'Panproto.Rust.Gat.withRustTheory'.
     releaseTheory :: TheoryRep back -> IO ()
 
     -- | Compute the colimit (pushout) of two theories over a shared
@@ -759,7 +763,11 @@ class GatBackend back where
     -- the resulting carrier.
     reifyModel :: ModelRep back -> IO Model
 
-    -- | Release any resources held by the model representation.
+    -- | Release any resources held by the model representation. Treat a
+    -- raw-backed representation as consumed by this one-shot action. A
+    -- repeated release is harmless only before slot reuse; afterward the
+    -- stale numeric handle aliases and frees the new resource. Bracket
+    -- acquisition and release so the stale handle cannot escape.
     releaseModel :: ModelRep back -> IO ()
 
 -- ---------------------------------------------------------------------------

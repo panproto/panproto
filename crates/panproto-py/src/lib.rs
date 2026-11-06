@@ -70,7 +70,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Instance: Instance (W-type)
     inst::register(m)?;
 
-    // I/O: IoRegistry (77 protocol codecs)
+    // I/O: IoRegistry (50 protocol codecs)
     io::register(m)?;
 
     // Lens: Lens, auto_generate_lens, classify_transform

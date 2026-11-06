@@ -10,7 +10,7 @@
 //! - **Triangle inequality**: guaranteed by Floyd-Warshall in the lens graph.
 //!
 //! The enrichment structure provides the theoretical justification for the
-//! "shortest path = minimal information loss" heuristic in [`crate::graph`].
+//! "shortest path = minimal information loss" heuristic in [`crate::lens_graph`].
 
 use crate::protolens::{ComplementConstructor, ProtolensChain};
 
@@ -275,7 +275,7 @@ mod tests {
 mod quantale_laws {
     use super::*;
 
-    use crate::graph::LensGraph;
+    use crate::lens_graph::LensGraph;
     use crate::protolens::{Protolens, elementary, horizontal_compose, vertical_compose};
     use panproto_gat::{
         CoercionClass, EnrichmentKind, Name, TheoryConstraint, TheoryEndofunctor, TheoryTransform,
@@ -431,6 +431,7 @@ mod quantale_laws {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -443,7 +444,7 @@ mod quantale_laws {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "ka".into(), "kb".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -560,15 +561,25 @@ mod quantale_laws {
                 .unwrap();
             let fg = crate::compose::compose(&f, &g).unwrap();
 
-            let (_, comp_fg) = crate::asymmetric::get(&fg, &instance).unwrap();
+            let (_, comp_fg) = fg.get(&instance).unwrap();
             let (view_b, comp_f) = crate::asymmetric::get(&f, &instance).unwrap();
             let (_, comp_g) = crate::asymmetric::get(&g, &view_b).unwrap();
 
             prop_assert!(
-                comp_fg.dropped_nodes.len()
+                comp_fg
+                    .entries()
+                    .iter()
+                    .flat_map(|entry| entry.complement.complements())
+                    .map(|complement| complement.dropped_nodes.len())
+                    .sum::<usize>()
                     <= comp_f.dropped_nodes.len() + comp_g.dropped_nodes.len(),
                 "composed complement dropped more nodes ({}) than the parts ({} + {})",
-                comp_fg.dropped_nodes.len(),
+                comp_fg
+                    .entries()
+                    .iter()
+                    .flat_map(|entry| entry.complement.complements())
+                    .map(|complement| complement.dropped_nodes.len())
+                    .sum::<usize>(),
                 comp_f.dropped_nodes.len(),
                 comp_g.dropped_nodes.len(),
             );

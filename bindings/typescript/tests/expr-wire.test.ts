@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exprFromWire, exprToWire, literalFromWire, literalToWire } from '../src/expr-wire.js';
+import { packToWasmWithBigInt, unpackFromWasmWithBigInt } from '../src/msgpack.js';
 import type { Expr, Literal } from '../src/types.js';
 
 describe('expression wire conversion', () => {
@@ -160,5 +161,118 @@ describe('expression wire conversion', () => {
       literalToWire({ type: 'int', value: Number.MAX_SAFE_INTEGER + 1 }),
     ).toThrow('use bigint');
     expect(() => literalToWire({ type: 'int', value: 1n << 63n })).toThrow('fit in Rust i64');
+  });
+
+  it('round-trips exact decimal, bigint, and temporal Rust serde variants', () => {
+    const literals: readonly Literal[] = [
+      {
+        type: 'decimal',
+        value: { negative: false, digits: '150', exponent: '-2' },
+      },
+      {
+        type: 'decimal',
+        value: {
+          negative: true,
+          digits: '0',
+          exponent: '0',
+          class: { na_n: { signalling: true, payload: '12' } },
+        },
+      },
+      {
+        type: 'bigint',
+        value: { negative: false, significand: '18446744073709551615', zeros: '4097' },
+      },
+      {
+        type: 'temporal',
+        value: {
+          date_time: [
+            { year: 2026, month: 9, day: 28 },
+            { hour: 23, minute: 59, second: 60, fraction: '1230' },
+            { fixed_form: [330, 'extended'] },
+            'upper',
+          ],
+        },
+      },
+      {
+        type: 'temporal',
+        value: {
+          extended: {
+            date: {
+              year: { value: -1, negative_zero: false, width: 4 },
+              month: 2,
+              day: null,
+            },
+            time: null,
+            separator: null,
+            offset: 'local',
+            infinity: null,
+          },
+        },
+      },
+    ];
+
+    expect(literals.map(literalToWire)).toEqual([
+      { Decimal: { negative: false, digits: '150', exponent: '-2' } },
+      {
+        Decimal: {
+          negative: true,
+          digits: '0',
+          exponent: '0',
+          class: { na_n: { signalling: true, payload: '12' } },
+        },
+      },
+      {
+        BigInt: { negative: false, significand: '18446744073709551615', zeros: '4097' },
+      },
+      {
+        Temporal: {
+          date_time: [
+            { year: 2026, month: 9, day: 28 },
+            { hour: 23, minute: 59, second: 60, fraction: '1230' },
+            { fixed_form: [330, 'extended'] },
+            'upper',
+          ],
+        },
+      },
+      {
+        Temporal: {
+          extended: {
+            date: {
+              year: { value: -1, negative_zero: false, width: 4 },
+              month: 2,
+              day: null,
+            },
+            time: null,
+            separator: null,
+            offset: 'local',
+            infinity: null,
+          },
+        },
+      },
+    ]);
+    expect(literals.map((literal) => literalFromWire(literalToWire(literal)))).toEqual(literals);
+  });
+
+  it('round-trips exact literals through the MessagePack WASM transport', () => {
+    const literals: readonly Literal[] = [
+      {
+        type: 'decimal',
+        value: { negative: true, digits: '1', exponent: '3000000000' },
+      },
+      {
+        type: 'bigint',
+        value: { negative: true, significand: '9223372036854775809', zeros: '12' },
+      },
+      {
+        type: 'temporal',
+        value: { date: { year: 9223372036854775807n, month: 12, day: 31 } },
+      },
+    ];
+
+    for (const literal of literals) {
+      const bytes = packToWasmWithBigInt(literalToWire(literal));
+      const wire = unpackFromWasmWithBigInt(bytes);
+      expect(literalFromWire(wire)).toEqual(literal);
+    }
   });
 });

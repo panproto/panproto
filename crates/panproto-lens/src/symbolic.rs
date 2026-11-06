@@ -60,12 +60,12 @@ fn apply_rules(steps: &[SymbolicStep]) -> Vec<SymbolicStep> {
 
     while i < steps.len() {
         // Try pairwise rules when a next step exists.
-        if i + 1 < steps.len() {
-            if let Some(replacement) = try_pairwise_rule(&steps[i], &steps[i + 1]) {
-                result.extend(replacement);
-                i += 2;
-                continue;
-            }
+        if i + 1 < steps.len()
+            && let Some(replacement) = try_pairwise_rule(&steps[i], &steps[i + 1])
+        {
+            result.extend(replacement);
+            i += 2;
+            continue;
         }
         result.push(steps[i].clone());
         i += 1;
@@ -310,7 +310,7 @@ mod tests {
     fn inverse_cancellation_sorts() {
         let steps = vec![rename_sort("A", "B"), rename_sort("B", "A")];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, []);
     }
 
     #[test]
@@ -324,7 +324,7 @@ mod tests {
     fn inverse_cancellation_ops() {
         let steps = vec![rename_op("f", "g"), rename_op("g", "f")];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, []);
     }
 
     #[test]
@@ -341,7 +341,7 @@ mod tests {
             SymbolicStep::DropSort(Arc::from("X")),
         ];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, []);
     }
 
     #[test]
@@ -351,7 +351,7 @@ mod tests {
             SymbolicStep::DropOp(Arc::from("f")),
         ];
         let simplified = simplify_steps(steps);
-        assert!(simplified.is_empty());
+        assert_eq!(simplified, []);
     }
 
     #[test]

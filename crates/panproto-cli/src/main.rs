@@ -1028,22 +1028,23 @@ enum LensAction {
         #[arg(long)]
         explain: bool,
     },
-    /// Compile a lens DSL document (.ncl/.json/.yaml) to a protolens chain.
+    /// Compile a lens DSL document to a versioned executable artifact.
     Compile {
         /// Path to the lens DSL document (`.ncl`, `.json`, `.yaml`, or `.yml`).
         doc: PathBuf,
         /// Parent vertex under which field-level steps attach.
         #[arg(long, default_value = "record:body")]
         body_vertex: String,
-        /// Write the chain JSON to this file instead of stdout.
+        /// Write the compiled artifact JSON to this file instead of stdout.
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Apply a saved lens chain to data.
+    /// Apply a compiled lens artifact, raw chain, or target schema to data.
     Apply {
-        /// Path to the protolens chain JSON.
+        /// Path to the compiled artifact, raw chain, or target-schema JSON.
         chain: PathBuf,
-        /// Path to the data file.
+        /// Path to the data file: a source record forward, or a view
+        /// under the lens's target schema backward.
         data: PathBuf,
         /// Protocol name.
         #[arg(long)]
@@ -1051,7 +1052,8 @@ enum LensAction {
         /// Direction: "forward" or "backward".
         #[arg(long, default_value = "forward")]
         direction: String,
-        /// Complement data for backward apply.
+        /// Complement data for backward apply. Without one, backward
+        /// apply succeeds only for a lens that is an isomorphism.
         #[arg(long)]
         complement: Option<PathBuf>,
         /// Schema for chain instantiation.
@@ -1335,17 +1337,15 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
                     optic_kind,
                 },
             );
-            if lens {
-                if let (Some(old_path), Some(new_path)) = (old.as_deref(), new.as_deref()) {
-                    // Generate a protolens chain between the two schemas/refs
-                    // Reuse cmd_lens_diff for VCS refs, or generate directly for files
-                    let range = format!(
-                        "{old}..{new}",
-                        old = old_path.display(),
-                        new = new_path.display(),
-                    );
-                    cmd::lens::cmd_lens_diff(&range, true, save.as_deref(), verbose)?;
-                }
+            if lens && let (Some(old_path), Some(new_path)) = (old.as_deref(), new.as_deref()) {
+                // Generate a protolens chain between the two schemas/refs
+                // Reuse cmd_lens_diff for VCS refs, or generate directly for files
+                let range = format!(
+                    "{old}..{new}",
+                    old = old_path.display(),
+                    new = new_path.display(),
+                );
+                cmd::lens::cmd_lens_diff(&range, true, save.as_deref(), verbose)?;
             }
             result
         }

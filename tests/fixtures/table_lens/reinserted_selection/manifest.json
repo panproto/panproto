@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "reinserted_selection",
+  "source_protocol": "table_test_v1",
+  "target_protocol": "table_test_v1",
+  "class": "reinserted_selection",
+  "expected_error": null,
+  "runner": "reinserted_selection"
+}

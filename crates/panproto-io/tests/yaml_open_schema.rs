@@ -24,7 +24,7 @@ fn bare_root_schema() -> Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)

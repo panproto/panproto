@@ -100,6 +100,8 @@ module Panproto.Rust.FFI
     , pp_lens_check_put_get_at
     , pp_lens_get_record_at
     , pp_lens_put_record_at
+    , pp_lens_put_json_at
+    , pp_lens_align_view_at
     , pp_lens_compose
     , pp_protolens_instantiate
     , pp_protolens_complement_spec_at
@@ -235,7 +237,9 @@ instance Storable VecU8 where
 foreign import ccall safe "pp_init"
     pp_init :: IO CInt
 
--- | Free a handle's slab slot. Safe to call on freed handles.
+-- | Free a handle's slab slot. This is a one-shot operation: a repeated call is
+-- harmless only until that numeric slot is reused, after which the old number
+-- names and frees the new resource.
 foreign import ccall safe "pp_handle_free"
     pp_handle_free :: Word32 -> IO CInt
 
@@ -472,7 +476,7 @@ foreign import ccall safe "pp_lens_auto_generate_candidates_at"
     pp_lens_auto_generate_candidates_at
         :: Word32 -> Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
--- | Check both lens laws over a CBOR instance.
+-- | Check the five strict lens-law gates over a CBOR instance.
 foreign import ccall safe "pp_lens_check_laws_at"
     pp_lens_check_laws_at :: Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
@@ -491,6 +495,18 @@ foreign import ccall safe "pp_lens_get_record_at"
 -- | Run @put@ on a CBOR view plus complement, returning a CBOR record.
 foreign import ccall safe "pp_lens_put_record_at"
     pp_lens_put_record_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Run @put@ on a raw JSON view plus a CBOR complement, aligning the view
+-- to the complement first, and return the restored record as raw JSON.
+foreign import ccall safe "pp_lens_put_json_at"
+    pp_lens_put_json_at
+        :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Align a CBOR view a reader numbered afresh to a CBOR complement,
+-- returning the aligned CBOR view.
+foreign import ccall safe "pp_lens_align_view_at"
+    pp_lens_align_view_at
         :: Word32 -> Ptr Word8 -> CSize -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
 -- | Compose two compiled lenses into a fresh migration-with-schemas handle.

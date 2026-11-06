@@ -17,10 +17,77 @@ use std::sync::Arc;
 use panproto_gat::Name;
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{
-    CompiledMigration, FieldTransform, Node, WInstance, parse_json, to_json, wtype_restrict,
+    BoundaryProtocols, CompiledMigration, FieldTransform, Node, RestrictError, WInstance,
+    parse_json, to_json, wtype_restrict,
 };
 use panproto_schema::{Edge, Schema, Vertex};
 use smallvec::SmallVec;
+
+fn restrict(
+    instance: &WInstance,
+    schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<WInstance, RestrictError> {
+    let mut target = schema.clone();
+    for (anchor, transforms) in &migration.field_transforms {
+        for transform in transforms {
+            let FieldTransform::ComputeField { target_key, .. } = transform else {
+                continue;
+            };
+            let already_declared = target
+                .outgoing
+                .get(anchor)
+                .into_iter()
+                .flatten()
+                .any(|edge| edge.name.as_deref() == Some(target_key.as_str()));
+            if already_declared {
+                continue;
+            }
+            let vertex_id = Name::from(format!("{anchor}.{target_key}"));
+            target.vertices.insert(
+                vertex_id.clone(),
+                Vertex {
+                    id: vertex_id.clone(),
+                    kind: "string".into(),
+                    nsid: None,
+                },
+            );
+            let edge = Edge {
+                src: anchor.clone(),
+                tgt: vertex_id,
+                kind: "prop".into(),
+                name: Some(target_key.as_str().into()),
+            };
+            target.edges.insert(edge.clone(), edge.kind.clone());
+            target
+                .outgoing
+                .entry(edge.src.clone())
+                .or_default()
+                .push(edge.clone());
+            target
+                .incoming
+                .entry(edge.tgt.clone())
+                .or_default()
+                .push(edge.clone());
+            target
+                .between
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .or_default()
+                .push(edge);
+        }
+    }
+    let protocol = panproto_protocols::atproto::protocol();
+    wtype_restrict(
+        instance,
+        schema,
+        &target,
+        migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+}
 
 /// Build a schema from vertex specs and edges.
 fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
@@ -72,10 +139,11 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
-/// Schema with an AT-URI formatted string field (reproduces #13).
+/// Schema with an AT-URI formatted string field.
 fn at_uri_schema() -> Schema {
     let edge_repo = Edge {
         src: "body".into(),
@@ -105,7 +173,8 @@ fn at_uri_instance(schema: &Schema) -> WInstance {
         "repo": "at://did:plc:abc123/app.bsky.feed.post/rkey456",
         "text": "hello world"
     });
-    parse_json(schema, "body", &json).expect("parse should succeed")
+    parse_json(schema, &panproto_schema::Protocol::default(), "body", &json)
+        .expect("parse should succeed")
 }
 
 // ---------------------------------------------------------------------------
@@ -145,12 +214,12 @@ fn compute_field_survives_restrict() {
         expansion_path: HashMap::new(),
     };
 
-    let result = wtype_restrict(&instance, &schema, &schema, &migration);
+    let result = restrict(&instance, &schema, &migration);
     assert!(result.is_ok(), "restrict should succeed: {result:?}");
     let restricted = result.unwrap();
 
     // Serialize and check the computed field appears
-    let json_out = to_json(&schema, &restricted);
+    let json_out = to_json(&schema, &restricted).unwrap();
     assert_eq!(
         json_out["repo_copy"], "at://did:plc:abc123/app.bsky.feed.post/rkey456",
         "ComputeField should have read the child scalar 'repo' and written 'repo_copy'"
@@ -165,7 +234,7 @@ fn compute_field_survives_restrict() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: AT-URI decomposition (exact scenario from issue #13)
+// Test: AT-URI decomposition
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -241,8 +310,8 @@ fn at_uri_decomposition_end_to_end() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict ok");
-    let json_out = to_json(&schema, &restricted);
+    let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
+    let json_out = to_json(&schema, &restricted).unwrap();
 
     assert_eq!(json_out["repoDid"], "did:plc:abc123");
     assert_eq!(json_out["repoCollection"], "app.bsky.feed.post");
@@ -317,8 +386,8 @@ fn multiple_scalar_transforms_compose() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict ok");
-    let json_out = to_json(&schema, &restricted);
+    let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
+    let json_out = to_json(&schema, &restricted).unwrap();
 
     assert_eq!(
         json_out["field_a"],
@@ -353,14 +422,14 @@ fn scalar_child_identity_roundtrip() {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration).expect("restrict ok");
+    let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
     assert_eq!(
         restricted.node_count(),
         instance.node_count(),
         "identity restrict must preserve node count"
     );
 
-    let json_out = to_json(&schema, &restricted);
+    let json_out = to_json(&schema, &restricted).unwrap();
     assert_eq!(
         json_out["repo"],
         "at://did:plc:abc123/app.bsky.feed.post/rkey456"
@@ -473,9 +542,8 @@ mod property {
                 expansion_path: HashMap::new(),
             };
 
-            let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
-                .expect("restrict ok");
-            let json_out = to_json(&schema, &restricted);
+            let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
+            let json_out = to_json(&schema, &restricted).unwrap();
 
             for name in &names {
                 let original_key = name.as_str();
@@ -505,8 +573,7 @@ mod property {
                 expansion_path: HashMap::new(),
             };
 
-            let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
-                .expect("restrict ok");
+            let restricted = restrict(&instance, &schema, &migration).expect("restrict ok");
 
             prop_assert_eq!(
                 restricted.node_count(), instance.node_count(),
@@ -514,8 +581,8 @@ mod property {
             );
             prop_assert_eq!(restricted.root, instance.root);
 
-            let json_before = to_json(&schema, &instance);
-            let json_after = to_json(&schema, &restricted);
+            let json_before = to_json(&schema, &instance).unwrap();
+            let json_after = to_json(&schema, &restricted).unwrap();
             prop_assert_eq!(
                 serde_json::to_string(&json_before).unwrap(),
                 serde_json::to_string(&json_after).unwrap(),

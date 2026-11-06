@@ -21,7 +21,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry = panproto_core::io::default_registry();
     let instance = registry.parse_wtype("atproto", &schema, REAL_POST)?;
-    let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
+    let protocol = atproto::protocol();
+    let protocols = panproto_core::inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let lifted = lift_wtype(&compiled, &schema, &schema, &instance, protocols)?;
     let bytes = registry.emit_wtype("atproto", &schema, &lifted)?;
 
     println!(

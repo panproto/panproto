@@ -17,6 +17,7 @@ smallvec = { workspace = true }
 blake3 = { workspace = true }
 
 [dev-dependencies]
+panproto-reference = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }

@@ -39,7 +39,7 @@ fn protocol() -> Protocol {
             tgt_kinds: vec!["object".to_owned()],
         }],
         obj_kinds: vec!["object".to_owned()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -65,8 +65,8 @@ fn induce_all(schema: &Schema) -> Result<Schema, panproto_schema::SchemaError> {
 /// A marker survives a serde round trip and an induction that keeps everything.
 ///
 /// The round trip is the part that matters: deserialisation is the one path
-/// that used to be able to introduce a marker whose two names disagreed, since
-/// no builder could write one and `validate` did not look.
+/// that could introduce a marker whose two names disagree, since no builder
+/// can write one, so `validate` has to look.
 #[test]
 fn a_marker_survives_the_round_trip_that_used_to_break_it() {
     let mut schema = two_vertices();
@@ -103,10 +103,10 @@ fn a_marker_survives_the_round_trip_that_used_to_break_it() {
 
 /// A marker keyed by a vertex the schema does not have is reported, not dropped.
 ///
-/// This is the residue of the original defect. It can no longer contradict
-/// itself, but it can still name something absent, and the failure mode was the
-/// same: inducing keeps a marker only when both ends survive, so it vanished
-/// from the apex while the apex's certificate still claimed full coverage.
+/// A marker cannot contradict itself, but it can still name something absent,
+/// and the failure mode would be the same: inducing keeps a marker only when
+/// both ends survive, so it would vanish from the apex while the apex's
+/// certificate still claimed full coverage.
 #[test]
 fn a_marker_keyed_by_a_missing_vertex_is_reported() {
     let mut schema = two_vertices();

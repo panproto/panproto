@@ -38,14 +38,15 @@ members = [
     "crates/panproto-theory-dsl",
     "crates/panproto-gat-macros",
     "crates/book-doctest-stub",
+    "crates/panproto-reference",
     "tests/integration",
     "xtask",
 ]
 
 [workspace.package]
-version = "0.76.1"
+version = "0.77.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97"
 license = "MIT"
 repository = "https://github.com/panproto/panproto"
 homepage = "https://github.com/panproto/panproto"
@@ -86,8 +87,7 @@ clap = { version = "4.6.0", features = ["derive"] }
 proptest = "1.11.0"
 insta = { version = "1.43", features = ["json", "yaml"] }
 
-# SIMD-accelerated parsing
-simd-json = "0.15"
+# SIMD byte scanning
 memchr = "2.7"
 
 # Project manifest
@@ -109,27 +109,29 @@ tree-sitter = "0.26"
 tree-sitter-tags = "0.26"
 
 # Workspace crates
-panproto-gat = { version = "0.76.1", path = "crates/panproto-gat" }
-panproto-gat-macros = { version = "0.76.1", path = "crates/panproto-gat-macros" }
-panproto-schema = { version = "0.76.1", path = "crates/panproto-schema" }
-panproto-inst = { version = "0.76.1", path = "crates/panproto-inst" }
-panproto-mig = { version = "0.76.1", path = "crates/panproto-mig" }
-panproto-lens = { version = "0.76.1", path = "crates/panproto-lens" }
-panproto-dsl-eval = { version = "0.76.1", path = "crates/panproto-dsl-eval" }
-panproto-lens-dsl = { version = "0.76.1", path = "crates/panproto-lens-dsl" }
-panproto-theory-dsl = { version = "0.76.1", path = "crates/panproto-theory-dsl" }
-panproto-check = { version = "0.76.1", path = "crates/panproto-check" }
-panproto-protocols = { version = "0.76.1", path = "crates/panproto-protocols" }
-panproto-core = { version = "0.76.1", path = "crates/panproto-core" }
-panproto-io = { version = "0.76.1", path = "crates/panproto-io" }
-panproto-vcs = { version = "0.76.1", path = "crates/panproto-vcs" }
-panproto-expr = { version = "0.76.1", path = "crates/panproto-expr" }
-panproto-expr-parser = { version = "0.76.1", path = "crates/panproto-expr-parser" }
-panproto-grammars = { version = "0.76.1", path = "crates/panproto-grammars", default-features = false }
-panproto-parse = { version = "0.76.1", path = "crates/panproto-parse" }
-panproto-project = { version = "0.76.1", path = "crates/panproto-project" }
-panproto-git = { version = "0.76.1", path = "crates/panproto-git" }
-panproto-xrpc = { version = "0.76.1", path = "crates/panproto-xrpc" }
+panproto-gat = { version = "0.77.0", path = "crates/panproto-gat" }
+panproto-gat-macros = { version = "0.77.0", path = "crates/panproto-gat-macros" }
+panproto-schema = { version = "0.77.0", path = "crates/panproto-schema" }
+panproto-inst = { version = "0.77.0", path = "crates/panproto-inst" }
+panproto-mig = { version = "0.77.0", path = "crates/panproto-mig" }
+panproto-lens = { version = "0.77.0", path = "crates/panproto-lens" }
+panproto-dsl-eval = { version = "0.77.0", path = "crates/panproto-dsl-eval" }
+panproto-lens-dsl = { version = "0.77.0", path = "crates/panproto-lens-dsl" }
+panproto-theory-dsl = { version = "0.77.0", path = "crates/panproto-theory-dsl" }
+panproto-check = { version = "0.77.0", path = "crates/panproto-check" }
+panproto-protocols = { version = "0.77.0", path = "crates/panproto-protocols" }
+panproto-core = { version = "0.77.0", path = "crates/panproto-core" }
+panproto-io = { version = "0.77.0", path = "crates/panproto-io" }
+panproto-vcs = { version = "0.77.0", path = "crates/panproto-vcs" }
+panproto-expr = { version = "0.77.0", path = "crates/panproto-expr" }
+panproto-expr-parser = { version = "0.77.0", path = "crates/panproto-expr-parser" }
+panproto-grammars = { version = "0.77.0", path = "crates/panproto-grammars", default-features = false }
+panproto-parse = { version = "0.77.0", path = "crates/panproto-parse" }
+panproto-project = { version = "0.77.0", path = "crates/panproto-project" }
+panproto-git = { version = "0.77.0", path = "crates/panproto-git" }
+panproto-xrpc = { version = "0.77.0", path = "crates/panproto-xrpc" }
+# Test-only reference semantics; never published, so it carries no version.
+panproto-reference = { path = "crates/panproto-reference" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -141,8 +143,6 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 expect_used = "warn"
-# Predicate-style emptiness assertions are deliberate throughout the test suite.
-assert_is_empty = "allow"
 
 # cargo-dist configuration
 [workspace.metadata.dist]
@@ -184,3 +184,19 @@ inherits = "release"
 [profile.release-wasm]
 inherits = "release"
 opt-level = 3
+
+# The CI test profile. It inherits `dev`, so `debug_assert!` and overflow
+# checks stay live and a test checks exactly what it checks in a local debug
+# run, but compiles with optimisation: the reference differentials, law
+# certificates and randomized sweeps spend nearly all their time in code an
+# unoptimised build runs many times slower, and under `dev` several of them
+# cannot finish inside the nextest `ci` profile's per-test bound.
+# `line-tables-only` keeps file and line in a backtrace while writing a
+# fraction of full DWARF, which the runner's disk needs, and leaving LTO off
+# keeps link time near that of `dev`. Select it with
+# `cargo nextest run --cargo-profile ci-test`.
+[profile.ci-test]
+inherits = "dev"
+opt-level = 2
+debug = "line-tables-only"
+incremental = false

@@ -11,6 +11,8 @@ use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
+use crate::keys::SchemaDeclarations;
+
 /// A schema vertex.
 ///
 /// Each vertex has a unique `id`, a `kind` drawn from the protocol's
@@ -167,7 +169,7 @@ pub struct CoercionSpec {
 ///
 /// Contains both the raw data (vertices, edges, constraints, etc.) and
 /// precomputed adjacency indices for efficient graph traversal.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Schema {
     /// The protocol this schema belongs to.
     pub protocol: String,
@@ -250,6 +252,15 @@ pub struct Schema {
     /// Edges between a specific `(src, tgt)` pair.
     #[serde(with = "crate::serde_helpers::map_as_vec")]
     pub between: HashMap<(Name, Name), SmallVec<Edge, 2>>,
+
+    // -- declarations --
+    /// The keys and references this schema declares.
+    ///
+    /// Serialized as one optional trailing element, omitted when empty, so
+    /// the named and positional encodings of a schema that declares nothing
+    /// are unchanged.
+    #[serde(default, skip_serializing_if = "SchemaDeclarations::is_empty")]
+    pub declarations: SchemaDeclarations,
 }
 
 impl Schema {
@@ -294,13 +305,13 @@ impl Schema {
     /// Return all outgoing edges from the given vertex.
     #[must_use]
     pub fn outgoing_edges(&self, vertex_id: &str) -> &[Edge] {
-        self.outgoing.get(vertex_id).map_or(&[], SmallVec::as_slice)
+        self.outgoing.get(vertex_id).map_or(&[], AsRef::as_ref)
     }
 
     /// Return all incoming edges to the given vertex.
     #[must_use]
     pub fn incoming_edges(&self, vertex_id: &str) -> &[Edge] {
-        self.incoming.get(vertex_id).map_or(&[], SmallVec::as_slice)
+        self.incoming.get(vertex_id).map_or(&[], AsRef::as_ref)
     }
 
     /// Return edges between a specific `(src, tgt)` pair.
@@ -309,7 +320,7 @@ impl Schema {
     pub fn edges_between(&self, src: &str, tgt: &str) -> &[Edge] {
         self.between
             .get(&(Name::from(src), Name::from(tgt)))
-            .map_or(&[], SmallVec::as_slice)
+            .map_or(&[], AsRef::as_ref)
     }
 
     /// Returns `true` if the given vertex ID exists in this schema.
@@ -339,6 +350,25 @@ impl Schema {
     #[must_use]
     pub fn entry_vertices(&self) -> &[Name] {
         &self.entries
+    }
+
+    /// The arms of the coproduct vertex `vertex`, in declaration order;
+    /// empty when `vertex` is not a coproduct.
+    #[must_use]
+    pub fn variants_of(&self, vertex: &str) -> &[Variant] {
+        self.variants.get(vertex).map_or(&[], Vec::as_slice)
+    }
+
+    /// The arm of the coproduct vertex `union` that reads a value whose
+    /// discriminant is `tag`: the first arm tagged `tag`, else the first
+    /// untagged arm, which reads every discriminant no tagged arm claims,
+    /// else none.
+    #[must_use]
+    pub fn variant_for_tag(&self, union: &str, tag: &str) -> Option<&Variant> {
+        let arms = self.variants_of(union);
+        arms.iter()
+            .find(|arm| arm.tag.as_deref() == Some(tag))
+            .or_else(|| arms.iter().find(|arm| arm.tag.is_none()))
     }
 
     /// Return every constraint attached to the given vertex.

@@ -59,13 +59,14 @@ class ProtocolBackend back where
 
     -- | Release any resources held by the representation.
     --
-    -- For 'Rust' this calls @pp_handle_free@, which is idempotent at
-    -- the slab level (a freed slot stays freed; a second free is a
-    -- no-op). For 'Native' it is also a no-op (the representation is
-    -- a pure value). Calling more than once is therefore safe, but
-    -- 'Panproto.Rust.withRustProtocol' is preferred for the Rust
-    -- backend because it guarantees release on exception paths and
-    -- keeps the lifetime explicit.
+    -- For 'Rust' this calls @pp_handle_free@ and is a one-shot ownership
+    -- action. A repeated free is harmless only while the slot remains
+    -- unused; after a later allocation reuses that numeric handle, the
+    -- stale handle aliases and frees the new resource. Discard a Rust
+    -- representation after release, and prefer
+    -- 'Panproto.Rust.withRustProtocol' so exceptions cannot skip the
+    -- release. For 'Native' this method is a no-op because the
+    -- representation is a pure value.
     releaseProtocol :: ProtocolRep back -> IO ()
 
 -- | Operations that ingest, inspect, and emit panproto schemas.
@@ -89,8 +90,10 @@ class SchemaBackend back where
     -- 'CanonicalSchema'.
     toCanonicalSchema :: SchemaRep back -> IO CanonicalSchema
 
-    -- | Release any resources held by the representation. As with
-    -- 'releaseProtocol', this is idempotent at the slab level.
+    -- | Release any resources held by the representation. A raw-backed
+    -- representation has the one-shot ownership contract documented for
+    -- 'releaseProtocol'; 'Native' is a no-op. Prefer
+    -- 'Panproto.Rust.withRustSchema' for the Rust backend.
     releaseSchema :: SchemaRep back -> IO ()
 
     -- | Ingest a structured 'Schema' into the backend.

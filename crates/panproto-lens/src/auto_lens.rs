@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Theory, TheoryEndofunctor, TheoryMorphism, TheoryTransform, factorize};
 use panproto_inst::value::Value;
+use panproto_inst::{BoundaryProtocols, RestrictPlan};
 use panproto_mig::SpanSearch;
 use panproto_mig::align::evidence::{
     AggregationPolicy, Cardinality, Provenance, RowFilter, aggregate,
@@ -183,8 +184,8 @@ impl Stringency {
     ///
     /// When enabled, source sorts/ops with no matched counterpart
     /// surface as explicit `DropSort`/`DropOp` endofunctors in the
-    /// factorization, and target extensions surface as
-    /// `AddSort`/`AddOp`. The resulting lens is genuinely partial on
+    /// factorization, and target extensions surface as concrete schema
+    /// vertex and edge additions. The resulting lens is genuinely partial on
     /// the source side — round-trip laws hold on `C`, not on `A`.
     #[must_use]
     pub const fn allow_spans(self) -> bool {
@@ -317,9 +318,9 @@ impl Default for AutoLensConfig {
 ///
 /// Covers a proposal whose witness is absent from the library, and a
 /// proposal whose witness is present but whose `source_kind` has no
-/// registered samples. Both paths used to default asymmetrically
-/// (unknown witness dropped, missing samples kept); this knob makes
-/// the treatment explicit and uniform.
+/// registered samples. This knob makes the treatment of both paths
+/// explicit and uniform, rather than dropping an unknown witness while
+/// keeping a proposal with missing samples.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UnknownSamplesPolicy {
     /// Keep unverifiable proposals (sound when the caller still
@@ -709,13 +710,12 @@ fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>
 /// vertices recovers its whole kind-compatible domain and the search can
 /// reach an assignment the pinned attempt had ruled out.
 ///
-/// This used to demote strategy anchors to a preference ordering under a node
-/// budget. Preferences are gone, and so is the budget: a preference could only
-/// change which optimum was reached first, while the search now returns an
-/// optimum of the whole objective, so there is no ordering left to express.
-/// Releasing the pins is the part that mattered, since it is the domain
-/// collapse rather than the ordering that turns a jointly infeasible anchor set
-/// into "no morphism found".
+/// Strategy anchors are released rather than demoted to a preference
+/// ordering: a preference could only change which optimum is reached first,
+/// while the search returns an optimum of the whole objective, so there is
+/// no ordering to express. It is the domain collapse rather than any
+/// ordering that turns a jointly infeasible anchor set into "no morphism
+/// found", so releasing the pins is what matters.
 fn release_strategy_pins(
     opts: &SearchOptions,
     caller_anchors: &HashMap<Name, Name>,
@@ -900,6 +900,61 @@ pub fn auto_generate(
     })
 }
 
+/// Automatically generate a lens and verify that its compiled migration is
+/// executable by the graph restrict engine.
+///
+/// This runs the same alignment and search pipeline as [`auto_generate`]; the
+/// only additional step is graph-plan compilation against the resulting
+/// source and target schemas.
+///
+/// # Errors
+///
+/// Returns the errors of [`auto_generate`] or graph-plan compilation.
+pub fn auto_generate_graph(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+) -> Result<AutoLensResult, LensError> {
+    let result = auto_generate(src, tgt, protocol, config)?;
+    RestrictPlan::compile(
+        &result.lens.src_schema,
+        &result.lens.tgt_schema,
+        &result.lens.compiled,
+    )?;
+    Ok(result)
+}
+
+/// Automatically generate a lens and verify that its compiled migration is
+/// executable by the table restrict engine.
+///
+/// This runs the same alignment and search pipeline as [`auto_generate`]; the
+/// only additional step is relation-schema and table-plan compilation. The
+/// same protocol describes both boundaries, matching [`auto_generate`]'s
+/// shape-neutral input contract.
+///
+/// # Errors
+///
+/// Returns the errors of [`auto_generate`] or table-plan compilation.
+pub fn auto_generate_table(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+) -> Result<AutoLensResult, LensError> {
+    let result = auto_generate(src, tgt, protocol, config)?;
+    RestrictPlan::compile_for_tables(
+        &result.lens.src_schema,
+        &result.lens.tgt_schema,
+        &result.lens.compiled,
+        BoundaryProtocols {
+            src: protocol,
+            tgt: protocol,
+        },
+    )?;
+    Ok(result)
+}
+
 /// Default alignment quality below which `auto_generate` triggers the
 /// overlap-fallback retry when `try_overlap` is enabled. `auto_generate_with_hints`
 /// accepts a `quality_threshold` override that shadows this constant.
@@ -1059,7 +1114,13 @@ fn run_search(
     let mut lens = chain.instantiate(src, protocol)?;
     let field_transforms = derive_field_transforms(&chain, src, tgt);
     lens.compiled.field_transforms = field_transforms;
-    crate::default_synthesis::attach_defaults(&mut lens, tgt, &config.defaults, true)?;
+    let instantiated_target = lens.tgt_schema.clone();
+    crate::default_synthesis::attach_defaults(
+        &mut lens,
+        &instantiated_target,
+        &config.defaults,
+        true,
+    )?;
 
     Ok(SearchResult {
         chain,
@@ -1215,9 +1276,9 @@ pub fn protolens_from_alignment(
 ///
 /// When `emit_spans` is `true`, source sorts/ops that the alignment
 /// did not witness are left out of the theory morphism; [`factorize`]
-/// then emits `DropSort`/`DropOp` endofunctors for them, and
-/// `AddSort`/`AddOp` for the target extensions. This realizes the span
-/// `A ←f− C −g→ B` described in the plan.
+/// then emits `DropSort`/`DropOp` endofunctors for them. The target
+/// extension is added as concrete schema vertices and edges in either mode.
+/// This realizes the span `A ←f− C −g→ B`.
 ///
 /// When `emit_spans` is `false`, unmapped source sorts/ops are
 /// identity-filled and no drops are emitted; behaviour matches the
@@ -1236,8 +1297,24 @@ pub fn protolens_from_alignment_mode(
     protolens_from_alignment_mode_with_defaults(alignment, src, tgt, emit_spans, &HashMap::new())
 }
 
-/// Internal alignment-to-chain path that attaches caller defaults to
-/// factorized `AddSort` steps.
+/// Internal alignment-to-chain path that attaches caller defaults to the
+/// target vertices the alignment adds.
+///
+/// The implicit theories have one sort per vertex kind and one operation per
+/// edge kind, so the factorization speaks only about kinds. Its `AddSort` and
+/// `AddOp` steps record that a kind or an edge kind is new; they cannot say
+/// which vertex of that kind the target adds, under which id, or which labelled
+/// edge places it. Those steps are therefore not instantiated. The target's
+/// extension is realized instead as concrete schema additions: every target
+/// vertex outside the alignment's vertex image becomes an
+/// [`elementary::add_schema_vertex`] under its target id and kind, and every
+/// target edge outside the edge image becomes an
+/// [`elementary::add_schema_edge`] whose mapped endpoints are read back through
+/// the alignment. The part of the source the alignment does not carry is
+/// dropped concretely, as [`SourceRestriction`] describes, after the
+/// factorization's kind-level drops and before its renames. The instantiated
+/// target schema thus equals the requested target up to the alignment's
+/// renaming of the vertices and edges it maps.
 fn protolens_from_alignment_mode_with_defaults(
     alignment: &FoundMorphism,
     src: &Schema,
@@ -1252,13 +1329,237 @@ fn protolens_from_alignment_mode_with_defaults(
     let factorization = factorize(&morphism, &src_theory, &tgt_theory)
         .map_err(|e| LensError::ProtolensError(format!("factorization failed: {e}")))?;
 
+    // The factorization's kind-level drops come first, then the concrete
+    // drops of what they leave behind, while every kind still has its source
+    // name, then its renames and coercions.
+    let is_kind_drop = |endofunctor: &&TheoryEndofunctor| {
+        matches!(
+            endofunctor.transform,
+            TheoryTransform::DropSort(_) | TheoryTransform::DropOp(_)
+        )
+    };
+    let mut dropped_vertex_kinds = std::collections::HashSet::new();
+    let mut dropped_edge_kinds = std::collections::HashSet::new();
     let mut steps = Vec::new();
-    for endofunctor in &factorization.steps {
-        let protolens = endofunctor_to_protolens_with_defaults(endofunctor, defaults)?;
-        steps.push(protolens);
+    for endofunctor in factorization.steps.iter().filter(is_kind_drop) {
+        match &endofunctor.transform {
+            TheoryTransform::DropSort(kind) => dropped_vertex_kinds.insert(Arc::clone(kind)),
+            TheoryTransform::DropOp(kind) => dropped_edge_kinds.insert(Arc::clone(kind)),
+            _ => false,
+        };
+        steps.push(endofunctor_to_protolens(endofunctor)?);
     }
+    steps.extend(SourceRestriction::new(alignment, src).steps(
+        src,
+        &dropped_vertex_kinds,
+        &dropped_edge_kinds,
+    ));
+    for endofunctor in &factorization.steps {
+        if is_kind_drop(&endofunctor)
+            || matches!(
+                endofunctor.transform,
+                TheoryTransform::AddSort { .. } | TheoryTransform::AddOp(_)
+            )
+        {
+            continue;
+        }
+        steps.push(endofunctor_to_protolens(endofunctor)?);
+    }
+    steps.extend(target_extension_steps(alignment, src, tgt, defaults));
 
     Ok(ProtolensChain::new(steps))
+}
+
+/// The part of a source schema that survives into an auto-generated target.
+///
+/// The implicit-theory factorization speaks only about kinds, so it drops a
+/// vertex or an edge only when its whole kind leaves the target. A source
+/// vertex the alignment does not map, or an edge it does not map, whose kind
+/// survives through some other vertex or edge, would otherwise stay in the
+/// instantiated target, which is then larger than the requested one.
+///
+/// The kept vertices are, for each target vertex in the alignment's image,
+/// the least source vertex mapped to it, which is the vertex that names the
+/// target vertex in the instantiated schema. The kept edges are, for each
+/// target edge in the alignment's edge image, the least source edge mapped to
+/// it whose endpoints are both kept. Everything else in the source is dropped.
+struct SourceRestriction {
+    kept_vertices: std::collections::HashSet<Name>,
+    kept_edges: std::collections::HashSet<panproto_schema::Edge>,
+}
+
+impl SourceRestriction {
+    fn new(alignment: &FoundMorphism, src: &Schema) -> Self {
+        let mut least_preimage: HashMap<&Name, &Name> = HashMap::new();
+        for (src_id, tgt_id) in &alignment.vertex_map {
+            if !src.vertices.contains_key(src_id) {
+                continue;
+            }
+            least_preimage
+                .entry(tgt_id)
+                .and_modify(|held| {
+                    if src_id < *held {
+                        *held = src_id;
+                    }
+                })
+                .or_insert(src_id);
+        }
+        let kept_vertices: std::collections::HashSet<Name> =
+            least_preimage.into_values().cloned().collect();
+
+        let mut least_edge: HashMap<&panproto_schema::Edge, &panproto_schema::Edge> =
+            HashMap::new();
+        for (src_edge, tgt_edge) in &alignment.edge_map {
+            if !src.edges.contains_key(src_edge)
+                || !kept_vertices.contains(&src_edge.src)
+                || !kept_vertices.contains(&src_edge.tgt)
+            {
+                continue;
+            }
+            least_edge
+                .entry(tgt_edge)
+                .and_modify(|held| {
+                    if src_edge < *held {
+                        *held = src_edge;
+                    }
+                })
+                .or_insert(src_edge);
+        }
+        let kept_edges = least_edge.into_values().cloned().collect();
+        Self {
+            kept_vertices,
+            kept_edges,
+        }
+    }
+
+    /// The concrete drops of everything not kept that a kind-level drop has
+    /// not already removed: edges first, in edge order, then vertices, in id
+    /// order. A vertex of a dropped vertex kind is gone, and so is an edge of
+    /// a dropped edge kind or with an endpoint of a dropped vertex kind.
+    fn steps(
+        &self,
+        src: &Schema,
+        dropped_vertex_kinds: &std::collections::HashSet<Arc<str>>,
+        dropped_edge_kinds: &std::collections::HashSet<Arc<str>>,
+    ) -> Vec<Protolens> {
+        let vertex_gone = |id: &Name| {
+            src.vertices
+                .get(id)
+                .is_none_or(|vertex| dropped_vertex_kinds.contains(&*vertex.kind))
+        };
+        let mut dropped_edges: Vec<&panproto_schema::Edge> = src
+            .edges
+            .keys()
+            .filter(|edge| !self.kept_edges.contains(*edge))
+            .filter(|edge| {
+                !dropped_edge_kinds.contains(&*edge.kind)
+                    && !vertex_gone(&edge.src)
+                    && !vertex_gone(&edge.tgt)
+            })
+            .collect();
+        dropped_edges.sort();
+        let mut dropped_vertices: Vec<&Name> = src
+            .vertices
+            .keys()
+            .filter(|id| !self.kept_vertices.contains(*id) && !vertex_gone(id))
+            .collect();
+        dropped_vertices.sort();
+        dropped_edges
+            .into_iter()
+            .map(elementary::drop_schema_edge)
+            .chain(
+                dropped_vertices
+                    .into_iter()
+                    .map(|id| elementary::drop_schema_vertex(id.clone())),
+            )
+            .collect()
+    }
+}
+
+/// Concrete schema additions for the part of `tgt` the alignment does not
+/// cover: unmapped target vertices first, in id order, then unmapped target
+/// edges, in edge order.
+///
+/// A mapped target vertex is named in the instantiated schema by its source
+/// preimage (the least one, when the alignment is not injective); an added
+/// vertex keeps its target id. When a source vertex already holds that id
+/// (the alignment sent it elsewhere or dropped it), the added vertex takes the
+/// target id with the least `~n` suffix that no source or target vertex holds,
+/// so the instantiated target stays equal to the requested one up to an
+/// injective renaming of vertices.
+fn target_extension_steps(
+    alignment: &FoundMorphism,
+    src: &Schema,
+    tgt: &Schema,
+    defaults: &HashMap<Name, Value>,
+) -> Vec<Protolens> {
+    let mut vertex_pairs: Vec<(&Name, &Name)> = alignment.vertex_map.iter().collect();
+    vertex_pairs.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    let mut preimage: HashMap<&Name, &Name> = HashMap::new();
+    for (src_id, tgt_id) in vertex_pairs {
+        preimage.entry(tgt_id).or_insert(src_id);
+    }
+
+    let mut added_vertices: Vec<_> = tgt
+        .vertices
+        .values()
+        .filter(|vertex| !preimage.contains_key(&vertex.id))
+        .collect();
+    added_vertices.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+
+    let mut steps = Vec::new();
+    let mut placed_ids: HashMap<&Name, Name> = HashMap::new();
+    for vertex in added_vertices {
+        let mut placed = vertex.clone();
+        let mut suffix = 1_u32;
+        while src.vertices.contains_key(&placed.id)
+            || (placed.id != vertex.id && tgt.vertices.contains_key(&placed.id))
+        {
+            placed.id = Name::from(format!("{}~{suffix}", vertex.id));
+            suffix += 1;
+        }
+        let default = crate::default_synthesis::added_vertex_default(tgt, vertex, defaults);
+        steps.push(elementary::add_schema_vertex(
+            &placed,
+            tgt.entries.contains(&vertex.id),
+            default,
+        ));
+        placed_ids.insert(&vertex.id, placed.id);
+    }
+
+    let restriction = SourceRestriction::new(alignment, src);
+    let edge_image: std::collections::HashSet<&panproto_schema::Edge> = alignment
+        .edge_map
+        .iter()
+        .filter(|(src_edge, _)| restriction.kept_edges.contains(*src_edge))
+        .map(|(_, tgt_edge)| tgt_edge)
+        .collect();
+    let local = |id: &Name| {
+        preimage
+            .get(id)
+            .map(|&src_id| src_id.clone())
+            .or_else(|| placed_ids.get(id).cloned())
+            .unwrap_or_else(|| id.clone())
+    };
+    let mut added_edges: Vec<_> = tgt
+        .edges
+        .keys()
+        .filter(|edge| !edge_image.contains(edge))
+        .collect();
+    added_edges.sort();
+    for edge in added_edges {
+        let placed = panproto_schema::Edge {
+            src: local(&edge.src),
+            tgt: local(&edge.tgt),
+            kind: edge.kind.clone(),
+            name: edge.name.clone(),
+        };
+        if restriction.kept_edges.contains(&placed) {
+            continue;
+        }
+        steps.push(elementary::add_schema_edge(&placed));
+    }
+    steps
 }
 
 /// Derive value-level field transforms from a protolens chain.
@@ -1733,7 +2034,8 @@ fn candidate_from_morphism(
         protolens_from_alignment_mode_with_defaults(morphism, src, tgt, emit_spans, defaults)?;
     let mut lens = chain.instantiate(src, protocol)?;
     lens.compiled.field_transforms = derive_field_transforms(&chain, src, tgt);
-    crate::default_synthesis::attach_defaults(&mut lens, tgt, defaults, true)?;
+    let instantiated_target = lens.tgt_schema.clone();
+    crate::default_synthesis::attach_defaults(&mut lens, &instantiated_target, defaults, true)?;
 
     let coverage = crate::candidate::coverage_ratio(
         src,
@@ -1783,7 +2085,7 @@ fn alignment_to_theory_morphism(
 /// `factorize` emits `DropSort(s)` for every source sort with no image
 /// in `C` and `DropOp(op)` for every source op likewise, and emits
 /// `AddSort`/`AddOp` for the right-leg extensions into `B`. This is
-/// the span-search behavior plan §3 describes.
+/// the span search's partial-morphism behavior.
 fn alignment_to_theory_morphism_mode(
     found: &FoundMorphism,
     src: &Schema,
@@ -1854,18 +2156,10 @@ fn alignment_to_theory_morphism_mode(
 /// Each elementary endofunctor maps directly to one of the elementary
 /// protolens constructors. `Identity` and `Compose` transforms are
 /// rejected since they should not appear in a factorized sequence.
-#[cfg(test)]
 fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens, LensError> {
-    endofunctor_to_protolens_with_defaults(endofunctor, &HashMap::new())
-}
-
-fn endofunctor_to_protolens_with_defaults(
-    endofunctor: &TheoryEndofunctor,
-    defaults: &HashMap<Name, Value>,
-) -> Result<Protolens, LensError> {
     match &endofunctor.transform {
         TheoryTransform::AddSort { sort, vertex_kind } => {
-            Ok(add_sort_protolens(sort, vertex_kind.as_ref(), defaults))
+            Ok(add_sort_protolens(sort, vertex_kind.as_ref()))
         }
         TheoryTransform::AddSortWithDefault {
             sort,
@@ -1972,18 +2266,9 @@ fn endofunctor_to_protolens_with_defaults(
     }
 }
 
-fn add_sort_protolens(
-    sort: &panproto_gat::Sort,
-    vertex_kind: Option<&Arc<str>>,
-    defaults: &HashMap<Name, Value>,
-) -> Protolens {
+fn add_sort_protolens(sort: &panproto_gat::Sort, vertex_kind: Option<&Arc<str>>) -> Protolens {
     let kind = vertex_kind.map_or_else(|| sort.default_vertex_kind(), Arc::clone);
-    let sort_name = Name::from(&*sort.name);
-    if let Some(default) = defaults.get(&sort_name).cloned() {
-        elementary::add_sort(sort_name, Name::from(&*kind), default)
-    } else {
-        elementary::add_sort_without_default(sort_name, Name::from(&*kind))
-    }
+    elementary::add_sort_without_default(Name::from(&*sort.name), Name::from(&*kind))
 }
 
 #[cfg(test)]
@@ -1991,7 +2276,9 @@ fn add_sort_protolens(
 mod tests {
     use super::*;
     use panproto_gat::Sort;
-    use panproto_schema::{Protocol, SchemaBuilder};
+    use panproto_inst::{RelSchemaError, RestrictError};
+    use panproto_schema::{Protocol, ScalarKind, SchemaBuilder};
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn stringency_as_str_matches_display_and_serde() {
@@ -2036,7 +2323,7 @@ mod tests {
                 "array".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -2119,14 +2406,134 @@ mod tests {
             ..Default::default()
         };
         let source =
-            panproto_inst::parse_json(&src, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&src, &protocol, "root", &serde_json::json!({"name": "Ada"}))
+                .unwrap();
 
         let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let (view, _) = crate::get(&generated.lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&tgt, &view),
+            panproto_inst::to_json(&tgt, &view).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "auto_generate must compile caller defaults into the public get path"
+        );
+    }
+
+    #[test]
+    fn auto_generate_target_schema_keeps_added_vertex_and_its_edge() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .vertex("root.active", "boolean", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .edge("root", "root.active", "prop", Some("active"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            defaults: HashMap::from([(Name::from("root.active"), Value::Bool(true))]),
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+
+        let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let instantiated = &generated.lens.tgt_schema;
+        let added = instantiated
+            .vertices
+            .get("root.active")
+            .expect("the added target vertex keeps its id");
+        assert_eq!(added.kind.as_str(), "boolean");
+        let active = panproto_schema::Edge {
+            src: Name::from("root"),
+            tgt: Name::from("root.active"),
+            kind: Name::from("prop"),
+            name: Some(Name::from("active")),
+        };
+        assert!(
+            instantiated.edges.contains_key(&active),
+            "the added vertex keeps its labelled edge; edges: {:?}",
+            instantiated.edges.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !instantiated.vertices.contains_key("boolean"),
+            "a new kind must not appear as a vertex named after the kind"
+        );
+        let mut instantiated_vertices: Vec<_> = instantiated.vertices.keys().collect();
+        let mut requested_vertices: Vec<_> = tgt.vertices.keys().collect();
+        instantiated_vertices.sort();
+        requested_vertices.sort();
+        assert_eq!(instantiated_vertices, requested_vertices);
+        let mut instantiated_edges: Vec<_> = instantiated.edges.keys().collect();
+        let mut requested_edges: Vec<_> = tgt.edges.keys().collect();
+        instantiated_edges.sort();
+        requested_edges.sort();
+        assert_eq!(instantiated_edges, requested_edges);
+    }
+
+    #[test]
+    fn auto_generate_places_an_added_field_under_a_renamed_parent() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("message", "record", None::<&str>)
+            .unwrap()
+            .vertex("message.text", "string", None::<&str>)
+            .unwrap()
+            .vertex("message.flag", "boolean", None::<&str>)
+            .unwrap()
+            .edge("message", "message.text", "prop", Some("text"))
+            .unwrap()
+            .edge("message", "message.flag", "prop", Some("flag"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            defaults: HashMap::from([(Name::from("message.flag"), Value::Bool(false))]),
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let source =
+            panproto_inst::parse_json(&src, &protocol, "post", &serde_json::json!({"text": "hi"}))
+                .unwrap();
+
+        let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let mapped_parent = generated
+            .lens
+            .tgt_schema
+            .incoming_edges("message.flag")
+            .iter()
+            .map(|edge| (edge.src.to_string(), edge.name.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            mapped_parent,
+            vec![("post".to_owned(), Some(Name::from("flag")))],
+            "the added edge hangs off the source preimage of its target parent"
+        );
+        let (view, _) = crate::get(&generated.lens, &source).unwrap();
+        assert_eq!(
+            panproto_inst::to_json(&generated.lens.tgt_schema, &view).unwrap(),
+            serde_json::json!({"flag": false, "text": "hi"}),
         );
     }
 
@@ -2160,12 +2567,13 @@ mod tests {
             ..Default::default()
         };
         let source =
-            panproto_inst::parse_json(&src, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&src, &protocol, "root", &serde_json::json!({"name": "Ada"}))
+                .unwrap();
 
         let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
         let (view, _) = crate::get(&generated.lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&tgt, &view),
+            panproto_inst::to_json(&tgt, &view).unwrap(),
             serde_json::json!({"name": "Ada"}),
             "an omitted default must remain absent rather than becoming explicit null"
         );
@@ -2299,7 +2707,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["alpha".into(), "beta".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&protocol)
             .vertex("x", "alpha", None::<&str>)
@@ -2331,11 +2739,10 @@ mod tests {
     /// no total morphism exists. That is the ordinary case on real schemas, and
     /// it is the case a span tier exists to answer.
     ///
-    /// The candidate entry points used to route every tier through
-    /// [`find_morphisms`], which returns the total morphisms attaining the
-    /// optimum and is therefore empty here. A span tier must read the span
-    /// search instead, as [`run_search`] does for the single-result entry
-    /// points.
+    /// Routing every tier through [`find_morphisms`], which returns the total
+    /// morphisms attaining the optimum, would give nothing here. A span tier
+    /// must read the span search instead, as [`run_search`] does for the
+    /// single-result entry points.
     #[test]
     fn a_span_tier_returns_candidates_where_no_total_morphism_exists() {
         let protocol = test_protocol();
@@ -2629,11 +3036,11 @@ mod tests {
 
     /// The span search decides what to drop, and nothing pre-empts it.
     ///
-    /// A local feasibility scan used to pre-populate `excluded_sources` before
-    /// the search ran. It excluded any source vertex that had no target it
+    /// A local feasibility scan that pre-populated `excluded_sources` before
+    /// the search ran would exclude any source vertex that had no target it
     /// could map to *with all of its outgoing edges preserved*, which on the
     /// fixture below excludes the root as well as the orphan leaf, because the
-    /// root's only edge leads to that leaf. Both excluded leaves an empty
+    /// root's only edge leads to that leaf. Excluding both leaves an empty
     /// apex and reports "no morphism found" on a pair whose answer is
     /// obviously `{r ↦ r}`.
     ///
@@ -2788,6 +3195,63 @@ mod tests {
         let config = AutoLensConfig::default();
         let result = auto_generate(&s, &s, &protocol, &config).unwrap();
         assert!(result.chain.is_empty() || result.alignment_quality > 0.0);
+    }
+
+    #[test]
+    fn graph_auto_generation_validates_executable_plan() {
+        let protocol = test_protocol();
+        let schema = schema_v1(&protocol);
+        let result =
+            auto_generate_graph(&schema, &schema, &protocol, &AutoLensConfig::default()).unwrap();
+        assert!(
+            RestrictPlan::compile(
+                &result.lens.src_schema,
+                &result.lens.tgt_schema,
+                &result.lens.compiled
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn table_auto_generation_validates_executable_plan() {
+        let mut protocol = test_protocol();
+        protocol.value_kinds = BTreeMap::from([
+            ("string".into(), ScalarKind::Str),
+            ("boolean".into(), ScalarKind::Bool),
+        ]);
+        protocol.non_value_kinds = BTreeSet::from(["record".into()]);
+        let schema = schema_v1(&protocol);
+        let result =
+            auto_generate_table(&schema, &schema, &protocol, &AutoLensConfig::default()).unwrap();
+        assert!(
+            RestrictPlan::compile_for_tables(
+                &result.lens.src_schema,
+                &result.lens.tgt_schema,
+                &result.lens.compiled,
+                BoundaryProtocols {
+                    src: &protocol,
+                    tgt: &protocol,
+                }
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn table_auto_generation_refuses_a_shape_neutral_result_without_table_boundaries() {
+        let protocol = test_protocol();
+        let schema = schema_v1(&protocol);
+        assert!(
+            auto_generate(&schema, &schema, &protocol, &AutoLensConfig::default()).is_ok(),
+            "the shared search must succeed before the table-only gate is exercised"
+        );
+        assert!(matches!(
+            auto_generate_table(&schema, &schema, &protocol, &AutoLensConfig::default()),
+            Err(LensError::Restrict(RestrictError::RelSchema(
+                RelSchemaError::UnclassifiedKind { vertex, kind }
+            ))) if vertex.as_ref() == "post" && kind.as_ref() == "record"
+        ));
     }
 
     #[test]
@@ -3033,7 +3497,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&protocol)
             .vertex("r", "record", None::<&str>)
@@ -3243,7 +3707,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&protocol)
             .vertex("r", "record", None::<&str>)

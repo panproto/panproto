@@ -10,8 +10,8 @@ struct DiffFixtureTests {
     func structuralDiffReplays() throws {
         let diff = try replayed(StructuralDiff.self, from: "diff-simple-post-profile")
 
-        #expect(diff.addedVertices.count == 13)
-        #expect(diff.removedVertices.count == 37)
+        #expect(diff.addedVertices.count == 14)
+        #expect(diff.removedVertices.count == 39)
         #expect(diff.addedEdges.count == 15)
         #expect(diff.removedEdges.count == 39)
         #expect(diff.kindChanges.isEmpty)
@@ -31,8 +31,8 @@ struct DiffFixtureTests {
     func schemaDiffReplays() throws {
         let diff = try replayed(SchemaDiff.self, from: "diff-full-post-profile")
 
-        #expect(diff.addedVertices.count == 13)
-        #expect(diff.removedVertices.count == 37)
+        #expect(diff.addedVertices.count == 14)
+        #expect(diff.removedVertices.count == 39)
         #expect(diff.addedEdges.count == 15)
         #expect(diff.removedEdges.count == 39)
         #expect(diff.kindChanges.isEmpty)
@@ -52,7 +52,11 @@ struct DiffFixtureTests {
     @Test("the engine leaves the thirteen enrichment and rename fields out")
     func schemaDiffOmitsTheEmptyEnrichmentFields() throws {
         let payload = try CBORValue(decoding: try fixtureBytes("diff-full-post-profile"))
-        #expect(payload.mapValue?.count == 26)
+        // The post and profile lexicons declare different entry records,
+        // so the optional entry change is written alongside the
+        // twenty-six fields every full diff carries.
+        #expect(payload.mapValue?.count == 27)
+        #expect(payload["entry_change"] != nil)
         #expect(payload["added_coercions"] == nil)
         #expect(payload["renamed_vertices"] == nil)
 
@@ -61,7 +65,7 @@ struct DiffFixtureTests {
         #expect(diff.renamedVertices.isEmpty)
 
         let reencoded = try CBORValue(decoding: try CBOREncoder().encode(diff))
-        #expect(reencoded.mapValue?.count == 26)
+        #expect(reencoded.mapValue?.count == 27)
         #expect(reencoded["added_coercions"] == nil)
         #expect(reencoded["renamed_vertices"] == nil)
     }
@@ -91,8 +95,8 @@ struct CompatReportFixtureTests {
 
         #expect(report.compatible == false)
         #expect(report.classification == .breaking)
-        #expect(report.breaking.count == 77)
-        #expect(report.nonBreaking.count == 29)
+        #expect(report.breaking.count == 90)
+        #expect(report.nonBreaking.count == 30)
     }
 
     @Test("the verdict follows the changes it was derived from")
@@ -128,19 +132,34 @@ struct CompatReportFixtureTests {
         var removedEdges = 0
         var requiredEdgesRemoved = 0
         var nsidsRemoved = 0
+        var variantsRemoved = 0
+        var variantsAdded = 0
+        var unclassified: [String: UInt64] = [:]
         for change in report.breaking {
             switch change {
             case .removedVertex: removedVertices += 1
             case .removedEdge: removedEdges += 1
             case .requiredEdgeRemoved: requiredEdgesRemoved += 1
             case .nsidRemoved: nsidsRemoved += 1
+            case .removedVariant: variantsRemoved += 1
+            case .addedVariant: variantsAdded += 1
+            case .unclassifiedChange(let category, let count): unclassified[category] = count
             default: Issue.record("an unexpected breaking case reached this pair of schemas")
             }
         }
-        #expect(removedVertices == 37)
+        #expect(removedVertices == 39)
         #expect(removedEdges == 30)
         #expect(requiredEdgesRemoved == 9)
         #expect(nsidsRemoved == 1)
+        // Each lexicon union records its arms as variants: the post's
+        // embed and labels unions lose their eight, and the profile's
+        // labels union adds its two.
+        #expect(variantsRemoved == 8)
+        #expect(variantsAdded == 2)
+        // The protocol carries no rule for a change of entry record, so
+        // the classifier reports it as one unclassified breaking change
+        // rather than passing over it.
+        #expect(unclassified == ["entries": 1])
 
         var addedVertices = 0
         var addedEdges = 0
@@ -153,7 +172,7 @@ struct CompatReportFixtureTests {
             default: Issue.record("an unexpected non-breaking case reached this pair of schemas")
             }
         }
-        #expect(addedVertices == 13)
+        #expect(addedVertices == 14)
         #expect(addedEdges == 15)
         #expect(nsidsAdded == 1)
     }
@@ -188,7 +207,7 @@ struct ProtolensStepInfoFixtureTests {
         let reencoded = try JSONEncoder().encode(steps)
         #expect(try JSONDecoder().decode([ProtolensStepInfo].self, from: reencoded) == steps)
 
-        #expect(steps.count == 4)
+        #expect(steps.count == 68)
         #expect(steps.allSatisfy { $0.sourceEndofunctor == "id" })
         #expect(steps.allSatisfy { !$0.lossless })
     }
@@ -198,10 +217,12 @@ struct ProtolensStepInfoFixtureTests {
         let bytes = try fixtureBytes("chain-post-profile", extension: "json")
         let steps = try JSONDecoder().decode([ProtolensStepInfo].self, from: bytes)
 
-        #expect(
-            steps.map { ElementaryStep(stepName: $0.name) } == [
-                .dropOp, .dropSort, .dropSort, .addSort,
-            ])
+        var expected: [ElementaryStep?] = [.dropOp, .dropSort, .dropSort]
+        expected += Array(repeating: .dropSchemaEdge, count: 25)
+        expected += Array(repeating: .dropSchemaVertex, count: 24)
+        expected += Array(repeating: .addSchemaVertex, count: 5)
+        expected += Array(repeating: .addSchemaEdge, count: 11)
+        #expect(steps.map { ElementaryStep(stepName: $0.name) } == expected)
         #expect(steps.allSatisfy { ElementaryStep(stepName: $0.name)?.isLossless == false })
         #expect(steps.allSatisfy { ElementaryStep(stepName: $0.name)?.opticKind == .lens })
     }

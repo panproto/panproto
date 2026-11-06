@@ -8,15 +8,74 @@
 //! as a list of records, and the node itself is reachable both as `self`
 //! and as the `"self"` node reference the graph-traversal builtins take.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use panproto_expr::{BuiltinOp, Expr, Literal, Pattern};
 use panproto_gat::{CoercionClass, Name};
 use panproto_inst::value::Value;
-use panproto_inst::{CompiledMigration, FieldTransform, WInstance, parse_json, wtype_restrict};
-use panproto_schema::{Edge, Schema, Vertex};
+use panproto_inst::{
+    BoundaryProtocols, CompiledMigration, FieldTransform, RestrictError, WInstance, parse_json,
+    wtype_restrict,
+};
+use panproto_schema::{Edge, EdgeRule, Protocol, ScalarKind, Schema, Vertex};
 use smallvec::SmallVec;
+
+fn transform_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        edge_rules: vec![
+            EdgeRule {
+                edge_kind: "prop".into(),
+                src_kinds: Vec::new(),
+                tgt_kinds: Vec::new(),
+            },
+            EdgeRule {
+                edge_kind: "item".into(),
+                src_kinds: Vec::new(),
+                tgt_kinds: Vec::new(),
+            },
+        ],
+        obj_kinds: vec![
+            "object".into(),
+            "array".into(),
+            "string".into(),
+            "integer".into(),
+            "unknown".into(),
+        ],
+        value_kinds: BTreeMap::from([
+            ("unknown".to_owned(), ScalarKind::Any),
+            ("string".to_owned(), ScalarKind::Str),
+            (
+                "integer".to_owned(),
+                ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                },
+            ),
+        ]),
+        non_value_kinds: BTreeSet::from(["object".to_owned(), "array".to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+fn restrict(
+    instance: &WInstance,
+    schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<WInstance, RestrictError> {
+    let protocol = transform_protocol();
+    wtype_restrict(
+        instance,
+        schema,
+        schema,
+        migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+}
 
 fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
     let mut vertices = HashMap::new();
@@ -67,6 +126,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -91,20 +151,50 @@ fn keyframe_schema() -> Schema {
         kind: "prop".into(),
         name: Some("timeMs".into()),
     };
+    let e_seconds = Edge {
+        src: "clip.keyframe".into(),
+        tgt: "clip.keyframe.seconds".into(),
+        kind: "prop".into(),
+        name: Some("seconds".into()),
+    };
+    let mut vertices = vec![
+        ("clip".to_owned(), "object"),
+        ("clip.keyframes".to_owned(), "array"),
+        ("clip.keyframe".to_owned(), "object"),
+        ("clip.keyframe.timeMs".to_owned(), "integer"),
+        ("clip.keyframe.seconds".to_owned(), "integer"),
+    ];
+    let mut edges = vec![e_keyframes, e_item, e_time, e_seconds];
+    for (field, kind) in [
+        ("temporalSpan", "unknown"),
+        ("count", "integer"),
+        ("first", "integer"),
+        ("viaSelf", "integer"),
+        ("outDegree", "integer"),
+        ("at", "string"),
+    ] {
+        let target = format!("clip.{field}");
+        vertices.push((target.clone(), kind));
+        edges.push(Edge {
+            src: "clip".into(),
+            tgt: target.into(),
+            kind: "prop".into(),
+            name: Some(field.into()),
+        });
+    }
     make_schema(
-        &[
-            ("clip", "object"),
-            ("clip.keyframes", "array"),
-            ("clip.keyframe", "object"),
-            ("clip.keyframe.timeMs", "integer"),
-        ],
-        &[e_keyframes, e_item, e_time],
+        &vertices
+            .iter()
+            .map(|(id, kind)| (id.as_str(), *kind))
+            .collect::<Vec<_>>(),
+        &edges,
     )
 }
 
 fn keyframe_instance(schema: &Schema) -> WInstance {
     parse_json(
         schema,
+        &transform_protocol(),
         "clip",
         &serde_json::json!({
             "keyframes": [ {"timeMs": 400}, {"timeMs": 100}, {"timeMs": 900} ]
@@ -180,9 +270,8 @@ fn temporal_span(view: &WInstance) -> Option<Value> {
         .cloned()
 }
 
-/// The reported case: an aggregate at the parent vertex over an
-/// array-of-objects child, which previously failed with
-/// "unbound variable: keyframes".
+/// An aggregate at the parent vertex over an array-of-objects child,
+/// which must not fail with "unbound variable: keyframes".
 #[test]
 fn parent_aggregate_over_child_object_array() {
     let schema = keyframe_schema();
@@ -214,7 +303,7 @@ fn parent_aggregate_over_child_object_array() {
         &schema,
     );
 
-    let restricted = wtype_restrict(&instance, &schema, &schema, &migration)
+    let restricted = restrict(&instance, &schema, &migration)
         .expect("the keyframes array must be bound at the parent vertex");
 
     let span = temporal_span(&restricted).expect("temporalSpan computed");
@@ -265,8 +354,7 @@ fn child_object_array_binds_as_a_list_of_records() {
         &schema,
     );
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("transforms evaluate");
+    let restricted = restrict(&instance, &schema, &migration).expect("transforms evaluate");
     let root = &restricted.nodes[&restricted.root];
     assert_eq!(root.extra_fields.get("count"), Some(&Value::Int(3)));
     assert_eq!(
@@ -300,8 +388,7 @@ fn self_binds_the_current_node_as_a_record() {
         &schema,
     );
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("self resolves");
+    let restricted = restrict(&instance, &schema, &migration).expect("self resolves");
     assert_eq!(
         restricted.nodes[&restricted.root]
             .extra_fields
@@ -343,8 +430,7 @@ fn graph_builtins_resolve_against_the_current_node() {
         &schema,
     );
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("graph builtins resolve");
+    let restricted = restrict(&instance, &schema, &migration).expect("graph builtins resolve");
     let root = &restricted.nodes[&restricted.root];
     assert_eq!(
         root.extra_fields.get("outDegree"),
@@ -383,8 +469,7 @@ fn per_item_transform_still_sees_its_own_scalars() {
         &schema,
     );
 
-    let restricted =
-        wtype_restrict(&instance, &schema, &schema, &migration).expect("per-item transform runs");
+    let restricted = restrict(&instance, &schema, &migration).expect("per-item transform runs");
     let computed = restricted
         .nodes
         .values()

@@ -285,8 +285,8 @@ pub struct CommitObject {
     /// `MessagePack`, which writes a struct as an array of its fields in
     /// declaration order, so omitting a field does not mark it absent:
     /// it shifts every later field one slot left and the decoder reads
-    /// each of them as the wrong thing. That was harmless while this
-    /// was the last field and is not now that `unverified` follows it.
+    /// each of them as the wrong thing, and `unverified` follows this
+    /// field.
     #[serde(default)]
     pub cst_complement_ids: Vec<ObjectId>,
 
@@ -664,6 +664,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         let obj = Object::FlatSchema(Box::new(schema.clone()));
         let bytes = rmp_serde::to_vec(&obj)?;

@@ -41,8 +41,25 @@ restriction instead reindexes target data back to the source, while a left Kan
 extension is a separate general source-to-target transport.
 
 ```python
-lifted = compiled.lift(instance)
+lifted = compiled.lift(instance, protocol)
+lifted = compiled.lift(instance, src_protocol, tgt_protocol)
 ```
+
+`lift` validates both boundaries: the instance against the source schema under
+`src_protocol` before anything runs, and the result against the target schema
+under `tgt_protocol` afterwards. `tgt_protocol` defaults to `src_protocol`. A
+boundary that does not validate raises `MigrationError` whose `side` is
+`"input"` or `"output"` and whose `report` is that side's `ValidationReport`:
+
+```python
+try:
+    compiled.lift(instance, protocol)
+except panproto.MigrationError as err:
+    if err.report is not None:
+        print(err.side, err.report.messages)
+```
+
+Every other `MigrationError` has `side` and `report` set to `None`.
 
 ## Get
 
@@ -53,7 +70,13 @@ and the complement $C$:
 view, complement = compiled.get(instance)
 ```
 
-The complement is a dict summarizing dropped nodes and arcs. `CompiledMigration` has no `put` method. For the reverse direction, either compile the inverse with `invert_migration` or call `auto_generate_lens`; the returned `Lens.put(view, complement)` reconstructs the source instance.
+The complement is a `Complement` recording everything the projection discarded. `put(view, complement)` consumes it and reconstructs the source instance:
+
+```python
+restored = compiled.put(view, complement)
+```
+
+`get` and `put` run the lens the migration denotes, which does not validate either boundary; `to_lens()` returns that lens, and `check_laws`, `check_get_put` and `check_put_get` check its round-trip laws on an instance.
 
 ## Existence checking
 
@@ -77,10 +100,13 @@ inverted = panproto.invert_migration(migration, src_schema, tgt_schema)
 ## Coverage checking
 
 ```python
-report = panproto.check_coverage(compiled, instances, src_schema, tgt_schema)
+report = panproto.check_coverage(compiled, instances, src_schema, tgt_schema, protocol)
+report = panproto.check_coverage(
+    compiled, instances, src_schema, tgt_schema, src_protocol, tgt_protocol
+)
 ```
 
-Runs each instance through `lift` and counts successes/failures. The report contains `total_records`, `successful`, `failed` (with per-record failure reasons), and `coverage_ratio`.
+Runs each instance through the restrict `lift` performs, validating both boundaries under the given protocols (`tgt_protocol` defaults to `src_protocol`), and counts successes and failures. The report contains `total_records`, `successful`, `failed` (with per-record failure reasons) and `coverage_ratio`. A record refused at a boundary has the reason `{"BoundaryValidation": {"side": ..., "report": ...}}`, carrying the side and its report as a dict.
 
 ## Finding a morphism, and finding a span
 

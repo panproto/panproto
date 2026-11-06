@@ -65,6 +65,7 @@ fn make_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 

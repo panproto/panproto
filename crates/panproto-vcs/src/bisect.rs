@@ -99,7 +99,7 @@ pub const fn bisect_remaining(state: &BisectState) -> usize {
         0
     } else {
         // log2(range) rounded up.
-        (usize::BITS - range.leading_zeros()) as usize
+        range.bit_width() as usize
     }
 }
 

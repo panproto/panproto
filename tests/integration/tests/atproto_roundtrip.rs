@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use panproto_inst::{CompiledMigration, parse_json, to_json};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, parse_json, to_json};
 use panproto_mig::lift_wtype;
 use panproto_protocols::atproto;
 use panproto_schema::Edge;
@@ -72,7 +72,12 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
 
     // Parse a record into a WInstance.
     let record = post_record();
-    let instance = parse_json(&schema, "app.bsky.feed.post:body", &record)?;
+    let instance = parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post:body",
+        &record,
+    )?;
 
     assert!(
         instance.node_count() >= 3,
@@ -98,7 +103,17 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
     };
 
     // Lift with identity migration.
-    let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
+    let protocol = atproto::protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &schema,
+        &schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
     assert_eq!(
         lifted.node_count(),
         instance.node_count(),
@@ -106,7 +121,7 @@ fn parse_json_then_identity_lift_then_serialize() -> Result<(), Box<dyn std::err
     );
 
     // Serialize back to JSON.
-    let output = to_json(&schema, &lifted);
+    let output = to_json(&schema, &lifted)?;
 
     // Verify the output contains the original field values.
     assert!(output.is_object(), "output should be a JSON object");
@@ -132,16 +147,26 @@ fn roundtrip_byte_compare() -> Result<(), Box<dyn std::error::Error>> {
     let schema = atproto::parse_lexicon(&lexicon)?;
 
     let record = post_record();
-    let instance = parse_json(&schema, "app.bsky.feed.post:body", &record)?;
+    let instance = parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post:body",
+        &record,
+    )?;
 
     // Serialize the instance.
-    let json_out = to_json(&schema, &instance);
+    let json_out = to_json(&schema, &instance)?;
 
     // Re-parse the output.
-    let instance2 = parse_json(&schema, "app.bsky.feed.post:body", &json_out)?;
+    let instance2 = parse_json(
+        &schema,
+        &atproto::protocol(),
+        "app.bsky.feed.post:body",
+        &json_out,
+    )?;
 
     // Serialize again.
-    let json_out2 = to_json(&schema, &instance2);
+    let json_out2 = to_json(&schema, &instance2)?;
 
     // The two JSON outputs should be identical (idempotent round-trip).
     let bytes1 = serde_json::to_vec(&json_out)?;

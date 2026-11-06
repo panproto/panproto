@@ -8,6 +8,10 @@ pub enum EditLensError {
     #[error("translation failed: {0}")]
     TranslationFailed(String),
 
+    /// A whole-state lens operation refused the translation's endpoint.
+    #[error("whole-state lens error: {0}")]
+    WholeState(#[source] Box<crate::LensError>),
+
     /// A complement policy conflict was encountered.
     #[error("policy conflict for kind {kind}: {detail}")]
     PolicyConflict {

@@ -9,7 +9,7 @@ $S$ is the source instance, $V$ is the view (projected instance), and $C$ is the
 
 ## Lens laws
 
-Two round-trip properties must hold:
+The two basic round-trip equations are:
 
 **GetPut**: $put(get(s), c(s)) = s$ for all source instances $s$, where $c(s)$ is the complement produced by $get(s)$.
 
@@ -48,12 +48,12 @@ The `Complement` object stores:
 ## Law checking
 
 ```python
-lens.check_laws(instance)       # raises LensError if either law fails
+lens.check_laws(instance)       # runs all five strict gates
 lens.check_get_put(instance)    # check only GetPut
 lens.check_put_get(instance)    # check only PutGet
 ```
 
-Each method raises `LensError` with a description of the violation if the law does not hold.
+`check_laws` runs GetPut, PutGet, totality over the finite single-step mutation basis, PutTwice complement stability, and congruence, in that order. A pass applies to the supplied source and that finite basis; it is not a proof over arbitrary sources or views. Each method raises `LensError` with a description of the first violation.
 
 ## Composition
 
@@ -61,7 +61,7 @@ Each method raises `LensError` with a description of the violation if the law do
 composed = lens1.compose(lens2)
 ```
 
-The composed lens applies `lens1` first, then `lens2`. The target schema of `lens1` must match the source schema of `lens2`.
+The composed lens applies `lens1` first, then `lens2`. The target schema of `lens1` must match the source schema of `lens2`, and the composite must normalize to one group; otherwise `compose` raises `LensError`.
 
 ## Loading a chain from a lens-DSL document
 
@@ -82,7 +82,7 @@ chain = panproto.ProtolensChain.from_dsl_yaml(yaml_source, "record:body")
 chain = panproto.ProtolensChain.from_dsl_nickel(nickel_source, "record:body")
 ```
 
-`from_dsl_nickel` also accepts `import_paths=[...]` to extend Nickel's import-resolution lookup so user-defined modules can be referenced. Instantiate the chain against source and target schemas with `chain.instantiate(src, tgt)` to get a `Lens`.
+`from_dsl_nickel` also accepts `import_paths=[...]` to extend Nickel's import-resolution lookup so user-defined modules can be referenced. Instantiate the chain against a source schema and its protocol with `chain.instantiate(schema, protocol)` to get a `Lens`. A document whose value transforms read fields that an earlier structural step renames compiles to more than one ordered stage, and when those stages form more than one normal-form group no single `Lens` can hold them: `instantiate` raises `LensError` ("lens path has 2 normal-form groups; one is required") rather than fusing the stages in an order that would change what the transforms read.
 
 ## Complement
 

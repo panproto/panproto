@@ -379,12 +379,12 @@ impl<'a> AstWalker<'a> {
         // the byte-faithful emit path can reproduce them verbatim. Only the
         // document root (no parent) with a non-zero start byte carries this;
         // every other vertex's leading gap is already a sibling interstitial.
-        if parent_vertex_id.is_none() && node.start_byte() > 0 {
-            if let Ok(prefix) = std::str::from_utf8(&self.source[..node.start_byte()]) {
-                if !prefix.is_empty() {
-                    cell.map(|b| b.constraint(&vertex_id, "doc-prefix", prefix));
-                }
-            }
+        if parent_vertex_id.is_none()
+            && node.start_byte() > 0
+            && let Ok(prefix) = std::str::from_utf8(&self.source[..node.start_byte()])
+            && !prefix.is_empty()
+        {
+            cell.map(|b| b.constraint(&vertex_id, "doc-prefix", prefix));
         }
 
         // Record the pre-alias grammar symbol name when it differs from
@@ -402,10 +402,10 @@ impl<'a> AstWalker<'a> {
         }
 
         // Emit constraints for leaf nodes (literals, identifiers, operators).
-        if node.named_child_count() == 0 {
-            if let Ok(text) = node.utf8_text(self.source) {
-                cell.map(|b| b.constraint(&vertex_id, "literal-value", text));
-            }
+        if node.named_child_count() == 0
+            && let Ok(text) = node.utf8_text(self.source)
+        {
+            cell.map(|b| b.constraint(&vertex_id, "literal-value", text));
         }
 
         // Capture field-keyed anonymous-token children as `field:<name>`
@@ -618,7 +618,7 @@ impl<'a> AstWalker<'a> {
     /// `field('func', choice('sigmoid','exp','log','abs'))` attach a
     /// field name to an unnamed token alternative. The named-children
     /// walk in [`walk_children_with_interstitials`] omits these (they
-    /// are not named nodes), and downstream consumers previously had
+    /// are not named nodes), so without this pass a consumer would have
     /// to recover the value by reading the source buffer between
     /// recorded byte offsets. This emits the value as a structural
     /// constraint so [`Schema::field_text`] can return it directly.
@@ -694,32 +694,32 @@ impl<'a> AstWalker<'a> {
         idx: &mut usize,
         fingerprint: &mut Vec<String>,
     ) {
-        if gap_end > gap_start && gap_end <= self.source.len() {
-            if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
-                if !gap_text.is_empty() {
-                    let sort = format!("interstitial-{}", *idx);
-                    cell.map(|b| b.constraint(vertex_id, &sort, gap_text));
-                    cell.map(|b| {
-                        b.constraint(
-                            vertex_id,
-                            &format!("{sort}-start-byte"),
-                            &gap_start.to_string(),
-                        )
-                    });
-                    // The run's end byte in the *original* source. Replay
-                    // decides which fragments a rewritten one supersedes by
-                    // comparing source spans, so the span has to be recorded
-                    // rather than recovered from the text's current length:
-                    // an edited interstitial no longer has its source length.
-                    cell.map(|b| {
-                        b.constraint(vertex_id, &format!("{sort}-end-byte"), &gap_end.to_string())
-                    });
-                    *idx += 1;
-                    let trimmed = gap_text.trim();
-                    if !trimmed.is_empty() {
-                        fingerprint.push(trimmed.to_owned());
-                    }
-                }
+        if gap_end > gap_start
+            && gap_end <= self.source.len()
+            && let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end])
+            && !gap_text.is_empty()
+        {
+            let sort = format!("interstitial-{}", *idx);
+            cell.map(|b| b.constraint(vertex_id, &sort, gap_text));
+            cell.map(|b| {
+                b.constraint(
+                    vertex_id,
+                    &format!("{sort}-start-byte"),
+                    &gap_start.to_string(),
+                )
+            });
+            // The run's end byte in the *original* source. Replay
+            // decides which fragments a rewritten one supersedes by
+            // comparing source spans, so the span has to be recorded
+            // rather than recovered from the text's current length:
+            // an edited interstitial no longer has its source length.
+            cell.map(|b| {
+                b.constraint(vertex_id, &format!("{sort}-end-byte"), &gap_end.to_string())
+            });
+            *idx += 1;
+            let trimmed = gap_text.trim();
+            if !trimmed.is_empty() {
+                fingerprint.push(trimmed.to_owned());
             }
         }
     }
@@ -790,6 +790,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         }
     }
 
@@ -946,8 +947,7 @@ mod tests {
         if detector.has_query() {
             let vertex_ids: Vec<String> = schema.vertices.keys().map(ToString::to_string).collect();
 
-            // Rust's function_item — the regression from issue #34 — must be
-            // detected as a named scope now.
+            // Rust's function_item must be detected as a named scope.
             assert!(
                 vertex_ids.iter().any(|id| id.ends_with("::verify_push")),
                 "expected ::verify_push named scope, got: {vertex_ids:?}"

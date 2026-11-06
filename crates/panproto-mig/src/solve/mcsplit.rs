@@ -258,14 +258,14 @@ impl ArcDescriptor {
     /// How many arcs the pair carries.
     #[inline]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Whether the pair carries no arc at all, which is the common case.
     #[inline]
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
@@ -421,14 +421,14 @@ impl ValueIndex {
     /// How many distinct target vertices are numbered.
     #[inline]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.names.len()
     }
 
     /// Whether no variable can take any target at all.
     #[inline]
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.names.is_empty()
     }
 
@@ -617,7 +617,7 @@ fn restrict(index: &ValueIndex, domains: &mut Domains, bits: &[u64], words: usiz
     for var in variables {
         let position = var.index();
         // Detached, because the walk removes from the very domain it reads.
-        let block: SmallVec<u64, 2> = SmallVec::from_slice_copy(domains.block(var));
+        let block: SmallVec<u64, 2> = SmallVec::from(domains.block(var));
         for value in Domain::new(&block) {
             let Some(target) = index.global(var, value) else {
                 continue;
@@ -1390,15 +1390,15 @@ fn requires_partner(
 fn requirement_graph(lefts: usize, functions: &[BinaryFunction<'_>]) -> Vec<Vec<u32>> {
     let mut requires = vec![Vec::new(); lefts];
     for function in functions {
-        if function.low_requires_high {
-            if let Some(list) = requires.get_mut(function.low as usize) {
-                list.push(function.high);
-            }
+        if function.low_requires_high
+            && let Some(list) = requires.get_mut(function.low as usize)
+        {
+            list.push(function.high);
         }
-        if function.high_requires_low {
-            if let Some(list) = requires.get_mut(function.high as usize) {
-                list.push(function.low);
-            }
+        if function.high_requires_low
+            && let Some(list) = requires.get_mut(function.high as usize)
+        {
+            list.push(function.low);
         }
     }
     for list in &mut requires {
@@ -2165,7 +2165,7 @@ impl Search<'_> {
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 /// let schema = SchemaBuilder::new(&protocol)
 ///     .vertex("root", "object", None::<&str>)?
@@ -2255,7 +2255,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -2833,7 +2833,7 @@ mod tests {
         let root_bound = search.bound(&root).bound;
 
         let (best, argmins) = iso_optimum(&cfn, &src, &tgt);
-        assert!(!argmins.is_empty());
+        assert_ne!(argmins, []);
         let optimal_reward = instance.baseline.raw() - best.raw();
         assert!(
             root_bound >= optimal_reward,
@@ -2922,7 +2922,7 @@ mod tests {
         let tgt = schema(&[("x", "string")], &[]);
         let cfn = network(&src, &tgt);
         let outcome = solve_iso(&cfn, &src, &tgt, &SearchBudget::default()).unwrap();
-        assert!(mapping(&cfn, &outcome).is_empty());
+        assert_eq!(mapping(&cfn, &outcome), []);
         assert_eq!(outcome.best.as_ref().unwrap().dropped(), 1);
         assert!(outcome.proven_optimal);
     }
