@@ -1772,4 +1772,43 @@ mod tests {
             "normalization must respect alpha-equivalence: {nf_shadowing:?} vs {nf_distinct:?}"
         );
     }
+
+    #[test]
+    fn case_contraction_requires_matching_constructor_and_exact_arity() {
+        for constructor_matches in [false, true] {
+            for argument_count in 0..=2 {
+                for binder_count in 0..=2 {
+                    let term = Term::Case {
+                        scrutinee: Box::new(Term::app(
+                            "constructor",
+                            (0..argument_count)
+                                .map(|_| Term::constant("argument"))
+                                .collect(),
+                        )),
+                        branches: vec![CaseBranch {
+                            constructor: Arc::from(if constructor_matches {
+                                "constructor"
+                            } else {
+                                "other"
+                            }),
+                            binders: (0..binder_count)
+                                .map(|index| Arc::from(format!("x{index}")))
+                                .collect(),
+                            body: Term::constant("selected"),
+                        }],
+                    };
+                    let expected = if constructor_matches && argument_count == binder_count {
+                        Term::constant("selected")
+                    } else {
+                        term.clone()
+                    };
+                    assert_eq!(
+                        normalize_with_status(&term, &[], 100),
+                        (expected, false),
+                        "constructor_matches={constructor_matches}, arguments={argument_count}, binders={binder_count}"
+                    );
+                }
+            }
+        }
+    }
 }
