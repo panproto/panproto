@@ -3736,10 +3736,10 @@ fn generated_tree_word_agrees(tree: &reference_model::Tree, choices: &[usize]) {
     let (production_graph, production_embedding) =
         GInstance::from_wtype_embedded(&production, None).unwrap();
     let start = TreeStart {
-        reference_graph,
         reference_embedding,
-        production_graph,
+        reference_graph,
         production_embedding,
+        production_graph,
     };
     assert_eq!(
         graph_to_reference(&start.production_graph),

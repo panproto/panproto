@@ -2847,8 +2847,13 @@ mod randomized {
             let after = reference::trusted_schedule(&input(&target), &trust);
             let target_witness = reference::witness_with_trust(input(&target), trust).unwrap();
             prop_assert_eq!(target_witness.verify(), Ok(()));
-            prop_assert_eq!(target_witness.evaluation.report,
-                reference::validate(&reference_schema, &semantics, &target));
+            let whole = reference::validate(&reference_schema, &semantics, &target);
+            // The native outcome retains identity; the schedule fold retains check findings.
+            prop_assert_eq!(target_witness.evaluation.report.shape, whole.shape);
+            prop_assert_eq!(&target_witness.evaluation.report.diagnostics, &whole.diagnostics);
+            prop_assert_eq!(&target_witness.evaluation.report.incomplete, &whole.incomplete);
+            prop_assert_eq!(target_witness.evaluation.report.status, whole.status);
+            prop_assert_eq!(&target_witness.outcome, &reference::ValidationOutcome::Report(whole));
             let model = reference::incremental_footprint(&before, &after);
             let none = ExternalVerdicts::default();
             let (validated, _) = panproto_inst::validation::ValidatedGraph::new(plan,

@@ -346,6 +346,10 @@ fn error_to_production(error: &reference::SegmentError) -> SegmentError {
             key: *key,
             found: *found,
         },
+        R::CrossMismatch { from, to } => SegmentError::CrossMismatch {
+            from: segment(*from),
+            to: segment(*to),
+        },
         R::GhostMismatch { node } => SegmentError::GhostMismatch { node: *node },
         R::InStubMismatch { elem } => SegmentError::InStubMismatch {
             elem: view_ref_to_production(elem),
@@ -1893,31 +1897,8 @@ fn malformed_manifests_preserve_the_complete_structural_refusal_order() {
         assert_eq!(production_manifest.digest().0, reference_found.0);
         assert_ne!(production_manifest.digest(), production_expected);
         let production = verify_manifest(&production_manifest, production_expected);
-        let oracle =
-            reference::verify_manifest(&reference_manifest, reference_expected).map_err(|error| {
-                match error {
-                    reference::SegmentError::CrossMismatch { from, to } => {
-                        SegmentError::CrossMismatch {
-                            from: SegmentId(from.0),
-                            to: SegmentId(to.0),
-                        }
-                    }
-                    reference::SegmentError::DigestMismatch {
-                        segment,
-                        expected,
-                        found,
-                    } => SegmentError::DigestMismatch {
-                        segment: segment.map(|id| SegmentId(id.0)),
-                        expected: Digest(expected.0),
-                        found: Digest(found.0),
-                    },
-                    reference::SegmentError::Decode { artifact, .. } => SegmentError::Decode {
-                        artifact: artifact_to_production(artifact),
-                        message: String::new(),
-                    },
-                    other => error_to_production(&other),
-                }
-            });
+        let oracle = reference::verify_manifest(&reference_manifest, reference_expected)
+            .map_err(|error| error_to_production(&error));
         eprintln!(
             "malformed manifest case={case} production={production:?} reference={oracle:?} expected={expected:?}"
         );
