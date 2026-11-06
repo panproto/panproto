@@ -181,15 +181,15 @@ After compilation has checked declarations and output fields, `get_with_plan` va
 ### Executable counterpart
 
 - Law ID: `restrict.c3`
-- Reference: `panproto_reference::restrict::compile`
+- Reference: `panproto_reference::restrict::get`
 - Regression differential test: `undeclared_transform_stages_keep_every_original_source_as_a_refusal; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=undeclared_transform_stages_keep_every_original_source_as_a_refusal)'`
 - Regression differential test: `declared_transform_attribute_edges_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_attribute_edges_agree_with_the_reference)'`
 - Independent reference test: `transform_outputs_follow_target_attribute_declarations; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=transform_outputs_follow_target_attribute_declarations)'`
 - Independent reference test: `transform_output_refusals_keep_anchor_and_write_order; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=transform_output_refusals_keep_anchor_and_write_order)'`
 - Independent reference test: `structural_plan_refusals_precede_transform_outputs; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=structural_plan_refusals_precede_transform_outputs)'`
 - Independent reference test: `declaration_refusals_precede_structural_and_output_checks; command: cargo nextest run --release -p panproto-reference --test transform_declarations --no-tests=fail -E 'test(=declaration_refusals_precede_structural_and_output_checks)'`
-- Reference: `panproto_reference::restrict::get`
 - Reference: `panproto_reference::restrict::edge_image`
+- Reference: `panproto_reference::restrict::compile`
 - Enumerator: `release_graphs`; exact carrier: 12,366 graph/plan cases
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers`
 - Compared result: complete view and complement, including node values, discriminators, fields, shapes, annotations, original fields, and original values; id floors, synthesis keys, and deterministic typed errors

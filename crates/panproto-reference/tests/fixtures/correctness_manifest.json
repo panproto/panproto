@@ -1987,7 +1987,7 @@
               "test": "within_scope_does_not_traverse_fan_incidence"
             },
             {
-              "role": "differential",
+              "role": "reference",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_keys",
               "test": "values_without_canonical_bytes_are_a_typed_keying_refusal"
@@ -2154,19 +2154,19 @@
               "test": "recipe_replay_agrees_with_the_reference_on_every_recipe"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "registration_equivalence"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "every_registered_protocol_records_a_diagram_step"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::registration_equivalence",
               "test": "registration_reproduces_the_frozen_0_74_4_theories"
@@ -2378,7 +2378,8 @@
           "id": "keys.group-g-declaration-injectivity",
           "anchor": "L-keys-and-registration-15",
           "references": [
-            "panproto_reference::schema::canonical_bytes"
+            "panproto_reference::schema::canonical_bytes",
+            "panproto_reference::schema::validate_declarations"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -3648,25 +3649,25 @@
               "test": "randomized_leaf_edit_lens_differential"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens",
               "test": "visible_first_leaf_replacement_is_an_atomic_endpoint_refusal"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_tree_edit_lens",
               "test": "field_edit_translation_uses_only_the_edited_nodes_anchor"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-lens",
               "binary": "panproto-lens::tree_lenses_through_contraction",
               "test": "edits::contracted_same_parent_move_refuses_order_drift_atomically"
             },
             {
-              "role": "differential",
+              "role": "production",
               "crate": "panproto-lens",
               "binary": "panproto-lens::tree_lenses_through_contraction",
               "test": "edits::kept_insertion_before_contracted_arcs_refuses_order_drift_atomically"
@@ -4049,7 +4050,8 @@
           "references": [
             "panproto_reference::validation::validate",
             "panproto_reference::validation::validate_table",
-            "panproto_reference::validation::validate_tree"
+            "panproto_reference::validation::validate_tree",
+            "panproto_reference::validation::status"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -5026,6 +5028,7 @@
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
         "crates/panproto-reference/src/pages/lenses/alignment.rs",
+        "crates/panproto-reference/src/pages/lenses/constructions.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
         "crates/panproto-reference/src/pages/lenses/graph.rs",
         "crates/panproto-reference/src/pages/lenses/laws.rs",
@@ -5240,10 +5243,10 @@
           "id": "lenses.l7",
           "anchor": "L-lenses-7",
           "references": [
-            "panproto_reference::lens::GraphLens::check_put_domain",
-            "panproto_reference::lens::GraphLens::put",
-            "panproto_reference::lens::get",
-            "panproto_reference::lens::put"
+            "panproto_reference::lens::GraphShape::equivalent",
+            "panproto_reference::lens::TreeShape::equivalent",
+            "panproto_reference::encode::tree_to_graph",
+            "panproto_reference::encode::table_to_graph"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -5313,7 +5316,9 @@
             "panproto_reference::lens::GraphLens::check_put_domain",
             "panproto_reference::lens::GraphLens::put",
             "panproto_reference::lens::get",
-            "panproto_reference::lens::put"
+            "panproto_reference::lens::put",
+            "panproto_reference::lens::graph_square",
+            "panproto_reference::lens::graph_put_square"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -5335,10 +5340,11 @@
           "id": "lenses.l10",
           "anchor": "L-lenses-10",
           "references": [
-            "panproto_reference::lens::GraphLens::check_put_domain",
-            "panproto_reference::lens::GraphLens::put",
-            "panproto_reference::lens::get",
-            "panproto_reference::lens::put"
+            "panproto_reference::lens::construction_obstruction",
+            "panproto_reference::lens::span_has_shared_middle",
+            "panproto_reference::table::is_isomorphism",
+            "panproto_reference::table::obstruction_to_isomorphism",
+            "panproto_reference::table::put_without_complement"
           ],
           "due_gate": "candidate",
           "consumers": [
@@ -6050,7 +6056,8 @@
           "id": "resolution.declared-key-equality",
           "anchor": "L-resolution-14",
           "references": [
-            "panproto_reference::resolution::declared_key_equality"
+            "panproto_reference::resolution::declared_key_equality",
+            "panproto_reference::resolution::get"
           ],
           "due_gate": "candidate",
           "consumers": [

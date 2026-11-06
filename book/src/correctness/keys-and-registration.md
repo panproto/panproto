@@ -722,6 +722,7 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 
 - Law ID: `keys.group-g-declaration-injectivity`
 - Reference: `panproto_reference::schema::canonical_bytes`
+- Reference: `panproto_reference::schema::validate_declarations`
 - Evidence scope: `37 canonical fixtures covering every declaration sum variant, including Position, and nondefault extension; 30 validation fixtures covering success, every independent refusal class, exact duplicate multiplicity, implicit-primary selection, missing-only target sets, holder-source agreement, reachable text cycles, a variable over a target set, a variable with a missing named key, and key-value parts against the empty key; plus all five target-set member roles; plus the extension-marker regression pair and the 194 decoded extension combinations of L-keys-and-registration-3`
 - Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
 - Independent reference anchor: `declaration_validation_matches_reference_on_every_common_refusal; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_validation_matches_reference_on_every_common_refusal)'`

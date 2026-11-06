@@ -2,6 +2,7 @@
 
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
+mod constructions;
 // Shared put-domain machinery and graph restoration.
 mod domain;
 mod graph;
@@ -19,6 +20,10 @@ mod tree;
 
 pub use self::alignment::{
     ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
+};
+pub use self::constructions::{
+    ConstructionFeature, ConstructionObstruction, ConstructionShape, construction_obstruction,
+    span_has_shared_middle,
 };
 pub use self::laws::{
     BasisCase, CongruenceCase, Divergence, DivergenceKind, DomainExpectation, EqualityClass,

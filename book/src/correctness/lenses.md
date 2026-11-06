@@ -441,10 +441,10 @@ Complement and synthesis key are defined at the head of this page and in [L-lens
 ### Executable counterpart
 
 - Law ID: `lenses.l7`
-- Reference: `panproto_reference::lens::GraphLens::check_put_domain`
-- Reference: `panproto_reference::lens::GraphLens::put`
-- Reference: `panproto_reference::lens::get`
-- Reference: `panproto_reference::lens::put`
+- Reference: `panproto_reference::lens::GraphShape::equivalent`
+- Reference: `panproto_reference::lens::TreeShape::equivalent`
+- Reference: `panproto_reference::encode::tree_to_graph`
+- Reference: `panproto_reference::encode::table_to_graph`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_law_equivalence_oracle_case; bound: coherent_pairs=54, coherent_triples=81, incoherent_families=12, floor_divergences=3, float_witness_pairs=108, operational_floor_cases=1, cases=259`
 - Exhaustive differential test: `lens_equivalence_normalization_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lens_equivalence --no-tests=fail -E 'test(=lens_equivalence_normalization_certificate)'`
 - Property differential test: `randomized_lens_equivalence_normalization; command: cargo nextest run --release -p panproto-lens --test reference_lens_equivalence --no-tests=fail -E 'test(=randomized_lens_equivalence_normalization)'`
@@ -503,15 +503,15 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 ### Executable counterpart
 
 - Law ID: `lenses.l8`
-- Reference: `panproto_reference::lens::check_graph_laws`
-- Reference: `panproto_reference::lens::check_laws_report`
+- Reference: `panproto_reference::lens::GraphLens::check_put_domain`
+- Reference: `panproto_reference::lens::GraphLens::put`
 - Regression differential test: `declared_transform_atomic_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=declared_transform_atomic_laws_agree_with_the_reference)'`
 - Regression differential test: `relabel_edge_laws_agree_with_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=relabel_edge_laws_agree_with_the_reference)'`
 - Independent reference test: `a_refused_positive_candidate_is_out_of_the_domain; command: cargo nextest run --release -p panproto-reference --test enumerate_lenses --no-tests=fail -E 'test(=a_refused_positive_candidate_is_out_of_the_domain)'`
-- Reference: `panproto_reference::lens::GraphLens::check_put_domain`
-- Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
+- Reference: `panproto_reference::lens::check_graph_laws`
+- Reference: `panproto_reference::lens::check_laws_report`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_lens_law_case; bound: partial_lens_source_cases=43740, graph_stage_states=144397, tree_stage_states=2548, table_projection_cases=9921, cases=200606`
 - Exhaustive differential test: `lens_laws_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_laws_agree_with_the_reference_exhaustively)'`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
@@ -580,6 +580,8 @@ The tree arc order is not a graph complement field. The graph form carries child
 - Reference: `panproto_reference::lens::GraphLens::put`
 - Reference: `panproto_reference::lens::get`
 - Reference: `panproto_reference::lens::put`
+- Reference: `panproto_reference::lens::graph_square`
+- Reference: `panproto_reference::lens::graph_put_square`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_graph_tree_route_law_case; bound: schemas=16, nonfan_stages=29, nodes=3, schema_tree_states=2020, stage_tree_bases=2548, expanded_edited_views=28864, named_nonfan_validation_cases=2, base_cases=2550, observations=31414`
 - Exhaustive differential test: `graph_tree_route_law_certificate; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_tree_route_law_certificate)'`
 - Property differential test: `randomized_graph_tree_route_law_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_tree_route_law_differential)'`
@@ -594,6 +596,8 @@ The tree arc order is not a graph complement field. The graph form carries child
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/support/tree_validation.rs`
 - File: `crates/panproto-lens/tests/reference_tree_validation.rs`
+
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 
 ### Mutation equivalences
 
@@ -632,10 +636,11 @@ Lens, complement and identity envelope are defined at the head of this page.
 ### Executable counterpart
 
 - Law ID: `lenses.l10`
-- Reference: `panproto_reference::lens::GraphLens::check_put_domain`
-- Reference: `panproto_reference::lens::GraphLens::put`
-- Reference: `panproto_reference::lens::get`
-- Reference: `panproto_reference::lens::put`
+- Reference: `panproto_reference::lens::construction_obstruction`
+- Reference: `panproto_reference::lens::span_has_shared_middle`
+- Reference: `panproto_reference::table::is_isomorphism`
+- Reference: `panproto_reference::table::obstruction_to_isomorphism`
+- Reference: `panproto_reference::table::put_without_complement`
 - Enumerator: `panproto_reference::enumerate::lenses::for_each_lens_construction_case; bound: family_bundles=10, stage_classifications=31, graph_restorations=117004, tree_restorations=2082, structural_witnesses=21, value_witnesses=8, tree_open_field_witnesses=1, unit_boundaries=9, resolver_witnesses=2, table_projection_cases=9921, table_writer_cases=81, span_assertions=4, validation_boundaries=5`
 - Exhaustive differential test: `reference_lens_constructions; command: cargo nextest run --release -p panproto-lens --test reference_lens_constructions --no-tests=fail -E 'test(=reference_lens_constructions)'`
 - Property differential test: `randomized_lens_construction_differential; command: cargo nextest run --release -p panproto-lens --test reference_lens_constructions --no-tests=fail -E 'test(=randomized_lens_construction_differential)'`
@@ -646,6 +651,7 @@ Lens, complement and identity envelope are defined at the head of this page.
 - File: `crates/panproto-lens/src/asymmetric.rs`
 - File: `crates/panproto-lens/src/lib.rs`
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
+- File: `crates/panproto-reference/src/pages/lenses/constructions.rs`
 - File: `crates/panproto-reference/src/pages/lenses/table.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_lens_constructions.rs`

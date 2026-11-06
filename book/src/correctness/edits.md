@@ -244,7 +244,7 @@ None.
 
 ### Statement
 
-Applying a table delta checks complete deleted row payloads and relation pairs, the old values of every changed cell and table name, complete incidence for each deleted row, free added row ids, and existing endpoints for every resulting pair. Success deletes, updates, and adds in that order.
+Applying a table delta checks complete deleted row payloads and relation pairs, the old values of every changed cell and table name, complete incidence for each deleted row, free added row ids, and existing endpoints for every resulting pair. Success deletes pairs and rows, inserts rows, changes table membership and cells, then inserts pairs.
 
 A surface table edit lowers, without reading a state, to this canonical compare-and-set form: `InsertRow` adds the row, `DeleteRow` deletes the row with its stated payload and every listed pair, `UpdateCell` and `MoveRow` are a cell and a table-name change, `AddForeignKey` and `RemoveForeignKey` add and delete one pair, `Delta` is itself, and `Batch` is the left-to-right composite of its steps. A single surface step first checks the state it names and then applies its lowering. Whenever an edit $e$ applies to a table $T$ with result $T'$, applying the inverse of its lowering to $T'$ gives $T$, and applying the production inverse edit to $T'$ gives $T$.
 

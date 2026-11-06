@@ -1713,6 +1713,14 @@ fn compare_generated_key_pair(
     let right = &values[right_index];
     let production_left = production_value(left)?;
     let production_right = production_value(right)?;
+    for value in [left, right] {
+        if let ReferenceValue::Str(text) = value {
+            assert_eq!(
+                production::xml_noncdata(text),
+                reference_keys::xml_noncdata(text),
+            );
+        }
+    }
     let equality = generated_key_configuration(configuration);
     let production_equality = production_equality(&equality);
     let reference_key = reference::Key {
@@ -1963,6 +1971,10 @@ mod randomized {
             let (passed, reported, incomplete, preserved) = super::production_format_outcome(format, text, asserting);
             prop_assert_eq!(preserved, text);
             prop_assert!(!incomplete);
+            if format == "uuid" {
+                let recognized = super::reference_keys::uuid_format(text);
+                prop_assert_eq!((passed, reported), (!asserting || recognized, !recognized));
+            }
             prop_assert_eq!((passed, reported), match expected {
                 super::reference_keys::FormatOutcome::Unchecked | super::reference_keys::FormatOutcome::Recognized => (true, false),
                 super::reference_keys::FormatOutcome::Advisory => (true, true),

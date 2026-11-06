@@ -655,6 +655,7 @@ Declared key equality is [`key_equivalence`](./keys-and-registration.md), re-exp
 
 - Law ID: `resolution.declared-key-equality`
 - Reference: `panproto_reference::resolution::declared_key_equality`
+- Reference: `panproto_reference::resolution::get`
 - Evidence scope: `key-equality product; equalities=6, values=7, ordered_pairs=49`
 - Production certificate: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
 - Independent reference anchor: `declared_key_equality_refusals_propagate_through_resolution; command: cargo nextest run --release -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=declared_key_equality_refusals_propagate_through_resolution)'`

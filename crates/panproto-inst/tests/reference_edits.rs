@@ -2762,7 +2762,7 @@ fn check_graph_composite(
     );
     assert_eq!(
         delta_to_reference(&production_composite.invert()),
-        composite.invert(),
+        reference::Delta::invert(&composite),
         "invert {letters:?}"
     );
     let expected_bytes = reference::canonical_graph_delta_bytes(&composite)
@@ -3221,46 +3221,50 @@ impl TreeWordLowering {
             start.production_embedding
         );
     }
+}
 
-    /// An applied word: equal lowerings, embeddings, applied graphs and
-    /// canonical bytes. Returns whether the lowering holds a replacement.
-    fn check_applied(self, start: &TreeStart, letters: &[reference::TreeEdit]) -> bool {
-        let Self {
-            sequence,
-            production_sequence,
-            lowered,
-            lowered_embedding,
-            production_lowered,
-            production_lowered_embedding,
-        } = self;
-        let lowered =
-            lowered.unwrap_or_else(|error| panic!("reference lowering {letters:?}: {error:?}"));
-        let production_lowered = production_lowered
-            .unwrap_or_else(|error| panic!("production lowering {letters:?}: {error:?}"));
-        assert_eq!(
-            delta_to_reference(&production_lowered),
-            lowered,
-            "lower {letters:?}"
-        );
-        assert_eq!(
-            production_embedding(&production_lowered_embedding),
-            reference_embedding(&lowered_embedding),
-            "embedding after {letters:?}"
-        );
-        let reference_graph = reference::apply(&lowered, &start.reference_graph)
-            .unwrap_or_else(|error| panic!("reference graph apply {letters:?}: {error:?}"));
-        let mut production_graph = start.production_graph.clone();
-        production_lowered
-            .apply(&mut production_graph)
-            .unwrap_or_else(|error| panic!("production graph apply {letters:?}: {error:?}"));
-        assert_eq!(graph_to_reference(&production_graph), reference_graph);
-        let expected_bytes =
-            reference::canonical_tree_edit_bytes(&sequence).expect("a scope word is well filed");
-        let mut writer = CanonicalWriter::new();
-        canonical_tree_edit_bytes(&production_sequence, &mut writer);
-        assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
-        lowered.del.keys().any(|x| lowered.add.contains_key(x))
-    }
+/// An applied word: equal lowerings, embeddings, applied graphs and
+/// canonical bytes. Returns whether the lowering holds a replacement.
+fn check_applied_tree_word(
+    lowering: TreeWordLowering,
+    start: &TreeStart,
+    letters: &[reference::TreeEdit],
+) -> bool {
+    let TreeWordLowering {
+        sequence,
+        production_sequence,
+        lowered,
+        lowered_embedding,
+        production_lowered,
+        production_lowered_embedding,
+    } = lowering;
+    let lowered =
+        lowered.unwrap_or_else(|error| panic!("reference lowering {letters:?}: {error:?}"));
+    let production_lowered = production_lowered
+        .unwrap_or_else(|error| panic!("production lowering {letters:?}: {error:?}"));
+    assert_eq!(
+        delta_to_reference(&production_lowered),
+        lowered,
+        "lower {letters:?}"
+    );
+    assert_eq!(
+        production_embedding(&production_lowered_embedding),
+        reference_embedding(&lowered_embedding),
+        "embedding after {letters:?}"
+    );
+    let reference_graph = reference::apply(&lowered, &start.reference_graph)
+        .unwrap_or_else(|error| panic!("reference graph apply {letters:?}: {error:?}"));
+    let mut production_graph = start.production_graph.clone();
+    production_lowered
+        .apply(&mut production_graph)
+        .unwrap_or_else(|error| panic!("production graph apply {letters:?}: {error:?}"));
+    assert_eq!(graph_to_reference(&production_graph), reference_graph);
+    let expected_bytes =
+        reference::canonical_tree_edit_bytes(&sequence).expect("a scope word is well filed");
+    let mut writer = CanonicalWriter::new();
+    canonical_tree_edit_bytes(&production_sequence, &mut writer);
+    assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
+    lowered.del.keys().any(|x| lowered.add.contains_key(x))
 }
 
 #[test]
@@ -3319,7 +3323,7 @@ fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope()
                 *after,
                 "apply {letter:?}"
             );
-            if lowering.check_applied(&start, word.letters) {
+            if check_applied_tree_word(lowering, &start, word.letters) {
                 tally.replacements += 1;
             }
             prefixes.push(production_state);
@@ -3758,7 +3762,7 @@ fn generated_tree_word_agrees(tree: &reference_model::Tree, choices: &[usize]) {
         match (expected, actual) {
             (Ok(after), Ok(())) => {
                 assert_eq!(tree_to_reference(&production), after);
-                lowering.check_applied(&start, &word);
+                check_applied_tree_word(lowering, &start, &word);
                 floors = floors.after_tree(&after);
                 expected_tree = after;
             }

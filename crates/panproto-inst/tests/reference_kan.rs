@@ -3895,6 +3895,24 @@ fn presheaf_sigma(
     (rows, separated, unseparated, identified)
 }
 
+/// Compare the table Sigma underlying the graph reflection, including its
+/// provenance and any typed refusal, on the same encoded source object.
+fn reflection_table_sigma_agrees(functors: &Functors, input: &FInstance) {
+    let reference_input = ref_table(input);
+    let expected = rel::sigma(&functors.reference, &reference_input);
+    let actual = panproto_inst::f_sigma_with_provenance(input, &functors.production);
+    match (expected, actual) {
+        (Ok((out, provenance)), Ok((ours, our_provenance))) => {
+            assert_eq!(ref_table(&ours), out, "Sigma of {reference_input:?}");
+            assert_eq!(ref_sigma_provenance(&our_provenance), provenance);
+        }
+        (Err(theirs), Err(ours)) => {
+            kan_refusals_agree(&ours, &theirs, &("reflection Sigma", &reference_input));
+        }
+        (theirs, ours) => panic!("reflection Sigma of {reference_input:?}: {ours:?} / {theirs:?}"),
+    }
+}
+
 /// Graph Sigma at one whole-source graph through its six entry points
 /// against the reference: each output equal to the reference graph Sigma
 /// and, rows and pairs, isomorphic to `L_sep` of the reference presheaf
@@ -3909,6 +3927,7 @@ fn sigma_reflection_at(case: &GraphCase, graph: &model::Graph) -> Census {
         panproto_inst::encode_graph(&production_graph, EncodingSide::Whole(fp.source())).unwrap();
     let (kept_table, _) =
         panproto_inst::encode_graph(&production_kept, EncodingSide::Domain(fp)).unwrap();
+    reflection_table_sigma_agrees(&case.functors, &whole_table);
     assert_eq!(
         ref_table(&panproto_inst::f_restrict_to_domain(&whole_table, fp).unwrap()),
         ref_table(&kept_table),

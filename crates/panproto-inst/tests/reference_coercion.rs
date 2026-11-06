@@ -1733,6 +1733,16 @@ proptest::proptest! {
             let bytes = panproto_reference::canonical::value_bytes(x);
             let production_bytes = p.canonical_bytes();
             proptest::prop_assert_eq!(Some(production_bytes.as_slice()), bytes.as_deref(), "{:?}", x);
+            // Reuse the independently generated spec index as the second
+            // value coordinate; its range remains 0..1000.
+            let partner = &values[spec_index % values.len()];
+            if let Some(partner_production) = into_production(partner) {
+                proptest::prop_assert_eq!(
+                    rv::representation(x, partner),
+                    Some(production_bytes == partner_production.canonical_bytes()),
+                    "{:?} against {:?}", x, partner
+                );
+            }
             if let Some(bytes) = bytes {
                 proptest::prop_assert_eq!(
                     panproto_reference::canonical::decode_value(&bytes),

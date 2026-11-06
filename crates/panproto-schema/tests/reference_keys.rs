@@ -2406,7 +2406,7 @@ mod randomized {
                 (vertex.to_owned(), key.to_owned())
             }).collect::<Vec<_>>();
             let local = reference_target_signatures(&schema, &selected)
-                .as_deref().map(reference_keys::target_set);
+                .map(|members| reference_keys::target_set(&members));
             schema.target_sets.insert("targets".to_owned(), reference::TargetSet {
                 members: selected, scope: reference::KeyScope::Document,
             });

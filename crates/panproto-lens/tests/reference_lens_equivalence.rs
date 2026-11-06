@@ -22,6 +22,16 @@ use panproto_reference::enumerate::lenses::{
     LawEquivalenceShape, for_each_law_equivalence_oracle_case,
     law_equivalence_oracle_case_count_certificate,
 };
+use panproto_reference::lens::{
+    GraphShape as RefGraphShape, LensShape as RefLensShape, SynthIndex as RefSynthIndex,
+    TreeShape as RefTreeShape,
+};
+use panproto_reference::model::{
+    GEdge as RefGEdge, Graph as RefGraph, Node as RefNode, NodeShape as RefNodeShape,
+    SEdge as RefEdge, Table as RefTable, Tree as RefTree,
+};
+use panproto_reference::restrict::SynthKey as RefSynthKey;
+use panproto_reference::value::{Presence as RefPresence, Value as RefValue};
 use panproto_schema::{Edge, Protocol, ScalarKind, SchemaBuilder};
 use proptest::prelude::*;
 
@@ -224,6 +234,124 @@ fn table_fixture_with(
     (table, index)
 }
 
+fn reference_value(value: &Value) -> RefValue {
+    match value {
+        Value::Str(value) => RefValue::Str(value.clone()),
+        Value::Float(value) => RefValue::Float(value.to_bits()),
+        other => panic!("value outside the declared string/float equivalence carrier: {other:?}"),
+    }
+}
+
+fn reference_fields(fields: &HashMap<String, Value>) -> BTreeMap<String, RefValue> {
+    fields
+        .iter()
+        .map(|(key, value)| (key.clone(), reference_value(value)))
+        .collect()
+}
+
+fn reference_node(node: &Node) -> RefNode {
+    assert_eq!(node.shape, NodeShape::Plain, "declared equivalence carrier");
+    RefNode {
+        id: node.id,
+        anchor: node.anchor.to_string(),
+        value: node.value.as_ref().map(|value| match value {
+            FieldPresence::Present(value) => RefPresence::Present(reference_value(value)),
+            FieldPresence::Null => RefPresence::Null,
+            FieldPresence::Absent => RefPresence::Absent,
+        }),
+        discriminator: node.discriminator.as_ref().map(ToString::to_string),
+        fields: reference_fields(&node.extra_fields),
+        position: node.position,
+        shape: RefNodeShape::Plain,
+        annotations: reference_fields(&node.annotations),
+    }
+}
+
+fn reference_edge(edge: &Edge) -> RefEdge {
+    RefEdge::new(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+}
+
+fn reference_graph(graph: &GInstance) -> RefGraph {
+    RefGraph {
+        nodes: graph
+            .nodes()
+            .iter()
+            .map(|(id, node)| (*id, reference_node(node)))
+            .collect(),
+        edges: graph
+            .edges()
+            .iter()
+            .map(|(id, edge)| {
+                (
+                    id.0,
+                    RefGEdge {
+                        src: edge.src,
+                        tgt: edge.tgt,
+                        label: reference_edge(&edge.edge),
+                        position: edge.position,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+fn reference_index(index: &SynthIndex) -> RefSynthIndex {
+    let key = |key: &SynthKey| match key {
+        SynthKey::Expand { source_edge, hop } => RefSynthKey::Expand {
+            source_edge: source_edge.0,
+            hop: *hop,
+        },
+        other => panic!("key outside the declared expansion equivalence carrier: {other:?}"),
+    };
+    RefSynthIndex {
+        nodes: index
+            .nodes
+            .iter()
+            .map(|(id, value)| (*id, key(value)))
+            .collect(),
+        edges: index
+            .edges
+            .iter()
+            .map(|(id, value)| (id.0, key(value)))
+            .collect(),
+    }
+}
+
+fn reference_tree(tree: &WInstance) -> RefTree {
+    assert!(tree.fans.is_empty(), "declared nonfan equivalence carrier");
+    RefTree {
+        nodes: tree
+            .nodes
+            .iter()
+            .map(|(id, node)| (*id, reference_node(node)))
+            .collect(),
+        arcs: tree
+            .arcs
+            .iter()
+            .map(|(parent, child, edge)| (*parent, *child, reference_edge(edge)))
+            .collect(),
+        fans: Vec::new(),
+        root: tree.root,
+    }
+}
+
+fn reference_table(table: &FInstance) -> RefTable {
+    let mut out = RefTable::default();
+    for (name, _) in table.tables() {
+        for (id, row) in table.rows(name) {
+            out.rows
+                .insert(id.0, (name.to_string(), reference_fields(row)));
+        }
+    }
+    for (edge, pairs) in table.foreign_keys() {
+        for (source, target) in pairs {
+            out.pairs.insert((reference_edge(edge), source.0, target.0));
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum StableId {
     Origin(u32),
@@ -370,10 +498,40 @@ fn normalize_graph(graph: &GInstance, index: &SynthIndex) -> Option<CanonicalGra
 }
 
 fn graph_oracle(left: &GInstance, li: &SynthIndex, right: &GInstance, ri: &SynthIndex) -> bool {
-    normalize_graph(left, li).is_some_and(|left| normalize_graph(right, ri) == Some(left))
+    let expected =
+        normalize_graph(left, li).is_some_and(|left| normalize_graph(right, ri) == Some(left));
+    assert_eq!(
+        RefGraphShape::equivalent(
+            &reference_graph(left),
+            &reference_index(li),
+            &reference_graph(right),
+            &reference_index(ri)
+        ),
+        expected
+    );
+    expected
 }
 
 fn tree_oracle(left: &WInstance, li: &SynthIndex, right: &WInstance, ri: &SynthIndex) -> bool {
+    let expected = local_tree_oracle(left, li, right, ri);
+    let (left, right) = (reference_tree(left), reference_tree(right));
+    let (left_graph, _) =
+        panproto_reference::encode::tree_to_graph(&left, None).expect("declared tree carrier");
+    let (right_graph, _) =
+        panproto_reference::encode::tree_to_graph(&right, None).expect("declared tree carrier");
+    let (li, ri) = (reference_index(li), reference_index(ri));
+    let actual = RefGraphShape::equivalent(&left_graph, &li, &right_graph, &ri)
+        && RefTreeShape::equivalent(&left, &li, &right, &ri);
+    assert_eq!(actual, expected);
+    expected
+}
+
+fn local_tree_oracle(
+    left: &WInstance,
+    li: &SynthIndex,
+    right: &WInstance,
+    ri: &SynthIndex,
+) -> bool {
     if stable_node(left.root, li) != stable_node(right.root, ri)
         || left.schema_root != right.schema_root
     {
@@ -401,6 +559,29 @@ fn tree_oracle(left: &WInstance, li: &SynthIndex, right: &WInstance, ri: &SynthI
 }
 
 fn table_oracle(left: &FInstance, li: &SynthIndex, right: &FInstance, ri: &SynthIndex) -> bool {
+    let (left_reference, _) = panproto_reference::encode::table_to_graph(&reference_table(left))
+        .expect("declared table carrier");
+    let (right_reference, _) = panproto_reference::encode::table_to_graph(&reference_table(right))
+        .expect("declared table carrier");
+    let expected = local_table_oracle(left, li, right, ri);
+    assert_eq!(
+        RefGraphShape::equivalent(
+            &left_reference,
+            &reference_index(li),
+            &right_reference,
+            &reference_index(ri)
+        ),
+        expected
+    );
+    expected
+}
+
+fn local_table_oracle(
+    left: &FInstance,
+    li: &SynthIndex,
+    right: &FInstance,
+    ri: &SynthIndex,
+) -> bool {
     let Ok((left, _)) = GInstance::from_finstance(left) else {
         return false;
     };
@@ -550,6 +731,7 @@ fn assert_incoherent(shape: LawEquivalenceShape, family: LawEquivalenceIncoheren
             let mut bad = coherent.clone();
             corrupt(&mut bad, family);
             assert!(normalize_graph(&instance, &bad).is_none());
+            assert!(!graph_oracle(&instance, &bad, &instance, &bad));
             assert!(!GraphShape::equivalent(&instance, &bad, &instance, &bad));
             assert!(!GraphShape::equivalent(
                 &instance, &bad, &instance, &coherent
@@ -564,6 +746,7 @@ fn assert_incoherent(shape: LawEquivalenceShape, family: LawEquivalenceIncoheren
             corrupt(&mut bad, family);
             let graph = GInstance::from_wtype(&instance).expect("tree embedding");
             assert!(normalize_graph(&graph, &bad).is_none());
+            assert!(!tree_oracle(&instance, &bad, &instance, &bad));
             assert!(!TreeShape::equivalent(&instance, &bad, &instance, &bad));
             assert!(!TreeShape::equivalent(
                 &instance, &bad, &instance, &coherent
@@ -578,6 +761,7 @@ fn assert_incoherent(shape: LawEquivalenceShape, family: LawEquivalenceIncoheren
             corrupt(&mut bad, family);
             let (graph, _) = GInstance::from_finstance(&instance).expect("table embedding");
             assert!(normalize_graph(&graph, &bad).is_none());
+            assert!(!table_oracle(&instance, &bad, &instance, &bad));
             assert!(!TableShape::equivalent(&instance, &bad, &instance, &bad));
             assert!(!TableShape::equivalent(
                 &instance, &bad, &instance, &coherent

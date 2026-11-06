@@ -30,6 +30,7 @@ An *open required check* is a required diagnostic or required incomplete entry. 
 - Reference: `panproto_reference::validation::validate`
 - Reference: `panproto_reference::validation::validate_table`
 - Reference: `panproto_reference::validation::validate_tree`
+- Reference: `panproto_reference::validation::status`
 - Evidence scope: `the compact carrier: shapes=3, cases per shape=4; the same graph carrier with an application check under three verdicts (passed, rejected, missing), 12 cases reaching all three statuses, compared field by field with incomplete entries and the failed and incomplete coverage counts per kind; every sequence of at most three required or advisory diagnostics and incomplete entries (85 sequences)`
 - Production certificate: `status_law_holds_with_external_verdicts_on_every_shape_status; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=status_law_holds_with_external_verdicts_on_every_shape_status)'`
 - Status fold differential: `status_fold_agrees_with_the_reference_on_every_short_entry_sequence; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=status_fold_agrees_with_the_reference_on_every_short_entry_sequence)'`
