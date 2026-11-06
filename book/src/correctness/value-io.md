@@ -179,7 +179,7 @@ For the production certificate, $r$ ranges over the always-compiled complement-f
 
 ### Outside the domain
 
-Invalid UTF-8, an ill-formed quote or escape, an invalid XML entity, and a forbidden TSV byte return `Malformed` or the route's typed encoding refusal. A numeric-looking token that fails the route grammar is `Malformed`; a syntactically valid numeral refused by exact coercion returns the corresponding `Fidelity` reason. The parser requires one scalar and does not recover a prefix.
+Invalid UTF-8, an ill-formed quote or escape, an invalid XML entity, and a forbidden TSV byte return `Malformed` or the route's typed encoding refusal. JSON refuses a token outside its numeral grammar as `Malformed`. TOML sends tokens beginning with a digit, sign or dot to exact coercion and preserves its `Fidelity` refusal, including `NotANumber` for a malformed numeral; for tokens beginning with `i` or `n`, it maps a failed numeric reading to `Malformed`. YAML returns plain text whenever its unquoted scalar numeric reading fails. XML, CSV and TSV read their cells as text. The parser requires one scalar and does not recover a prefix.
 
 ### Definitions used
 
@@ -190,7 +190,7 @@ The route dialects are JSON for JSON, CSV and TSV; TOML for TOML; YAML 1.2 for Y
 1. `parse` applies `from_utf8`, then the route-dependent whitespace rule.
 2. Its ordered match gives null and Boolean literals precedence over quoted strings, TOML temporals, YAML's number-or-text choice, and route-valid numeral tokens.
 3. `parse_string` dispatches XML, CSV, TSV, single-quoted and double-quoted grammars. The XML arm replaces each carriage return line feed pair, then each remaining carriage return, by a line feed before it expands references, so a reference such as `&#13;` still yields a carriage return. `parse_double_quoted` admits a literal scalar exactly when `literal_in_double_quotes` holds for the route, which is the literal set stated above. Each helper consumes the whole string or returns `Malformed`.
-4. `parse_number` supplies the route dialect to exact coercion and preserves its typed fidelity refusal. These cases exhaust the function.
+4. `parse_number` supplies the route dialect to exact coercion and preserves its typed fidelity refusal. The YAML caller handles a failed numeric reading by returning the original plain scalar as text. These cases exhaust the function.
 
 ### Executable counterpart
 

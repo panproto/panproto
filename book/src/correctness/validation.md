@@ -725,7 +725,7 @@ Across the named finite carrier, production declaration validation and the refer
 
 ### Outside the domain
 
-The law checks 27 common declaration/refusal cases and nine target-set declaration fixtures, eight of which are projected to the local predicate. It does not quantify over every possible declaration. It concerns declaration form, not the dynamic truth of a well-formed guard or reference.
+The law checks 30 common declaration/refusal cases and nine target-set declaration fixtures, eight of which are projected to the local predicate. It does not quantify over every possible declaration. It concerns declaration form, not the dynamic truth of a well-formed guard or reference.
 
 ### Definitions used
 
@@ -742,7 +742,7 @@ The *declaration carrier* is the explicit collection of valid and invalid schema
 - Law ID: `validation.guard-target-set-sort-key-checks`
 - Reference: `panproto_reference::keys::target_set`
 - Reference: `panproto_reference::schema::validate_declarations`
-- Evidence scope: `9 target-set declaration fixtures, 8 projected to the local predicate, and 27 common declaration/refusal cases; this is the named finite carrier, not every possible declaration`
+- Evidence scope: `9 target-set declaration fixtures, 8 projected to the local predicate, and 30 common declaration/refusal cases; this is the named finite carrier, not every possible declaration`
 - Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Exhaustive differential tests: `target_sets_match_on_the_complete_local_predicate` and `declaration_validation_matches_reference_on_every_common_refusal`; `command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(/(target_sets_match_on_the_complete_local_predicate|declaration_validation_matches_reference_on_every_common_refusal)/)'`

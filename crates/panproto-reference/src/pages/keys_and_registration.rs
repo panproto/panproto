@@ -2155,7 +2155,7 @@ pub mod schema {
     /// Without the extension each such site is followed by a `u64` length
     /// below `2^63`, by [`TARGET_SET_MARKER`], or by the end of the bytes;
     /// this word is at least `2^63` and its first byte is `0x00`, so the
-    /// grammar decides the extension from the bytes and stays prefix-free.
+    /// grammar decides extension presence uniquely from the following bytes.
     ///
     /// Book anchors: `L-keys-and-registration-3`, `L-keys-and-registration-15`.
     pub const EXTENSION_MARKER: u64 = 1 << 63;
