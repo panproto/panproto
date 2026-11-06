@@ -1305,6 +1305,47 @@ mod edits {
         Ok(())
     }
 
+    fn tree_endpoint(tree: &WInstance) -> Result<serde_json::Value, TestCaseError> {
+        let mut parents = HashMap::new();
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+        for (parent, child, _) in &tree.arcs {
+            parents.insert(*child, *parent);
+            children.entry(*parent).or_default().push(*child);
+        }
+        prop_assert_eq!(&tree.parent_map, &parents);
+        let cached_children: HashMap<_, Vec<_>> = tree
+            .children_map
+            .iter()
+            .filter(|(_, ids)| !ids.is_empty())
+            .map(|(parent, ids)| (*parent, ids.iter().copied().collect()))
+            .collect();
+        prop_assert_eq!(cached_children, children);
+        // Empty child-cache buckets and absent buckets answer the same query.
+        // The endpoint retains all semantic fields and both incidence orders.
+        Ok(serde_json::to_value((
+            &tree.nodes,
+            &tree.arcs,
+            &tree.fans,
+            tree.root,
+            &tree.schema_root,
+        ))
+        .unwrap())
+    }
+
+    #[test]
+    fn cached_empty_child_lists_preserve_the_endpoint_but_wrong_children_do_not() {
+        let source = contracting_source();
+        assert!(source.children(2).is_empty());
+        let mut with_empty_bucket = source.clone();
+        with_empty_bucket.children_map.entry(2).or_default();
+        assert_eq!(
+            tree_endpoint(&source).unwrap(),
+            tree_endpoint(&with_empty_bucket).unwrap()
+        );
+        with_empty_bucket.children_map.entry(2).or_default().push(0);
+        assert!(tree_endpoint(&with_empty_bucket).is_err());
+    }
+
     /// Successful translations agree with the full whole-state endpoint.
     /// An order-only refusal leaves source and complement unchanged.
     fn check_consistency(
@@ -1323,6 +1364,8 @@ mod edits {
                 continue;
             };
             next += 1;
+            let saved_source =
+                serde_json::to_value(edit.pipeline.as_ref().unwrap().source()).unwrap();
             let saved_complement = serde_json::to_value(&edit.complement).unwrap();
             let previous_floor = edit.complement.id_floor;
             let mut edited_source = source.clone();
@@ -1335,7 +1378,7 @@ mod edits {
                     check_order_refusal(&e, &view, &expected, &error)?;
                     prop_assert_eq!(
                         serde_json::to_value(edit.pipeline.as_ref().unwrap().source()).unwrap(),
-                        serde_json::to_value(&source).unwrap()
+                        saved_source
                     );
                     prop_assert_eq!(
                         serde_json::to_value(&edit.complement).unwrap(),
@@ -1347,8 +1390,8 @@ mod edits {
             };
             source = edited_source;
             prop_assert_eq!(
-                serde_json::to_value(edit.pipeline.as_ref().unwrap().source()).unwrap(),
-                serde_json::to_value(&source).unwrap()
+                tree_endpoint(edit.pipeline.as_ref().unwrap().source())?,
+                tree_endpoint(&source)?
             );
             translated.apply(&mut view).map_err(|err| {
                 TestCaseError::fail(format!(
@@ -1356,8 +1399,8 @@ mod edits {
                 ))
             })?;
             prop_assert_eq!(
-                serde_json::to_value(&view).unwrap(),
-                serde_json::to_value(&expected).unwrap(),
+                tree_endpoint(&view)?,
+                tree_endpoint(&expected)?,
                 "after {:?} translated to {:?}",
                 e,
                 translated

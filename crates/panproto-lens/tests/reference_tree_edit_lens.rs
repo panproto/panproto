@@ -182,6 +182,19 @@ fn initial_embedding(tree: &WInstance) -> TreeEmbedding {
     GInstance::from_wtype_embedded(tree, None).unwrap().1
 }
 
+// This leaf projection inherits source arc identities and allocation history.
+// Deleted arcs cannot be renamed from the surviving before-state alone.
+fn projected_embedding(source: &TreeEmbedding, view: &WInstance) -> TreeEmbedding {
+    assert!(source.fans.is_empty() && view.fans.is_empty());
+    let mut embedding = source.clone();
+    embedding
+        .arcs
+        .retain(|child, _| view.nodes.contains_key(child));
+    assert_eq!(embedding.next_node, source.next_node);
+    assert_eq!(embedding.next_edge, source.next_edge);
+    embedding
+}
+
 fn lower(
     tree: &WInstance,
     embedding: &TreeEmbedding,
@@ -473,7 +486,7 @@ fn tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_referen
         let (ref_view, initial_ref_complement) = ref_lens.initialize(&ref_source);
         let state_lens = production_lens(kind);
         let (view, initial_complement) = panproto_lens::get(&state_lens, &source).unwrap();
-        let view_embedding = initial_embedding(&view);
+        let view_embedding = projected_embedding(&source_embedding, &view);
         assert_eq!(
             complement_carrier(&initial_complement),
             initial_ref_complement.hidden().clone()
@@ -610,7 +623,7 @@ fn tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_referen
         let (ref_view, initial_ref_complement) = ref_lens.initialize(&ref_source);
         let state_lens = production_lens(kind);
         let (view, initial_complement) = panproto_lens::get(&state_lens, &source).unwrap();
-        let view_embedding = initial_embedding(&view);
+        let view_embedding = projected_embedding(&source_embedding, &view);
 
         for plan in put_plans(kind) {
             let ref_input = reference::lower(&ref_view, &plan.atoms).unwrap();
@@ -1095,6 +1108,14 @@ fn field_edit_translation_uses_only_the_edited_nodes_anchor() {
     assert_eq!(raw_candidate.nodes[&0].anchor, expected.nodes[&0].anchor);
     assert_eq!(
         raw_candidate.nodes[&0].extra_fields,
+        HashMap::from([("f".to_owned(), Value::Int(3))])
+    );
+    assert_eq!(
+        expected.nodes[&0].extra_fields,
+        HashMap::from([("g".to_owned(), Value::Int(3))])
+    );
+    assert_ne!(
+        raw_candidate.nodes[&0].extra_fields,
         expected.nodes[&0].extra_fields
     );
     assert_eq!(raw_candidate.schema_root.as_ref(), "a");
@@ -1278,7 +1299,7 @@ fn generated_leaf_word_agrees(kind: LensKind, source: &WInstance, plan: &Plan, p
     let (view, _) = panproto_lens::get(&state_lens, source).unwrap();
     assert_eq!(reference_tree(&view), ref_view);
     let source_embedding = initial_embedding(source);
-    let view_embedding = initial_embedding(&view);
+    let view_embedding = projected_embedding(&source_embedding, &view);
     let ref_input =
         reference::lower(if put { &ref_view } else { &ref_source }, &plan.atoms).unwrap();
     if put {
@@ -1299,10 +1320,10 @@ fn generated_leaf_word_agrees(kind: LensKind, source: &WInstance, plan: &Plan, p
             )
             .is_none()
         );
-        let mut expected_source = ref_source.clone();
+        let mut expected_source = ref_source;
         reference::Delta::apply(&expected, &mut expected_source).unwrap();
         assert_eq!(reference_tree(&whole.tree), expected_source);
-        let mut edited_view = view.clone();
+        let mut edited_view = view;
         production_edit(&plan.atoms)
             .apply(&mut edited_view)
             .unwrap();
