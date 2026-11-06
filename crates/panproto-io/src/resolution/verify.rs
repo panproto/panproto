@@ -1268,7 +1268,10 @@ mod tests {
         use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
         for count in [1_u32, 2] {
             let mut original = small_view()?;
-            let edge = original.edge(EdgeId(4)).unwrap().clone();
+            let edge = original
+                .edge(EdgeId(4))
+                .ok_or(panproto_inst::InstError::EdgeNotFound(EdgeId(4)))?
+                .clone();
             let mut complement = ResolutionComplement::default();
             for index in 0..count {
                 let id = EdgeId(4 + index);

@@ -59,7 +59,7 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        381
+        382
     );
 
     let value_io_cst_presentation = manifest.pages["value-io"]

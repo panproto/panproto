@@ -187,7 +187,23 @@ fn get_put_writes_the_first_nonnull_target_site_of_a_key_path() {
         root: 0,
     };
 
+    // One counts both terminal sites before the null-presence test.
+    assert_eq!(
+        resolution::get(&schema, &tree, false),
+        Err(ResolveError::ReferenceCardinalityMismatch {
+            reference: "by_code".into(),
+            at: panproto_reference::lens::ViewRef::Node(1),
+            lengths: vec![2],
+        })
+    );
+    // Many omits the null occurrence but preserves its original source site.
+    schema.references.get_mut("by_code").unwrap().cardinality = Cardinality::Many;
     let (view, complement) = resolution::get(&schema, &tree, false).unwrap();
+    assert_eq!(complement.resolved.len(), 1);
+    assert_eq!(
+        complement.targets.values().copied().collect::<Vec<_>>(),
+        vec![4]
+    );
     assert_eq!(resolution::put(&schema, &view, &complement), Ok(tree));
 }
 
@@ -325,8 +341,7 @@ fn a_redirect_removes_the_holder_and_points_its_arc_at_the_target() {
     assert_eq!(back.arcs.len(), 2);
 }
 
-#[test]
-fn nearest_preceding_variable_binding_selects_the_shadowing_definition() {
+fn separate_variable_vertices_fixture() -> (Schema, Tree) {
     let name = SEdge::new("def", "scalar", "prop", Some("name"));
     let variable = SEdge::new("use", "scalar", "prop", Some("variable"));
     let resolved = SEdge::new("use", "def", "ref", Some("binding"));
@@ -397,15 +412,68 @@ fn nearest_preceding_variable_binding_selects_the_shadowing_definition() {
         fans: vec![],
         root: 0,
     };
-    let (view, complement) = resolution::get(&schema, &tree, false).unwrap();
-    let edge = view
-        .edges
-        .iter()
-        .find(|(id, _)| complement.resolved.contains_key(id))
-        .unwrap()
-        .1;
-    assert_eq!(edge.tgt, 2);
-    assert_eq!(resolution::put(&schema, &view, &complement), Ok(tree));
+    (schema, tree)
+}
+
+#[test]
+fn nearest_preceding_variable_binding_selects_the_shadowing_definition() {
+    let (mut schema, mut tree) = separate_variable_vertices_fixture();
+    assert_eq!(
+        resolution::get(&schema, &tree, false),
+        Err(ResolveError::AmbiguousReference {
+            reference: "variable".into(),
+            at: panproto_reference::lens::ViewRef::Node(3),
+            key: vec![Value::Str("x".into())],
+            candidates: vec![
+                panproto_reference::lens::ViewRef::Node(1),
+                panproto_reference::lens::ViewRef::Node(2)
+            ],
+        })
+    );
+    // Preceding-position selection requires the holder's own binder path.
+    let name = SEdge::new("def", "scalar", "prop", Some("name"));
+    let edge = SEdge::new("def", "def", "ref", Some("binding"));
+    schema.edges.insert(edge.clone());
+    let declaration = schema.references.get_mut("variable").unwrap();
+    declaration.holder = "def".into();
+    declaration.edge = Some(edge);
+    declaration.source = RefSource::Variable {
+        field: vec![name],
+        binder_key: "binder".into(),
+        binding: VariableBinding::NearestPreceding,
+    };
+    tree.nodes.insert(
+        3,
+        Node::new(3, "def").with_field("name", Value::Str("x".into())),
+    );
+    tree.arcs[2].2 = SEdge::new("root", "def", "child", Some("def"));
+    for (policy, last_target) in [
+        (VariableBinding::NearestPreceding, 2),
+        (VariableBinding::FirstDefines, 1),
+    ] {
+        let RefSource::Variable { binding, .. } =
+            &mut schema.references.get_mut("variable").unwrap().source
+        else {
+            unreachable!("variable source")
+        };
+        *binding = policy;
+        let (view, complement) = resolution::get(&schema, &tree, false).unwrap();
+        let targets: BTreeMap<_, _> = complement
+            .resolved
+            .keys()
+            .map(|id| {
+                let edge = &view.edges[id];
+                (edge.src, edge.tgt)
+            })
+            .collect();
+        assert_eq!(targets, BTreeMap::from([(2, 1), (3, last_target)]));
+        assert_eq!(complement.definition_occurrences.len(), 1);
+        assert_eq!(complement.definition_occurrences[0].holder, 1);
+        assert_eq!(
+            resolution::put(&schema, &view, &complement),
+            Ok(tree.clone())
+        );
+    }
 }
 
 #[test]
@@ -492,10 +560,26 @@ fn path_form_round_trips() {
 }
 
 fn utf16_standoff_resolves_to_byte_span() {
-    let (span_schema, span_tree) = standoff_fixture();
+    let (span_schema, mut span_tree) = standoff_fixture();
     materialized_spans_have_site_identity(&span_schema, &span_tree);
     external_context_is_separate_from_identity(&span_schema, &span_tree);
+    // Explicit target keys match the written UTF-16 pair, not byte offsets.
+    assert_eq!(
+        resolution::get(&span_schema, &span_tree, false),
+        Err(ResolveError::DanglingReference {
+            reference: "span".into(),
+            at: panproto_reference::lens::ViewRef::Node(1),
+            key: vec![Value::Int(2), Value::Int(3)],
+        })
+    );
+    let target = span_tree.nodes.get_mut(&2).unwrap();
+    target.fields.insert("start".into(), Value::Int(2));
+    target.fields.insert("end".into(), Value::Int(3));
     let (view, complement) = resolution::get(&span_schema, &span_tree, false).unwrap();
+    assert_eq!(
+        complement.targets.values().copied().collect::<Vec<_>>(),
+        vec![2]
+    );
     assert_eq!(
         resolution::put(&span_schema, &view, &complement),
         Ok(span_tree)
