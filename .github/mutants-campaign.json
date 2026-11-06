@@ -1,0 +1,62 @@
+{
+  "allowed_exclude_re": [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for "
+  ],
+  "campaign": "graph-core-077-value-io-dependency-schema-5c393a5b",
+  "cap_lints": true,
+  "cargo_mutants_version": "27.1.0",
+  "cargo_nextest_version": "0.9.130",
+  "cargo_profile": "ci-test",
+  "env": {
+    "CARGO_INCREMENTAL": "0",
+    "PROPTEST_CASES": "32",
+    "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
+    "PROPTEST_RNG_SEED": "2026110501"
+  },
+  "features": [
+    "panproto-io/tree-sitter"
+  ],
+  "groups": [
+    {
+      "cargo_args": [
+        "--lib",
+        "--tests"
+      ],
+      "files": [
+        "crates/panproto-schema/src/value_kinds.rs"
+      ],
+      "name": "io-consumer-closure",
+      "test_args": [
+        "--profile=ci",
+        "--ignore-default-filter",
+        "--filterset=(not (test(=exhaustive_kan_hom_profile_pairs_agree_with_the_reference) | test(=exhaustive_kan_executes_every_representative_profile_pair) | test(=exhaustive_kan_every_labelled_member_has_checked_operation_transports) | test(=sigma_layout_uses_the_whole_global_value_class_and_records_every_origin) | test(=complete_bounded_family_has_typed_kan_results_and_refusals) | test(=every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration) | test(=lens_laws_agree_with_the_reference_exhaustively) | test(=lens_path_law_certificate) | test(=check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses) | test(/_not_charged_per_|takes_time|in_time_linear|in_every_process|the_same_in_every_process/))) & (not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate/))"
+      ]
+    }
+  ],
+  "lane": "graph-core-077-value-io-dependency-schema",
+  "lane_commit": "5c393a5bd055c2f62ba4ffc41a3ce429caece874",
+  "package": "panproto-schema",
+  "priority_binaries": [
+    "reference_value_io",
+    "data_format_corpus",
+    "text_route_repairs",
+    "value_fidelity_corpus",
+    "value_fidelity_open_lexemes",
+    "value_io_round_trip_totality"
+  ],
+  "schema_version": 1,
+  "sharding": "round-robin",
+  "shards": 40,
+  "test_memory_limit_mib": 3584,
+  "test_packages": [
+    "panproto-io"
+  ],
+  "test_tool": "nextest",
+  "timeouts": {
+    "build_timeout_multiplier": 3,
+    "minimum_test_timeout": 120,
+    "policy": "baseline",
+    "timeout_multiplier": 3
+  },
+  "toolchain": "1.99.0"
+}
