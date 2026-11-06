@@ -4714,6 +4714,8 @@ fn assert_changed_key_word(
     edits: &[(u32, Option<u32>)],
     after: ReferenceValue,
 ) {
+    let actual_before = syntax_literal(&before);
+    let actual_after = syntax_literal(&after);
     let seed = IndexedSource::from(["a".to_owned()]);
     let (mut schema, mut source, _) = reference_pick_tree(&seed);
     schema.references.get_mut("pick").unwrap().mode = reference_schema::ResolveMode::Redirect;
@@ -4722,7 +4724,7 @@ fn assert_changed_key_word(
         .get_mut(&1)
         .unwrap()
         .fields
-        .insert("customer".to_owned(), before.clone());
+        .insert("customer".to_owned(), before);
     let (mut view, complement) = reference_get(&schema, &source, true).unwrap();
     edit_reference_word_view(&mut view, &complement, edits);
     source
@@ -4730,7 +4732,7 @@ fn assert_changed_key_word(
         .get_mut(&1)
         .unwrap()
         .fields
-        .insert("customer".to_owned(), after.clone());
+        .insert("customer".to_owned(), after);
     let expected_unresolved = assert_reference_word_result(&schema, &view, &complement, &source);
     let (resolution, _) =
         try_tree_picks_with_equality_and_mode(Vec::new(), ResolveMode::Redirect).unwrap();
@@ -4740,7 +4742,7 @@ fn assert_changed_key_word(
         .get_mut(&1)
         .unwrap()
         .extra_fields
-        .insert("customer".to_owned(), syntax_literal(&before));
+        .insert("customer".to_owned(), actual_before);
     let (view, complement) = resolution
         .get(
             &AnyInstance::Tree(source.clone()),
@@ -4757,7 +4759,7 @@ fn assert_changed_key_word(
         .get_mut(&1)
         .unwrap()
         .extra_fields
-        .insert("customer".to_owned(), syntax_literal(&after));
+        .insert("customer".to_owned(), actual_after);
     let actual_unresolved = assert_production_word_result(&resolution, &view, &complement, &source);
     assert_eq!(actual_unresolved, expected_unresolved);
 }
@@ -6062,11 +6064,11 @@ fn assert_appended_key_word(
         .unwrap()
         .fields
         .insert("customer".into(), literal.clone());
-    let mut next = view.edges.keys().next_back().copied().unwrap() + 1;
+    let next = view.edges.keys().next_back().copied().unwrap() + 1;
     if let Some(index) = removed {
         edit_reference_word_view(&mut view, &complement, &[(index, None)]);
     }
-    for target in additions {
+    for (next, target) in (next..).zip(additions) {
         view.edges.insert(
             next,
             reference_model::GEdge {
@@ -6076,7 +6078,6 @@ fn assert_appended_key_word(
                 position: None,
             },
         );
-        next += 1;
     }
     source
         .nodes
@@ -6101,11 +6102,11 @@ fn assert_appended_key_word(
         .unwrap()
         .extra_fields
         .insert("customer".into(), syntax_literal(&literal));
-    let mut next = view.edges_sorted().map(|(id, _)| id.0).max().unwrap() + 1;
+    let next = view.edges_sorted().map(|(id, _)| id.0).max().unwrap() + 1;
     if let Some(index) = removed {
         edit_production_word_view(&mut view, &complement, &[(index, None)]);
     }
-    for target in additions {
+    for (next, target) in (next..).zip(additions) {
         view.insert_edge(
             panproto_inst::EdgeId(next),
             panproto_inst::GEdge {
@@ -6116,7 +6117,6 @@ fn assert_appended_key_word(
             },
         )
         .unwrap();
-        next += 1;
     }
     actual_source
         .nodes
@@ -7626,7 +7626,7 @@ fn edit_span_payload(
                 .insert("audit".to_owned(), text("visible"));
         }
         3 => {
-            reference.nodes.get_mut(&reference_span).unwrap().anchor = "note".to_owned();
+            "note".clone_into(&mut reference.nodes.get_mut(&reference_span).unwrap().anchor);
             production.node_mut(production_span).unwrap().anchor = "note".into();
         }
         _ => unreachable!("five span controls"),

@@ -1271,7 +1271,7 @@ mod tests {
             let edge = original.edge(EdgeId(4)).unwrap().clone();
             let mut complement = ResolutionComplement::default();
             for index in 0..count {
-                let id = EdgeId(4 + u64::from(index));
+                let id = EdgeId(4 + index);
                 if index > 0 {
                     original.insert_edge(id, edge.clone())?;
                 }
@@ -1287,7 +1287,7 @@ mod tests {
                     }],
                 );
             }
-            let removed = EdgeId(3 + u64::from(count));
+            let removed = EdgeId(3 + count);
             let mut edited = original.clone();
             edited.remove_edge(removed)?;
             let compacted = super::compacted_index(&edited, &complement);

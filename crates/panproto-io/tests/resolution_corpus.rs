@@ -8641,7 +8641,7 @@ fn overlapping_writer_schema() -> (Protocol, Schema) {
             parts: vec![Vec::new()],
         },
         "a",
-        first_edge.clone(),
+        first_edge,
     );
     first.mode = ResolveMode::Redirect;
     let mut second = reference(
@@ -8651,7 +8651,7 @@ fn overlapping_writer_schema() -> (Protocol, Schema) {
             parts: vec![Vec::new()],
         },
         "b",
-        second_edge.clone(),
+        second_edge,
     );
     second.mode = ResolveMode::Redirect;
     let mut insensitive = key(
