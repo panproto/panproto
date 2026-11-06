@@ -1022,7 +1022,14 @@ fn field_edit_translation_uses_only_the_edited_nodes_anchor() {
     let mut edited_source = source.clone();
     edit.apply(&mut edited_source).unwrap();
     let (expected, _) = panproto_lens::get(&lens, &edited_source).unwrap();
-    let mut edit_lens = EditLens::from_lens(lens.clone(), protocol);
+    let mut edit_lens = EditLens::from_lens(
+        Lens {
+            compiled: lens.compiled.clone(),
+            src_schema: lens.src_schema.clone(),
+            tgt_schema: lens.tgt_schema.clone(),
+        },
+        protocol,
+    );
     edit_lens.initialize(&source).unwrap();
     edit_lens
         .get_edit(edit)

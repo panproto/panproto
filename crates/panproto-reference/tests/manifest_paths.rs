@@ -59,7 +59,7 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
     );
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        372
+        375
     );
 
     let value_io_cst_presentation = manifest.pages["value-io"]
@@ -101,9 +101,9 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        69,
+        70,
     );
-    assert_eq!(partial_paths.len(), 28);
+    assert_eq!(partial_paths.len(), 29);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -113,8 +113,8 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 243);
-    assert_eq!(documented.len(), 243);
+    assert_eq!(expected.len(), 244);
+    assert_eq!(documented.len(), 244);
     assert_eq!(documented, expected);
 }
 
@@ -133,6 +133,7 @@ fn lenses_law_to_public_path_incidences_are_exact() {
                 "panproto_reference::lens::put".to_owned(),
                 "panproto_reference::lens::tree_get".to_owned(),
                 "panproto_reference::lens::tree_put".to_owned(),
+                "panproto_reference::lens::align_tree_view".to_owned(),
             ],
         ),
         (
@@ -205,14 +206,14 @@ fn lenses_law_to_public_path_incidences_are_exact() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        69,
+        70,
     );
     let unique_paths = page
         .laws
         .iter()
         .flat_map(|law| &law.references)
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(unique_paths.len(), 28);
+    assert_eq!(unique_paths.len(), 29);
 }
 
 /// The validation page's laws and their reference paths, in manifest order.
