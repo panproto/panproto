@@ -2807,3 +2807,45 @@ fn target_set_virtual_edges_require_the_declared_holder_and_each_member_edge() {
         }
     }
 }
+
+#[test]
+fn target_set_named_key_and_arity_errors_are_reported_independently() {
+    use panproto_schema::TargetSet;
+
+    for named_key in [false, true] {
+        for part_count in 0..=1 {
+            let mut schema = declaration_matrix_schema();
+            schema
+                .declarations
+                .keys
+                .insert("t".into(), vec![empty_target_key("key", KeyRole::Primary)]);
+            schema.declarations.target_sets.insert(
+                "targets".into(),
+                TargetSet {
+                    members: vec![("t".into(), "key".into())],
+                    scope: KeyScope::Document,
+                },
+            );
+            let mut reference = empty_reference("r", "h", "targets");
+            reference.target_key = named_key.then(|| "unused".into());
+            reference.source = RefSource::KeyValue {
+                parts: vec![vec![]; part_count],
+            };
+            schema.declarations.references.insert("r".into(), reference);
+            let mut expected = vec![];
+            if named_key {
+                expected.push(KeyRefError::TargetSetHasKey {
+                    reference: "r".into(),
+                });
+            }
+            if part_count != 0 {
+                expected.push(KeyRefError::ArityMismatch {
+                    reference: "r".into(),
+                    expected: 0,
+                    found: part_count,
+                });
+            }
+            assert_eq!(findings(&schema, &protocol()), expected);
+        }
+    }
+}
