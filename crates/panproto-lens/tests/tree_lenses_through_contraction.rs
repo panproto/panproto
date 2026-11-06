@@ -1335,7 +1335,8 @@ mod edits {
     #[test]
     fn cached_empty_child_lists_preserve_the_endpoint_but_wrong_children_do_not() {
         let source = contracting_source();
-        assert_eq!(source.children(2), []);
+        let empty_children: &[u32] = &[];
+        assert_eq!(source.children(2), empty_children);
         let mut with_empty_bucket = source.clone();
         with_empty_bucket.children_map.entry(2).or_default();
         assert_eq!(

@@ -354,7 +354,7 @@ fn validation_law_to_public_path_incidences_are_exact() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        30,
+        31,
     );
 }
 

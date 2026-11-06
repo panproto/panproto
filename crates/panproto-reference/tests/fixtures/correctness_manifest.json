@@ -4599,6 +4599,12 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_validation",
+              "test": "lexical_space_checks_all_text_carriers_and_preserves_exact_findings"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_validation",
               "test": "supplemental_validation_definitions_have_bounded_production_witnesses"
             },
             {

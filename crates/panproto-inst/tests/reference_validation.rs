@@ -277,6 +277,32 @@ fn production_format_observation(text: &str, advisory: bool) -> (bool, bool, boo
 
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
+const LEXICAL_XSD_CASES: [(&str, &str); 23] = [
+    ("integer", "42"),
+    ("integer", "-0"),
+    ("integer", "abc"),
+    ("integer", "1.0"),
+    ("decimal", "1."),
+    ("decimal", ".5"),
+    ("decimal", "1e3"),
+    ("double", "INF"),
+    ("double", "-INF"),
+    ("double", "inf"),
+    ("double", "1.5e3"),
+    ("boolean", "true"),
+    ("boolean", "True"),
+    ("date", "2026-02-28"),
+    ("date", "2026-02-30"),
+    ("date", "2024-02-29"),
+    ("dateTime", "2026-01-01T23:59:59Z"),
+    ("dateTime", "2026-01-01T23:59:60Z"),
+    ("dateTime", "2026-01-01T24:00:00Z"),
+    ("gYear", "1999"),
+    ("gYear", "01999"),
+    ("QName", "x"),
+    ("unknownType", "x"),
+];
+
 /// The kind table of the lexical-space carrier: each XSD datatype the
 /// reference covers, with the value kind a route would give it.
 fn xsd_kinds() -> Vec<(&'static str, ScalarKind)> {
@@ -432,6 +458,23 @@ fn production_annotated_observation(value: &ReferenceValue, format: &str) -> (bo
 }
 
 fn production_lexical_observation(text: &str, datatype: &str) -> (bool, bool, bool) {
+    let report = production_lexical_report(
+        &panproto_inst::Value::Str(text.to_owned()),
+        datatype,
+        "string",
+    );
+    (
+        report.passed(),
+        !report.diagnostics.is_empty(),
+        !report.incomplete.is_empty(),
+    )
+}
+
+fn production_lexical_report(
+    value: &panproto_inst::Value,
+    datatype: &str,
+    literal_kind: &str,
+) -> panproto_inst::validation::ValidationReport {
     let datatype_edge = Edge {
         src: "literal".into(),
         tgt: "datatype".into(),
@@ -442,7 +485,7 @@ fn production_lexical_observation(text: &str, datatype: &str) -> (bool, bool, bo
         name: "reference-lexical-validation".to_owned(),
         edge_rules: vec![EdgeRule {
             edge_kind: "prop".to_owned(),
-            src_kinds: vec!["string".to_owned()],
+            src_kinds: vec![literal_kind.to_owned()],
             tgt_kinds: vec!["string".to_owned()],
         }],
         constraint_sorts: vec!["lexical_space".to_owned()],
@@ -452,6 +495,7 @@ fn production_lexical_observation(text: &str, datatype: &str) -> (bool, bool, bo
         )]),
         value_kinds: BTreeMap::from([
             ("string".to_owned(), ScalarKind::Str),
+            ("lexeme".to_owned(), ScalarKind::Any),
             (
                 "integer".to_owned(),
                 ScalarKind::Int {
@@ -467,10 +511,11 @@ fn production_lexical_observation(text: &str, datatype: &str) -> (bool, bool, bo
             .into_iter()
             .map(|(local, kind)| (format!("{XSD}{local}"), kind)),
     );
+    protocol.obj_kinds.push("lexeme".to_owned());
     protocol.syntactic_shape = InstanceShapeKind::Graph;
     protocol.semantic_shape = InstanceShapeKind::Graph;
     let schema = SchemaBuilder::new(&protocol)
-        .vertex("literal", "string", None)
+        .vertex("literal", literal_kind, None)
         .expect("lexical carrier vertex")
         .vertex("datatype", "string", None)
         .expect("datatype carrier vertex")
@@ -480,24 +525,112 @@ fn production_lexical_observation(text: &str, datatype: &str) -> (bool, bool, bo
         .build()
         .expect("lexical carrier schema");
     let graph = GInstance::new()
-        .with_node(Node::new(0, "literal").with_value(FieldPresence::Present(
-            panproto_inst::Value::Str(text.to_owned()),
-        )))
+        .with_node(Node::new(0, "literal").with_value(FieldPresence::Present(value.clone())))
         .with_node(Node::new(1, "datatype").with_value(FieldPresence::Present(
             panproto_inst::Value::Str(datatype.to_owned()),
         )))
         .with_edge(0, 1, datatype_edge);
     let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
-    let report = plan.validate_graph(
+    plan.validate_graph(
         &graph,
         &ValidationBudget::default(),
         &ExternalVerdicts::default(),
-    );
-    (
-        report.passed(),
-        !report.diagnostics.is_empty(),
-        !report.incomplete.is_empty(),
     )
+}
+
+fn lexical_carrier_case(choice: usize) -> (String, &'static str) {
+    if let Some(&(local, text)) = LEXICAL_XSD_CASES.get(choice) {
+        return (format!("{XSD}{local}"), text);
+    }
+    match choice - LEXICAL_XSD_CASES.len() {
+        0 => (format!("{XSD}integer"), "9223372036854775808"),
+        1 => ("integer".to_owned(), "42"),
+        2 => ("integer".to_owned(), "not-an-integer"),
+        _ => panic!("lexical carrier index outside the declared scope"),
+    }
+}
+
+fn assert_lexical_carrier_observation(datatype: &str, text: &str, carrier: usize) {
+    use panproto_reference::coerce::{NumeralDialect, ValueSpec as ReferenceSpec};
+    let value = match carrier {
+        0 => panproto_inst::Value::Str(text.to_owned()),
+        1 => panproto_inst::Value::Token(text.to_owned()),
+        2 => panproto_inst::Value::CidLink(text.to_owned()),
+        _ => panic!("text carrier outside Str, Token and CidLink"),
+    };
+    let report = production_lexical_report(&value, datatype, "lexeme");
+    assert!(
+        report.passed(),
+        "{value:?} {datatype}: lexical entries are advisory"
+    );
+    let local = datatype.strip_prefix(XSD).unwrap_or(datatype);
+    let kind = xsd_kinds()
+        .into_iter()
+        .find(|(name, _)| *name == local)
+        .map(|(_, kind)| kind);
+    let Some(kind) = kind else {
+        assert_eq!(report.diagnostics.len(), 0);
+        assert_eq!(report.incomplete.len(), 1);
+        let incomplete = &report.incomplete[0];
+        assert_eq!(incomplete.requirement, Requirement::Advisory);
+        assert_eq!(incomplete.subject, Some(panproto_inst::ViewRef::Node(0)));
+        assert_eq!(
+            incomplete.reason,
+            panproto_inst::validation::IncompleteReason::UnsupportedDeclaration {
+                sort: datatype.into(),
+            }
+        );
+        return;
+    };
+    let inside = reference::lexical_space(text, datatype).unwrap_or(true);
+    let mut spec = ReferenceSpec::of(reference_kind(&kind));
+    if datatype.starts_with(XSD) {
+        spec.numeral = Some(NumeralDialect::Xsd);
+    }
+    let coerces = matches!(
+        panproto_reference::coerce::coerce_value(&ReferenceValue::Str(text.to_owned()), &spec),
+        Some(Ok(_))
+    );
+    assert!(report.incomplete.is_empty(), "{value:?} {datatype}");
+    assert_eq!(
+        report.diagnostics.len(),
+        usize::from(!inside || !coerces),
+        "{value:?} {datatype}: inside {inside}, coerces {coerces}"
+    );
+    if let Some(diagnostic) = report.diagnostics.first() {
+        assert_eq!(diagnostic.check.kind, CheckKind::ValueConstraint);
+        assert_eq!(diagnostic.class, CheckClass::GraphLocal);
+        assert_eq!(diagnostic.requirement, Requirement::Advisory);
+        assert_eq!(diagnostic.subject, Some(panproto_inst::ViewRef::Node(0)));
+        assert_eq!(diagnostic.elements, vec![panproto_inst::ViewRef::Node(0)]);
+        assert_eq!(
+            diagnostic.violation,
+            ProductionViolation::ValueConstraint {
+                sort: "lexical_space".into(),
+                bound: datatype.to_owned(),
+                value: Some(value),
+            }
+        );
+    }
+}
+
+#[test]
+fn lexical_space_checks_all_text_carriers_and_preserves_exact_findings() {
+    let mut original_pairs = 0;
+    let mut supplemental_pairs = 0;
+    for choice in 0..26 {
+        let (datatype, text) = lexical_carrier_case(choice);
+        for carrier in 0..3 {
+            assert_lexical_carrier_observation(&datatype, text, carrier);
+            if choice < LEXICAL_XSD_CASES.len() {
+                original_pairs += 1;
+            } else {
+                supplemental_pairs += 1;
+            }
+        }
+    }
+    assert_eq!(original_pairs, 23 * 3);
+    assert_eq!(supplemental_pairs, 3 * 3);
 }
 
 const fn status_observation(status: reference::CheckStatus) -> &'static str {
@@ -1559,31 +1692,7 @@ fn lexical_space_reports_exactly_the_ill_typed_literals() {
     use panproto_reference::coerce::{NumeralDialect, ValueSpec as ReferenceSpec};
 
     let kinds: BTreeMap<&str, ScalarKind> = xsd_kinds().into_iter().collect();
-    let cases = [
-        ("integer", "42"),
-        ("integer", "-0"),
-        ("integer", "abc"),
-        ("integer", "1.0"),
-        ("decimal", "1."),
-        ("decimal", ".5"),
-        ("decimal", "1e3"),
-        ("double", "INF"),
-        ("double", "-INF"),
-        ("double", "inf"),
-        ("double", "1.5e3"),
-        ("boolean", "true"),
-        ("boolean", "True"),
-        ("date", "2026-02-28"),
-        ("date", "2026-02-30"),
-        ("date", "2024-02-29"),
-        ("dateTime", "2026-01-01T23:59:59Z"),
-        ("dateTime", "2026-01-01T23:59:60Z"),
-        ("dateTime", "2026-01-01T24:00:00Z"),
-        ("gYear", "1999"),
-        ("gYear", "01999"),
-        ("QName", "x"),
-        ("unknownType", "x"),
-    ];
+    let cases = LEXICAL_XSD_CASES;
     let (mut reported_count, mut observed) = (0usize, 0usize);
     for (local, text) in cases {
         let datatype = format!("{XSD}{local}");
@@ -1617,6 +1726,7 @@ fn lexical_space_reports_exactly_the_ill_typed_literals() {
         }
         observed += 1;
     }
+    assert_eq!(cases.len(), 23);
     assert_eq!(observed, cases.len());
     assert!(
         reported_count >= 7,
@@ -2720,63 +2830,12 @@ mod randomized {
         }
 
         #[test]
-        fn lexical_advisory_matches_on_generated_existing_literals(choice in 0_usize..23) {
-            use panproto_reference::coerce::{NumeralDialect, ValueSpec as ReferenceSpec};
-            let kinds: BTreeMap<&str, ScalarKind> = xsd_kinds().into_iter().collect();
-    let cases = [
-        ("integer", "42"),
-        ("integer", "-0"),
-        ("integer", "abc"),
-        ("integer", "1.0"),
-        ("decimal", "1."),
-        ("decimal", ".5"),
-        ("decimal", "1e3"),
-        ("double", "INF"),
-        ("double", "-INF"),
-        ("double", "inf"),
-        ("double", "1.5e3"),
-        ("boolean", "true"),
-        ("boolean", "True"),
-        ("date", "2026-02-28"),
-        ("date", "2026-02-30"),
-        ("date", "2024-02-29"),
-        ("dateTime", "2026-01-01T23:59:59Z"),
-        ("dateTime", "2026-01-01T23:59:60Z"),
-        ("dateTime", "2026-01-01T24:00:00Z"),
-        ("gYear", "1999"),
-        ("gYear", "01999"),
-        ("QName", "x"),
-        ("unknownType", "x"),
-    ];
-            let (local, text) = cases[choice];
-        let datatype = format!("{XSD}{local}");
-        let (passed, reported, incomplete) = production_lexical_observation(text, &datatype);
-        assert!(passed, "{local} {text}: lexical-space entries are advisory");
-        match (reference::lexical_space(text, &datatype), kinds.get(local)) {
-            (Some(inside), Some(kind)) => {
-                let spec = ReferenceSpec {
-                    numeral: Some(NumeralDialect::Xsd),
-                    ..ReferenceSpec::of(reference_kind(kind))
-                };
-                let coerces = matches!(
-                    panproto_reference::coerce::coerce_value(
-                        &ReferenceValue::Str(text.to_owned()),
-                        &spec
-                    ),
-                    Some(Ok(_))
-                );
-                assert_eq!(
-                    reported,
-                    !inside || !coerces,
-                    "{local} {text}: inside {inside}, coerces {coerces}"
-                );
-                assert!(!incomplete, "{local} {text}");
-            }
-            (None, None) => {
-                assert!(!reported && incomplete, "{local} {text}: unknown datatype");
-            }
-            other => panic!("{local}: the carrier covers each datatype on both sides: {other:?}"),
-        }
+        fn lexical_advisory_matches_on_generated_existing_literals(
+            choice in 0_usize..26,
+            carrier in 0_usize..3,
+        ) {
+            let (datatype, text) = lexical_carrier_case(choice);
+            assert_lexical_carrier_observation(&datatype, text, carrier);
         }
 
         #[test]
