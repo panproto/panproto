@@ -720,7 +720,10 @@ pub enum ResolveMode {
 
 /// The keys and references a schema declares.
 ///
-/// Each key list is sorted by key id and key ids are unique per vertex.
+/// Key ids are unique per vertex in a valid declaration. Lists built with
+/// [`Self::insert_key`] are sorted by id; directly assigned or deserialized
+/// lists retain their stored order, which determines the first primary key
+/// and is preserved by canonical serialization.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaDeclarations {
     /// Keys per vertex.
@@ -740,7 +743,7 @@ impl SchemaDeclarations {
         self.keys.is_empty() && self.references.is_empty() && self.target_sets.is_empty()
     }
 
-    /// The keys declared on `vertex`, in ascending key id order.
+    /// The keys declared on `vertex`, in their stored order.
     #[must_use]
     pub fn keys_of(&self, vertex: &str) -> &[Key] {
         self.keys.get(vertex).map_or(&[], Vec::as_slice)
@@ -752,8 +755,11 @@ impl SchemaDeclarations {
         self.keys_of(vertex).iter().find(|key| key.id == id)
     }
 
-    /// Declare `key` on `vertex`, keeping the vertex's keys sorted by id
-    /// and their ids unique.
+    /// Declare `key` on `vertex`, keeping an existing sorted key list sorted
+    /// by id and its ids unique.
+    ///
+    /// The existing list must be sorted by id, as it is when built through
+    /// this method from an empty declaration.
     ///
     /// Returns the key `key` replaced, which had the same id, or `None` when
     /// the id was new on `vertex`.

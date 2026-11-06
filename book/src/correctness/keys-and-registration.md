@@ -160,6 +160,8 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 
 The extension decoding test inverts the declaration bytes with a decoder written from the grammar of proof step 2, over every combination of the three in-reference extensions and the target-set extension with neighbouring names whose length prefix begins with `0xff`, 194 declarations in all; decoding back proves the encoding injective there. Under the one-byte marker both new tests fail.
 
+- Stored-key-order differential: `canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection)'`; valid raw key permutations compare complete bytes and first-primary selection
+
 ### Mutation equivalences
 
 None.
@@ -709,12 +711,12 @@ An invalid carrier returns the nonempty ordered defect vector. Named SQL collati
 
 ### Definitions used
 
-The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `TargetSetNameClash`, `EmptyTargetSet`, `TargetSetMemberMismatch`, `SortKeyNotOrdered`, `KeyNotResolvable`, `UnknownTarget`, `ReferenceArity`, `InlineRequiresRedirect`, `InlineRequiresTargetSet`, `LengthInclusive`, `InvalidFragments`, `DuplicateGuard`, `EdgeMismatch`, `TargetSetHasKey`, `VariableBinderInvalid`, `BinderModeConflict`, `TextReferenceInvalid`, and `ScopeViaInvalid`. Production renames `ReferenceArity` to `ArityMismatch`; splits `VariableBinderInvalid` into `UnknownTargetKey` and `BinderNotIdentifier`; and adds `UnknownVertex`, `PathDoesNotResolve`, `PositionNotOrdered`, `EdgeRequired`, and `WithinNotAncestor` for the graph-aware checks. These substitutions yield the 26 public `KeyRefError` variants. Representation equality determines duplicate guard values.
+The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `TargetSetNameClash`, `EmptyTargetSet`, `TargetSetMemberMismatch`, `SortKeyNotOrdered`, `KeyNotResolvable`, `UnknownTarget`, `ReferenceArity`, `InlineRequiresRedirect`, `InlineRequiresTargetSet`, `LengthInclusive`, `InvalidFragments`, `DuplicateGuard`, `EdgeMismatch`, `TargetSetHasKey`, `VariableBinderInvalid`, `BinderModeConflict`, `TextReferenceInvalid`, and `ScopeViaInvalid`. Production splits `UnknownTarget` into `UnknownTarget` and `UnknownTargetKey`, renames `VariableBinderInvalid` to `BinderNotIdentifier` and `ReferenceArity` to `ArityMismatch`; and adds `UnknownVertex`, `PathDoesNotResolve`, `PositionNotOrdered`, `EdgeRequired`, and `WithinNotAncestor` for the graph-aware checks. These substitutions yield the 26 public `KeyRefError` variants. Representation equality determines duplicate guard values.
 
 ### Proof
 
 1. `validate_declarations` appends results from key, target-set, reference, binder-mode, and guard passes in that order and returns success exactly when the vector is empty.
-2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. A repeated-id set limits duplicate diagnostics to one per id. Reference validation independently exercises all five key roles, checks the virtual edge's holder before its member expansions, and selects the first `Primary` key when no target key is named. It returns after an unknown target, since later target-dependent checks would have no typed object to inspect.
+2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. A repeated-id set limits duplicate diagnostics to one per id. Reference validation independently exercises all five key roles, checks the virtual edge's holder before its member expansions, and selects the first `Primary` key when no target key is named. It first reports a redundant target-set key and, for a variable reference to a vertex, a missing named target key. It then checks the resolving target, recording a separate unknown-target defect when the binder is missing. Only a missing resolving target stops the remaining target-dependent checks; a missing named key does not stop them when the variable binder resolves.
 3. The text-reference helper carries the active suffix through recursion, so every reachable repeated node is rejected. The scope-via helper similarly follows its named chain with a visited set. Thus both accept exactly the typed acyclic chains described above.
 4. Canonical writing gives every declaration sum a distinct tag, every collection a length, every map a canonical order, and every optional extension a marker that the bytes following its absence cannot begin with. The unique-decoding argument of [L-keys-and-registration-3](#L-keys-and-registration-3) thus applies to this declaration subcarrier.
 
@@ -737,6 +739,10 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
+
+- Fixed diagnostic differential: `independent_named_key_binder_and_target_set_defects_preserve_multiplicity; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=independent_named_key_binder_and_target_set_defects_preserve_multiplicity)'`; 27 declaration combinations compare complete common-class order and multiplicity with no structural defects discarded
+
+- Stored-key-order differential: `canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection)'`; valid raw key permutations compare complete bytes and first-primary selection
 
 ### Mutation equivalences
 

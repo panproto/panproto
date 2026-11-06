@@ -1544,6 +1544,26 @@ pub mod schema {
     ) -> Option<Vec<(&'a Name, &'a Key)>> {
         let targets = target_members(schema, reference);
         let targets_set = schema.target_sets.contains_key(&reference.target_vertex);
+        if targets_set && reference.target_key.is_some() {
+            errors.push(DeclarationError::TargetSetHasKey {
+                reference: reference.id.clone(),
+            });
+        }
+        // The named-key and binder-key obligations are independent, so keep
+        // the named-key defect even if the missing binder ends target checking.
+        if !targets_set
+            && matches!(reference.source, RefSource::Variable { .. })
+            && reference.target_key.as_ref().is_some_and(|id| {
+                schema
+                    .keys
+                    .get(&reference.target_vertex)
+                    .is_none_or(|keys| keys.iter().all(|key| key.id != *id))
+            })
+        {
+            errors.push(DeclarationError::UnknownTarget {
+                reference: reference.id.clone(),
+            });
+        }
         // A key-value reference with no named key and no primary key
         // resolves through the empty key; a nonempty source then fails the
         // arity check against zero parts rather than naming a missing key.
@@ -1559,22 +1579,6 @@ pub mod schema {
             });
             return None;
         }
-        // A named target key must exist whatever the source reads; a
-        // variable resolves through its binder, so its missing named key is
-        // reported without stopping the remaining checks.
-        if !targets_set
-            && matches!(reference.source, RefSource::Variable { .. })
-            && reference.target_key.as_ref().is_some_and(|id| {
-                schema
-                    .keys
-                    .get(&reference.target_vertex)
-                    .is_none_or(|keys| keys.iter().all(|key| key.id != *id))
-            })
-        {
-            errors.push(DeclarationError::UnknownTarget {
-                reference: reference.id.clone(),
-            });
-        }
         for (_, key) in targets
             .iter()
             .filter(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
@@ -1585,11 +1589,6 @@ pub mod schema {
             });
         }
         if let Some(set) = schema.target_sets.get(&reference.target_vertex) {
-            if reference.target_key.is_some() {
-                errors.push(DeclarationError::TargetSetHasKey {
-                    reference: reference.id.clone(),
-                });
-            }
             if let Some(edge) = &reference.edge {
                 let valid = edge.src == reference.holder
                     && edge.tgt == reference.target_vertex

@@ -1710,6 +1710,193 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
 }
 
 #[test]
+fn canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection() {
+    let mut before = canonical_base();
+    let first = &mut before.keys.get_mut("target").expect("target keys")[0];
+    first.id = "a".to_owned();
+    let mut second = first.clone();
+    second.id = "b".to_owned();
+    second.parts.push(reference::KeyPart::Path(vec![]));
+    before
+        .keys
+        .get_mut("target")
+        .expect("target keys")
+        .push(second);
+    before.references.clear();
+    let mut after = before.clone();
+    after.keys.get_mut("target").expect("target keys").reverse();
+    for schema in [&before, &after] {
+        assert_eq!(
+            reference_classes(schema),
+            [],
+            "both key sequences are admitted"
+        );
+        assert_eq!(
+            production_classes(schema),
+            (vec![], vec![]),
+            "production admits both raw key sequences"
+        );
+        let (reference_bytes, production_bytes) = paired_declaration_bytes(schema);
+        assert_eq!(
+            production_bytes, reference_bytes,
+            "stored key order is preserved"
+        );
+    }
+    let (reference_before, production_before) = paired_declaration_bytes(&before);
+    let (reference_after, production_after) = paired_declaration_bytes(&after);
+    assert_eq!(
+        BTreeSet::from([reference_before, reference_after]).len(),
+        2,
+        "reference separates key order"
+    );
+    assert_eq!(
+        BTreeSet::from([production_before, production_after]).len(),
+        2,
+        "production separates key order"
+    );
+
+    let mut declaration = canonical_base()
+        .references
+        .remove("r")
+        .expect("reference fixture");
+    declaration.target_key = None;
+    before
+        .references
+        .insert("r".to_owned(), declaration.clone());
+    after.references.insert("r".to_owned(), declaration);
+    assert_eq!(reference_classes(&before), [], "first primary has one part");
+    assert_eq!(
+        production_classes(&before),
+        (vec![], vec![]),
+        "one-part primary admits source"
+    );
+    assert_eq!(
+        reference_classes(&after),
+        [DeclarationClass::ReferenceArity],
+        "reordered first primary has two parts"
+    );
+    assert_eq!(
+        production_classes(&after),
+        (vec![DeclarationClass::ReferenceArity], vec![]),
+        "production also observes key order in target selection"
+    );
+    assert_eq!(
+        BTreeSet::from([
+            paired_declaration_bytes(&before).1,
+            paired_declaration_bytes(&after).1,
+        ])
+        .len(),
+        2,
+        "different first-primary behavior has distinct declaration bytes"
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MissingTargetCarrier {
+    Vertex,
+    ValidSet,
+    MissingMemberSet,
+}
+
+fn missing_target_obligations_fixture(
+    carrier: MissingTargetCarrier,
+    named_key: Option<&str>,
+    binder: Option<&str>,
+) -> reference::Schema {
+    let mut schema = if carrier == MissingTargetCarrier::Vertex {
+        canonical_base()
+    } else {
+        target_set_schema()
+    };
+    if carrier == MissingTargetCarrier::MissingMemberSet {
+        schema
+            .target_sets
+            .get_mut("targets")
+            .expect("target set")
+            .members[0]
+            .1 = "missing_member".to_owned();
+    }
+    if binder.is_some() {
+        schema.keys.get_mut("target").expect("target keys")[0].role =
+            reference::KeyRole::Identifier;
+    }
+    let declaration = schema.references.get_mut("r").expect("reference fixture");
+    declaration.target_key = named_key.map(str::to_owned);
+    if let Some(binder_key) = binder {
+        declaration.source = reference::RefSource::Variable {
+            field: vec![reference_edge("holder", "scalar", "field")],
+            binder_key: binder_key.to_owned(),
+            binding: reference::VariableBinding::FirstDefines,
+        };
+    }
+    schema
+}
+
+fn missing_target_obligations_expected(
+    carrier: MissingTargetCarrier,
+    named_key: Option<&str>,
+    binder: Option<&str>,
+) -> Vec<DeclarationClass> {
+    let mut expected = Vec::new();
+    if carrier == MissingTargetCarrier::MissingMemberSet {
+        expected.push(DeclarationClass::TargetSetMemberMismatch);
+    }
+    if carrier != MissingTargetCarrier::Vertex && named_key.is_some() {
+        expected.push(DeclarationClass::TargetSetHasKey);
+    }
+    if carrier == MissingTargetCarrier::Vertex && named_key == Some("missing_named") {
+        expected.push(DeclarationClass::UnknownTarget);
+    }
+    // A variable needs its own binder even when its named target key is absent.
+    // A set is not a vertex declaring a binder; an empty resolved member list
+    // instead reports the target failure before any source checks.
+    if carrier == MissingTargetCarrier::MissingMemberSet
+        || (binder.is_some()
+            && (carrier == MissingTargetCarrier::ValidSet || binder == Some("missing_binder")))
+    {
+        expected.push(DeclarationClass::UnknownTarget);
+    }
+    expected
+}
+
+#[test]
+fn independent_named_key_binder_and_target_set_defects_preserve_multiplicity() {
+    let mut cases = 0;
+    for carrier in [
+        MissingTargetCarrier::Vertex,
+        MissingTargetCarrier::ValidSet,
+        MissingTargetCarrier::MissingMemberSet,
+    ] {
+        for named_key in [None, Some("id"), Some("missing_named")] {
+            for binder in [None, Some("id"), Some("missing_binder")] {
+                let schema = missing_target_obligations_fixture(carrier, named_key, binder);
+                let expected = missing_target_obligations_expected(carrier, named_key, binder);
+                assert_eq!(
+                    reference_classes(&schema),
+                    expected,
+                    "reference: {carrier:?}, named={named_key:?}, binder={binder:?}"
+                );
+                let (production, structural) = production_classes(&schema);
+                assert_eq!(
+                    structural,
+                    [],
+                    "structural spill: {carrier:?}, named={named_key:?}, binder={binder:?}"
+                );
+                assert_eq!(
+                    production, expected,
+                    "production: {carrier:?}, named={named_key:?}, binder={binder:?}"
+                );
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(
+        cases, 27,
+        "all independent declaration coordinates were checked"
+    );
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn canonical_declaration_factorization_reconciles_the_exact_carrier() {
     assert_eq!(enumerate::schema_count(), 27_329_908);

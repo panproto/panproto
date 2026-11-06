@@ -2067,6 +2067,12 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "randomized::extension_declarations_match_and_decode_on_generated_pairs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection"
             }
           ]
         },
@@ -2436,6 +2442,18 @@
               "crate": "panproto-schema",
               "binary": "panproto-schema::reference_keys",
               "test": "randomized::key_and_reference_admission_match_on_generated_coordinates"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "independent_named_key_binder_and_target_set_defects_preserve_multiplicity"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-schema",
+              "binary": "panproto-schema::reference_keys",
+              "test": "canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection"
             }
           ]
         },
