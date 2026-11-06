@@ -41,7 +41,7 @@ Partition validation sorts all ranges by their lower endpoint and rejects the fi
 
 ### Mutation equivalences
 
-Reordering ranges before building the private search index is equivalent when their stored canonical order remains unchanged. Changing ownership or accepting an overlap is not equivalent.
+None.
 
 ### Audit record
 
@@ -87,7 +87,7 @@ Partitioning visits each edge once. A crossing edge inserts its target into the 
 
 ### Mutation equivalences
 
-Coalescing several ghosts of the same remote target is equivalent because a boundary stores one ghost per target. Coalescing incoming stubs or changing any recorded anchor or label is not equivalent.
+None.
 
 ### Audit record
 
@@ -141,7 +141,7 @@ Fan order needs its own argument, because a segment lists its fans by fan node i
 
 ### Mutation equivalences
 
-None. Any change to an owned element, boundary record, root, ordering identifier, or embedding counter is observable after assembly. In particular, ordering fans by fan node identifier in place of parent edge identifier changes the assembled fan order of the second fan-bearing tree, whose fan node identifiers run opposite to its fan order.
+None.
 
 ### Audit record
 
@@ -197,7 +197,7 @@ Every byte writer traverses fields in declaration order and ordered collections 
 
 ### Mutation equivalences
 
-No field covered by canonical bytes admits an equivalence. A caller-local numbering map is outside the artifact and may change without changing any digest.
+None.
 
 ### Audit record
 
@@ -244,7 +244,7 @@ The Rust declarations determine the serde tags. `TaskKey` carries an optional se
 
 ### Mutation equivalences
 
-Permuting input digests is equivalent for `TaskRecord::inputs_digest`; changing the multiset, including a duplicate count, is not. `RunJournal::reusable` does not observe the run digest or a task record's byte count, while a changed task key, input digest, or output digest changes its result on the witnessed carrier. No equivalence applies to the observed serde tags, task-key forms, or production run-identity inputs. This law makes no claim about canonical production journal-content bytes.
+None.
 
 ### Audit record
 
@@ -296,7 +296,7 @@ Partition and segment checks traverse ordered carriers, accumulate local violati
 
 ### Mutation equivalences
 
-Changing an error message while retaining a structured storage error is equivalent only where the message is explicitly external. Changing a variant, payload field, or precedence order is not equivalent.
+None.
 
 ### Audit record
 
@@ -343,7 +343,7 @@ The contract check compares every ordered node-map key with `Node.id` before loc
 
 ### Mutation equivalences
 
-None. Omitting the check changes both the addressed validation subject and the canonical identity of the segment.
+None.
 
 ### Audit record
 
@@ -393,7 +393,7 @@ There are exactly $C$ distinct `u32` edge identifiers. Assigning one identifier 
 
 ### Mutation equivalences
 
-None at the boundary $C$. Counting in `u32`, using a strict inequality, or omitting incoming stubs changes the admitted domain.
+None.
 
 ### Audit record
 
@@ -443,7 +443,7 @@ The reference run validates every segment, assembles the family by checked glue,
 
 ### Mutation equivalences
 
-None for the canonical identity observation. A projection that deliberately discards fields would be a different law.
+None.
 
 ### Audit record
 
@@ -487,7 +487,7 @@ Both implementations filter source and used identifiers to $R$, take their maxim
 
 ### Mutation equivalences
 
-Identifiers outside $R$ are observationally irrelevant to this allocator. Changing the maximum within $R$, admitting `u32::MAX`, or choosing a least absent identifier below the floor is not equivalent.
+None.
 
 ### Audit record
 

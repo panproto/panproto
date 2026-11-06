@@ -55,7 +55,7 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -114,7 +114,7 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -170,7 +170,7 @@ The *per-element action* is one of none, deletion, addition, replacement, or a f
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -229,7 +229,7 @@ A *canonical part order* is the field order stated above, followed by the derive
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -287,7 +287,7 @@ A row payload is its table name together with its complete cell map. A relation 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -340,7 +340,7 @@ The *incoming arc* of a nonroot tree node is its unique parent arc. *Joined-node
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -389,7 +389,7 @@ A *replacement* is one id present in both the deleted and added structural maps.
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -457,7 +457,7 @@ The reference requires valid endpoint graphs. If the incoming delta does not app
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 

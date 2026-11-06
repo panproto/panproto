@@ -45,7 +45,7 @@ An *open required check* is a required diagnostic or required incomplete entry. 
 
 ### Mutation equivalences
 
-Changing a required diagnostic into an advisory diagnostic is equivalent to deleting it for status aggregation. No other mutation equivalence is recorded.
+None.
 
 ### Audit record
 
@@ -94,7 +94,7 @@ The claim does not compare inputs that differ in application-supplied external e
 
 ### Mutation equivalences
 
-Reordering a map before inserting it into an ordered map is equivalent. Reordering any stored diagnostic, incomplete entry, read trace, or scheduled instance is not.
+None.
 
 ### Audit record
 
@@ -147,7 +147,7 @@ The *persistent set* is the intersection of the baseline and target check-instan
 
 ### Mutation equivalences
 
-Replacing unused external entries is equivalent. Omitting any changed external entry, created check, retired check, rerun check, or read is not.
+None.
 
 ### Audit record
 
@@ -198,7 +198,7 @@ The edit must lower and apply. The target validation budget is unlimited. The ba
 
 ### Mutation equivalences
 
-Only the report-scope rewrite is equivalent. Dropping multiplicity, changing order, or projecting away coverage is not.
+None.
 
 ### Audit record
 
@@ -249,7 +249,7 @@ The *sequence agreement* is the induction of one-step edit agreement across comm
 
 ### Mutation equivalences
 
-An edit that is rejected before simulation is equivalent to one rejected by admission only with respect to unchanged instance and state bytes. Their typed errors are not equivalent.
+None.
 
 ### Audit record
 
@@ -299,7 +299,7 @@ A *committed witness field* is any field used to reconstruct the transition sche
 
 ### Mutation equivalences
 
-Changing an external verdict that no scheduled check can address is equivalent. Removing, inserting, or reordering a run or read is not.
+None.
 
 ### Audit record
 
@@ -351,7 +351,7 @@ The *unlimited work count* is the sum, over every scheduled instance that is not
 
 ### Mutation equivalences
 
-The subject repeated by a reference refusal and the `from` subject of its budget reason encode the same first skipped site. Dropping that site, changing the suffix, or merging distinct check keys is not equivalent.
+None.
 
 ### Audit record
 
@@ -405,7 +405,7 @@ A *shared check* is a check kind defined on both the native shape and its graph 
 
 ### Mutation equivalences
 
-Fresh graph ids allocated only for presentation are equivalent through the embedding. Removing a shared check key or projecting out a column value is not.
+None.
 
 ### Audit record
 
@@ -456,7 +456,7 @@ The *validation boundary* is the ordered pair of source validation before restri
 
 ### Mutation equivalences
 
-There is no side-erasing equivalence. The same report attached to `Input` and `Output` denotes different boundary failures.
+None.
 
 ### Audit record
 
@@ -505,7 +505,7 @@ The *endpoint equation* requires an edge's source and target anchors to belong t
 
 ### Mutation equivalences
 
-Two anchor-family presentations are equivalent only when they induce the same membership relation. Swapping endpoint side or replacing the found anchor is not.
+None.
 
 ### Audit record
 
@@ -556,7 +556,7 @@ A *key bucket* groups nonnull key vectors by declared scope. A *reference candid
 
 ### Mutation equivalences
 
-The order in which a set of targets is discovered is equivalent after canonical sorting. Changing key-part order, nearest scope, null exclusion, or candidate multiplicity is not.
+None.
 
 ### Audit record
 
@@ -603,7 +603,7 @@ A *required bundle* is one of three things: the required projection of an open c
 
 ### Mutation equivalences
 
-Adding, removing or changing an advisory entry is equivalent for admission, including an advisory entry inside a required check instance. Changing any byte of a required bundle is not.
+None.
 
 ### Audit record
 
@@ -653,7 +653,7 @@ The *key function* of an equality maps a part value to bytes; production compute
 
 ### Mutation equivalences
 
-No equality-family substitution is equivalent. A normalization is equivalent only when the selected equality explicitly defines it.
+None.
 
 ### Audit record
 
@@ -705,7 +705,7 @@ The *preceding candidate set* contains definitions $(q,x,v)$ with $q<p$. First-d
 
 ### Mutation equivalences
 
-Changing incidental map iteration is equivalent because source position decides the result. Replacing strict precedence by non-strict precedence, retaining the first definition in nearest-preceding mode, or sharing a partition across names or scopes is not.
+None.
 
 ### Audit record
 
@@ -755,7 +755,7 @@ The *declaration carrier* is the explicit collection of valid and invalid schema
 
 ### Mutation equivalences
 
-Reordering independently stored declarations is equivalent after canonical sorting. Deleting an error or accepting one failed predicate is not.
+None.
 
 ### Audit record
 
@@ -812,7 +812,7 @@ An *index key* is a declared key whose role is `Index`; it supports ordering but
 
 ### Mutation equivalences
 
-Changing storage order is equivalent because key-part order comes from the declaration. Accepting an `Index` target under either policy, dropping a partly null `Full` tuple, retaining an all-null tuple, or normalizing the dangling tuple is not.
+None.
 
 ### Audit record
 
@@ -871,7 +871,7 @@ The *source lexeme* is the exact stored `Str`, `Token`, or `CidLink` text. The *
 
 ### Mutation equivalences
 
-No normalization is equivalent unless the declared kind itself performs it. Reordering selector edges, ignoring a second selector edge, changing the selected datatype, or changing the source lexeme before coercion is not equivalent.
+None.
 
 ### Audit record
 
@@ -921,7 +921,7 @@ An *annotated format* is a constraint whose sort the protocol means as `Annotate
 
 ### Mutation equivalences
 
-Adding, changing or removing an annotated format is equivalent for parsing. Recording a format as a value parameter, or applying its width during coercion, is not.
+None.
 
 ### Audit record
 
@@ -970,7 +970,7 @@ The *width kind* of a width format is the signed integer of its width or the bin
 
 ### Mutation equivalences
 
-For a recognized format, there are no report-dropping equivalences. Ignoring an unknown format is the specified behavior. Rounding a value into a width kind instead of refusing it is not equivalent.
+None.
 
 ### Audit record
 
@@ -1021,7 +1021,7 @@ The *asserting specification* of a position is its value specification with the 
 
 ### Mutation equivalences
 
-There are no admission-erasing equivalences. Treating an asserting width format as an annotation, or a required named format as advisory, violates this law.
+None.
 
 ### Audit record
 

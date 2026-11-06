@@ -53,7 +53,7 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 
 ### Mutation equivalences
 
-None. Mutating direct-image precedence, endpoint coherence, unresolved-hop retention, or the expansion bound must be observed independently.
+None.
 
 ### Audit record
 
@@ -101,7 +101,7 @@ The forward search `reach(a, interior, succ)` computes $F_a$ by the usual visite
 
 ### Mutation equivalences
 
-None. In particular, replacing the walk region by an endpoint-induced subgraph, treating a conditional vertex as endpoint-only, or testing cycles outside the interior subgraph changes the law.
+None.
 
 ### Audit record
 
@@ -149,7 +149,7 @@ The *unique target edge* is the sole member of `edges_between(a', b')`, regardle
 
 ### Mutation equivalences
 
-None. Resolver-first selection, unique-edge fallback, and the prohibition on recursive expansion are observable.
+None.
 
 ### Audit record
 
@@ -208,7 +208,7 @@ After compilation has checked declarations and output fields, `get_with_plan` va
 
 ### Mutation equivalences
 
-None. The stage order, id retention, set semantics for realized pairs, and separate node and edge floors are part of the observable result.
+None.
 
 ### Audit record
 
@@ -262,7 +262,7 @@ The differential builds both plans from the same schemas and migration and check
 
 ### Mutation equivalences
 
-None. Recomputing a tree-only fate is forbidden even when it agrees on current fixtures.
+None.
 
 ### Audit record
 
@@ -314,7 +314,7 @@ An *attribute arrow* is a schema edge from an entity vertex to its value vertex.
 
 ### Mutation equivalences
 
-None. Instance-level label matching is not equivalent to consuming the compiled cell plan.
+None.
 
 ### Audit record
 
@@ -364,7 +364,7 @@ For graphs, *edge order* is ascending edge id. For trees it is sibling order; fo
 
 ### Mutation equivalences
 
-None. Last-wins, first-wins, set-valued, and self-loop-inclusive collection are distinct semantics.
+None.
 
 ### Audit record
 
@@ -414,7 +414,7 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 
 ### Mutation equivalences
 
-None. Renumbering by traversal order is not equivalent, since synthesis ids and keys are durable complement coordinates.
+None.
 
 ### Audit record
 
@@ -470,7 +470,7 @@ The *restored node* is the source candidate obtained from the view node plus rec
 
 ### Mutation equivalences
 
-None. Checking predicates during restoration is not equivalent to checking the complete domain before mutation.
+None.
 
 ### Audit record
 
@@ -521,7 +521,7 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 
 ### Mutation equivalences
 
-None. A graph-only gate is not an observational substitute for a tree gate.
+None.
 
 ### Audit record
 
@@ -608,7 +608,7 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 
 ### Mutation equivalences
 
-None. Reusing residue after delete-then-add is a semantic mutation, even if the final id set is unchanged.
+None.
 
 ### Audit record
 
@@ -658,7 +658,7 @@ For the re-encoding clause, graph encoding numbers a tree's arcs $0,1,\ldots$ in
 
 ### Mutation equivalences
 
-None. Equal unordered graph carriers do not witness equality of ordered trees.
+None.
 
 ### Audit record
 
@@ -707,7 +707,7 @@ For preservation, let such a source walk exist. The per-source breadth-first sea
 
 ### Mutation equivalences
 
-None. Admitting fan nodes as interior nodes or omitting any realized pair changes the census the differential compares.
+None.
 
 ### Audit record
 

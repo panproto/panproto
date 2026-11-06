@@ -56,7 +56,7 @@ The functions $P_r$ and $E_r$ are defined above. A typed numeric reading applies
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -107,7 +107,7 @@ The match in `emit` handles null, Boolean, string and temporal cases before call
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -158,7 +158,7 @@ The table covers default canonical emission. A configured tabular missing token 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -209,7 +209,7 @@ The route dialects are JSON for JSON, CSV and TSV; TOML for TOML; YAML 1.2 for Y
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -256,7 +256,7 @@ The function first tests display-parse agreement and returns `false` on failure.
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -299,7 +299,7 @@ The generic encoder is `json_pathway::encode_bytes`. The route writer is `write_
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -344,7 +344,7 @@ Spelling equality is Unicode string equality. Numeric equality after reparsing i
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -430,7 +430,7 @@ The function inserts names into an initially empty `BTreeSet` and returns `true`
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -474,7 +474,7 @@ UTF-8 validity is Rust string validity. The excluded prefixes are `EF BB BF`, `F
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -519,7 +519,7 @@ A token is the complete TOML scalar spelling, excluding surrounding document tri
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -569,7 +569,7 @@ XML 1.0 `Char` contains tab, line feed, carriage return, U+0020 through U+D7FF, 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -612,7 +612,7 @@ The optional declaration is present exactly when the bytes begin with `<?xml` fo
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -658,7 +658,7 @@ The *default TSV route* has no comment-prefix option. Nonempty means that the UT
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -703,7 +703,7 @@ An *ordinary text cell* parses as `Value::Str` under a text declaration. Exact s
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -748,7 +748,7 @@ The reference returns `column_count == 1 && line.is_empty()`, the conjunction st
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -793,7 +793,7 @@ Containment is byte containment for the three ASCII control bytes. Other Unicode
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -838,7 +838,7 @@ The function clones `namespace` and `local` into a tuple without inspecting or t
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -886,7 +886,7 @@ JSON quoting escapes quote and backslash, uses the named escapes for backspace, 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 

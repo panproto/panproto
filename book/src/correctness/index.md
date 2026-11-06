@@ -2,7 +2,7 @@
 
 This part of the book holds the written proofs of panproto's laws. Each page covers one family of laws: the value layer, theories, keys and registration, the representation of instances, the Kan extensions, restrict and contraction, edits, validation, segments, the lenses and reference resolution, with further pages for each data format as its laws are proved. Each law has one block: the law's statement with its exact domain, a complete proof, the code that implements the law, and a record of the independent audit the proof passed.
 
-A proof on these pages is one of four obligations a law carries, and it is read together with the other three. First, the law has an executable reference semantics in the [`panproto-reference`](https://github.com/panproto/panproto/tree/main/crates/panproto-reference) crate: a deliberately naive function written straight from the law's definition, with exact arithmetic and no dependency on the code it checks. Second, exhaustive and property-based differential tests run the production code and that same function and require exact agreement, including the reason for a typed refusal. The exhaustive test visits every input of its stated finite scope, prints the bound and the number of inputs compared, and checks the count against a source independent of the enumerator. The property test records each seed and every shrunk counterexample and passes on three consecutive runs. Third, a mutation run over the files that implement the law shows that the tests detect each change to the code, and every mutant that survives is proved equivalent to the original on its block. A law whose block is missing, unaudited or stale is not established, whatever its tests report.
+A proof on these pages is one of four obligations a law carries, and it is read together with the other three. First, the law has an executable reference semantics in the [`panproto-reference`](https://github.com/panproto/panproto/tree/main/crates/panproto-reference) crate: a deliberately naive function written straight from the law's definition, with exact arithmetic and no dependency on the code it checks. Second, exhaustive and property-based differential tests run the production code and that same function and require exact agreement, including the reason for a typed refusal. The exhaustive test visits every input of its stated finite scope, prints the bound and the number of inputs compared, and checks the count against a source independent of the enumerator. The property test records each seed and every shrunk counterexample and passes on three consecutive runs. Third, a complete mutation run over the files that implement the law requires every mutant to be caught by the tests or rejected by the compiler, with compiler evidence for each rejection. Raw results must contain zero survivors and zero timeouts; equivalence waivers are not admitted. A law whose block is missing, unaudited or stale is not established, whatever its tests report.
 
 ## Scope
 
@@ -35,7 +35,7 @@ The heading is followed by exactly seven level-3 sections, in this order and wit
    - File: `crates/<crate>/src/<file>.rs`
    ```
 
-6. **Mutation equivalences.** For each mutant that survives the mutation run, a proof that it is equivalent to the original code on the law's domain, or "None."
+6. **Mutation equivalences.** Exactly `None.` Every surviving mutant fails the mutation requirement, including a mutant claimed to be equivalent.
 7. **Audit record.** The six lines below, each exactly once.
 
 ```text
@@ -56,8 +56,8 @@ Every block is audited by an auditor who did not write it, at the commit that ad
 1. compares the Statement against the law's definition, the only permitted differences being cross-references replaced by anchors or page links;
 2. checks every step of the Proof against the justification it gives, and every case analysis for a missing case;
 3. runs the enumerator at its printed bound, confirms that the printed count matches the independent count, and tries counterexamples one size above the bound where the page states that the cost allows it;
-4. checks that every surviving mutant has an equivalence proof in Mutation equivalences;
-5. checks each mutation-equivalence proof over every observable named by the law; and
+4. checks the complete raw mutation results for zero survivors and zero timeouts, with no equivalence waivers;
+5. checks the compiler evidence for every mutant classified as unviable and confirms that Mutation equivalences is exactly `None.`; and
 6. writes the Audit record, with the commit audited and every defect found.
 
 A failed audit returns the block to its author, and the block is audited again once the defects are fixed. An audit goes stale when a file named on a `- File:` line differs between the audited commit and the current one, or when the block itself, its Audit record left out, differs between them. The audited commit is the one before the commit that records the audit, so recording an audit does not make it stale. A stale or missing audit fails the correctness check, and a change that fails it does not merge.

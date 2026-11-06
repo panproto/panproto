@@ -62,7 +62,7 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -142,7 +142,7 @@ The production `coerce` in `crates/panproto-inst/src/value/coerce.rs` is require
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -248,7 +248,7 @@ The production `coerce_value` in `crates/panproto-inst/src/value/coerce.rs` is r
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -323,7 +323,7 @@ The production `coerce` is required to equal this definition exactly, as the nam
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -384,7 +384,7 @@ Specifications that are not value-admissible (an inadmissible kind, or a float k
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -448,7 +448,7 @@ Specifications that are not value-admissible give `None` from `coerce_value` for
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -515,7 +515,7 @@ Item 2 constrains only results of the form `Ok(Value::Float(_))`; every other ou
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -581,7 +581,7 @@ The production correspondence has a narrower domain. At binary16, `binary16_wide
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -723,7 +723,7 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -785,7 +785,7 @@ Subject to Assumption W, every value of the reference type `DecimalValue` is in 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -849,7 +849,7 @@ Subject to Assumption W, every value of the reference type `Decimal` is in the d
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -916,7 +916,7 @@ Let $\mathcal T$ be the set of values `v: Temporal` with `v.well_formed()`. For 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -991,7 +991,7 @@ A target that violates Assumption W's pointer-width condition, or a held value t
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1078,7 +1078,7 @@ Every expression and every environment is in the domain; each failure is one of 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1137,7 +1137,7 @@ Hence `parse_display(F, text)` is true exactly when `parse_as(F, text)` is `Some
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1191,7 +1191,7 @@ For every value `v: Temporal` with `v.well_formed()`, `v.lexical_form()` is `Som
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1249,7 +1249,7 @@ So `cmp_chronological(a, b)` is `None` exactly when `cmp_chronological(b, a)` is
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1309,7 +1309,7 @@ Moreover: (4) every comparable pair $a, b \in \mathcal T$ lies in a common class
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1366,7 +1366,7 @@ Moreover, $a \approx b$ does not imply $a = b$: two written-form variants differ
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1430,7 +1430,7 @@ By clauses 1 and 2, relative to commit `b05a4ced^`, the extended comparator neit
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1487,7 +1487,7 @@ So canonical bytes are injective on the whole carrier: on reduced, truncated, in
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1545,7 +1545,7 @@ The production `coerce_discriminated` in `crates/panproto-inst/src/value/coerce.
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1627,7 +1627,7 @@ Every normal form denotes, under the default reading, the number the dialect's t
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1680,7 +1680,7 @@ The domain is every byte string, so no input lies outside it. The only refusal `
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1740,7 +1740,7 @@ The domain is the set of texts that `decode_base64(·, true)` accepts; on every 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1794,7 +1794,7 @@ The domain is every byte string, and the texts read are $t$ and $t^{\circ}$, so 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1847,7 +1847,7 @@ Two cases fall outside the domain. First, when $|u| \bmod 4 = 1$ no padding comp
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1900,7 +1900,7 @@ For every count $c$ (`i128`), unit $u$ (`TimeUnit`) and flag `instant`, let $d_u
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -1953,7 +1953,7 @@ With [Epoch counts round-trip through temporals](#L-values-28), the image of `fr
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2009,7 +2009,7 @@ A rational that does not satisfy Premise P is outside the proved arithmetic doma
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2080,7 +2080,7 @@ Two facts used by later laws are part of this statement. (a) For every finite `D
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2140,7 +2140,7 @@ These are statements about the reference operations, which the production printe
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2205,7 +2205,7 @@ A rational that does not satisfy Premise P is outside the proved reference domai
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2265,7 +2265,7 @@ Assume Assumption W throughout.
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2319,7 +2319,7 @@ Every value of the reference type `Decimal` is in the domain, as in [L-values-35
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2377,7 +2377,7 @@ Assume Assumption W throughout.
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2437,7 +2437,7 @@ A target that violates Assumption W's pointer-width condition, or a held value t
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2500,7 +2500,7 @@ The derived `Hash` of `Temporal` reads the same fields as `==`, so it is consist
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2553,7 +2553,7 @@ A string that is not admitted contains a character whose code point exceeds U+00
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2605,7 +2605,7 @@ The domain is every byte string, so no input lies outside it. No refusal can ari
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -2659,7 +2659,7 @@ A rational that does not satisfy Premise P is outside the proved arithmetic doma
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 

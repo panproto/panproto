@@ -59,7 +59,7 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 
 ### Mutation equivalences
 
-None. Equality is exact on the source; graph isomorphism and presentation equivalence are insufficient.
+None.
 
 ### Audit record
 
@@ -113,7 +113,7 @@ The finite differentials execute both halves. The bounded model checks `equivale
 
 ### Mutation equivalences
 
-None. Raw id equality is too strong, while unconstrained graph isomorphism is too weak.
+None.
 
 ### Audit record
 
@@ -160,7 +160,7 @@ The model's `indexed_put` returns its source exactly when `check_put_domain` rep
 
 ### Mutation equivalences
 
-None. Defining the domain as “put succeeds” would make the law circular and is not an equivalent implementation.
+None.
 
 ### Audit record
 
@@ -207,7 +207,7 @@ The executable halves check this on both models. The declared tree-to-graph test
 
 ### Mutation equivalences
 
-None. Omitting one id-bearing complement coordinate is observable after put.
+None.
 
 ### Audit record
 
@@ -262,7 +262,7 @@ The raw form, with $c'$ untransported, is false, and the tests show why. On the 
 
 ### Mutation equivalences
 
-None. Raw PutTwice is known to be stronger than the registered gated law.
+None.
 
 ### Audit record
 
@@ -307,7 +307,7 @@ The fold visits the directives in slice order and updates only the base and the 
 
 ### Mutation equivalences
 
-None. Reading a following directive, stopping the fold at an undefined step, or resolving a prefix IRI against a later base changes the result.
+None.
 
 ### Audit record
 
@@ -352,7 +352,7 @@ The branches of `rfc3986` correspond to the component cases in the Statement. `r
 
 ### Mutation equivalences
 
-None. Collapsing repeated slashes or normalizing case and percent escapes exceeds the specified algorithm.
+None.
 
 ### Audit record
 
@@ -397,7 +397,7 @@ The two constructor branches copy only `node` and `field`. The external tuple is
 
 ### Mutation equivalences
 
-None. Including the value merges identity with mutable content; omitting the field merges distinct sites on one holder.
+None.
 
 ### Audit record
 
@@ -442,7 +442,7 @@ The helper scans in declaration order and returns the first representation-equal
 
 ### Mutation equivalences
 
-None. Numeric equality cannot replace representation equality, and duplicate guards must remain a declaration error.
+None.
 
 ### Audit record
 
@@ -485,7 +485,7 @@ For fixed $o$, $w_s=s+o$ uniquely. In offset form $w_e=e+o$ uniquely; in length 
 
 ### Mutation equivalences
 
-None. Saturating arithmetic or acceptance of reversed spans would change the domain.
+None.
 
 ### Audit record
 
@@ -532,7 +532,7 @@ The test checks the converse on every admitted pair of the carrier of [L-resolut
 
 ### Mutation equivalences
 
-None. The absolute-end and length forms are distinct encodings even when they denote the same interval.
+None.
 
 ### Audit record
 
@@ -577,7 +577,7 @@ Reference `get` first checks every declared reference, in id order, and returns 
 
 ### Mutation equivalences
 
-None. Resolving through an index, or refusing only under the `Error` policy, derives or records a pair the law forbids.
+None.
 
 ### Audit record
 
@@ -622,7 +622,7 @@ By induction on the chain, the fold after $k$ entries is the base of the $k$-th 
 
 ### Mutation equivalences
 
-None. Taking only the nearest present base, or stopping the fold at an undefined step, gives a different base on the carrier.
+None.
 
 ### Audit record
 
@@ -669,7 +669,7 @@ Declared key equality is [`key_equivalence`](./keys-and-registration.md), re-exp
 
 ### Mutation equivalences
 
-None. Representation fallback for numeric, SQL, or XML declarations changes candidate sets.
+None.
 
 ### Audit record
 
@@ -715,7 +715,7 @@ The binding predicate first filters by strict position and exact name. It then a
 
 ### Mutation equivalences
 
-None. Nearest in tree depth, first in storage order, and nearest following are different relations.
+None.
 
 ### Audit record
 

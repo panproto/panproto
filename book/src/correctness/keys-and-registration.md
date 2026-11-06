@@ -40,7 +40,7 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 1. `path_value` handles the empty path by `own`. For a nonempty path, each preliminary hop replaces the frontier by matching targets in map order.
 2. At the final label, the implementation makes the target-or-field decision separately for each frontier node and retains frontier and edge order. Thus one branch with a matching edge cannot suppress a later branch's field fallback.
 3. A position part retains the id of the first qualifying ordinary incoming edge, sorts every ordinary sibling tuple `(stored position, id, target)`, and finds the tuple with that id. This keeps parallel edges distinct before converting the selected ordinal to `i64`.
-4. `Iterator::collect` on `Option` returns a vector exactly when every part returns `Some`, proving tuple totality on the stated domain and NULL propagation outside it.
+4. The initial node lookup returns `None` when the start node is absent, including when the key has no parts. For a present node, `Iterator::collect` on `Option` returns a vector exactly when every part returns `Some`, proving tuple totality on the stated domain and NULL propagation outside it.
 
 ### Executable counterpart
 
@@ -60,7 +60,7 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 
 ### Mutation equivalences
 
-The bounded matrix is designed to kill four omissions: dropping target sets from the structural diff, ignoring key equality, ignoring the five extended reference fields, and ignoring entry order. Production carries each axis. The dynamic mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -110,7 +110,7 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -162,7 +162,7 @@ The extension decoding test inverts the declaration bytes with a decoder written
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -214,7 +214,7 @@ The five roles make different uniqueness, identity, ordering, and resolution pro
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -264,7 +264,7 @@ A theory is *closed* when every sort and operation used by its declarations and 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -314,7 +314,7 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -365,7 +365,7 @@ The law concerns canonical identities, not the incidental bytes of Rust's ordina
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -411,7 +411,7 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -456,7 +456,7 @@ For propositions $P$ and $Q$, implication $P \Rightarrow Q$ is $\neg P \lor Q$. 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -502,7 +502,7 @@ The legacy role tags are 0 for primary, 1 for unique, 2 for identifier, 3 for so
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -548,7 +548,7 @@ A total preorder is reflexive, transitive, and total; antisymmetry is not requir
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -593,7 +593,7 @@ An *adjacent descent* is an index $i$ with `sort_order(x_i, x_{i+1}) = Greater`.
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -640,7 +640,7 @@ The *signature* of a member key is its part count and effective equality vector.
 
 ### Mutation equivalences
 
-The differential projects `EmptyTargetSet` and `TargetSetMemberMismatch` from the real schema validator, so it compares the reference with declaration admission itself. Dynamic mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -686,7 +686,7 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -739,7 +739,7 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -787,7 +787,7 @@ A *resolution occurrence* is a holder element together with the tuple read from 
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -835,7 +835,7 @@ A *known datatype* is one present in the protocol's value-kind table. A *derived
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 
@@ -884,7 +884,7 @@ An *annotated format* is a named constraint whose semantics are `AnnotatedFormat
 
 ### Mutation equivalences
 
-None recorded. Mutation closure is pending.
+None.
 
 ### Audit record
 

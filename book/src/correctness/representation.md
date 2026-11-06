@@ -47,7 +47,7 @@ The reserved fan kinds are `hyper_parent` and `hyper_label`. The *node floor* is
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field, and every typed refusal named by this law except `EdgeIdsExhausted`. That refusal needs $2^{32}-1$ edges; the unit test `representation_counters_allocate_max_minus_one_but_never_max` pins the counter that produces it, and the saturated-fan case pins `NodeIdsExhausted`.
+None.
 
 ### Audit record
 
@@ -101,7 +101,7 @@ A tree is *rooted at its stored root* when the root is a node, no arc enters it,
 
 ### Mutation equivalences
 
-The bounded differential compares success or failure and every field of successful trees. Refusal witnesses are compared against each implementation's declared deterministic taxonomy; `Unreached` and aggregate `NoRoot` are not asserted equal.
+None.
 
 ### Audit record
 
@@ -149,7 +149,7 @@ The schema-induced parent-name function returns a declared hyper-edge's `parent_
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field, and checks that both the reference and the production composite `from_wtype_embedded` then `to_wtype` refuse each refusal named by this law, except edge-id exhaustion, which needs $2^{32}-1$ edges and is pinned by the counter test of [L-representation-1](#L-representation-1).
+None.
 
 ### Audit record
 
@@ -207,7 +207,7 @@ Every variable-length sequence begins with its `u64` length. Strings, optional v
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field, and checks the decoders' refusal of each class named by this law on production bytes or on reference-writer bytes of malformed values.
+None.
 
 ### Audit record
 
@@ -255,7 +255,7 @@ A digest is a 32-byte array. Little-endian `u16` writes the low byte before the 
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None.
 
 ### Audit record
 
@@ -303,7 +303,7 @@ A table is *coherent* when every pair's source row belongs to its label's source
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and both malformed-table refusals with the adapter's `DanglingForeignKey`, and production's `EdgeIdsExhausted` at a saturated embedding. The reference's `EdgeIdsExhausted` needs $2^{32}-1$ pairs; its counter is pinned by the unit test `representation_counters_allocate_max_minus_one_but_never_max`.
+None.
 
 ### Audit record
 
@@ -352,7 +352,7 @@ A well-formed graph has node-map keys equal to the stored node ids and has both 
 
 ### Mutation equivalences
 
-None. The bounded differential compares every field of each accepted table, and for each refusal reason in the domain clause checks that the reference refuses and that production returns that `NotTableReason`.
+None.
 
 ### Audit record
 
@@ -402,7 +402,7 @@ A *fan node* has shape `HyperEdge`. A parent edge has kind `hyper_parent`; exact
 
 ### Mutation equivalences
 
-None. The bounded differential compares every observable field and typed refusal named by this law.
+None.
 
 ### Audit record
 
