@@ -1102,6 +1102,27 @@ mod edits {
         n
     }
 
+    fn conditional_source() -> WInstance {
+        WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "r")),
+                (1, m_node(1, false)),
+                (2, leaf(2, "x")),
+                (3, m_node(3, true)),
+                (4, leaf(4, "z")),
+            ]),
+            vec![
+                (0, 1, prop("r", "m", "m")),
+                (1, 2, prop("m", "leaf", "leaf")),
+                (0, 3, prop("r", "m", "m")),
+                (3, 4, prop("m", "leaf", "leaf")),
+            ],
+            vec![],
+            0,
+            "r".into(),
+        )
+    }
+
     /// One step of a random edit script, over the node ids present.
     #[derive(Clone, Debug)]
     enum Step {
@@ -1196,42 +1217,207 @@ mod edits {
         }
     }
 
-    /// Law (1): translating each edit and applying it to the view gives the
-    /// view of the edited source.
+    // The primitive translator appends an inserted or moved surviving arc.
+    // Whole-state restriction instead places kept arcs before contracted
+    // arcs, and sorts the latter by their synthesis keys. These two explicit
+    // candidates expose order-only refusals without accepting arbitrary errors.
+    fn appended_candidate(
+        edit: &TreeEdit,
+        view: &WInstance,
+        expected: &WInstance,
+    ) -> Option<TreeEdit> {
+        let (id, insert) = match edit {
+            TreeEdit::InsertNode { child_id, .. } => (*child_id, true),
+            TreeEdit::MoveSubtree { node_id, .. } => (*node_id, false),
+            _ => return None,
+        };
+        if !insert && !view.nodes.contains_key(&id) {
+            // Moving a dropped interior reparents its surviving frontier.
+            // The primitive enumerates those child ids in ascending order.
+            let mut changes: Vec<_> = expected
+                .arcs
+                .iter()
+                .filter(|(_, child, _)| {
+                    view.arcs
+                        .iter()
+                        .find(|(_, old_child, _)| old_child == child)
+                        != expected
+                            .arcs
+                            .iter()
+                            .find(|(_, new_child, _)| new_child == child)
+                })
+                .cloned()
+                .collect();
+            changes.sort_by_key(|(_, child, _)| *child);
+            return Some(TreeEdit::Sequence(
+                changes
+                    .into_iter()
+                    .map(|(parent, child, edge)| TreeEdit::MoveSubtree {
+                        node_id: child,
+                        new_parent: parent,
+                        edge,
+                    })
+                    .collect(),
+            ));
+        }
+        let node = expected.nodes.get(&id)?;
+        let (parent, _, edge) = expected.arcs.iter().find(|(_, child, _)| *child == id)?;
+        Some(if insert {
+            TreeEdit::InsertNode {
+                parent: *parent,
+                child_id: id,
+                node: node.clone(),
+                edge: edge.clone(),
+            }
+        } else {
+            TreeEdit::MoveSubtree {
+                node_id: id,
+                new_parent: *parent,
+                edge: edge.clone(),
+            }
+        })
+    }
+
+    fn check_order_refusal(
+        input: &TreeEdit,
+        view: &WInstance,
+        expected: &WInstance,
+        error: &panproto_lens::EditLensError,
+    ) -> Result<(), TestCaseError> {
+        prop_assert!(
+            matches!(error, panproto_lens::EditLensError::TranslationFailed(message)
+            if message == "the translated tree edit does not produce the whole-state get view")
+        );
+        let candidate = appended_candidate(input, view, expected).ok_or_else(|| {
+            TestCaseError::fail(format!("unexplained refusal: {input:?}: {error}"))
+        })?;
+        let mut candidate_view = view.clone();
+        candidate.apply(&mut candidate_view).unwrap();
+        prop_assert_eq!(
+            serde_json::to_value(&candidate_view.nodes).unwrap(),
+            serde_json::to_value(&expected.nodes).unwrap()
+        );
+        prop_assert_eq!(candidate_view.root, expected.root);
+        prop_assert_eq!(&candidate_view.schema_root, &expected.schema_root);
+        prop_assert_eq!(&candidate_view.fans, &expected.fans);
+        prop_assert_eq!(sorted_arcs(&candidate_view), sorted_arcs(expected));
+        prop_assert_ne!(&candidate_view.arcs, &expected.arcs);
+        Ok(())
+    }
+
+    /// Successful translations agree with the full whole-state endpoint.
+    /// An order-only refusal leaves source and complement unchanged.
     fn check_consistency(
         lens: Lens,
         mut source: WInstance,
         steps: &[Step],
         conditional: bool,
-    ) -> Result<(), TestCaseError> {
+    ) -> Result<(usize, usize), TestCaseError> {
         let src = lens.src_schema.clone();
         let mut edit = edit_lens(lens, &source);
         let (mut view, _) = panproto_lens::get(&state_lens(&edit), &source).unwrap();
         let mut next = source.nodes.keys().max().map_or(0, |m| m + 1);
+        let (mut accepted, mut refused) = (0, 0);
         for step in steps {
             let Some(e) = concrete(step, &source, &src, next, conditional) else {
                 continue;
             };
             next += 1;
-            let translated = edit
-                .get_edit(e.clone())
-                .map_err(|err| TestCaseError::fail(format!("{e:?} did not translate: {err}")))?;
-            e.apply(&mut source).unwrap();
+            let saved_complement = serde_json::to_value(&edit.complement).unwrap();
+            let previous_floor = edit.complement.id_floor;
+            let mut edited_source = source.clone();
+            e.apply(&mut edited_source).unwrap();
+            let (expected, mut expected_complement) =
+                panproto_lens::get(&state_lens(&edit), &edited_source).unwrap();
+            let translated = match edit.get_edit(e.clone()) {
+                Ok(translated) => translated,
+                Err(error) => {
+                    check_order_refusal(&e, &view, &expected, &error)?;
+                    prop_assert_eq!(
+                        serde_json::to_value(edit.pipeline.as_ref().unwrap().source()).unwrap(),
+                        serde_json::to_value(&source).unwrap()
+                    );
+                    prop_assert_eq!(
+                        serde_json::to_value(&edit.complement).unwrap(),
+                        saved_complement
+                    );
+                    refused += 1;
+                    continue;
+                }
+            };
+            source = edited_source;
+            prop_assert_eq!(
+                serde_json::to_value(edit.pipeline.as_ref().unwrap().source()).unwrap(),
+                serde_json::to_value(&source).unwrap()
+            );
             translated.apply(&mut view).map_err(|err| {
                 TestCaseError::fail(format!(
                     "{translated:?} (from {e:?}) did not apply to the view: {err}"
                 ))
             })?;
-            let (expected, _) = panproto_lens::get(&state_lens(&edit), &source).unwrap();
             prop_assert_eq!(
-                shape(&view),
-                shape(&expected),
+                serde_json::to_value(&view).unwrap(),
+                serde_json::to_value(&expected).unwrap(),
                 "after {:?} translated to {:?}",
                 e,
                 translated
             );
+            expected_complement.id_floor = expected_complement.id_floor.max(previous_floor);
+            prop_assert_eq!(
+                serde_json::to_value(&edit.complement).unwrap(),
+                serde_json::to_value(&expected_complement).unwrap()
+            );
+            accepted += 1;
         }
-        Ok(())
+        Ok((accepted, refused))
+    }
+
+    #[test]
+    fn contracted_same_parent_move_refuses_order_drift_atomically() {
+        let counts = check_consistency(
+            contracting_lens(false),
+            contracting_source(),
+            &[
+                Step::Insert(3, false, false),
+                Step::Insert(5, true, false),
+                Step::Move(7, 1),
+            ],
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            counts,
+            (2, 1),
+            "two admitted inserts, then the shrunk move refusal"
+        );
+    }
+
+    #[test]
+    fn kept_insertion_before_contracted_arcs_refuses_order_drift_atomically() {
+        let counts = check_consistency(
+            conditional_lens(),
+            conditional_source(),
+            &[Step::Insert(8, true, false)],
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            counts,
+            (0, 1),
+            "the shrunk kept insertion has an order-only refusal"
+        );
+        let positive = check_consistency(
+            conditional_lens(),
+            conditional_source(),
+            &[Step::Insert(1, true, false)],
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            positive,
+            (1, 0),
+            "a final contracted insertion remains admitted"
+        );
     }
 
     proptest! {
@@ -1265,25 +1451,7 @@ mod edits {
 
         #[test]
         fn tree_get_edit_consistency_with_a_conditionally_dropped_interior(steps in arb_steps()) {
-            let source = WInstance::new(
-                HashMap::from([
-                    (0, Node::new(0, "r")),
-                    (1, m_node(1, false)),
-                    (2, leaf(2, "x")),
-                    (3, m_node(3, true)),
-                    (4, leaf(4, "z")),
-                ]),
-                vec![
-                    (0, 1, prop("r", "m", "m")),
-                    (1, 2, prop("m", "leaf", "leaf")),
-                    (0, 3, prop("r", "m", "m")),
-                    (3, 4, prop("m", "leaf", "leaf")),
-                ],
-                vec![],
-                0,
-                "r".into(),
-            );
-            check_consistency(conditional_lens(), source, &steps, true)?;
+            check_consistency(conditional_lens(), conditional_source(), &steps, true)?;
         }
     }
 }

@@ -2089,15 +2089,17 @@ mod tests {
                     edge,
                 },
             ]);
+            let mut replaced_source = source.clone();
+            replacement.apply(&mut replaced_source).unwrap();
             let output = translator.get_edit(replacement).unwrap();
             let (graph, mut embedding) =
                 panproto_inst::GInstance::from_wtype_embedded(&view, None).unwrap();
             let delta =
                 panproto_inst::GraphDelta::from_tree_edit(&graph, &mut embedding, &output).unwrap();
             assert!(delta.del_nodes().contains_key(&1) && delta.add_nodes().contains_key(&1));
-            assert!(crate::instances_equivalent(
+            assert!(crate::laws::tree_identical(
                 translator.pipeline.as_ref().unwrap().source(),
-                &source
+                &replaced_source
             ));
             translator
                 .put_edit(TreeEdit::SetField {
@@ -2753,7 +2755,7 @@ mod tests {
     }
 
     #[test]
-    fn undeclared_fan_with_surviving_participants_is_refused() {
+    fn undeclared_fan_with_surviving_participants_matches_whole_state_get() {
         let schema = three_node_schema();
         let lens = identity_lens(&schema);
         let instance = three_node_instance();
@@ -2765,15 +2767,23 @@ mod tests {
             .with_child("b", 0);
         let edit = TreeEdit::InsertFan { fan };
 
-        let saved = serde_json::to_value(&edit_lens.complement).unwrap();
-        assert!(
-            edit_lens.get_edit(edit).is_err(),
-            "the fan has no source declaration"
+        // Raw restriction preserves this fan without checking declarations.
+        // The guarded edit API promises the same endpoint, not validation.
+        let mut expected_source = instance.clone();
+        edit.apply(&mut expected_source).unwrap();
+        let state_lens = edit_lens.state_lens();
+        let (mut view, _) = crate::get(&state_lens, &instance).unwrap();
+        let (expected_view, expected_complement) =
+            crate::get(&state_lens, &expected_source).unwrap();
+        edit_lens.get_edit(edit).unwrap().apply(&mut view).unwrap();
+        assert!(crate::laws::tree_identical(&view, &expected_view));
+        assert_eq!(
+            serde_json::to_value(&edit_lens.complement).unwrap(),
+            serde_json::to_value(&expected_complement).unwrap()
         );
-        assert_eq!(serde_json::to_value(&edit_lens.complement).unwrap(), saved);
-        assert!(crate::instances_equivalent(
+        assert!(crate::laws::tree_identical(
             edit_lens.pipeline.as_ref().unwrap().source(),
-            &instance,
+            &expected_source,
         ));
     }
 
