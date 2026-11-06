@@ -1625,8 +1625,8 @@ proptest::proptest! {
         let (actual_graph, actual_embedding) = GInstance::from_wtype_embedded(&production_tree, None).unwrap();
         assert_graph_bytes(&actual_graph, &expected_graph);
         assert_tree_embedding(&actual_embedding, &expected_embedding);
-        assert_eq!(canonical_ginstance_bytes(&actual_graph), graph_bytes(&expected_graph));
-        assert_eq!(panproto_inst::segment::canonical_winstance_bytes(&production_tree), tree_bytes(&tree));
+        assert_eq!(Some(canonical_ginstance_bytes(&actual_graph)), graph_bytes(&expected_graph));
+        assert_eq!(Some(panproto_inst::segment::canonical_winstance_bytes(&production_tree)), tree_bytes(&tree));
         let actual = actual_graph.to_wtype(tree.root).unwrap();
         assert_eq!(decode_tree(&panproto_inst::segment::canonical_winstance_bytes(&actual)), reify(&tree, None));
     }
@@ -1648,7 +1648,7 @@ proptest::proptest! {
             graph.edges.insert(u32::try_from(index).unwrap(), RefGEdge { src: offset+u32::from(*source)%count, tgt: offset+u32::from(*target)%count, label: RefEdge::new("a", "a", "e", None), position: positioned.then_some(0) });
         }
         let production = prod_graph(&graph);
-        assert_eq!(canonical_ginstance_bytes(&production), graph_bytes(&graph));
+        assert_eq!(Some(canonical_ginstance_bytes(&production)), graph_bytes(&graph));
         let root = offset+u32::from(root_choice)%(count+1);
         let expected_tree = graph_to_tree(&graph, root, &schema_parent_name(None));
         let actual_tree = production.to_wtype(root);
@@ -1678,7 +1678,7 @@ proptest::proptest! {
             pairs: pairs.iter().map(|(a,b)| (RefEdge::new("t", "t", "e", None), offset+u32::from(*a)%count, offset+u32::from(*b)%count)).collect(),
         };
         let production = prod_table(&table).unwrap();
-        assert_eq!(canonical_finstance_bytes(&production), table_bytes(&table));
+        assert_eq!(Some(canonical_finstance_bytes(&production)), table_bytes(&table));
         let (expected_graph,expected_embedding) = table_to_graph(&table).unwrap();
         let (actual_graph,actual_embedding) = GInstance::from_finstance(&production).unwrap();
         assert_graph_bytes(&actual_graph, &expected_graph);
