@@ -2723,11 +2723,9 @@ fn pair_units(cases: &[PairCase], limit: u64) -> Vec<(usize, usize, usize)> {
     units
 }
 
-/// Execute the first `limit` representative pairs on [`threads`] workers,
-/// worker `w` taking units `w, w + n, ...`, printing progress every 250,000
-/// pairs.
-fn run_pairs(cases: &[PairCase], limit: u64) -> PairStats {
-    let units = pair_units(cases, limit);
+/// Execute the supplied source units on [`threads`] workers, worker `w`
+/// taking units `w, w + n, ...`, printing progress every 250,000 pairs.
+fn run_pairs(cases: &[PairCase], units: &[(usize, usize, usize)]) -> PairStats {
     let workers = threads().clamp(1, units.len().max(1));
     let started = std::time::Instant::now();
     let done = AtomicU64::new(0);
@@ -2793,6 +2791,48 @@ fn run_pairs(cases: &[PairCase], limit: u64) -> PairStats {
         started.elapsed().as_secs_f64()
     );
     stats
+}
+
+/// A disjoint share of source units, or the whole certificate when unset.
+fn pair_shard() -> (usize, usize) {
+    let Some(text) = std::env::var_os("PANPROTO_KAN_PAIR_SHARD") else {
+        return (0, 1);
+    };
+    let text = text.into_string().expect("pair shard must be UTF-8");
+    let (index, count) = text.split_once('/').expect("pair shard must be i/n");
+    let index = index.parse::<usize>().expect("invalid pair shard index");
+    let count = count.parse::<usize>().expect("invalid pair shard count");
+    assert!(
+        count > 0 && index < count,
+        "pair shard must satisfy 0 <= i < n"
+    );
+    (index, count)
+}
+
+/// Check that independent execution of disjoint shares preserves every counter.
+#[test]
+fn representative_pair_shards_match_unsharded_prefix() {
+    let cases = pair_cases();
+    let units = pair_units(&cases, 1_000);
+    let full = run_pairs(&cases, &units);
+    let mut merged = PairStats::default();
+    let mut indices = BTreeSet::new();
+    for index in 0..3 {
+        let share: Vec<_> = units
+            .iter()
+            .enumerate()
+            .skip(index)
+            .step_by(3)
+            .map(|(ordinal, unit)| {
+                assert!(indices.insert(ordinal));
+                *unit
+            })
+            .collect();
+        merged += run_pairs(&cases, &share);
+    }
+    assert_eq!(indices, (0..units.len()).collect());
+    assert_eq!(full.pairs, 1_000);
+    assert_eq!(merged, full);
 }
 
 /// The representative profile counts of the bounded family, case by case,
@@ -2883,14 +2923,51 @@ fn exhaustive_kan_hom_profile_pairs_agree_with_the_reference() {
     let members = profile_members_are_isomorphic();
     println!("profile members: {members} labelled objects, each isomorphic to its representative");
     assert_eq!(members, labelled_objects());
-    let stats = run_pairs(&cases, u64::MAX);
-    assert_eq!(stats.pairs, representative_pairs);
-    assert_eq!(stats.weighted, labelled_pairs);
-    println!(
-        "weighted total {} = labelled ordered pairs {labelled_pairs}",
-        stats.weighted
+    let units = pair_units(&cases, u64::MAX);
+    assert_eq!(units.len(), 9_333);
+    let (index, count) = pair_shard();
+    assert!(
+        count <= units.len(),
+        "pair shards must have nonempty unit shares"
     );
-    assert!(stats.sigma_homs > 0 && stats.pi_homs[0] > 0 && stats.pi_homs[1] > 0);
+    let indices: Vec<_> = (index..units.len()).step_by(count).collect();
+    let share: Vec<_> = indices.iter().map(|&ordinal| units[ordinal]).collect();
+    let expected_pairs: u64 = share
+        .iter()
+        .map(|unit| u64::try_from(unit.2).unwrap())
+        .sum();
+    let expected_weighted: u64 = share
+        .iter()
+        .map(|&(case, source, targets)| {
+            let case = &cases[case];
+            case.sources[source].weight
+                * case.targets[..targets]
+                    .iter()
+                    .map(|target| target.weight)
+                    .sum::<u64>()
+        })
+        .sum();
+    let stats = run_pairs(&cases, &share);
+    assert_eq!(stats.pairs, expected_pairs);
+    assert_eq!(stats.weighted, expected_weighted);
+    if count == 1 {
+        assert_eq!(stats.pairs, representative_pairs);
+        assert_eq!(stats.weighted, labelled_pairs);
+        assert!(stats.sigma_homs > 0 && stats.pi_homs[0] > 0 && stats.pi_homs[1] > 0);
+    }
+    println!(
+        "KAN_PAIR_SHARD {{\"index\":{index},\"count\":{count},\"total_units\":{},\"units\":{indices:?},\"pairs\":{},\"weighted\":{},\"sigma_homs\":{},\"pi_bound4_homs\":{},\"pi_bound81_homs\":{},\"sigma_refusals\":{},\"pi_naturality_refusals\":{},\"pi_outside_image\":{},\"pi_over_bound\":{}}}",
+        units.len(),
+        stats.pairs,
+        stats.weighted,
+        stats.sigma_homs,
+        stats.pi_homs[0],
+        stats.pi_homs[1],
+        stats.sigma_refusals,
+        stats.pi_naturality_refusals,
+        stats.pi_outside_image,
+        stats.pi_over_bound
+    );
 }
 
 // ---------------------------------------------------------------------------
