@@ -1,0 +1,92 @@
+name: Sharded Kan certificates
+on:
+  push:
+    branches: ['mutants/kan-certificates-*']
+permissions:
+  contents: read
+env:
+  RUSTUP_TOOLCHAIN: '1.99.0'
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+  RUSTFLAGS: -D warnings
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 3
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: '1.99.0'
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d
+        with:
+          tool: cargo-nextest@0.9.130
+      - run: python3 .github/kan-shards.py verify --out verification
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: kan-shard-verification
+          path: verification/
+          if-no-files-found: error
+  certificate:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        kind: [production, reference]
+        index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 3
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: '1.99.0'
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d
+        with:
+          tool: cargo-nextest@0.9.130
+      - name: Execute complete share
+        env:
+          SHARD_KIND: ${{ matrix.kind }}
+          SHARD_INDEX: ${{ matrix.index }}
+        run: python3 .github/kan-shards.py run --kind "$SHARD_KIND" --index "$SHARD_INDEX" --out share
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: kan-share-${{ matrix.kind }}-${{ matrix.index }}
+          path: share/
+          if-no-files-found: error
+  aggregate:
+    needs: [verify, certificate]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 3
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: kan-share-*
+          path: shares
+      - name: Require every share and original global assertions
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          SHARES_RESULT: ${{ needs.certificate.result }}
+        run: |
+          test "$VERIFY_RESULT" = success
+          test "$SHARES_RESULT" = success
+          python3 .github/kan-shards.py aggregate --artifacts shares --out aggregate
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: kan-certificate-aggregate
+          path: aggregate/
+          if-no-files-found: error

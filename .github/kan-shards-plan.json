@@ -1,0 +1,10 @@
+{
+  "source": "d02364bca10b801f55b57a3c36b62cea7edb5533",
+  "prior_source": "5c393a5bd055c2f62ba4ffc41a3ce429caece874",
+  "source_files": {
+    "crates/panproto-inst/tests/reference_kan.rs": "cf67ee3fd7aa1c3e7d784b26c1d292cf63ea43e318a12f4a483fc8bec3a90f7f",
+    "crates/panproto-reference/tests/kan.rs": "0f87ef6b37cc2329c3e58b32bd13dfcf4e57b6b3ee605935afa8caeb7e175626"
+  },
+  "shards": 32,
+  "source_review_sha256": "e3d561e7103651d15a3550a71852aadecec9b7607bff19b7d0deab88ed9b737f"
+}
