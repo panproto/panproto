@@ -3781,7 +3781,7 @@ mod value_spec_transport {
                 Json::Null,
                 json!(false),
             ];
-            let mut named = legacy;
+            let mut expected_binary_map = legacy;
             for index in 0..width {
                 let slot = if enabled(index) {
                     &present[index]
@@ -3789,7 +3789,7 @@ mod value_spec_transport {
                     &absent[index]
                 };
                 positional.push(slot.clone());
-                named[names[index]] = slot.clone();
+                expected_binary_map[names[index]] = slot.clone();
             }
             let binary = rmp_serde::to_vec(&spec).unwrap();
             assert_eq!(
@@ -3800,7 +3800,7 @@ mod value_spec_transport {
             let binary_named = rmp_serde::to_vec_named(&spec).unwrap();
             assert_eq!(
                 rmp_serde::from_slice::<Json>(&binary_named).unwrap(),
-                named,
+                expected_binary_map,
                 "named binary mask {mask}"
             );
             for bytes in [&binary, &binary_named] {
