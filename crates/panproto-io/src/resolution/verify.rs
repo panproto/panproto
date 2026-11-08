@@ -2124,7 +2124,7 @@ pub(in crate::resolution) mod dependency_contract_tests {
             .occurrences
             .insert(ViewRef::Edge(EdgeId(7)), vec![occurrence(3)]);
         for mode in [ResolveMode::AddEdge, ResolveMode::Redirect] {
-            let resolution = helper_resolution(mode)?;
+            let resolution = helper_resolution(mode.clone())?;
             for mismatch in 0..4 {
                 let mut record = occurrence(3);
                 match mismatch {
