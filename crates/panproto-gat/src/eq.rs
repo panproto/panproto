@@ -1812,3 +1812,164 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod dependency_contract_tests {
+    use std::sync::Arc;
+
+    use super::{
+        CaseBranch, DirectedEquation, Term, alpha_equivalent, match_pattern, normalize,
+        normalize_with_witness,
+    };
+    use crate::theory::Theory;
+    use crate::witness::WitnessJustification;
+
+    fn case(scrutinee: Term, constructor: &str, binders: &[&str], body: Term) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![CaseBranch {
+                constructor: Arc::from(constructor),
+                binders: binders.iter().map(|name| Arc::from(*name)).collect(),
+                body,
+            }],
+        }
+    }
+
+    #[test]
+    fn case_matching_distinguishes_each_structural_boundary() {
+        let pattern = case(Term::constant("s"), "c", &["x"], Term::var("x"));
+        let renamed = case(Term::constant("s"), "c", &["y"], Term::var("y"));
+        assert!(alpha_equivalent(&pattern, &renamed));
+        assert_eq!(match_pattern(&pattern, &renamed), Some(Default::default()));
+        let mismatches = [
+            case(Term::constant("other"), "c", &["y"], Term::var("y")),
+            case(Term::constant("s"), "other", &["y"], Term::var("y")),
+            case(Term::constant("s"), "c", &["y", "z"], Term::var("y")),
+            case(Term::constant("s"), "c", &["y"], Term::constant("body")),
+            Term::Case {
+                scrutinee: Box::new(Term::constant("s")),
+                branches: vec![],
+            },
+        ];
+        for target in mismatches {
+            assert!(!alpha_equivalent(&pattern, &target), "{target:?}");
+            assert_eq!(match_pattern(&pattern, &target), None, "{target:?}");
+        }
+        // A branch-local renaming must restore an outer binding of the same name.
+        let pattern = Term::app("pair", vec![Term::var("x"), pattern, Term::var("x")]);
+        let target = Term::app(
+            "pair",
+            vec![Term::constant("outer"), renamed, Term::constant("outer")],
+        );
+        assert_eq!(
+            match_pattern(&pattern, &target),
+            Some(rustc_hash::FxHashMap::from_iter([(
+                Arc::from("x"),
+                Term::constant("outer")
+            )]))
+        );
+    }
+
+    #[test]
+    fn hole_names_and_let_scope_are_exact_in_matching() {
+        let holes = [None, Some(Arc::from("a")), Some(Arc::from("b"))];
+        for left in &holes {
+            for right in &holes {
+                let lhs = Term::Hole { name: left.clone() };
+                let rhs = Term::Hole {
+                    name: right.clone(),
+                };
+                assert_eq!(alpha_equivalent(&lhs, &rhs), left == right);
+                assert_eq!(
+                    match_pattern(&lhs, &rhs),
+                    (left == right).then(Default::default)
+                );
+            }
+        }
+        let make = |name, bound, body| Term::Let {
+            name: Arc::from(name),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        };
+        let pattern = make("x", Term::constant("bound"), Term::var("x"));
+        for (target, matches) in [
+            (make("y", Term::constant("bound"), Term::var("y")), true),
+            (make("y", Term::constant("other"), Term::var("y")), false),
+            (
+                make("y", Term::constant("bound"), Term::constant("body")),
+                false,
+            ),
+        ] {
+            assert_eq!(alpha_equivalent(&pattern, &target), matches);
+            assert_eq!(
+                match_pattern(&pattern, &target),
+                matches.then(Default::default)
+            );
+        }
+    }
+
+    #[test]
+    fn witnessed_case_contraction_preserves_endpoints_and_refusals() {
+        let theory = Theory::full("T", vec![], vec![], vec![], vec![], vec![], vec![]);
+        for constructor in ["c", "other"] {
+            for arity in 0..=2 {
+                let args = (0..arity).map(|_| Term::constant("value")).collect();
+                let original = case(Term::app(constructor, args), "c", &["x"], Term::var("x"));
+                let contracts = constructor == "c" && arity == 1;
+                let expected = if contracts {
+                    Term::constant("value")
+                } else {
+                    original.clone()
+                };
+                let (actual, witness) = normalize_with_witness(&original, &[], 8);
+                assert_eq!(actual, expected);
+                assert_eq!(normalize(&original, &[], 8), expected);
+                assert_eq!(witness.lhs, original);
+                assert_eq!(witness.rhs, expected);
+                assert_eq!(
+                    matches!(witness.justification, WitnessJustification::Reflexivity),
+                    !contracts
+                );
+                assert!(witness.verify(&theory).is_ok());
+            }
+        }
+        let original = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("value")),
+            body: Box::new(Term::var("x")),
+        };
+        let (actual, witness) = normalize_with_witness(&original, &[], 8);
+        assert_eq!(actual, Term::constant("value"));
+        assert_eq!(witness.lhs, original);
+        assert_eq!(witness.rhs, actual);
+        assert!(witness.verify(&theory).is_ok());
+    }
+
+    #[test]
+    fn witnessed_finite_chain_obeys_each_rewrite_budget() {
+        let rules = vec![
+            DirectedEquation::new(
+                "ab",
+                Term::constant("a"),
+                Term::constant("b"),
+                panproto_expr::Expr::Var("_".into()),
+            ),
+            DirectedEquation::new(
+                "bc",
+                Term::constant("b"),
+                Term::constant("c"),
+                panproto_expr::Expr::Var("_".into()),
+            ),
+        ];
+        let theory = Theory::full("T", vec![], vec![], vec![], vec![], rules.clone(), vec![]);
+        for (budget, name) in [(0, "a"), (1, "b"), (2, "c"), (3, "c")] {
+            let original = Term::constant("a");
+            let (actual, witness) = normalize_with_witness(&original, &rules, budget);
+            assert_eq!(actual, Term::constant(name), "budget {budget}");
+            assert_eq!(actual, normalize(&original, &rules, budget));
+            assert_eq!(witness.lhs, original);
+            assert_eq!(witness.rhs, actual);
+            assert!(witness.verify(&theory).is_ok());
+        }
+    }
+}

@@ -3708,3 +3708,209 @@ proptest::proptest! {
         }
     }
 }
+
+mod value_spec_transport {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::value::Value;
+    use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
+    use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
+    use panproto_schema::{ConstraintSemantics, Protocol, ScalarKind, SchemaBuilder, ValueSpec};
+    use serde_json::{Value as Json, json};
+
+    // The wire contract keeps seven legacy fields. Named human-readable fields
+    // omit each absent extension; binary fields retain the prefix through the
+    // final present extension. Literal slots below are independent expectations.
+    #[test]
+    fn value_spec_extensions_preserve_io_transport_slots() {
+        let names = [
+            "float_reading",
+            "numeral",
+            "discriminators",
+            "time_unit",
+            "time_zone",
+        ];
+        let absent = [
+            json!("exact"),
+            Json::Null,
+            Json::Null,
+            Json::Null,
+            Json::Null,
+        ];
+        let present = [
+            json!("nearest_keeping_lexeme"),
+            json!("json"),
+            json!({"text": "str"}),
+            json!("millis"),
+            json!("UTC"),
+        ];
+        for mask in 0_u32..32 {
+            let enabled = |index: usize| mask & (1 << index) != 0;
+            let spec = ValueSpec {
+                float_reading: if enabled(0) {
+                    FloatReading::NearestKeepingLexeme
+                } else {
+                    FloatReading::Exact
+                },
+                numeral: enabled(1).then_some(NumeralDialect::Json),
+                discriminators: enabled(2)
+                    .then(|| BTreeMap::from([("text".to_owned(), ScalarKind::Str)])),
+                time_unit: enabled(3).then(|| serde_json::from_value(json!("millis")).unwrap()),
+                time_zone: enabled(4).then(|| "UTC".to_owned()),
+                ..ValueSpec::new(ScalarKind::Str)
+            };
+            let legacy = json!({"kind": "str", "precision": null, "scale": null,
+                "max_length": null, "with_time_zone": null, "int_bits": null, "unsigned": false});
+            let mut human = legacy.clone();
+            for (index, name) in names.iter().enumerate() {
+                if enabled(index) {
+                    human[name] = present[index].clone();
+                }
+            }
+            assert_eq!(serde_json::to_value(&spec).unwrap(), human, "mask {mask}");
+            let decoded: ValueSpec = serde_json::from_value(human).unwrap();
+            assert_eq!(decoded, spec, "JSON mask {mask}");
+
+            let width = (0..5).rfind(|index| enabled(*index)).map_or(0, |i| i + 1);
+            let mut positional = vec![
+                json!("str"),
+                Json::Null,
+                Json::Null,
+                Json::Null,
+                Json::Null,
+                Json::Null,
+                json!(false),
+            ];
+            let mut named = legacy;
+            for index in 0..width {
+                let slot = if enabled(index) {
+                    &present[index]
+                } else {
+                    &absent[index]
+                };
+                positional.push(slot.clone());
+                named[names[index]] = slot.clone();
+            }
+            let binary = rmp_serde::to_vec(&spec).unwrap();
+            assert_eq!(
+                binary,
+                rmp_serde::to_vec(&positional).unwrap(),
+                "slots mask {mask}"
+            );
+            let binary_named = rmp_serde::to_vec_named(&spec).unwrap();
+            assert_eq!(
+                rmp_serde::from_slice::<Json>(&binary_named).unwrap(),
+                named,
+                "named binary mask {mask}"
+            );
+            for bytes in [&binary, &binary_named] {
+                let restored: ValueSpec = rmp_serde::from_slice(bytes).unwrap();
+                assert_eq!(restored, spec, "binary round trip mask {mask}");
+                assert_eq!(
+                    coerce(
+                        &Lexeme {
+                            text: "x",
+                            class: LexClass::String
+                        },
+                        &restored
+                    )
+                    .unwrap(),
+                    Value::Str("x".to_owned()),
+                    "transported I/O kind mask {mask}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn protocol_value_parameters_reach_the_io_coercion_boundary() {
+        let declarations = [
+            ("precision", "12"),
+            ("scale", "3"),
+            ("max_length", "80"),
+            ("with_time_zone", "false"),
+            ("int_bits", "8"),
+            ("unsigned", "true"),
+            ("time_unit", "ms"),
+            ("time_zone", "UTC"),
+        ];
+        let kind = ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        };
+        let protocol = Protocol {
+            name: "io-parameter-contract".into(),
+            obj_kinds: vec!["integer".into()],
+            constraint_sorts: declarations
+                .iter()
+                .map(|(name, _)| (*name).to_owned())
+                .collect(),
+            constraint_semantics: declarations
+                .iter()
+                .map(|(name, _)| ((*name).to_owned(), ConstraintSemantics::ValueParameter))
+                .collect(),
+            value_kinds: BTreeMap::from([("integer".to_owned(), kind.clone())]),
+            ..Protocol::default()
+        };
+        let mut builder = SchemaBuilder::new(&protocol)
+            .vertex("value", "integer", None)
+            .unwrap()
+            .constraint("value", "int_bits", "16");
+        for (name, value) in declarations {
+            builder = builder.constraint("value", name, value);
+        }
+        let schema = builder
+            .constraint("value", "int_bits", "invalid")
+            .build()
+            .unwrap();
+        let expected = ValueSpec {
+            precision: Some(12),
+            scale: Some(3),
+            max_length: Some(80),
+            with_time_zone: Some(false),
+            int_bits: Some(8),
+            unsigned: true,
+            time_unit: Some(serde_json::from_value(json!("millis")).unwrap()),
+            time_zone: Some("UTC".to_owned()),
+            ..ValueSpec::new(kind.clone())
+        };
+        let spec = ValueSpec::for_vertex(&schema, &protocol, &"value".into());
+        assert_eq!(
+            spec, expected,
+            "later valid parameters win; malformed ones set nothing"
+        );
+        let number = |text| Lexeme {
+            text,
+            class: LexClass::Number,
+        };
+        assert_eq!(coerce(&number("255"), &spec).unwrap(), Value::Int(255));
+        assert!(
+            coerce(&number("256"), &spec).is_err(),
+            "8-bit unsigned overflow"
+        );
+        assert!(
+            coerce(&number("-1"), &spec).is_err(),
+            "unsigned negative refusal"
+        );
+
+        for semantics in [Some(ConstraintSemantics::Annotation), None] {
+            let mut ignored = protocol.clone();
+            ignored.constraint_semantics = declarations
+                .iter()
+                .filter_map(|(name, _)| {
+                    semantics
+                        .clone()
+                        .map(|meaning| ((*name).to_owned(), meaning))
+                })
+                .collect();
+            let spec = ValueSpec::for_vertex(&schema, &ignored, &"value".into());
+            assert_eq!(
+                spec,
+                ValueSpec::new(kind.clone()),
+                "only value parameters set fields"
+            );
+            assert_eq!(coerce(&number("256"), &spec).unwrap(), Value::Int(256));
+            assert_eq!(coerce(&number("-1"), &spec).unwrap(), Value::Int(-1));
+        }
+    }
+}

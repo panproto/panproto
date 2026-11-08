@@ -1095,3 +1095,239 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod dependency_contract_tests {
+    use std::sync::Arc;
+
+    use rustc_hash::FxHashMap;
+
+    use super::{
+        ConfluenceReport, CriticalPair, OpPrecedence, RewriteSystemReport, RuleViolation,
+        TerminationReport, check_local_confluence, check_termination_via_lpo, collect_vars,
+        first_order_unify, lpo_greater, non_variable_positions, term_at_position,
+    };
+    use crate::GatError;
+    use crate::eq::{CaseBranch, DirectedEquation, Term};
+    use crate::theory::Theory;
+
+    fn case(scrutinee: Term, bodies: Vec<Term>) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: bodies
+                .into_iter()
+                .map(|body| CaseBranch {
+                    constructor: Arc::from("c"),
+                    binders: vec![],
+                    body,
+                })
+                .collect(),
+        }
+    }
+
+    fn let_term(name: &str, bound: Term, body: Term) -> Term {
+        Term::Let {
+            name: Arc::from(name),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        }
+    }
+
+    fn rule(name: &str, lhs: Term, rhs: Term) -> DirectedEquation {
+        DirectedEquation::new(name, lhs, rhs, panproto_expr::Expr::Var("_".into()))
+    }
+
+    fn theory(rules: Vec<DirectedEquation>) -> Theory {
+        Theory::full("T", vec![], vec![], vec![], vec![], rules, vec![])
+    }
+
+    #[test]
+    fn case_navigation_selects_scrutinee_and_each_body() {
+        let bodies = vec![
+            Term::constant("a"),
+            Term::constant("b"),
+            Term::app("f", vec![Term::constant("c")]),
+        ];
+        let original = case(Term::constant("s"), bodies.clone());
+        assert_eq!(term_at_position(&original, &[]), Some(original.clone()));
+        assert_eq!(term_at_position(&original, &[0]), Some(Term::constant("s")));
+        for (index, expected) in bodies.into_iter().enumerate() {
+            assert_eq!(term_at_position(&original, &[index + 1]), Some(expected));
+        }
+        assert_eq!(
+            term_at_position(&original, &[3, 0]),
+            Some(Term::constant("c"))
+        );
+        assert_eq!(term_at_position(&original, &[4]), None);
+        assert_eq!(term_at_position(&original, &[1, 0]), None);
+    }
+
+    #[test]
+    fn freshening_collects_each_name_once_and_positions_include_roots() {
+        let original = Term::app(
+            "f",
+            vec![
+                Term::var("x"),
+                let_term("local", Term::var("y"), Term::var("x")),
+                case(
+                    Term::var("z"),
+                    vec![Term::var("y"), Term::Hole { name: None }],
+                ),
+            ],
+        );
+        assert_eq!(
+            collect_vars(&original),
+            vec![Arc::from("x"), Arc::from("y"), Arc::from("z")]
+        );
+        let application = Term::app(
+            "f",
+            vec![
+                Term::app("g", vec![Term::var("x")]),
+                Term::app("h", vec![Term::var("y")]),
+            ],
+        );
+        assert_eq!(
+            non_variable_positions(&application),
+            vec![vec![], vec![0], vec![1]]
+        );
+    }
+
+    #[test]
+    fn confluence_freshens_inner_variables_before_the_occurs_check() -> Result<(), GatError> {
+        let outer = rule(
+            "outer",
+            Term::app("f", vec![Term::app("g", vec![Term::var("x")])]),
+            Term::app("h", vec![Term::var("x")]),
+        );
+        let inner = rule(
+            "inner",
+            Term::app("g", vec![Term::app("f", vec![Term::var("x")])]),
+            Term::app("k", vec![Term::var("x")]),
+        );
+        let report = check_local_confluence(&theory(vec![outer, inner]), 8)?;
+        let selected: Vec<_> = report
+            .critical_pairs
+            .iter()
+            .filter(|pair| pair.rule_a.as_ref() == "outer" && pair.rule_b.as_ref() == "inner")
+            .collect();
+        assert_eq!(selected.len(), 1, "the non-root overlap must exist");
+        let fresh = Term::var("x__outer_cp");
+        assert_eq!(
+            selected[0].left,
+            Term::app("h", vec![Term::app("f", vec![fresh.clone()])])
+        );
+        assert_eq!(
+            selected[0].right,
+            Term::app("f", vec![Term::app("k", vec![fresh])])
+        );
+        assert!(!selected[0].joins);
+        Ok(())
+    }
+
+    #[test]
+    fn unification_separates_head_arity_and_occurs_boundaries() {
+        let lhs = Term::app("f", vec![Term::var("x")]);
+        for rhs in [
+            Term::app("g", vec![Term::constant("a")]),
+            Term::constant("f"),
+        ] {
+            assert_eq!(first_order_unify(&lhs, &rhs), None, "{rhs:?}");
+        }
+        assert_eq!(
+            first_order_unify(&lhs, &Term::app("f", vec![Term::constant("a")])),
+            Some(FxHashMap::from_iter([(
+                Arc::from("x"),
+                Term::constant("a")
+            )]))
+        );
+        let x = Term::var("x");
+        let a = Term::constant("a");
+        let cases = [
+            (let_term("y", x.clone(), a.clone()), true),
+            (let_term("y", a.clone(), x.clone()), true),
+            (let_term("x", a.clone(), x.clone()), false),
+            (let_term("y", a.clone(), a.clone()), false),
+            (case(x.clone(), vec![a.clone()]), true),
+            (case(a.clone(), vec![x.clone()]), true),
+            (case(a.clone(), vec![a]), false),
+        ];
+        for (term, occurs) in cases {
+            let expected = if occurs {
+                None
+            } else {
+                Some(FxHashMap::from_iter([(Arc::from("x"), term.clone())]))
+            };
+            assert_eq!(first_order_unify(&x, &term), expected, "{term:?}");
+        }
+    }
+
+    #[test]
+    fn lpo_checks_longer_equal_prefix_and_every_hole_position() {
+        let precedence = OpPrecedence::new(["c", "f"]);
+        let short = Term::app("f", vec![Term::var("x")]);
+        let long = Term::app("f", vec![Term::var("x"), Term::constant("c")]);
+        assert!(lpo_greater(&long, &short, &precedence));
+        assert!(!lpo_greater(&short, &long, &precedence));
+        let hole = Term::Hole { name: None };
+        let c = Term::constant("c");
+        let with_holes = [
+            case(hole.clone(), vec![c.clone()]),
+            case(c.clone(), vec![hole.clone()]),
+            let_term("x", hole.clone(), c.clone()),
+            let_term("x", c.clone(), hole),
+        ];
+        for lhs in with_holes {
+            let result = check_termination_via_lpo(
+                &theory(vec![rule("has-hole", lhs, c.clone())]),
+                &precedence,
+            );
+            assert!(matches!(result, Err(GatError::LpoHoleInRule { rule }) if rule == "has-hole"));
+        }
+        for lhs in [
+            case(c.clone(), vec![c.clone()]),
+            let_term("x", c.clone(), c.clone()),
+        ] {
+            assert!(
+                check_termination_via_lpo(
+                    &theory(vec![rule("no-hole", lhs, c.clone())]),
+                    &precedence
+                )
+                .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn rewrite_soundness_requires_both_report_obligations() {
+        for confluent in [false, true] {
+            for terminating in [false, true] {
+                let report = RewriteSystemReport {
+                    confluence: ConfluenceReport {
+                        critical_pairs: vec![CriticalPair {
+                            rule_a: Arc::from("a"),
+                            rule_b: Arc::from("b"),
+                            left: Term::constant("left"),
+                            right: Term::constant("right"),
+                            joins: confluent,
+                        }],
+                    },
+                    termination: TerminationReport {
+                        violations: if terminating {
+                            vec![]
+                        } else {
+                            vec![RuleViolation {
+                                rule: Arc::from("bad"),
+                                reason: "not decreasing".to_owned(),
+                            }]
+                        },
+                    },
+                };
+                assert_eq!(report.is_sound(), confluent && terminating);
+                assert_eq!(
+                    report.warnings().len(),
+                    usize::from(!confluent) + usize::from(!terminating)
+                );
+            }
+        }
+    }
+}
