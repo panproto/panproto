@@ -10602,3 +10602,20 @@ fn empty_source_paths_retarget_the_holders_own_value() {
         );
     }
 }
+
+#[test]
+fn resolution_get_checks_root_anchor_even_when_arcs_form_a_tree() {
+    let (resolution, _) = posts_resolution(|_| {});
+    let mut source = posts_tree();
+    source.schema_root = "post".into();
+    assert!(matches!(
+        resolution.get(
+            &AnyInstance::Tree(source),
+            &ResolveOptions::default(),
+            &ResolveContext::empty()
+        ),
+        Err(ResolveError::Instance(
+            panproto_io::resolution::ResolutionInstanceError::NotTree
+        ))
+    ));
+}

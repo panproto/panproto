@@ -872,3 +872,91 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod dependency_contract_tests {
+    use panproto_inst::{EdgeId, Node, TreeEmbedding, ViewRef, WInstance};
+    use panproto_schema::Edge;
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    fn chain() -> WInstance {
+        let edge = Edge {
+            src: "item".into(),
+            tgt: "item".into(),
+            kind: "child".into(),
+            name: None,
+        };
+        WInstance::new(
+            (0..4)
+                .map(|id| (id, Node::new(id, "item")))
+                .collect::<HashMap<_, _>>(),
+            vec![(0, 1, edge.clone()), (1, 2, edge.clone()), (0, 3, edge)],
+            Vec::new(),
+            0,
+            "item".into(),
+        )
+    }
+
+    #[test]
+    fn proper_ancestor_membership_excludes_self_and_other_branches() {
+        let tree = chain();
+        for (node, set, expected) in [
+            (2, BTreeSet::from([0]), true),
+            (2, BTreeSet::from([1]), true),
+            (2, BTreeSet::from([2]), false),
+            (2, BTreeSet::from([3]), false),
+            (0, BTreeSet::from([0, 1, 2, 3]), false),
+        ] {
+            assert_eq!(super::has_ancestor_in(&tree, node, &set), expected);
+        }
+    }
+
+    #[test]
+    fn structure_records_root_and_internal_order_but_no_leaf_order() {
+        let tree = chain();
+        let source = super::Source::tree(&tree);
+        let embedding = TreeEmbedding {
+            arcs: BTreeMap::from([(1, EdgeId(10)), (2, EdgeId(11)), (3, EdgeId(12))]),
+            ..TreeEmbedding::default()
+        };
+        let mut complement = super::ResolutionComplement::default();
+        super::record_structure(
+            &tree,
+            &source,
+            &embedding,
+            &BTreeSet::new(),
+            &mut complement,
+        );
+        assert_eq!(
+            complement.order,
+            BTreeMap::from([
+                (0, vec![ViewRef::Node(1), ViewRef::Node(3)]),
+                (1, vec![ViewRef::Node(2)])
+            ])
+        );
+        assert_eq!(
+            complement.spanning,
+            BTreeMap::from([
+                (1, ViewRef::Edge(EdgeId(10))),
+                (2, ViewRef::Edge(EdgeId(11))),
+                (3, ViewRef::Edge(EdgeId(12)))
+            ])
+        );
+        let mut hidden = super::ResolutionComplement::default();
+        super::record_structure(
+            &tree,
+            &source,
+            &embedding,
+            &BTreeSet::from([1, 2]),
+            &mut hidden,
+        );
+        assert_eq!(
+            hidden.order,
+            BTreeMap::from([(0, vec![ViewRef::Node(1), ViewRef::Node(3)])])
+        );
+        assert_eq!(
+            hidden.spanning,
+            BTreeMap::from([(3, ViewRef::Edge(EdgeId(12)))])
+        );
+    }
+}
