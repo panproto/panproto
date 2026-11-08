@@ -1817,6 +1817,8 @@ mod tests {
 mod dependency_contract_tests {
     use std::sync::Arc;
 
+    use rustc_hash::FxHashMap;
+
     use super::{
         CaseBranch, DirectedEquation, Term, alpha_equivalent, match_pattern, normalize,
         normalize_with_witness,
@@ -1840,7 +1842,10 @@ mod dependency_contract_tests {
         let pattern = case(Term::constant("s"), "c", &["x"], Term::var("x"));
         let renamed = case(Term::constant("s"), "c", &["y"], Term::var("y"));
         assert!(alpha_equivalent(&pattern, &renamed));
-        assert_eq!(match_pattern(&pattern, &renamed), Some(Default::default()));
+        assert_eq!(
+            match_pattern(&pattern, &renamed),
+            Some(FxHashMap::default())
+        );
         let mismatches = [
             case(Term::constant("other"), "c", &["y"], Term::var("y")),
             case(Term::constant("s"), "other", &["y"], Term::var("y")),
