@@ -399,7 +399,7 @@ fn explicit_scope_queries_filter_references_and_update_parser_names() {
     .unwrap();
     assert_eq!(parser.protocol_name(), "rust");
     assert_eq!(parser.supported_extensions(), ["rs"]);
-    assert!(!parser.theory_meta().vertex_kinds.is_empty());
+    assert_ne!(parser.theory_meta().vertex_kinds, [] as [String; 0]);
     assert!(
         !parser
             .parse(source, "fixture.rs")
