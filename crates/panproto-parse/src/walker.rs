@@ -333,9 +333,7 @@ impl<'a> AstWalker<'a> {
             kind
         } else if self.protocol.obj_kinds.iter().any(|k| k == kind) {
             kind
-        } else if !self.theory_meta.vertex_kinds.is_empty()
-            && self.theory_meta.vertex_kinds.iter().any(|k| k == kind)
-        {
+        } else if self.theory_meta.vertex_kinds.iter().any(|k| k == kind) {
             // Known in the auto-derived theory even if not in the protocol's obj_kinds.
             kind
         } else {
@@ -382,7 +380,6 @@ impl<'a> AstWalker<'a> {
         if parent_vertex_id.is_none()
             && node.start_byte() > 0
             && let Ok(prefix) = std::str::from_utf8(&self.source[..node.start_byte()])
-            && !prefix.is_empty()
         {
             cell.map(|b| b.constraint(&vertex_id, "doc-prefix", prefix));
         }
@@ -697,7 +694,6 @@ impl<'a> AstWalker<'a> {
         if gap_end > gap_start
             && gap_end <= self.source.len()
             && let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end])
-            && !gap_text.is_empty()
         {
             let sort = format!("interstitial-{}", *idx);
             cell.map(|b| b.constraint(vertex_id, &sort, gap_text));
@@ -733,19 +729,16 @@ impl<'a> AstWalker<'a> {
     ) {
         let start = node.start_position();
 
-        // Capture indentation (column of first character on the line).
-        if start.column > 0 {
-            // Extract the actual indentation characters from the source.
-            let line_start = node.start_byte().saturating_sub(start.column);
-            if line_start < self.source.len() {
-                let indent_end = line_start + start.column.min(self.source.len() - line_start);
-                if let Ok(indent) = std::str::from_utf8(&self.source[line_start..indent_end]) {
-                    // Only capture if the extracted region is pure whitespace.
-                    if !indent.is_empty() && indent.trim().is_empty() {
-                        cell.map(|b| b.constraint(vertex_id, "indent", indent));
-                    }
-                }
-            }
+        // Capture only nonempty whitespace before this node on its line.
+        // A caller can supply a source buffer different from the tree's;
+        // checked slicing also bounds that case without duplicate guards.
+        let line_start = node.start_byte().saturating_sub(start.column);
+        if let Some(rest) = self.source.get(line_start..)
+            && let Ok(indent) = std::str::from_utf8(&rest[..start.column.min(rest.len())])
+            && !indent.is_empty()
+            && indent.trim().is_empty()
+        {
+            cell.map(|b| b.constraint(vertex_id, "indent", indent));
         }
 
         // Count blank lines before this node by looking at source between
@@ -753,8 +746,7 @@ impl<'a> AstWalker<'a> {
         if let Some(prev) = node.prev_named_sibling() {
             let gap_start = prev.end_byte();
             let gap_end = node.start_byte();
-            if gap_start < gap_end && gap_end <= self.source.len() {
-                let gap = &self.source[gap_start..gap_end];
+            if let Some(gap) = self.source.get(gap_start..gap_end) {
                 let blank_lines = memchr::memchr_iter(b'\n', gap).count().saturating_sub(1);
                 if blank_lines > 0 {
                     cell.map(|b| {
@@ -1100,5 +1092,370 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "group-core"))]
+#[allow(clippy::unwrap_used)]
+mod dependency_tests {
+    use super::*;
+    use crate::theory_extract::extract_theory_from_node_types;
+
+    fn grammar(name: &str) -> panproto_grammars::Grammar {
+        panproto_grammars::grammars()
+            .into_iter()
+            .find(|g| g.name == name)
+            .unwrap()
+    }
+
+    fn tree(name: &str, source: &[u8]) -> tree_sitter::Tree {
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&grammar(name).language).unwrap();
+        parser.parse(source, None).unwrap()
+    }
+
+    fn protocol() -> Protocol {
+        Protocol {
+            name: "fixture".into(),
+            has_order: true,
+            ..Protocol::default()
+        }
+    }
+
+    fn meta() -> ExtractedTheoryMeta {
+        extract_theory_from_node_types("ThFixture", b"[]").unwrap()
+    }
+
+    fn cell(p: &Protocol) -> BuilderCell {
+        BuilderCell::new(
+            SchemaBuilder::new(p)
+                .vertex("fixture", "node", None)
+                .unwrap(),
+        )
+    }
+
+    fn values(schema: &Schema, id: &str) -> Vec<(String, String)> {
+        let mut result: Vec<_> = schema
+            .constraints_for(id)
+            .iter()
+            .map(|c| (c.sort.to_string(), c.value.clone()))
+            .collect();
+        result.sort();
+        result
+    }
+
+    #[test]
+    fn interstitial_boundaries_reject_empty_invalid_and_out_of_range_spans() {
+        let p = protocol();
+        let m = meta();
+        let source = b"  ; \xff";
+        let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+        let mut c = cell(&p);
+        let mut index = 0;
+        let mut fingerprint = Vec::new();
+        for (start, end) in [(0, 0), (4, 3), (0, 20), (4, 5)] {
+            walker.capture_interstitial(
+                &mut c,
+                "fixture",
+                start,
+                end,
+                &mut index,
+                &mut fingerprint,
+            );
+        }
+        assert_eq!(index, 0);
+        walker.capture_interstitial(&mut c, "fixture", 0, 2, &mut index, &mut fingerprint);
+        assert_eq!(index, 1);
+        assert!(fingerprint.is_empty());
+        walker.capture_interstitial(&mut c, "fixture", 2, 4, &mut index, &mut fingerprint);
+        assert_eq!(index, 2);
+        assert_eq!(fingerprint, [";"]);
+        let schema = c.into_builder().unwrap().build().unwrap();
+        assert_eq!(
+            values(&schema, "fixture"),
+            [
+                ("interstitial-0".into(), "  ".into()),
+                ("interstitial-0-end-byte".into(), "2".into()),
+                ("interstitial-0-start-byte".into(), "0".into()),
+                ("interstitial-1".into(), "; ".into()),
+                ("interstitial-1-end-byte".into(), "4".into()),
+                ("interstitial-1-start-byte".into(), "2".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn formatting_records_only_whitespace_indent_and_positive_blank_lines() {
+        let p = protocol();
+        let m = meta();
+        for (source, indent, blank_lines) in [
+            (&b"x;\n  y;"[..], Some("  "), None),
+            (&b"x;\n\n\n  y;"[..], Some("  "), Some("2")),
+            (&b"x; y;"[..], None, None),
+            (&b"x;y;"[..], None, None),
+            (&b"x;\ny;"[..], None, None),
+        ] {
+            let t = tree("javascript", source);
+            let node = t.root_node().named_child(1).unwrap();
+            let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+            let mut c = cell(&p);
+            walker.emit_formatting_constraints(node, "fixture", &mut c);
+            let schema = c.into_builder().unwrap().build().unwrap();
+            let cs = schema.constraints_for("fixture");
+            let get = |sort: &str| {
+                cs.iter()
+                    .find(|c| c.sort.as_ref() == sort)
+                    .map(|c| c.value.as_str())
+            };
+            assert_eq!(get("indent"), indent, "{source:?}");
+            assert_eq!(get("blank-lines-before"), blank_lines, "{source:?}");
+        }
+        let t = tree("javascript", b"x;\n  y;");
+        let node = t.root_node().named_child(1).unwrap();
+        for source in [
+            &b""[..],
+            &b"x;"[..],
+            &b"x;\n"[..],
+            &b"x;\n "[..],
+            &b"x;\n\xff"[..],
+        ] {
+            let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+            let mut c = cell(&p);
+            walker.emit_formatting_constraints(node, "fixture", &mut c);
+            let schema = c.into_builder().unwrap().build().unwrap();
+            let expected = if source == b"x;\n " {
+                vec![("indent".into(), " ".into())]
+            } else {
+                vec![]
+            };
+            assert_eq!(values(&schema, "fixture"), expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn root_wrappers_keep_file_identity_and_depth_limit_is_inclusive() {
+        let p = protocol();
+        let m = meta();
+        for (language, source) in [
+            ("javascript", &b"x;"[..]),
+            ("rust", &b"fn f() {}"[..]),
+            ("python", &b"x = 1"[..]),
+            ("c", &b"int x;"[..]),
+        ] {
+            let t = tree(language, source);
+            let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+            let schema = walker.walk(&t, "fixture").unwrap();
+            assert_eq!(
+                schema.vertices["fixture"].kind.as_ref(),
+                t.root_node().kind()
+            );
+            assert!(
+                !schema
+                    .constraints_for("fixture")
+                    .iter()
+                    .any(|c| c.sort.as_ref() == "doc-prefix")
+            );
+        }
+        let source = b"";
+        let t = tree("rust", source);
+        let config = WalkerConfig {
+            max_depth: 0,
+            ..WalkerConfig::standard()
+        };
+        assert!(
+            AstWalker::new(source, &m, &p, config.clone(), None)
+                .walk(&t, "fixture")
+                .is_ok()
+        );
+        let source = b"fn f() {}";
+        let t = tree("rust", source);
+        assert!(matches!(
+            AstWalker::new(source, &m, &p, config, None).walk(&t, "fixture"),
+            Err(ParseError::NestingTooDeep { limit: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn anonymous_operator_fields_and_production_slots_are_distinct() {
+        let source = b"a + b;";
+        let t = tree("javascript", source);
+        let expression = t
+            .root_node()
+            .named_child(0)
+            .unwrap()
+            .named_child(0)
+            .unwrap();
+        assert_eq!(expression.kind(), "binary_expression");
+        let p = protocol();
+        let m = meta();
+        let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+        let mut c = cell(&p);
+        walker.capture_anonymous_field_constraints(expression, "fixture", &mut c);
+        walker.capture_production_trace(expression, "fixture", &mut c);
+        let schema = c.into_builder().unwrap().build().unwrap();
+        assert_eq!(schema.field_text("fixture", "operator"), Some("+"));
+        assert_eq!(
+            values(&schema, "fixture"),
+            [
+                ("field:operator".into(), "+".into()),
+                ("ptrace-0".into(), "Cidentifier".into()),
+                ("ptrace-1".into(), "T+".into()),
+                ("ptrace-2".into(), "Cidentifier".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn missing_markers_preserve_span_token_and_closed_protocol_rejection() {
+        // The marker helper consumes token identity and span. A real closing
+        // brace exercises those independently of grammar recovery heuristics.
+        let source = b"fn f() {}";
+        let t = tree("rust", source);
+        let body = t
+            .root_node()
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
+        let token = body.child(1).unwrap();
+        assert_eq!(token.kind(), "}");
+        for (kinds, theory_error, expected) in [
+            (vec![], false, Some("ERROR")),
+            (vec!["node", "ERROR"], false, Some("ERROR")),
+            (vec!["node"], false, Some("node")),
+            (vec!["node"], true, None),
+        ] {
+            let p = Protocol {
+                obj_kinds: kinds.into_iter().map(Into::into).collect(),
+                ..protocol()
+            };
+            let mut m = meta();
+            if theory_error {
+                m.vertex_kinds.push("ERROR".into());
+            }
+            let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+            let mut c = cell(&p);
+            let mut ids = IdGenerator::new("fixture");
+            let result = walker.emit_missing_marker(token, &mut c, &mut ids, "fixture");
+            if let Some(kind) = expected {
+                result.unwrap();
+                let schema = c.into_builder().unwrap().build().unwrap();
+                assert_eq!(schema.vertices["fixture::$0"].kind.as_ref(), kind);
+                assert_eq!(
+                    values(&schema, "fixture::$0"),
+                    [
+                        ("end-byte".into(), "9".into()),
+                        ("missing".into(), "}".into()),
+                        ("start-byte".into(), "8".into()),
+                    ]
+                );
+                assert_eq!(schema.edges.len(), 1);
+            } else {
+                assert!(matches!(result, Err(ParseError::SchemaConstruction { .. })));
+            }
+        }
+    }
+
+    #[test]
+    fn closed_kind_fallback_distinguishes_protocol_and_theory_membership() {
+        let source = b"x;";
+        let t = tree("javascript", source);
+        let node = t
+            .root_node()
+            .named_child(0)
+            .unwrap()
+            .named_child(0)
+            .unwrap();
+        assert_eq!(node.kind(), "identifier");
+        for (kinds, known, expected) in [
+            (vec!["node"], vec![], Some("node")),
+            (vec!["node", "identifier"], vec![], Some("identifier")),
+            (vec!["node"], vec!["identifier"], None),
+            (vec!["node"], vec!["other"], Some("node")),
+        ] {
+            let p = Protocol {
+                obj_kinds: kinds.into_iter().map(Into::into).collect(),
+                ..protocol()
+            };
+            let mut m = meta();
+            m.vertex_kinds = known.into_iter().map(Into::into).collect();
+            let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+            let mut c = BuilderCell::new(SchemaBuilder::new(&p));
+            let mut ids = IdGenerator::new("fixture");
+            let result = walker.walk_node(node, &mut c, &mut ids, None, None, 0);
+            if let Some(kind) = expected {
+                result.unwrap();
+                let schema = c.into_builder().unwrap().build().unwrap();
+                assert_eq!(schema.vertices["fixture::$0"].kind.as_ref(), kind);
+            } else {
+                assert!(matches!(result, Err(ParseError::SchemaConstruction { .. })));
+            }
+        }
+    }
+
+    #[test]
+    fn anonymous_blocks_scope_descendants_without_scoping_the_file_wrapper() {
+        let source = b"{ x; } y;";
+        let t = tree("javascript", source);
+        let p = protocol();
+        let m = meta();
+        let config = WalkerConfig {
+            extra_block_kinds: vec!["program".into()],
+            ..WalkerConfig::standard()
+        };
+        let schema = AstWalker::new(source, &m, &p, config, None)
+            .walk(&t, "fixture")
+            .unwrap();
+        assert_eq!(
+            schema.vertices["fixture::$0"].kind.as_ref(),
+            "statement_block"
+        );
+        assert_eq!(
+            schema.vertices["fixture::$1::$0"].kind.as_ref(),
+            "expression_statement"
+        );
+        assert_eq!(
+            schema.vertices["fixture::$2"].kind.as_ref(),
+            "expression_statement"
+        );
+    }
+
+    #[test]
+    fn nonwrapper_roots_record_leading_bytes_and_alias_symbols() {
+        let source = b"  struct Foo {}";
+        let t = tree("rust", source);
+        let node = t.root_node().named_child(0).unwrap();
+        assert_eq!(node.start_byte(), 2);
+        let p = protocol();
+        let m = meta();
+        let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
+        let mut c = BuilderCell::new(SchemaBuilder::new(&p));
+        let mut ids = IdGenerator::new("fixture");
+        walker
+            .walk_node(node, &mut c, &mut ids, None, None, 0)
+            .unwrap();
+        let schema = c.into_builder().unwrap().build().unwrap();
+        assert!(
+            schema
+                .constraints_for("fixture::$0")
+                .iter()
+                .any(|c| c.sort.as_ref() == "doc-prefix" && c.value == "  ")
+        );
+        let mut stack = vec![node];
+        let mut alias_count = 0;
+        while let Some(n) = stack.pop() {
+            if n.is_named() && n.grammar_name() != n.kind() {
+                alias_count += 1;
+                assert!(schema.constraints.values().any(|cs| {
+                    cs.iter().any(|c| {
+                        c.sort.as_ref() == "start-byte" && c.value == n.start_byte().to_string()
+                    }) && cs.iter().any(|c| {
+                        c.sort.as_ref() == "pre-alias-symbol" && c.value == n.grammar_name()
+                    })
+                }));
+            }
+            stack.extend(n.children(&mut n.walk()));
+        }
+        assert!(alias_count > 0, "fixture must exercise a grammar alias");
     }
 }

@@ -437,18 +437,6 @@ impl GrammarCassette for ShellFamilyCassette {
     }
 }
 
-/// Cassette for the C-family raw-string grammars (C++, CUDA, HLSL,
-/// Arduino). These share `raw_string_delimiter` and `raw_string_content`
-/// externals whose actual text is parse-time dependent; emit empty when
-/// there is no captured literal.
-struct CFamilyCassette;
-
-impl GrammarCassette for CFamilyCassette {
-    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
-        None // Common layer handles raw_string_* uniformly.
-    }
-}
-
 /// Cassette for C#. Its interpolated strings (`$"…{x}…"`) carry the whole
 /// string span — delimiters, captured content, and the `{`/`}`
 /// interpolation braces — as scanner-driven external tokens whose layout
@@ -499,17 +487,6 @@ impl GrammarCassette for CSharpCassette {
             kind,
             "string_content" | "interpolation_brace" | "interpolation_quote" | "raw_string_content"
         )
-    }
-}
-
-/// Cassette for JavaScript / TypeScript / TSX / QML, which share the
-/// `_ternary_qmark`, `_automatic_semicolon`, `regex_pattern`, and
-/// `jsx_text` externals.
-struct JsFamilyCassette;
-
-impl GrammarCassette for JsFamilyCassette {
-    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
-        None // Common layer covers all the JS family externals.
     }
 }
 
@@ -592,8 +569,6 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
         "bash" | "zsh" | "fish" => Arc::new(ShellFamilyCassette),
         "r" => Arc::new(RCassette),
         "csharp" => Arc::new(CSharpCassette),
-        "cpp" | "cuda" | "hlsl" | "arduino" | "c" => Arc::new(CFamilyCassette),
-        "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
         "elm" => Arc::new(ElmCassette),
         "kotlin" => Arc::new(KotlinCassette),
         "agda" | "fsharp" | "fsharp_signature" | "earthfile" | "firrtl" | "cooklang" | "djot"
