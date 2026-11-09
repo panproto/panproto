@@ -1114,14 +1114,6 @@ mod dependency_tests {
         parser.parse(source, None).unwrap()
     }
 
-    fn protocol() -> Protocol {
-        Protocol {
-            name: "fixture".into(),
-            has_order: true,
-            ..Protocol::default()
-        }
-    }
-
     fn meta() -> ExtractedTheoryMeta {
         extract_theory_from_node_types("ThFixture", b"[]").unwrap()
     }
@@ -1145,8 +1137,56 @@ mod dependency_tests {
     }
 
     #[test]
+    fn choice_witnesses_record_exact_content_and_omit_empty_constraints() {
+        let p = Protocol::default();
+        let m = meta();
+        for (source, kind, expected) in [
+            ("", "program", vec![]),
+            (
+                "x;",
+                "program",
+                vec![("chose-alt-child-kinds", "expression_statement")],
+            ),
+            (";", "empty_statement", vec![("chose-alt-fingerprint", ";")]),
+            (
+                "a+b;",
+                "binary_expression",
+                vec![
+                    ("chose-alt-child-kinds", "identifier identifier"),
+                    ("chose-alt-fingerprint", "+"),
+                ],
+            ),
+        ] {
+            let t = tree("javascript", source.as_bytes());
+            let schema = AstWalker::new(source.as_bytes(), &m, &p, WalkerConfig::standard(), None)
+                .walk(&t, "fixture")
+                .unwrap();
+            let vertices: Vec<_> = schema
+                .vertices
+                .iter()
+                .filter(|(_, vertex)| vertex.kind.as_ref() == kind)
+                .collect();
+            assert_eq!(vertices.len(), 1, "{source:?}: {kind}");
+            let actual: Vec<_> = values(&schema, vertices[0].0)
+                .into_iter()
+                .filter(|(sort, _)| {
+                    matches!(
+                        sort.as_str(),
+                        "chose-alt-child-kinds" | "chose-alt-fingerprint"
+                    )
+                })
+                .collect();
+            let expected: Vec<(String, String)> = expected
+                .into_iter()
+                .map(|(sort, value)| (sort.into(), value.into()))
+                .collect();
+            assert_eq!(actual, expected, "{source:?}: {kind}");
+        }
+    }
+
+    #[test]
     fn interstitial_boundaries_reject_empty_invalid_and_out_of_range_spans() {
-        let p = protocol();
+        let p = Protocol::default();
         let m = meta();
         let source = b"  ; \xff";
         let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
@@ -1186,7 +1226,7 @@ mod dependency_tests {
 
     #[test]
     fn formatting_records_only_whitespace_indent_and_positive_blank_lines() {
-        let p = protocol();
+        let p = Protocol::default();
         let m = meta();
         for (source, indent, blank_lines) in [
             (&b"x;\n  y;"[..], Some("  "), None),
@@ -1234,7 +1274,7 @@ mod dependency_tests {
 
     #[test]
     fn root_wrappers_keep_file_identity_and_depth_limit_is_inclusive() {
-        let p = protocol();
+        let p = Protocol::default();
         let m = meta();
         for (language, source) in [
             ("javascript", &b"x;"[..]),
@@ -1286,7 +1326,7 @@ mod dependency_tests {
             .named_child(0)
             .unwrap();
         assert_eq!(expression.kind(), "binary_expression");
-        let p = protocol();
+        let p = Protocol::default();
         let m = meta();
         let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
         let mut c = cell(&p);
@@ -1327,7 +1367,7 @@ mod dependency_tests {
         ] {
             let p = Protocol {
                 obj_kinds: kinds.into_iter().map(Into::into).collect(),
-                ..protocol()
+                ..Protocol::default()
             };
             let mut m = meta();
             if theory_error {
@@ -1375,7 +1415,7 @@ mod dependency_tests {
         ] {
             let p = Protocol {
                 obj_kinds: kinds.into_iter().map(Into::into).collect(),
-                ..protocol()
+                ..Protocol::default()
             };
             let mut m = meta();
             m.vertex_kinds = known.into_iter().map(Into::into).collect();
@@ -1397,7 +1437,7 @@ mod dependency_tests {
     fn anonymous_blocks_scope_descendants_without_scoping_the_file_wrapper() {
         let source = b"{ x; } y;";
         let t = tree("javascript", source);
-        let p = protocol();
+        let p = Protocol::default();
         let m = meta();
         let config = WalkerConfig {
             extra_block_kinds: vec!["program".into()],
@@ -1426,7 +1466,7 @@ mod dependency_tests {
         let t = tree("rust", source);
         let node = t.root_node().named_child(0).unwrap();
         assert_eq!(node.start_byte(), 2);
-        let p = protocol();
+        let p = Protocol::default();
         let m = meta();
         let walker = AstWalker::new(source, &m, &p, WalkerConfig::standard(), None);
         let mut c = BuilderCell::new(SchemaBuilder::new(&p));
