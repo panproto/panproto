@@ -1166,7 +1166,7 @@ mod dependency_tests {
         assert_eq!(index, 0);
         walker.capture_interstitial(&mut c, "fixture", 0, 2, &mut index, &mut fingerprint);
         assert_eq!(index, 1);
-        assert!(fingerprint.is_empty());
+        assert_eq!(fingerprint, [] as [String; 0]);
         walker.capture_interstitial(&mut c, "fixture", 2, 4, &mut index, &mut fingerprint);
         assert_eq!(index, 2);
         assert_eq!(fingerprint, [";"]);

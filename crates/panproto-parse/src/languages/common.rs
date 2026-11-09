@@ -474,8 +474,8 @@ mod dependency_tests {
         assert_eq!(p.instance_theory, "ThRustFullASTInstance");
         assert!(p.schema_composition.is_none());
         assert!(p.instance_composition.is_none());
-        assert!(p.obj_kinds.is_empty());
-        assert!(p.edge_rules.is_empty());
+        assert_eq!(p.obj_kinds, [] as [String; 0]);
+        assert_eq!(p.edge_rules, [] as [panproto_schema::EdgeRule; 0]);
         let sorts: Vec<&str> = p.constraint_sorts.iter().map(AsRef::as_ref).collect();
         assert_eq!(
             sorts,
