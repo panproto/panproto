@@ -1,8 +1,7 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "pages": {
     "values": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/values.rs",
         "crates/panproto-reference/src/enumerate/values.rs"
@@ -14,7 +13,6 @@
           "references": [
             "panproto_reference::value::representation"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -42,7 +40,6 @@
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -64,7 +61,6 @@
           "references": [
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -86,7 +82,6 @@
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -108,7 +103,6 @@
           "references": [
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -131,7 +125,6 @@
             "panproto_reference::coerce::coerce",
             "panproto_reference::coerce::coerce_value"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -159,7 +152,6 @@
           "references": [
             "panproto_reference::float::computed_nan"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -182,7 +174,6 @@
             "panproto_reference::float::narrow_bits",
             "panproto_reference::float::widen_bits"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -211,7 +202,6 @@
             "panproto_reference::float::shortest",
             "panproto_reference::float::round_to"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -239,7 +229,6 @@
           "references": [
             "panproto_reference::exact::DecimalValue::cmp_numeric"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -261,7 +250,6 @@
           "references": [
             "panproto_reference::exact::Decimal::compare_total"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -283,7 +271,6 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -306,7 +293,6 @@
             "panproto_reference::canonical::decode_value",
             "panproto_reference::canonical::value_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -328,7 +314,6 @@
           "references": [
             "panproto_reference::value::eval"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -350,7 +335,6 @@
           "references": [
             "panproto_reference::temporal::parse_display"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -372,7 +356,6 @@
           "references": [
             "panproto_reference::temporal::display_parse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -394,7 +377,6 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -416,7 +398,6 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -444,7 +425,6 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -466,7 +446,6 @@
           "references": [
             "panproto_reference::temporal::cmp_chronological"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -488,7 +467,6 @@
           "references": [
             "panproto_reference::temporal::canonical_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -510,7 +488,6 @@
           "references": [
             "panproto_reference::coerce::coerce_tagged"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -532,7 +509,6 @@
           "references": [
             "panproto_reference::coerce::coerce_dialect"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -556,7 +532,6 @@
             "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_decode_encode"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -580,7 +555,6 @@
             "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_text_encode_decode"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -602,7 +576,6 @@
           "references": [
             "panproto_reference::bytes::optional"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -624,7 +597,6 @@
           "references": [
             "panproto_reference::bytes::optional"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -646,7 +618,6 @@
           "references": [
             "panproto_reference::temporal::from_epoch_count"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -668,7 +639,6 @@
           "references": [
             "panproto_reference::temporal::to_epoch_count"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -702,7 +672,6 @@
           "references": [
             "panproto_reference::float::binary16"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -724,7 +693,6 @@
           "references": [
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -752,7 +720,6 @@
           "references": [
             "panproto_reference::float::shortest"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -781,7 +748,6 @@
             "panproto_reference::float::exact_reading",
             "panproto_reference::coerce::coerce"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -827,7 +793,6 @@
           "references": [
             "panproto_reference::exact::Decimal::cmp_numeric"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -849,7 +814,6 @@
           "references": [
             "panproto_reference::exact::Decimal::cmp_numeric"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -871,7 +835,6 @@
           "references": [
             "panproto_reference::exact::Decimal::compare_total"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -893,7 +856,6 @@
           "references": [
             "panproto_reference::canonical::decimal_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -915,7 +877,6 @@
           "references": [
             "panproto_reference::temporal::unwritten_zulu"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -939,7 +900,6 @@
             "panproto_reference::bytes::latin1_encode",
             "panproto_reference::bytes::latin1_encode_decode"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -963,7 +923,6 @@
             "panproto_reference::bytes::encode_base64",
             "panproto_reference::bytes::padded_bytes_decode_encode"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -985,7 +944,6 @@
           "references": [
             "panproto_reference::float::round_to"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1001,11 +959,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "value-io": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/value_io.rs",
         "crates/panproto-reference/src/enumerate/value_io.rs"
@@ -1017,7 +973,6 @@
           "references": [
             "panproto_reference::value_io::round_trip"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1063,7 +1018,6 @@
           "references": [
             "panproto_reference::value_io::emit"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1109,7 +1063,6 @@
           "references": [
             "panproto_reference::value_io::presence"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1140,7 +1093,6 @@
           "references": [
             "panproto_reference::value_io::parse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1195,7 +1147,6 @@
           "references": [
             "panproto_reference::value_io::temporal"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1223,7 +1174,6 @@
           "references": [
             "panproto_reference::value_io::bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -1251,7 +1201,6 @@
           "references": [
             "panproto_reference::value_io::decimal"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1272,8 +1221,7 @@
           "anchor": "L-value-io-8",
           "references": [
             "panproto_reference::value_io::raw_numeric"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.duplicate-member-refusal",
@@ -1281,7 +1229,6 @@
           "references": [
             "panproto_reference::value_io::duplicate_member"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1303,7 +1250,6 @@
           "references": [
             "panproto_reference::value_io::encoding"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1337,7 +1283,6 @@
           "references": [
             "panproto_reference::value_io::toml_scalar"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1360,7 +1305,6 @@
             "panproto_reference::value_io::xml_entity",
             "panproto_reference::xml::expand_entities"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1394,7 +1338,6 @@
           "references": [
             "panproto_reference::value_io::xml_encoding"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1422,7 +1365,6 @@
           "references": [
             "panproto_reference::value_io::tsv_comment"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1444,7 +1386,6 @@
           "references": [
             "panproto_reference::value_io::tabular_missing"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1466,7 +1407,6 @@
           "references": [
             "panproto_reference::value_io::tabular_empty_row"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1488,7 +1428,6 @@
           "references": [
             "panproto_reference::value_io::tsv_quote"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1510,7 +1449,6 @@
           "references": [
             "panproto_reference::value_io::xml_expanded_name"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1532,7 +1470,6 @@
           "references": [
             "panproto_reference::value_io::blob_writer"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1565,8 +1502,7 @@
           "anchor": "L-value-io-20",
           "references": [
             "panproto_reference::value_io::round_trip_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.vf8-presentation-preservation-cst",
@@ -1575,7 +1511,6 @@
             "panproto_reference::value_io::preserve",
             "panproto_reference::value_io::preserve_cst"
           ],
-          "due_gate": "release",
           "consumers": [
             {
               "role": "production",
@@ -1599,16 +1534,14 @@
           "anchor": "L-value-io-22",
           "references": [
             "panproto_reference::value_io::parse_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.duplicate-member-refusal-cst",
           "anchor": "L-value-io-23",
           "references": [
             "panproto_reference::value_io::duplicate_member_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.encoding-and-bom-preservation-cst",
@@ -1616,7 +1549,6 @@
           "references": [
             "panproto_reference::value_io::encoding_bom_cst"
           ],
-          "due_gate": "release",
           "consumers": [
             {
               "role": "production",
@@ -1640,8 +1572,7 @@
           "anchor": "L-value-io-25",
           "references": [
             "panproto_reference::toml::decimal_bigint_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.xml-entity-bounded-expansion-cst",
@@ -1649,8 +1580,7 @@
           "references": [
             "panproto_reference::xml::bounded_expansion_cst",
             "panproto_reference::xml::expand_entities"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.xml-byte-round-trip-cst",
@@ -1658,7 +1588,6 @@
           "references": [
             "panproto_reference::xml::round_trip_cst"
           ],
-          "due_gate": "release",
           "consumers": [
             {
               "role": "production",
@@ -1682,53 +1611,32 @@
           "anchor": "L-value-io-28",
           "references": [
             "panproto_reference::tabular::missing_token_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.one-column-empty-row-round-trip-cst",
           "anchor": "L-value-io-29",
           "references": [
             "panproto_reference::tabular::one_column_empty_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.tsv-quote-acceptance-cst",
           "anchor": "L-value-io-30",
           "references": [
             "panproto_reference::tabular::tsv_quote_cst"
-          ],
-          "due_gate": "release"
+          ]
         },
         {
           "id": "value-io.xml-expanded-name-function-cst",
           "anchor": "L-value-io-31",
           "references": [
             "panproto_reference::xml::expanded_name_cst"
-          ],
-          "due_gate": "release"
+          ]
         }
-      ],
-      "due_gate": "candidate",
-      "release_scope": [
-        "L-value-io-20",
-        "L-value-io-21",
-        "L-value-io-22",
-        "L-value-io-23",
-        "L-value-io-24",
-        "L-value-io-25",
-        "L-value-io-26",
-        "L-value-io-27",
-        "L-value-io-28",
-        "L-value-io-29",
-        "L-value-io-30",
-        "L-value-io-31",
-        "L-value-io-8"
       ]
     },
     "theories": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/theories.rs",
         "crates/panproto-reference/src/enumerate/theories.rs"
@@ -1740,7 +1648,6 @@
           "references": [
             "panproto_reference::theory::typecheck_signature"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1762,7 +1669,6 @@
           "references": [
             "panproto_reference::theory::typecheck_signature"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1784,7 +1690,6 @@
           "references": [
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1806,7 +1711,6 @@
           "references": [
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1840,7 +1744,6 @@
           "references": [
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1862,7 +1765,6 @@
           "references": [
             "panproto_reference::theory::quotient"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1884,7 +1786,6 @@
           "references": [
             "panproto_reference::theory::check_morphism"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1912,7 +1813,6 @@
           "references": [
             "panproto_reference::theory::recompose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1928,11 +1828,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "keys-and-registration": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/keys_and_registration.rs",
         "crates/panproto-reference/src/enumerate/keys_and_registration.rs"
@@ -1944,7 +1842,6 @@
           "references": [
             "panproto_reference::keys::key_value"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -1990,7 +1887,6 @@
           "references": [
             "panproto_reference::keys::buckets"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2042,7 +1938,6 @@
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2100,7 +1995,6 @@
           "references": [
             "panproto_reference::schema::classify_change"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2159,7 +2053,6 @@
             "panproto_reference::theory::typecheck_signature",
             "panproto_reference::theory::compose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -2199,7 +2092,6 @@
           "references": [
             "panproto_reference::theory::recompose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -2246,7 +2138,6 @@
             "panproto_reference::theory::canonical_theory_bytes",
             "panproto_reference::theory::canonical_composition_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2280,7 +2171,6 @@
           "references": [
             "panproto_reference::keys::key_equivalence"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2302,7 +2192,6 @@
           "references": [
             "panproto_reference::keys::representation_refines"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2330,7 +2219,6 @@
           "references": [
             "panproto_reference::schema::canonical_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2352,7 +2240,6 @@
           "references": [
             "panproto_reference::keys::sort_order"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2374,7 +2261,6 @@
           "references": [
             "panproto_reference::keys::key_order"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2396,7 +2282,6 @@
           "references": [
             "panproto_reference::keys::target_set"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2424,7 +2309,6 @@
           "references": [
             "panproto_reference::keys::xml_noncdata"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2447,7 +2331,6 @@
             "panproto_reference::schema::canonical_bytes",
             "panproto_reference::schema::validate_declarations"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2511,7 +2394,6 @@
           "references": [
             "panproto_reference::resolution::get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2545,7 +2427,6 @@
           "references": [
             "panproto_reference::keys::lexical_space_outcome"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2568,7 +2449,6 @@
             "panproto_reference::keys::annotated_format_outcome",
             "panproto_reference::keys::uuid_format"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2584,11 +2464,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "representation": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/representation.rs",
         "crates/panproto-reference/src/enumerate/representation.rs"
@@ -2600,7 +2478,6 @@
           "references": [
             "panproto_reference::encode::tree_to_graph"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2622,7 +2499,6 @@
           "references": [
             "panproto_reference::encode::graph_to_tree"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2644,7 +2520,6 @@
           "references": [
             "panproto_reference::encode::reify"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2668,7 +2543,6 @@
             "panproto_reference::canonical::decode_table",
             "panproto_reference::canonical::decode_tree"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2702,7 +2576,6 @@
           "references": [
             "panproto_reference::canonical::identity"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2724,7 +2597,6 @@
           "references": [
             "panproto_reference::encode::table_to_graph"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2746,7 +2618,6 @@
           "references": [
             "panproto_reference::encode::graph_to_table"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2768,7 +2639,6 @@
           "references": [
             "panproto_reference::fan::violations_at"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2784,11 +2654,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "kan-extensions": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/kan_extensions.rs",
         "crates/panproto-reference/src/enumerate/kan_extensions.rs"
@@ -2801,7 +2669,6 @@
             "panproto_reference::rel::delta",
             "panproto_reference::rel::delta_on_hom"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2842,7 +2709,6 @@
             "panproto_reference::rel::sigma",
             "panproto_reference::rel::sigma_on_hom"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2907,7 +2773,6 @@
             "panproto_reference::rel::pi",
             "panproto_reference::rel::pi_on_hom"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -2954,7 +2819,6 @@
             "panproto_reference::rel::sigma_transpose_forward",
             "panproto_reference::rel::sigma_transpose_inverse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3001,7 +2865,6 @@
             "panproto_reference::rel::pi_transpose_forward",
             "panproto_reference::rel::pi_transpose_inverse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3046,7 +2909,6 @@
             "panproto_reference::rel::sigma_transpose_forward",
             "panproto_reference::rel::sigma_transpose_inverse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3091,7 +2953,6 @@
             "panproto_reference::rel::pi_transpose_forward",
             "panproto_reference::rel::pi_transpose_inverse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3136,7 +2997,6 @@
             "panproto_reference::encode::g_sigma",
             "panproto_reference::migration::graph_square"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3236,7 +3096,6 @@
           "references": [
             "panproto_reference::migration::table_square"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3267,7 +3126,6 @@
             "panproto_reference::encode::t_sigma",
             "panproto_reference::migration::tree_square"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3289,7 +3147,6 @@
           "references": [
             "panproto_reference::rel::entity_functor"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3317,7 +3174,6 @@
           "references": [
             "panproto_reference::rel::classify"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3333,11 +3189,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "restrict-and-contraction": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/restrict_and_contraction.rs",
         "crates/panproto-reference/src/enumerate/restrict_and_contraction.rs"
@@ -3350,7 +3204,6 @@
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::edge_image"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3378,7 +3231,6 @@
           "references": [
             "panproto_reference::restrict::contraction_plan"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3400,7 +3252,6 @@
           "references": [
             "panproto_reference::restrict::resolve_pair"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3424,7 +3275,6 @@
             "panproto_reference::restrict::edge_image",
             "panproto_reference::restrict::compile"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3488,7 +3338,6 @@
           "references": [
             "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3510,7 +3359,6 @@
           "references": [
             "panproto_reference::restrict::column_fates"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3532,7 +3380,6 @@
           "references": [
             "panproto_reference::restrict::scalar_child_bindings"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3566,7 +3413,6 @@
           "references": [
             "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3601,7 +3447,6 @@
             "panproto_reference::lens::TreeShape::check_put_domain",
             "panproto_reference::lens::tree_put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3648,7 +3493,6 @@
             "panproto_reference::lens::check_tree_laws",
             "panproto_reference::lens::TreeShape::single_step_basis"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3688,7 +3532,6 @@
             "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::Delta::apply",
             "panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3812,7 +3655,6 @@
           "references": [
             "panproto_reference::lens::tree_get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3835,7 +3677,6 @@
             "panproto_reference::restrict::get",
             "panproto_reference::restrict::realized_pairs_by_walks"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3851,11 +3692,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "edits": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/edits.rs",
         "crates/panproto-reference/src/enumerate/edits.rs"
@@ -3869,7 +3708,6 @@
             "panproto_reference::edit::independence",
             "panproto_reference::edit::merge"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3906,7 +3744,6 @@
             "panproto_reference::edit::compose_table",
             "panproto_reference::edit::diff_table"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3947,7 +3784,6 @@
             "panproto_reference::edit::Delta::compose",
             "panproto_reference::edit::graph_delta_from_tree_edit"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -3989,7 +3825,6 @@
             "panproto_reference::edit::canonical_table_delta_bytes",
             "panproto_reference::edit::canonical_tree_edit_bytes"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4038,7 +3873,6 @@
             "panproto_reference::edit::apply_table_step",
             "panproto_reference::edit::delete_row_delta"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4067,7 +3901,6 @@
             "panproto_reference::edit::apply_tree",
             "panproto_reference::edit::graph_delta_from_tree_edit"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4095,7 +3928,6 @@
           "references": [
             "panproto_reference::edit::Delta::compose"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4120,7 +3952,6 @@
             "panproto_reference::edit::get_edit",
             "panproto_reference::edit::put_edit"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4166,11 +3997,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "validation": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/validation.rs",
         "crates/panproto-reference/src/enumerate/validation.rs"
@@ -4185,7 +4014,6 @@
             "panproto_reference::validation::validate_tree",
             "panproto_reference::validation::status"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4219,7 +4047,6 @@
           "references": [
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4254,7 +4081,6 @@
             "panproto_reference::validation::witness_with_trust",
             "panproto_reference::validation::incremental_footprint"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4289,7 +4115,6 @@
             "panproto_reference::validation::witness_with_trust",
             "panproto_reference::validation::incremental_report"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4323,7 +4148,6 @@
           "references": [
             "panproto_reference::validation::witness_with_trust"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4357,7 +4181,6 @@
           "references": [
             "panproto_reference::validation::witness_with_trust"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4391,7 +4214,6 @@
           "references": [
             "panproto_reference::validation::witness_with_trust"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4421,7 +4243,6 @@
             "panproto_reference::validation::validate_table",
             "panproto_reference::validation::validate_tree"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4461,7 +4282,6 @@
           "references": [
             "panproto_reference::validation::restriction_boundary"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4489,7 +4309,6 @@
           "references": [
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4523,7 +4342,6 @@
           "references": [
             "panproto_reference::validation::validate"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -4557,7 +4375,6 @@
           "references": [
             "panproto_reference::validation::admits"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4579,7 +4396,6 @@
           "references": [
             "panproto_reference::resolution::declared_key_equality"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4613,7 +4429,6 @@
           "references": [
             "panproto_reference::resolution::nearest_preceding"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4642,7 +4457,6 @@
             "panproto_reference::keys::target_set",
             "panproto_reference::schema::validate_declarations"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4678,7 +4492,6 @@
             "panproto_reference::resolution::put",
             "panproto_reference::schema::validate_declarations"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4719,7 +4532,6 @@
             "panproto_reference::validation::classify_selector",
             "panproto_reference::validation::lexical_space"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4771,7 +4583,6 @@
           "references": [
             "panproto_reference::validation::annotated_format_parse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4793,7 +4604,6 @@
           "references": [
             "panproto_reference::validation::annotated_format_advisory"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4815,7 +4625,6 @@
           "references": [
             "panproto_reference::validation::format_assertion_acceptance"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4831,11 +4640,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "segments": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/segments.rs",
         "crates/panproto-reference/src/enumerate/segments.rs"
@@ -4847,7 +4654,6 @@
           "references": [
             "panproto_reference::segment::partition"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4869,7 +4675,6 @@
           "references": [
             "panproto_reference::segment::partition"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4892,7 +4697,6 @@
             "panproto_reference::segment::partition",
             "panproto_reference::segment::glue"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4917,7 +4721,6 @@
             "panproto_reference::segment::seal_manifest",
             "panproto_reference::segment::verify_manifest"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -4976,7 +4779,6 @@
             "panproto_reference::segment::task_inputs_digest",
             "panproto_reference::segment::journal_task_reusable"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "production",
@@ -5007,7 +4809,6 @@
             "panproto_reference::segment::validate_segment_contract",
             "panproto_reference::segment::verify_manifest"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5035,7 +4836,6 @@
           "references": [
             "panproto_reference::segment::validate_segment_contract"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5058,7 +4858,6 @@
             "panproto_reference::segment::validation_view_preflight",
             "panproto_reference::segment::validate_segment_contract"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5098,7 +4897,6 @@
           "references": [
             "panproto_reference::segment::segmented"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5120,7 +4918,6 @@
           "references": [
             "panproto_reference::segment::fresh"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5136,33 +4933,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
+      ]
     },
     "lenses": {
-      "inventory_status": "partial",
-      "open_scope": [
-        "L-lenses-1",
-        "L-lenses-2",
-        "L-lenses-3",
-        "L-lenses-4",
-        "L-lenses-5",
-        "L-lenses-6",
-        "L-lenses-7",
-        "L-lenses-8",
-        "L-lenses-9",
-        "L-lenses-10",
-        "L-lenses-11",
-        "L-lenses-12",
-        "L-lenses-13",
-        "L-lenses-14",
-        "L-lenses-15",
-        "L-lenses-16",
-        "L-lenses-17",
-        "L-lenses-18",
-        "L-lenses-19",
-        "L-lenses-20"
-      ],
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
         "crates/panproto-reference/src/pages/lenses/alignment.rs",
@@ -5188,7 +4961,6 @@
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5213,7 +4985,6 @@
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5238,7 +5009,6 @@
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5263,7 +5033,6 @@
             "panproto_reference::lens::get",
             "panproto_reference::lens::put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5321,7 +5090,6 @@
             "panproto_reference::lens::tree_put",
             "panproto_reference::lens::align_tree_view"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5361,7 +5129,6 @@
           "references": [
             "panproto_reference::lens::compose_complement"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5386,7 +5153,6 @@
             "panproto_reference::encode::tree_to_graph",
             "panproto_reference::encode::table_to_graph"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5413,7 +5179,6 @@
             "panproto_reference::lens::check_graph_laws",
             "panproto_reference::lens::check_laws_report"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5458,7 +5223,6 @@
             "panproto_reference::lens::graph_square",
             "panproto_reference::lens::graph_put_square"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5484,7 +5248,6 @@
             "panproto_reference::table::obstruction_to_isomorphism",
             "panproto_reference::table::put_without_complement"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5506,7 +5269,6 @@
           "references": [
             "panproto_reference::table::get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5531,7 +5293,6 @@
             "panproto_reference::table::get",
             "panproto_reference::table::TableLens::put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5603,7 +5364,6 @@
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5627,7 +5387,6 @@
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5651,7 +5410,6 @@
             "panproto_reference::path::get_path",
             "panproto_reference::path::put_path"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5678,7 +5436,6 @@
             "panproto_reference::lens::TableShape::get",
             "panproto_reference::lens::TableShape::put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5713,7 +5470,6 @@
             "panproto_reference::lens::graph_square",
             "panproto_reference::lens::graph_put_square"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5738,7 +5494,6 @@
             "panproto_reference::lens::relational_table_get",
             "panproto_reference::lens::relational_table_put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5766,7 +5521,6 @@
           "references": [
             "panproto_reference::lens::protolens_schema"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5788,7 +5542,6 @@
           "references": [
             "panproto_reference::lens::protolens_instance"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -5804,59 +5557,9 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate"
-    },
-    "dsl-semantics": {
-      "inventory_status": "pending",
-      "reference_files": [
-        "crates/panproto-reference/src/pages/dsl_semantics.rs",
-        "crates/panproto-reference/src/enumerate/dsl_semantics.rs"
-      ],
-      "laws": [],
-      "open_scope": [
-        "first independent inventory of laws, operations, domains and refusals"
-      ],
-      "due_gate": "candidate"
-    },
-    "vcs": {
-      "inventory_status": "pending",
-      "reference_files": [
-        "crates/panproto-reference/src/pages/vcs.rs",
-        "crates/panproto-reference/src/enumerate/vcs.rs"
-      ],
-      "laws": [],
-      "open_scope": [
-        "first independent inventory of laws, operations, domains and refusals"
-      ],
-      "due_gate": "candidate"
-    },
-    "migration-solver": {
-      "inventory_status": "pending",
-      "reference_files": [
-        "crates/panproto-reference/src/pages/migration_solver.rs",
-        "crates/panproto-reference/src/enumerate/migration_solver.rs"
-      ],
-      "laws": [],
-      "open_scope": [
-        "first independent inventory of laws, operations, domains and refusals"
-      ],
-      "due_gate": "candidate"
-    },
-    "parsing": {
-      "inventory_status": "pending",
-      "reference_files": [
-        "crates/panproto-reference/src/pages/parsing.rs",
-        "crates/panproto-reference/src/enumerate/parsing.rs"
-      ],
-      "laws": [],
-      "open_scope": [
-        "first independent inventory of laws, operations, domains and refusals"
-      ],
-      "due_gate": "release"
+      ]
     },
     "resolution": {
-      "inventory_status": "complete",
       "reference_files": [
         "crates/panproto-reference/src/pages/resolution.rs",
         "crates/panproto-reference/src/enumerate/resolution.rs"
@@ -5870,7 +5573,6 @@
             "panproto_reference::resolution::put",
             "panproto_reference::resolution::deferred_form"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6035,7 +5737,6 @@
             "panproto_reference::resolution::coherent_rekey",
             "panproto_reference::resolution::equivalent"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6179,7 +5880,6 @@
             "panproto_reference::resolution::check_put_domain",
             "panproto_reference::resolution::indexed_put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6210,7 +5910,6 @@
             "panproto_reference::resolution::coherent_rename",
             "panproto_reference::resolution::indexed_put"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6272,7 +5971,6 @@
             "panproto_reference::resolution::coherent_rekey",
             "panproto_reference::resolution::gated_put_twice"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6300,7 +5998,6 @@
           "references": [
             "panproto_reference::resolution::uri_environment"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6322,7 +6019,6 @@
           "references": [
             "panproto_reference::resolution::rfc3986"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6344,7 +6040,6 @@
           "references": [
             "panproto_reference::resolution::text_identity"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6366,7 +6061,6 @@
           "references": [
             "panproto_reference::resolution::guarded_partition"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6389,7 +6083,6 @@
             "panproto_reference::resolution::standoff_form",
             "panproto_reference::resolution::standoff_byte_span"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6412,7 +6105,6 @@
             "panproto_reference::resolution::standoff_inverse",
             "panproto_reference::resolution::standoff_byte_inverse"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6434,7 +6126,6 @@
           "references": [
             "panproto_reference::resolution::get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6456,7 +6147,6 @@
           "references": [
             "panproto_reference::resolution::inherited_base"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6479,7 +6169,6 @@
             "panproto_reference::resolution::declared_key_equality",
             "panproto_reference::resolution::get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6508,7 +6197,6 @@
             "panproto_reference::resolution::nearest_preceding",
             "panproto_reference::resolution::get"
           ],
-          "due_gate": "candidate",
           "consumers": [
             {
               "role": "differential",
@@ -6548,7 +6236,6 @@
           "references": [
             "panproto_reference::resolution::preserving_registry"
           ],
-          "due_gate": "release",
           "consumers": [
             {
               "role": "reference",
@@ -6558,261 +6245,6 @@
             }
           ]
         }
-      ],
-      "due_gate": "candidate",
-      "release_scope": [
-        "L-resolution-16"
-      ]
-    },
-    "edit-lenses": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "graph and table edit lenses",
-        "tree edit lenses",
-        "validation admission of edit lenses"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/edit_lenses.rs",
-        "crates/panproto-reference/src/enumerate/edit_lenses.rs"
-      ],
-      "laws": [],
-      "due_gate": "extended"
-    },
-    "segment-execution": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "segment classifier and preflight",
-        "execution and stores",
-        "budgets and reports",
-        "execution tests"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/segment_execution.rs",
-        "crates/panproto-reference/src/enumerate/segment_execution.rs"
-      ],
-      "laws": [],
-      "due_gate": "execution"
-    },
-    "formats/api": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "API protocol inventory",
-        "API format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/api.rs",
-        "crates/panproto-reference/src/enumerate/formats/api.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/config": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "configuration protocol inventory",
-        "configuration format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/config.rs",
-        "crates/panproto-reference/src/enumerate/formats/config.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/data-schema": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "data-schema protocol inventory",
-        "data-schema format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/data_schema.rs",
-        "crates/panproto-reference/src/enumerate/formats/data_schema.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/data-science": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "data-science protocol inventory",
-        "data-science format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/data_science.rs",
-        "crates/panproto-reference/src/enumerate/formats/data_science.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/database": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "database protocol inventory",
-        "database-family semantics",
-        "database keys and references"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/database.rs",
-        "crates/panproto-reference/src/enumerate/formats/database.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate",
-      "release_scope": [
-        "Redis preserving-entry sublaws of L-resolution-16",
-        "CST-route fixture sublaws of value fidelity"
-      ]
-    },
-    "formats/domain": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "domain protocol inventory",
-        "domain format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/domain.rs",
-        "crates/panproto-reference/src/enumerate/formats/domain.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate",
-      "release_scope": [
-        "EDI X12 and SWIFT MT preserving-entry sublaws of L-resolution-16",
-        "CST-route fixture sublaws of value fidelity"
-      ]
-    },
-    "formats/serialization": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "serialization protocol inventory",
-        "serialization resolution laws",
-        "serialization format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/serialization.rs",
-        "crates/panproto-reference/src/enumerate/formats/serialization.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/web-document": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "web-document protocol inventory",
-        "web-document route laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/web_document.rs",
-        "crates/panproto-reference/src/enumerate/formats/web_document.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/xml": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "annotation XML protocol inventory",
-        "XML format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/xml.rs",
-        "crates/panproto-reference/src/enumerate/formats/xml.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/conllu": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "annotation protocol inventory",
-        "annotation format laws",
-        "CoNLL-U proof obligations"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/conllu.rs",
-        "crates/panproto-reference/src/enumerate/formats/conllu.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/text": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "text-format protocol inventory",
-        "value-fidelity laws",
-        "text-format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/text.rs",
-        "crates/panproto-reference/src/enumerate/formats/text.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate",
-      "release_scope": [
-        "preserving-route resolution sublaws",
-        "CST sublaws of L-value-io-21",
-        "CST-route fixture sublaws of value fidelity"
-      ]
-    },
-    "formats/sql-ddl": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "SQL DDL protocol inventory",
-        "SQL DDL format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/sql_ddl.rs",
-        "crates/panproto-reference/src/enumerate/formats/sql_ddl.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate"
-    },
-    "formats/sql-data": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "SQL data protocol inventory",
-        "SQL data format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/sql_data.rs",
-        "crates/panproto-reference/src/enumerate/formats/sql_data.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate",
-      "release_scope": [
-        "CST-route sublaws of the SQL data protocols",
-        "CST-route fixture sublaws of value fidelity"
-      ]
-    },
-    "formats/code": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "code-parser protocol inventory",
-        "code-parser resolution laws",
-        "code-parser format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/code.rs",
-        "crates/panproto-reference/src/enumerate/formats/code.rs"
-      ],
-      "laws": [],
-      "due_gate": "release"
-    },
-    "formats/rdf": {
-      "inventory_status": "pending",
-      "open_scope": [
-        "RDF protocol inventory",
-        "RDF resolution laws",
-        "RDF format laws"
-      ],
-      "reference_files": [
-        "crates/panproto-reference/src/pages/formats/rdf.rs",
-        "crates/panproto-reference/src/enumerate/formats/rdf.rs"
-      ],
-      "laws": [],
-      "due_gate": "candidate",
-      "release_scope": [
-        "Turtle and JSON-LD tree-route resolution sublaws",
-        "CST-route fixture sublaws of value fidelity"
       ]
     }
   }

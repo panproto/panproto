@@ -2577,56 +2577,7 @@ impl CoverageShard {
 struct CoverageRun {
     tally: CoverageTally,
     shard: CoverageShard,
-    source_commit: Option<String>,
     total_states: usize,
-    completed_state_indices: Vec<usize>,
-    universe_digest: String,
-    elapsed_seconds: f64,
-}
-
-impl CoverageRun {
-    fn emit(&self, certificate: &str) {
-        let report = serde_json::json!({
-            "schema_version": 1,
-            "certificate": certificate,
-            "source_commit": self.source_commit,
-            "shard_index": self.shard.index,
-            "shard_count": self.shard.count,
-            "total_states": self.total_states,
-            "completed_state_indices": self.completed_state_indices,
-            "universe_blake3": self.universe_digest,
-            "source_blake3": {
-                "crates/panproto-inst/tests/reference_edits.rs": blake3::hash(include_bytes!("reference_edits.rs")).to_hex().to_string(),
-                "crates/panproto-reference/src/enumerate/edits.rs": blake3::hash(include_bytes!("../../panproto-reference/src/enumerate/edits.rs")).to_hex().to_string(),
-                "crates/panproto-reference/src/pages/edits.rs": blake3::hash(include_bytes!("../../panproto-reference/src/pages/edits.rs")).to_hex().to_string(),
-            },
-            "tally": {
-                "states": self.tally.states,
-                "words": self.tally.words,
-                "refusals": self.tally.refusals,
-                "replacements": self.tally.replacements,
-                "commuting": self.tally.commuting,
-            },
-            "elapsed_seconds": self.elapsed_seconds,
-            "complete": true,
-        });
-        let encoded = serde_json::to_string(&report).expect("coverage report serializes");
-        if let Some(directory) = std::env::var_os("PANPROTO_EDIT_COVERAGE_REPORT_DIR") {
-            use std::io::Write as _;
-            std::fs::create_dir_all(&directory).expect("coverage report directory exists");
-            let path = std::path::PathBuf::from(directory).join(format!(
-                "{certificate}-{}-of-{}.json",
-                self.shard.index, self.shard.count
-            ));
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(path)
-                .expect("coverage report must not overwrite another attempt");
-            writeln!(file, "{encoded}").expect("coverage report is written");
-        }
-        println!("PANPROTO_EDIT_COVERAGE_JSON {encoded}");
-    }
 }
 
 /// Run every selected source state completely, partitioning by its global
@@ -2636,30 +2587,9 @@ fn coverage_parallel<S: Sync + std::fmt::Debug>(
     work: impl Fn(&carrier::CoverageSchema, &S, &mut CoverageTally) + Sync,
 ) -> CoverageRun {
     let shard = CoverageShard::from_env(jobs.len());
-    let source_commit = match std::env::var("PANPROTO_CERTIFICATE_SOURCE_SHA") {
-        Ok(value) => {
-            assert!(value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()));
-            Some(value)
-        }
-        Err(std::env::VarError::NotPresent) => {
-            assert_eq!(
-                shard.count, 1,
-                "sharded certificates require a frozen source SHA"
-            );
-            None
-        }
-        Err(error) => panic!("invalid certificate source environment: {error}"),
-    };
     let schemas = carrier::coverage_schemas();
-    let mut digest = blake3::Hasher::new();
-    digest.update(format!("edit-source-state-universe-v1:{schemas:?}\n").as_bytes());
-    for (index, state) in jobs.iter().enumerate() {
-        digest.update(format!("{index}:{state:?}\n").as_bytes());
-    }
-    let universe_digest = digest.finalize().to_hex().to_string();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let workers = std::thread::available_parallelism().map_or(1, |n| usize::from(n).min(4));
-    let started = std::time::Instant::now();
     let (tally, mut completed_state_indices) = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
@@ -2706,11 +2636,7 @@ fn coverage_parallel<S: Sync + std::fmt::Debug>(
     CoverageRun {
         tally,
         shard,
-        source_commit,
         total_states: jobs.len(),
-        completed_state_indices,
-        universe_digest,
-        elapsed_seconds: started.elapsed().as_secs_f64(),
     }
 }
 
@@ -2870,7 +2796,6 @@ fn graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
         assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
         assert!(tally.replacements > 0);
     }
-    run.emit("graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope");
 }
 
 #[test]
@@ -2962,9 +2887,6 @@ fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_cove
         );
         assert!(tally.commuting > 0 && !tally.refusals.is_empty());
     }
-    run.emit(
-        "graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope",
-    );
 }
 
 /// The prefix states of the table word under test, by length.
@@ -3115,7 +3037,6 @@ fn table_edits_match_reference_on_every_word_of_the_coverage_scope() {
         );
         assert!(tally.replacements > 0);
     }
-    run.emit("table_edits_match_reference_on_every_word_of_the_coverage_scope");
 }
 
 /// A tree-edit refusal, read exactly from either implementation.
@@ -3345,7 +3266,6 @@ fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope()
         );
         assert!(tally.replacements > 0);
     }
-    run.emit("tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope");
 }
 
 /// Every move of the root, under each node including itself, is a root

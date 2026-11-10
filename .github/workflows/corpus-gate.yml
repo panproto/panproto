@@ -233,9 +233,6 @@ jobs:
           TEST: ${{ matrix.test }}
           SHARD: ${{ matrix.shard }}
           SHARD_ENV: ${{ matrix.shard_env || 'PANPROTO_TEST_SHARD' }}
-          # A shared edit differential records the commit its share was
-          # taken from, and refuses to run a share without one.
-          PANPROTO_CERTIFICATE_SOURCE_SHA: ${{ github.sha }}
         run: |
           if [ -n "$SHARD" ]; then
             export "$SHARD_ENV=$SHARD"
