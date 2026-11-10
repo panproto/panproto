@@ -1274,7 +1274,7 @@ fn tree_release_composite_cases(fixtures: TreeReleaseFixtures) -> Vec<TreeReleas
 }
 
 #[test]
-fn e1_apply_matches_reference_on_every_graph_and_atomic_delta() {
+fn apply_matches_reference_on_every_graph_and_atomic_delta() {
     let graphs = carrier::graphs();
     let deltas = carrier::graph_delta_cases();
     assert_eq!(graphs.len(), 105);
@@ -1303,7 +1303,7 @@ fn e1_apply_matches_reference_on_every_graph_and_atomic_delta() {
 }
 
 #[test]
-fn e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier() {
+fn algebra_matches_reference_on_the_exact_atomic_word_carrier() {
     let cases = carrier::graph_delta_cases();
     assert_eq!(cases.len(), 25);
 
@@ -1379,7 +1379,7 @@ fn e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier() {
 }
 
 #[test]
-fn e1_independence_and_merge_match_reference_on_every_atomic_pair() {
+fn independence_and_merge_match_reference_on_every_atomic_pair() {
     let cases = carrier::graph_delta_cases();
     let mut count = 0usize;
     for first in &cases {
@@ -1466,7 +1466,7 @@ fn decision_9_delete_then_add_is_replacement_even_for_equal_payloads() {
 }
 
 #[test]
-fn e2_t5_table_apply_and_algebra_match_the_exact_release_carrier() {
+fn table_apply_and_algebra_match_the_exact_release_carrier() {
     let tables = carrier::tables();
     let deltas = carrier::table_deltas();
     assert_eq!(
@@ -1807,7 +1807,7 @@ fn e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain() {
 }
 
 #[test]
-fn e3_malformed_tree_embeddings_refuse_without_mutating_the_embedding() {
+fn malformed_tree_embeddings_refuse_without_mutating_the_embedding() {
     let tree = tree(&[(0, "r"), (1, "a")], &[(0, 1, "a")]);
     let (reference_graph, mut reference_embedding_state) =
         panproto_reference::encode::tree_to_graph(&tree, None).expect("tree embeds");
@@ -1873,7 +1873,7 @@ fn production_applied(delta: &reference::GraphDelta, graph: &GInstance) -> Optio
 }
 
 #[test]
-fn e1_independent_deltas_commute_and_merge_on_every_carrier_graph() {
+fn independent_deltas_commute_and_merge_on_every_carrier_graph() {
     let graphs = carrier::graphs();
     let deltas = two_letter_net_deltas();
     let mut independent_pairs = 0usize;
@@ -1937,7 +1937,7 @@ fn e1_independent_deltas_commute_and_merge_on_every_carrier_graph() {
 }
 
 #[test]
-fn e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair() {
+fn diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair() {
     let tables = carrier::tables();
     let mut count = 0usize;
     for before in &tables {
@@ -1965,7 +1965,7 @@ fn e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair(
 }
 
 #[test]
-fn e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
+fn diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
     let malformed = reference_model::Table {
         rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
         pairs: BTreeSet::from([(reference_model::SEdge::new("a", "b", "e", None), 0, 0)]),
@@ -1979,7 +1979,7 @@ fn e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
 }
 
 #[test]
-fn e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
+fn unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
     let cases = carrier::graph_delta_cases();
     let identity = reference::GraphDelta::identity();
     for case in &cases {
@@ -2407,7 +2407,7 @@ fn check_surface_batches(
 }
 
 #[test]
-fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
+fn surface_table_edits_lower_check_and_invert_like_the_reference() {
     let mut steps_checked = 0usize;
     let mut applied = 0usize;
     let mut batches_inverted = 0usize;

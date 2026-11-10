@@ -3130,7 +3130,7 @@ fn external_witness_fixture() -> Result<ExternalWitnessFixture, Box<dyn std::err
 }
 
 #[test]
-fn v6_rejects_run_collection_and_key_mutations() -> TestResult {
+fn witness_verification_rejects_run_collection_and_key_mutations() -> TestResult {
     let fixture = external_witness_fixture()?;
     assert!(fixture.verifies(&fixture.witness));
 
@@ -3154,7 +3154,7 @@ fn v6_rejects_run_collection_and_key_mutations() -> TestResult {
 }
 
 #[test]
-fn v6_rejects_run_verdict_and_finding_mutations() -> TestResult {
+fn witness_verification_rejects_run_verdict_and_finding_mutations() -> TestResult {
     let fixture = external_witness_fixture()?;
     let mut changed_disposition = fixture.witness.clone();
     changed_disposition.runs[0].verdict = RunVerdict::Skipped {
@@ -3179,7 +3179,7 @@ fn v6_rejects_run_verdict_and_finding_mutations() -> TestResult {
 }
 
 #[test]
-fn v6_rejects_replay_external_budget_delta_and_prior_mutations() -> TestResult {
+fn witness_verification_rejects_replay_external_budget_delta_and_prior_mutations() -> TestResult {
     let fixture = external_witness_fixture()?;
     let mut accepted = ExternalVerdicts::default();
     accepted.insert(
@@ -3241,7 +3241,7 @@ fn v6_rejects_replay_external_budget_delta_and_prior_mutations() -> TestResult {
 }
 
 #[test]
-fn v6_rejects_changed_policy() -> TestResult {
+fn witness_verification_rejects_a_changed_policy() -> TestResult {
     let budget = ValidationBudget::default();
     let external = ExternalVerdicts::default();
     let options = WitnessOptions { digests: true };
@@ -3332,7 +3332,7 @@ fn acyclic_witness_plan() -> (Arc<ValidationPlan>, Edge) {
 }
 
 #[test]
-fn v6_rejects_removed_and_reordered_multi_element_reads() -> TestResult {
+fn witness_verification_rejects_removed_and_reordered_multi_element_reads() -> TestResult {
     let budget = ValidationBudget::default();
     let external = ExternalVerdicts::default();
     let options = WitnessOptions { digests: true };
@@ -3802,7 +3802,7 @@ fn assert_v3_v4<I: ValidatedShape>(
 }
 
 #[test]
-fn v3_endpoint_counterexample_has_the_independently_expected_footprint() -> TestResult {
+fn endpoint_counterexample_has_the_independently_expected_footprint() -> TestResult {
     let ab = Edge {
         src: "a".into(),
         tgt: "b".into(),
@@ -3875,7 +3875,7 @@ fn v3_endpoint_counterexample_has_the_independently_expected_footprint() -> Test
 }
 
 #[test]
-fn v4_unknown_anchor_counterexample_has_the_independently_expected_report() -> TestResult {
+fn unknown_anchor_counterexample_has_the_independently_expected_report() -> TestResult {
     let plan = plan(InstanceShapeKind::Graph);
     let graph = GInstance::new().with_node(Node::new(0, "item"));
     let (validated, baseline) = ValidatedGraph::new(
@@ -4583,7 +4583,7 @@ impl Surface for WInstance {
 
 /// Footprint soundness and edit agreement for one generated transition, or, when the edit does not
 /// apply, its typed refusal by every surface with nothing changed.
-fn v3_v4_case<I: Surface>(
+fn footprint_and_agreement_case<I: Surface>(
     plan: &Arc<ValidationPlan>,
     pre: &I,
     delta: &I::Delta,
@@ -4619,7 +4619,7 @@ fn v3_v4_case<I: Surface>(
 /// validation of the new instance and which reattaches; a rejected one
 /// leaves the canonical instance and state bytes unchanged. Returns the
 /// baseline, the prior instance and the witness of an admitted step.
-fn v5_step<I: Surface>(
+fn sequence_agreement_step<I: Surface>(
     validated: &mut Validated<I>,
     plan: &Arc<ValidationPlan>,
     delta: &I::Delta,
@@ -4882,7 +4882,7 @@ fn replay_externals<I: Surface>(replay: &WitnessReplay<'_, I>) -> Vec<ExternalVe
 /// budget, external projection, expected options or baseline) it verifies
 /// iff admission under that context produces a witness of the same bytes,
 /// so that only observationally equivalent changes are accepted.
-fn v6_case<I: Surface>(
+fn witness_verification_case<I: Surface>(
     plan: &Arc<ValidationPlan>,
     replay: &WitnessReplay<'_, I>,
     witness: &EditWitness,
@@ -5037,7 +5037,7 @@ fn arb_draw() -> impl Strategy<Value = Draw> {
 
 /// Footprint soundness and edit agreement over the three transitions of
 /// one draw.
-fn v3_v4_draw(draw: &Draw) -> TestResult {
+fn footprint_and_agreement_draw(draw: &Draw) -> TestResult {
     let (pre, delta) = &draw.graph;
     let mut elements = graph_elements(pre);
     let mut post = pre.clone();
@@ -5046,7 +5046,7 @@ fn v3_v4_draw(draw: &Draw) -> TestResult {
     }
     let (before, after) = projections(&draw.before, &draw.after, &elements);
     let plan = law_plan(&draw.case, InstanceShapeKind::Graph);
-    v3_v4_case(&plan, pre, delta, &draw.baseline_budget, &before, &after)?;
+    footprint_and_agreement_case(&plan, pre, delta, &draw.baseline_budget, &before, &after)?;
 
     let (pre, delta) = &draw.table;
     let mut elements = table_elements(pre);
@@ -5056,7 +5056,7 @@ fn v3_v4_draw(draw: &Draw) -> TestResult {
     }
     let (before, after) = projections(&draw.before, &draw.after, &elements);
     let plan = law_plan(&draw.case, InstanceShapeKind::Table);
-    v3_v4_case(&plan, pre, delta, &draw.baseline_budget, &before, &after)?;
+    footprint_and_agreement_case(&plan, pre, delta, &draw.baseline_budget, &before, &after)?;
 
     let (pre, edit) = &draw.tree;
     let mut elements = tree_elements(pre);
@@ -5066,7 +5066,7 @@ fn v3_v4_draw(draw: &Draw) -> TestResult {
     }
     let (before, after) = projections(&draw.before, &draw.after, &elements);
     let plan = law_plan(&draw.case, InstanceShapeKind::Tree);
-    v3_v4_case(&plan, pre, edit, &draw.baseline_budget, &before, &after)
+    footprint_and_agreement_case(&plan, pre, edit, &draw.baseline_budget, &before, &after)
 }
 
 proptest! {
@@ -5076,14 +5076,14 @@ proptest! {
     /// element kind, replacements, path keys, `Within` scopes, moved
     /// subtrees, external changes and finite-budget baselines.
     #[test]
-    fn v3_footprint_soundness(draw in arb_draw()) {
-        v3_v4_draw(&draw).map_err(|error| TestCaseError::fail(error.to_string()))?;
+    fn footprint_soundness(draw in arb_draw()) {
+        footprint_and_agreement_draw(&draw).map_err(|error| TestCaseError::fail(error.to_string()))?;
     }
 
     /// Edit agreement with a finite-budget baseline and target external
     /// evidence that differs from the baseline's.
     #[test]
-    fn v4_edit_agreement(
+    fn edit_agreement(
         draw in arb_draw(),
         limit in 0_u64..20,
         after in proptest::collection::vec(0_u8..3, 1..4),
@@ -5093,7 +5093,7 @@ proptest! {
         if draw.after == draw.before {
             draw.after = after;
         }
-        v3_v4_draw(&draw).map_err(|error| TestCaseError::fail(error.to_string()))?;
+        footprint_and_agreement_draw(&draw).map_err(|error| TestCaseError::fail(error.to_string()))?;
     }
 }
 
@@ -5131,7 +5131,7 @@ fn trigger_table_is_complete_for_every_element_kind() {
             let delta = graph_delta_of(&pre, &ops);
             let external = projection(&choices, graph_elements(&pre));
             let plan = law_plan(&case, InstanceShapeKind::Graph);
-            v3_v4_case(
+            footprint_and_agreement_case(
                 &plan,
                 &pre,
                 &delta,
@@ -5157,7 +5157,7 @@ fn trigger_table_is_complete_for_every_element_kind() {
             let delta = TableDelta::diff(&pre, &post);
             let external = projection(&choices, table_elements(&pre));
             let plan = law_plan(&case, InstanceShapeKind::Table);
-            v3_v4_case(
+            footprint_and_agreement_case(
                 &plan,
                 &pre,
                 &delta,
@@ -5180,7 +5180,7 @@ fn trigger_table_is_complete_for_every_element_kind() {
             let edit = tree_edit_of(&pre, &ops);
             let external = projection(&choices, tree_elements(&pre));
             let plan = law_plan(&case, InstanceShapeKind::Tree);
-            v3_v4_case(
+            footprint_and_agreement_case(
                 &plan,
                 &pre,
                 &edit,
@@ -5231,8 +5231,8 @@ const fn policy(require_passed: bool) -> AdmissionPolicy {
 /// Sequence agreement over one shape: from a trusted initialization under `initial`
 /// (finite or not), apply every step through `next`, which draws the step's
 /// delta against the current instance, and check each step with
-/// [`v5_step`]; every admitted step's witness also passes [`v6_case`].
-fn v5_sequence<I: Surface, Op: Clone>(
+/// [`sequence_agreement_step`]; every admitted step's witness also passes [`witness_verification_case`].
+fn sequence_agreement_over_one_shape<I: Surface, Op: Clone>(
     plan: &Arc<ValidationPlan>,
     start: I,
     initial: &ValidationBudget,
@@ -5257,7 +5257,7 @@ fn v5_sequence<I: Surface, Op: Clone>(
         let options = WitnessOptions {
             digests: i % 2 == 0,
         };
-        let admitted = v5_step(
+        let admitted = sequence_agreement_step(
             &mut validated,
             plan,
             &delta,
@@ -5266,7 +5266,7 @@ fn v5_sequence<I: Surface, Op: Clone>(
             options,
         )?;
         if witnesses && let Some((baseline, prior, witness)) = admitted {
-            v6_case(
+            witness_verification_case(
                 plan,
                 &WitnessReplay {
                     plan,
@@ -5292,7 +5292,7 @@ proptest! {
     /// batches of several operations, external changes and invalid and
     /// finite-budget baselines, in every shape.
     #[test]
-    fn v5_sequence_agreement(
+    fn sequence_agreement(
         case in arb_validation_schema(),
         graph in arb_ginstance(),
         graph_steps in arb_steps(arb_graph_op(&GRAPH_FAMILIES)),
@@ -5302,7 +5302,7 @@ proptest! {
         tree_steps in arb_steps(arb_tree_op(&TREE_FAMILIES)),
         initial in arb_baseline_budget(),
     ) {
-        v5_sequence(
+        sequence_agreement_over_one_shape(
             &law_plan(&case, InstanceShapeKind::Graph),
             graph,
             &initial,
@@ -5310,7 +5310,7 @@ proptest! {
             graph_delta_of,
             false,
         )?;
-        v5_sequence(
+        sequence_agreement_over_one_shape(
             &law_plan(&case, InstanceShapeKind::Table),
             table,
             &initial,
@@ -5324,7 +5324,7 @@ proptest! {
             },
             false,
         )?;
-        v5_sequence(
+        sequence_agreement_over_one_shape(
             &law_plan(&case, InstanceShapeKind::Tree),
             tree,
             &initial,
@@ -5339,7 +5339,7 @@ proptest! {
     /// alteration of the witness or of the context is accepted exactly when
     /// it is observationally equivalent.
     #[test]
-    fn v6_every_witness_verifies_and_mutations_fail(
+    fn every_witness_verifies_and_mutations_fail(
         case in arb_validation_schema(),
         graph in arb_ginstance(),
         graph_steps in arb_steps(arb_graph_op(&GRAPH_FAMILIES)),
@@ -5349,7 +5349,7 @@ proptest! {
         tree_steps in arb_steps(arb_tree_op(&TREE_FAMILIES)),
         initial in arb_baseline_budget(),
     ) {
-        v5_sequence(
+        sequence_agreement_over_one_shape(
             &law_plan(&case, InstanceShapeKind::Graph),
             graph,
             &initial,
@@ -5357,7 +5357,7 @@ proptest! {
             graph_delta_of,
             true,
         )?;
-        v5_sequence(
+        sequence_agreement_over_one_shape(
             &law_plan(&case, InstanceShapeKind::Table),
             table,
             &initial,
@@ -5371,7 +5371,7 @@ proptest! {
             },
             true,
         )?;
-        v5_sequence(
+        sequence_agreement_over_one_shape(
             &law_plan(&case, InstanceShapeKind::Tree),
             tree,
             &initial,
@@ -5687,7 +5687,7 @@ const BOUNDED_PROJECTIONS: [&[u8]; 3] = [&[], &[1], &[2]];
 /// from an unlimited and a four-read baseline, under unchanged and changed
 /// external projections on the diagonal.
 #[test]
-fn v3_v4_hold_on_every_bounded_graph_transition() {
+fn footprint_soundness_and_edit_agreement_hold_on_every_bounded_graph_transition() {
     let case = bounded_schema();
     let plan = law_plan(&case, InstanceShapeKind::Graph);
     let graphs = every_bounded_graph();
@@ -5702,13 +5702,13 @@ fn v3_v4_hold_on_every_bounded_graph_transition() {
                 ValidationBudget { max_reads: Some(4) }
             };
             let pass = projection(&[1], graph_elements(pre));
-            v3_v4_case(&plan, pre, &delta, &budget, &pass, &pass).unwrap();
+            footprint_and_agreement_case(&plan, pre, &delta, &budget, &pass, &pass).unwrap();
             checked += 1;
         }
         for before in BOUNDED_PROJECTIONS {
             for after in BOUNDED_PROJECTIONS {
                 let (x, y) = projections(before, after, &graph_elements(pre));
-                v3_v4_case(
+                footprint_and_agreement_case(
                     &plan,
                     pre,
                     &GraphDelta::identity(),
@@ -5726,7 +5726,7 @@ fn v3_v4_hold_on_every_bounded_graph_transition() {
 /// Footprint soundness and edit agreement on every ordered pair of bounded tables (1024 transitions),
 /// under every pair of bounded projections.
 #[test]
-fn v3_v4_hold_on_every_bounded_table_transition() {
+fn footprint_soundness_and_edit_agreement_hold_on_every_bounded_table_transition() {
     let case = bounded_table_schema();
     let plan = law_plan(&case, InstanceShapeKind::Table);
     let tables = every_bounded_table();
@@ -5737,7 +5737,15 @@ fn v3_v4_hold_on_every_bounded_table_transition() {
             for (i, before) in BOUNDED_PROJECTIONS.iter().enumerate() {
                 let after = BOUNDED_PROJECTIONS[(i + 1) % 3];
                 let (x, y) = projections(before, after, &table_elements(pre));
-                v3_v4_case(&plan, pre, &delta, &ValidationBudget::default(), &x, &y).unwrap();
+                footprint_and_agreement_case(
+                    &plan,
+                    pre,
+                    &delta,
+                    &ValidationBudget::default(),
+                    &x,
+                    &y,
+                )
+                .unwrap();
             }
         }
     }
@@ -5746,7 +5754,7 @@ fn v3_v4_hold_on_every_bounded_table_transition() {
 /// Footprint soundness and edit agreement on every bounded tree with every step of its step menu,
 /// from an unlimited and a four-read baseline.
 #[test]
-fn v3_v4_hold_on_every_bounded_tree_step() {
+fn footprint_soundness_and_edit_agreement_hold_on_every_bounded_tree_step() {
     let case = bounded_schema();
     let plan = law_plan(&case, InstanceShapeKind::Tree);
     let trees = every_bounded_tree();
@@ -5759,7 +5767,7 @@ fn v3_v4_hold_on_every_bounded_tree_step() {
                 ValidationBudget { max_reads: Some(4) }
             };
             let pass = projection(&[1], tree_elements(pre));
-            v3_v4_case(&plan, pre, &step, &budget, &pass, &pass).unwrap();
+            footprint_and_agreement_case(&plan, pre, &step, &budget, &pass, &pass).unwrap();
             checked += 1;
         }
     }
@@ -5853,7 +5861,7 @@ fn bounded_step<I: Surface>(
         let options = WitnessOptions {
             digests: counts.steps.is_multiple_of(2),
         };
-        let admitted = v5_step(
+        let admitted = sequence_agreement_step(
             &mut next,
             plan,
             delta,
@@ -5865,7 +5873,7 @@ fn bounded_step<I: Surface>(
         counts.steps += 1;
         admissions.push(admitted.is_some());
         if witnesses && let Some((baseline, prior, witness)) = admitted {
-            v6_case(
+            witness_verification_case(
                 plan,
                 &WitnessReplay {
                     plan,

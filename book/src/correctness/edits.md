@@ -88,8 +88,8 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 - Reference: `panproto_reference::edit::diff_table`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_table_words; bound: word_length=3`
 - Exhaustive differential test: `table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
-- Production certificate: `e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
-- Outside-domain test: `e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables; witness: row 0 in table a with pair (a -e-> b, 0, 0)`
+- Production certificate: `diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair)'`
+- Outside-domain test: `diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables; witness: row 0 in table a with pair (a -e-> b, 0, 0)`
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`
@@ -224,7 +224,7 @@ A row payload is its table name together with its complete cell map. A relation 
 - Reference: `panproto_reference::edit::delete_row_delta`
 - Enumerator: `panproto_reference::enumerate::edits::coverage_table_words; bound: word_length=3`
 - Exhaustive differential test: `table_edits_match_reference_on_every_word_of_the_coverage_scope; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=table_edits_match_reference_on_every_word_of_the_coverage_scope)'`
-- Production certificate: `t5_surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=t5_surface_table_edits_lower_check_and_invert_like_the_reference)'`
+- Production certificate: `surface_table_edits_lower_check_and_invert_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=surface_table_edits_lower_check_and_invert_like_the_reference)'`
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/src/table_edit.rs`
 - File: `crates/panproto-reference/src/pages/edits.rs`

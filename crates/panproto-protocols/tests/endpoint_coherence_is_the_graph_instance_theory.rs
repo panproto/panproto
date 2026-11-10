@@ -422,7 +422,7 @@ fn sweep_one(
 }
 
 #[test]
-fn v10_endpoint_coherence_agrees_with_the_graph_instance_theory() {
+fn endpoint_coherence_agrees_with_the_graph_instance_theory() {
     assert_reference_validation_on_the_endpoint_carrier();
     let schema = schema();
     let (graphs, incoherent) = sweep(
@@ -444,7 +444,7 @@ fn v10_endpoint_coherence_agrees_with_the_graph_instance_theory() {
 /// label it does not declare (`zb: z -> b`), on every graph of up to three
 /// nodes and three edges.
 #[test]
-fn v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels() {
+fn endpoint_coherence_agrees_on_undeclared_anchors_and_labels() {
     let schema = schema();
     let (graphs, incoherent) = sweep(
         &schema,
@@ -533,7 +533,7 @@ fn an_edge_into_a_union_may_end_at_a_variant() {
 /// variants, a recursion point and a reference vertex), over every graph of
 /// up to three nodes and three edges anchored anywhere in the schema.
 #[test]
-fn v10_endpoint_coherence_agrees_on_anchor_families() {
+fn endpoint_coherence_agrees_on_anchor_families() {
     let schema = family_schema();
     let (graphs, incoherent) = sweep(
         &schema,

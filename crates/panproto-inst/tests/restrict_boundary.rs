@@ -493,7 +493,7 @@ proptest! {
     /// validation. The generator keeps unresolved and transform-failing
     /// migrations: their error is a compilation or engine error.
     #[test]
-    fn v9_restrict_boundary(
+    fn restrict_is_validation_then_compilation_then_the_engine(
         ns in prop::collection::vec(-2i64..4, 0..4),
         stray in any::<bool>(),
         failing_transform in any::<bool>(),

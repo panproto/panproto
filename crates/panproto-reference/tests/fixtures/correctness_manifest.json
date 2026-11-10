@@ -1124,7 +1124,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i12_default_routes_distinguish_null_from_absence"
+              "test": "default_routes_distinguish_null_from_absence"
             },
             {
               "role": "differential",
@@ -1235,7 +1235,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i4_byte_paths_compare_both_directions_and_blob_layout_is_exact"
+              "test": "byte_paths_compare_both_directions_and_blob_layout_is_exact"
             },
             {
               "role": "differential",
@@ -1321,7 +1321,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+              "test": "canonical_encoding_normalizes_while_cst_encoding_is_exact"
             },
             {
               "role": "differential",
@@ -1406,7 +1406,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+              "test": "canonical_encoding_normalizes_while_cst_encoding_is_exact"
             },
             {
               "role": "differential",
@@ -1550,7 +1550,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i4_byte_paths_compare_both_directions_and_blob_layout_is_exact"
+              "test": "byte_paths_compare_both_directions_and_blob_layout_is_exact"
             },
             {
               "role": "differential",
@@ -1590,7 +1590,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes"
+              "test": "preservation_paths_accept_exact_bytes_and_reject_changed_bytes"
             }
           ]
         },
@@ -1631,7 +1631,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i7_canonical_encoding_normalizes_while_cst_encoding_is_exact"
+              "test": "canonical_encoding_normalizes_while_cst_encoding_is_exact"
             }
           ]
         },
@@ -1673,7 +1673,7 @@
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::values_io_direct",
-              "test": "i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes"
+              "test": "preservation_paths_accept_exact_bytes_and_reject_changed_bytes"
             }
           ]
         },
@@ -3875,19 +3875,19 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e1_apply_matches_reference_on_every_graph_and_atomic_delta"
+              "test": "apply_matches_reference_on_every_graph_and_atomic_delta"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e1_independence_and_merge_match_reference_on_every_atomic_pair"
+              "test": "independence_and_merge_match_reference_on_every_atomic_pair"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e1_independent_deltas_commute_and_merge_on_every_carrier_graph"
+              "test": "independent_deltas_commute_and_merge_on_every_carrier_graph"
             },
             {
               "role": "differential",
@@ -3912,19 +3912,19 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier"
+              "test": "algebra_matches_reference_on_the_exact_atomic_word_carrier"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e2_t5_table_apply_and_algebra_match_the_exact_release_carrier"
+              "test": "table_apply_and_algebra_match_the_exact_release_carrier"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair"
+              "test": "diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair"
             },
             {
               "role": "differential",
@@ -3953,7 +3953,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier"
+              "test": "algebra_matches_reference_on_the_exact_atomic_word_carrier"
             },
             {
               "role": "differential",
@@ -3965,7 +3965,7 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple"
+              "test": "unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple"
             },
             {
               "role": "differential",
@@ -4044,13 +4044,13 @@
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "e2_t5_table_apply_and_algebra_match_the_exact_release_carrier"
+              "test": "table_apply_and_algebra_match_the_exact_release_carrier"
             },
             {
               "role": "differential",
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_edits",
-              "test": "t5_surface_table_edits_lower_check_and_invert_like_the_reference"
+              "test": "surface_table_edits_lower_check_and_invert_like_the_reference"
             },
             {
               "role": "differential",
@@ -4266,7 +4266,7 @@
               "role": "production",
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
-              "test": "v3_v4_hold_on_every_bounded_graph_transition"
+              "test": "footprint_soundness_and_edit_agreement_hold_on_every_bounded_graph_transition"
             },
             {
               "role": "reference",
@@ -4301,7 +4301,7 @@
               "role": "production",
               "crate": "panproto-inst",
               "binary": "panproto-inst::validation_incremental",
-              "test": "v3_v4_hold_on_every_bounded_table_transition"
+              "test": "footprint_soundness_and_edit_agreement_hold_on_every_bounded_table_transition"
             },
             {
               "role": "reference",
@@ -4495,19 +4495,19 @@
               "role": "differential",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
-              "test": "v10_endpoint_coherence_agrees_with_the_graph_instance_theory"
+              "test": "endpoint_coherence_agrees_with_the_graph_instance_theory"
             },
             {
               "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
-              "test": "v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels"
+              "test": "endpoint_coherence_agrees_on_undeclared_anchors_and_labels"
             },
             {
               "role": "production",
               "crate": "panproto-protocols",
               "binary": "panproto-protocols::endpoint_coherence_is_the_graph_instance_theory",
-              "test": "v10_endpoint_coherence_agrees_on_anchor_families"
+              "test": "endpoint_coherence_agrees_on_anchor_families"
             },
             {
               "role": "differential",

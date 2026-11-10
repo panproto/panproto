@@ -124,7 +124,7 @@ The table covers default canonical emission. A configured tabular missing token 
 - Reference: `panproto_reference::value_io::presence`
 - Evidence scope: `panproto_reference::enumerate::value_io::presences; routes=6, states=2, labelled cases=12`
 - Production certificate: `default_routes_match_null_and_absence_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --features tree-sitter --no-tests=fail -E 'test(=default_routes_match_null_and_absence_reference)'`
-- Independent reference anchor: `i12_default_routes_distinguish_null_from_absence; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i12_default_routes_distinguish_null_from_absence)'`
+- Independent reference anchor: `default_routes_distinguish_null_from_absence; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=default_routes_distinguish_null_from_absence)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
 - Property differential test: `randomized_presence_outcomes; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_presence_outcomes)'`
 - Randomized input scope: five always-compiled canonical routes and both null/absence states; native syntax, omission or the exact typed refusal class.
@@ -228,7 +228,7 @@ The generic encoder is `json_pathway::encode_bytes`. The route writer is `write_
 - Reference: `panproto_reference::value_io::bytes`
 - Evidence scope: `panproto_reference::enumerate::value_io::byte_strings; byte strings=65793, BytesText variants=7, labelled delegation cases=460551, independent equality witnesses=3`
 - Production certificate: `json_pathway::tests::every_byte_text_route_writer_agrees_with_the_generic_encoder; command: cargo nextest run --release --locked -p panproto-io --lib --no-tests=fail -E 'test(=json_pathway::tests::every_byte_text_route_writer_agrees_with_the_generic_encoder)'`
-- Independent reference anchor: `i4_byte_paths_compare_both_directions_and_blob_layout_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i4_byte_paths_compare_both_directions_and_blob_layout_is_exact)'`
+- Independent reference anchor: `byte_paths_compare_both_directions_and_blob_layout_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=byte_paths_compare_both_directions_and_blob_layout_is_exact)'`
 - Production certificate file: `crates/panproto-io/src/json_pathway.rs`
 - Property differential test: `json_pathway::tests::randomized_byte_text_route_writer; command: cargo nextest run --locked -p panproto-io --lib --no-tests=fail -E 'test(=json_pathway::tests::randomized_byte_text_route_writer)'`
 - Randomized input scope: byte vectors of length at most sixteen and all seven byte-text encodings; generic encoder output compared with the JSON writer through the reference byte-agreement predicate, including typed encoding refusal.
@@ -259,7 +259,7 @@ Spelling equality is Unicode string equality. Numeric equality after reparsing i
 - Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3, special_decimals=10, routes=5`
 - Production differential test: `bounded_decimal_writer_spellings_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_decimal_writer_spellings_match_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i5_decimal_route_agreement_is_exact_in_both_directions; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i5_decimal_route_agreement_is_exact_in_both_directions)'`
+- Exhaustive differential test: `decimal_route_agreement_is_exact_in_both_directions; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=decimal_route_agreement_is_exact_in_both_directions)'`
 - Fixed regression test: `canonical_routes_keep_extreme_decimal_zero_scale_and_sign; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=canonical_routes_keep_extreme_decimal_zero_scale_and_sign)'`
 - Property differential test: `randomized_numeric_emission_and_round_trip; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_numeric_emission_and_round_trip)'`
 - Randomized input scope: two signs, coefficients 0 through 99, exponents -1 through 1, ten special decimals and thirteen exact-integer lexemes, on five canonical writers; emitted token or refusal, exact TOML carrier and four canonical-reader section equations.
@@ -289,7 +289,7 @@ The reference returns `source_lexeme == emitted_lexeme`. Thus `1.00e+2` is prese
 - Law ID: `value-io.raw-numeric-lexeme-preservation`
 - Reference: `panproto_reference::value_io::raw_numeric`
 - Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3`
-- Exhaustive differential test: `i9_raw_numeric_preserves_the_written_lexeme_not_only_its_value; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i9_raw_numeric_preserves_the_written_lexeme_not_only_its_value)'`
+- Exhaustive differential test: `raw_numeric_preserves_the_written_lexeme_not_only_its_value; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=raw_numeric_preserves_the_written_lexeme_not_only_its_value)'`
 - Property differential test: `preserving_routes_keep_extreme_decimal_zero_scale_and_sign; command: cargo nextest run -p panproto-io --test text_route_repairs --features tree-sitter --no-tests=fail -E 'test(=preserving_routes_keep_extreme_decimal_zero_scale_and_sign)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
@@ -319,7 +319,7 @@ The function inserts names into an initially empty `BTreeSet` and returns `true`
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, json_spellings=3, xml_spellings=3`
 - Production differential test: `bounded_duplicate_member_refusals_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_duplicate_member_refusals_match_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i6_duplicate_member_paths_find_nonadjacent_duplicates_only; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i6_duplicate_member_paths_find_nonadjacent_duplicates_only)'`
+- Exhaustive differential test: `duplicate_member_paths_find_nonadjacent_duplicates_only; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=duplicate_member_paths_find_nonadjacent_duplicates_only)'`
 - Fixed regression test: `preserving::json_cst_rejects_duplicate_keys_and_preserves_non_string_type_data; command: cargo nextest run -p panproto-io --test value_fidelity_corpus --features tree-sitter --no-tests=fail -E 'test(=preserving::json_cst_rejects_duplicate_keys_and_preserves_non_string_type_data)'`
 - Property differential test: `randomized_duplicate_member_refusals; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_duplicate_member_refusals)'`
 - Randomized input scope: member sequences of length at most two over three JSON spellings or three XML attribute spellings; decoded-name duplication and exact second-name offset/refusal.
@@ -351,7 +351,7 @@ UTF-8 validity is Rust string validity. The excluded prefixes are `EF BB BF`, `F
 - Evidence scope: `panproto_reference::enumerate::value_io::canonical_xml_encoding_cases; accepted XML encodings=4, typed refusal cases=2, and leading-mark documents=3 (JSON, CSV and TSV)`
 - Production certificate: `canonical_xml_normalizes_encodings_and_reports_typed_refusals; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_xml_normalizes_encodings_and_reports_typed_refusals)'`
 - Leading-mark certificate: `canonical_json_and_tabular_routes_read_past_a_leading_byte_order_mark; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_json_and_tabular_routes_read_past_a_leading_byte_order_mark)'`
-- Independent reference anchor: `i7_canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
+- Independent reference anchor: `canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
 - Property differential test: `randomized_canonical_encoding; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_canonical_encoding)'`
 - Randomized input scope: ASCII text of length one through eight, XML sources in UTF-8, both UTF-16 byte orders, ISO-8859-1 or US-ASCII, and UTF-8 BOM inputs for JSON/CSV/TSV; preserved value and canonical output bytes.
@@ -382,7 +382,7 @@ A token is the complete TOML scalar spelling, excluding surrounding document tri
 - Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3`
 - Production differential test: `bounded_decimal_writer_spellings_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_decimal_writer_spellings_match_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits)'`
+- Exhaustive differential test: `toml_scalar_paths_preserve_decimal_scale_and_bigint_digits; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=toml_scalar_paths_preserve_decimal_scale_and_bigint_digits)'`
 - Fixed regression test: `toml_writes_exact_decimals_and_big_integers; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=toml_writes_exact_decimals_and_big_integers)'`
 - Property differential test: `randomized_numeric_emission_and_round_trip; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_numeric_emission_and_round_trip)'`
 - Randomized input scope: two signs, coefficients 0 through 99, exponents -1 through 1, ten special decimals and thirteen exact-integer lexemes, on five canonical writers; emitted token or refusal, exact TOML carrier and four canonical-reader section equations.
@@ -453,7 +453,7 @@ The optional declaration is present exactly when the bytes begin with `<?xml` fo
 - Reference: `panproto_reference::value_io::xml_encoding`
 - Evidence scope: `panproto_reference::enumerate::value_io::canonical_xml_encoding_cases; accepted source-encoding fixtures=4, fixed refusal witnesses=2`
 - Production certificate: `canonical_xml_normalizes_encodings_and_reports_typed_refusals; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_xml_normalizes_encodings_and_reports_typed_refusals)'`
-- Independent reference anchor: `i7_canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
+- Independent reference anchor: `canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
 - Property differential test: `randomized_canonical_encoding; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_canonical_encoding)'`
 - Randomized input scope: ASCII text of length one through eight, XML sources in UTF-8, both UTF-16 byte orders, ISO-8859-1 or US-ASCII, and UTF-8 BOM inputs for JSON/CSV/TSV; preserved value and canonical output bytes.
@@ -517,7 +517,7 @@ An *ordinary text cell* parses as `Value::Str` under a text declaration. Exact s
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, symbols=2, routes=2`
 - Production differential test: `bounded_tabular_observables_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_tabular_observables_match_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i1_tabular_missing_paths_recognize_only_the_literal_missing_token; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i1_tabular_missing_paths_recognize_only_the_literal_missing_token)'`
+- Exhaustive differential test: `tabular_missing_paths_recognize_only_the_literal_missing_token; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=tabular_missing_paths_recognize_only_the_literal_missing_token)'`
 - Fixed regression test: `an_underscore_cell_is_text; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=an_underscore_cell_is_text)'`
 - Property differential test: `randomized_tabular_observables; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_tabular_observables)'`
 - Randomized input scope: words of length at most two over the stated comment, missing-token, empty-row and quote alphabets; CSV/TSV selection and one/two columns, compared with the four reference predicates and emitted/reread cells.
@@ -549,7 +549,7 @@ The reference returns `column_count == 1 && line.is_empty()`, the conjunction st
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, columns=2, routes=2`
 - Production differential test: `bounded_tabular_observables_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_tabular_observables_match_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i2_tabular_empty_row_paths_require_one_column_and_an_empty_line; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i2_tabular_empty_row_paths_require_one_column_and_an_empty_line)'`
+- Exhaustive differential test: `tabular_empty_row_paths_require_one_column_and_an_empty_line; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=tabular_empty_row_paths_require_one_column_and_an_empty_line)'`
 - Fixed regression test: `one_column_empty_rows_and_tsv_quotes_round_trip; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=one_column_empty_rows_and_tsv_quotes_round_trip)'`
 - Property differential test: `randomized_tabular_observables; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_tabular_observables)'`
 - Randomized input scope: words of length at most two over the stated comment, missing-token, empty-row and quote alphabets; CSV/TSV selection and one/two columns, compared with the four reference predicates and emitted/reread cells.
@@ -613,7 +613,7 @@ The function clones `namespace` and `local` into a tuple without inspecting or t
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, names=2, prefixes=2, attribute_documents=144`
 - Production differential test: `bounded_xml_expanded_names_match_reference; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=bounded_xml_expanded_names_match_reference)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
-- Exhaustive differential test: `i11_xml_expanded_name_paths_preserve_namespace_then_local_order; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i11_xml_expanded_name_paths_preserve_namespace_then_local_order)'`
+- Exhaustive differential test: `xml_expanded_name_paths_preserve_namespace_then_local_order; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=xml_expanded_name_paths_preserve_namespace_then_local_order)'`
 - Fixed regression test: `preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding; command: cargo nextest run -p panproto-io --test value_fidelity_corpus --features tree-sitter --no-tests=fail -E 'test(=preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding)'`
 - Property differential test: `randomized_xml_expanded_names; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_xml_expanded_names)'`
 - Randomized input scope: two attributes over six prefix/local-name pairs and four namespace assignments; Clark names or exact duplicate-member name and offset.
@@ -649,7 +649,7 @@ JSON quoting escapes quote and backslash, uses the named escapes for backspace, 
 - Evidence scope: `panproto_reference::enumerate::value_io::blob_fields and single_scalars; writer cases=4, reserved-shape near misses=15, duplicate-key refusals=2, direct-node refusal=1, parser-depth boundaries=4, one-scalar link and media-type strings=1112064; covering empty strings, JSON escaping, literal DEL and C1 characters, BMP and non-BMP Unicode, size 0, and u64::MAX`
 - Production certificate: `canonical_blob_writer_matches_independent_atproto_layout; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=canonical_blob_writer_matches_independent_atproto_layout)'`
 - Escape-set certificate: `every_single_scalar_blob_field_matches_the_reference_layout; command: cargo nextest run --release --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=every_single_scalar_blob_field_matches_the_reference_layout)'`
-- Independent reference anchor: `i4_byte_paths_compare_both_directions_and_blob_layout_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i4_byte_paths_compare_both_directions_and_blob_layout_is_exact)'`
+- Independent reference anchor: `byte_paths_compare_both_directions_and_blob_layout_is_exact; command: cargo nextest run --release --locked -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=byte_paths_compare_both_directions_and_blob_layout_is_exact)'`
 - Production differential file: `crates/panproto-io/tests/reference_value_io.rs`
 - Property differential test: `randomized_blob_writer; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_blob_writer)'`
 - Randomized input scope: link and media-type strings of length at most four and every u64 size; exact independent blob layout and parsed carrier.
@@ -708,7 +708,7 @@ CST preservation compares the complete encoded source, not a token subset and no
 - Reference: `panproto_reference::value_io::preserve_cst`
 - Evidence scope: `fixed equality witnesses=3, noncanonical JSON registry documents=1`
 - Production certificate: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --features tree-sitter --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
-- Independent reference anchor: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
+- Independent reference anchor: `preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
 
@@ -763,7 +763,7 @@ Member-name equality and the quantified duplicate condition are those of [L-valu
 - Law ID: `value-io.duplicate-member-refusal-cst`
 - Reference: `panproto_reference::value_io::duplicate_member_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, names=2`
-- Exhaustive differential test: `i6_duplicate_member_paths_find_nonadjacent_duplicates_only; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i6_duplicate_member_paths_find_nonadjacent_duplicates_only)'`
+- Exhaustive differential test: `duplicate_member_paths_find_nonadjacent_duplicates_only; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=duplicate_member_paths_find_nonadjacent_duplicates_only)'`
 - Property differential test: `preserving::json_cst_rejects_duplicate_keys_and_preserves_non_string_type_data; command: cargo nextest run -p panproto-io --test value_fidelity_corpus --features tree-sitter --no-tests=fail -E 'test(=preserving::json_cst_rejects_duplicate_keys_and_preserves_non_string_type_data)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
@@ -792,7 +792,7 @@ The source encoding signature is part of the complete CST byte sequence. No tran
 - Reference: `panproto_reference::value_io::encoding_bom_cst`
 - Evidence scope: `UTF-8-BOM equality witnesses=2, production corpus=all accepted declared protocol fixtures`
 - Production certificate: `fixture_corpus_is_byte_faithful; command: cargo nextest run -p panproto-io --test data_format_corpus --features tree-sitter --no-tests=fail -E 'test(=fixture_corpus_is_byte_faithful)'`
-- Independent reference anchor: `i7_canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i7_canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
+- Independent reference anchor: `canonical_encoding_normalizes_while_cst_encoding_is_exact; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=canonical_encoding_normalizes_while_cst_encoding_is_exact)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
 
@@ -819,7 +819,7 @@ Token equality here is byte-for-byte string equality. It is stricter than the re
 - Law ID: `value-io.toml-decimal-bigint-round-trip-cst`
 - Reference: `panproto_reference::toml::decimal_bigint_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::numerals; bound: digits=2, exponents=3`
-- Exhaustive differential test: `i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits)'`
+- Exhaustive differential test: `toml_scalar_paths_preserve_decimal_scale_and_bigint_digits; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=toml_scalar_paths_preserve_decimal_scale_and_bigint_digits)'`
 - Property differential test: `toml_cst_writes_exact_decimals_and_big_integers; command: cargo nextest run -p panproto-io --test text_route_repairs --features tree-sitter --no-tests=fail -E 'test(=toml_cst_writes_exact_decimals_and_big_integers)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
@@ -878,7 +878,7 @@ Exact XML bytes include declarations, namespace-prefix spellings, entity spellin
 - Reference: `panproto_reference::xml::round_trip_cst`
 - Evidence scope: `fixed equality witnesses=3, mixed-content XML fixtures=4`
 - Production certificate: `xml_mixed_content_round_trips_byte_faithfully; command: cargo nextest run -p panproto-io --test data_format_corpus --features tree-sitter --no-tests=fail -E 'test(=xml_mixed_content_round_trips_byte_faithfully)'`
-- Independent reference anchor: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
+- Independent reference anchor: `preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
 
@@ -905,7 +905,7 @@ The cell predicate and ordinary-data interpretation are those of [L-value-io-15]
 - Law ID: `value-io.tabular-missing-token-cst`
 - Reference: `panproto_reference::tabular::missing_token_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, symbols=2`
-- Exhaustive differential test: `i1_tabular_missing_paths_recognize_only_the_literal_missing_token; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i1_tabular_missing_paths_recognize_only_the_literal_missing_token)'`
+- Exhaustive differential test: `tabular_missing_paths_recognize_only_the_literal_missing_token; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=tabular_missing_paths_recognize_only_the_literal_missing_token)'`
 - Property differential test: `an_underscore_cell_is_text; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=an_underscore_cell_is_text)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
@@ -933,7 +933,7 @@ The one-column empty-row relation is defined in [L-value-io-16](#L-value-io-16).
 - Law ID: `value-io.one-column-empty-row-round-trip-cst`
 - Reference: `panproto_reference::tabular::one_column_empty_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, columns=2`
-- Exhaustive differential test: `i2_tabular_empty_row_paths_require_one_column_and_an_empty_line; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i2_tabular_empty_row_paths_require_one_column_and_an_empty_line)'`
+- Exhaustive differential test: `tabular_empty_row_paths_require_one_column_and_an_empty_line; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=tabular_empty_row_paths_require_one_column_and_an_empty_line)'`
 - Property differential test: `one_column_empty_rows_and_tsv_quotes_round_trip; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=one_column_empty_rows_and_tsv_quotes_round_trip)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
@@ -989,7 +989,7 @@ Expanded-name identity is the ordered-pair definition in [L-value-io-18](#L-valu
 - Law ID: `value-io.xml-expanded-name-function-cst`
 - Reference: `panproto_reference::xml::expanded_name_cst`
 - Enumerator: `panproto_reference::enumerate::value_io::sequences; bound: length=2, names=2`
-- Exhaustive differential test: `i11_xml_expanded_name_paths_preserve_namespace_then_local_order; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i11_xml_expanded_name_paths_preserve_namespace_then_local_order)'`
+- Exhaustive differential test: `xml_expanded_name_paths_preserve_namespace_then_local_order; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=xml_expanded_name_paths_preserve_namespace_then_local_order)'`
 - Property differential test: `preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding; command: cargo nextest run -p panproto-io --test value_fidelity_corpus --features tree-sitter --no-tests=fail -E 'test(=preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`

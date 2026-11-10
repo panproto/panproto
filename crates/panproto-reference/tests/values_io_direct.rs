@@ -28,7 +28,7 @@ impl<T> TestUnwrap<T> for Option<T> {
 }
 
 #[test]
-fn v1_decimal_bytes_cover_infinity_and_nan_payload_layouts() {
+fn decimal_bytes_cover_infinity_and_nan_payload_layouts() {
     assert_eq!(
         canonical::decimal_bytes(&Decimal::Infinite { negative: false }),
         Some(vec![13, 2, 0]),
@@ -46,7 +46,7 @@ fn v1_decimal_bytes_cover_infinity_and_nan_payload_layouts() {
 }
 
 #[test]
-fn v2_decode_value_distinguishes_decimal_and_bigint_tags_and_refuses_bad_bytes() {
+fn decode_value_distinguishes_decimal_and_bigint_tags_and_refuses_bad_bytes() {
     assert_eq!(
         canonical::decode_value(&[13, 2, 0]),
         Some(Value::Decimal(Decimal::Infinite { negative: false })),
@@ -78,7 +78,7 @@ fn v2_decode_value_distinguishes_decimal_and_bigint_tags_and_refuses_bad_bytes()
 }
 
 #[test]
-fn v3_coerce_tagged_uses_the_table_and_preserves_unknown_tags() {
+fn coerce_tagged_uses_the_table_and_preserves_unknown_tags() {
     let table = BTreeMap::from([
         (
             "!int".to_owned(),
@@ -112,7 +112,7 @@ fn v3_coerce_tagged_uses_the_table_and_preserves_unknown_tags() {
 }
 
 #[test]
-fn v4_binary16_matches_published_rounding_and_signed_zero_patterns() {
+fn binary16_matches_published_rounding_and_signed_zero_patterns() {
     let one_tenth = Rat::new(Int::from_i64(1), Nat::from_u64(10))
         .test_unwrap("the literal denominator is nonzero");
 
@@ -129,14 +129,14 @@ fn v4_binary16_matches_published_rounding_and_signed_zero_patterns() {
 }
 
 #[test]
-fn v5_computed_nan_sets_only_the_canonical_quiet_nan_bits() {
+fn computed_nan_sets_only_the_canonical_quiet_nan_bits() {
     assert_eq!(float::computed_nan(Format::B16), 0x7e00);
     assert_eq!(float::computed_nan(Format::B32), 0x7fc0_0000);
     assert_eq!(float::computed_nan(Format::B64), 0x7ff8_0000_0000_0000);
 }
 
 #[test]
-fn v6_temporal_canonical_bytes_are_literal_invertible_and_refuse_invalid_complete_values() {
+fn temporal_canonical_bytes_are_literal_invertible_and_refuse_invalid_complete_values() {
     let valid = temporal::parse(TemporalKind::DateTime, "2024-01-02T03:04:05Z")
         .test_unwrap("the literal is a valid complete date-time");
     let expected = vec![
@@ -196,7 +196,7 @@ fn v6_temporal_canonical_bytes_are_literal_invertible_and_refuse_invalid_complet
 }
 
 #[test]
-fn v7_unwritten_zulu_accepts_only_the_unwritten_zulu_variant() {
+fn unwritten_zulu_accepts_only_the_unwritten_zulu_variant() {
     let mut value = temporal::parse(TemporalKind::DateTime, "2024-01-02T03:04:05Z")
         .test_unwrap("the literal is a valid complete date-time");
     assert!(!temporal::unwritten_zulu(&value));
@@ -212,7 +212,7 @@ fn v7_unwritten_zulu_accepts_only_the_unwritten_zulu_variant() {
 }
 
 #[test]
-fn v8_representation_observes_decimal_scale() {
+fn representation_observes_decimal_scale() {
     let scaled = Value::Decimal(Decimal::Finite(
         DecimalValue::parse("1.50").test_unwrap("the literal is a decimal"),
     ));
@@ -229,7 +229,7 @@ fn v8_representation_observes_decimal_scale() {
 }
 
 #[test]
-fn i1_tabular_missing_paths_recognize_only_the_literal_missing_token() {
+fn tabular_missing_paths_recognize_only_the_literal_missing_token() {
     assert!(value_io::tabular_missing("_"));
     assert!(!value_io::tabular_missing(""));
     assert!(!value_io::tabular_missing("__"));
@@ -239,7 +239,7 @@ fn i1_tabular_missing_paths_recognize_only_the_literal_missing_token() {
 }
 
 #[test]
-fn i2_tabular_empty_row_paths_require_one_column_and_an_empty_line() {
+fn tabular_empty_row_paths_require_one_column_and_an_empty_line() {
     assert!(value_io::tabular_empty_row(1, ""));
     assert!(!value_io::tabular_empty_row(2, ""));
     assert!(!value_io::tabular_empty_row(1, "x"));
@@ -249,7 +249,7 @@ fn i2_tabular_empty_row_paths_require_one_column_and_an_empty_line() {
 }
 
 #[test]
-fn i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits() {
+fn toml_scalar_paths_preserve_decimal_scale_and_bigint_digits() {
     let decimal = panproto_reference::coerce::ScalarKind::Decimal;
     let big = panproto_reference::coerce::ScalarKind::BigInt;
     assert!(value_io::toml_scalar(&decimal, "1.50", "1.50"));
@@ -270,7 +270,7 @@ fn i3_toml_scalar_paths_preserve_decimal_scale_and_bigint_digits() {
 }
 
 #[test]
-fn i4_byte_paths_compare_both_directions_and_blob_layout_is_exact() {
+fn byte_paths_compare_both_directions_and_blob_layout_is_exact() {
     assert!(value_io::bytes(b"left", b"left"));
     assert!(!value_io::bytes(b"left", b"right"));
     assert!(!value_io::bytes(b"right", b"left"));
@@ -286,14 +286,14 @@ fn i4_byte_paths_compare_both_directions_and_blob_layout_is_exact() {
 }
 
 #[test]
-fn i5_decimal_route_agreement_is_exact_in_both_directions() {
+fn decimal_route_agreement_is_exact_in_both_directions() {
     assert!(value_io::decimal("1.50", "1.50"));
     assert!(!value_io::decimal("1.50", "1.5"));
     assert!(!value_io::decimal("1.5", "1.50"));
 }
 
 #[test]
-fn i6_duplicate_member_paths_find_nonadjacent_duplicates_only() {
+fn duplicate_member_paths_find_nonadjacent_duplicates_only() {
     let unique = vec![("a".to_owned(), 1), ("b".to_owned(), 2)];
     let duplicate = vec![
         ("a".to_owned(), 1),
@@ -308,7 +308,7 @@ fn i6_duplicate_member_paths_find_nonadjacent_duplicates_only() {
 }
 
 #[test]
-fn i7_canonical_encoding_normalizes_while_cst_encoding_is_exact() {
+fn canonical_encoding_normalizes_while_cst_encoding_is_exact() {
     let with_bom = b"\xef\xbb\xbf{}";
     let without_bom = b"{}";
 
@@ -330,7 +330,7 @@ fn i7_canonical_encoding_normalizes_while_cst_encoding_is_exact() {
 }
 
 #[test]
-fn i12_default_routes_distinguish_null_from_absence() {
+fn default_routes_distinguish_null_from_absence() {
     use value_io::{Presence, PresenceOutcome, Route};
 
     for route in [Route::Json, Route::Yaml, Route::Xml] {
@@ -360,7 +360,7 @@ fn i12_default_routes_distinguish_null_from_absence() {
 }
 
 #[test]
-fn i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes() {
+fn preservation_paths_accept_exact_bytes_and_reject_changed_bytes() {
     assert!(value_io::preserve(b"source", b"source"));
     assert!(!value_io::preserve(b"source", b"changed"));
     assert!(!value_io::preserve(b"changed", b"source"));
@@ -373,14 +373,14 @@ fn i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes() {
 }
 
 #[test]
-fn i9_raw_numeric_preserves_the_written_lexeme_not_only_its_value() {
+fn raw_numeric_preserves_the_written_lexeme_not_only_its_value() {
     assert!(value_io::raw_numeric("1.00e+2", "1.00e+2"));
     assert!(!value_io::raw_numeric("1.00e+2", "100"));
     assert!(!value_io::raw_numeric("100", "1.00e+2"));
 }
 
 #[test]
-fn i10_xml_entity_paths_expand_declarations_and_enforce_the_byte_budget() {
+fn xml_entity_paths_expand_declarations_and_enforce_the_byte_budget() {
     let declarations = BTreeMap::from([("x".to_owned(), "ok".to_owned())]);
     assert_eq!(
         value_io::xml_entity("&x;", &declarations),
@@ -411,7 +411,7 @@ fn i10_xml_entity_paths_expand_declarations_and_enforce_the_byte_budget() {
 }
 
 #[test]
-fn i11_xml_expanded_name_paths_preserve_namespace_then_local_order() {
+fn xml_expanded_name_paths_preserve_namespace_then_local_order() {
     assert_eq!(
         value_io::xml_expanded_name("urn:a", "local"),
         ("urn:a".to_owned(), "local".to_owned())
