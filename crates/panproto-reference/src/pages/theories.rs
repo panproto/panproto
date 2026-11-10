@@ -3304,7 +3304,7 @@ pub mod theory {
     ///
     /// # Errors
     ///
-    /// Returns the first [`ComposeError`] in Q.2 construction order.
+    /// Returns the first [`ComposeError`] in construction order.
     ///
     /// Book anchors: `L-theories-3`, `L-theories-4`, `L-theories-5`.
     pub fn compose(

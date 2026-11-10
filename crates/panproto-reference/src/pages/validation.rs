@@ -275,7 +275,7 @@ pub mod implementation {
     }
 
     impl CheckKind {
-        /// The class fixed by V.2 for this kind.
+        /// The class fixed for this kind.
         #[must_use]
         pub const fn class(self) -> CheckClass {
             match self {
@@ -3615,7 +3615,7 @@ pub mod implementation {
         ReadCountOverflow(Box<CheckInstance>),
     }
 
-    /// Result of the explicit V.7 budget schedule.
+    /// Result of the explicit budget schedule.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct BudgetEvaluation {
         /// Report obtained from evaluated runs and the skipped suffix.

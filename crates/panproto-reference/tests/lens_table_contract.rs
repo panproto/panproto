@@ -1,4 +1,4 @@
-//! Mutation-directed witnesses for the T.3/T.4 table-lens contract.
+//! Witnesses for the table-lens contract: complement field order, get, strict put and refusals.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};

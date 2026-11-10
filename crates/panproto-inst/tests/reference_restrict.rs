@@ -1294,7 +1294,7 @@ fn drop_between_survivors_relates_tree_and_graph_views() -> usize {
     divergent
 }
 
-/// The audit's witness: `a -> b` dropped between survivors, `b -> c` kept, on
+/// The witness: `a -> b` dropped between survivors, `b -> c` kept, on
 /// the tree `0 -> 1 -> 2`. The tree engine removes arc `1 -> 2` with the
 /// subtree of `1`; the graph engine keeps edge `1 -> 2`.
 fn drop_between_survivors_witness() {

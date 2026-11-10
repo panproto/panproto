@@ -525,7 +525,7 @@ pub struct DroppedRow {
     pub row: BTreeMap<String, Value>,
 }
 
-/// The table complement, in the exact T.3 field order.
+/// The table complement, in its exact field order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableComplement {
     /// Dropped rows with their table and cells.
@@ -552,7 +552,7 @@ pub struct TableComplement {
 }
 
 impl TableComplement {
-    /// Canonical T.3 field order.
+    /// Canonical field order.
     ///
     /// The reference carrier is not serialized, so this list is the public
     /// layout contract against which differential tests pin the declaration.

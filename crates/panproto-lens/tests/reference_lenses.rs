@@ -2642,7 +2642,7 @@ fn graph_get_agrees_with_the_reference_on_the_delta_fragment_sources() {
 }
 
 // ---------------------------------------------------------------------------
-// Tables (T.4): get, strict put and refusals on the L-lenses-8 fixture scope, and
+// Tables: get, strict put and refusals on the L-lenses-8 fixture scope, and
 // the last-writer rule on the writer carrier
 // ---------------------------------------------------------------------------
 

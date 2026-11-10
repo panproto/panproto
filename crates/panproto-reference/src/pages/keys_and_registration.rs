@@ -2490,7 +2490,7 @@ pub mod schema {
         writer.bytes
     }
 
-    /// Definition: register one complete Q.6--Q.8 protocol carrier.
+    /// Definition: register one complete protocol carrier.
     ///
     /// Both theories are closed and well typed, both versioned recipes replay
     /// to the declared canonical theory bytes, and equal-name replay is

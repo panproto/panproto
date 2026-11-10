@@ -1,4 +1,4 @@
-//! Observers for parser contracts used by the IO dependency campaign.
+//! Contracts of the grammar cassettes, walker configurations and scope identifiers.
 
 use panproto_parse::languages::cassettes::{cassette_for, resolve_external_token};
 use panproto_parse::languages::walker_configs::walker_config_for;

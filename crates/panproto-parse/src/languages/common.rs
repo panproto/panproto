@@ -462,7 +462,7 @@ fn capitalize_first(s: &str) -> String {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod dependency_tests {
+mod protocol_and_layout_tests {
     use super::*;
     use panproto_schema::SchemaBuilder;
 

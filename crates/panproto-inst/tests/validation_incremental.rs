@@ -7085,7 +7085,7 @@ fn compared(state: &Abstract) -> [Compared; 3] {
 }
 
 /// `RequirePassed`, from its definition: the result is `Passed`, that is
-/// (V.5) no required bundle failed, is incomplete or was skipped by a cut
+/// no required bundle failed, is incomplete or was skipped by a cut
 /// (whose key-level budget entry is required).
 fn require_passed_predicate(result: &Abstract) -> bool {
     compared(result).iter().all(|c| *c == Compared::None)

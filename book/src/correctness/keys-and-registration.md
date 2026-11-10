@@ -233,7 +233,7 @@ A protocol introduced after 0.74 has no earlier registered theory to compare. Fo
 
 ### Definitions used
 
-A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A `Diagram` step records its nodes, edges, composition mode, clash policy, rewrite budget, and inline theories. *Compatibility surface* means the 0.74 wrapper names and amalgamated result after the documented Q.6 building-block amendments.
+A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A `Diagram` step records its nodes, edges, composition mode, clash policy, rewrite budget, and inline theories. *Compatibility surface* means the 0.74 wrapper names and amalgamated result after the documented building-block amendments.
 
 ### Proof
 

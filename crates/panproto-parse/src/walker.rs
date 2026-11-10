@@ -1097,7 +1097,7 @@ mod tests {
 
 #[cfg(all(test, feature = "group-core"))]
 #[allow(clippy::unwrap_used)]
-mod dependency_tests {
+mod walker_contract_tests {
     use super::*;
     use crate::theory_extract::extract_theory_from_node_types;
 
