@@ -1,8 +1,8 @@
 # Correctness
 
-This part of the book holds the written proofs of panproto's laws. Each page covers one family of laws: the value layer, theories, keys and registration, the representation of instances, the Kan extensions, restrict and contraction, edits, validation, segments, the lenses and reference resolution, with further pages for each data format as its laws are proved. Each law has one block: the law's statement with its exact domain, a complete proof, the code that implements the law, and a record of the independent audit the proof passed.
+This part of the book holds the written proofs of panproto's laws. Each page covers one family of laws: the value layer, theories, keys and registration, the representation of instances, the Kan extensions, restrict and contraction, edits, validation, segments, the lenses and reference resolution, with further pages for each data format as its laws are proved. Each law has one block: the law's statement with its exact domain, a complete proof, and the code that implements and checks the law.
 
-A proof on these pages is one of four obligations a law carries, and it is read together with the other three. First, the law has an executable reference semantics in the [`panproto-reference`](https://github.com/panproto/panproto/tree/main/crates/panproto-reference) crate: a deliberately naive function written straight from the law's definition, with exact arithmetic and no dependency on the code it checks. Second, exhaustive and property-based differential tests run the production code and that same function and require exact agreement, including the reason for a typed refusal. The exhaustive test visits every input of its stated finite scope, prints the bound and the number of inputs compared, and checks the count against a source independent of the enumerator. The property test records each seed and every shrunk counterexample and passes on three consecutive runs. Third, a complete mutation run over the files that implement the law requires every mutant to be caught by the tests or rejected by the compiler, with compiler evidence for each rejection. Raw results must contain zero survivors and zero timeouts; equivalence waivers are not admitted. A law whose block is missing, unaudited or stale is not established, whatever its tests report.
+A proof on these pages is one of three obligations a law carries, and it is read together with the other two. First, the law has an executable reference semantics in the [`panproto-reference`](https://github.com/panproto/panproto/tree/main/crates/panproto-reference) crate: a deliberately naive function written straight from the law's definition, with exact arithmetic and no dependency on the code it checks. Second, exhaustive and property-based differential tests run the production code and that same function and require exact agreement, including the reason for a typed refusal. The exhaustive test visits every input of its stated finite scope, prints the bound and the number of inputs compared, and checks the count against a source independent of the enumerator. The property test records each seed and every shrunk counterexample and passes on three consecutive runs. Third, mutation testing of the files that implement the law checks that those tests detect changes to the implementation; a mutant that survives marks a gap in the tests, which is closed by a test that distinguishes it.
 
 ## Scope
 
@@ -18,7 +18,7 @@ Every law is one block. The block opens with a level-2 heading whose title names
 
 The anchor has the form `L-<page>-<n>`, where `<page>` is the page's path under `correctness/` without `.md` (a `/` written as `-`) and `<n>` is a positive integer unique on the page. Anchors never change once published, so a law is cited by its anchor from anywhere in the book.
 
-The heading is followed by exactly seven level-3 sections, in this order and with these names.
+The heading is followed by exactly five level-3 sections, in this order and with these names.
 
 1. **Statement.** The law with its exact domain. Where the definition cross-references another law, the statement links to that law's anchor.
 2. **Outside the domain.** For each input outside the domain, the typed refusal returned (by variant name), or the reason the case cannot arise.
@@ -35,50 +35,23 @@ The heading is followed by exactly seven level-3 sections, in this order and wit
    - File: `crates/<crate>/src/<file>.rs`
    ```
 
-6. **Mutation equivalences.** Exactly `None.` Every surviving mutant fails the mutation requirement, including a mutant claimed to be equivalent.
-7. **Audit record.** The six lines below, each exactly once.
+A statement its author cannot prove is reported as a defect and is never weakened to fit a proof; a law is weakened only after the original is proved false, by a counterexample.
 
-```text
-- Author: <role>
-- Auditor: <role>
-- Date: YYYY-MM-DD
-- Commit: <sha>
-- Verdict: pass
-- Defects: <each defect found, with the change that closed it, or None.>
-```
+## Pages
 
-The author and auditor are named by distinct roles. The verdict is `pass` or `fail`, and only a block whose verdict is `pass` establishes its law. A statement its author cannot prove is reported as a defect and is never weakened to fit a proof; a law is weakened only after the original is proved false, by a counterexample.
+The table lists each correctness page and the number of laws it proves for the tree, table and graph engine.
 
-## The audit procedure
-
-Every block is audited by an auditor who did not write it, at the commit that adds or changes it. The auditor:
-
-1. compares the Statement against the law's definition, the only permitted differences being cross-references replaced by anchors or page links;
-2. checks every step of the Proof against the justification it gives, and every case analysis for a missing case;
-3. runs the enumerator at its printed bound, confirms that the printed count matches the independent count, and tries counterexamples one size above the bound where the page states that the cost allows it;
-4. checks the complete raw mutation results for zero survivors and zero timeouts, with no equivalence waivers;
-5. checks the compiler evidence for every mutant classified as unviable and confirms that Mutation equivalences is exactly `None.`; and
-6. writes the Audit record, with the commit audited and every defect found.
-
-A failed audit returns the block to its author, and the block is audited again once the defects are fixed. An audit goes stale when a file named on a `- File:` line differs between the audited commit and the current one, or when the block itself, its Audit record left out, differs between them. The audited commit is the one before the commit that records the audit, so recording an audit does not make it stale. A stale or missing audit fails the correctness check, and a change that fails it does not merge.
-
-## Status
-
-The table lists each correctness page, the number of
-that page's laws included in the 191-law scope, and the commit at which those
-included blocks were last audited.
-
-| Page | Laws | Audited commit |
-|---|---|---|
-| [Values](values.md) | 41 | pending |
-| [Value I/O](value-io.md) | 18 | pending |
-| [Theories](theories.md) | 8 | pending |
-| [Keys and registration](keys-and-registration.md) | 18 | pending |
-| [Instance representation](representation.md) | 8 | pending |
-| [Kan extensions](kan-extensions.md) | 12 | pending |
-| [Restriction and contraction](restrict-and-contraction.md) | 13 | pending |
-| [Edits](edits.md) | 8 | pending |
-| [Validation](validation.md) | 20 | pending |
-| [Segments](segments.md) | 10 | pending |
-| [Lenses](lenses.md) | 20 | pending |
-| [Reference resolution](resolution.md) | 15 | pending |
+| Page | Laws |
+|---|---|
+| [Values](values.md) | 41 |
+| [Value I/O](value-io.md) | 18 |
+| [Theories](theories.md) | 8 |
+| [Keys and registration](keys-and-registration.md) | 18 |
+| [Instance representation](representation.md) | 8 |
+| [Kan extensions](kan-extensions.md) | 12 |
+| [Restriction and contraction](restrict-and-contraction.md) | 13 |
+| [Edits](edits.md) | 8 |
+| [Validation](validation.md) | 20 |
+| [Segments](segments.md) | 10 |
+| [Lenses](lenses.md) | 20 |
+| [Reference resolution](resolution.md) | 15 |

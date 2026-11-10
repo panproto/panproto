@@ -62,19 +62,6 @@ Classified schema, instance, conformance, functor, kept part and homomorphism, a
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Sigma is the quotient of the disjoint union {#L-kan-extensions-2}
 
 ### Statement
@@ -118,19 +105,6 @@ Instance, conformance, functor, kept part, entity category and homomorphism, as 
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Pi is the limit of compatible families {#L-kan-extensions-3}
 
 ### Statement
@@ -166,19 +140,6 @@ Instance, conformance, functor, surjective on attributes, fibre and homomorphism
 - File: `crates/panproto-inst/src/migration_functor.rs`
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## Sigma is left adjoint to Delta {#L-kan-extensions-4}
 
@@ -219,19 +180,6 @@ Instance, homomorphism and functor, as defined at the top of this page; $\Sigma_
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Delta is left adjoint to Pi {#L-kan-extensions-5}
 
 ### Statement
@@ -270,19 +218,6 @@ Instance, homomorphism, functor, surjective on attributes and fibre, as defined 
 - File: `crates/panproto-inst/src/pi.rs`
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## The Sigma and Delta hom-sets are in bijection {#L-kan-extensions-6}
 
@@ -354,19 +289,6 @@ Instance, homomorphism (with the fact that a homomorphism is determined by its r
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The Delta and Pi hom-sets are in bijection {#L-kan-extensions-7}
 
 ### Statement
@@ -406,19 +328,6 @@ Instance, homomorphism (with the fact that a homomorphism is determined by its r
 - File: `crates/panproto-inst/src/pi.rs`
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## Graph Kan extensions are conjugates of the table ones {#L-kan-extensions-8}
 
@@ -475,19 +384,6 @@ Classified schema, instance, functor, kept part, graph form, encoding and decodi
 - Fixed differential test: `public_layout_retained_ids_cannot_collide_with_later_fresh_allocations; command: cargo nextest run --locked -p panproto-inst --test reference_kan --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=public_layout_retained_ids_cannot_collide_with_later_fresh_allocations)'`
 - Fixed differential test: `decoder_node_exhaustion_precedes_competing_edge_exhaustion; command: cargo nextest run --locked -p panproto-inst --test reference_kan --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=decoder_node_exhaustion_precedes_competing_edge_exhaustion)'`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Table Kan extensions are the encodings of the graph ones {#L-kan-extensions-9}
 
 ### Statement
@@ -522,19 +418,6 @@ Instance, conformance, encoding and decoding, as defined at the top of this page
 - File: `crates/panproto-inst/src/pi.rs`
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## Tree Kan extensions are the graph ones read back {#L-kan-extensions-10}
 
@@ -575,19 +458,6 @@ Functor, kept part, graph form and tree form, as defined at the top of this page
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## A migration states one entity functor {#L-kan-extensions-11}
 
 ### Statement
@@ -620,19 +490,6 @@ Classified schema, kept part and functor, as defined at the top of this page. A 
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Classification {#L-kan-extensions-12}
 
 ### Statement
@@ -664,16 +521,3 @@ Classified schema, as defined at the top of this page.
 - File: `crates/panproto-inst/src/rel_schema.rs`
 - File: `crates/panproto-reference/src/pages/kan_extensions.rs`
 - File: `crates/panproto-reference/src/enumerate/kan_extensions.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: Kan-extension proof author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.

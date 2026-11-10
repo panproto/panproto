@@ -106,6 +106,8 @@
   - [Kan extensions](./correctness/kan-extensions.md)
   - [Restriction and contraction](./correctness/restrict-and-contraction.md)
   - [Edits](./correctness/edits.md)
+  - [Validation](./correctness/validation.md)
+  - [Segments](./correctness/segments.md)
   - [Lenses](./correctness/lenses.md)
   - [Reference resolution](./correctness/resolution.md)
 

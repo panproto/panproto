@@ -39,19 +39,6 @@ Partition validation sorts all ranges by their lower endpoint and rejects the fi
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## A boundary is the exact cut of the owned edge relation {#L-segments-2}
 
 ### Statement
@@ -84,19 +71,6 @@ Partitioning visits each edge once. A crossing edge inserts its target into the 
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Partitioning and assembly are inverse on valid inputs {#L-segments-3}
 
@@ -138,19 +112,6 @@ Fan order needs its own argument, because a segment lists its fans by fan node i
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Canonical segment artifacts bind all semantic inputs {#L-segments-4}
 
@@ -195,19 +156,6 @@ Every byte writer traverses fields in declaration order and ordered collections 
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## The storage vocabulary has one stable typed layout {#L-segments-5}
 
 ### Statement
@@ -241,19 +189,6 @@ The Rust declarations determine the serde tags. `TaskKey` carries an optional se
 - File: `crates/panproto-inst/src/segment/partition.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Segment refusals preserve variant and witness data {#L-segments-6}
 
@@ -294,19 +229,6 @@ Partition and segment checks traverse ordered carriers, accumulate local violati
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## Local validation retains node identity {#L-segments-7}
 
 ### Statement
@@ -340,19 +262,6 @@ The contract check compares every ordered node-map key with `Node.id` before loc
 - File: `crates/panproto-inst/src/segment/validate.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Validation-view capacity is checked before construction {#L-segments-8}
 
@@ -391,19 +300,6 @@ There are exactly $C$ distinct `u32` edge identifiers. Assigning one identifier 
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## Segment observation equals observation of the glued instance {#L-segments-9}
 
 ### Statement
@@ -441,19 +337,6 @@ The reference run validates every segment, assembles the family by checked glue,
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## Allocation is append-only within each declared range {#L-segments-10}
 
 ### Statement
@@ -484,16 +367,3 @@ Both implementations filter source and used identifiers to $R$, take their maxim
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.

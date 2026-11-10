@@ -6,7 +6,7 @@ This page fixes 31 laws. Laws 1 through 19 cover the canonical and default route
 
 Write $P_r(b)$ for `parse(r, b)`, $E_r(v)$ for `emit(r, v)`, and $C_r(b)$ for `parse_cst(r, b)`. A byte sequence is *accepted* on route $r$ when $P_r$ returns a value. A value is *representable* on $r$ when $E_r$ returns bytes. A CST value is the pair $(v,b)$ of its parsed value and exact source bytes. Byte equality and string equality below are ordinary sequence equality; no normalization is implicit.
 
-The executable fields name the closest bounded reference witness and production property witness currently present in the repository. Several production witnesses do not yet compare their results with the independent reference on the same generated input. For that reason every audit record remains failing, and none of the named commands by itself establishes differential closure.
+The executable fields name the closest bounded reference witness and production property witness. Several production witnesses do not compare their results with the independent reference on the same generated input; for those laws, the named commands do not by themselves establish agreement between production and the reference.
 
 ## Canonical emission is a section of parsing {#L-value-io-1}
 
@@ -54,19 +54,6 @@ The functions $P_r$ and $E_r$ are defined above. A typed numeric reading applies
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 - File: `crates/panproto-io/tests/value_io_round_trip_totality.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Canonical emission follows the route grammar or refuses {#L-value-io-2}
 
 ### Statement
@@ -105,19 +92,6 @@ The match in `emit` handles null, Boolean, string and temporal cases before call
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_io_round_trip_totality.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Default routes distinguish null from absence {#L-value-io-3}
 
 ### Statement
@@ -155,19 +129,6 @@ The table covers default canonical emission. A configured tabular missing token 
 - Property differential test: `randomized_presence_outcomes; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_presence_outcomes)'`
 - Randomized input scope: five always-compiled canonical routes and both null/absence states; native syntax, omission or the exact typed refusal class.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Reading is the route-specific scalar function {#L-value-io-4}
 
@@ -209,19 +170,6 @@ The route dialects are JSON for JSON, CSV and TSV; TOML for TOML; YAML 1.2 for Y
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_open_lexemes.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Temporal representability is route dependent {#L-value-io-5}
 
 ### Statement
@@ -256,19 +204,6 @@ The function first tests display-parse agreement and returns `false` on failure.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## The generic byte encoder and JSON route writer agree exactly {#L-value-io-6}
 
 ### Statement
@@ -298,19 +233,6 @@ The generic encoder is `json_pathway::encode_bytes`. The route writer is `write_
 - Property differential test: `json_pathway::tests::randomized_byte_text_route_writer; command: cargo nextest run --locked -p panproto-io --lib --no-tests=fail -E 'test(=json_pathway::tests::randomized_byte_text_route_writer)'`
 - Randomized input scope: byte vectors of length at most sixteen and all seven byte-text encodings; generic encoder output compared with the JSON writer through the reference byte-agreement predicate, including typed encoding refusal.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Exact-decimal writers agree on the spelling {#L-value-io-7}
 
@@ -344,19 +266,6 @@ Spelling equality is Unicode string equality. Numeric equality after reparsing i
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## An unedited numeric cell retains its lexeme {#L-value-io-8}
 
 ### Statement
@@ -384,19 +293,6 @@ The reference returns `source_lexeme == emitted_lexeme`. Thus `1.00e+2` is prese
 - Property differential test: `preserving_routes_keep_extreme_decimal_zero_scale_and_sign; command: cargo nextest run -p panproto-io --test text_route_repairs --features tree-sitter --no-tests=fail -E 'test(=preserving_routes_keep_extreme_decimal_zero_scale_and_sign)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Duplicate member names are refused by exact name {#L-value-io-9}
 
@@ -430,19 +326,6 @@ The function inserts names into an initially empty `BTreeSet` and returns `true`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Canonical emission normalizes the output encoding {#L-value-io-10}
 
 ### Statement
@@ -473,19 +356,6 @@ UTF-8 validity is Rust string validity. The excluded prefixes are `EF BB BF`, `F
 - Property differential test: `randomized_canonical_encoding; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_canonical_encoding)'`
 - Randomized input scope: ASCII text of length one through eight, XML sources in UTF-8, both UTF-16 byte orders, ISO-8859-1 or US-ASCII, and UTF-8 BOM inputs for JSON/CSV/TSV; preserved value and canonical output bytes.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Canonical TOML exact numbers retain their representation {#L-value-io-11}
 
@@ -518,19 +388,6 @@ A token is the complete TOML scalar spelling, excluding surrounding document tri
 - Randomized input scope: two signs, coefficients 0 through 99, exponents -1 through 1, ten special decimals and thirteen exact-integer lexemes, on five canonical writers; emitted token or refusal, exact TOML carrier and four canonical-reader section equations.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## XML entity expansion is recursive and bounded {#L-value-io-12}
 
@@ -572,19 +429,6 @@ XML 1.0 `Char` contains tab, line feed, carriage return, U+0020 through U+D7FF, 
 - Fixed differential test: `xml_entity_literals_and_replacements_obey_the_character_domain; command: cargo nextest run --locked -p panproto-io --test reference_value_io --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=xml_entity_literals_and_replacements_obey_the_character_domain)'`
 - Fixed differential test: `xml_entity_character_refusals_keep_append_stage_precedence; command: cargo nextest run --locked -p panproto-io --test reference_value_io --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=xml_entity_character_refusals_keep_append_stage_precedence)'`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Canonical XML emits UTF-8 without a foreign declaration {#L-value-io-13}
 
 ### Statement
@@ -614,19 +458,6 @@ The optional declaration is present exactly when the bytes begin with `<?xml` fo
 - Property differential test: `randomized_canonical_encoding; command: cargo nextest run --locked -p panproto-io --test reference_value_io --no-tests=fail -E 'test(=randomized_canonical_encoding)'`
 - Randomized input scope: ASCII text of length one through eight, XML sources in UTF-8, both UTF-16 byte orders, ISO-8859-1 or US-ASCII, and UTF-8 BOM inputs for JSON/CSV/TSV; preserved value and canonical output bytes.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## TSV comments require an explicit route option {#L-value-io-14}
 
@@ -661,19 +492,6 @@ The *default TSV route* has no comment-prefix option. Nonempty means that the UT
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Underscore is ordinary tabular text {#L-value-io-15}
 
 ### Statement
@@ -705,19 +523,6 @@ An *ordinary text cell* parses as `Value::Str` under a text declaration. Exact s
 - Randomized input scope: words of length at most two over the stated comment, missing-token, empty-row and quote alphabets; CSV/TSV selection and one/two columns, compared with the four reference predicates and emitted/reread cells.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## A one-column empty line is one empty cell {#L-value-io-16}
 
@@ -751,19 +556,6 @@ The reference returns `column_count == 1 && line.is_empty()`, the conjunction st
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## A quote has no special status inside a TSV cell {#L-value-io-17}
 
 ### Statement
@@ -796,19 +588,6 @@ Containment is byte containment for the three ASCII control bytes. Other Unicode
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## XML name identity is namespace URI plus local name {#L-value-io-18}
 
 ### Statement
@@ -840,19 +619,6 @@ The function clones `namespace` and `local` into a tuple without inspecting or t
 - Randomized input scope: two attributes over six prefix/local-name pairs and four namespace assignments; Clark names or exact duplicate-member name and offset.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## The canonical blob object reads back as the same value {#L-value-io-19}
 
@@ -889,19 +655,6 @@ JSON quoting escapes quote and backslash, uses the named escapes for backspace, 
 - Randomized input scope: link and media-type strings of length at most four and every u64 size; exact independent blob layout and parsed carrier.
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## CST parse then unedited emit is byte identity {#L-value-io-20}
 
 ### Statement
@@ -929,19 +682,6 @@ By [L-value-io-22](#L-value-io-22), successful CST parsing stores $b$ unchanged.
 - Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --features tree-sitter --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## An unedited CST retains every source byte {#L-value-io-21}
 
@@ -972,19 +712,6 @@ CST preservation compares the complete encoded source, not a token subset and no
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## CST reading pairs the parsed value with exact source bytes {#L-value-io-22}
 
 ### Statement
@@ -1012,19 +739,6 @@ A `CstValue` contains a semantic `Value` and an owned byte vector called `source
 - Property differential test: `registry_preserving_round_trip_is_byte_equal; command: cargo nextest run -p panproto-io --test registry_preserving --features tree-sitter --no-tests=fail -E 'test(=registry_preserving_round_trip_is_byte_equal)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/registry_preserving.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## CST object parsing refuses repeated member names {#L-value-io-23}
 
@@ -1054,19 +768,6 @@ Member-name equality and the quantified duplicate condition are those of [L-valu
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## CST encoding and byte-order marks are byte exact {#L-value-io-24}
 
 ### Statement
@@ -1095,19 +796,6 @@ The source encoding signature is part of the complete CST byte sequence. No tran
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## TOML CST preserves exact decimal and big-integer tokens {#L-value-io-25}
 
 ### Statement
@@ -1135,19 +823,6 @@ Token equality here is byte-for-byte string equality. It is stricter than the re
 - Property differential test: `toml_cst_writes_exact_decimals_and_big_integers; command: cargo nextest run -p panproto-io --test text_route_repairs --features tree-sitter --no-tests=fail -E 'test(=toml_cst_writes_exact_decimals_and_big_integers)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## XML CST entity expansion has the same typed bounds {#L-value-io-26}
 
@@ -1179,19 +854,6 @@ All expansion terms and bounds are defined in [L-value-io-12](#L-value-io-12).
 - File: `crates/panproto-reference/src/enumerate/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## XML CST round trips preserve exact bytes {#L-value-io-27}
 
 ### Statement
@@ -1219,19 +881,6 @@ Exact XML bytes include declarations, namespace-prefix spellings, entity spellin
 - Independent reference anchor: `i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes; command: cargo nextest run -p panproto-reference --test values_io_direct --no-tests=fail -E 'test(=i8_preservation_paths_accept_exact_bytes_and_reject_changed_bytes)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/data_format_corpus.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Tabular CST keeps underscore as text {#L-value-io-28}
 
@@ -1261,19 +910,6 @@ The cell predicate and ordinary-data interpretation are those of [L-value-io-15]
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## One-column CST tables retain an empty record {#L-value-io-29}
 
 ### Statement
@@ -1301,19 +937,6 @@ The one-column empty-row relation is defined in [L-value-io-16](#L-value-io-16).
 - Property differential test: `one_column_empty_rows_and_tsv_quotes_round_trip; command: cargo nextest run -p panproto-io --test text_route_repairs --no-tests=fail -E 'test(=one_column_empty_rows_and_tsv_quotes_round_trip)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/text_route_repairs.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## TSV CST accepts quote as ordinary cell data {#L-value-io-30}
 
@@ -1343,19 +966,6 @@ The TSV cell admissibility predicate is defined in [L-value-io-17](#L-value-io-1
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## XML CST expanded names ignore prefix spelling {#L-value-io-31}
 
 ### Statement
@@ -1383,16 +993,3 @@ Expanded-name identity is the ordered-pair definition in [L-value-io-18](#L-valu
 - Property differential test: `preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding; command: cargo nextest run -p panproto-io --test value_fidelity_corpus --features tree-sitter --no-tests=fail -E 'test(=preserving::xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding)'`
 - File: `crates/panproto-reference/src/pages/value_io.rs`
 - File: `crates/panproto-io/tests/value_fidelity_corpus.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: value I/O documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.

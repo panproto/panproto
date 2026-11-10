@@ -35,7 +35,7 @@ Install the `schema` CLI with one of the release installers or from source:
 
 ```sh
 # Homebrew
-brew install panproto/tap/schema
+brew install panproto/tap/panproto-cli
 
 # Linux or macOS
 curl --proto '=https' -LsSf \

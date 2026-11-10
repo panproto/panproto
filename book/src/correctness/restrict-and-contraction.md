@@ -12,7 +12,7 @@ Cross-shape statements quantify only over the validated common conversion image.
 
 The reference operations live in [`panproto_reference::restrict`](https://docs.rs/panproto-reference/latest/panproto_reference/restrict/) and [`panproto_reference::lens`](https://docs.rs/panproto-reference/latest/panproto_reference/lens/). The release carrier contains 57 schemas crossed with 27 survival classifications, 375 pair-resolution cases, 12,366 graph cases (each run bare and with decorated node payloads), 585 ordered child-binding words, nine column-fate cases, 70 tree cases, 16 `Keep`/`Drop`-between-survivors tree cases, and one fan-plus-expansion tree case. The tree-edit carrier adds 38 get words, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal.
 
-The executable evidence for this page is a seven-test production/reference suite, four tree-edit tests, two lens-level tree-complement conversion tests and the reference tests they depend on. Both production differentials, the lens differential and the reference targets build under strict Clippy. The audit records retain the separate requirement for an independent verifier.
+The executable evidence for this page is a seven-test production/reference suite, four tree-edit tests, two lens-level tree-complement conversion tests and the reference tests they depend on.
 
 ## The edge image is total and endpoint coherent {#L-restrict-and-contraction-1}
 
@@ -40,7 +40,6 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - Enumerator: `panproto_reference::enumerate::restrict_and_contraction::release_schemas` and `survival_classifications`; exact carrier: 1,539 schema/classification cases, plus 6 explicit nonidentity branch witnesses
 - Exhaustive differential tests: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope` and `graph_get_and_covered_reachability_agree_on_three_node_carriers` in `crates/panproto-inst/tests/reference_restrict.rs`
 - Boundary pins: production `restrict_plan_compile` and reference `lenses` accept 65,536 hops and refuse 65,537
-- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `1,539 schema/classification cases, six nonidentity branch witnesses, and the 65,536/65,537-hop boundary`
 - Production certificate: `edge_images_and_contraction_regions_agree_on_the_complete_release_scope; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=edge_images_and_contraction_regions_agree_on_the_complete_release_scope)'`
 - Independent reference anchor: `graph_get_and_covered_reachability_agree_on_three_node_carriers; command: cargo nextest run --release -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=graph_get_and_covered_reachability_agree_on_three_node_carriers)'`
@@ -49,21 +48,8 @@ The *direct image* of $e$ is its explicit edge remap when present; otherwise it 
 - File: `crates/panproto-inst/src/contraction_plan.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
-- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated.
 - File: `crates/panproto-inst/src/restrict_plan.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## The contraction plan is the trimmed dropped-interior relation {#L-restrict-and-contraction-2}
 
@@ -98,20 +84,7 @@ The forward search `reach(a, interior, succ)` computes $F_a$ by the usual visite
 - File: `crates/panproto-inst/src/contraction_plan.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
-- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated.
 
 ## Pair resolution has one fixed precedence order {#L-restrict-and-contraction-3}
 
@@ -146,20 +119,7 @@ The *unique target edge* is the sole member of `edges_between(a', b')`, regardle
 - File: `crates/panproto-inst/src/contraction_plan.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_pair_resolution_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_pair_resolution_differential)'`
-- Randomized evidence scope: `randomized_pair_resolution_differential`: Independently generated direct, first-hop and second-hop states from five alternatives, and three expansion states; paired resolution and first failing hop over the 375-case bounded input space. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_pair_resolution_differential`: Independently generated direct, first-hop and second-hop states from five alternatives, and three expansion states; paired resolution and first failing hop over the 375-case bounded input space.
 
 ## Graph restriction is staged Delta followed by contraction {#L-restrict-and-contraction-4}
 
@@ -205,20 +165,7 @@ After compilation has checked declarations and output fields, `get_with_plan` va
 - File: `crates/panproto-inst/src/restrict_plan.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
-- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated.
 
 ## Tree restriction uses the compiled edge image {#L-restrict-and-contraction-5}
 
@@ -259,21 +206,8 @@ The differential builds both plans from the same schemas and migration and check
 - File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
-- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors.
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Column fate is derived from the schema plan {#L-restrict-and-contraction-6}
 
@@ -312,20 +246,7 @@ An *attribute arrow* is a schema edge from an entity vertex to its value vertex.
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_column_fate_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_column_fate_differential)'`
-- Randomized evidence scope: `randomized_column_fate_differential`: Two independently generated Drop/Keep/Rename column states; paired schema-plan fates and runtime table/graph/tree checks for two fixed integer cells. Transform-output collisions remain covered by separate fixed certificates. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_column_fate_differential`: Two independently generated Drop/Keep/Rename column states; paired schema-plan fates and runtime table/graph/tree checks for two fixed integer cells. Transform-output collisions remain covered by separate fixed certificates.
 
 ## Repeated child names bind an ordered list {#L-restrict-and-contraction-7}
 
@@ -366,20 +287,7 @@ For graphs, *edge order* is `ordered_out_edges`, ordered by position with edge i
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_ordered_child_binding_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_ordered_child_binding_differential)'`
-- Randomized evidence scope: `randomized_ordered_child_binding_differential`: Generated ordered words of length 0–8 over eight self-loop, missing-value and zero/one child slots; paired bindings preserve duplicate values, label order and self-loop exclusion. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_ordered_child_binding_differential`: Generated ordered words of length 0–8 over eight self-loop, missing-value and zero/one child slots; paired bindings preserve duplicate values, label order and self-loop exclusion.
 
 ## Tree synthesis uses the graph synthesis keys and floor {#L-restrict-and-contraction-8}
 
@@ -405,7 +313,6 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - Reference: `panproto_reference::lens::tree_get`
 - Enumerator: `tree_restrict_cases`; exact carrier: 70 route/floor cases plus 5 structural-key observations and one fan-plus-expansion case
 - Exhaustive differential tests: `tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`, `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier`, and `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors`; census: 43 successes and 27 typed exhaustion refusals on the enumerated carrier, plus 5 successful structural-key observations
-- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `70 route/floor cases, five successful structural-key observations, and one fan-plus-expansion case in tree_get_uses_the_graph_plan_keys_floor_and_sibling_order`
 - Production certificate: `tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_matches_graph_and_reference_on_the_70_case_carrier)'`
 - Independent reference anchor: `tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=tree_restrict_synth_index_covers_all_structural_keys_and_successful_floors)'`
@@ -416,22 +323,9 @@ Reference graph allocation is proved in [L-restrict-and-contraction-4](#L-restri
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
-- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors.
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-lens/src/dispatch.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree put checks predicates and transforms before restoration {#L-restrict-and-contraction-9}
 
@@ -474,22 +368,9 @@ The *restored node* is the source candidate obtained from the view node plus rec
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - Property differential test: `randomized_graph_square_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_graph_square_differential)'`
-- Randomized evidence scope: `randomized_graph_square_differential`: Generated stage/source and edit indices select individual cases and single-step basis edits from the bounded graph/tree conversion carrier; paired unedited and edited graph/tree squares include refusal observations. Empty edit bases and refusing gets remain observations. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_graph_square_differential`: Generated stage/source and edit indices select individual cases and single-step basis edits from the bounded graph/tree conversion carrier; paired unedited and edited graph/tree squares include refusal observations. Empty edit bases and refusing gets remain observations.
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/pages/lenses/laws.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree restriction participates in the complete lens-law gates {#L-restrict-and-contraction-10}
 
@@ -517,7 +398,6 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - Reference: `panproto_reference::lens::TreeShape::single_step_basis`
 - Exhaustive differential tests: `lens_laws_agree_with_the_reference_exhaustively` and `graph_square_agrees_with_the_reference_exhaustively`
 - Exact observations: 200,606 heterogeneous law cases, plus the 31,422-observation graph square
-- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `200,606 heterogeneous law cases and the 31,422-observation graph square`
 - Production certificate: `lens_laws_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=lens_laws_agree_with_the_reference_exhaustively)'`
 - Independent reference anchor: `graph_square_agrees_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=graph_square_agrees_with_the_reference_exhaustively)'`
@@ -527,21 +407,8 @@ The five gates and coherent renaming are defined on the [lenses](./lenses.md) co
 - File: `crates/panproto-lens/src/dispatch.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - Property differential test: `randomized_lens_law_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_lens_law_differential)'`
-- Randomized evidence scope: `randomized_lens_law_differential`: Generated case and edit indices exercise every core bounded graph/tree/table law family per case, plus one generated additional family; production and independent reference law reports are compared on the declared common basis. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_lens_law_differential`: Generated case and edit indices exercise every core bounded graph/tree/table law family per case, plus one generated additional family; production and independent reference law reports are compared on the declared common basis.
 - File: `crates/panproto-reference/src/pages/lenses/laws.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree edit translations commute with whole-state operations {#L-restrict-and-contraction-11}
 
@@ -586,7 +453,6 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 - Reference: `panproto_reference::pages::restrict_and_contraction::tree_edit_lens::is_minimal`
 - Exact carrier: 38 get words, each also checked for get consistency, 27 put words, two typed lowering refusals, one common late refusal checked through both source editors and both `get_edit` implementations, and one production-only late refusal
 - Exhaustive differential tests: all four `tree_edit_lens_*` tests in `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
-- Dynamic result: Current candidate execution is pending.
 - Evidence scope: `38 get words with get consistency, 27 put words, two typed lowering refusals, one common late refusal through both source editors and both get_edit implementations, and one production-only atomic late refusal`
 - Production certificate: `tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_get_functoriality_replacement_and_minimality_match_the_reference)'`
 - Independent reference anchor: `tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference; command: cargo nextest run --release -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=tree_edit_lens_put_functoriality_minimality_and_source_undo_match_the_reference)'`
@@ -614,21 +480,8 @@ The *finite leaf carrier* has root 0, visible leaf 1 and hidden leaf 2 initially
 - File: `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
 - File: `crates/panproto-lens/src/edit_laws.rs`
 - Property differential test: `randomized_leaf_edit_lens_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_tree_edit_lens --no-tests=fail -E 'test(=randomized_leaf_edit_lens_differential)'`
-- Randomized evidence scope: `randomized_leaf_edit_lens_differential`: Identity and static leaf projection with hidden-before-visible source arcs: arbitrary u8 source and replacement payloads, fresh ids from 3 through 9,999, get or put, and identity, insertion, insertion/deletion, deletion or replacement get/identity-lens words; projection puts are limited to identity/deletion. Paired deltas, endpoints and hidden residue, atomic-word versus admitted-step composition, and canonical source undo; no conditional-survival composition claim. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_leaf_edit_lens_differential`: Identity and static leaf projection with hidden-before-visible source arcs: arbitrary u8 source and replacement payloads, fresh ids from 3 through 9,999, get or put, and identity, insertion, insertion/deletion, deletion or replacement get/identity-lens words; projection puts are limited to identity/deletion. Paired deltas, endpoints and hidden residue, atomic-word versus admitted-step composition, and canonical source undo; no conditional-survival composition claim.
 - File: `crates/panproto-lens/tests/tree_lenses_through_contraction.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Tree synthesis preserves source sibling order {#L-restrict-and-contraction-12}
 
@@ -665,21 +518,8 @@ For the re-encoding clause, graph encoding numbers a tree's arcs $0,1,\ldots$ in
 - File: `crates/panproto-inst/src/complement.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_tree_restriction_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_tree_restriction_differential)'`
-- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_tree_restriction_differential`: Generated nonempty Keep/Expand route words of length 1–6 at five compact, gapped and near-exhaustion node-id floors; paired tree outcomes, graph transport, structural synthesis keys and floors.
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
 
 ## Contraction preserves and reflects dropped-interior reachability {#L-restrict-and-contraction-13}
 
@@ -715,17 +555,4 @@ For preservation, let such a source walk exist. The per-source breadth-first sea
 - File: `crates/panproto-inst/src/contraction_plan.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
 - Property differential test: `randomized_restriction_plan_and_graph_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=randomized_restriction_plan_and_graph_differential)'`
-- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: restriction and contraction documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_restriction_plan_and_graph_differential`: Independent choices of 57 three-anchor schemas and 27 survival classifications, generated edge-presence bits and arbitrary i64 node fields and annotations; paired total edge fates, contraction regions and resolutions, graph views, complements and refusals, plus independent walk reachability. No value-transform program is generated.

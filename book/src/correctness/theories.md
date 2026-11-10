@@ -54,19 +54,6 @@ The theory, telescope, context, sort expression and head are defined at the top 
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
-
 ## Signature checking reports every defect once, in a fixed order {#L-theories-2}
 
 ### Statement
@@ -107,19 +94,6 @@ $D(T)$, well-formedness at a site, the sort of a term and the context are those 
 - File: `crates/panproto-gat/src/sort.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
 
 ## Classes are named by their majority name, and freshened names never collide {#L-theories-3}
 
@@ -165,19 +139,6 @@ The classes, the node labels and the generated equations are those of [L-theorie
 - File: `crates/panproto-gat/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
 
 ## The colimit identifies exactly what the diagram relates, with total provenance and a commuting cocone {#L-theories-4}
 
@@ -247,19 +208,6 @@ A diagram, its labels and composition options are as in `TheoryDiagram` and `Com
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
-
 ## A composition's result is a well-formed, well-typed theory {#L-theories-5}
 
 ### Statement
@@ -298,19 +246,6 @@ Well-formedness and the defects are those of [L-theories-1](#L-theories-1) and [
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
-
 ## The union-find closure labels each element by the least member of its class {#L-theories-6}
 
 ### Statement
@@ -346,19 +281,6 @@ An equivalence relation is reflexive, symmetric and transitive; the least one co
 - File: `crates/panproto-gat/src/quotient.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
 
 ## A morphism check accepts exactly the theory morphisms, and reports the first failure {#L-theories-7}
 
@@ -406,19 +328,6 @@ Equality up to binder names, name-free forms and the sort of a term are defined 
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.
-
 ## Replaying a recipe composes each step from its recorded data {#L-theories-8}
 
 ### Statement
@@ -456,16 +365,3 @@ The by-name span, its legs (the identity on the interface's sort and operation n
 - File: `crates/panproto-gat/src/composition.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: theories documentation author
-- Auditor: independent verifier
-- Date: 2026-10-21
-- Commit: 788489cb
-- Verdict: pass
-- Defects: None.

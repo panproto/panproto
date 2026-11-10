@@ -429,8 +429,8 @@ jobs:
           key: swift
       - name: Header drift gate
         working-directory: .
-        # Regenerating must be a no-op, and the vendored copy the Swift
-        # package compiles against must be byte-identical to it. A
+        # Regenerating must be a no-op, and the vendored copies the Swift
+        # and Haskell packages compile against must be byte-identical to it. A
         # silent ABI change is the failure mode this catches: the shims
         # would still compile and would call the wrong thing.
         run: |
@@ -438,6 +438,8 @@ jobs:
           git diff --exit-code crates/panproto-c/include/panproto.h
           diff -u crates/panproto-c/include/panproto.h \
                   bindings/swift/Sources/CPanproto/include/panproto.h
+          diff -u crates/panproto-c/include/panproto.h \
+                  bindings/haskell/cbits/panproto.h
       - name: Build panproto-c and stage libs
         working-directory: .
         run: bash bindings/swift/bootstrap/dev-link.sh

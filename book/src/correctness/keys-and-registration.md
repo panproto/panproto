@@ -17,9 +17,7 @@ configurations, 16,428 equality pairs, 607,836 transitivity triples, 341 XML
 strings, 116,281 XML pairs, 28 additional classification cases, 148 structural
 graphs, 27,329,908 schemas, and 816,223,680 directed classifications.
 
-These checks establish the focused executable counterparts. They do not
-replace the independent audit or the mutation run, so the audit verdicts
-below remain pending.
+These checks are the executable counterparts of the laws below.
 
 ## Key parts read the declared value or return NULL {#L-keys-and-registration-1}
 
@@ -59,19 +57,6 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## Key buckets implement declared equality and scope {#L-keys-and-registration-2}
 
 ### Statement
@@ -110,19 +95,6 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/key.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Canonical schema bytes separate the finite declaration carrier {#L-keys-and-registration-3}
 
@@ -164,19 +136,6 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 The extension decoding test inverts the declaration bytes with a decoder written from the grammar of proof step 2, over every combination of the three in-reference extensions and the target-set extension with neighbouring names whose length prefix begins with `0xff`, 194 declarations in all; decoding back proves the encoding injective there. Under the one-byte marker both new tests fail.
 
 - Stored-key-order differential: `canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection)'`; valid raw key permutations compare complete bytes and first-primary selection
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Change classification is the stated backward-compatibility decision {#L-keys-and-registration-4}
 
@@ -223,19 +182,6 @@ The five roles make different uniqueness, identity, ordering, and resolution pro
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## Each shape theory is closed and composes with its schema theories {#L-keys-and-registration-5}
 
 ### Statement
@@ -274,19 +220,6 @@ A theory is *closed* when every sort and operation used by its declarations and 
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-gat/src/typecheck.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Registration records replayable recipes and preserves the compatibility surface {#L-keys-and-registration-6}
 
@@ -327,19 +260,6 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 - File: `crates/panproto-gat/src/composition.rs`
 - File: `crates/panproto-reference/src/enumerate/theories.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Canonical theory and composition identities are deterministic {#L-keys-and-registration-7}
 
 ### Statement
@@ -379,19 +299,6 @@ The law concerns canonical identities, not the incidental bytes of Rust's ordina
 - File: `crates/panproto-reference/src/pages/theories.rs`
 - File: `crates/panproto-schema/src/canonical.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## Declared key equality is exactly its canonical kernel {#L-keys-and-registration-8}
 
 ### Statement
@@ -425,19 +332,6 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## Representation equality refines every computable declared equality {#L-keys-and-registration-9}
 
 ### Statement
@@ -469,19 +363,6 @@ For propositions $P$ and $Q$, implication $P \Rightarrow Q$ is $\neg P \lor Q$. 
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Equality declarations have an injective canonical byte layout {#L-keys-and-registration-10}
 
@@ -516,19 +397,6 @@ The legacy role tags are 0 for primary, 1 for unique, 2 for identifier, 3 for so
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## Sort-key comparison is a total preorder on each declared family {#L-keys-and-registration-11}
 
 ### Statement
@@ -562,19 +430,6 @@ A total preorder is reflexive, transitive, and total; antisymmetry is not requir
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## A sort-key sequence is ordered exactly when no adjacent pair descends {#L-keys-and-registration-12}
 
 ### Statement
@@ -606,19 +461,6 @@ An *adjacent descent* is an index $i$ with `sort_order(x_i, x_{i+1}) = Greater`.
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Target sets are nonempty, distinct, and signature-compatible {#L-keys-and-registration-13}
 
@@ -654,19 +496,6 @@ The *signature* of a member key is its part count and effective equality vector.
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## XML non-CDATA equality has one normalization kernel {#L-keys-and-registration-14}
 
 ### Statement
@@ -699,19 +528,6 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Group-G declarations validate and encode without collisions {#L-keys-and-registration-15}
 
@@ -758,19 +574,6 @@ The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `Targe
 
 - Stored-key-order differential: `canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection)'`; valid raw key permutations compare complete bytes and first-primary selection
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
-
 ## Index keys never resolve references, and null-match mode determines occurrences {#L-keys-and-registration-16}
 
 ### Statement
@@ -805,19 +608,6 @@ A *resolution occurrence* is a holder element together with the tuple read from 
 - File: `crates/panproto-io/src/resolution/compile.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Lexical-space validation preserves the literal and reports ill-typed values as advisory {#L-keys-and-registration-17}
 
@@ -854,19 +644,6 @@ A *known datatype* is one present in the protocol's value-kind table. A *derived
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-inst/tests/reference_keys.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## An annotated format is preserved and checked only as advisory {#L-keys-and-registration-18}
 
 ### Statement
@@ -902,16 +679,3 @@ An *annotated format* is a named constraint whose semantics are `AnnotatedFormat
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-inst/tests/reference_keys.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.

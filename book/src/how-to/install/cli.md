@@ -11,7 +11,7 @@ A POSIX shell on macOS or Linux, or PowerShell on Windows. The binary releases c
 ### Homebrew (macOS, Linux)
 
 ```sh
-brew install panproto/tap/schema
+brew install panproto/tap/panproto-cli
 ```
 
 ### Shell installer (macOS, Linux, WSL)

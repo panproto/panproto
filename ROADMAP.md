@@ -3,7 +3,7 @@
 This file lists the themes of the next planned panproto releases. Each release has a GitHub milestone with its
 issues; the milestone is the authoritative list. Work not listed here has no release commitment.
 
-## 0.77.0: Graph Core (in progress)
+## 0.77.0: Graph Core
 
 One engine for tree, table, and graph instances, with its laws stated in the book's Correctness part and checked
 against independent reference implementations: exact values, value I/O, theory composition, keys, instance

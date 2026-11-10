@@ -51,20 +51,7 @@ A *normalized graph delta* has no equal old and new attribute values and no attr
 - File: `crates/panproto-reference/src/enumerate/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements.
 
 ## Inversion and the table delta algebra preserve both legs {#L-edits-2}
 
@@ -108,22 +95,9 @@ The two *legs* of a delta are its deleted and added structural parts. An attribu
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements.
 - Property differential test: `randomized_table_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_table_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes.
 
 ## Composition and tree lowering compute one normalized delta {#L-edits-3}
 
@@ -164,22 +138,9 @@ The *per-element action* is one of none, deletion, addition, replacement, or a f
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements.
 - Property differential test: `randomized_tree_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_tree_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes.
 
 ## Canonical edit bytes encode normalized parts in one order {#L-edits-4}
 
@@ -221,24 +182,11 @@ A *canonical part order* is the field order stated above, followed by the derive
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements.
 - Property differential test: `randomized_table_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_table_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes. Current candidate execution is pending.
+- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes.
 - Property differential test: `randomized_tree_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_tree_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes.
 
 ## Table edits are checked compare-and-set deltas {#L-edits-5}
 
@@ -283,20 +231,7 @@ A row payload is its table name together with its complete cell map. A relation 
 - File: `crates/panproto-reference/src/enumerate/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_table_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_table_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_table_edit_algebra_differential`: One-table instances with 1–5 arbitrary-i64 rows and initially no relations; generated state-dependent surface edit words of length 0–5 can add relations. Paired lowering, apply/refusal atomicity, composition, inverse restoration, diff and canonical bytes.
 
 ## Joining tree features reparents every surviving child {#L-edits-6}
 
@@ -336,20 +271,7 @@ The *incoming arc* of a nonroot tree node is its unique parent arc. *Joined-node
 - File: `crates/panproto-reference/src/pages/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_tree_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_tree_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_tree_edit_algebra_differential`: Generated rooted one-anchor trees with 1–5 arbitrary-i64 nodes and parent choices, followed by state-dependent edit words of length 0–5. Paired surface application, typed refusals, rollback, sequence lowering, embeddings, graph endpoints and canonical bytes.
 
 ## Delete followed by add is replacement, even for equal payloads {#L-edits-7}
 
@@ -385,20 +307,7 @@ A *replacement* is one id present in both the deleted and added structural maps.
 - File: `crates/panproto-reference/src/enumerate/edits.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - Property differential test: `randomized_graph_edit_algebra_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=randomized_graph_edit_algebra_differential)'`
-- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_graph_edit_algebra_differential`: One-anchor graphs with 1–5 arbitrary-i64 nodes and 0–6 generated directed edges; generated state-dependent words of length 0–5 and letter pairs. Paired apply/refusal atomicity, composition, inversion, diff, canonical bytes, independence, merge and commuting application, with generated equal-payload replacements.
 
 ## Edit translation preserves endpoints and closes replacements under incidence {#L-edits-8}
 
@@ -453,17 +362,4 @@ The reference requires valid endpoint graphs. If the incoming delta does not app
 - File: `crates/panproto-lens/tests/reference_tree_edit_lens.rs`
 - File: `crates/panproto-lens/tests/reference_edit_translation.rs`
 - Property differential test: `randomized_whole_state_edit_translation_differential; command: cargo nextest run --locked --cargo-profile ci-test --profile ci -p panproto-lens --test reference_edit_translation --no-tests=fail -E 'test(=randomized_whole_state_edit_translation_differential)'`
-- Randomized evidence scope: `randomized_whole_state_edit_translation_differential`: Static projection with hidden arcs before visible arcs and a durable view embedding retaining source edge ids and floors; a root, one visible leaf at an id from 1 through 9,999 and 1–6 hidden leaves; generated get/put direction, identity or deletion in both directions, and equal-payload replacement for get. Production raw/canonical get and raw put are compared with independent whole-state projection/restore edit oracles, deltas and residue; fresh tree arc ids use the existing ordered-renaming comparison. Current candidate execution is pending.
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: edits documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit closure and current candidate runtime evidence are pending.
+- Randomized evidence scope: `randomized_whole_state_edit_translation_differential`: Static projection with hidden arcs before visible arcs and a durable view embedding retaining source edge ids and floors; a root, one visible leaf at an id from 1 through 9,999 and 1–6 hidden leaves; generated get/put direction, identity or deletion in both directions, and equal-payload replacement for get. Production raw/canonical get and raw put are compared with independent whole-state projection/restore edit oracles, deltas and residue; fresh tree arc ids use the existing ordered-renaming comparison.

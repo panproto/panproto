@@ -2,9 +2,9 @@
 
 Reference resolution turns literals, paths, variables, inline identities, and standoff coordinates into graph edges. Put runs in the other direction: an edited edge rewrites the source occurrence that produced it. The complement makes this bidirectional reading possible by retaining occurrence identities, unresolved literals, variable-definition occurrences, redirected fragments, inline fragments, span identities, external context, and the original tree root.
 
-Sixteen laws govern the construction. [L-resolution-1](#L-resolution-1) through [L-resolution-5](#L-resolution-5) are the five state laws. The remaining blocks fix URI environments, RFC 3986 joining, text identity, guard partitioning, standoff coordinates, index nonresolution, inherited bases, key equality, variable binding, and preserving-route products. The first five laws are executed against two reference forms. The declared operations `get` and `put` act on trees and graphs; the bounded state model (`indexed_get`, `indexed_put`, `check_put_domain`, `coherent_rekey`, `coherent_rename`, `equivalent`, and `gated_put_twice`) carries the synthesis index, the independent put-domain predicate, and the single-step basis. Each block names the operations its tests call. Laws 1 through 15 are the phase-three release inventory; law 16 belongs to the later preserving-route gate.
+Sixteen laws govern the construction. [L-resolution-1](#L-resolution-1) through [L-resolution-5](#L-resolution-5) are the five state laws. The remaining blocks fix URI environments, RFC 3986 joining, text identity, guard partitioning, standoff coordinates, index nonresolution, inherited bases, key equality, variable binding, and preserving-route products. The first five laws are executed against two reference forms. The declared operations `get` and `put` act on trees and graphs; the bounded state model (`indexed_get`, `indexed_put`, `check_put_domain`, `coherent_rekey`, `coherent_rename`, `equivalent`, and `gated_put_twice`) carries the synthesis index, the independent put-domain predicate, and the single-step basis. Each block names the operations its tests call. Laws 1 through 15 hold for the declaration forms that panproto resolves today; law 16 concerns preserving routes.
 
-The phase-three laws quantify over declarations that use none of eight *deferred forms*: identified inline occurrences, targets that are declared target sets, null vertices, scopes reached through references, standoff fragments, and standoff text that is span-relative, reached through another reference, or named by a URI. Their semantics belong to the format releases. Production refuses a declaration that uses one when the resolution compiles, with its own `ResolutionFeature` (`InlineReference`, `TargetSet`, `NullVertex`, `ScopeVia`, `StandoffFragments`, `SpanText`, `ReferencedText`, or `ExternalUriText`), before checking the declaration's well-formedness. The reference states the same domain as `deferred_form`, which returns the first deferred form of a declaration in a fixed order, and a differential test checks that production's refusal is exactly that form on every combination of the eight.
+Laws 1 through 15 quantify over declarations that use none of eight *deferred forms*: identified inline occurrences, targets that are declared target sets, null vertices, scopes reached through references, standoff fragments, and standoff text that is span-relative, reached through another reference, or named by a URI. Their semantics belong to the format releases. Production refuses a declaration that uses one when the resolution compiles, with its own `ResolutionFeature` (`InlineReference`, `TargetSet`, `NullVertex`, `ScopeVia`, `StandoffFragments`, `SpanText`, `ReferencedText`, or `ExternalUriText`), before checking the declaration's well-formedness. The reference states the same domain as `deferred_form`, which returns the first deferred form of a declaration in a fixed order, and a differential test checks that production's refusal is exactly that form on every combination of the eight.
 
 Let $R$ be a declaration-valid reference schema and let $s$ be a rooted tree with a graph encoding. A *resolution occurrence* is identified by a holder id, reference name, and occurrence index. Cardinality `One` requires exactly one terminal value per key part, retaining explicit nulls for the null-presence test and treating a list as one value. A nullable declaration with no values at any part contributes no occurrence; other part-count mismatches are refused. A surviving tuple contributes index zero. Cardinality `Many` zips the part sequences positionally. A successful target lookup uses the target key's declared equality and, for a `Within` key, only the holder's scope bucket. `AddEdge` retains the holder and adds an edge to the target; `Redirect` removes the holder's maximal redirected subtree, records it, and adds the edge from the subtree's parent.
 
@@ -14,7 +14,7 @@ Composite foreign keys use the *null-presence rule*. Under `Simple`, a tuple is 
 
 Variable sources use the same cardinality and null-presence rules as key-value sources. Path sources also read every terminal site and flatten lists under `Many`, but retain each written path literal separately from the target lookup. The reference interprets each literal according to its declared path syntax, using the holder's URI environment when that syntax requires it, before key lookup; production providers supply their declared path interpretation. Standoff sources zip the raw start and end words before converting each pair to a normalized span. Cardinality is checked before loading text; an empty word contributes no spans and requires no text lookup. Each occurrence keeps its written coordinate pair separately from its normalized byte interval and text context. Put preserves that pair for an unchanged target; a retargeted span is rendered back through the source holder's unit, origin, end form, and inclusive-end convention before its coordinate words are written. Path and standoff reads omit scalar-null sites without applying the composite-key null-presence filter to list elements.
 
-The reference operations live in [`panproto_reference::resolution`](https://docs.rs/panproto-reference/latest/panproto_reference/resolution/). The principal phase-three carrier contains all eight subsets of targets `{a,b,c}` and every one-step add, delete, and retarget candidate induced by each subset. This gives eight source states and 48 candidate edits, of which 24 lie in the independent put domain. Separate finite carriers cover URI directives, standoff coordinates, inherited bases, key equalities, guarded declarations, and variable definitions. These bounds support exhaustive comparison; the statements themselves are not restricted to the finite carriers.
+The reference operations live in [`panproto_reference::resolution`](https://docs.rs/panproto-reference/latest/panproto_reference/resolution/). The principal carrier contains all eight subsets of targets `{a,b,c}` and every one-step add, delete, and retarget candidate induced by each subset. This gives eight source states and 48 candidate edits, of which 24 lie in the independent put domain. Separate finite carriers cover URI directives, standoff coordinates, inherited bases, key equalities, guarded declarations, and variable definitions. These bounds support exhaustive comparison; the statements themselves are not restricted to the finite carriers.
 
 ## Get followed by put restores the source exactly {#L-resolution-1}
 
@@ -96,19 +96,6 @@ Put thus returns $s$ exactly. The differential executes these steps in the refer
 - File: `crates/panproto-io/src/resolution/rekey.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Put followed by get returns the edited view modulo synthesized presentation {#L-resolution-2}
 
 ### Statement
@@ -188,19 +175,6 @@ The finite differentials execute both halves. The bounded model checks `equivale
 - File: `crates/panproto-io/tests/resolution_corpus.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Every admitted candidate puts successfully {#L-resolution-3}
 
 ### Statement
@@ -239,19 +213,6 @@ The model's `indexed_put` returns its source exactly when `check_put_domain` rep
 - File: `crates/panproto-io/src/resolution/get.rs`
 - File: `crates/panproto-io/src/resolution/put.rs`
 - File: `crates/panproto-io/src/resolution/verify.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Resolution commutes with presentation renaming that fixes source coordinates {#L-resolution-4}
 
@@ -312,19 +273,6 @@ The declared tree-to-graph certificate additionally checks all 120 retained-node
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-inst/src/resolution_complement.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## PutTwice holds after reindexing the second complement {#L-resolution-5}
 
 ### Statement
@@ -378,19 +326,6 @@ The raw form, with $c'$ untransported, is false, and the tests show why. On the 
 - File: `crates/panproto-io/src/resolution/source.rs`
 - File: `crates/panproto-inst/src/resolution_complement.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## URI environments depend only on preceding directives {#L-resolution-6}
 
 ### Statement
@@ -422,19 +357,6 @@ The fold visits the directives in slice order and updates only the base and the 
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## URI joining is the RFC 3986 section 5.2 algorithm {#L-resolution-7}
 
@@ -468,19 +390,6 @@ The branches of `rfc3986` correspond to the component cases in the Statement. `r
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Referenced text identity is field-qualified and value-independent {#L-resolution-8}
 
 ### Statement
@@ -512,19 +421,6 @@ The two constructor branches copy only `node` and `field`. The external tuple is
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Distinct guards partition guarded occurrences {#L-resolution-9}
 
@@ -558,19 +454,6 @@ The helper scans in declaration order and returns the first representation-equal
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Written standoff forms are injective on their valid domain {#L-resolution-10}
 
 ### Statement
@@ -601,19 +484,6 @@ For fixed $o$, $w_s=s+o$ uniquely. In offset form $w_e=e+o$ uniquely; in length 
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/standoff.rs`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Standoff put is a left inverse of standoff get {#L-resolution-11}
 
@@ -650,19 +520,6 @@ The test checks the converse on every admitted pair of the carrier of [L-resolut
 - File: `crates/panproto-io/src/resolution/standoff.rs`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Index fields never resolve a target {#L-resolution-12}
 
 ### Statement
@@ -695,19 +552,6 @@ Reference `get` first checks every declared reference, in id order, and returns 
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/compile.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Inherited URI bases fold the ancestor-or-self chain {#L-resolution-13}
 
 ### Statement
@@ -739,19 +583,6 @@ By induction on the chain, the fold after $k$ entries is the base of the $k$-th 
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/resolution/uri.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Resolution uses the target key's declared equality {#L-resolution-14}
 
@@ -788,19 +619,6 @@ Declared key equality is [`key_equivalence`](./keys-and-registration.md), re-exp
 - File: `crates/panproto-io/src/resolution/source.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Variable binding selects the declared preceding definition {#L-resolution-15}
 
@@ -846,19 +664,6 @@ The binding predicate first filters by strict position and exact name. It then a
 - File: `crates/panproto-io/src/resolution/source.rs`
 - File: `crates/panproto-io/src/resolution/build.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Preserving routes form the ordered Cartesian product {#L-resolution-16}
 
 ### Statement
@@ -887,16 +692,3 @@ The fold starts with the singleton empty prefix. At each input list it appends e
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/enumerate/resolution.rs`
 - File: `crates/panproto-io/src/registry.rs`
-
-### Mutation equivalences
-
-None. Deduplicating equal choices or reordering factors changes preserved route states.
-
-### Audit record
-
-- Author: reference resolution documentation author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: The reference product is proved, but production registry assembly and end-to-end coverage are missing.

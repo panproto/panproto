@@ -44,19 +44,6 @@ An *open required check* is a required diagnostic or required incomplete entry. 
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Reports and witnesses are deterministic {#L-validation-2}
 
 ### Statement
@@ -92,19 +79,6 @@ The claim does not compare inputs that differ in application-supplied external e
 - File: `crates/panproto-inst/src/validation/witness.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## A footprint contains every changed dependency {#L-validation-3}
 
@@ -146,19 +120,6 @@ The *persistent set* is the intersection of the baseline and target check-instan
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Incremental and whole-instance reports agree after one edit {#L-validation-4}
 
 ### Statement
@@ -196,19 +157,6 @@ The edit must lower and apply. The target validation budget is unlimited. The ba
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Agreement composes across admitted edit sequences {#L-validation-5}
 
@@ -248,19 +196,6 @@ The *sequence agreement* is the induction of one-step edit agreement across comm
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Every edit witness replays the committed transition {#L-validation-6}
 
 ### Statement
@@ -297,19 +232,6 @@ A *committed witness field* is any field used to reconstruct the transition sche
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Finite budgets expose an ordered suffix {#L-validation-7}
 
@@ -349,19 +271,6 @@ The *unlimited work count* is the sum, over every scheduled instance that is not
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Native and graph presentations commute with shared validation {#L-validation-8}
 
@@ -404,19 +313,6 @@ A *shared check* is a check kind defined on both the native shape and its graph 
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Restriction validates both sides of its boundary {#L-validation-9}
 
 ### Statement
@@ -455,19 +351,6 @@ The *validation boundary* is the ordered pair of source validation before restri
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Endpoint diagnostics realize the graph-instance equations {#L-validation-10}
 
 ### Statement
@@ -503,19 +386,6 @@ The *endpoint equation* requires an edge's source and target anchors to belong t
 - File: `crates/panproto-protocols/tests/endpoint_coherence_is_the_graph_instance_theory.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Keys and references agree with direct finite search {#L-validation-11}
 
@@ -555,19 +425,6 @@ A *key bucket* groups nonnull key vectors by declared scope. A *reference candid
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Admission compares complete required outcome bundles {#L-validation-12}
 
 ### Statement
@@ -601,19 +458,6 @@ A *required bundle* is one of three things: the required projection of an open c
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Keys compare by the key function of their declared equality {#L-validation-13}
 
@@ -651,19 +495,6 @@ The *key function* of an equality maps a part value to bytes; production compute
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Variable binding chooses the declared preceding definition {#L-validation-14}
 
@@ -704,19 +535,6 @@ The *preceding candidate set* contains definitions $(q,x,v)$ with $q<p$. First-d
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## The finite declaration carrier preserves guard, target-set, sort, and key refusals {#L-validation-15}
 
 ### Statement
@@ -753,19 +571,6 @@ The *declaration carrier* is the explicit collection of valid and invalid schema
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-schema/tests/reference_keys.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Index targets are refused and composite null matching follows its declaration {#L-validation-16}
 
@@ -810,19 +615,6 @@ An *index key* is a declared key whose role is `Index`; it supports ordering but
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Lexical-space validation selects a kind and preserves the source text {#L-validation-17}
 
@@ -871,19 +663,6 @@ The *source lexeme* is the exact stored `Str`, `Token`, or `CidLink` text. The *
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Fresh-main integration and combined verification of the CID and DID fixes remain pending, together with the independent audit.
-
 ## Without the assertion vocabulary a format does not change the parse {#L-validation-18}
 
 ### Statement
@@ -921,19 +700,6 @@ An *annotated format* is a constraint whose sort the protocol means as `Annotate
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
-
 ## Advisory format reporting is the recognizer complement {#L-validation-19}
 
 ### Statement
@@ -969,19 +735,6 @@ The *width kind* of a width format is the signed integer of its width or the bin
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## With the assertion vocabulary acceptance is coercion under the format's width {#L-validation-20}
 
@@ -1020,16 +773,3 @@ The *asserting specification* of a position is its value specification with the 
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Fresh-main integration and combined verification of the CID and DID fixes remain pending, together with the independent audit.

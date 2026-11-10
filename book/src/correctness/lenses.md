@@ -2,11 +2,11 @@
 
 This page proves the laws of panproto's asymmetric lenses in their three instance shapes: graphs, tables and trees. It also proves the laws of the lens path category built from them, the commuting squares that relate the shapes, and the protolens constructions that produce lenses from schemas. Each block states a law with its domain, proves it from the definitions below, and names the executable reference semantics and the differential tests that compare the production code with it.
 
-## Certification boundary
+## Scope boundary
 
-Call laws L1 through L20, restricted to the finite carriers stated below, the **finite lens certification scope**. The named tests define its executable boundary. Certification is conferred only by a frozen-candidate run, independent audits, and mutation closure; the inventory alone does not confer it. The scope covers graph lens operations, their table and tree representation checks, the named path and fusion laws, the two representation squares, and protolens instantiation and application. Each claim is limited by its stated domain and executable bound; certification does not establish completeness of the public lens API.
+Call laws L1 through L20, restricted to the finite carriers stated below, the **finite lens scope**. The named tests define its executable boundary. The scope covers graph lens operations, their table and tree representation checks, the named path and fusion laws, the two representation squares, and protolens instantiation and application. Each claim is limited by its stated domain and executable bound; the scope does not establish completeness of the public lens API.
 
-The finite lens certification scope excludes complement conversion and composition outside the two stated squares, law-report sublaws not named by L1 through L20, the remaining public `LensPath` put squares and stateful path behavior, broader optic laws, and binding-path collapsing. Shared implementation machinery does not bring an excluded operation into the scope.
+The finite lens scope excludes complement conversion and composition outside the two stated squares, law-report sublaws not named by L1 through L20, the remaining public `LensPath` put squares and stateful path behavior, broader optic laws, and binding-path collapsing. Shared implementation machinery does not bring an excluded operation into the scope.
 
 A **lens** is a triple $\ell = (m, S, T)$ of a compiled migration $m$, a source schema $S$ and a target schema $T$. Its **plan** $P_\ell$ is the result of compiling $(S, T, m)$: the edge image (the fate of every source edge: kept as a target edge, dropped, contracted or expanded), the contraction plan, and the fan resolver. Compilation either succeeds or refuses with a typed plan error, and it reads no instance. A **source** is an instance of $S$ and a **view** an instance of $T$; the shapes are graphs (nodes and edges with ids), tables (rows with ids and foreign-key pairs) and trees (nodes, ordered arcs and fans).
 
@@ -66,19 +66,6 @@ Lens, plan, get, put, put domain and identity envelope are defined at the head o
 - File: `crates/panproto-reference/src/pages/lenses/laws.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The graph complement records exactly what get forgets {#L-lenses-2}
 
 ### Statement
@@ -120,19 +107,6 @@ Lens, plan, get, complement and identity envelope are defined at the head of thi
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`
 - File: `crates/panproto-reference/src/pages/lenses/laws.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## Graph get is stamped restriction and graph put is checked restoration {#L-lenses-3}
 
@@ -182,19 +156,6 @@ Lens, plan, get, put, put domain, report order and identity envelope are defined
 - File: `crates/panproto-inst/src/segment/ids.rs`
 - File: `crates/panproto-inst/src/identity.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The graph put domain and restoration, and the cascade on the Delta fragment {#L-lenses-4}
 
 ### Statement
@@ -212,7 +173,6 @@ For a lens $\ell$, a complement $c$ produced by $\operatorname{get}_\ell$ and a 
 9. `KeyRefused`, a uniqueness key whose keying the kernel refuses at some bucketed element, for instance a value that is, or contains, a temporal without canonical bytes. The reason is the refusal at the least such element, at its first refused part, and the key then reports no `DuplicateKey`, since its equality is undefined. On a table lens a named SQL collation is not a `KeyRefused`: table restoration reports it as unresolved named-collation evidence, as before.
 
 The structural clauses read the original view and complement. We call the filtered state read by the later clauses the **restorable counterfactual**. It retains what put can still restore without erasing the structural violations already found. In particular, a colliding view object is treated as the source representative at its reused id; [L-lenses-5](#L-lenses-5) specifies the tree counterfactual needed to realize that rule without retaining shadowed source residue. On the domain, put restores: the non-synthesized view nodes with their recorded anchors (when the recorded anchor's image is the view anchor), fields and values, the dropped nodes, the view edges with their mapped-back labels, and the dropped edges minus the cascade, which removes the dropped edges incident to a surviving source node absent from the view. On the Delta fragment, for every source $s$ with $\operatorname{get}_\ell(s) = (v, c)$ and every endpoint-closed $v' \subseteq v$ that lies in $D_\ell(c)$, $r = \operatorname{put}_\ell(v', c)$ is the largest endpoint-closed subinstance of $s$ whose view is $v'$, and every endpoint-closed subinstance $t \subseteq s$ whose view is a subinstance of $v'$ is a subinstance of $r$.
-
 
 Field restoration follows the **baseline-and-pullback rule (BPR)**. Put first reconstructs a baseline source from the view and complement, then evaluates the transforms at each restored source anchor. Only the selected branch of a `Case` contributes operations. A default that finds its field already present and a rename whose source field is absent make no write; edits to these coordinates remain independent unless another executed operation affects them. Put preserves the edited presence and value of independent coordinates and carries edits with registered inverses back through the executed operations. It then recomputes the forward result and checks every coordinate written or erased by either the baseline run or this replay, including fields removed by `DropField` or `KeepFields`. A branch change that prevents the replay from reproducing an edited coordinate is thus a typed refusal. A node's own value and an ordinary field named `__value__` remain separate coordinates throughout.
 
@@ -266,19 +226,6 @@ Lens, put domain, report order, subinstance, endpoint closed and the Delta fragm
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The tree put domain refuses what the graph put domain refuses {#L-lenses-5}
 
 ### Statement
@@ -300,7 +247,6 @@ Lens, put domain and report order are defined at the head of this page; the clau
 3. The same structural pass constructs the reverse-anchor fibres and reports `AmbiguousReverseAnchor` for a view-added or re-anchored node with several preimages. Such a node and the view subtree below it are absent from the restorable counterfactual because put has no determined source anchor for them (step 1).
 4. Tree get records a surviving node's source anchor exactly when the reverse vertex map does not return it (definition of tree get, the same recording rule as graph get, [L-lenses-2](#L-lenses-2) step 3); tree restoration applies the recorded anchor exactly when its image equals the view anchor, else the unique reverse anchor (definition of tree restoration). The structural synthesis checks still read the original complement. A synthesized reparent thus retains both its original and current native arc witnesses, while the sibling-order rule selects the least synthesis key and arc independently of discovery order.
 5. On the nonfan tree lens domain, no edge between survivors is dropped. The graph restriction of the tree's graph form thus keeps exactly the arcs whose endpoints survive, and unique tree paths make its contraction choices equal to the native tree choices. The durable embedding maps an arc-local native witness to its public graph edge and applies the graph-specific minimum-edge rule to a sibling-order witness. After this explicit projection, the native structural and value passes of step 1 inspect the same restored nodes and source labels as graph restoration. Each route verifies its own shape-specific envelope. Thus their views, projected domain reports and restored sources agree under the embedding.
-
 
 6. Call the association from each view node to its root or child position the *position map*. For a rooted tree, the root has one root position, and every other node has one parent arc. Counting that parent’s children separately for each edge in arc order gives each child a distinct index. Thus the position map records one id at each occupied position. Production and reference get record the same map on the common tree domain because step 5 gives the same root, anchors and ordered arcs. A reader’s renumbering preserves these positions when it preserves the root anchor, edge labels and sibling order.
 
@@ -346,19 +292,6 @@ Lens, put domain and report order are defined at the head of this page; the clau
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-inst/src/wtype.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Complements of one lens merge as a partial commutative monoid, and composition is a path {#L-lenses-6}
 
 ### Statement
@@ -402,19 +335,6 @@ Complement is defined at the head of this page. Agreement on a shared key means 
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_complement_monoid.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Law equivalence is equality modulo synthesized presentation ids {#L-lenses-7}
 
 ### Statement
@@ -455,19 +375,6 @@ Complement and synthesis key are defined at the head of this page and in [L-lens
 - File: `crates/panproto-reference/src/pages/lenses/graph.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_lens_equivalence.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## The five law gates {#L-lenses-8}
 
@@ -528,19 +435,6 @@ Single-Step Basis, law report and equivalence are defined at the head of this pa
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-reference/tests/enumerate_lenses.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Graph get and put of a tree agree with the tree lens {#L-lenses-9}
 
 ### Statement
@@ -599,19 +493,6 @@ The tree arc order is not a graph complement field. The graph form carries child
 
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Symmetric spans and isomorphism classifiers agree across shapes {#L-lenses-10}
 
 ### Statement
@@ -656,19 +537,6 @@ Lens, complement and identity envelope are defined at the head of this page.
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_lens_constructions.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The table complement records exactly what table get forgets {#L-lenses-11}
 
 ### Statement
@@ -707,19 +575,6 @@ Complement, identity envelope and the preimage rule are defined at the head of t
 - File: `crates/panproto-reference/src/pages/lenses/table.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## Table get and put, with put writing through the last writer {#L-lenses-12}
 
@@ -775,19 +630,6 @@ The table complement is that of [L-lenses-11](#L-lenses-11). The view cells of a
 - File: `crates/panproto-inst/src/wtype.rs`
 - File: `crates/panproto-lens/src/asymmetric.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The identity path is a left unit {#L-lenses-13}
 
 ### Statement
@@ -821,19 +663,6 @@ A lens path is the free-category word over atomic lens stages. A path endpoint i
 - File: `crates/panproto-lens/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/lenses/path.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## The identity path is a right unit {#L-lenses-14}
 
@@ -869,19 +698,6 @@ A lens path is the free-category word over atomic lens stages. A path endpoint i
 - File: `crates/panproto-reference/src/pages/lenses/path.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Path composition is associative {#L-lenses-15}
 
 ### Statement
@@ -915,19 +731,6 @@ Lens path, the distinguished identity and composition are defined in [L-lenses-1
 - File: `crates/panproto-lens/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/lenses/path.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## Fusion preserves the sequential behaviour of a path {#L-lenses-16}
 
@@ -1016,19 +819,6 @@ The column-injectivity premise is a redundant downstream guard under the present
 
 The manifest test derives the expected case stream from the bounded lens carrier's endpoints and the independently pinned graph, tree and table state counts. It compares every emitted word, stage triple, carrier, source index and named witness in order while retaining only one expected payload at a time. The associativity property exercises a mismatched triple on every run in addition to a composable triple, and the fusion property runs all four table, three path-boundary and eight tree-fusion witnesses on every run.
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## The graph and tree routes of a lens commute {#L-lenses-17}
 
 ### Statement
@@ -1067,19 +857,6 @@ The graph form and the embedding are those of [L-lenses-5](#L-lenses-5). The com
 - File: `crates/panproto-reference/src/pages/lenses/tree.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
 
 ## The graph and table routes of a lens commute {#L-lenses-18}
 
@@ -1138,19 +915,6 @@ The graph form of a table maps each row to the node with its id and each pair to
 - File: `crates/panproto-reference/src/pages/lenses/table.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## A protolens instantiates at a schema only where its precondition holds {#L-lenses-19}
 
 ### Statement
@@ -1185,19 +949,6 @@ A protolens is a schema-indexed family of lenses given by a precondition and a c
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.
-
 ## Applying a protolens to an instance is get of its instantiation {#L-lenses-20}
 
 ### Statement
@@ -1229,16 +980,3 @@ Protolens and checked instantiation are those of [L-lenses-19](#L-lenses-19); gr
 - File: `crates/panproto-lens/src/graph_protolens.rs`
 - File: `crates/panproto-reference/src/pages/lenses/protolens.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: lens-law sweep author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: audit pending.

@@ -29,7 +29,7 @@ homepage:           https://panproto.dev
 bug-reports:        https://github.com/panproto/panproto/issues
 build-type:         Simple
 tested-with:        GHC == 9.12.2
-extra-source-files: cbits/panproto.h
+extra-source-files: cbits/panproto.h, cbits/panproto_glue.h
 extra-doc-files:    README.md, CHANGELOG.md
 
 source-repository head

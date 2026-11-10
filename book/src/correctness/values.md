@@ -60,18 +60,6 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 ## Declared kinds determine lexical mappings {#L-values-2}
 
 ### Statement
@@ -140,18 +128,6 @@ The production `coerce` in `crates/panproto-inst/src/value/coerce.rs` is require
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 ## Value conversion preserves exact values {#L-values-3}
 
 ### Statement
@@ -246,19 +222,6 @@ The production `coerce_value` in `crates/panproto-inst/src/value/coerce.rs` is r
 - File: `crates/panproto-reference/src/num.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Coercion preserves admitted source lexemes {#L-values-4}
 
 ### Statement
@@ -321,19 +284,6 @@ The production `coerce` is required to equal this definition exactly, as the nam
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Coercion is idempotent {#L-values-5}
 
 ### Statement
@@ -381,19 +331,6 @@ Specifications that are not value-admissible (an inadmissible kind, or a float k
 - File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Direct and value coercion have the same fixed points {#L-values-6}
 
@@ -445,19 +382,6 @@ The fixed-point characterization is limited to value-admissible specifications (
 - File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Computed NaNs use the canonical quiet pattern {#L-values-7}
 
@@ -513,19 +437,6 @@ Item 2 constrains only results of the form `Ok(Value::Float(_))`. Successful non
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## NaN bit transport is exact at every reference width {#L-values-8}
 
 ### Statement
@@ -578,19 +489,6 @@ The production correspondence has a narrower domain. At binary16, `binary16_wide
 - File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Closest-shortest printing breaks ties to even {#L-values-9}
 
@@ -721,19 +619,6 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Finite decimals compare by exact numeric value {#L-values-10}
 
 ### Statement
@@ -782,19 +667,6 @@ Subject to Assumption W, every value of the reference type `DecimalValue` is in 
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Decimal compare-total orders representations {#L-values-11}
 
@@ -846,19 +718,6 @@ Subject to Assumption W, every value of the reference type `Decimal` is in the d
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Comparable temporals follow chronological order {#L-values-12}
 
@@ -913,19 +772,6 @@ Let $\mathcal T$ be the set of values `v: Temporal` with `v.well_formed()`. For 
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Canonical value bytes are injective {#L-values-13}
 
@@ -988,19 +834,6 @@ A target that violates Assumption W's pointer-width condition, or a held value t
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Expression evaluation is exact and lexically scoped {#L-values-14}
 
@@ -1076,19 +909,6 @@ Every expression and every environment is in the domain; each failure is one of 
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Exact temporal parsing preserves the accepted lexeme {#L-values-15}
 
 ### Statement
@@ -1135,19 +955,6 @@ Hence `parse_display(F, text)` is true exactly when `parse_as(F, text)` is `Some
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Temporal display parses to the same value {#L-values-16}
 
 ### Statement
@@ -1188,19 +995,6 @@ For every value `v: Temporal` with `v.well_formed()`, `v.lexical_form()` is `Som
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Temporal comparison reverses with its arguments {#L-values-17}
 
@@ -1246,19 +1040,6 @@ So `cmp_chronological(a, b)` is `None` exactly when `cmp_chronological(b, a)` is
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Each temporal comparability class is a total preorder {#L-values-18}
 
@@ -1307,19 +1088,6 @@ Moreover: (4) every comparable pair $a, b \in \mathcal T$ lies in a common class
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Chronological equality ignores written temporal form {#L-values-19}
 
 ### Statement
@@ -1363,19 +1131,6 @@ Moreover, $a \approx b$ does not imply $a = b$: two written-form variants differ
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Complete temporal forms retain their established order {#L-values-20}
 
@@ -1428,19 +1183,6 @@ By clauses 1 and 2, relative to commit `b05a4ced^`, the extended comparator neit
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Extended temporal forms have distinct canonical bytes {#L-values-21}
 
 ### Statement
@@ -1484,19 +1226,6 @@ So canonical bytes are injective on the whole carrier: on reduced, truncated, in
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Discriminator tables select tagged coercions {#L-values-22}
 
@@ -1542,19 +1271,6 @@ The production `coerce_discriminated` in `crates/panproto-inst/src/value/coerce.
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Numeral dialects agree with their declared grammars {#L-values-23}
 
@@ -1625,19 +1341,6 @@ Every normal form denotes, under the default reading, the number the dialect's t
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Latin-1 decoding followed by encoding is identity {#L-values-24}
 
 ### Statement
@@ -1677,19 +1380,6 @@ The domain is every byte string, so no input lies outside it. The only refusal `
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Accepted padded base64 text is canonical {#L-values-25}
 
@@ -1738,19 +1428,6 @@ The domain is the set of texts that `decode_base64(·, true)` accepts; on every 
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Optional-padding base64 decodes canonical encodings {#L-values-26}
 
 ### Statement
@@ -1792,19 +1469,6 @@ The domain is every byte string, and the texts read are $t$ and $t^{\circ}$, so 
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Optional base64 padding preserves decoded bytes {#L-values-27}
 
 ### Statement
@@ -1844,19 +1508,6 @@ Two cases fall outside the domain. First, when $|u| \bmod 4 = 1$ no padding comp
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Epoch counts round-trip through temporals {#L-values-28}
 
@@ -1898,19 +1549,6 @@ For every count $c$ (`i128`), unit $u$ (`TimeUnit`) and flag `instant`, let $d_u
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Canonical epoch temporals round-trip through counts {#L-values-29}
 
 ### Statement
@@ -1950,19 +1588,6 @@ With [Epoch counts round-trip through temporals](#L-values-28), the image of `fr
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Binary16 lexical mapping is exact {#L-values-30}
 
@@ -2006,19 +1631,6 @@ A rational that does not satisfy Premise P is outside the proved arithmetic doma
 - File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Nearest reading accepts finite rounded numerals {#L-values-31}
 
@@ -2078,19 +1690,6 @@ Two facts used by later laws are part of this statement. (a) For every finite `D
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Closest-shortest text round-trips without a complement {#L-values-33}
 
 ### Statement
@@ -2137,19 +1736,6 @@ These are statements about the reference operations, which the production printe
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## The exact float reading is the fidelity law {#L-values-34}
 
@@ -2203,19 +1789,6 @@ A rational that does not satisfy Premise P is outside the proved reference domai
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Decimal numeric comparison is a total preorder {#L-values-35}
 
 ### Statement
@@ -2263,19 +1836,6 @@ Assume Assumption W throughout.
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Decimal special values have fixed numeric placement {#L-values-36}
 
 ### Statement
@@ -2316,19 +1876,6 @@ Every value of the reference type `Decimal` is in the domain, as in [L-values-35
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Compare-total refines decimal numeric comparison {#L-values-37}
 
@@ -2374,19 +1921,6 @@ Assume Assumption W throughout.
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Special decimals have injective canonical bytes {#L-values-38}
 
@@ -2434,19 +1968,6 @@ A target that violates Assumption W's pointer-width condition, or a held value t
 - File: `crates/panproto-inst/src/identity.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Unwritten YAML UTC remains a distinct representation {#L-values-39}
 
@@ -2498,19 +2019,6 @@ The derived `Hash` of `Temporal` reads the same fields as `==`, so it is consist
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Latin-1 encoding followed by decoding is identity {#L-values-41}
 
 ### Statement
@@ -2551,19 +2059,6 @@ A string that is not admitted contains a character whose code point exceeds U+00
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Padded base64 encoding followed by decoding is identity {#L-values-42}
 
 ### Statement
@@ -2602,19 +2097,6 @@ The domain is every byte string, so no input lies outside it. No refusal can ari
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Exact binary rounding uses ties to even {#L-values-43}
 
@@ -2656,16 +2138,3 @@ A rational that does not satisfy Premise P is outside the proved arithmetic doma
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
