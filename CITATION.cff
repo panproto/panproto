@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use panproto in your research, please cite it as below."
+title: "panproto"
+abstract: "Schematic version control: schemas, migrations, lenses and data for trees, tables and graphs, built on generalized algebraic theories."
+type: software
+authors:
+  - family-names: White
+    given-names: Aaron Steven
+repository-code: "https://github.com/panproto/panproto"
+url: "https://panproto.dev"
+license: MIT
+keywords:
+  - schema migration
+  - bidirectional transformations
+  - lenses
+  - generalized algebraic theories
+  - version control

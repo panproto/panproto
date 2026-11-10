@@ -1,0 +1,47 @@
+name: Bug report
+description: Something panproto does that it should not, or fails to do.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you observed instead. Include the full error text.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest schema, instance and command or program that shows the problem.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      multiple: true
+      options:
+        - Rust crates
+        - schema CLI
+        - Python
+        - TypeScript / WASM
+        - Swift
+        - Haskell
+        - C ABI
+        - Book
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: panproto version
+      placeholder: "0.77.0"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Operating system and architecture, and the Rust, Python, Node, Swift or GHC version as relevant.

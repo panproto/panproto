@@ -1,0 +1,20 @@
+name: Feature request
+description: A capability panproto does not have.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and where panproto falls short. A concrete schema or data example helps.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The behaviour or API you have in mind, if you have one.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
