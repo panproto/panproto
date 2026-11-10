@@ -463,7 +463,7 @@ fn restrict_boundary_agrees_with_the_reference_on_every_status_pair() {
     assert_eq!(pairs.len(), 9);
 }
 
-/// What the composition of V9 gives: the input side, then compilation,
+/// What the composition gives: the input side, then compilation,
 /// then the engine, then the output side.
 fn composition(
     g: &GInstance,
