@@ -2460,8 +2460,8 @@ fn json_scalar_successes_and_typed_refusals_match_reference() {
 }
 
 /// Law 5 over the page's complete temporal lexical product for the five
-/// canonical emitters in the phase-3 contract: JSON, TOML, XML, CSV and TSV.
-/// The feature-gated YAML CST emitter belongs to the final-gate route proof.
+/// canonical emitters: JSON, TOML, XML, CSV and TSV. The feature-gated YAML
+/// CST emitter is not covered here.
 /// A successfully parsed temporal is offered to both route predicates;
 /// malformed lexemes are refusals on both sides.
 #[test]

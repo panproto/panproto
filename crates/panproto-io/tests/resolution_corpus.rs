@@ -6933,8 +6933,8 @@ fn pick_node(target: u8) -> Node {
     node
 }
 
-/// The reference model of the picks fixture, written from Spec ruling S8's
-/// text and calling nothing of the engine: a source is a set of targets;
+/// The reference model of the picks fixture, written from its
+/// definition and calling nothing of the engine: a source is a set of targets;
 /// get lists them in ascending order and gives the i-th the synthesized id
 /// i, recording each id's target in the complement's index; put admits a
 /// view only when every id the index records names the index's target

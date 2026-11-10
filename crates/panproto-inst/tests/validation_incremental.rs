@@ -34,7 +34,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 const WITNESS_PROCESSES: usize = 32;
 
 /// Exercise the independent incremental reference model on the smallest
-/// non-identity transition used by the production V3--V6 carriers.
+/// non-identity transition used by the production carriers.
 #[test]
 fn reference_incremental_witness_anchor_verifies() {
     use panproto_reference::model::{Graph, Node as ReferenceNode};

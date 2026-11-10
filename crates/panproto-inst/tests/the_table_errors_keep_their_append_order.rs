@@ -1,7 +1,7 @@
 //! The table errors of `InstError` sit in one run, in the order the append
 //! rule for `error.rs` fixes: `DuplicateRowId`, `HomTableMismatch`,
-//! `DuplicateForeignKey` and `NotATable` (Arbiter ruling A3(2)(g)), then
-//! `RowHasForeignKeys` directly after `NotATable` (Arbiter ruling A5).
+//! `DuplicateForeignKey` and `NotATable`, then `RowHasForeignKeys` directly
+//! after `NotATable`.
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

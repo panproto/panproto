@@ -3302,8 +3302,7 @@ pub mod implementation {
         }
     }
 
-    /// A declaration form outside the domain of the phase-three resolution
-    /// laws.
+    /// A declaration form outside the domain of the resolution laws.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum DeferredForm {
         /// An identified inline occurrence.
@@ -3325,7 +3324,7 @@ pub mod implementation {
     }
 
     /// Definition: The first form of `reference` outside the domain of the
-    /// phase-three laws.
+    /// resolution laws.
     ///
     /// The forms are tried in a fixed order: an inline source, a target-set
     /// target, a null vertex, a scope reached through references, standoff

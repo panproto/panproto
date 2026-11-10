@@ -2178,7 +2178,7 @@ fn agreed_graph_put_domain(pair: &Pair, source: &RefGraph, what: &str) -> Result
     reference.domain
 }
 
-/// Amendment-level contract: a declared key whose restored value has no
+/// A declared key whose restored value has no
 /// canonical bytes is a typed put-domain refusal in production and in the
 /// reference alike, under every equality declaration, and the refusal takes
 /// the key's place in the report instead of its duplicate-key verdicts.

@@ -1680,7 +1680,7 @@ fn incremental_transitions_agree_with_the_independent_reference() {
     );
 }
 
-/// The lexical-space law as a same-input differential over the F45 cases
+/// The lexical-space law as a same-input differential over the lexical-space cases
 /// and their neighbours. Each literal is reported exactly when it lies
 /// outside its datatype's XSD lexical space, as the independent reference
 /// decides it, or when a lexeme inside that space does not coerce under the
@@ -2545,7 +2545,7 @@ fn supplemental_validation_definitions_have_bounded_production_witnesses() {
     }
     assert_eq!(lexical_count, 4);
 
-    // Annotated formats under H72(d): (1) without the assertion vocabulary
+    // Annotated formats: (1) without the assertion vocabulary
     // the parse coerces under the kind from `type` alone, so a schema with a
     // format parses exactly as the schema without it; (3) with it, the width
     // becomes the integer-width parameter and acceptance is coercion under

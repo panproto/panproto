@@ -4585,7 +4585,7 @@ fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
     let fan = Fan::new("nope", 0).with_child("lab", 1);
     tree.fans.push(fan.clone());
     let report = validate_wtype(&tree, &schema, &Protocol::default());
-    // I7 maps to `MalformedFan`: the hyper-edge is undeclared, so its labels
+    // This maps to `MalformedFan`: the hyper-edge is undeclared, so its labels
     // are not read against any signature.
     assert_eq!(
         fan_entries(&report),
