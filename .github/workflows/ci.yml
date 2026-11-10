@@ -166,6 +166,10 @@ jobs:
           check_gate panproto-inst reference_coercion coerce_value_agrees_with_the_reference_over_the_values_scope
           check_gate panproto-lens reference_lenses lens_laws_agree_with_the_reference_exhaustively
           check_gate panproto-lens reference_lenses lens_path_law_certificate
+          check_gate panproto-inst reference_edits graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope
+          check_gate panproto-inst reference_edits graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope
+          check_gate panproto-inst reference_edits table_edits_match_reference_on_every_word_of_the_coverage_scope
+          check_gate panproto-inst reference_edits tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope
       #
       # Every build of this job uses the `ci-test` cargo profile of the
       # workspace `Cargo.toml`, so the gate listings above, the suite, the

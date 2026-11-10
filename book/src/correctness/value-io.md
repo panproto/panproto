@@ -176,7 +176,7 @@ The route dialects are JSON for JSON, CSV and TSV; TOML for TOML; YAML 1.2 for Y
 
 For every well-displaying temporal $t$, `temporal(r, t)` holds on XML, CSV and TSV. It holds on JSON exactly when $t$ is complete, and on YAML exactly when the offset of $t$ is not local, since a YAML timestamp written without a zone denotes UTC and so cannot carry a local value. On TOML it holds only for finite values in one of three forms: a full four-digit non-negative-zero date with local offset; a full time with local offset; or a date-time having both full parts and a local, Zulu, extended fixed, or extended negative-zero offset.
 
-The production certificate covers the five always-compiled emitters JSON, TOML, XML, CSV and TSV. The YAML arm is checked by the reference anchor only, because the YAML emitter is the feature-gated CST writer, whose differential belongs to the final gate.
+The production certificate covers the five always-compiled emitters JSON, TOML, XML, CSV and TSV. The YAML arm is checked by the reference anchor only, because the YAML emitter is the feature-gated CST writer.
 
 ### Outside the domain
 

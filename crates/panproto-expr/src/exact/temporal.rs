@@ -275,11 +275,13 @@ pub struct ExtendedTemporal {
 }
 
 /// Why descriptor-free temporal parsing failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TemporalParseError {
     /// No temporal form accepts the lexeme.
+    #[error("no temporal form accepts the lexeme")]
     InvalidTemporal,
     /// More than one distinct temporal value accepts the lexeme.
+    #[error("more than one distinct temporal value accepts the lexeme")]
     AmbiguousTemporal,
 }
 

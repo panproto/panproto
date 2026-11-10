@@ -2130,7 +2130,7 @@ fn bounded_decimal_round_trips_match_reference() {
 /// production CST parses must retain the wrapper byte-for-byte.
 #[cfg(feature = "tree-sitter")]
 #[test]
-#[ignore = "final gate: YAML recovery must reject uncovered source bytes"]
+#[ignore = "YAML error recovery accepts source bytes that the reference rejects"]
 fn bounded_scalar_and_cst_parsing_matches_reference() {
     let tree_codecs = [
         (
