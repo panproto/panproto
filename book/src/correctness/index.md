@@ -2,7 +2,7 @@
 
 This part of the book holds the written proofs of panproto's laws. Each page covers one family of laws: the value layer, theories, keys and registration, the representation of instances, the Kan extensions, restrict and contraction, edits, validation, segments, the lenses and reference resolution, with further pages for each data format as its laws are proved. Each law has one block: the law's statement with its exact domain, a complete proof, and the code that implements and checks the law.
 
-A proof on these pages is one of three obligations a law carries, and it is read together with the other two. First, the law has an executable reference semantics in the [`panproto-reference`](https://github.com/panproto/panproto/tree/main/crates/panproto-reference) crate: a deliberately naive function written straight from the law's definition, with exact arithmetic and no dependency on the code it checks. Second, exhaustive and property-based differential tests run the production code and that same function and require exact agreement, including the reason for a typed refusal. The exhaustive test visits every input of its stated finite scope, prints the bound and the number of inputs compared, and checks the count against a source independent of the enumerator. The property test records each seed and every shrunk counterexample and passes on three consecutive runs. Third, mutation testing of the files that implement the law checks that those tests detect changes to the implementation; a mutant that survives marks a gap in the tests, which is closed by a test that distinguishes it.
+A proof on these pages is one of three obligations a law carries, and it is read together with the other two. First, the law has an executable reference semantics in the [`panproto-reference`](https://github.com/panproto/panproto/tree/main/crates/panproto-reference) crate: a deliberately naive function written straight from the law's definition, with exact arithmetic and no dependency on the code it checks. Second, exhaustive and property-based differential tests run the production code and that same function and require exact agreement, including the reason for a typed refusal. The exhaustive test visits every input of its stated finite scope, prints the bound and the number of inputs compared, and checks the count against a source independent of the enumerator. The property test records each seed and every shrunk counterexample and passes on three consecutive runs. Third, mutation testing of the files that implement the law checks that those tests detect changes to the implementation; a mutant that survives shows a gap in the tests, which is closed by a test that distinguishes it.
 
 ## Scope
 
@@ -44,7 +44,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | Page | Laws |
 |---|---|
 | [Values](values.md) | 41 |
-| [Value I/O](value-io.md) | 18 |
+| [Value I/O](value-io.md) | 31 |
 | [Theories](theories.md) | 8 |
 | [Keys and registration](keys-and-registration.md) | 18 |
 | [Instance representation](representation.md) | 8 |
@@ -54,4 +54,4 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Validation](validation.md) | 20 |
 | [Segments](segments.md) | 10 |
 | [Lenses](lenses.md) | 20 |
-| [Reference resolution](resolution.md) | 15 |
+| [Reference resolution](resolution.md) | 16 |
