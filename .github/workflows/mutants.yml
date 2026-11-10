@@ -1,0 +1,371 @@
+name: Mutants
+
+# Mutation testing of the law-bearing crates. It reports and gates nothing:
+# no job here is a required check, and a release is gated by ordinary CI.
+#
+#   * On a pull request, only the mutants overlapping the lines the pull
+#     request changes are tested (`cargo mutants --in-diff`), in four shards.
+#   * Weekly on main, and on demand, one tenth of the population is tested:
+#     24 of 240 round-robin shards, chosen by the ISO week, so every shard runs
+#     once in ten weeks. Surviving mutants go to the job summary, to an
+#     artifact, and to one tracking issue whose section for that tenth is
+#     replaced in place.
+#
+# Settings shared with local runs (test tool, cargo and nextest profiles,
+# test filter, excludes) live in `.cargo/mutants.toml`.
+
+on:
+  pull_request:
+    paths:
+      - "crates/panproto-gat/src/**"
+      - "crates/panproto-expr/src/**"
+      - "crates/panproto-schema/src/**"
+      - "crates/panproto-inst/src/**"
+      - "crates/panproto-mig/src/**"
+      - "crates/panproto-lens/src/**"
+      - "crates/panproto-io/src/**"
+      - "crates/panproto-check/src/**"
+      - "crates/panproto-protocols/src/**"
+      - "crates/panproto-reference/src/**"
+      - ".cargo/mutants.toml"
+      - ".github/workflows/mutants.yml"
+  schedule:
+    # Saturday, off the hour, when scheduled runs are least delayed.
+    - cron: "23 9 * * 6"
+  workflow_dispatch:
+    inputs:
+      slice:
+        description: Tenth of the population to test, 0 to 9; empty selects this ISO week's
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: mutants-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  PROPTEST_CASES: "32"
+  # `--in-place` mutates the checkout, so a failing property test must not
+  # write a regression file into it for later mutants to replay.
+  PROPTEST_DISABLE_FAILURE_PERSISTENCE: "1"
+  # RLIMIT_DATA of each test process, in MiB: four test threads at this cap
+  # stay inside a 16 GB runner, and a mutant that allocates without bound
+  # fails its test instead of taking the runner down.
+  TEST_MEMORY_LIMIT_MIB: "3584"
+  # The baseline is skipped, because ordinary CI has run the same suite at
+  # this commit, so both bounds are explicit. The slowest per-package suite
+  # measured under this configuration took 1,245 s, the slowest mutant build
+  # 425 s.
+  MUTANT_TEST_TIMEOUT: "2700"
+  MUTANT_BUILD_TIMEOUT: "1200"
+  PR_CRATES: >-
+    panproto-gat panproto-expr panproto-schema panproto-inst panproto-mig
+    panproto-lens panproto-io panproto-check panproto-protocols panproto-reference
+  # panproto-reference is mutated on pull requests only: its suites are the
+  # reference the other crates are checked against, and at about thirty
+  # minutes per mutant they would quadruple the weekly cycle.
+  SCHEDULED_CRATES: >-
+    panproto-gat panproto-expr panproto-schema panproto-inst panproto-mig
+    panproto-lens panproto-io panproto-check panproto-protocols
+  SCHEDULED_SHARDS: "240"
+  SCHEDULED_SLICES: "10"
+
+jobs:
+  changed-lines:
+    name: Mutants in changed lines
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/share/powershell
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: mutants
+          save-if: false
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
+        with:
+          tool: cargo-mutants@27.1.0,cargo-nextest@0.9.130
+      - name: Cap the memory of each test process
+        run: |
+          set -euo pipefail
+          runner="$RUNNER_TEMP/memcap-runner"
+          printf '%s\n' '#!/usr/bin/env bash' \
+            "ulimit -d $((TEST_MEMORY_LIMIT_MIB * 1024)) || exit 126" \
+            'exec "$@"' > "$runner"
+          chmod +x "$runner"
+          "$runner" python3 -c 'bytearray(64 << 20)'
+          if "$runner" python3 -c "bytearray(($TEST_MEMORY_LIMIT_MIB + 256) << 20)" 2>/dev/null; then
+            echo "::error::the per-test memory cap does not hold"; exit 1
+          fi
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=$runner" >> "$GITHUB_ENV"
+      - name: Write the pull request's Rust diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git diff "origin/${BASE_REF}.." -- '*.rs' > "$RUNNER_TEMP/pr.diff"
+          echo "$(grep -c '^+++ ' "$RUNNER_TEMP/pr.diff" || true) Rust files changed"
+      - name: Test the mutants in the changed lines
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -uo pipefail
+          packages=()
+          for crate in $PR_CRATES; do packages+=(--package "$crate"); done
+          status=0
+          timeout --signal=INT --kill-after=5m 160m \
+            cargo mutants "${packages[@]}" \
+              --in-diff "$RUNNER_TEMP/pr.diff" \
+              --shard "$SHARD/4" --sharding round-robin \
+              --in-place --no-shuffle --baseline skip \
+              --timeout "$MUTANT_TEST_TIMEOUT" --build-timeout "$MUTANT_BUILD_TIMEOUT" \
+              --output "$RUNNER_TEMP" -vV || status=$?
+          case "$status" in
+            0) ;;
+            2|3) echo "::warning::mutants in the changed lines survived; see the annotations and the mutants.out artifact"; status=0 ;;
+            124) echo "::warning::the time box ended this shard before every mutant was tested"; status=0 ;;
+            *) echo "::error::cargo-mutants exited with $status" ;;
+          esac
+          exit "$status"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: mutants-changed-lines-${{ matrix.shard }}
+          path: ${{ runner.temp }}/mutants.out
+          if-no-files-found: ignore
+          retention-days: 14
+
+  preflight:
+    name: Main is green at this commit
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      slice: ${{ steps.slice.outputs.slice }}
+    steps:
+      - name: Choose the slice and check CI at this commit
+        id: slice
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.slice }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::the weekly run tests main only"; exit 1
+          fi
+          if [ -n "$REQUESTED" ]; then
+            slice="$REQUESTED"
+          else
+            slice=$(( 10#$(date -u +%V) % SCHEDULED_SLICES ))
+          fi
+          if ! [[ "$slice" =~ ^[0-9]+$ ]] || [ "$slice" -ge "$SCHEDULED_SLICES" ]; then
+            echo "::error::slice must be an integer from 0 to $((SCHEDULED_SLICES - 1))"; exit 1
+          fi
+          conclusion=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" \
+            --jq '.workflow_runs[0].conclusion // "none"')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI at $GITHUB_SHA is '$conclusion'; mutants are only meaningful against a passing suite"
+            exit 1
+          fi
+          echo "slice=$slice" >> "$GITHUB_OUTPUT"
+          echo "Testing slice $slice of $SCHEDULED_SLICES at \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+
+  scheduled:
+    name: Mutants on main
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        slot: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/local/share/powershell
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: mutants
+          save-if: ${{ matrix.slot == 0 }}
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
+        with:
+          tool: cargo-mutants@27.1.0,cargo-nextest@0.9.130
+      - name: Cap the memory of each test process
+        run: |
+          set -euo pipefail
+          runner="$RUNNER_TEMP/memcap-runner"
+          printf '%s\n' '#!/usr/bin/env bash' \
+            "ulimit -d $((TEST_MEMORY_LIMIT_MIB * 1024)) || exit 126" \
+            'exec "$@"' > "$runner"
+          chmod +x "$runner"
+          "$runner" python3 -c 'bytearray(64 << 20)'
+          if "$runner" python3 -c "bytearray(($TEST_MEMORY_LIMIT_MIB + 256) << 20)" 2>/dev/null; then
+            echo "::error::the per-test memory cap does not hold"; exit 1
+          fi
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=$runner" >> "$GITHUB_ENV"
+      - name: Test this slot's shard
+        env:
+          SLOT: ${{ matrix.slot }}
+          SLICE: ${{ needs.preflight.outputs.slice }}
+        run: |
+          set -uo pipefail
+          shard=$(( SLOT * SCHEDULED_SLICES + SLICE ))
+          packages=()
+          for crate in $SCHEDULED_CRATES; do packages+=(--package "$crate"); done
+          echo "shard $shard of $SCHEDULED_SHARDS"
+          status=0
+          timeout --signal=INT --kill-after=5m 300m \
+            cargo mutants "${packages[@]}" \
+              --shard "$shard/$SCHEDULED_SHARDS" --sharding round-robin \
+              --in-place --no-shuffle --baseline skip \
+              --timeout "$MUTANT_TEST_TIMEOUT" --build-timeout "$MUTANT_BUILD_TIMEOUT" \
+              --output "$RUNNER_TEMP" || status=$?
+          mkdir -p "$RUNNER_TEMP/mutants.out"
+          printf '%s\n' "$status" > "$RUNNER_TEMP/mutants.out/exit-status"
+          printf '%s\n' "$shard" > "$RUNNER_TEMP/mutants.out/shard"
+          case "$status" in
+            0|2|3) exit 0 ;;
+            124) echo "::warning::the time box ended shard $shard before every mutant was tested"; exit 0 ;;
+            *) echo "::error::cargo-mutants exited with $status"; exit "$status" ;;
+          esac
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: mutants-main-${{ matrix.slot }}
+          path: ${{ runner.temp }}/mutants.out
+          if-no-files-found: warn
+          retention-days: 90
+
+  report:
+    name: Report surviving mutants
+    needs: [preflight, scheduled]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: mutants-main-*
+          path: ${{ runner.temp }}/in
+      - name: Summarize and update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLICE: ${{ needs.preflight.outputs.slice }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os, pathlib, re, subprocess
+
+          repo, sha, run_url = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_SHA"], os.environ["RUN_URL"]
+          piece, slots = os.environ["SLICE"], 24
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "in"
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "report"
+          out.mkdir()
+          kinds = ("caught", "missed", "timeout", "unviable")
+          totals = dict.fromkeys(kinds, 0)
+          survivors, rows = [], []
+          location = re.compile(r"^(?P<path>[^:]+\.rs):(?P<line>\d+)")
+
+          def lines(path):
+              return [l for l in path.read_text().splitlines() if l.strip()] if path.is_file() else []
+
+          for slot in range(slots):
+              d = root / f"mutants-main-{slot}"
+              status = (d / "exit-status").read_text().strip() if (d / "exit-status").is_file() else "no result"
+              shard = (d / "shard").read_text().strip() if (d / "shard").is_file() else "?"
+              found = {k: lines(d / f"{k}.txt") for k in kinds}
+              for k in kinds:
+                  totals[k] += len(found[k])
+              survivors += [("missed", m) for m in found["missed"]] + [("timeout", m) for m in found["timeout"]]
+              rows.append(f"| {slot} | {shard} | {status} | " + " | ".join(str(len(found[k])) for k in kinds) + " |")
+
+          def link(name):
+              m = location.match(name)
+              if not m:
+                  return f"`{name}`"
+              url = f"https://github.com/{repo}/blob/{sha}/{m['path']}#L{m['line']}"
+              return f"[`{name}`]({url})"
+
+          date = datetime.date.today().isoformat()
+          head = (f"Tested {date} at `{sha[:12]}` ([run]({run_url})): "
+                  + ", ".join(f"{k} {totals[k]}" for k in kinds) + ".")
+          listed = [f"- {kind}: {link(name)}" for kind, name in survivors]
+          shown = listed[:400]
+          if len(listed) > len(shown):
+              shown.append(f"- and {len(listed) - len(shown)} more in the run's artifacts")
+          section_text = head + "\n\n" + ("\n".join(shown) if shown else "No surviving mutants.")
+
+          summary = [f"## Mutants on main, slice {piece}", "", head, "",
+                     "| slot | shard | exit | caught | missed | timeout | unviable |", "|---|---|---|---|---|---|---|",
+                     *rows, "", "### Surviving mutants", "", "\n".join(shown) or "None."]
+          (out / "summary.md").write_text("\n".join(summary) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as handle:
+              handle.write("\n".join(summary) + "\n")
+
+          title = "Surviving mutants on main"
+          preamble = ("Mutation testing of the law-bearing crates on main. Each week tests one of ten slices of the "
+                      "mutant population; a slice's section below is replaced when it is next tested. A survivor is "
+                      "backlog: add a test that kills it or, for an equivalent mutant, an anchored `exclude_re` "
+                      "entry in `.cargo/mutants.toml` with a comment saying why.\n")
+          found = json.loads(subprocess.run(
+              ["gh", "issue", "list", "--repo", repo, "--state", "open", "--search", f'"{title}" in:title',
+               "--json", "number,title,body"], check=True, capture_output=True, text=True).stdout)
+          issue = next((i for i in found if i["title"] == title), None)
+          body = issue["body"] if issue else preamble
+          start, end = f"<!-- slice {piece} -->", f"<!-- end slice {piece} -->"
+          section = f"{start}\n### Slice {piece}\n\n{section_text}\n{end}"
+          pattern = re.compile(re.escape(start) + r".*?" + re.escape(end), re.S)
+          body = pattern.sub(lambda _: section, body) if pattern.search(body) else body.rstrip() + "\n\n" + section
+          if len(body) > 65000:
+              body = body[:64000] + "\n\nTruncated; see the run's artifacts.\n"
+          (out / "issue.md").write_text(body)
+          if issue:
+              subprocess.run(["gh", "issue", "edit", str(issue["number"]), "--repo", repo,
+                              "--body-file", str(out / "issue.md")], check=True)
+          else:
+              subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title,
+                              "--body-file", str(out / "issue.md")], check=True)
+          PY
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: mutants-main-report
+          path: ${{ runner.temp }}/report
+          if-no-files-found: warn
+          retention-days: 90

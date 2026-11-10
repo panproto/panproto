@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+# A new push to a pull request supersedes the run for the previous one. Runs
+# on main are never cancelled, so every commit there has a complete result.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -13,6 +22,7 @@ jobs:
   versions:
     name: Version Consistency
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     # Fast-fail guard: assert every version-declaring file in the
     # workspace pins the same version as `Cargo.toml`'s
     # `[workspace.package]`. Catches the silent-PyPI-stranding shape
@@ -41,6 +51,7 @@ jobs:
   fmt:
     name: Formatting
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -51,6 +62,7 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -60,6 +72,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Compile the fuzz targets
         # `fuzz/` is its own workspace, so neither the clippy job above nor
@@ -70,6 +84,7 @@ jobs:
   test:
     name: Tests (${{ matrix.rust }})
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     env:
       # The repository's rust-toolchain.toml selects stable; the matrix must
       # override it so the MSRV job exercises its requested compiler.
@@ -119,6 +134,7 @@ jobs:
           cargo --version --verbose
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: ${{ matrix.rust }}
       - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
       # The `ci` nextest profile skips the whole-corpus gates, the exhaustive
@@ -201,28 +217,35 @@ jobs:
   feature-check:
     name: Feature Combinations
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@b6dc1834c131bd3090eb7c41a7be7aadfd9e329d # cargo-hack
       - run: cargo hack check --feature-powerset --no-dev-deps -p panproto-core -p panproto-io -p panproto-wasm
 
   wasm:
     name: WASM Build
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install wasm-pack
       - run: wasm-pack build crates/panproto-wasm --target web --dev
 
   doc:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -230,6 +253,8 @@ jobs:
           python-version: "3.13"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -237,6 +262,7 @@ jobs:
   book-doctest:
     name: Book Doctests
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     # Compiles every ```rust block in book/src/**/*.md and rejects `rust,ignore`
     # against the workspace, surfacing API drift as soon as it lands
     # rather than when a reader copies a stale snippet. Driver:
@@ -245,11 +271,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo run -p xtask --bin test-book
 
   deny:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
@@ -257,12 +286,15 @@ jobs:
   ts:
     name: TypeScript SDK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install wasm-pack
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
@@ -281,6 +313,7 @@ jobs:
   python:
     name: Python SDK (Native)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -294,6 +327,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: python-${{ matrix.os }}
       - run: python -m venv .venv && . .venv/bin/activate && pip install maturin pytest
       - run: . .venv/bin/activate && cd bindings/python && maturin develop
@@ -310,6 +344,7 @@ jobs:
     # (`python-wheels-companions.yml`) builds all nine.
     name: Python Companion Grammar Pack
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -323,6 +358,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: python-companion-${{ matrix.os }}
       - run: python -m venv .venv && . .venv/bin/activate && pip install maturin
       # Build & install the core wheel first; the companion's runtime
@@ -367,6 +403,7 @@ jobs:
   haskell:
     name: Haskell SDK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     # The only CI job that exercises the panproto-c C ABI across a real
     # C-linkage boundary: `bootstrap/dev-link.sh` builds panproto-c and
     # the hand-written C glue from source, then the cabal package is
@@ -383,6 +420,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: haskell
       - uses: haskell-actions/setup@6037f33647c3f17758a2356c80fc4a53d7e0685d # v2
         id: setup-haskell
@@ -411,6 +449,7 @@ jobs:
   swift:
     name: Swift SDK
     runs-on: macos-latest
+    timeout-minutes: 60
     # The second consumer of the panproto-c C ABI, and the one that
     # exercises it from a strict-concurrency host: every engine call is
     # routed through a global actor pinned to one thread, because the
@@ -430,6 +469,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: swift
       - name: Header drift gate
         working-directory: .
@@ -491,6 +531,7 @@ jobs:
     name: Semver Check
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -501,3 +542,19 @@ jobs:
       # unpublished, in which case it wants `publish = false`, or it is
       # published and belongs under the gate.
       - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
+
+  ci-ok:
+    # The one check to require on main: it passes exactly when every job
+    # above succeeded or was skipped by design.
+    name: CI OK
+    if: always()
+    needs: [versions, fmt, clippy, test, feature-check, wasm, doc, book-doctest, deny, ts, python, python-companion, haskell, swift, semver]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every job to have succeeded or been skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e 'to_entries | map(select(.value.result != "success" and .value.result != "skipped")) | length == 0'

@@ -45,7 +45,13 @@ jobs:
           fetch-depth: 0
       - name: Resolve tag
         id: tag
-        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$REQUESTED_TAG' is not a release tag of the form vX.Y.Z"; exit 1
+          fi
+          echo "value=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
       - name: Wait for the XCFramework to be attached to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -188,6 +194,8 @@ jobs:
         # hand. Catch it here instead.
         run: cd bindings/swift && swift format lint -r --strict Package.swift
       - name: Commit the pin
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
         run: |
           set -euo pipefail
           if git diff --quiet bindings/swift/Package.swift; then
@@ -197,7 +205,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bindings/swift/Package.swift
-          git commit -m "Pin the Swift package to the ${{ steps.tag.outputs.value }} XCFramework"
+          git commit -m "Pin the Swift package to the ${TAG} XCFramework"
           git push origin HEAD:main
 
   api-diff:
@@ -273,7 +281,13 @@ jobs:
           fetch-depth: 0
       - name: Resolve tag
         id: tag
-        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$REQUESTED_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$REQUESTED_TAG' is not a release tag of the form vX.Y.Z"; exit 1
+          fi
+          echo "value=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
       - name: Assert the checked-out pin names the tag being published
         # `needs: pin` orders the two jobs but says nothing about what
         # this checkout observed: the pin job pushes to main, and this
@@ -366,10 +380,11 @@ jobs:
       - name: Push to the package repository
         env:
           TAG: ${{ steps.tag.outputs.value }}
+          SWIFT_MIRROR_DEPLOY_KEY: ${{ secrets.SWIFT_MIRROR_DEPLOY_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.SWIFT_MIRROR_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SWIFT_MIRROR_DEPLOY_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 
