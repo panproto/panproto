@@ -159,6 +159,53 @@ struct TreeParts<'c, 'r> {
     slot_floor: u32,
 }
 
+/// The next appended index follows every retained semantic word position.
+fn appended_index_count(
+    holder: u32,
+    reference: &Name,
+    classified: &Classified<'_>,
+    complement: &ResolutionComplement,
+    written: &[Written<'_>],
+) -> Result<usize, Refusal> {
+    let at = |record_holder: &ViewRef, record_reference: &Name| {
+        *record_holder == ViewRef::Node(holder) && record_reference == reference
+    };
+    let resolved = classified
+        .occurrences
+        .values()
+        .filter(|record| at(&record.holder, &record.reference))
+        .count();
+    let unresolved = complement
+        .unresolved
+        .iter()
+        .filter(|record| {
+            at(&record.holder, &record.reference)
+                && !matches!(
+                    record.reason,
+                    panproto_inst::resolution_complement::UnresolvedReason::Unselected { .. }
+                )
+        })
+        .count();
+    let definitions = complement
+        .definition_occurrences
+        .iter()
+        .filter(|record| at(&record.holder, &record.reference))
+        .count();
+    let added = written
+        .iter()
+        .filter(|record| record.holder == holder && &record.compiled.reference.id == reference)
+        .count();
+    [resolved, unresolved, definitions, added]
+        .into_iter()
+        .try_fold(0_usize, |count, more| {
+            count
+                .checked_add(more)
+                .ok_or(Refusal::Operational(ResolveError::IdExhausted {
+                    kind: panproto_inst::segment::IdKind::Edge,
+                }))
+        })
+}
+
 impl Resolution {
     /// The tree candidate of a view.
     ///
@@ -211,7 +258,7 @@ impl Resolution {
                 Err(refusal) => return Err(refusal),
             }
         }
-        written.extend(self.added_occurrences(&canvas, &classified)?);
+        written.extend(self.added_occurrences(&canvas, &classified, complement)?);
         refuse(failures)?;
         let first = self.assemble_written(&parts, &written, &vec![0; written.len()])?;
         written.extend(self.rewrites(&parts, &classified, complement, &first, &canvas)?);
@@ -229,14 +276,15 @@ impl Resolution {
 
     /// New `AddEdge` occurrences written at holders that already exist in the
     /// source tree. Their index is the number of retained occurrences at the
-    /// same holder and declaration, so a new Many occurrence appends after
-    /// the exact sequence that remains in the edited view.
+    /// same holder and declaration, including unresolved tuples and earlier
+    /// additions. Unindexed edited carriers are appended in edge-id order.
     fn added_occurrences<'r>(
         &'r self,
         canvas: &Canvas<'_>,
         classified: &Classified<'_>,
+        complement: &ResolutionComplement,
     ) -> Result<Vec<Written<'r>>, Refusal> {
-        let mut written = Vec::new();
+        let mut written: Vec<Written<'r>> = Vec::new();
         let mut failures = Vec::new();
         for (carrier, label) in &classified.new_references {
             let Ok(compiled) = self.writer(*carrier, label) else {
@@ -254,14 +302,13 @@ impl Resolution {
                     .view
                     .node(edge.src)
                     .is_some_and(|node| node.anchor == compiled.reference.holder);
-            let count = classified
-                .occurrences
-                .values()
-                .filter(|record| {
-                    record.holder == ViewRef::Node(edge.src)
-                        && record.reference == compiled.reference.id
-                })
-                .count();
+            let count = appended_index_count(
+                edge.src,
+                &compiled.reference.id,
+                classified,
+                complement,
+                &written,
+            )?;
             if !holder_is_writable
                 || (compiled.reference.cardinality == Cardinality::One && count != 0)
             {
@@ -347,11 +394,7 @@ impl Resolution {
                 let key = (&edge.edge, edge.src, *id);
                 promoted
                     .entry(edge.tgt)
-                    .and_modify(|best| {
-                        if key < *best {
-                            *best = key;
-                        }
-                    })
+                    .and_modify(|best| *best = (*best).min(key))
                     .or_insert(key);
             }
         }
@@ -804,7 +847,15 @@ impl Resolution {
         let targets = occurrence_targets(&regotten, &recomplement);
         let mut written = Vec::new();
         let mut failures = Vec::new();
-        for (id, record) in &classified.occurrences {
+        let mut occurrences: Vec<_> = classified.occurrences.iter().collect();
+        occurrences.sort_by(|(_, left), (_, right)| {
+            (&left.holder, &left.reference, left.index).cmp(&(
+                &right.holder,
+                &right.reference,
+                right.index,
+            ))
+        });
+        for (id, record) in occurrences {
             let (Some(compiled), ViewRef::Node(holder), Some(edge)) = (
                 self.compiled.get(&record.reference),
                 &record.holder,
@@ -1133,23 +1184,347 @@ fn write_literals<'h, 'r: 'h>(
             });
         }
     }
-    for removal in &parts.removed {
-        if remove_literal(candidate, removal.holder, removal.compiled, removal.index).is_err() {
-            failures.push(ResolveDomainError::UnrepresentableReference {
-                carrier: ViewRef::Edge(removal.carrier),
-                reference: removal.compiled.reference.id.clone(),
-            });
+    // Every declaration addresses its original word even when source sites
+    // overlap. Later writers still commit in source declaration order.
+    let groups: Vec<_> = literal_edit_groups(parts, rewrites)
+        .into_iter()
+        .map(|((holder, _), edits)| {
+            let word = keyed_word(candidate, holder, edits.compiled);
+            (holder, edits, word)
+        })
+        .collect();
+    for (holder, edits, word) in groups {
+        match write_keyed_word(candidate, holder, &edits, word) {
+            Ok(true) => continue,
+            Err(carrier) => {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(carrier),
+                    reference: edits.compiled.reference.id.clone(),
+                });
+                continue;
+            }
+            Ok(false) => {}
         }
-    }
-    for (carrier, (holder, compiled, index, literal)) in rewrites {
-        if write_literal(candidate, *holder, compiled, *index, literal).is_err() {
-            failures.push(ResolveDomainError::UnrepresentableReference {
-                carrier: ViewRef::Edge(*carrier),
-                reference: compiled.reference.id.clone(),
-            });
+        for (index, carrier) in edits.removed {
+            if remove_literal(candidate, holder, edits.compiled, index).is_err() {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(carrier),
+                    reference: edits.compiled.reference.id.clone(),
+                });
+            }
+        }
+        for (index, carrier, literal) in edits.rewritten {
+            if write_literal(candidate, holder, edits.compiled, index, literal).is_err() {
+                failures.push(ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(carrier),
+                    reference: edits.compiled.reference.id.clone(),
+                });
+            }
         }
     }
     refuse(failures)
+}
+
+/// Changes to one declaration, with removals in original coordinates and
+/// rewrites in the retained word's coordinates.
+struct LiteralEdits<'a> {
+    compiled: &'a CompiledRef,
+    removed: Vec<(u32, EdgeId)>,
+    rewritten: Vec<(u32, EdgeId, &'a Value)>,
+}
+
+/// Source coordinates, rather than presentation edge ids, order writers.
+fn literal_edit_groups<'a>(
+    parts: &'a TreeParts<'_, '_>,
+    rewrites: &'a BTreeMap<EdgeId, Rewrite<'_>>,
+) -> BTreeMap<(u32, Name), LiteralEdits<'a>> {
+    let mut groups = BTreeMap::new();
+    for removal in &parts.removed {
+        groups
+            .entry((removal.holder, removal.compiled.reference.id.clone()))
+            .or_insert_with(|| LiteralEdits {
+                compiled: removal.compiled,
+                removed: Vec::new(),
+                rewritten: Vec::new(),
+            })
+            .removed
+            .push((removal.index, removal.carrier));
+    }
+    for (carrier, (holder, compiled, index, literal)) in rewrites {
+        groups
+            .entry((*holder, compiled.reference.id.clone()))
+            .or_insert_with(|| LiteralEdits {
+                compiled,
+                removed: Vec::new(),
+                rewritten: Vec::new(),
+            })
+            .rewritten
+            .push((*index, *carrier, literal));
+    }
+    for edits in groups.values_mut() {
+        edits
+            .removed
+            .sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        edits
+            .rewritten
+            .sort_by_key(|(index, carrier, _)| (*index, *carrier));
+    }
+    groups
+}
+
+/// A writable own value or named field in the original source tree.
+type TreeValueSite = (u32, Option<String>);
+/// Original presence at one writable source site.
+type OriginalSite = (TreeValueSite, Option<Value>);
+/// One compatible value replacement at a source site.
+type SiteReplacement = (TreeValueSite, Value);
+/// One requested tuple and its optional original raw row.
+type RequestedRow = (Option<usize>, Vec<Value>);
+
+/// One part's original sites and flattened values, before any writer mutates them.
+struct KeyedPart {
+    sites: Vec<OriginalSite>,
+    values: Vec<Value>,
+}
+
+/// The original site partition and null-filtered semantic occurrence word.
+struct KeyedWord {
+    parts: Vec<KeyedPart>,
+    rows: Vec<usize>,
+    tuples: Vec<Vec<Value>>,
+}
+
+/// Read the keyed reader's flattened zip and null filter, retaining raw rows.
+fn keyed_word(
+    tree: &WInstance,
+    holder: u32,
+    compiled: &CompiledRef,
+) -> Result<Option<KeyedWord>, ()> {
+    if compiled.reference.cardinality != Cardinality::Many {
+        return Ok(None);
+    }
+    let (parts, keyed): (&[Vec<Edge>], bool) = match &compiled.form {
+        RefForm::KeyValue { parts, .. } => (parts, true),
+        RefForm::Variable { field, .. } => (std::slice::from_ref(field), true),
+        RefForm::Path { field } => (std::slice::from_ref(field), false),
+        RefForm::Standoff { .. } => return Ok(None),
+    };
+    let mut columns = Vec::new();
+    for path in parts {
+        let sites: Vec<_> = write_sites(tree, holder, path)
+            .into_iter()
+            .map(|site| {
+                let value = site_value(tree, &site).cloned();
+                (site, value)
+            })
+            .collect();
+        let values = sites
+            .iter()
+            .flat_map(|(_, value)| match value {
+                Some(Value::List(values)) => values.clone(),
+                Some(value) => vec![value.clone()],
+                None => Vec::new(),
+            })
+            .collect();
+        columns.push(KeyedPart { sites, values });
+    }
+    let length = columns.first().map_or(0, |part| part.values.len());
+    if columns.iter().any(|part| part.values.len() != length)
+        || (length == 0 && !compiled.reference.nullable)
+    {
+        return Err(());
+    }
+    let mut rows = Vec::new();
+    let mut tuples = Vec::new();
+    for index in 0..length {
+        let tuple: Vec<_> = columns
+            .iter()
+            .map(|part| part.values[index].clone())
+            .collect();
+        let present = !keyed
+            || match compiled.reference.null_match {
+                panproto_schema::NullMatch::Simple => {
+                    tuple.iter().all(|value| *value != Value::Null)
+                }
+                panproto_schema::NullMatch::Full => tuple.iter().any(|value| *value != Value::Null),
+            };
+        if present {
+            rows.push(index);
+            tuples.push(tuple);
+        }
+    }
+    Ok(Some(KeyedWord {
+        parts: columns,
+        rows,
+        tuples,
+    }))
+}
+
+/// Requested tuples paired with their original raw rows; appends have no row.
+fn edited_keyed_rows(
+    word: &KeyedWord,
+    edits: &LiteralEdits<'_>,
+) -> Result<Vec<RequestedRow>, EdgeId> {
+    let mut requested: Vec<_> = word
+        .rows
+        .iter()
+        .copied()
+        .zip(word.tuples.iter().cloned())
+        .map(|(row, tuple)| (Some(row), tuple))
+        .collect();
+    for (index, carrier) in &edits.removed {
+        let index = usize::try_from(*index).map_err(|_| *carrier)?;
+        if index >= requested.len() {
+            return Err(*carrier);
+        }
+        requested.remove(index);
+    }
+    for (index, carrier, literal) in &edits.rewritten {
+        let tuple = match (word.parts.len(), *literal) {
+            (1, value) => vec![value.clone()],
+            (count, Value::List(values)) if values.len() == count => values.clone(),
+            _ => return Err(*carrier),
+        };
+        let index = usize::try_from(*index).map_err(|_| *carrier)?;
+        if index == requested.len() {
+            requested.push((None, tuple));
+        } else if let Some((_, old)) = requested.get_mut(index) {
+            *old = tuple;
+        } else {
+            return Err(*carrier);
+        }
+    }
+    Ok(requested)
+}
+
+/// Reconstruct one original multi-site part, preserving unobserved null slots.
+fn partitioned_part(
+    part: &KeyedPart,
+    column: usize,
+    original_rows: &BTreeSet<usize>,
+    retained: &BTreeMap<usize, &Vec<Value>>,
+) -> Result<Vec<SiteReplacement>, ()> {
+    let mut replacements = Vec::new();
+    let mut row = 0usize;
+    for (site, value) in &part.sites {
+        let Some(value) = value else { continue };
+        let replacement = match value {
+            Value::List(values) => {
+                let mut result = Vec::new();
+                for value in values {
+                    if let Some(tuple) = retained.get(&row) {
+                        result.push(tuple[column].clone());
+                    } else if !original_rows.contains(&row) {
+                        result.push(value.clone());
+                    }
+                    row += 1;
+                }
+                Value::List(result)
+            }
+            value => {
+                let replacement = if let Some(tuple) = retained.get(&row) {
+                    tuple[column].clone()
+                } else if original_rows.contains(&row) {
+                    return Err(());
+                } else {
+                    value.clone()
+                };
+                row += 1;
+                replacement
+            }
+        };
+        replacements.push((site.clone(), replacement));
+    }
+    Ok(replacements)
+}
+
+/// Gather compatible writes before mutating an aliased site.
+fn keyed_replacements(
+    word: &KeyedWord,
+    requested: &[(Option<usize>, Vec<Value>)],
+) -> Result<BTreeMap<TreeValueSite, Value>, ()> {
+    let single = word.parts.iter().all(|part| part.sites.len() == 1);
+    let original_rows = word.rows.iter().copied().collect();
+    let retained: BTreeMap<_, _> = requested
+        .iter()
+        .filter_map(|(row, tuple)| row.map(|row| (row, tuple)))
+        .collect();
+    if !single && requested.iter().any(|(row, _)| row.is_none()) {
+        return Err(());
+    }
+    let mut writes: BTreeMap<TreeValueSite, Value> = BTreeMap::new();
+    for (column, part) in word.parts.iter().enumerate() {
+        let replacements = if single {
+            vec![(
+                part.sites[0].0.clone(),
+                Value::List(
+                    requested
+                        .iter()
+                        .map(|(_, tuple)| tuple[column].clone())
+                        .collect(),
+                ),
+            )]
+        } else {
+            partitioned_part(part, column, &original_rows, &retained)?
+        };
+        for (site, value) in replacements {
+            if writes
+                .get(&site)
+                .is_some_and(|previous| !previous.canonical_cmp(&value).is_eq())
+            {
+                return Err(());
+            }
+            writes.insert(site, value);
+        }
+    }
+    Ok(writes)
+}
+
+/// Equal words retain exact sites; changed words follow their source partition.
+fn write_keyed_word(
+    tree: &mut WInstance,
+    holder: u32,
+    edits: &LiteralEdits<'_>,
+    original: Result<Option<KeyedWord>, ()>,
+) -> Result<bool, EdgeId> {
+    let carrier = edits
+        .removed
+        .first()
+        .map(|(_, carrier)| *carrier)
+        .or_else(|| edits.rewritten.first().map(|(_, carrier, _)| *carrier));
+    let Some(carrier) = carrier else {
+        return Ok(false);
+    };
+    let Some(word) = original.map_err(|()| carrier)? else {
+        return Ok(false);
+    };
+    let requested = edited_keyed_rows(&word, edits)?;
+    let current = keyed_word(tree, holder, edits.compiled)
+        .map_err(|()| carrier)?
+        .ok_or(carrier)?;
+    let unchanged = current.tuples.len() == requested.len()
+        && current
+            .tuples
+            .iter()
+            .zip(&requested)
+            .all(|(left, (_, right))| {
+                // Both constructors enforce the compiled part count.
+                left.iter()
+                    .zip(right)
+                    .all(|(left, right)| left.canonical_cmp(right).is_eq())
+            });
+    if !unchanged {
+        let writes = keyed_replacements(&word, &requested).map_err(|()| carrier)?;
+        for ((node, field), value) in writes {
+            let node = tree.nodes.get_mut(&node).ok_or(carrier)?;
+            if let Some(field) = field {
+                node.extra_fields.insert(field, value);
+            } else {
+                node.value = Some(FieldPresence::Present(value));
+            }
+        }
+    }
+    Ok(true)
 }
 
 /// Remove occurrence `index` of a `Many` reference at `holder`: the
@@ -1565,6 +1940,56 @@ mod tests {
     use super::{holder_ids_from, merge_fans, tree_node_floor};
     use crate::resolution::error::ResolveError;
 
+    #[test]
+    fn appended_indices_include_each_definition_position() {
+        use panproto_inst::resolution_complement::{
+            RefOccurrence, ResolutionComplement, UnresolvedReason, UnresolvedRef,
+        };
+        use panproto_inst::{EdgeId, Value, ViewRef};
+        let record = |holder, reference: &str, index| RefOccurrence {
+            holder: ViewRef::Node(holder),
+            reference: reference.into(),
+            index,
+            literal: Value::Str(format!("name-{index}")),
+            form: None,
+            context: None,
+        };
+        let resolved = record(1, "variable", 1);
+        let mut classified = super::Classified::default();
+        classified.occurrences.insert(EdgeId(7), &resolved);
+        let mut complement = ResolutionComplement {
+            definition_occurrences: vec![
+                record(1, "variable", 0),
+                record(1, "variable", 2),
+                record(2, "variable", 0),
+                record(1, "other", 0),
+            ],
+            ..ResolutionComplement::default()
+        };
+        for reason in [
+            UnresolvedReason::Dangling,
+            UnresolvedReason::Unselected { value: Value::Null },
+        ] {
+            complement.unresolved.push(UnresolvedRef {
+                holder: ViewRef::Node(1),
+                reference: "variable".into(),
+                index: 3,
+                literal: Value::Str("missing".into()),
+                reason,
+                context: None,
+            });
+        }
+        assert_eq!(
+            super::appended_index_count(1, &"variable".into(), &classified, &complement, &[]).ok(),
+            Some(4)
+        );
+        classified.occurrences.clear();
+        assert_eq!(
+            super::appended_index_count(1, &"variable".into(), &classified, &complement, &[]).ok(),
+            Some(3)
+        );
+    }
+
     const TOP: u32 = u32::MAX;
 
     fn exhausted<T>(result: &Result<T, ResolveError>) -> bool {
@@ -1631,5 +2056,516 @@ mod tests {
         let merged = merge_fans(vec![fan(1), fan(3)], &[11, 10], vec![fan(2)], 10);
         let parents: Vec<u32> = merged.iter().map(|fan| fan.parent).collect();
         assert_eq!(parents, vec![1, 3, 2]);
+    }
+}
+
+#[cfg(test)]
+mod dependency_contract_tests {
+    #![allow(clippy::expect_used)]
+
+    use std::collections::HashMap;
+
+    use panproto_inst::{
+        FieldPresence, GInstance, Node, NodeShape, RowId, Value, ViewRef, WInstance,
+    };
+    use panproto_schema::{
+        Cardinality, Edge, NullMatch, OnUnresolved, PathSyntax, RefSource, Reference, ResolveMode,
+    };
+
+    use super::{
+        CompiledRef, RefForm, Refusal, ResolveDomainError, holder_arc, read_table, remove_literal,
+        write_part,
+    };
+
+    fn label(name: &str) -> Edge {
+        Edge {
+            src: "holder".into(),
+            tgt: "part".into(),
+            kind: "prop".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    fn sites(values: Vec<Value>) -> WInstance {
+        let mut nodes = HashMap::from([(0, Node::new(0, "holder"))]);
+        let mut arcs = Vec::new();
+        for (index, value) in values.into_iter().enumerate() {
+            let id = u32::try_from(index + 1).expect("small fixture");
+            nodes.insert(
+                id,
+                Node::new(id, "part").with_value(FieldPresence::Present(value)),
+            );
+            arcs.push((0, id, label("value")));
+        }
+        WInstance::new(nodes, arcs, vec![], 0, "holder".into())
+    }
+
+    fn path_reference(cardinality: Cardinality) -> CompiledRef {
+        let field = vec![label("value")];
+        CompiledRef {
+            reference: Reference {
+                id: "reference".into(),
+                holder: "holder".into(),
+                source: RefSource::Path {
+                    field: field.clone(),
+                    syntax: PathSyntax::JsonPointer,
+                },
+                target_vertex: "target".into(),
+                target_key: None,
+                edge: None,
+                cardinality,
+                nullable: false,
+                on_unresolved: OnUnresolved::Complement,
+                mode: ResolveMode::Redirect,
+                guard: None,
+                null_match: NullMatch::default(),
+                null_vertex: None,
+                scope_via: None,
+            },
+            form: RefForm::Path { field },
+        }
+    }
+
+    fn lists(tree: &WInstance) -> Vec<Value> {
+        (1..u32::try_from(tree.nodes.len()).expect("small fixture"))
+            .map(|id| {
+                let Some(FieldPresence::Present(value)) = &tree.nodes[&id].value else {
+                    panic!("fixture site lost its value")
+                };
+                value.clone()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn many_part_writes_preserve_site_boundaries_and_append_only_at_end() {
+        let original = vec![
+            Value::List(vec![Value::Int(10), Value::Int(11)]),
+            Value::List(vec![Value::Int(12), Value::Int(13)]),
+        ];
+        for index in 0_u32..4 {
+            let mut tree = sites(original.clone());
+            assert_eq!(
+                write_part(
+                    &mut tree,
+                    0,
+                    &[label("value")],
+                    true,
+                    index,
+                    &Value::Int(99)
+                ),
+                Ok(())
+            );
+            let mut expected = original.clone();
+            let Value::List(items) = &mut expected[usize::try_from(index / 2).expect("site")]
+            else {
+                unreachable!()
+            };
+            items[usize::try_from(index % 2).expect("slot")] = Value::Int(99);
+            assert_eq!(lists(&tree), expected, "index {index}");
+        }
+        let mut multiple = sites(original.clone());
+        assert_eq!(
+            write_part(
+                &mut multiple,
+                0,
+                &[label("value")],
+                true,
+                4,
+                &Value::Int(99)
+            ),
+            Err(())
+        );
+        assert_eq!(lists(&multiple), original);
+        for initial in [Value::Int(10), Value::List(vec![Value::Int(10)])] {
+            let mut tree = sites(vec![initial.clone()]);
+            assert_eq!(
+                write_part(&mut tree, 0, &[label("value")], true, 2, &Value::Int(99)),
+                Err(())
+            );
+            assert_eq!(lists(&tree), vec![initial]);
+            assert_eq!(
+                write_part(&mut tree, 0, &[label("value")], true, 1, &Value::Int(99)),
+                Ok(())
+            );
+            assert_eq!(
+                lists(&tree),
+                vec![Value::List(vec![Value::Int(10), Value::Int(99)])]
+            );
+        }
+    }
+
+    #[test]
+    fn many_literal_removal_uses_the_original_partitioned_index() {
+        let original = vec![
+            Value::List(vec![Value::Int(10), Value::Int(11)]),
+            Value::List(vec![Value::Int(12), Value::Int(13)]),
+        ];
+        let compiled = path_reference(Cardinality::Many);
+        for index in 0_u32..4 {
+            let mut tree = sites(original.clone());
+            assert_eq!(remove_literal(&mut tree, 0, &compiled, index), Ok(()));
+            let mut expected = original.clone();
+            let Value::List(items) = &mut expected[usize::try_from(index / 2).expect("site")]
+            else {
+                unreachable!()
+            };
+            items.remove(usize::try_from(index % 2).expect("slot"));
+            assert_eq!(lists(&tree), expected, "index {index}");
+        }
+        let mut tree = sites(original.clone());
+        assert_eq!(remove_literal(&mut tree, 0, &compiled, 4), Err(()));
+        assert_eq!(lists(&tree), original);
+        assert_eq!(
+            remove_literal(&mut tree, 0, &path_reference(Cardinality::One), 0),
+            Err(())
+        );
+        assert_eq!(lists(&tree), original);
+        let mut scalar = sites(vec![Value::Int(10)]);
+        assert_eq!(remove_literal(&mut scalar, 0, &compiled, 0), Err(()));
+        assert_eq!(lists(&scalar), vec![Value::Int(10)]);
+    }
+
+    #[test]
+    fn table_reading_rejects_each_nonrow_metadata_field() -> Result<(), panproto_inst::InstError> {
+        let fields = HashMap::from([("payload".to_owned(), Value::List(vec![Value::Int(4)]))]);
+        for fault in 0..=5 {
+            let mut node = Node::new(7, "rows");
+            node.extra_fields = fields.clone();
+            match fault {
+                0 => {}
+                1 => node.value = Some(FieldPresence::Null),
+                2 => node.discriminator = Some("tag".into()),
+                3 => node.position = Some(0),
+                4 => node.shape = NodeShape::List,
+                5 => {
+                    node.annotations
+                        .insert("annotation".to_owned(), Value::Int(1));
+                }
+                _ => unreachable!(),
+            }
+            let mut graph = GInstance::new();
+            graph.insert_node(node)?;
+            match read_table(&graph) {
+                Ok(table) => {
+                    assert_eq!(fault, 0);
+                    assert_eq!(table.row(RowId(7)), Some(&fields));
+                }
+                Err(Refusal::Domain(violations)) => {
+                    assert_ne!(fault, 0);
+                    assert_eq!(
+                        violations.into_vec(),
+                        vec![ResolveDomainError::NoPlacement {
+                            carrier: ViewRef::Node(7)
+                        }]
+                    );
+                }
+                Err(other) => panic!("unexpected table refusal: {other:?}"),
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn holder_attachment_selects_the_matching_label_among_multiple_arcs() {
+        let first = label("first");
+        let second = label("second");
+        assert_eq!(holder_arc(&[&first, &second], &first), Some(first.clone()));
+        assert_eq!(
+            holder_arc(&[&first, &second], &second),
+            Some(second.clone())
+        );
+        assert_eq!(holder_arc(&[&first, &second], &label("absent")), None);
+        assert_eq!(holder_arc(&[&first], &second), Some(first));
+        assert_eq!(holder_arc(&[], &second), None);
+    }
+
+    #[test]
+    fn shifted_positions_count_only_strictly_earlier_matching_records() {
+        let compiled = path_reference(Cardinality::Many);
+        let mut other = compiled.clone();
+        other.reference.id = "other".into();
+        let removed = [
+            (0, &compiled, 0),
+            (0, &compiled, 1),
+            (0, &compiled, 3),
+            (0, &compiled, 5),
+            (1, &compiled, 0),
+            (0, &other, 0),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(id, (holder, compiled, index))| super::Removal {
+            carrier: panproto_inst::EdgeId(u32::try_from(id).expect("small fixture")),
+            holder,
+            compiled,
+            index,
+        })
+        .collect();
+        let parts = super::TreeParts {
+            structural: GInstance::new(),
+            live: vec![],
+            holders: vec![],
+            removed,
+            node_floor: 1,
+            slot_floor: 0,
+        };
+        // Raw records can share a coordinate. Equality is not an earlier position.
+        assert_eq!(parts.shifted(0, &"reference".into(), 3), 1);
+        assert_eq!(parts.shifted(0, &"absent".into(), 3), 3);
+    }
+
+    #[test]
+    fn appended_count_excludes_other_holders_and_other_declarations() {
+        let compiled = path_reference(Cardinality::Many);
+        let mut other = compiled.clone();
+        other.reference.id = "other".into();
+        let written: Vec<_> = [(0, &compiled), (1, &compiled), (0, &other)]
+            .into_iter()
+            .map(|(holder, compiled)| super::Written {
+                carrier: panproto_inst::EdgeId(7),
+                holder,
+                compiled,
+                index: 0,
+                target: 2,
+                forms: vec![],
+                rewrite: false,
+            })
+            .collect();
+        assert_eq!(
+            super::appended_index_count(
+                0,
+                &"reference".into(),
+                &super::Classified::default(),
+                &super::ResolutionComplement::default(),
+                &written
+            )
+            .ok(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn fan_slots_require_distinct_increasing_coordinates() {
+        use panproto_inst::Fan;
+        let retained = vec![Fan::new("fan", 1), Fan::new("fan", 3)];
+        let fragment = vec![Fan::new("fan", 2)];
+        for slots in [[10, 10], [11, 10], [9, 11], [10, 13]] {
+            assert_eq!(
+                super::merge_fans(retained.clone(), &slots, fragment.clone(), 10),
+                vec![
+                    retained[0].clone(),
+                    retained[1].clone(),
+                    fragment[0].clone()
+                ]
+            );
+        }
+        assert_eq!(
+            super::merge_fans(retained.clone(), &[10, 12], fragment.clone(), 10),
+            vec![
+                retained[0].clone(),
+                fragment[0].clone(),
+                retained[1].clone()
+            ]
+        );
+    }
+
+    fn two_part_reference() -> CompiledRef {
+        let mut compiled = path_reference(Cardinality::Many);
+        compiled.form = RefForm::KeyValue {
+            key: panproto_schema::Key {
+                id: "key".into(),
+                parts: Vec::new(),
+                role: panproto_schema::KeyRole::Identifier,
+                scope: panproto_schema::KeyScope::Global,
+                equality: Vec::new(),
+            },
+            parts: vec![vec![label("value")], vec![label("other")]],
+        };
+        compiled
+    }
+
+    #[test]
+    fn composite_literal_writes_reject_short_and_long_provider_tuples() {
+        let compiled = two_part_reference();
+        let original = sites(vec![Value::List(vec![Value::Int(1)])]);
+        for width in [0, 1, 3] {
+            let literal = Value::List(vec![Value::Int(9); width]);
+            let mut tree = original.clone();
+            assert_eq!(
+                super::write_literal(&mut tree, 0, &compiled, 0, &literal),
+                Err(())
+            );
+            assert_eq!(lists(&tree), lists(&original));
+            let word = super::KeyedWord {
+                parts: (0..2)
+                    .map(|_| super::KeyedPart {
+                        sites: Vec::new(),
+                        values: Vec::new(),
+                    })
+                    .collect(),
+                rows: vec![0],
+                tuples: vec![vec![Value::Int(1), Value::Int(2)]],
+            };
+            let edits = super::LiteralEdits {
+                compiled: &compiled,
+                removed: Vec::new(),
+                rewritten: vec![(0, panproto_inst::EdgeId(7), &literal)],
+            };
+            assert_eq!(
+                super::edited_keyed_rows(&word, &edits),
+                Err(panproto_inst::EdgeId(7))
+            );
+        }
+    }
+
+    #[test]
+    fn keyed_columns_require_equal_lengths_and_nonempty_nonnullable_words() {
+        let mut compiled = two_part_reference();
+        let unequal = sites(vec![Value::List(vec![Value::Int(1)])]);
+        assert!(super::keyed_word(&unequal, 0, &compiled).is_err());
+        compiled.reference.nullable = true;
+        assert!(super::keyed_word(&unequal, 0, &compiled).is_err());
+        let empty = sites(Vec::new());
+        let word = super::keyed_word(&empty, 0, &compiled)
+            .expect("nullable empty word")
+            .expect("Many keyed word");
+        assert_eq!(word.rows, Vec::<usize>::new());
+        assert_eq!(word.tuples, Vec::<Vec<Value>>::new());
+        compiled.reference.nullable = false;
+        assert!(super::keyed_word(&empty, 0, &compiled).is_err());
+    }
+
+    #[test]
+    fn added_occurrences_require_both_elements_holder_anchor_and_capacity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
+        use panproto_inst::{EdgeId, GEdge};
+        use std::collections::BTreeSet;
+        let mut resolution =
+            crate::resolution::verify::dependency_contract_tests::helper_resolution(
+                ResolveMode::AddEdge,
+            )?;
+        let mut compiled = two_part_reference();
+        compiled.reference.mode = ResolveMode::AddEdge;
+        let RefForm::KeyValue { key, parts } = &mut compiled.form else {
+            unreachable!()
+        };
+        key.parts = vec![panproto_schema::KeyPart::Path(Vec::new())];
+        *parts = vec![vec![label("value")]];
+        let edge_label = label("reference");
+        resolution
+            .spec
+            .reference_writers
+            .insert(edge_label.clone(), "reference".into());
+        let base = sites(vec![Value::Int(42)]);
+        let context = super::ResolveContext::empty();
+        let complement = ResolutionComplement::default();
+        let record = RefOccurrence {
+            holder: ViewRef::Node(0),
+            reference: "reference".into(),
+            index: 0,
+            literal: Value::Int(42),
+            form: None,
+            context: None,
+        };
+        for bits in 0_u8..32 {
+            let source_element = bits & 1 != 0;
+            let target_element = bits & 2 != 0;
+            let matching_holder = bits & 4 != 0;
+            let occupied = bits & 8 != 0;
+            let many = bits & 16 != 0;
+            compiled.reference.cardinality = if many {
+                Cardinality::Many
+            } else {
+                Cardinality::One
+            };
+            resolution
+                .compiled
+                .insert("reference".into(), compiled.clone());
+            let mut view = GInstance::new();
+            view.insert_node(Node::new(
+                0,
+                if matching_holder { "holder" } else { "other" },
+            ))?;
+            view.insert_node(Node::new(1, "part"))?;
+            view.insert_edge(EdgeId(7), GEdge::new(0, 1, edge_label.clone()))?;
+            let mut classified = super::Classified {
+                elements: BTreeSet::new(),
+                new_references: vec![(EdgeId(7), edge_label.clone())],
+                ..super::Classified::default()
+            };
+            if source_element {
+                classified.elements.insert(0);
+            }
+            if target_element {
+                classified.elements.insert(1);
+            }
+            if occupied {
+                classified.occurrences.insert(EdgeId(8), &record);
+            }
+            let canvas = super::Canvas {
+                base: &base,
+                view: &view,
+                ctx: &context,
+            };
+            let admitted =
+                source_element && target_element && matching_holder && (many || !occupied);
+            match resolution.added_occurrences(&canvas, &classified, &complement) {
+                Ok(written) => {
+                    assert!(admitted, "case {bits}");
+                    assert_eq!(written.len(), 1);
+                    assert_eq!(written[0].index, u32::from(occupied));
+                    assert_eq!(written[0].forms, vec![Value::Int(42)]);
+                }
+                Err(Refusal::Domain(violations)) => {
+                    assert!(!admitted, "case {bits}");
+                    assert_eq!(
+                        violations.into_vec(),
+                        vec![ResolveDomainError::UnrepresentableReference {
+                            carrier: ViewRef::Edge(EdgeId(7)),
+                            reference: "reference".into()
+                        }]
+                    );
+                }
+                Err(Refusal::Operational(error)) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn standoff_rendering_preserves_byte_string_offsets() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use panproto_inst::resolution_complement::{
+            ResolutionSpan, ResolutionTextId, ResolutionValueSite,
+        };
+        let resolution = crate::resolution::verify::dependency_contract_tests::helper_resolution(
+            ResolveMode::Redirect,
+        )?;
+        let mut compiled = path_reference(Cardinality::One);
+        compiled.form = RefForm::Standoff {
+            key: None,
+            text: panproto_schema::RefTextSource::Local(vec![label("value")]),
+            start: Vec::new(),
+            end: Vec::new(),
+            unit: panproto_schema::OffsetUnit::Byte,
+            end_inclusive: false,
+            end_form: panproto_schema::SpanEnd::Offset,
+            origin: 0,
+        };
+        let base = sites(vec![Value::Bytes(vec![0x61, 0xff, 0x62, 0x63])]);
+        let span = ResolutionSpan {
+            text: ResolutionTextId::Local(ResolutionValueSite::Own(ViewRef::Node(1))),
+            start: 1,
+            end: 3,
+        };
+        let result =
+            resolution.render_standoff(&compiled, 0, &span, &base, &super::ResolveContext::empty());
+        assert!(
+            matches!(result, Ok(ref value) if *value == Value::List(vec![Value::Int(1), Value::Int(3)])),
+            "{result:?}"
+        );
+        Ok(())
     }
 }

@@ -37,9 +37,8 @@ pub enum KeyingError {
         /// The numeric representation that could not be normalized.
         kind: &'static str,
     },
-    /// A keyed value has no canonical bytes: it is, or contains, a temporal
-    /// value outside the admitted carrier, so neither its representation
-    /// nor any declared equality is defined on it.
+    /// The selected comparison branch requires canonical bytes of a value
+    /// that is, or contains, a temporal value outside the admitted carrier.
     #[error("a keyed value has no canonical bytes")]
     NoCanonicalBytes,
 }

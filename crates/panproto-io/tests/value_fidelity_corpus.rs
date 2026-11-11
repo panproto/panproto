@@ -2,8 +2,7 @@
 //!
 //! Every exercised route parses a checked-in fixture, changes a value so the
 //! emitter cannot replay the input, emits it, and checks the reparsed value or
-//! the format's structured refusal. Tree-sitter preserving routes extend this
-//! same fixture directory at the final gate.
+//! the format's structured refusal.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

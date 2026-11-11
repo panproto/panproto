@@ -516,26 +516,29 @@ fn item_pair_with_a_fan() -> GInstance {
     .expect("reifies")
 }
 
-fn assert_fan_not_representable(graph: &GInstance, node: u32) {
+fn assert_fan_readout_refusal(graph: &GInstance, node: u32, rooted_reason: &NotTreeReason) {
     assert_eq!(
         graph.tree_shape(&schema()),
         TreeShapeReport::NotTree {
             reason: NotTreeReason::FanNotRepresentable { node }
         }
     );
+    // Shape discovery checks the fan domain first. A proposed-root read-out
+    // instead checks edge-local failures before aggregate fan failures.
+    assert!(matches!(graph.try_to_wtype(&schema()),
+        Err(InstError::NotATree { reason: NotTreeReason::FanNotRepresentable { node: n } }) if n == node));
     for result in [
         graph.to_wtype(0),
         graph.to_wtype_with_schema_root(0, "item".into()),
-        graph.try_to_wtype(&schema()),
     ] {
         assert!(
             matches!(
                 result,
                 Err(InstError::NotATree {
-                    reason: NotTreeReason::FanNotRepresentable { node: n }
-                }) if n == node
+                    ref reason
+                }) if reason == rooted_reason
             ),
-            "expected fan {node} not representable, got {result:?}"
+            "expected rooted refusal {rooted_reason:?}, got {result:?}"
         );
     }
 }
@@ -552,14 +555,22 @@ fn every_tree_read_out_refuses_a_fan_that_carries_data() {
     // A position on the fan node.
     let mut positioned = plain.clone();
     positioned.node_mut(2).expect("the fan node").position = Some(3);
-    assert_fan_not_representable(&positioned, 2);
+    assert_fan_readout_refusal(
+        &positioned,
+        2,
+        &NotTreeReason::FanNotRepresentable { node: 2 },
+    );
 
     // A position on a fan edge.
     let mut edge_positioned = plain.clone();
     edge_positioned
         .set_edge_position(EdgeId(2), Some(0))
         .expect("the child edge");
-    assert_fan_not_representable(&edge_positioned, 2);
+    assert_fan_readout_refusal(
+        &edge_positioned,
+        2,
+        &NotTreeReason::PositionedEdge { edge: EdgeId(2) },
+    );
 
     // A fan edge whose label names a kind of node it does not reach.
     let mut relabelled = plain;
@@ -574,7 +585,11 @@ fn every_tree_read_out_refuses_a_fan_that_carries_data() {
             },
         )
         .expect("the child edge");
-    assert_fan_not_representable(&relabelled, 2);
+    assert_fan_readout_refusal(
+        &relabelled,
+        2,
+        &NotTreeReason::FanNotRepresentable { node: 2 },
+    );
 }
 
 #[test]

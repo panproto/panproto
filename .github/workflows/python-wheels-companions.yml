@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 # Each companion grammar pack ships a separate pip-installable wheel.
 # They are built as their own pyo3 cdylibs depending on
@@ -156,6 +155,10 @@ jobs:
           - music
           - all
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for PyPI Trusted Publishing
     steps:
       - name: Download wheels
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

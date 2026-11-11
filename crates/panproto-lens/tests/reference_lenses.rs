@@ -2178,7 +2178,7 @@ fn agreed_graph_put_domain(pair: &Pair, source: &RefGraph, what: &str) -> Result
     reference.domain
 }
 
-/// Amendment-level contract: a declared key whose restored value has no
+/// A declared key whose restored value has no
 /// canonical bytes is a typed put-domain refusal in production and in the
 /// reference alike, under every equality declaration, and the refusal takes
 /// the key's place in the report instead of its duplicate-key verdicts.
@@ -2642,7 +2642,7 @@ fn graph_get_agrees_with_the_reference_on_the_delta_fragment_sources() {
 }
 
 // ---------------------------------------------------------------------------
-// Tables (T.4): get, strict put and refusals on the L-lenses-8 fixture scope, and
+// Tables: get, strict put and refusals on the L-lenses-8 fixture scope, and
 // the last-writer rule on the writer carrier
 // ---------------------------------------------------------------------------
 
@@ -9971,7 +9971,28 @@ fn production_tree_square(pair: &Pair, case: &TreeSquareCase) -> SquareOutcome {
     }
 }
 
+fn assert_direct_graph_route_operations(pair: &Pair, case: &TreeSquareCase) {
+    let (source, _) = panproto_reference::encode::tree_to_graph(&case.source, None)
+        .expect("the declared nonfan square source embeds");
+    let expected_get = reference_get(pair, &source);
+    assert_eq!(production_get(pair, &source), expected_get);
+    let Ok((view, _)) = expected_get else { return };
+    let edited = match &case.edited {
+        None => view,
+        Some(tree) => {
+            let Ok((graph, _)) = panproto_reference::encode::tree_to_graph(tree, None) else {
+                return;
+            };
+            graph
+        }
+    };
+    let expected_put = reference_put(pair, &source, &edited);
+    assert_eq!(production_put(pair, &source, &edited), expected_put);
+    assert_eq!(reference_strict_put(pair, &source, &edited), expected_put);
+}
+
 fn reference_tree_square(pair: &Pair, case: &TreeSquareCase) -> SquareOutcome {
+    assert_direct_graph_route_operations(pair, case);
     pair.with_reference(|lens| {
         // A plan that does not compile refuses both routes' get.
         let lens = match lens {
@@ -10295,6 +10316,11 @@ fn assert_randomized_graph_square_case(case_index: usize, edit_index: usize) {
         return;
     };
     let edit = edit_index % basis.len();
+    assert_eq!(
+        production_tree_put(&pair, tree, &basis[edit].view),
+        reference_tree_put(&pair, tree, &basis[edit].view),
+        "native tree put/domain differs at stage {stage}, source {source}, edit {edit}"
+    );
     let edited = TreeSquareCase {
         stage,
         source: tree.clone(),

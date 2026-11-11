@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 panproto-expr = { workspace = true }
@@ -15,7 +18,7 @@ rustc-hash = { workspace = true }
 miette = { workspace = true }
 
 [dev-dependencies]
-panproto-reference = { path = "../panproto-reference" }
+panproto-reference = { workspace = true }
 serde_json = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }

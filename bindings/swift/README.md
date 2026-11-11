@@ -7,8 +7,8 @@ This package binds the [`panproto-c`](../../crates/panproto-c) C ABI. It
 targets macOS 14 and iOS 17, uses Swift 6 language mode, and enables strict
 concurrency checks.
 
-The raw Swift layer covers all 122 C entry points declared by the base and
-feature-gated headers. The default library supplies 105 of them. The other 17
+The raw Swift layer covers all 124 C entry points declared by the base and
+feature-gated headers. The default library supplies 107 of them. The other 17
 belong to the parse, project, and Git feature groups.
 
 ## Features
@@ -34,7 +34,7 @@ target uses:
 dependencies: [
     .package(
         url: "https://github.com/panproto/panproto-swift.git",
-        from: "0.74.0"
+        from: "0.77.0"
     ),
 ],
 targets: [

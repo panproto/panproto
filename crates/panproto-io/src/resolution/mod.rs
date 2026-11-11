@@ -516,12 +516,15 @@ impl Resolution {
         }
     }
 
-    /// Every reason `view` cannot be put with `complement`, sorted by
-    /// carrier, reference or production, and variant.
+    /// Structural put-domain violations, sorted by carrier, reference or
+    /// production, and variant.
     ///
-    /// The vector is empty only for a view of another shape, which put
-    /// refuses with [`ResolveError::ShapeMismatch`] before it consults the
-    /// domain.
+    /// `Ok(())` means that this check found no domain violation. It does not
+    /// guarantee that [`Self::put`] succeeds: identity, provider, context and
+    /// allocation failures are operational errors reported by put. For the
+    /// graph routes, an operational candidate failure contributes no domain
+    /// diagnostic here. A view of another shape returns `Err(Vec::new())`;
+    /// put reports [`ResolveError::ShapeMismatch`] for that case.
     ///
     /// # Errors
     ///

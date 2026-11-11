@@ -138,8 +138,9 @@ pub fn canonical_bytes(schema: &Schema) -> Vec<u8> {
 /// The blake3 digest of a schema's [`canonical_bytes`].
 ///
 /// This is the content identity of a schema, and in particular of a span's
-/// apex: two apices with the same digest are the same schema, and two apices
-/// that differ in any of the twenty-two fields have different digests.
+/// apex, computed by hashing its canonical bytes. Equal canonical bytes give
+/// equal digests. Treating digest equality as content identity relies on
+/// BLAKE3 collision resistance; the digest is not an injective encoding.
 ///
 /// # Examples
 ///
@@ -336,8 +337,8 @@ fn push_indices(out: &mut CanonicalWriter, schema: &Schema) {
 /// Nonempty target sets use an optional trailing extension, so declarations
 /// with no target set retain their established bytes.
 ///
-/// Both maps are written in ascending key order and each vertex's keys in
-/// ascending key id order. Every field of [`Key`], [`KeyPart`], [`Reference`]
+/// Both maps are written in ascending key order; each vertex's key sequence
+/// retains its stored order. Every field of [`Key`], [`KeyPart`], [`Reference`]
 /// and [`RefSource`] is written in declaration order, and every sum behind a
 /// one-byte discriminant in declaration order of its variants.
 fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclarations) {
@@ -345,10 +346,8 @@ fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclaration
     out.len(declarations.keys.len());
     for (vertex, keys) in &declarations.keys {
         out.name(vertex);
-        let mut sorted: Vec<&Key> = keys.iter().collect();
-        sorted.sort_by(|left, right| left.id.cmp(&right.id));
-        out.len(sorted.len());
-        for key in sorted {
+        out.len(keys.len());
+        for key in keys {
             push_key(out, key);
         }
     }
@@ -387,8 +386,8 @@ fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclaration
 /// the length of an allocated string, which Rust bounds by `isize::MAX`, so
 /// it is below `2^63` and never equals this word; and this word's first byte
 /// is `0x00`, never [`TARGET_SET_MARKER`]. The marker is thus decided on the
-/// bytes alone, which keeps every sub-encoding prefix-free and
-/// [`canonical_bytes`] injective. A one-byte marker would not: its byte can
+/// bytes alone, which makes the optional extensions uniquely parseable in
+/// context and keeps [`canonical_bytes`] injective. A one-byte marker would not: its byte can
 /// begin a length whose low byte is `0xff`.
 const EXTENSION_MARKER: u64 = 1 << 63;
 
@@ -426,7 +425,8 @@ fn push_key(out: &mut CanonicalWriter, key: &Key) {
     out.tag(if key.equality.is_empty() {
         role
     } else {
-        role | 0x80
+        // Roles are 0..=4, so adding the envelope bit cannot carry.
+        role + 0x80
     });
     push_key_scope(out, &key.scope);
     if !key.equality.is_empty() {

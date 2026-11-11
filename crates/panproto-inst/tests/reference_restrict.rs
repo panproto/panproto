@@ -1294,7 +1294,7 @@ fn drop_between_survivors_relates_tree_and_graph_views() -> usize {
     divergent
 }
 
-/// The audit's witness: `a -> b` dropped between survivors, `b -> c` kept, on
+/// The witness: `a -> b` dropped between survivors, `b -> c` kept, on
 /// the tree `0 -> 1 -> 2`. The tree engine removes arc `1 -> 2` with the
 /// subtree of `1`; the graph engine keeps edge `1 -> 2`.
 fn drop_between_survivors_witness() {
@@ -1426,6 +1426,123 @@ struct RepeatedChildInstances {
     graph: GInstance,
     table: FInstance,
     table_graph: GInstance,
+}
+
+fn shadowed_child_binding_tree(shadowed: u8, duplicate: bool) -> RefTree {
+    let mut tree = RefTree {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "r"))]),
+        arcs: Vec::new(),
+        fans: Vec::new(),
+        root: 0,
+    };
+    for (bit, column, first) in [(1, "x", 1), (2, "y", 3)] {
+        if shadowed & bit != 0 {
+            tree.nodes
+                .get_mut(&0)
+                .unwrap()
+                .fields
+                .insert(column.to_owned(), RefValue::Int(40 + i64::from(first)));
+        }
+        for slot in 0..2 {
+            let id = first + slot;
+            let value = if duplicate { first } else { id };
+            tree.nodes.insert(
+                id,
+                RefNode::new(id, "v").with_value(RefValue::Int(i64::from(value))),
+            );
+            tree.arcs
+                .push((0, id, RefEdge::new("r", "v", "prop", Some(column))));
+        }
+    }
+    tree
+}
+
+#[test]
+fn scalar_child_bindings_respect_independent_parent_field_shadows() {
+    for shadowed in 0..4 {
+        for duplicate in [false, true] {
+            let reference = shadowed_child_binding_tree(shadowed, duplicate);
+            let tree = prod_tree(&reference);
+            let graph = GInstance::from_wtype(&tree).unwrap();
+            let mut pinned = BTreeMap::new();
+            for (bit, column, first) in [(1, "x", 1), (2, "y", 3)] {
+                if shadowed & bit == 0 {
+                    pinned.insert(
+                        column.to_owned(),
+                        RefValue::List(vec![
+                            RefValue::Int(first),
+                            RefValue::Int(if duplicate { first } else { first + 1 }),
+                        ]),
+                    );
+                }
+            }
+            let expected = restrict::scalar_child_bindings(&reference, 0);
+            assert_eq!(
+                expected, pinned,
+                "shadow mask {shadowed}, duplicate={duplicate}"
+            );
+            assert_eq!(
+                ref_fields(&collect_scalar_child_values(&tree, 0)),
+                expected,
+                "tree child bindings: shadow mask {shadowed}, duplicate={duplicate}"
+            );
+            pinned.extend(reference.nodes[&0].fields.clone());
+            assert_eq!(
+                ref_fields(&tree.attributes(0)),
+                pinned,
+                "own tree fields win: shadow mask {shadowed}, duplicate={duplicate}"
+            );
+            assert_eq!(
+                ref_fields(&graph.attributes(0)),
+                pinned,
+                "own graph fields win: shadow mask {shadowed}, duplicate={duplicate}"
+            );
+        }
+    }
+}
+
+#[test]
+fn graph_scalar_child_bindings_follow_positions_then_edge_ids() {
+    for (positions, order) in [
+        ([None, None], [0, 1]),
+        ([Some(1), Some(0)], [1, 0]),
+        ([Some(0), Some(0)], [0, 1]),
+        ([Some(0), None], [1, 0]),
+        ([None, Some(0)], [0, 1]),
+        ([Some(u32::MAX), Some(0)], [1, 0]),
+    ] {
+        let mut instances = repeated_child_instances();
+        for (id, position) in positions.into_iter().enumerate() {
+            instances
+                .graph
+                .set_edge_position(EdgeId(u32::try_from(id).unwrap()), position)
+                .unwrap();
+        }
+        let expected_ids = order.map(EdgeId).to_vec();
+        assert_eq!(
+            instances.graph.ordered_out_edges(0),
+            expected_ids,
+            "positions={positions:?}"
+        );
+        let mut reference = ref_tree(&instances.tree);
+        let source_arcs = reference.arcs.clone();
+        reference.arcs = order
+            .map(|id| source_arcs[usize::try_from(id).unwrap()].clone())
+            .to_vec();
+        let expected = restrict::scalar_child_bindings(&reference, 0);
+        assert_eq!(
+            expected.get("x"),
+            Some(&RefValue::List(
+                order.map(|id| RefValue::Int(i64::from(id + 1))).to_vec()
+            )),
+            "reference arc order pins positional graph order: {positions:?}"
+        );
+        assert_eq!(
+            ref_fields(&instances.graph.attributes(0)),
+            expected,
+            "graph child binding order: {positions:?}"
+        );
+    }
 }
 
 fn repeated_child_instances() -> RepeatedChildInstances {
@@ -2193,4 +2310,587 @@ fn reference_restore_vocabulary_covers_tree_put_domain_refusals() {
         },
         restrict::PredicateRefusal::AmbiguousChildField { .. }
     ));
+}
+
+/// A replaced endpoint also needs its synthesized incident edge replaced.
+#[test]
+fn translated_replacement_closes_over_incident_contraction_edges() {
+    use panproto_reference::edit::{GElem, GPayload, GraphDelta, apply, get_edit};
+    let source_schema = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .edge("a", "b", "e", None)
+        .edge("b", "c", "e", None);
+    let target_schema = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("c", "record")
+        .edge("a", "c", "e", None);
+    let migration = RefMigration {
+        surviving_verts: BTreeSet::from(["a".to_owned(), "c".to_owned()]),
+        ..RefMigration::default()
+    };
+    let source = RefGraph {
+        nodes: BTreeMap::from([
+            (0, RefNode::new(0, "a")),
+            (1, RefNode::new(1, "b")),
+            (2, RefNode::new(2, "c")),
+        ]),
+        edges: BTreeMap::from([
+            (
+                0,
+                RefGEdge {
+                    src: 0,
+                    tgt: 1,
+                    label: RefEdge::new("a", "b", "e", None),
+                    position: None,
+                },
+            ),
+            (
+                1,
+                RefGEdge {
+                    src: 1,
+                    tgt: 2,
+                    label: RefEdge::new("b", "c", "e", None),
+                    position: None,
+                },
+            ),
+        ]),
+    };
+    let get = move |graph: &RefGraph| {
+        restrict::get(
+            &source_schema,
+            &target_schema,
+            &migration,
+            &NoValueLayer,
+            graph,
+        )
+    };
+    let (view, _) = get(&source).unwrap();
+    assert_eq!(view.edges.keys().copied().collect::<Vec<_>>(), vec![2]);
+    let replaced = BTreeMap::from([
+        (GElem::Node(0), GPayload::Node(source.nodes[&0].clone())),
+        (GElem::Edge(0), GPayload::Edge(source.edges[&0].clone())),
+    ]);
+    let input = GraphDelta {
+        del: replaced.clone(),
+        add: replaced,
+        attrs: BTreeMap::new(),
+    };
+    assert_eq!(apply(&input, &source).unwrap(), source);
+    let translated = get_edit(&get, &source, &input).unwrap();
+    assert_eq!(
+        apply(&translated.delta, &view).unwrap(),
+        view,
+        "the translated replacement must apply to the contraction view"
+    );
+    assert_eq!(
+        translated.delta.del.keys().cloned().collect::<Vec<_>>(),
+        vec![GElem::Node(0), GElem::Edge(2)]
+    );
+    assert_eq!(translated.delta.del, translated.delta.add);
+    assert_eq!(
+        translated.delta.compose(&GraphDelta::identity()).unwrap(),
+        translated.delta
+    );
+    assert_eq!(
+        GraphDelta::identity().compose(&translated.delta).unwrap(),
+        translated.delta
+    );
+    let identity = get_edit(&get, &source, &GraphDelta::identity()).unwrap();
+    assert_eq!(identity.delta, GraphDelta::identity());
+}
+
+struct VisibleFieldLayer;
+impl restrict::ValueLayer for VisibleFieldLayer {
+    fn canonical_semantics(&self) -> restrict::ValueLayerSemantics {
+        restrict::ValueLayerSemantics {
+            domain: "visible-bool",
+            version: 1,
+            canonical_payload: vec![],
+        }
+    }
+    fn survives(&self, _: &RefGraph, node: &RefNode) -> Result<bool, restrict::PredicateRefusal> {
+        Ok(node.fields.get("visible") == Some(&RefValue::Bool(true)))
+    }
+    fn transform(
+        &self,
+        graph: &RefGraph,
+        node: &RefNode,
+    ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), restrict::LayerRefusal> {
+        NoValueLayer.transform(graph, node)
+    }
+    fn restore(
+        &self,
+        view: &RefNode,
+        fields: Option<&BTreeMap<String, RefValue>>,
+        value: Option<&Option<RefPresence>>,
+    ) -> Result<(BTreeMap<String, RefValue>, Option<RefPresence>), restrict::PutFieldRefusal> {
+        NoValueLayer.restore(view, fields, value)
+    }
+}
+
+/// The reference restrict domain admits the same two-attribute survival loop.
+#[test]
+fn reference_survival_loop_is_a_replacement_after_translation() {
+    use panproto_reference::edit::{self, GElem, GraphDelta};
+    let schema = RefSchema::default()
+        .vertex("r", "record")
+        .vertex("a", "record")
+        .edge("r", "a", "prop", Some("a"));
+    let migration = RefMigration {
+        surviving_verts: BTreeSet::from(["r".to_owned(), "a".to_owned()]),
+        surviving_edges: schema.edges.clone(),
+        conditional: BTreeSet::from(["a".to_owned()]),
+        ..RefMigration::default()
+    };
+    let mut leaf = RefNode::new(1, "a");
+    leaf.fields
+        .insert("visible".to_owned(), RefValue::Bool(true));
+    let before = RefGraph {
+        nodes: BTreeMap::from([(0, RefNode::new(0, "r")), (1, leaf)]),
+        edges: BTreeMap::from([(
+            0,
+            RefGEdge {
+                src: 0,
+                tgt: 1,
+                label: RefEdge::new("r", "a", "prop", Some("a")),
+                position: None,
+            },
+        )]),
+    };
+    let mut middle = before.clone();
+    middle
+        .nodes
+        .get_mut(&1)
+        .unwrap()
+        .fields
+        .insert("visible".to_owned(), RefValue::Bool(false));
+    let down = edit::diff(&before, &middle);
+    let up = edit::diff(&middle, &before);
+    assert_eq!(down.compose(&up).unwrap(), GraphDelta::identity());
+    let plan = restrict::compile(&schema, &schema, &migration).unwrap();
+    let layer = VisibleFieldLayer;
+    let lens = RefGraphLens::new(
+        &schema,
+        &schema,
+        &migration,
+        &plan,
+        &BTreeMap::new(),
+        &layer,
+    )
+    .unwrap();
+    for state in [&before, &middle] {
+        let (view, complement) = lens.get(state).unwrap();
+        assert_eq!(lens.put(&view, &complement).unwrap(), *state);
+    }
+    let closure_schema = schema.clone();
+    let closure_migration = migration.clone();
+    let get = move |state: &RefGraph| {
+        restrict::get(
+            &closure_schema,
+            &closure_schema,
+            &closure_migration,
+            &VisibleFieldLayer,
+            state,
+        )
+    };
+    let first = edit::get_edit(&get, &before, &down).unwrap();
+    let second = edit::get_edit(&get, &middle, &up).unwrap();
+    let sequential = first.delta.compose(&second.delta).unwrap();
+    let direct = edit::get_edit(&get, &before, &GraphDelta::identity()).unwrap();
+    assert!(sequential.del.contains_key(&GElem::Node(1)));
+    assert!(sequential.add.contains_key(&GElem::Node(1)));
+    assert_eq!(direct.delta, GraphDelta::identity());
+    assert_ne!(sequential, direct.delta);
+    let (view, _) = get(&before).unwrap();
+    assert_eq!(edit::apply(&sequential, &view).unwrap(), view);
+}
+
+/// The existing common-image domain excludes merged named tree attributes.
+/// Graph/table placement remains defined, while the tree reports the exact boundary refusal.
+#[test]
+fn column_fate_many_to_one_is_outside_the_common_tree_image() {
+    let protocol = table_protocol();
+    let source = SchemaBuilder::new(&protocol)
+        .vertex("t", "record", None)
+        .and_then(|b| b.vertex("t.a", "int", None))
+        .and_then(|b| b.vertex("t.b", "int", None))
+        .and_then(|b| b.edge("t", "t.a", "prop", Some("a")))
+        .and_then(|b| b.edge("t", "t.b", "prop", Some("b")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let (target, _, mut migration, _, _) =
+        column_case_target(&protocol, &[ColumnState::Rename, ColumnState::Drop]);
+    let edge = |target: &str, name: &str| Edge {
+        src: "t".into(),
+        tgt: target.into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    };
+    migration
+        .vertex_remap
+        .insert("t.b".into(), "t.a_new".into());
+    migration
+        .edge_remap
+        .insert(edge("t.b", "b"), edge("t.a_new", "a_new"));
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let plan =
+        RestrictPlan::compile_with_protocols(&source, &target, &migration, protocols).unwrap();
+    let table_plan =
+        RestrictPlan::compile_for_tables(&source, &target, &migration, protocols).unwrap();
+    let target_edge = edge("t.a_new", "a_new");
+    let expected_fates = vec![
+        CellFate::Rename("a".to_owned(), "a_new".to_owned()),
+        CellFate::Rename("b".to_owned(), "a_new".to_owned()),
+    ];
+    for compiled in [&plan, &table_plan] {
+        for (vertex, column) in [("t.a", "a"), ("t.b", "b")] {
+            assert_eq!(
+                compiled.edge_image.fate(&edge(vertex, column)),
+                Some(&EdgeFate::Keep(target_edge.clone())),
+            );
+        }
+        assert_eq!(
+            compiled
+                .boundary
+                .as_ref()
+                .and_then(|b| b.cells.as_ref())
+                .and_then(|cells| cells.fates.get("t")),
+            Some(&expected_fates),
+        );
+    }
+    let table = FInstance::new()
+        .with_rows(
+            "t",
+            [(
+                RowId(0),
+                HashMap::from([
+                    ("a".to_owned(), Value::Int(1)),
+                    ("b".to_owned(), Value::Int(2)),
+                ]),
+            )],
+        )
+        .unwrap();
+    let (table_view, _) = functor_restrict_with_plan(&table, &table_plan).unwrap();
+    let expected = HashMap::from([("a_new".to_owned(), Value::Int(2))]);
+    assert_eq!(table_view.row(RowId(0)), Some(&expected));
+    let (graph, _) = GInstance::from_finstance(&table).unwrap();
+    let (graph_view, _) = graph_restrict_with_plan(&graph, &plan).unwrap();
+    assert_eq!(graph_view.node(0).map(|n| &n.extra_fields), Some(&expected));
+    let tree = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "t")),
+            (
+                1,
+                Node::new(1, "t.a").with_value(FieldPresence::Present(Value::Int(1))),
+            ),
+            (
+                2,
+                Node::new(2, "t.b").with_value(FieldPresence::Present(Value::Int(2))),
+            ),
+        ]),
+        vec![(0, 1, edge("t.a", "a")), (0, 2, edge("t.b", "b"))],
+        Vec::new(),
+        0,
+        "t".into(),
+    );
+    let error = wtype_restrict_with_plan(&tree, &plan).unwrap_err();
+    assert!(
+        matches!(
+            error.unlocated(),
+            RestrictError::MultipleArcsOnSingleValuedEdge { parent: 0, edge: found, count: 2 }
+                if found.as_ref() == &target_edge
+        ),
+        "the documented tree boundary must name the merged edge and both arcs: {error:?}"
+    );
+}
+
+fn generated_structural_plan_agrees(source: &RefSchema, migration: &RefMigration) {
+    let production_schema = prod_schema(source);
+    let production_migration = prod_migration(migration);
+    let reference_image = restrict::edge_image(source, source, migration).unwrap();
+    let production_image = EdgeImage::compile(
+        &production_schema,
+        &production_schema,
+        &production_migration,
+    )
+    .unwrap();
+    assert_eq!(reference_image.len(), production_image.fates.len());
+    for (edge, expected) in &reference_image {
+        let actual = production_image
+            .fate(&prod_edge(edge))
+            .expect("total production edge image");
+        let expected = ref_fate_without_hop(expected);
+        let actual = prod_fate(actual);
+        assert_eq!(actual, expected, "edge {edge:?} under {migration:?}");
+    }
+
+    let optimized = restrict::contraction_plan(source, source, migration).unwrap();
+    let walked = restrict::contraction_plan_by_walks(source, source, migration);
+    assert_eq!(optimized, walked, "walk oracle under {migration:?}");
+    let production = ContractionPlan::compile(
+        &production_schema,
+        &production_schema,
+        &production_migration,
+    )
+    .unwrap();
+    assert_eq!(optimized.len(), production.pairs.len());
+    for (key, expected) in &optimized {
+        let actual = production
+            .pairs
+            .get(&(key.0.as_str().into(), key.1.as_str().into()))
+            .expect("same pair domain");
+        assert_eq!(
+            actual.target,
+            (
+                expected.target.0.as_str().into(),
+                expected.target.1.as_str().into()
+            )
+        );
+        assert_eq!(
+            actual.region.iter().map(ref_edge).collect::<BTreeSet<_>>(),
+            expected.region
+        );
+        assert_eq!(actual.bounded, expected.bounded);
+        assert_eq!(
+            prod_resolution(&actual.resolution),
+            ref_resolution(&expected.resolution)
+        );
+    }
+}
+
+fn generated_graph_restriction_agrees(
+    source: &RefSchema,
+    migration: &RefMigration,
+    graph: &RefGraph,
+) {
+    let production_schema = prod_schema(source);
+    let production_migration = prod_migration(migration);
+    let production_plan = RestrictPlan::compile(
+        &production_schema,
+        &production_schema,
+        &production_migration,
+    )
+    .unwrap();
+    let reference = restrict::get(source, source, migration, &NoValueLayer, graph);
+    let production = graph_restrict_with_plan(&prod_graph(graph), &production_plan);
+    match (reference, production) {
+        (Ok((reference_view, reference_complement)), Ok((view, complement))) => {
+            assert_eq!(
+                ref_graph(&view),
+                reference_view,
+                "{graph:?} under {migration:?}"
+            );
+            assert_eq!(
+                ref_complement(&complement),
+                reference_complement,
+                "complement for {graph:?} under {migration:?}"
+            );
+            for (id, node) in &reference_view.nodes {
+                if let Some(original) = graph.nodes.get(id) {
+                    assert_eq!(
+                        (&node.value, &node.fields, &node.annotations),
+                        (&original.value, &original.fields, &original.annotations),
+                        "a kept node keeps its payload without a value program"
+                    );
+                }
+            }
+            let surviving = reference_view.nodes.keys().copied().collect();
+            let walked = restrict::realized_pairs_by_walks(graph, &surviving);
+            let synthesized: BTreeSet<(u32, u32)> = reference_complement
+                .synthesized_edges
+                .values()
+                .filter_map(|key| match key {
+                    RefSynthKey::Contract { src, tgt, .. }
+                    | RefSynthKey::ContractExpand { src, tgt, .. } => Some((*src, *tgt)),
+                    RefSynthKey::Expand { .. } => None,
+                })
+                .collect();
+            assert_eq!(synthesized, walked, "realized pair census for {graph:?}");
+        }
+        (Err(reference), Err(production)) => assert_eq!(
+            production_error(&production),
+            reference_error(&reference),
+            "refusal for {graph:?} under {migration:?}"
+        ),
+        (reference, production) => panic!(
+            "engines disagree for {graph:?} under {migration:?}: {reference:?} / {production:?}"
+        ),
+    }
+}
+
+fn generated_column_fates_agree(states: [ColumnState; 2]) {
+    let protocol = table_protocol();
+    let source = SchemaBuilder::new(&protocol)
+        .vertex("t", "record", None)
+        .and_then(|builder| builder.vertex("t.a", "int", None))
+        .and_then(|builder| builder.vertex("t.b", "int", None))
+        .and_then(|builder| builder.edge("t", "t.a", "prop", Some("a")))
+        .and_then(|builder| builder.edge("t", "t.b", "prop", Some("b")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let reference_source = RefSchema::default()
+        .vertex("t", "record")
+        .vertex("t.a", "int")
+        .vertex("t.b", "int")
+        .edge("t", "t.a", "prop", Some("a"))
+        .edge("t", "t.b", "prop", Some("b"));
+    let source_columns = BTreeMap::from([
+        (RefEdge::new("t", "t.a", "prop", Some("a")), "a".to_owned()),
+        (RefEdge::new("t", "t.b", "prop", Some("b")), "b".to_owned()),
+    ]);
+    let (target, reference_target, migration, reference_migration, target_columns) =
+        column_case_target(&protocol, &states);
+    let production = RestrictPlan::compile_with_protocols(
+        &source,
+        &target,
+        &migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let reference_plan =
+        restrict::compile(&reference_source, &reference_target, &reference_migration).unwrap();
+    let expected = restrict::column_fates(
+        &reference_plan,
+        &reference_migration,
+        &source_columns,
+        &target_columns,
+    );
+    let expected = expected
+        .get("t")
+        .into_iter()
+        .flatten()
+        .map(ref_column_fate_text)
+        .collect::<Vec<_>>();
+    let actual = production
+        .boundary
+        .as_ref()
+        .and_then(|boundary| boundary.cells.as_ref())
+        .and_then(|cells| cells.fates.get("t"))
+        .into_iter()
+        .flatten()
+        .map(prod_column_fate_text)
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected, "{states:?}");
+    assert_column_runtime(&protocol, &source, &target, &migration, &production, states);
+}
+
+fn generated_tree_restriction_agrees(case: &TreeRestrictCase) {
+    let source = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "c", "prop", Some("expand"));
+    let target = RefSchema::default()
+        .vertex("a", "record")
+        .vertex("b", "record")
+        .vertex("c", "record")
+        .vertex("d", "record")
+        .edge("a", "d", "prop", Some("keep"))
+        .edge("a", "b", "prop", Some("ab"))
+        .edge("b", "c", "prop", Some("bc"));
+    let mut migration = RefMigration {
+        surviving_verts: ["a", "c", "d"].into_iter().map(str::to_owned).collect(),
+        ..RefMigration::default()
+    };
+    migration
+        .expansion_path
+        .insert(("a".to_owned(), "c".to_owned()), vec!["b".to_owned()]);
+    let production_schema = prod_schema(&source);
+    let production_target = prod_schema(&target);
+    let production_migration = prod_migration(&migration);
+    let production_plan = RestrictPlan::compile(
+        &production_schema,
+        &production_target,
+        &production_migration,
+    )
+    .unwrap();
+    let reference_plan = restrict::compile(&source, &target, &migration).unwrap();
+    let semantics = BTreeMap::new();
+    let reference_lens = RefGraphLens::new(
+        &source,
+        &target,
+        &migration,
+        &reference_plan,
+        &semantics,
+        &NoValueLayer,
+    )
+    .unwrap();
+    tree_case_is_success(case, &reference_lens, &production_plan);
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    /// Schemas and survival classes are independently sampled; edge presence,
+    /// node fields and annotations are generated before either engine runs.
+    #[test]
+    fn randomized_restriction_plan_and_graph_differential(
+        schema_index in 0_usize..57,
+        classification in 0_usize..27,
+        edge_bits in proptest::prelude::any::<u8>(),
+        payloads in proptest::prelude::any::<[i64;3]>(),
+    ) {
+        let source = &release_schemas()[schema_index];
+        let migration = &survival_classifications(source)[classification];
+        generated_structural_plan_agrees(source, migration);
+        let mut graph = RefGraph::default();
+        for (index,anchor) in ["a","b","c"].iter().enumerate() {
+            let id = u32::try_from(index).unwrap();
+            let mut node = RefNode::new(id,anchor);
+            node.fields.insert("payload".into(),RefValue::Int(payloads[index]));
+            node.annotations.insert("annotation".into(),RefValue::Int(payloads[index]));
+            graph.nodes.insert(id,node);
+        }
+        for (index,edge) in source.edges.iter().enumerate() {
+            if edge_bits & (1_u8 << index) != 0 {
+                let node = |anchor: &str| u32::try_from(["a","b","c"].iter().position(|candidate| *candidate==anchor).unwrap()).unwrap();
+                graph.edges.insert(u32::try_from(index).unwrap(),RefGEdge { src:node(&edge.src),tgt:node(&edge.tgt),label:edge.clone(),position:Some(u32::try_from(index).unwrap()) });
+            }
+        }
+        generated_graph_restriction_agrees(source,migration,&graph);
+    }
+
+    #[test]
+    fn randomized_pair_resolution_differential(
+        direct in 0_usize..5, first in 0_usize..5, second in 0_usize..5, expansion in 0_usize..3,
+    ) {
+        let case = PairResolutionCase { direct:PairState::ALL[direct], first:PairState::ALL[first], second:PairState::ALL[second], expansion:[ExpansionState::Absent,ExpansionState::Empty,ExpansionState::ViaC][expansion] };
+        let (target,migration)=resolution_case(case);
+        let expected=restrict::resolve_pair(&target,&migration,"a","b");
+        let actual=resolve_pair(&prod_schema(&target),&prod_migration(&migration),&"a".into(),&"b".into());
+        assert_eq!(prod_resolution(&actual),ref_resolution(&expected));
+        if let RefPairResolution::Unresolved(source,target_anchor,_) = expected {
+            let actual=panproto_inst::contraction_plan::failing_hop(&prod_schema(&target),&prod_migration(&migration),&"a".into(),&"b".into());
+            assert_eq!((actual.0.to_string(),actual.1.to_string()),(source,target_anchor));
+        }
+    }
+
+    #[test]
+    fn randomized_column_fate_differential(left in 0_usize..3,right in 0_usize..3) {
+        let states=[ColumnState::Drop,ColumnState::Keep,ColumnState::Rename];
+        generated_column_fates_agree([states[left],states[right]]);
+    }
+
+    #[test]
+    fn randomized_ordered_child_binding_differential(word in proptest::collection::vec(0_usize..8,0..9)) {
+        let slots=[ChildBindingSlot::SelfX,ChildBindingSlot::SelfY,ChildBindingSlot::MissingX,ChildBindingSlot::ZeroX,ChildBindingSlot::OneX,ChildBindingSlot::MissingY,ChildBindingSlot::ZeroY,ChildBindingSlot::OneY];
+        let word:Vec<_>=word.into_iter().map(|index|slots[index]).collect();
+        assert_child_binding_word(&word);
+    }
+
+    #[test]
+    fn randomized_tree_restriction_differential(routes in proptest::collection::vec(proptest::prelude::any::<bool>(),1..7),floor in 0_usize..5) {
+        let case=TreeRestrictCase { routes:routes.into_iter().map(|expand|if expand {TreeRoute::Expand} else {TreeRoute::Keep}).collect(),floor:[TreeFloorCase::Compact,TreeFloorCase::Gapped,TreeFloorCase::LastFree,TreeFloorCase::Saturated,TreeFloorCase::AlreadyMax][floor] };
+        generated_tree_restriction_agrees(&case);
+    }
 }

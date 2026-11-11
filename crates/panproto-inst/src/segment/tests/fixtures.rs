@@ -284,7 +284,7 @@ fn compute(
         binding: None,
     };
     let manifest = seal(records, header, runs)?;
-    verify_manifest(&manifest)?;
+    verify_manifest(&manifest, manifest.digest())?;
     for part in &parts {
         verify_segment(&manifest, part)?;
     }

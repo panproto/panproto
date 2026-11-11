@@ -716,7 +716,7 @@ fn advisory_entries_are_listed_and_never_change_the_status() {
 
 proptest! {
     #[test]
-    fn v1_status_soundness_over_random_verdict_sets(
+    fn status_soundness_over_random_verdict_sets(
         diags in prop::collection::vec(any::<bool>(), 0..6),
         incs in prop::collection::vec(any::<bool>(), 0..6),
     ) {
@@ -4461,7 +4461,7 @@ proptest! {
     }
 
     #[test]
-    fn v7_finite_budget_never_passes_where_unlimited_does_not(
+    fn finite_budget_never_passes_where_unlimited_does_not(
         g in arb_probe_graph(),
         limit in 0u64..60,
     ) {
@@ -4585,7 +4585,7 @@ fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
     let fan = Fan::new("nope", 0).with_child("lab", 1);
     tree.fans.push(fan.clone());
     let report = validate_wtype(&tree, &schema, &Protocol::default());
-    // I7 maps to `MalformedFan`: the hyper-edge is undeclared, so its labels
+    // This maps to `MalformedFan`: the hyper-edge is undeclared, so its labels
     // are not read against any signature.
     assert_eq!(
         fan_entries(&report),

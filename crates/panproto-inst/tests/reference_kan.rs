@@ -790,7 +790,7 @@ fn ref_kan_error(error: &AdjunctionError) -> Option<rel::KanError> {
             limit,
         }) => rel::KanError::ProductSizeExceeded {
             vertex: vertex.clone(),
-            actual: *actual,
+            actual: actual.clone(),
             limit: *limit,
         },
         AdjunctionError::RowIdsExhausted => rel::KanError::RowIdsExhausted,
@@ -2723,11 +2723,9 @@ fn pair_units(cases: &[PairCase], limit: u64) -> Vec<(usize, usize, usize)> {
     units
 }
 
-/// Execute the first `limit` representative pairs on [`threads`] workers,
-/// worker `w` taking units `w, w + n, ...`, printing progress every 250,000
-/// pairs.
-fn run_pairs(cases: &[PairCase], limit: u64) -> PairStats {
-    let units = pair_units(cases, limit);
+/// Execute the supplied source units on [`threads`] workers, worker `w`
+/// taking units `w, w + n, ...`, printing progress every 250,000 pairs.
+fn run_pairs(cases: &[PairCase], units: &[(usize, usize, usize)]) -> PairStats {
     let workers = threads().clamp(1, units.len().max(1));
     let started = std::time::Instant::now();
     let done = AtomicU64::new(0);
@@ -2793,6 +2791,48 @@ fn run_pairs(cases: &[PairCase], limit: u64) -> PairStats {
         started.elapsed().as_secs_f64()
     );
     stats
+}
+
+/// A disjoint share of source units, or the whole certificate when unset.
+fn pair_shard() -> (usize, usize) {
+    let Some(text) = std::env::var_os("PANPROTO_KAN_PAIR_SHARD") else {
+        return (0, 1);
+    };
+    let text = text.into_string().expect("pair shard must be UTF-8");
+    let (index, count) = text.split_once('/').expect("pair shard must be i/n");
+    let index = index.parse::<usize>().expect("invalid pair shard index");
+    let count = count.parse::<usize>().expect("invalid pair shard count");
+    assert!(
+        count > 0 && index < count,
+        "pair shard must satisfy 0 <= i < n"
+    );
+    (index, count)
+}
+
+/// Check that independent execution of disjoint shares preserves every counter.
+#[test]
+fn representative_pair_shards_match_unsharded_prefix() {
+    let cases = pair_cases();
+    let units = pair_units(&cases, 1_000);
+    let full = run_pairs(&cases, &units);
+    let mut merged = PairStats::default();
+    let mut indices = BTreeSet::new();
+    for index in 0..3 {
+        let share: Vec<_> = units
+            .iter()
+            .enumerate()
+            .skip(index)
+            .step_by(3)
+            .map(|(ordinal, unit)| {
+                assert!(indices.insert(ordinal));
+                *unit
+            })
+            .collect();
+        merged += run_pairs(&cases, &share);
+    }
+    assert_eq!(indices, (0..units.len()).collect());
+    assert_eq!(full.pairs, 1_000);
+    assert_eq!(merged, full);
 }
 
 /// The representative profile counts of the bounded family, case by case,
@@ -2883,14 +2923,51 @@ fn exhaustive_kan_hom_profile_pairs_agree_with_the_reference() {
     let members = profile_members_are_isomorphic();
     println!("profile members: {members} labelled objects, each isomorphic to its representative");
     assert_eq!(members, labelled_objects());
-    let stats = run_pairs(&cases, u64::MAX);
-    assert_eq!(stats.pairs, representative_pairs);
-    assert_eq!(stats.weighted, labelled_pairs);
-    println!(
-        "weighted total {} = labelled ordered pairs {labelled_pairs}",
-        stats.weighted
+    let units = pair_units(&cases, u64::MAX);
+    assert_eq!(units.len(), 9_333);
+    let (index, count) = pair_shard();
+    assert!(
+        count <= units.len(),
+        "pair shards must have nonempty unit shares"
     );
-    assert!(stats.sigma_homs > 0 && stats.pi_homs[0] > 0 && stats.pi_homs[1] > 0);
+    let indices: Vec<_> = (index..units.len()).step_by(count).collect();
+    let share: Vec<_> = indices.iter().map(|&ordinal| units[ordinal]).collect();
+    let expected_pairs: u64 = share
+        .iter()
+        .map(|unit| u64::try_from(unit.2).unwrap())
+        .sum();
+    let expected_weighted: u64 = share
+        .iter()
+        .map(|&(case, source, targets)| {
+            let case = &cases[case];
+            case.sources[source].weight
+                * case.targets[..targets]
+                    .iter()
+                    .map(|target| target.weight)
+                    .sum::<u64>()
+        })
+        .sum();
+    let stats = run_pairs(&cases, &share);
+    assert_eq!(stats.pairs, expected_pairs);
+    assert_eq!(stats.weighted, expected_weighted);
+    if count == 1 {
+        assert_eq!(stats.pairs, representative_pairs);
+        assert_eq!(stats.weighted, labelled_pairs);
+        assert!(stats.sigma_homs > 0 && stats.pi_homs[0] > 0 && stats.pi_homs[1] > 0);
+    }
+    println!(
+        "KAN_PAIR_SHARD {{\"index\":{index},\"count\":{count},\"total_units\":{},\"units\":{indices:?},\"pairs\":{},\"weighted\":{},\"sigma_homs\":{},\"pi_bound4_homs\":{},\"pi_bound81_homs\":{},\"sigma_refusals\":{},\"pi_naturality_refusals\":{},\"pi_outside_image\":{},\"pi_over_bound\":{}}}",
+        units.len(),
+        stats.pairs,
+        stats.weighted,
+        stats.sigma_homs,
+        stats.pi_homs[0],
+        stats.pi_homs[1],
+        stats.sigma_refusals,
+        stats.pi_naturality_refusals,
+        stats.pi_outside_image,
+        stats.pi_over_bound
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3895,6 +3972,24 @@ fn presheaf_sigma(
     (rows, separated, unseparated, identified)
 }
 
+/// Compare the table Sigma underlying the graph reflection, including its
+/// provenance and any typed refusal, on the same encoded source object.
+fn reflection_table_sigma_agrees(functors: &Functors, input: &FInstance) {
+    let reference_input = ref_table(input);
+    let expected = rel::sigma(&functors.reference, &reference_input);
+    let actual = panproto_inst::f_sigma_with_provenance(input, &functors.production);
+    match (expected, actual) {
+        (Ok((out, provenance)), Ok((ours, our_provenance))) => {
+            assert_eq!(ref_table(&ours), out, "Sigma of {reference_input:?}");
+            assert_eq!(ref_sigma_provenance(&our_provenance), provenance);
+        }
+        (Err(theirs), Err(ours)) => {
+            kan_refusals_agree(&ours, &theirs, &("reflection Sigma", &reference_input));
+        }
+        (theirs, ours) => panic!("reflection Sigma of {reference_input:?}: {ours:?} / {theirs:?}"),
+    }
+}
+
 /// Graph Sigma at one whole-source graph through its six entry points
 /// against the reference: each output equal to the reference graph Sigma
 /// and, rows and pairs, isomorphic to `L_sep` of the reference presheaf
@@ -3909,6 +4004,7 @@ fn sigma_reflection_at(case: &GraphCase, graph: &model::Graph) -> Census {
         panproto_inst::encode_graph(&production_graph, EncodingSide::Whole(fp.source())).unwrap();
     let (kept_table, _) =
         panproto_inst::encode_graph(&production_kept, EncodingSide::Domain(fp)).unwrap();
+    reflection_table_sigma_agrees(&case.functors, &whole_table);
     assert_eq!(
         ref_table(&panproto_inst::f_restrict_to_domain(&whole_table, fp).unwrap()),
         ref_table(&kept_table),
@@ -5488,10 +5584,10 @@ fn pi_transpose_checks_the_map_before_the_product_bound() {
     assert!(matches!(
         rel::pi(f, &i, 4),
         Err(rel::KanError::ProductSizeExceeded {
-            actual: 9,
+            actual,
             limit: 4,
             ..
-        })
+        }) if actual == "9"
     ));
     let (delta, _) = rel::delta(f, &j).unwrap();
     let first = *delta.rows.keys().next().unwrap();
@@ -6139,4 +6235,475 @@ fn the_graph_route_alone_refuses_when_decoding_runs_out_of_ids() {
     assert_eq!(theirs, Err(encode::GraphKanError::NodeIdsExhausted));
     let ours = panproto_inst::g_delta_along(&prod_graph(&graph), fp);
     graph_results_agree(&ours, &theirs, &"graph Delta at the id boundary");
+}
+
+/// Compare the full decoder result, including the independently typed final refusal.
+fn public_layout_decode_agrees(
+    table: &model::Table,
+    side: &encode::GraphSide,
+    layout: &encode::GraphLayout,
+) -> Result<model::Graph, encode::DecodeTableError> {
+    let mut schema_model = panproto_reference::schema::Schema::default();
+    for table in &side.tables {
+        schema_model = schema_model.vertex(table, "entity");
+    }
+    for value in &side.value_vertices {
+        schema_model = schema_model.vertex(value, "value");
+    }
+    for edge in side
+        .relations
+        .iter()
+        .chain(side.inner_edges.iter())
+        .chain(side.columns.values().flat_map(BTreeMap::values))
+    {
+        schema_model = schema_model.edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref());
+    }
+    let schema = RelSchema::new(
+        &prod_schema(&schema_model),
+        &protocol_of(
+            &BTreeSet::from(["value".to_owned()]),
+            &BTreeSet::from(["entity".to_owned()]),
+        ),
+    )
+    .unwrap_or_else(|error| panic!("test schema: {error:?}"));
+    let reference = encode::decode_table(table, side, layout);
+    let production = panproto_inst::decode_graph(
+        &prod_table(table),
+        EncodingSide::whole(&schema),
+        &prod_layout(layout),
+    );
+    match (&reference, &production) {
+        (Ok(expected), Ok(actual)) => {
+            assert_eq!(ref_graph(actual), *expected, "complete decoded graph");
+            let (encoded, _) = encode::encode_graph(expected, side).unwrap_or_else(|error| {
+                panic!("successful reference decode must encode: {error:?}")
+            });
+            assert_eq!(encoded, *table, "reference decode/encode square");
+            let (encoded, _) = panproto_inst::encode_graph(actual, EncodingSide::whole(&schema))
+                .unwrap_or_else(|error| {
+                    panic!("successful production decode must encode: {error:?}")
+                });
+            assert_eq!(
+                ref_table(&encoded),
+                *table,
+                "production decode/encode square"
+            );
+        }
+        (
+            Err(encode::DecodeTableError::NotEncodable(expected)),
+            Err(GraphKanError::NotEncodable { reason }),
+        ) => {
+            assert_eq!(
+                ref_not_encodable(reason).as_ref(),
+                Some(expected.as_ref()),
+                "exact final encoding refusal"
+            );
+        }
+        (Err(encode::DecodeTableError::NodeIdsExhausted), Err(GraphKanError::NodeIdsExhausted))
+        | (Err(encode::DecodeTableError::EdgeIdsExhausted), Err(GraphKanError::EdgeIdsExhausted)) =>
+            {}
+        other => panic!("decoder outcomes differ: {other:?}"),
+    }
+    reference
+}
+
+#[test]
+fn public_row_layouts_and_reserved_relations_refuse_unencodable_outputs() {
+    for shape in [model::NodeShape::Plain, model::NodeShape::HyperEdge] {
+        for kind in ["relation", "hyper_parent", "hyper_label"] {
+            for populated in [false, true] {
+                let edge = model::SEdge::new("row", "row", kind, Some("link"));
+                let table = model::Table {
+                    rows: BTreeMap::from([(0, ("row".to_owned(), BTreeMap::new()))]),
+                    pairs: if populated {
+                        BTreeSet::from([(edge.clone(), 0, 0)])
+                    } else {
+                        BTreeSet::new()
+                    },
+                };
+                let side = encode::GraphSide {
+                    tables: BTreeSet::from(["row".to_owned()]),
+                    relations: BTreeSet::from([edge]),
+                    columns: BTreeMap::new(),
+                    value_vertices: BTreeSet::new(),
+                    inner_edges: BTreeSet::new(),
+                };
+                let mut node = model::Node::new(0, "row");
+                node.shape = shape.clone();
+                let layout = encode::GraphLayout {
+                    table_nodes: BTreeMap::from([(0, node)]),
+                    ..encode::GraphLayout::default()
+                };
+                let result = public_layout_decode_agrees(&table, &side, &layout);
+                if shape == model::NodeShape::HyperEdge || (populated && kind != "relation") {
+                    assert_eq!(
+                        result,
+                        Err(encode::DecodeTableError::NotEncodable(Box::new(
+                            encode::NotEncodable::FanNode { node: 0 }
+                        )))
+                    );
+                } else {
+                    assert!(
+                        result.is_ok(),
+                        "ordinary rows and unused reserved relations remain admitted"
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn public_cell_fixture() -> (model::Table, encode::GraphSide, encode::CellLayout) {
+    let arrow = model::SEdge::new("row", "value", "attribute", Some("cell"));
+    let inner = model::SEdge::new("value", "value", "inner", Some("item"));
+    let table = model::Table {
+        rows: BTreeMap::from([(
+            0,
+            (
+                "row".to_owned(),
+                BTreeMap::from([("cell".to_owned(), rvalue::Value::Int(7))]),
+            ),
+        )]),
+        pairs: BTreeSet::new(),
+    };
+    let side = encode::GraphSide {
+        tables: BTreeSet::from(["row".to_owned()]),
+        relations: BTreeSet::new(),
+        columns: BTreeMap::from([(
+            "row".to_owned(),
+            BTreeMap::from([("cell".to_owned(), arrow)]),
+        )]),
+        value_vertices: BTreeSet::from(["value".to_owned()]),
+        inner_edges: BTreeSet::from([inner]),
+    };
+    let mut leaf = model::Node::new(4, "value");
+    leaf.value = Some(rvalue::Presence::Present(rvalue::Value::Int(7)));
+    let cell = encode::CellLayout {
+        root: 4,
+        nodes: BTreeMap::from([(4, leaf)]),
+        edges: BTreeMap::new(),
+        attribute: encode::EdgeLayout {
+            id: Some(8),
+            position: None,
+            has_source: true,
+        },
+    };
+    (table, side, cell)
+}
+
+#[test]
+fn public_cell_hints_require_a_complete_rooted_tree_and_encodable_decorations() {
+    let (table, side, original) = public_cell_fixture();
+    for case in 0..5 {
+        let mut cell = original.clone();
+        match case {
+            0 => {}
+            1 => {
+                cell.nodes.insert(5, model::Node::new(5, "value"));
+            }
+            2 => {
+                cell.root = 6;
+            }
+            3 => {
+                cell.edges.insert(
+                    9,
+                    model::GEdge {
+                        src: 4,
+                        tgt: 4,
+                        label: side.inner_edges.first().expect("one inner edge").clone(),
+                        position: None,
+                    },
+                );
+            }
+            4 => {
+                cell.nodes.get_mut(&4).expect("root").shape = model::NodeShape::HyperEdge;
+            }
+            _ => unreachable!(),
+        }
+        let layout = encode::GraphLayout {
+            cells: BTreeMap::from([((0, "cell".to_owned()), cell)]),
+            ..encode::GraphLayout::default()
+        };
+        let result = public_layout_decode_agrees(&table, &side, &layout);
+        if case == 4 {
+            assert_eq!(
+                result,
+                Err(encode::DecodeTableError::NotEncodable(Box::new(
+                    encode::NotEncodable::FanNode { node: 4 }
+                )))
+            );
+        } else {
+            let graph = result.unwrap_or_else(|error| panic!("cell case {case}: {error:?}"));
+            assert_eq!(
+                graph.nodes.len(),
+                2,
+                "one row and one leaf, including fallback"
+            );
+            if case == 0 {
+                assert!(graph.nodes.contains_key(&4), "valid hint retains its root");
+            } else {
+                assert!(
+                    !graph.nodes.contains_key(&4),
+                    "invalid hint uses a fresh leaf"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn public_layout_floors_include_actual_ids_without_reservation_sets() {
+    let (table, side, cell) = public_cell_fixture();
+    for case in 0..11 {
+        let mut layout = encode::GraphLayout::default();
+        let mut unused = cell.clone();
+        let relation = model::SEdge::new("row", "row", "relation", None);
+        match case {
+            0 => {
+                layout.table_nodes.insert(32, model::Node::new(1, "row"));
+            }
+            1 => {
+                layout.table_nodes.insert(0, model::Node::new(32, "row"));
+            }
+            2 => {
+                unused.root = 32;
+                layout.cells.insert((0, "unused".to_owned()), unused);
+            }
+            3 => {
+                unused.nodes.insert(32, model::Node::new(1, "value"));
+                layout.cells.insert((0, "unused".to_owned()), unused);
+            }
+            4 => {
+                unused.nodes.get_mut(&4).expect("root").id = 32;
+                layout.cells.insert((0, "unused".to_owned()), unused);
+            }
+            5 => {
+                layout.cells.insert((32, "unused".to_owned()), unused);
+            }
+            6 => {
+                unused.edges.insert(
+                    32,
+                    model::GEdge {
+                        src: 4,
+                        tgt: 4,
+                        label: side.inner_edges.first().expect("inner edge").clone(),
+                        position: None,
+                    },
+                );
+                layout.cells.insert((0, "unused".to_owned()), unused);
+            }
+            7 => {
+                unused.attribute.id = Some(32);
+                layout.cells.insert((0, "unused".to_owned()), unused);
+            }
+            8 => {
+                layout
+                    .relations
+                    .insert((relation, 32, 0), encode::EdgeLayout::default());
+            }
+            9 => {
+                layout.relations.insert(
+                    (relation, 0, 0),
+                    encode::EdgeLayout {
+                        id: Some(32),
+                        ..encode::EdgeLayout::default()
+                    },
+                );
+            }
+            10 => {
+                unused.edges.insert(
+                    9,
+                    model::GEdge {
+                        src: 32,
+                        tgt: 33,
+                        label: side.inner_edges.first().expect("inner edge").clone(),
+                        position: None,
+                    },
+                );
+                layout.cells.insert((0, "unused".to_owned()), unused);
+            }
+            _ => unreachable!(),
+        }
+        let graph = public_layout_decode_agrees(&table, &side, &layout)
+            .unwrap_or_else(|error| panic!("floor case {case}: {error:?}"));
+        if [6, 7, 9].contains(&case) {
+            assert_eq!(
+                graph.edges.keys().copied().collect::<Vec<_>>(),
+                vec![33],
+                "actual edge floor case {case}"
+            );
+        } else {
+            let expected = if case == 10 { 34 } else { 33 };
+            assert_eq!(
+                graph.nodes.keys().copied().collect::<Vec<_>>(),
+                vec![0, expected],
+                "actual node floor case {case}"
+            );
+        }
+    }
+    assert_public_layout_floor_exhaustion(&table, &side);
+}
+
+fn assert_public_layout_floor_exhaustion(table: &model::Table, side: &encode::GraphSide) {
+    for node_floor in [false, true] {
+        let mut layout = encode::GraphLayout::default();
+        if node_floor {
+            layout
+                .table_nodes
+                .insert(0, model::Node::new(u32::MAX, "row"));
+        } else {
+            layout.relations.insert(
+                (model::SEdge::new("row", "row", "relation", None), 0, 0),
+                encode::EdgeLayout {
+                    id: Some(u32::MAX),
+                    ..encode::EdgeLayout::default()
+                },
+            );
+        }
+        assert_eq!(
+            public_layout_decode_agrees(table, side, &layout),
+            Err(if node_floor {
+                encode::DecodeTableError::NodeIdsExhausted
+            } else {
+                encode::DecodeTableError::EdgeIdsExhausted
+            })
+        );
+    }
+}
+
+#[test]
+fn reserved_attribute_kinds_refuse_only_populated_outputs() {
+    for kind in ["attribute", "hyper_parent", "hyper_label"] {
+        for populated in [false, true] {
+            let (mut table, mut side, _) = public_cell_fixture();
+            side.columns
+                .get_mut("row")
+                .expect("table")
+                .get_mut("cell")
+                .expect("column")
+                .kind = kind.to_owned();
+            if !populated {
+                table.rows.clear();
+            }
+            let result =
+                public_layout_decode_agrees(&table, &side, &encode::GraphLayout::default());
+            if populated && kind != "attribute" {
+                assert_eq!(
+                    result,
+                    Err(encode::DecodeTableError::NotEncodable(Box::new(
+                        encode::NotEncodable::FanNode { node: 0 }
+                    )))
+                );
+            } else {
+                assert!(
+                    result.is_ok(),
+                    "empty table and ordinary attribute controls"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn shared_or_malformed_cell_hints_fall_back_to_the_cell_value() {
+    for case in 0..4 {
+        let (mut table, mut side, mut cell) = public_cell_fixture();
+        let left = model::SEdge::new("value", "value", "inner", Some("left"));
+        let right = model::SEdge::new("value", "value", "inner", Some("right"));
+        side.inner_edges = BTreeSet::from([left.clone(), right.clone()]);
+        cell.nodes.get_mut(&4).expect("root").value = None;
+        let mut leaf = model::Node::new(5, "value");
+        leaf.value = Some(rvalue::Presence::Present(rvalue::Value::Int(7)));
+        cell.nodes.insert(5, leaf.clone());
+        leaf.id = 6;
+        if case != 1 {
+            cell.nodes.insert(6, leaf);
+        }
+        cell.edges.insert(
+            9,
+            model::GEdge {
+                src: 4,
+                tgt: 5,
+                label: left,
+                position: None,
+            },
+        );
+        cell.edges.insert(
+            10,
+            model::GEdge {
+                src: 4,
+                tgt: if case == 1 { 5 } else { 6 },
+                label: right,
+                position: None,
+            },
+        );
+        table.rows.get_mut(&0).expect("row").1.insert(
+            "cell".to_owned(),
+            rvalue::Value::Unknown(BTreeMap::from([
+                ("left".to_owned(), rvalue::Value::Int(7)),
+                ("right".to_owned(), rvalue::Value::Int(7)),
+            ])),
+        );
+        if case == 2 {
+            cell.nodes.get_mut(&4).expect("root").value =
+                Some(rvalue::Presence::Present(rvalue::Value::Int(0)));
+        }
+        if case == 3 {
+            cell.nodes.remove(&6);
+        }
+        let layout = encode::GraphLayout {
+            cells: BTreeMap::from([((0, "cell".to_owned()), cell)]),
+            ..encode::GraphLayout::default()
+        };
+        let result = public_layout_decode_agrees(&table, &side, &layout);
+        let graph = result.unwrap_or_else(|error| panic!("branch case {case}: {error:?}"));
+        assert_eq!(
+            graph.nodes.len(),
+            if case == 0 { 4 } else { 2 },
+            "valid branching subtree retained; invalid hints replaced"
+        );
+    }
+}
+
+#[test]
+fn public_layout_retained_ids_cannot_collide_with_later_fresh_allocations() {
+    let (mut table, side, cell) = public_cell_fixture();
+    let row = table.rows[&0].clone();
+    for id in 1..4 {
+        table.rows.insert(id, row.clone());
+    }
+    let layout = encode::GraphLayout {
+        cells: BTreeMap::from([((0, "cell".to_owned()), cell)]),
+        ..encode::GraphLayout::default()
+    };
+    let graph = public_layout_decode_agrees(&table, &side, &layout)
+        .unwrap_or_else(|error| panic!("retained/fresh collision control: {error:?}"));
+    assert_eq!(
+        graph.nodes.keys().copied().collect::<Vec<_>>(),
+        vec![0, 1, 2, 3, 4, 5, 6, 7]
+    );
+    assert_eq!(
+        graph.edges.keys().copied().collect::<Vec<_>>(),
+        vec![8, 9, 10, 11]
+    );
+}
+
+#[test]
+fn decoder_node_exhaustion_precedes_competing_edge_exhaustion() {
+    let (mut table, side, _) = public_cell_fixture();
+    table.rows.insert(1, table.rows[&0].clone());
+    let layout = encode::GraphLayout {
+        reserved_node_ids: BTreeSet::from([u32::MAX - 2]),
+        reserved_edge_ids: BTreeSet::from([u32::MAX]),
+        ..encode::GraphLayout::default()
+    };
+    assert_eq!(
+        public_layout_decode_agrees(&table, &side, &layout),
+        Err(encode::DecodeTableError::NodeIdsExhausted)
+    );
+    table.rows.remove(&1);
+    assert_eq!(
+        public_layout_decode_agrees(&table, &side, &layout),
+        Err(encode::DecodeTableError::EdgeIdsExhausted)
+    );
 }

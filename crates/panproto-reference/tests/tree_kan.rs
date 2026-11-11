@@ -416,7 +416,7 @@ fn tree_pi_forwards_the_product_bound_before_tree_readback() {
         Err(TreeKanError::Graph(encode::GraphKanError::Adjunction(
             Box::new(rel::AdjunctionError::ProductSizeExceeded {
                 vertex: "a".to_owned(),
-                actual: 9,
+                actual: "9".to_owned(),
                 limit: 4,
             }),
         )))

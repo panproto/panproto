@@ -353,6 +353,9 @@ fn is_xml_entity_name(name: &str) -> bool {
 }
 
 fn append_xml_entity_output(output: &mut String, text: &str) -> Result<(), XmlEntityError> {
+    if !is_xml_10_text(text) {
+        return Err(XmlEntityError::Malformed);
+    }
     let expanded_len = output
         .len()
         .checked_add(text.len())

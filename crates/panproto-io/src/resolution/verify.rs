@@ -420,7 +420,13 @@ impl Resolution {
         );
         violations.extend(self.span_violations(view, complement, source, ctx));
         violations.extend(self.context_violations(view, complement, &recomplement));
-        violations.extend(self.unresolved_violations(complement, &recomplement));
+        violations.extend(self.unresolved_violations(view, complement, &recomplement));
+        violations.extend(definition_violations(
+            view,
+            complement,
+            source,
+            &recomplement,
+        ));
         Ok(violations)
     }
 
@@ -713,18 +719,7 @@ fn local_text(source: &AnyInstance, site: &ResolutionValueSite) -> Option<Vec<u8
 /// leave the index.
 pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplement) -> SynthIndex {
     let mut index = complement.synth_index();
-    let mut removed: BTreeMap<(&ViewRef, &Name), Vec<u32>> = BTreeMap::new();
-    for (carrier, records) in &complement.occurrences {
-        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
-            && view.edge(*id).is_none()
-        {
-            removed
-                .entry((&record.holder, &record.reference))
-                .or_default()
-                .push(record.index);
-        }
-    }
-    let mut shifted = BTreeSet::new();
+    let removed = removed_occurrence_indices(view, complement);
     for (carrier, records) in &complement.occurrences {
         let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice()) else {
             continue;
@@ -733,10 +728,9 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
             continue;
         };
         let below = gone.iter().filter(|other| **other < record.index).count();
-        if view.edge(*id).is_none() || below == 0 {
+        if view.edge(*id).is_none() {
             continue;
         }
-        shifted.insert((&record.holder, &record.reference));
         let index_below = u32::try_from(below).unwrap_or(record.index);
         index.edges.insert(
             *id,
@@ -748,14 +742,80 @@ pub(super) fn compacted_index(view: &GInstance, complement: &ResolutionComplemen
         );
     }
     for (carrier, records) in &complement.occurrences {
-        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
+        if let (ViewRef::Edge(id), [_]) = (carrier, records.as_slice())
             && view.edge(*id).is_none()
-            && shifted.contains(&(&record.holder, &record.reference))
         {
             index.edges.remove(id);
         }
     }
     index
+}
+
+/// Original indices of removed resolved occurrences, grouped by source word.
+/// Unresolved entries do not have visible edges and are never removed here.
+fn removed_occurrence_indices<'a>(
+    view: &GInstance,
+    complement: &'a ResolutionComplement,
+) -> BTreeMap<(&'a ViewRef, &'a Name), Vec<u32>> {
+    let mut removed: BTreeMap<(&ViewRef, &Name), Vec<u32>> = BTreeMap::new();
+    for (carrier, records) in &complement.occurrences {
+        if let (ViewRef::Edge(id), [record]) = (carrier, records.as_slice())
+            && view.edge(*id).is_none()
+        {
+            removed
+                .entry((&record.holder, &record.reference))
+                .or_default()
+                .push(record.index);
+        }
+    }
+    removed
+}
+
+/// Retained definitions keep their literal and fate after resolved deletions.
+/// New definitions in visible source data are checked by re-resolution itself.
+fn definition_violations(
+    view: &GInstance,
+    complement: &ResolutionComplement,
+    source: &AnyInstance,
+    recomplement: &ResolutionComplement,
+) -> Vec<ResolveDomainError> {
+    let removed = removed_occurrence_indices(view, complement);
+    complement
+        .definition_occurrences
+        .iter()
+        .filter(|record| {
+            let retained = match (source, &record.holder) {
+                (AnyInstance::Tree(tree), ViewRef::Node(id)) => tree.nodes.contains_key(id),
+                (AnyInstance::Graph(graph), ViewRef::Node(id)) => graph.node(*id).is_some(),
+                (AnyInstance::Table(table), ViewRef::Row(id)) => table.row(*id).is_some(),
+                _ => false,
+            };
+            let below = removed
+                .get(&(&record.holder, &record.reference))
+                .map_or(0, |indices| {
+                    indices
+                        .iter()
+                        .filter(|index| **index < record.index)
+                        .count()
+                });
+            let index = u32::try_from(below)
+                .ok()
+                .and_then(|below| record.index.checked_sub(below));
+            retained
+                && !recomplement.definition_occurrences.iter().any(|current| {
+                    current.holder == record.holder
+                        && current.reference == record.reference
+                        && Some(current.index) == index
+                        && current.literal.canonical_cmp(&record.literal).is_eq()
+                        && current.context == record.context
+                        && current.form == record.form
+                })
+        })
+        .map(|record| ResolveDomainError::UnrepresentableReference {
+            carrier: view_carrier(&record.holder),
+            reference: record.reference.clone(),
+        })
+        .collect()
 }
 
 /// The violation one unreadable occurrence of the candidate stands for.
@@ -769,12 +829,22 @@ fn read_violation(
     let at = |record_holder: &ViewRef, record_reference: &Name| {
         record_holder == holder && record_reference == reference
     };
-    let recorded = complement.occurrences.iter().find(|(carrier, records)| {
-        matches!(carrier, ViewRef::Edge(id) if view.edge(*id).is_some())
-            && records
+    // A read failure belongs to the first surviving source occurrence,
+    // independently of the presentation ids assigned to its edges.
+    let recorded = complement
+        .occurrences
+        .iter()
+        .filter(|(carrier, _)| matches!(carrier, ViewRef::Edge(id) if view.edge(*id).is_some()))
+        .filter_map(|(carrier, records)| {
+            records
                 .iter()
-                .any(|record| at(&record.holder, &record.reference))
-    });
+                .filter(|record| at(&record.holder, &record.reference))
+                .map(|record| record.index)
+                .min()
+                .map(|index| (index, carrier, records))
+        })
+        .min_by_key(|(index, carrier, _)| (*index, *carrier))
+        .map(|(_, carrier, records)| (carrier, records));
     let carrier = recorded.map_or_else(|| view_carrier(holder), |(carrier, _)| carrier.clone());
     let contextual = recorded.is_some_and(|(_, records)| {
         records
@@ -858,12 +928,21 @@ fn new_span_violation(
 }
 
 /// Whether two unresolved occurrences are the same: same holder, reference,
-/// index and reason.
-fn same_unresolved(a: &UnresolvedRef, b: &UnresolvedRef) -> bool {
+/// reason and source position after deleted resolved occurrences compact the
+/// word. An unselected guard describes the holder, not a word position.
+fn same_unresolved(a: &UnresolvedRef, b: &UnresolvedRef, removed: &[u32]) -> bool {
     use panproto_inst::resolution_complement::UnresolvedReason;
+    let below = if matches!(a.reason, UnresolvedReason::Unselected { .. }) {
+        0
+    } else {
+        removed.iter().filter(|index| **index < a.index).count()
+    };
+    let index = u32::try_from(below)
+        .ok()
+        .and_then(|below| a.index.checked_sub(below));
     a.holder == b.holder
         && a.reference == b.reference
-        && a.index == b.index
+        && index == Some(b.index)
         && match (&a.reason, &b.reason) {
             (UnresolvedReason::Dangling, UnresolvedReason::Dangling) => true,
             (
@@ -1071,9 +1150,11 @@ impl Resolution {
     /// that the complement does not already record unresolved.
     fn unresolved_violations(
         &self,
+        view: &GInstance,
         complement: &ResolutionComplement,
         recomplement: &ResolutionComplement,
     ) -> Vec<ResolveDomainError> {
+        let removed = removed_occurrence_indices(view, complement);
         recomplement
             .unresolved
             .iter()
@@ -1081,10 +1162,12 @@ impl Resolution {
                 self.compiled
                     .get(&record.reference)
                     .is_some_and(|compiled| compiled.reference.on_unresolved == OnUnresolved::Error)
-                    && !complement
-                        .unresolved
-                        .iter()
-                        .any(|recorded| same_unresolved(recorded, record))
+                    && !complement.unresolved.iter().any(|recorded| {
+                        let gone = removed
+                            .get(&(&recorded.holder, &recorded.reference))
+                            .map_or(&[][..], Vec::as_slice);
+                        same_unresolved(recorded, record, gone)
+                    })
             })
             .map(|record| ResolveDomainError::UnrepresentableReference {
                 carrier: view_carrier(&record.holder),
@@ -1103,12 +1186,137 @@ mod tests {
     use crate::resolution::cases::tests::{small_schema, small_view};
     use crate::resolution::cases::{Cases, Presentation, graph_cases};
 
+    #[test]
+    fn retained_definition_fates_compact_without_forbidding_new_definitions()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
+        use panproto_inst::{AnyInstance, Digest, Value};
+        let mut view = small_view()?;
+        let record = RefOccurrence {
+            holder: ViewRef::Node(3),
+            reference: "variable".into(),
+            index: 2,
+            literal: Value::Str("defined".into()),
+            form: None,
+            context: Some(Digest([1; 32])),
+        };
+        let mut before = ResolutionComplement {
+            definition_occurrences: vec![record.clone()],
+            ..ResolutionComplement::default()
+        };
+        let mut removed = record.clone();
+        removed.index = 0;
+        before
+            .occurrences
+            .insert(ViewRef::Edge(EdgeId(4)), vec![removed]);
+        view.remove_edge(EdgeId(4))?;
+        let source = AnyInstance::Graph(view.clone());
+        let mut shifted = record;
+        shifted.index = 1;
+        let mut after = ResolutionComplement {
+            definition_occurrences: vec![shifted.clone()],
+            ..ResolutionComplement::default()
+        };
+        let check = |after: &ResolutionComplement| {
+            super::definition_violations(&view, &before, &source, after)
+        };
+        assert_eq!(check(&after).len(), 0);
+        let mut fresh = shifted;
+        fresh.index = 2;
+        fresh.literal = Value::Str("new".into());
+        after.definition_occurrences.push(fresh);
+        assert_eq!(check(&after).len(), 0);
+        for changed in 0..4 {
+            let mut bad = after.clone();
+            match changed {
+                0 => bad.definition_occurrences[0].index = 0,
+                1 => bad.definition_occurrences[0].literal = Value::Str("changed".into()),
+                2 => bad.definition_occurrences[0].context = None,
+                _ => {
+                    bad.definition_occurrences.remove(0);
+                }
+            }
+            assert_eq!(
+                check(&bad),
+                vec![super::ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Node(3),
+                    reference: "variable".into(),
+                }]
+            );
+        }
+        let gone = AnyInstance::Graph(panproto_inst::GInstance::new());
+        assert_eq!(
+            super::definition_violations(&view, &before, &gone, &ResolutionComplement::default())
+                .len(),
+            0
+        );
+        Ok(())
+    }
+
     fn key(index: u32) -> SynthKey {
         SynthKey::ResolutionReference {
             holder: ViewRef::Node(3),
             reference: "author".into(),
             index,
         }
+    }
+
+    #[test]
+    fn deleted_occurrence_keys_do_not_reserve_appended_ordinals()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::Value;
+        use panproto_inst::resolution_complement::{RefOccurrence, ResolutionComplement};
+        for count in [1_u32, 2] {
+            let mut original = small_view()?;
+            let edge = original
+                .edge(EdgeId(4))
+                .ok_or(panproto_inst::InstError::EdgeNotFound(EdgeId(4)))?
+                .clone();
+            let mut complement = ResolutionComplement::default();
+            for index in 0..count {
+                let id = EdgeId(4 + index);
+                if index > 0 {
+                    original.insert_edge(id, edge.clone())?;
+                }
+                complement.occurrences.insert(
+                    ViewRef::Edge(id),
+                    vec![RefOccurrence {
+                        holder: ViewRef::Node(3),
+                        reference: "author".into(),
+                        index,
+                        literal: Value::Str("u1".into()),
+                        form: None,
+                        context: None,
+                    }],
+                );
+            }
+            let removed = EdgeId(3 + count);
+            let mut edited = original.clone();
+            edited.remove_edge(removed)?;
+            let compacted = super::compacted_index(&edited, &complement);
+            assert!(
+                !compacted.edges.contains_key(&removed),
+                "deleted carrier has no key"
+            );
+            let reindex = complement.synth_index();
+            let unmatched = super::extend_index(&edited, &compacted, &original, &reindex);
+            assert_eq!(
+                view_diff(&edited, &unmatched, &original, &reindex),
+                vec![super::Diff::RightEdge(removed)]
+            );
+            edited.insert_edge(EdgeId(40), edge)?;
+            let extended = super::extend_index(&edited, &compacted, &original, &reindex);
+            assert_eq!(extended.edges.get(&EdgeId(40)), Some(&key(count - 1)));
+            assert_eq!(view_diff(&edited, &extended, &original, &reindex), []);
+            if count == 2 {
+                let mut shifted = original;
+                shifted.remove_edge(EdgeId(4))?;
+                let compacted = super::compacted_index(&shifted, &complement);
+                assert_eq!(compacted.edges.len(), 1);
+                assert_eq!(compacted.edges.get(&EdgeId(5)), Some(&key(0)));
+            }
+        }
+        Ok(())
     }
 
     /// The index restricted to the carriers `view` holds.
@@ -1408,5 +1616,753 @@ mod tests {
             "the order a tree lists its fans in is not part of the tree"
         );
         assert!(!same_tree(&two_fans(0, 1), &two_fans(0, 0)));
+    }
+}
+
+#[cfg(test)]
+pub(in crate::resolution) mod dependency_contract_tests {
+    use std::collections::HashMap;
+
+    use panproto_inst::resolution_complement::ResolutionValueSite;
+    use panproto_inst::{
+        AnyInstance, EdgeId, FieldPresence, GEdge, GInstance, Node, SynthIndex, Value, ViewRef,
+        WInstance,
+    };
+    use panproto_schema::Edge;
+
+    use super::{Diff, local_text, same_graph, same_instance, value_equiv, view_diff};
+
+    fn graph() -> Result<GInstance, panproto_inst::InstError> {
+        let mut graph = GInstance::new();
+        for id in 0..3 {
+            graph.insert_node(Node::new(id, "item"))?;
+        }
+        graph.insert_edge(
+            EdgeId(7),
+            GEdge::new(
+                0,
+                1,
+                Edge {
+                    src: "item".into(),
+                    tgt: "item".into(),
+                    kind: "ref".into(),
+                    name: Some("target".into()),
+                },
+            ),
+        )?;
+        Ok(graph)
+    }
+
+    #[test]
+    fn graph_presentation_equality_and_diff_keep_each_edge_observable()
+    -> Result<(), panproto_inst::InstError> {
+        let original = graph()?;
+        let index = SynthIndex::default();
+        assert!(same_graph(&original, &original));
+        assert!(same_instance(
+            &AnyInstance::Graph(original.clone()),
+            &AnyInstance::Graph(original.clone())
+        ));
+        for edit in 0..4 {
+            let mut changed = original.clone();
+            match edit {
+                0 => {
+                    changed.set_endpoints(EdgeId(7), 0, 2)?;
+                }
+                1 => {
+                    changed.set_endpoints(EdgeId(7), 2, 1)?;
+                }
+                2 => {
+                    changed.set_edge_position(EdgeId(7), Some(1))?;
+                }
+                3 => {
+                    let mut edge = changed.remove_edge(EdgeId(7))?;
+                    edge.edge.name = Some("other".into());
+                    changed.insert_edge(EdgeId(7), edge)?;
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                view_diff(&original, &index, &changed, &index),
+                vec![Diff::LeftEdge {
+                    id: EdgeId(7),
+                    target_only: edit == 0
+                }]
+            );
+            assert!(!same_graph(&original, &changed));
+            assert!(!same_instance(
+                &AnyInstance::Graph(original.clone()),
+                &AnyInstance::Graph(changed)
+            ));
+        }
+        let mut changed = original.clone();
+        changed.insert_node(Node::new(9, "item"))?;
+        assert!(!same_graph(&original, &changed));
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_records_compare_nan_observationally() {
+        let unknown = |number| {
+            Value::Unknown(HashMap::from([(
+                "nested".to_owned(),
+                Value::List(vec![Value::Float(number)]),
+            )]))
+        };
+        let nan = unknown(f64::NAN);
+        let other_nan = unknown(f64::from_bits(0xfff8_0000_0000_0001));
+        assert!(value_equiv(&nan, &other_nan));
+        assert!(value_equiv(&other_nan, &nan));
+        assert!(!value_equiv(&nan, &unknown(1.0)));
+        assert!(!value_equiv(&unknown(1.0), &nan));
+    }
+
+    #[test]
+    fn local_text_preserves_bytes_at_own_and_field_sites() {
+        for value in [
+            Value::Str("éx".to_owned()),
+            Value::Bytes("éx".as_bytes().to_vec()),
+            Value::Bytes(vec![0xff, 0, 0x80]),
+            Value::Int(1),
+        ] {
+            let expected = match &value {
+                Value::Str(s) => Some(s.as_bytes().to_vec()),
+                Value::Bytes(b) => Some(b.clone()),
+                _ => None,
+            };
+            let mut node = Node::new(0, "text").with_value(FieldPresence::Present(value.clone()));
+            node.extra_fields.insert("payload".to_owned(), value);
+            let source = AnyInstance::Tree(WInstance::new(
+                HashMap::from([(0, node)]),
+                vec![],
+                vec![],
+                0,
+                "text".into(),
+            ));
+            for site in [
+                ResolutionValueSite::Own(ViewRef::Node(0)),
+                ResolutionValueSite::Field {
+                    holder: ViewRef::Node(0),
+                    field: "payload".to_owned(),
+                },
+            ] {
+                assert_eq!(local_text(&source, &site), expected);
+            }
+        }
+    }
+
+    fn occurrence(index: u32) -> panproto_inst::resolution_complement::RefOccurrence {
+        panproto_inst::resolution_complement::RefOccurrence {
+            holder: ViewRef::Node(0),
+            reference: "reference".into(),
+            index,
+            literal: Value::Str("name".to_owned()),
+            form: None,
+            context: None,
+        }
+    }
+
+    #[test]
+    fn unresolved_compaction_keeps_equal_and_later_indices_out_of_the_count() {
+        use panproto_inst::resolution_complement::{UnresolvedReason, UnresolvedRef};
+        let original = UnresolvedRef {
+            holder: ViewRef::Node(0),
+            reference: "reference".into(),
+            index: 3,
+            literal: Value::Str("missing".to_owned()),
+            reason: UnresolvedReason::Dangling,
+            context: None,
+        };
+        let mut expected = original.clone();
+        expected.index = 1;
+        for removed in [&[0, 1, 3, 5][..], &[0, 0, 3, 5][..]] {
+            assert!(super::same_unresolved(&original, &expected, removed));
+            let mut wrong = expected.clone();
+            wrong.index = 0;
+            assert!(!super::same_unresolved(&original, &wrong, removed));
+        }
+        let mut guard = original;
+        guard.reason = UnresolvedReason::Unselected {
+            value: Value::Int(9),
+        };
+        assert!(super::same_unresolved(&guard, &guard, &[0, 1, 3, 5]));
+    }
+
+    #[test]
+    fn raw_complement_compaction_preserves_strict_coordinate_order()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::SynthKey;
+        use panproto_inst::resolution_complement::ResolutionComplement;
+        let view = graph()?;
+        let mut complement = ResolutionComplement::default();
+        complement
+            .occurrences
+            .insert(ViewRef::Edge(EdgeId(7)), vec![occurrence(3)]);
+        for (id, index) in [(8, 0), (9, 1), (10, 3), (11, 5)] {
+            complement
+                .occurrences
+                .insert(ViewRef::Edge(EdgeId(id)), vec![occurrence(index)]);
+        }
+        // This is a raw-record boundary test, separate from genuine-get laws.
+        let result = super::compacted_index(&view, &complement);
+        assert_eq!(
+            result.edges,
+            std::collections::BTreeMap::from([(
+                EdgeId(7),
+                SynthKey::ResolutionReference {
+                    holder: ViewRef::Node(0),
+                    reference: "reference".into(),
+                    index: 1
+                }
+            )])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn retained_tree_and_table_definitions_use_strict_compaction()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::resolution_complement::ResolutionComplement;
+        use panproto_inst::{FInstance, RowId};
+        let tree = AnyInstance::Tree(WInstance::new(
+            HashMap::from([(0, Node::new(0, "item"))]),
+            vec![],
+            vec![],
+            0,
+            "item".into(),
+        ));
+        let mut table = FInstance::new();
+        table.insert_row("item", RowId(0), HashMap::new())?;
+        for (source, holder) in [
+            (tree, ViewRef::Node(0)),
+            (AnyInstance::Table(table), ViewRef::Row(RowId(0))),
+        ] {
+            let mut definition = occurrence(3);
+            definition.holder = holder.clone();
+            let mut before = ResolutionComplement {
+                definition_occurrences: vec![definition.clone()],
+                ..ResolutionComplement::default()
+            };
+            for (id, index) in [(8, 0), (9, 1), (10, 3), (11, 5)] {
+                let mut record = occurrence(index);
+                record.holder = holder.clone();
+                before
+                    .occurrences
+                    .insert(ViewRef::Edge(EdgeId(id)), vec![record]);
+            }
+            definition.index = 1;
+            let after = ResolutionComplement {
+                definition_occurrences: vec![definition],
+                ..ResolutionComplement::default()
+            };
+            let view = GInstance::new();
+            assert_eq!(
+                super::definition_violations(&view, &before, &source, &after),
+                vec![]
+            );
+            assert_eq!(
+                super::definition_violations(
+                    &view,
+                    &before,
+                    &source,
+                    &ResolutionComplement::default()
+                ),
+                vec![super::ResolveDomainError::UnrepresentableReference {
+                    carrier: super::view_carrier(&holder),
+                    reference: "reference".into()
+                }]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unread_failure_blame_matches_both_holder_and_declaration()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::Digest;
+        use panproto_inst::resolution_complement::{
+            ResolutionComplement, UnresolvedReason, UnresolvedRef,
+        };
+        let mut view = graph()?;
+        for id in [8, 9] {
+            let edge = view
+                .edge(EdgeId(7))
+                .cloned()
+                .ok_or(panproto_inst::InstError::EdgeNotFound(EdgeId(7)))?;
+            view.insert_edge(EdgeId(id), edge)?;
+        }
+        for contextual in [false, true] {
+            let mut exact = occurrence(3);
+            exact.context = contextual.then_some(Digest([1; 32]));
+            let mut wrong_holder = occurrence(0);
+            wrong_holder.holder = ViewRef::Node(1);
+            wrong_holder.context = Some(Digest([1; 32]));
+            let mut wrong_reference = occurrence(0);
+            wrong_reference.reference = "other".into();
+            wrong_reference.context = Some(Digest([1; 32]));
+            let complement = ResolutionComplement {
+                occurrences: std::collections::BTreeMap::from([
+                    (ViewRef::Edge(EdgeId(7)), vec![exact]),
+                    (ViewRef::Edge(EdgeId(8)), vec![wrong_holder]),
+                    (ViewRef::Edge(EdgeId(9)), vec![wrong_reference]),
+                ]),
+                unresolved: vec![UnresolvedRef {
+                    holder: ViewRef::Node(2),
+                    reference: "unrelated".into(),
+                    index: 0,
+                    literal: Value::Null,
+                    reason: UnresolvedReason::Dangling,
+                    context: Some(Digest([2; 32])),
+                }],
+                ..ResolutionComplement::default()
+            };
+            let expected = if contextual {
+                super::ResolveDomainError::ContextMismatch {
+                    at: Some(ViewRef::Edge(EdgeId(7))),
+                }
+            } else {
+                super::ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Edge(EdgeId(7)),
+                    reference: "reference".into(),
+                }
+            };
+            let error =
+                super::ResolveError::Instance(crate::resolution::ResolutionInstanceError::NotTree);
+            assert_eq!(
+                super::read_violation(
+                    &view,
+                    &complement,
+                    &ViewRef::Node(0),
+                    &"reference".into(),
+                    &error
+                ),
+                expected
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recreated_edge_blame_requires_one_exact_removed_occurrence()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::resolution_complement::ResolutionComplement;
+        for mismatch in 0..5 {
+            let view = graph()?;
+            let mut old = occurrence(3);
+            match mismatch {
+                1 => old.holder = ViewRef::Node(1),
+                2 => old.reference = "other".into(),
+                3 => old.index = 2,
+                _ => {}
+            }
+            let old_id = if mismatch == 4 { EdgeId(7) } else { EdgeId(8) };
+            let before = ResolutionComplement {
+                occurrences: std::collections::BTreeMap::from([(ViewRef::Edge(old_id), vec![old])]),
+                ..ResolutionComplement::default()
+            };
+            let after = ResolutionComplement {
+                occurrences: std::collections::BTreeMap::from([(
+                    ViewRef::Edge(EdgeId(9)),
+                    vec![occurrence(3)],
+                )]),
+                ..ResolutionComplement::default()
+            };
+            let expected = if mismatch == 0 {
+                super::ResolveDomainError::SynthesizedEdited {
+                    carrier: ViewRef::Edge(old_id),
+                }
+            } else {
+                super::ResolveDomainError::UnrepresentableReference {
+                    carrier: ViewRef::Node(0),
+                    reference: "reference".into(),
+                }
+            };
+            assert_eq!(
+                super::right_edge_violation(&view, &before, &after, EdgeId(9)),
+                expected,
+                "case {mismatch}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unread_subtrees_include_adjacent_fans_but_not_ordinary_neighbors()
+    -> Result<(), panproto_inst::InstError> {
+        use panproto_inst::{NodeShape, resolution_complement::ResolutionComplement};
+        let source = AnyInstance::Tree(WInstance::new(
+            HashMap::from([(0, Node::new(0, "item"))]),
+            vec![],
+            vec![],
+            0,
+            "item".into(),
+        ));
+        let mut regotten = graph()?;
+        let mut fan = Node::new(3, "fan");
+        fan.shape = NodeShape::HyperEdge;
+        regotten.insert_node(fan)?;
+        regotten.insert_edge(
+            EdgeId(8),
+            GEdge::new(
+                3,
+                0,
+                Edge {
+                    src: "fan".into(),
+                    tgt: "item".into(),
+                    kind: "hyper_parent".into(),
+                    name: None,
+                },
+            ),
+        )?;
+        let unread = super::Unread::of(
+            &GInstance::new(),
+            &ResolutionComplement::default(),
+            &source,
+            &regotten,
+            &std::collections::BTreeSet::from([(ViewRef::Node(0), "reference".into())]),
+        );
+        assert_eq!(unread.right_nodes, std::collections::BTreeSet::from([0, 3]));
+        assert_eq!(
+            unread.right_edges,
+            std::collections::BTreeSet::from([EdgeId(7), EdgeId(8)])
+        );
+        Ok(())
+    }
+
+    struct HelperProvider {
+        protocol: panproto_schema::Protocol,
+        spec: panproto_inst::ResolutionSpec,
+    }
+
+    impl crate::resolution::ResolutionProvider for HelperProvider {
+        fn id(&self) -> panproto_inst::ResolutionProviderId {
+            self.spec.provider.clone()
+        }
+        fn kind(&self) -> panproto_inst::ResolutionKind {
+            self.spec.kind
+        }
+        fn protocol(&self) -> &panproto_schema::Protocol {
+            &self.protocol
+        }
+        fn spec(
+            &self,
+            _: &panproto_schema::Protocol,
+            _: &panproto_schema::Schema,
+        ) -> Result<panproto_inst::ResolutionSpec, super::ResolveError> {
+            Ok(self.spec.clone())
+        }
+    }
+
+    // A private helper fixture; these tests do not claim a genuine get complement.
+    pub(in crate::resolution) fn helper_resolution(
+        mode: panproto_schema::ResolveMode,
+    ) -> Result<super::Resolution, panproto_schema::SchemaError> {
+        use crate::resolution::compile::CompiledRef;
+        use panproto_schema::{
+            Cardinality, NullMatch, OnUnresolved, PathSyntax, RefSource, Reference,
+        };
+        use std::collections::{BTreeMap, BTreeSet};
+        let schema = crate::resolution::cases::tests::small_schema()?;
+        let spec = panproto_inst::ResolutionSpec {
+            kind: panproto_inst::ResolutionKind::TreeToGraph,
+            provider: panproto_inst::ResolutionProviderId {
+                name: "helper".into(),
+                version: 1,
+            },
+            semantic_schema: schema.clone(),
+            protocol_references: BTreeMap::new(),
+            structural_edges: BTreeSet::new(),
+            reference_writers: BTreeMap::new(),
+            context_requirements: BTreeSet::new(),
+            assembly: None,
+        };
+        let reference = Reference {
+            id: "reference".into(),
+            holder: "item".into(),
+            source: RefSource::Path {
+                field: Vec::new(),
+                syntax: PathSyntax::JsonPointer,
+            },
+            target_vertex: "item".into(),
+            target_key: None,
+            edge: None,
+            cardinality: Cardinality::One,
+            nullable: false,
+            on_unresolved: OnUnresolved::Error,
+            mode,
+            guard: None,
+            null_match: NullMatch::default(),
+            null_vertex: None,
+            scope_via: None,
+        };
+        let compiled = CompiledRef {
+            reference: reference.clone(),
+            form: super::RefForm::Path { field: Vec::new() },
+        };
+        Ok(super::Resolution {
+            protocol_name: "helper".to_owned(),
+            identity: panproto_inst::identity::resolution_identity("helper", &schema, &spec),
+            syntactic_schema: schema,
+            spec: spec.clone(),
+            references: BTreeMap::from([(reference.id.clone(), reference)]),
+            compiled: BTreeMap::from([("reference".into(), compiled)]),
+            provider: std::sync::Arc::new(HelperProvider {
+                protocol: panproto_schema::Protocol::default(),
+                spec,
+            }),
+        })
+    }
+
+    #[test]
+    fn left_edge_blame_requires_matching_holder_declaration_and_index()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::resolution_complement::ResolutionComplement;
+        use panproto_schema::ResolveMode;
+        let view = graph()?;
+        let mut before = ResolutionComplement::default();
+        before
+            .occurrences
+            .insert(ViewRef::Edge(EdgeId(7)), vec![occurrence(3)]);
+        for mode in [ResolveMode::AddEdge, ResolveMode::Redirect] {
+            let resolution = helper_resolution(mode.clone())?;
+            for mismatch in 0..4 {
+                let mut record = occurrence(3);
+                match mismatch {
+                    1 => record.holder = ViewRef::Node(2),
+                    2 => record.reference = "other".into(),
+                    3 => record.index = 4,
+                    _ => {}
+                }
+                let mut after = ResolutionComplement::default();
+                after
+                    .occurrences
+                    .insert(ViewRef::Edge(EdgeId(8)), vec![record]);
+                for target_only in [false, true] {
+                    let expected = if (target_only && mode == ResolveMode::AddEdge)
+                        || (!target_only && mismatch == 0)
+                    {
+                        super::ResolveDomainError::SynthesizedEdited {
+                            carrier: ViewRef::Edge(EdgeId(7)),
+                        }
+                    } else {
+                        super::ResolveDomainError::UnrepresentableReference {
+                            carrier: ViewRef::Edge(EdgeId(7)),
+                            reference: "reference".into(),
+                        }
+                    };
+                    assert_eq!(
+                        resolution.left_edge_violation(
+                            &view,
+                            &before,
+                            &after,
+                            EdgeId(7),
+                            target_only
+                        ),
+                        expected
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn context_mismatch_requires_external_recorded_and_changed_context()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::Digest;
+        use panproto_inst::resolution_complement::ResolutionComplement;
+        let view = graph()?;
+        for external in [false, true] {
+            let mut resolution = helper_resolution(panproto_schema::ResolveMode::Redirect)?;
+            if !external {
+                resolution.compiled.clear();
+            }
+            assert_eq!(resolution.external_context(&"reference".into()), external);
+            for old in [None, Some(Digest([1; 32]))] {
+                for new in [None, Some(Digest([1; 32])), Some(Digest([2; 32]))] {
+                    for found in [false, true] {
+                        let mut before = ResolutionComplement::default();
+                        let mut recorded = occurrence(3);
+                        recorded.context = old;
+                        before.unresolved.push(panproto_inst::resolution_complement::UnresolvedRef {
+                            holder: recorded.holder.clone(), reference: recorded.reference.clone(),
+                            index: recorded.index, literal: recorded.literal.clone(),
+                            context: old, reason: panproto_inst::resolution_complement::UnresolvedReason::Dangling,
+                        });
+                        let mut after = ResolutionComplement::default();
+                        recorded.context = new;
+                        if found {
+                            after
+                                .occurrences
+                                .insert(ViewRef::Edge(EdgeId(9)), vec![recorded]);
+                        }
+                        let expected = if external && old.is_some() && found && old != new {
+                            vec![super::ResolveDomainError::ContextMismatch {
+                                at: Some(ViewRef::Node(0)),
+                            }]
+                        } else {
+                            Vec::new()
+                        };
+                        assert_eq!(
+                            resolution.context_violations(&view, &before, &after),
+                            expected
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn recreated_span_blame_requires_equal_span_and_absent_old_carrier()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::resolution_complement::{
+            ResolutionComplement, ResolutionSpan, ResolutionTextId,
+        };
+        let resolution = helper_resolution(panproto_schema::ResolveMode::Redirect)?;
+        let view = graph()?;
+        let span = ResolutionSpan {
+            text: ResolutionTextId::Local(ResolutionValueSite::Own(ViewRef::Node(0))),
+            start: 1,
+            end: 3,
+        };
+        for (old_node, same_span) in [(8, true), (8, false), (1, true)] {
+            let mut before = ResolutionComplement::default();
+            let mut old_span = span.clone();
+            if !same_span {
+                old_span.end = 4;
+            }
+            before.span_nodes.insert(old_node, old_span);
+            let mut after = ResolutionComplement::default();
+            after.span_nodes.insert(9, span.clone());
+            let expected = if old_node == 8 && same_span {
+                super::ResolveDomainError::SynthesizedEdited {
+                    carrier: ViewRef::Node(8),
+                }
+            } else {
+                super::ResolveDomainError::NoPlacement {
+                    carrier: ViewRef::Node(9),
+                }
+            };
+            assert_eq!(
+                resolution.diff_violation(&view, &before, &after, &view, super::Diff::RightNode(9)),
+                expected
+            );
+        }
+        Ok(())
+    }
+
+    struct SelfTargetProvider(HelperProvider);
+
+    impl crate::resolution::ResolutionProvider for SelfTargetProvider {
+        fn id(&self) -> panproto_inst::ResolutionProviderId {
+            self.0.spec.provider.clone()
+        }
+        fn kind(&self) -> panproto_inst::ResolutionKind {
+            self.0.spec.kind
+        }
+        fn protocol(&self) -> &panproto_schema::Protocol {
+            &self.0.protocol
+        }
+        fn spec(
+            &self,
+            _: &panproto_schema::Protocol,
+            _: &panproto_schema::Schema,
+        ) -> Result<panproto_inst::ResolutionSpec, super::ResolveError> {
+            Ok(self.0.spec.clone())
+        }
+        fn resolve_path(
+            &self,
+            _: &panproto_schema::Reference,
+            holder: ViewRef,
+            _: &Value,
+            _: &AnyInstance,
+            _: &crate::resolution::ResolveContext<'_>,
+        ) -> Result<crate::resolution::PathResolution, super::ResolveError> {
+            Ok(crate::resolution::PathResolution {
+                candidates: vec![holder],
+                context: None,
+            })
+        }
+    }
+
+    #[test]
+    fn verification_continues_after_skipping_a_blamed_dangling_occurrence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut resolution = helper_resolution(panproto_schema::ResolveMode::Redirect)?;
+        resolution.provider = std::sync::Arc::new(SelfTargetProvider(HelperProvider {
+            protocol: panproto_schema::Protocol::default(),
+            spec: resolution.spec.clone(),
+        }));
+        let post_arc = Edge {
+            src: "doc".into(),
+            tgt: "post".into(),
+            kind: "prop".into(),
+            name: Some("posts".into()),
+        };
+        let author_arc = Edge {
+            src: "post".into(),
+            tgt: "author".into(),
+            kind: "prop".into(),
+            name: Some("author".into()),
+        };
+        let compiled = resolution
+            .compiled
+            .get_mut("reference")
+            .ok_or("fixture reference")?;
+        compiled.reference.holder = "post".into();
+        compiled.reference.target_vertex = "post".into();
+        compiled.form = super::RefForm::Path {
+            field: vec![author_arc.clone()],
+        };
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (1, Node::new(1, "post")),
+                (
+                    2,
+                    Node::new(2, "author")
+                        .with_value(FieldPresence::Present(Value::Str("self".to_owned()))),
+                ),
+            ]),
+            vec![(0, 1, post_arc), (1, 2, author_arc)],
+            Vec::new(),
+            0,
+            "doc".into(),
+        );
+        let source = AnyInstance::Tree(tree.clone());
+        let context = super::ResolveContext::empty();
+        assert!(matches!(
+            resolution.get_graph(&source, super::ResolveOptions::default(), &context),
+            Err(super::ResolveError::Instance(
+                crate::resolution::ResolutionInstanceError::DanglingCarrier {
+                    carrier: ViewRef::Node(1)
+                }
+            ))
+        ));
+        let mut view = GInstance::from_wtype(&tree)?;
+        view.insert_node(Node::new(99, "doc"))?;
+        let result = resolution.verify(
+            &view,
+            &super::ResolutionComplement::default(),
+            &source,
+            &context,
+        );
+        let violations = match result {
+            Ok(violations) => violations,
+            Err(failure) => panic!("unexpected operational failure: {failure:?}"),
+        };
+        assert!(
+            violations.contains(&super::ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(1)
+            })
+        );
+        assert!(
+            violations.contains(&super::ResolveDomainError::NoPlacement {
+                carrier: ViewRef::Node(99)
+            })
+        );
+        Ok(())
     }
 }

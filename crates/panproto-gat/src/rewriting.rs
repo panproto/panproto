@@ -510,28 +510,21 @@ pub fn lpo_greater(s: &Term, t: &Term, prec: &OpPrecedence) -> bool {
             return true;
         }
     }
-    match t {
-        Term::Var(x) => s_subs.iter().any(|a| contains_var(a, x)),
-        Term::Hole { .. } => false,
-        _ => {
-            // Non-leaf t: compare heads.
-            let (Some(f), Some(g)) = (structural_head(s), structural_head(t)) else {
+    // Variable occurrences already matched through the subterm case. Leaves
+    // have no structural head, so comparisons not settled above are false.
+    let (Some(f), Some(g)) = (structural_head(s), structural_head(t)) else {
+        return false;
+    };
+    let t_subs = subterms(t);
+    match prec.compare(&f, &g) {
+        Some(std::cmp::Ordering::Greater) => t_subs.iter().all(|tj| lpo_greater(s, tj, prec)),
+        Some(std::cmp::Ordering::Equal) => {
+            if !t_subs.iter().all(|tj| lpo_greater(s, tj, prec)) {
                 return false;
-            };
-            let t_subs = subterms(t);
-            match prec.compare(&f, &g) {
-                Some(std::cmp::Ordering::Greater) => {
-                    t_subs.iter().all(|tj| lpo_greater(s, tj, prec))
-                }
-                Some(std::cmp::Ordering::Equal) => {
-                    if !t_subs.iter().all(|tj| lpo_greater(s, tj, prec)) {
-                        return false;
-                    }
-                    lex_greater(&s_subs, &t_subs, prec)
-                }
-                _ => false,
             }
+            lex_greater(&s_subs, &t_subs, prec)
         }
+        _ => false,
     }
 }
 
@@ -566,21 +559,6 @@ fn structural_head(t: &Term) -> Option<Arc<str>> {
         Term::Case { .. } => Some(Arc::from("__case__")),
         Term::Let { .. } => Some(Arc::from("__let__")),
         Term::Var(_) | Term::Hole { .. } => None,
-    }
-}
-
-fn contains_var(t: &Term, var: &Arc<str>) -> bool {
-    match t {
-        Term::Var(v) => v == var,
-        Term::Hole { .. } => false,
-        Term::Let { name, bound, body } => {
-            contains_var(bound, var) || (name != var && contains_var(body, var))
-        }
-        Term::App { args, .. } => args.iter().any(|a| contains_var(a, var)),
-        Term::Case {
-            scrutinee,
-            branches,
-        } => contains_var(scrutinee, var) || branches.iter().any(|b| contains_var(&b.body, var)),
     }
 }
 
@@ -928,6 +906,160 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn let_positions_select_and_replace_both_children() -> Result<(), GatError> {
+        let make = |bound, body| Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        };
+        let bound = Term::constant("bound");
+        let body = Term::app("f", vec![Term::var("x")]);
+        let term = make(bound.clone(), body.clone());
+        assert_eq!(term_at_position(&term, &[0]), Some(bound.clone()));
+        assert_eq!(term_at_position(&term, &[1]), Some(body.clone()));
+        assert_eq!(term_at_position(&term, &[1, 0]), Some(Term::var("x")));
+        assert_eq!(term_at_position(&term, &[2]), None);
+        let replacement = Term::constant("replacement");
+        assert_eq!(
+            replace_at_position(&term, &[0], replacement.clone())?,
+            make(replacement.clone(), body)
+        );
+        assert_eq!(
+            replace_at_position(&term, &[1], replacement.clone())?,
+            make(bound, replacement)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn case_positions_replace_only_the_selected_child() -> Result<(), GatError> {
+        let branch = |name, body| crate::eq::CaseBranch {
+            constructor: Arc::from(name),
+            binders: vec![Arc::from("x")],
+            body,
+        };
+        let make = |scrutinee, first, second| Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![branch("first", first), branch("second", second)],
+        };
+        let term = make(
+            Term::constant("scrutinee"),
+            Term::constant("first_body"),
+            Term::constant("second_body"),
+        );
+        for (position, expected) in [
+            (
+                0,
+                make(
+                    Term::var("new"),
+                    Term::constant("first_body"),
+                    Term::constant("second_body"),
+                ),
+            ),
+            (
+                1,
+                make(
+                    Term::constant("scrutinee"),
+                    Term::var("new"),
+                    Term::constant("second_body"),
+                ),
+            ),
+            (
+                2,
+                make(
+                    Term::constant("scrutinee"),
+                    Term::constant("first_body"),
+                    Term::var("new"),
+                ),
+            ),
+        ] {
+            assert_eq!(
+                replace_at_position(&term, &[position], Term::var("new"))?,
+                expected,
+                "position {position}"
+            );
+        }
+        assert!(matches!(
+            replace_at_position(&term, &[3], Term::var("new")),
+            Err(GatError::InvalidRewritePosition { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn equal_head_lpo_requires_strict_lexicographic_descent() {
+        let precedence = OpPrecedence::new(["a", "b", "f"]);
+        let smaller = Term::app("f", vec![Term::constant("a")]);
+        let larger = Term::app("f", vec![Term::constant("b")]);
+        assert!(lpo_greater(&larger, &smaller, &precedence));
+        assert!(!lpo_greater(&smaller, &larger, &precedence));
+        assert!(!lpo_greater(&larger, &larger, &precedence));
+        assert!(!lpo_greater(
+            &larger,
+            &Term::app("f", vec![Term::var("absent")]),
+            &precedence
+        ));
+    }
+
+    #[test]
+    fn lpo_variable_occurrences_are_found_through_structural_subterms() {
+        let leaf = Term::var("x");
+        let absent = Term::var("absent");
+        let constant = Term::constant("constant");
+        let branch = |body| crate::eq::CaseBranch {
+            constructor: Arc::from("constructor"),
+            binders: vec![Arc::from("x")],
+            body,
+        };
+        let terms = [
+            Term::app("f", vec![Term::app("g", vec![leaf.clone()])]),
+            Term::Let {
+                name: Arc::from("x"),
+                bound: Box::new(leaf.clone()),
+                body: Box::new(constant.clone()),
+            },
+            Term::Let {
+                name: Arc::from("x"),
+                bound: Box::new(constant.clone()),
+                body: Box::new(leaf.clone()),
+            },
+            Term::Case {
+                scrutinee: Box::new(leaf.clone()),
+                branches: vec![branch(constant.clone())],
+            },
+            Term::Case {
+                scrutinee: Box::new(constant),
+                branches: vec![branch(leaf.clone())],
+            },
+        ];
+        let precedence = OpPrecedence::new(Vec::<Arc<str>>::new());
+        for term in terms {
+            assert!(lpo_greater(&term, &leaf, &precedence), "{term:?}");
+            assert!(!lpo_greater(&term, &absent, &precedence), "{term:?}");
+            assert!(!lpo_greater(&leaf, &term, &precedence), "{term:?}");
+        }
+        assert!(!lpo_greater(&leaf, &leaf, &precedence));
+        assert!(!lpo_greater(&Term::Hole { name: None }, &leaf, &precedence));
+    }
+
+    #[test]
+    fn unification_reflexive_variables_need_no_binding() {
+        let x = Term::var("x");
+        let y = Term::var("y");
+        assert_eq!(first_order_unify(&x, &x), Some(FxHashMap::default()));
+        assert_eq!(
+            first_order_unify(&x, &y),
+            Some(FxHashMap::from_iter([(Arc::from("x"), y)]))
+        );
+        let containing_x = Term::app("f", vec![x.clone()]);
+        assert_eq!(first_order_unify(&x, &containing_x), None);
+        assert_eq!(
+            first_order_unify(&containing_x, &containing_x),
+            Some(FxHashMap::default())
+        );
+    }
+
     mod property {
         use super::*;
         use proptest::prelude::*;
@@ -959,6 +1091,242 @@ mod tests {
                 let a = lpo_greater(&s, &t, &prec);
                 let b = lpo_greater(&s, &t, &prec);
                 prop_assert_eq!(a, b);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod dependency_contract_tests {
+    use std::sync::Arc;
+
+    use rustc_hash::FxHashMap;
+
+    use super::{
+        ConfluenceReport, CriticalPair, OpPrecedence, RewriteSystemReport, RuleViolation,
+        TerminationReport, check_local_confluence, check_termination_via_lpo, collect_vars,
+        first_order_unify, lpo_greater, non_variable_positions, term_at_position,
+    };
+    use crate::GatError;
+    use crate::eq::{CaseBranch, DirectedEquation, Term};
+    use crate::theory::Theory;
+
+    fn case(scrutinee: Term, bodies: Vec<Term>) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: bodies
+                .into_iter()
+                .map(|body| CaseBranch {
+                    constructor: Arc::from("c"),
+                    binders: vec![],
+                    body,
+                })
+                .collect(),
+        }
+    }
+
+    fn let_term(name: &str, bound: Term, body: Term) -> Term {
+        Term::Let {
+            name: Arc::from(name),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        }
+    }
+
+    fn rule(name: &str, lhs: Term, rhs: Term) -> DirectedEquation {
+        DirectedEquation::new(name, lhs, rhs, panproto_expr::Expr::Var("_".into()))
+    }
+
+    fn theory(rules: Vec<DirectedEquation>) -> Theory {
+        Theory::full("T", vec![], vec![], vec![], vec![], rules, vec![])
+    }
+
+    #[test]
+    fn case_navigation_selects_scrutinee_and_each_body() {
+        let bodies = vec![
+            Term::constant("a"),
+            Term::constant("b"),
+            Term::app("f", vec![Term::constant("c")]),
+        ];
+        let original = case(Term::constant("s"), bodies.clone());
+        assert_eq!(term_at_position(&original, &[]), Some(original.clone()));
+        assert_eq!(term_at_position(&original, &[0]), Some(Term::constant("s")));
+        for (index, expected) in bodies.into_iter().enumerate() {
+            assert_eq!(term_at_position(&original, &[index + 1]), Some(expected));
+        }
+        assert_eq!(
+            term_at_position(&original, &[3, 0]),
+            Some(Term::constant("c"))
+        );
+        assert_eq!(term_at_position(&original, &[4]), None);
+        assert_eq!(term_at_position(&original, &[1, 0]), None);
+    }
+
+    #[test]
+    fn freshening_collects_each_name_once_and_positions_include_roots() {
+        let original = Term::app(
+            "f",
+            vec![
+                Term::var("x"),
+                let_term("local", Term::var("y"), Term::var("x")),
+                case(
+                    Term::var("z"),
+                    vec![Term::var("y"), Term::Hole { name: None }],
+                ),
+            ],
+        );
+        assert_eq!(
+            collect_vars(&original),
+            vec![Arc::from("x"), Arc::from("y"), Arc::from("z")]
+        );
+        let application = Term::app(
+            "f",
+            vec![
+                Term::app("g", vec![Term::var("x")]),
+                Term::app("h", vec![Term::var("y")]),
+            ],
+        );
+        assert_eq!(
+            non_variable_positions(&application),
+            vec![vec![], vec![0], vec![1]]
+        );
+    }
+
+    #[test]
+    fn confluence_freshens_inner_variables_before_the_occurs_check() -> Result<(), GatError> {
+        let outer = rule(
+            "outer",
+            Term::app("f", vec![Term::app("g", vec![Term::var("x")])]),
+            Term::app("h", vec![Term::var("x")]),
+        );
+        let inner = rule(
+            "inner",
+            Term::app("g", vec![Term::app("f", vec![Term::var("x")])]),
+            Term::app("k", vec![Term::var("x")]),
+        );
+        let report = check_local_confluence(&theory(vec![outer, inner]), 8)?;
+        let selected: Vec<_> = report
+            .critical_pairs
+            .iter()
+            .filter(|pair| pair.rule_a.as_ref() == "outer" && pair.rule_b.as_ref() == "inner")
+            .collect();
+        assert_eq!(selected.len(), 1, "the non-root overlap must exist");
+        let fresh = Term::var("x__outer_cp");
+        assert_eq!(
+            selected[0].left,
+            Term::app("h", vec![Term::app("f", vec![fresh.clone()])])
+        );
+        assert_eq!(
+            selected[0].right,
+            Term::app("f", vec![Term::app("k", vec![fresh])])
+        );
+        assert!(!selected[0].joins);
+        Ok(())
+    }
+
+    #[test]
+    fn unification_separates_head_arity_and_occurs_boundaries() {
+        let lhs = Term::app("f", vec![Term::var("x")]);
+        for rhs in [
+            Term::app("g", vec![Term::constant("a")]),
+            Term::constant("f"),
+        ] {
+            assert_eq!(first_order_unify(&lhs, &rhs), None, "{rhs:?}");
+        }
+        assert_eq!(
+            first_order_unify(&lhs, &Term::app("f", vec![Term::constant("a")])),
+            Some(FxHashMap::from_iter([(
+                Arc::from("x"),
+                Term::constant("a")
+            )]))
+        );
+        let x = Term::var("x");
+        let a = Term::constant("a");
+        let cases = [
+            (let_term("y", x.clone(), a.clone()), true),
+            (let_term("y", a.clone(), x.clone()), true),
+            (let_term("x", a.clone(), x.clone()), false),
+            (let_term("y", a.clone(), a.clone()), false),
+            (case(x.clone(), vec![a.clone()]), true),
+            (case(a.clone(), vec![x.clone()]), true),
+            (case(a.clone(), vec![a]), false),
+        ];
+        for (term, occurs) in cases {
+            let expected = if occurs {
+                None
+            } else {
+                Some(FxHashMap::from_iter([(Arc::from("x"), term.clone())]))
+            };
+            assert_eq!(first_order_unify(&x, &term), expected, "{term:?}");
+        }
+    }
+
+    #[test]
+    fn lpo_checks_longer_equal_prefix_and_every_hole_position() {
+        let precedence = OpPrecedence::new(["c", "f"]);
+        let short = Term::app("f", vec![Term::var("x")]);
+        let long = Term::app("f", vec![Term::var("x"), Term::constant("c")]);
+        assert!(lpo_greater(&long, &short, &precedence));
+        assert!(!lpo_greater(&short, &long, &precedence));
+        let hole = Term::Hole { name: None };
+        let c = Term::constant("c");
+        let with_holes = [
+            case(hole.clone(), vec![c.clone()]),
+            case(c.clone(), vec![hole.clone()]),
+            let_term("x", hole.clone(), c.clone()),
+            let_term("x", c.clone(), hole),
+        ];
+        for lhs in with_holes {
+            let result = check_termination_via_lpo(
+                &theory(vec![rule("has-hole", lhs, c.clone())]),
+                &precedence,
+            );
+            assert!(matches!(result, Err(GatError::LpoHoleInRule { rule }) if rule == "has-hole"));
+        }
+        for lhs in [
+            case(c.clone(), vec![c.clone()]),
+            let_term("x", c.clone(), c.clone()),
+        ] {
+            assert!(
+                check_termination_via_lpo(
+                    &theory(vec![rule("no-hole", lhs, c.clone())]),
+                    &precedence
+                )
+                .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn rewrite_soundness_requires_both_report_obligations() {
+        for confluent in [false, true] {
+            for terminating in [false, true] {
+                let report = RewriteSystemReport {
+                    confluence: ConfluenceReport {
+                        critical_pairs: vec![CriticalPair {
+                            rule_a: Arc::from("a"),
+                            rule_b: Arc::from("b"),
+                            left: Term::constant("left"),
+                            right: Term::constant("right"),
+                            joins: confluent,
+                        }],
+                    },
+                    termination: TerminationReport {
+                        violations: if terminating {
+                            vec![]
+                        } else {
+                            vec![RuleViolation {
+                                rule: Arc::from("bad"),
+                                reason: "not decreasing".to_owned(),
+                            }]
+                        },
+                    },
+                };
+                assert_eq!(report.is_sound(), confluent && terminating);
+                assert_eq!(
+                    report.warnings().len(),
+                    usize::from(!confluent) + usize::from(!terminating)
+                );
             }
         }
     }

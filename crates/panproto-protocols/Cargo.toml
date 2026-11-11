@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 panproto-gat = { workspace = true }
@@ -26,11 +29,16 @@ rmp-serde = { workspace = true, optional = true }
 ciborium = { workspace = true, optional = true }
 
 [features]
-# Builds the `theory-composition-fixtures` corpus generator.
+# Builds the `theory-composition-fixtures` and `validation-fixtures` corpus
+# generators.
 fixtures = ["dep:rmp-serde", "dep:ciborium"]
 
 [[bin]]
 name = "theory-composition-fixtures"
+required-features = ["fixtures"]
+
+[[bin]]
+name = "validation-fixtures"
 required-features = ["fixtures"]
 
 [dev-dependencies]

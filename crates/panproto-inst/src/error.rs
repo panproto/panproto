@@ -232,8 +232,8 @@ pub enum RestrictError {
     ProductSizeExceeded {
         /// The target vertex whose fiber product is too large.
         vertex: String,
-        /// The actual product size.
-        actual: usize,
+        /// The exact product size as canonical unsigned decimal text.
+        actual: String,
         /// The configured limit.
         limit: usize,
     },

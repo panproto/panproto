@@ -17,9 +17,7 @@ configurations, 16,428 equality pairs, 607,836 transitivity triples, 341 XML
 strings, 116,281 XML pairs, 28 additional classification cases, 148 structural
 graphs, 27,329,908 schemas, and 816,223,680 directed classifications.
 
-These checks establish the focused executable counterparts. They do not
-replace the independent audit or the mutation run, so the audit verdicts
-below remain pending.
+These checks are the executable counterparts of the laws below.
 
 ## Key parts read the declared value or return NULL {#L-keys-and-registration-1}
 
@@ -40,7 +38,7 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 1. `path_value` handles the empty path by `own`. For a nonempty path, each preliminary hop replaces the frontier by matching targets in map order.
 2. At the final label, the implementation makes the target-or-field decision separately for each frontier node and retains frontier and edge order. Thus one branch with a matching edge cannot suppress a later branch's field fallback.
 3. A position part retains the id of the first qualifying ordinary incoming edge, sorts every ordinary sibling tuple `(stored position, id, target)`, and finds the tuple with that id. This keeps parallel edges distinct before converting the selected ordinal to `i64`.
-4. `Iterator::collect` on `Option` returns a vector exactly when every part returns `Some`, proving tuple totality on the stated domain and NULL propagation outside it.
+4. The initial node lookup returns `None` when the start node is absent, including when the key has no parts. For a present node, `Iterator::collect` on `Option` returns a vector exactly when every part returns `Some`, proving tuple totality on the stated domain and NULL propagation outside it.
 
 ### Executable counterpart
 
@@ -51,22 +49,13 @@ An *own value* is `Presence::Present(v)` with $v$ unequal to the value variant `
 - Independent reference anchor: `validation_reconstructs_position_buckets; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_reconstructs_position_buckets)'`
 - Parallel-edge regression test: `validation_identifies_exact_parallel_position_edges; command: cargo test --release -p panproto-inst --test reference_keys validation_identifies_exact_parallel_position_edges -- --exact --nocapture`
 - Regression differential test: `path_fallback_is_decided_per_last_hop_frontier_node; command: cargo test --release -p panproto-inst --test reference_keys path_fallback_is_decided_per_last_hop_frontier_node -- --exact --nocapture`
+- Property differential test: `randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs)'`
+- Property differential test: `randomized::position_key_values_and_buckets_match_on_generated_sibling_orders; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::position_key_values_and_buckets_match_on_generated_sibling_orders)'`
+- Randomized input scope: Generated twin graphs vary three groups of two nodes over six value presences, three connectivity bits, three scopes, and own-value or one-edge paths. Generated sibling graphs vary two positions, each absent or zero through three, across two lists under document or global scope. Complete duplicate-key tuples and members, NULL omissions, and outside-scope diagnostics are reconstructed from public validation and compared with reference key values and buckets.
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-The bounded matrix is designed to kill four omissions: dropping target sets from the structural diff, ignoring key equality, ignoring the five extended reference fields, and ignoring entry order. Production carries each axis. The dynamic mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
+- File: `crates/panproto-inst/src/validation/checks.rs`
 
 ## Key buckets implement declared equality and scope {#L-keys-and-registration-2}
 
@@ -98,22 +87,14 @@ The *nearest ancestor* is found breadth-first by reversing ordinary edges one le
 - Independent reference anchor: `validation_preserves_both_reference_keying_refusals; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=validation_preserves_both_reference_keying_refusals)'`
 - Regression differential test: `within_scope_does_not_traverse_fan_incidence; command: cargo test --release -p panproto-inst --test reference_keys within_scope_does_not_traverse_fan_incidence -- --exact --nocapture`
 - Canonical-bytes refusal test: `values_without_canonical_bytes_are_a_typed_keying_refusal; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=values_without_canonical_bytes_are_a_typed_keying_refusal)'`
+- Property differential test: `randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_values_and_scoped_buckets_match_on_generated_twin_graphs)'`
+- Property differential test: `randomized::position_key_values_and_buckets_match_on_generated_sibling_orders; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::position_key_values_and_buckets_match_on_generated_sibling_orders)'`
+- Randomized input scope: Generated twin graphs vary three groups of two nodes over six value presences, three connectivity bits, three scopes, and own-value or one-edge paths. Generated sibling graphs vary two positions, each absent or zero through three, across two lists under document or global scope. Complete duplicate-key tuples and members, NULL omissions, and outside-scope diagnostics are reconstructed from public validation and compared with reference key values and buckets.
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
+- File: `crates/panproto-inst/src/validation/checks.rs`
+- File: `crates/panproto-inst/src/key.rs`
 
 ## Canonical schema bytes separate the finite declaration carrier {#L-keys-and-registration-3}
 
@@ -132,7 +113,7 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 ### Proof
 
 1. Fixed order separates top-level fields, and a count separates every variable-length collection. Map and set order is canonical; within a collection, primitive encodings and distinct tags separate keys, variants, and payloads. A fixed-width field and a length-prefixed string are prefix-free, since a reader knows each one's extent before reading its content, and a tagged sum is prefix-free when each variant's payload is.
-2. An optional extension is the one place where the reader decides presence from the bytes rather than from a tag. Where an extension inside a reference is absent, the next bytes are a `u64` length (the target vertex's name after a variable or standoff source, the next reference's id after a reference), the target-set byte `0xff`, or the end of the bytes. A length is the length of an allocated Rust string, which is at most `isize::MAX` $< 2^{63}$, so it never equals the marker; the marker's first byte is `0x00`, never `0xff`; and the marker has eight bytes where the end of the bytes has none. The trailing target-set byte is followed by nothing when absent. Presence is thus decided by whether the next eight bytes are the marker, or for target sets whether any byte remains, and every field stays prefix-free. The earlier one-byte marker `0xff` failed this test, because a length whose low byte is `0xff` begins with it: the regression pair below, two valid declarations whose binding and target name differ, encoded identically under it.
+2. An optional extension is the one place where the reader decides presence from the bytes rather than from a tag. Where an extension inside a reference is absent, the next bytes are a `u64` length (the target vertex's name after a variable or standoff source, the next reference's id after a reference), the target-set byte `0xff`, or the end of the bytes. A length is the length of an allocated Rust string, which is at most `isize::MAX` $< 2^{63}$, so it never equals the marker; the marker's first byte is `0x00`, never `0xff`; and the marker has eight bytes where the end of the bytes has none. The trailing target-set byte is followed by nothing when absent. Presence is thus decided by whether the next eight bytes are the marker, or for target sets whether any byte remains. This lookahead gives the extension layout a unique parse. The complete schema encodings need not be prefix-free: omitting a trailing target-set extension can leave a proper prefix of the encoding with that extension. The earlier one-byte marker `0xff` failed this test, because a length whose low byte is `0xff` begins with it: the regression pair below, two valid declarations whose binding and target name differ, encoded identically under it.
 3. Reading equal byte streams from the beginning thus gives equal counts and equal fields by induction over the layout. Applying this argument to every top-level field yields schema equality; determinism gives the converse.
 4. There are 1, 2, 15, and 130 structural graphs at vertex counts zero through three. At positive $n$, there are $D_n=30n(n+2)$ owner/key descriptors, hence $(D_n+1)^2$ labelled two-slot declaration contexts per graph.
 5. The certificate executes all 148 graphs, every descriptor in both slots, every directed one-axis transition, and every absent, same-owner, and different-owner second-key class. Because graph fields precede declaration fields and the untouched slot is encoded unchanged, equality of complete byte strings factors through equality of the executed graph and declaration components. The recorded multiplicities reconcile to $27{,}329{,}908$ schemas.
@@ -146,46 +127,38 @@ A *self-delimiting field* has either fixed width or a length prefix. A tagged su
 - Independent reference anchor: `canonical_declaration_factorization_reconciles_the_exact_carrier; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=canonical_declaration_factorization_reconciles_the_exact_carrier)'`
 - Extension decoding test: `declaration_bytes_decode_back_on_every_extension_combination; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_bytes_decode_back_on_every_extension_combination)'`
 - Marker regression test: `extension_markers_separate_the_audit_counterexample; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extension_markers_separate_the_audit_counterexample)'`
+- Property differential test: `randomized::canonical_bytes_distinguish_generated_descriptor_schemas; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::canonical_bytes_distinguish_generated_descriptor_schemas)'`
+- Property differential test: `randomized::extension_declarations_match_and_decode_on_generated_pairs; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::extension_declarations_match_and_decode_on_generated_pairs)'`
+- Randomized input scope: Generated structural schemas have one through three vertices and two independently chosen key slots; declaration bytes are compared and decoded. A separate generated pair from the 194 extension carriers compares equality with equality of both encodings.
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 
 The extension decoding test inverts the declaration bytes with a decoder written from the grammar of proof step 2, over every combination of the three in-reference extensions and the target-set extension with neighbouring names whose length prefix begins with `0xff`, 194 declarations in all; decoding back proves the encoding injective there. Under the one-byte marker both new tests fail.
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
+- Stored-key-order differential: `canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection)'`; valid raw key permutations compare complete bytes and first-primary selection
 
 ## Change classification is the stated backward-compatibility decision {#L-keys-and-registration-4}
 
 ### Statement
 
-Within the declaration-change carrier, `classify_change(A, B)` returns `Identical` exactly when $A=B$. Otherwise it returns `Breaking` when any of the following holds: a primary, unique, or identifier key is added to a vertex already present in $A$; an existing key changes parts, equality, or role, widens its scope, or changes between distinct scopes of the same rank; a reference added to an existing holder is non-nullable or fails unresolved values; an existing reference narrows cardinality, nullability, or unresolved handling, or changes any other semantic field; a target set is new or gains a member or changes scope; or the entry sequence changes. Adding a sort key or index does not add an instance-admission obligation and is `BackwardCompatible`, as are key removals and the other nonidentical declaration changes not listed above.
+Within the declaration-change carrier, `classify_change(A, B)` returns `Identical` exactly when $A=B$. Otherwise it returns `Breaking` when any of the following holds: a primary, unique, or identifier key is added to a vertex already present in $A$; a primary key is removed; the first primary key selected from an existing owner's stored sequence changes to a different id or disappears; an existing key changes parts, equality, or role, widens its scope, or changes between distinct scopes of the same rank; a reference added to an existing holder is non-nullable or fails unresolved values; an existing reference narrows cardinality, nullability, or unresolved handling, or changes any other semantic field; a target set is new or gains a member or changes scope; or the entry sequence changes. Adding a sort key or index does not add an instance-admission obligation and is `BackwardCompatible`, as are removals of non-primary keys and the other nonidentical declaration changes not listed above. Reordering keys without changing the selected primary, and adding or removing an empty owner entry, are nonidentical changes but impose no new admission obligation.
 
 ### Outside the domain
 
-The independent decision is claimed only when the structural graph fields are unchanged, apart from the explicitly tested entry sequence. Other vertex, edge, hyper-edge, constraint, required-edge, and ordering changes belong to the production classifier's larger domain. The finite reference function remains total on its data type, but its result outside this declaration-change carrier is not an oracle for production behavior.
+The independent decision requires distinct key ids within each owner in both schemas and unchanged structural graph fields, apart from the explicitly tested entry sequence. Duplicate key ids cannot be represented by the owner/id maps used in this decision and are outside its oracle domain. Other declaration validity is not required by the finite descriptor carrier. Other vertex, edge, hyper-edge, constraint, required-edge, and ordering changes belong to the production classifier's larger domain. The finite reference function remains total on its data type, but its result outside this declaration-change carrier is not an oracle for production behavior.
 
 ### Definitions used
 
-The five roles make different uniqueness, identity, ordering, and resolution promises. Thus every role-to-role change fails closed as breaking. Scope ranks are 3 for global, 2 for document, and 1 for within; distinct scopes at one rank count as a tightening in either direction. A directed *one-axis transition* adds or removes one descriptor, or changes only its role, scope, or part word.
+The five roles make different uniqueness, identity, ordering, and resolution promises. Thus every role-to-role change fails closed as breaking. Scope ranks are 3 for global, 2 for document, and 1 for within; distinct scopes at one rank count as a tightening in either direction. The *selected primary* is the first primary key in an owner's stored sequence, the choice used by an unnamed reference. Removing any primary key fails closed because it removes an identity and resolution guarantee, even when another primary remains first. A directed *one-axis transition* adds or removes one descriptor, or changes only its role, scope, or part word. The finite carrier assigns fixed key ids to its two slots and stores them in id order; raw permutations and empty owner entries have separate controls.
 
 ### Proof
 
 1. Structural equality is tested first and gives exactly `Identical`. `key_is_tightened` is the disjunction of changed parts, equality, role, greater scope rank, and unequal same-rank scopes; `reference_is_tightened` is the corresponding disjunction over every reference field.
-2. Ordered-map scans detect added and changed declarations exactly as stated. An addition on an old vertex is breaking exactly for the three uniqueness-bearing roles; sort keys impose only an advisory order check, and indexes promise no uniqueness or resolution. The separate target-set predicate detects a changed scope or any new member. The final entry comparison refuses an entry-sequence change.
+2. Ordered-map scans detect added, removed and changed declarations exactly as stated. Removing a primary is breaking independently of its slot or other declarations. A separate scan compares the first primary ids in stored order, while preserving owner presence and key sequence distinguishes harmless changes from equality. An addition on an old vertex is breaking exactly for the three uniqueness-bearing roles; sort keys impose only an advisory order check, and indexes promise no uniqueness or resolution. The separate target-set predicate detects a changed scope or any new member. The final entry comparison refuses an entry-sequence change.
 3. Each descriptor contributes one add, one remove, four role changes, $n+1$ scope changes, and five part changes, giving $D_n(n+12)$ directed transitions. The second slot is either absent, owned by the changed key's vertex, or owned by another vertex. Since its declaration is identical before and after, classification is congruent under that untouched context; the same argument applies to the unchanged structural graph.
 4. The differential executes every graph, descriptor transition, slot, and nonempty second-key context class. The certificate's multiplicities sum to
    $$\sum_n \mathrm{graphs}_n\,2D_n(D_n+1)(n+12)=816{,}223{,}680,$$
-   which is the full labelled classification carrier.
+   which is the full labelled two-slot classification carrier. The added removal rule is independent of the untouched slot. A changed first-primary selection in this sorted carrier can arise only from an already-breaking addition, primary removal or role change; thus it introduces no extra dependence on that slot.
 5. A separate 28-case same-input matrix holds the structural context fixed while changing equality, reference addition and removal, each reference semantic field, target-set membership and scope, or the entry sequence. It checks both directed relaxation pairs and the explicit entry refusal against production.
 
 ### Executable counterpart
@@ -195,23 +168,19 @@ The five roles make different uniqueness, identity, ordering, and resolution pro
 - Evidence scope: `816,223,680 key classifications and 28 additional non-key cases`
 - Production certificate: `every_key_change_classifies_through_the_factorization_certificate; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=every_key_change_classifies_through_the_factorization_certificate)'`
 - Independent reference anchor: `non_key_classification_axes_match_the_reference; command: cargo nextest run --release --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=non_key_classification_axes_match_the_reference)'`
+- Property differential test: `randomized_key_change_classification; command: cargo nextest run --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=randomized_key_change_classification)'`
+- Property differential test: `randomized_reference_change_classification; command: cargo nextest run --locked -p panproto-check --test reference_classify --no-tests=fail -E 'test(=randomized_reference_change_classification)'`
+- Randomized input scope: Generated coordinates choose a structural graph, a directed descriptor transition, a changed slot and an optional other descriptor. A second family varies reference cardinality, nullability, unresolved policy, removal and transition direction; each compares production classification with the reference.
+- Fixed differential test: `stored_key_order_and_primary_removal_match_reference; command: cargo nextest run --locked -p panproto-check --test reference_classify --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=stored_key_order_and_primary_removal_match_reference)'`
+- Fixed differential test: `key_owner_presence_and_role_selection_are_recorded; command: cargo nextest run --locked -p panproto-check --test reference_classify --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=key_owner_presence_and_role_selection_are_recorded)'`
+- Property differential test: `randomized_stored_key_sequence_classification; command: cargo nextest run --locked -p panproto-check --test reference_classify --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=randomized_stored_key_sequence_classification)'`
+- Fixed production test: `isolated_primary_selection_metadata_is_classified_and_rendered; command: cargo nextest run --locked -p panproto-check --test reference_classify --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=isolated_primary_selection_metadata_is_classified_and_rendered)'`
+- Additional scope: 25 two-key role permutations, 50 removals, both empty-owner presence directions, and a fixed role-driven selection change; generated cases combine two roles, reversal and optional removal.
 - File: `crates/panproto-check/src/diff.rs`
 - File: `crates/panproto-check/src/classify.rs`
+- File: `crates/panproto-check/src/report.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Each shape theory is closed and composes with its schema theories {#L-keys-and-registration-5}
 
@@ -244,22 +213,13 @@ A theory is *closed* when every sort and operation used by its declarations and 
 - Independent reference anchor: `composition_agrees_with_the_reference_on_every_span; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=composition_agrees_with_the_reference_on_every_span)'`
 - Registered-theory reference test: `registered_theories_agree_with_the_reference_typecheck_compose_and_recompose; command: cargo nextest run --release --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=registered_theories_agree_with_the_reference_typecheck_compose_and_recompose)'`
 - Signature differential test: `signature_checking_agrees_with_the_reference_on_every_signature; command: cargo nextest run --release --locked -p panproto-gat --test reference_theories --no-tests=fail -E 'test(=signature_checking_agrees_with_the_reference_on_every_signature)'`
+- Property differential test: `randomized_registered_recipe_differential; command: cargo nextest run --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=randomized_registered_recipe_differential)'`
+- Randomized input scope: Generated cases choose one of the 57 protocol registrations, its schema or instance recipe, and a registry insertion rotation. Both signature checks must accept; both compositions must contain inclusion and universal-identity checks, with every report record passed, and their result theory bytes must agree.
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-gat/src/compose.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
+- File: `crates/panproto-gat/src/typecheck.rs`
+- File: `crates/panproto-reference/src/enumerate/theories.rs`
 
 ## Registration records replayable recipes and preserves the compatibility surface {#L-keys-and-registration-6}
 
@@ -273,7 +233,7 @@ A protocol introduced after 0.74 has no earlier registered theory to compare. Fo
 
 ### Definitions used
 
-A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A `Diagram` step records its nodes, edges, composition mode, clash policy, rewrite budget, and inline theories. *Compatibility surface* means the 0.74 wrapper names and amalgamated result after the documented Q.6 building-block amendments.
+A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A `Diagram` step records its nodes, edges, composition mode, clash policy, rewrite budget, and inline theories. *Compatibility surface* means the 0.74 wrapper names and amalgamated result after the documented building-block amendments.
 
 ### Proof
 
@@ -292,22 +252,13 @@ A *recorded recipe* is the versioned `CompositionSpec` stored on the protocol. A
 - Compatibility surface test: `registration_equivalence; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=registration_equivalence)'`
 - Frozen 0.74.4 test: `registration_reproduces_the_frozen_0_74_4_theories; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=registration_reproduces_the_frozen_0_74_4_theories)'`
 - Diagram form test: `every_registered_protocol_records_a_diagram_step; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=every_registered_protocol_records_a_diagram_step)'`
+- Property differential test: `randomized_registered_recipe_differential; command: cargo nextest run --locked -p panproto-protocols --test reference_registration --no-tests=fail -E 'test(=randomized_registered_recipe_differential)'`
+- Randomized input scope: Generated protocol/recipe coordinates and registry insertion rotations compare production and reference replay bytes with the registered theory. The frozen compatibility comparison remains the separate exhaustive certificate.
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
+- File: `crates/panproto-gat/src/composition.rs`
+- File: `crates/panproto-reference/src/enumerate/theories.rs`
 
 ## Canonical theory and composition identities are deterministic {#L-keys-and-registration-7}
 
@@ -340,23 +291,13 @@ The law concerns canonical identities, not the incidental bytes of Rust's ordina
 - Production certificate: `canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures; command: cargo nextest run --release --locked -p panproto-schema --test reference_theory_canonical --no-tests=fail -E 'test(=canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures)'`
 - Independent reference anchor: `cross_process::compose_bytes_are_identical_across_processes; command: cargo nextest run --release --locked -p panproto-protocols --test registration_equivalence --no-tests=fail -E 'test(=cross_process::compose_bytes_are_identical_across_processes)'`
 - Frozen-corpus regression test: `theory_composition_fixtures_recompose_to_their_bytes_and_digests; command: cargo test --release -p panproto-protocols --test registration_equivalence theory_composition_fixtures_recompose_to_their_bytes_and_digests -- --exact --nocapture`
+- Property differential test: `randomized_theory_and_composition_canonical_bytes; command: cargo nextest run --locked -p panproto-schema --test reference_theory_canonical --no-tests=fail -E 'test(=randomized_theory_and_composition_canonical_bytes)'`
+- Randomized input scope: Generated names and declaration reversal vary the three paired theory carriers under either composition mode. Complete theory and composition bytes are compared; the independent-process obligation remains the separate process certificate.
 - File: `crates/panproto-protocols/src/theories.rs`
 - File: `crates/panproto-schema/src/canonical_theory.rs`
 - File: `crates/panproto-protocols/tests/registration_equivalence.rs`
 - File: `crates/panproto-reference/src/pages/theories.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
+- File: `crates/panproto-schema/src/canonical.rs`
 
 ## Declared key equality is exactly its canonical kernel {#L-keys-and-registration-8}
 
@@ -366,7 +307,7 @@ None recorded. Mutation closure is pending.
 
 ### Outside the domain
 
-Under a named SQL collation, every pair that holds text on either side (text against text, null, a number, or any other value) returns `None` in the reference and `UnsupportedCollation` in production: the key function of that text belongs to the database implementation and is undefined here, so not even inequality with a non-text value is decided. A malformed production numeric carrier may return `InvalidNumericRepresentation`; it has no value in the finite reference carrier. Every other enumerated input returns `Some(true)` or `Some(false)` in the reference and the corresponding `Ok` value in production.
+Under a named SQL collation, every pair that holds text on either side (text against text, null, a number, or any other value) returns `None` in the reference and `UnsupportedCollation` in production: the key function of that text belongs to the database implementation and is undefined here, so not even inequality with a non-text value is decided. A malformed production numeric carrier may return `InvalidNumericRepresentation`; it has no value in the finite reference carrier. A branch that requires representation equality returns `None` in the reference and `NoCanonicalBytes` in production when either value has no canonical bytes, as for a malformed temporal. Every remaining enumerated input returns `Some(true)` or `Some(false)` in the reference and the corresponding `Ok` value in production.
 
 ### Definitions used
 
@@ -377,7 +318,7 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 1. The five outer match arms are exactly the five equality declarations.
 2. Numeric normalization maps integers, decimals, and finite floats to one exact decimal value; special values map to three distinguished keys. Equality of these keys is thus the stated mathematical kernel.
 3. The within-kind arm prefixes that key with the declared or selected primitive. The SQL and XML arms perform their stated string transformations and use the same fallback for other values.
-4. `sql_text` refuses exactly a named collation. Numeric normalization separately propagates `InvalidNumericRepresentation` for an ill-formed production carrier; no other branch is partial.
+4. `sql_text` refuses exactly a named collation. Numeric normalization separately propagates `InvalidNumericRepresentation` for an ill-formed production carrier. Each representation-based branch propagates `NoCanonicalBytes` when canonical encoding is unavailable, matching the reference's `None` branch.
 
 ### Executable counterpart
 
@@ -386,22 +327,10 @@ Finite numerics are normalized to a sign, a base-ten natural significand without
 - Evidence scope: `37 values under 12 configurations, 16,428 ordered pairs, and 607,836 ordered triples`
 - Production certificate: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
 - Independent reference anchor: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
+- Supplemental property differential test: `randomized::key_kernels_and_typed_refusals_match_on_generated_pairs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_kernels_and_typed_refusals_match_on_generated_pairs)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Representation equality refines every computable declared equality {#L-keys-and-registration-9}
 
@@ -430,22 +359,10 @@ For propositions $P$ and $Q$, implication $P \Rightarrow Q$ is $\neg P \lor Q$. 
 - Evidence scope: `37 values under 12 equality configurations, for 16,428 ordered pairs`
 - Production certificate: `equality_carrier_executes_all_pairs_and_triples; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=equality_carrier_executes_all_pairs_and_triples)'`
 - Independent reference anchor: `named_collation_has_the_exact_typed_refusal_boundary; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=named_collation_has_the_exact_typed_refusal_boundary)'`
+- Supplemental property differential test: `randomized::key_kernels_and_typed_refusals_match_on_generated_pairs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_kernels_and_typed_refusals_match_on_generated_pairs)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Equality declarations have an injective canonical byte layout {#L-keys-and-registration-10}
 
@@ -474,22 +391,11 @@ The legacy role tags are 0 for primary, 1 for unique, 2 for identifier, 3 for so
 - Evidence scope: `10 equality forms: legacy empty, representation, numeric value, decimal/float/any within-kind, binary/ascii-folded/named SQL, and XML non-CDATA`
 - Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
 - Independent reference anchor: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
+- Property differential test: `randomized::equality_declaration_words_match_and_decode; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::equality_declaration_words_match_and_decode)'`
+- Randomized input scope: Generated equality words of length at most three use all twelve configurations; production and reference declaration bytes agree and decode to the input declaration.
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Sort-key comparison is a total preorder on each declared family {#L-keys-and-registration-11}
 
@@ -519,22 +425,10 @@ A total preorder is reflexive, transitive, and total; antisymmetry is not requir
 - Evidence scope: `the seven values {0, 1, 1.5, "a", "ab", "b", NaN}; exact ordered pairs=49, triples=343`
 - Production certificate: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
 - Independent reference anchor: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
+- Supplemental property differential test: `randomized::sort_order_and_adjacent_descent_match_on_generated_words; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::sort_order_and_adjacent_descent_match_on_generated_words)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## A sort-key sequence is ordered exactly when no adjacent pair descends {#L-keys-and-registration-12}
 
@@ -563,22 +457,10 @@ An *adjacent descent* is an index $i$ with `sort_order(x_i, x_{i+1}) = Greater`.
 - Evidence scope: `all 2,801 sequences of length at most four over {0, 1, 1.5, "a", "ab", "b", NaN}`
 - Production certificate: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
 - Independent reference anchor: `sort_preorder_and_adjacent_descent_match_the_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=sort_preorder_and_adjacent_descent_match_the_reference)'`
+- Supplemental property differential test: `randomized::sort_order_and_adjacent_descent_match_on_generated_words; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::sort_order_and_adjacent_descent_match_on_generated_words)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Target sets are nonempty, distinct, and signature-compatible {#L-keys-and-registration-13}
 
@@ -609,21 +491,10 @@ The *signature* of a member key is its part count and effective equality vector.
 - Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Member condition test: `target_set_members_need_a_well_formed_equality_and_a_resolving_role; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_set_members_need_a_well_formed_equality_and_a_resolving_role)'`
+- Property differential test: `randomized::target_set_admission_matches_on_generated_member_words; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::target_set_admission_matches_on_generated_member_words)'`
+- Randomized input scope: Generated member words of length at most four use eight declared, mismatched, scoped or missing member coordinates. Complete declaration diagnostic-class multisets and member mismatch records agree; the local signature predicate is compared on its all-document subdomain.
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-The differential projects `EmptyTargetSet` and `TargetSetMemberMismatch` from the real schema validator, so it compares the reference with declaration admission itself. Dynamic mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## XML non-CDATA equality has one normalization kernel {#L-keys-and-registration-14}
 
@@ -653,22 +524,10 @@ The implementation splits on U+0020, removes empty pieces, and joins the remaini
 - Evidence scope: `the 341 strings of length at most four over {a, b, U+0020, U+0009}, all 116,281 ordered pairs, 184 normalization classes and 1,171 equivalent ordered pairs (counted independently), with LF, CR, TAB and token-order units`
 - Production certificate: `xml_kernel_executes_the_exact_key_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_key_carrier)'`
 - Independent reference anchor: `xml_kernel_executes_the_exact_key_carrier; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=xml_kernel_executes_the_exact_key_carrier)'`
+- Supplemental property differential test: `randomized::key_kernels_and_typed_refusals_match_on_generated_pairs; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::key_kernels_and_typed_refusals_match_on_generated_pairs)'`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
 
 ## Group-G declarations validate and encode without collisions {#L-keys-and-registration-15}
 
@@ -682,43 +541,38 @@ An invalid carrier returns the nonempty ordered defect vector. Named SQL collati
 
 ### Definitions used
 
-The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `TargetSetNameClash`, `EmptyTargetSet`, `TargetSetMemberMismatch`, `SortKeyNotOrdered`, `KeyNotResolvable`, `UnknownTarget`, `ReferenceArity`, `InlineRequiresRedirect`, `InlineRequiresTargetSet`, `LengthInclusive`, `InvalidFragments`, `DuplicateGuard`, `EdgeMismatch`, `TargetSetHasKey`, `VariableBinderInvalid`, `BinderModeConflict`, `TextReferenceInvalid`, and `ScopeViaInvalid`. Production renames `ReferenceArity` to `ArityMismatch`; splits `VariableBinderInvalid` into `UnknownTargetKey` and `BinderNotIdentifier`; and adds `UnknownVertex`, `PathDoesNotResolve`, `PositionNotOrdered`, `EdgeRequired`, and `WithinNotAncestor` for the graph-aware checks. These substitutions yield the 26 public `KeyRefError` variants. Representation equality determines duplicate guard values.
+The independent declaration errors are `EqualityArity`, `DuplicateKeyId`, `TargetSetNameClash`, `EmptyTargetSet`, `TargetSetMemberMismatch`, `SortKeyNotOrdered`, `KeyNotResolvable`, `UnknownTarget`, `ReferenceArity`, `InlineRequiresRedirect`, `InlineRequiresTargetSet`, `LengthInclusive`, `InvalidFragments`, `DuplicateGuard`, `EdgeMismatch`, `TargetSetHasKey`, `VariableBinderInvalid`, `BinderModeConflict`, `TextReferenceInvalid`, and `ScopeViaInvalid`. Production splits `UnknownTarget` into `UnknownTarget` and `UnknownTargetKey`, renames `VariableBinderInvalid` to `BinderNotIdentifier` and `ReferenceArity` to `ArityMismatch`; and adds `UnknownVertex`, `PathDoesNotResolve`, `PositionNotOrdered`, `EdgeRequired`, and `WithinNotAncestor` for the graph-aware checks. These substitutions yield the 26 public `KeyRefError` variants. Representation equality determines duplicate guard values.
 
 ### Proof
 
 1. `validate_declarations` appends results from key, target-set, reference, binder-mode, and guard passes in that order and returns success exactly when the vector is empty.
-2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. A repeated-id set limits duplicate diagnostics to one per id. Reference validation independently exercises all five key roles, checks the virtual edge's holder before its member expansions, and selects the first `Primary` key when no target key is named. It returns after an unknown target, since later target-dependent checks would have no typed object to inspect.
+2. Each pass traverses ordered maps and stored sequences and appends the defect corresponding to the negation of one condition in the Statement. A repeated-id set limits duplicate diagnostics to one per id. Reference validation independently exercises all five key roles, checks the virtual edge's holder before its member expansions, and selects the first `Primary` key when no target key is named. It first reports a redundant target-set key and, for a variable reference to a vertex, a missing named target key. It then checks the resolving target, recording a separate unknown-target defect when the binder is missing. Only a missing resolving target stops the remaining target-dependent checks; a missing named key does not stop them when the variable binder resolves.
 3. The text-reference helper carries the active suffix through recursion, so every reachable repeated node is rejected. The scope-via helper similarly follows its named chain with a visited set. Thus both accept exactly the typed acyclic chains described above.
-4. Canonical writing gives every declaration sum a distinct tag, every collection a length, every map a canonical order, and every optional extension a marker that the bytes following its absence cannot begin with. The prefix-freeness argument of [L-keys-and-registration-3](#L-keys-and-registration-3) thus applies to this declaration subcarrier.
+4. Canonical writing gives every declaration sum a distinct tag, every collection a length, every map a canonical order, and every optional extension a marker that the bytes following its absence cannot begin with. The unique-decoding argument of [L-keys-and-registration-3](#L-keys-and-registration-3) thus applies to this declaration subcarrier.
 
 ### Executable counterpart
 
 - Law ID: `keys.group-g-declaration-injectivity`
 - Reference: `panproto_reference::schema::canonical_bytes`
+- Reference: `panproto_reference::schema::validate_declarations`
 - Evidence scope: `37 canonical fixtures covering every declaration sum variant, including Position, and nondefault extension; 30 validation fixtures covering success, every independent refusal class, exact duplicate multiplicity, implicit-primary selection, missing-only target sets, holder-source agreement, reachable text cycles, a variable over a target set, a variable with a missing named key, and key-value parts against the empty key; plus all five target-set member roles; plus the extension-marker regression pair and the 194 decoded extension combinations of L-keys-and-registration-3`
 - Production certificate: `extended_declaration_bytes_match_reference_on_every_sum_variant; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extended_declaration_bytes_match_reference_on_every_sum_variant)'`
 - Independent reference anchor: `declaration_validation_matches_reference_on_every_common_refusal; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_validation_matches_reference_on_every_common_refusal)'`
 - Role differential test: `target_set_references_check_every_member_key_role; command: cargo test --release -p panproto-schema --test reference_keys target_set_references_check_every_member_key_role -- --exact --nocapture`
 - Marker regression test: `extension_markers_separate_the_audit_counterexample; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=extension_markers_separate_the_audit_counterexample)'`
 - Extension decoding test: `declaration_bytes_decode_back_on_every_extension_combination; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=declaration_bytes_decode_back_on_every_extension_combination)'`
+- Property differential test: `randomized::extension_declarations_match_and_decode_on_generated_pairs; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::extension_declarations_match_and_decode_on_generated_pairs)'`
+- Property differential test: `randomized::key_and_reference_admission_match_on_generated_coordinates; command: cargo nextest run --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::key_and_reference_admission_match_on_generated_coordinates)'`
+- Randomized input scope: Generated pairs from the 194 extension carriers compare complete declaration bytes, decoding and injectivity. Generated key/reference coordinates additionally compare declaration diagnostic-class multisets, with no structural findings discarded.
 - File: `crates/panproto-schema/src/canonical.rs`
 - File: `crates/panproto-schema/src/keys.rs`
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-reference/src/enumerate/keys_and_registration.rs`
 
-### Mutation equivalences
+- Fixed diagnostic differential: `independent_named_key_binder_and_target_set_defects_preserve_multiplicity; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=independent_named_key_binder_and_target_set_defects_preserve_multiplicity)'`; 27 declaration combinations compare complete common-class order and multiplicity with no structural defects discarded
 
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification remain pending; focused dynamic verification is green.
+- Stored-key-order differential: `canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection; command: cargo nextest run --locked -p panproto-schema --test reference_keys --cargo-profile ci-test --profile ci --no-tests=fail -E 'test(=canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection)'`; valid raw key permutations compare complete bytes and first-primary selection
 
 ## Index keys never resolve references, and null-match mode determines occurrences {#L-keys-and-registration-16}
 
@@ -748,22 +602,12 @@ A *resolution occurrence* is a holder element together with the tuple read from 
 - Evidence scope: `five two-part tuples (equal, unequal, all NULL, and both partial-NULL orientations) under Simple and Full; all 16 optional-index pairs for the Index refusal`
 - Production certificate: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
 - Independent reference anchor: `index_fields_never_resolve_targets; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=index_fields_never_resolve_targets)'`
+- Property differential test: `randomized::index_refusal_matches_under_generated_unresolved_policy; command: cargo nextest run --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::index_refusal_matches_under_generated_unresolved_policy)'`
+- Property differential test: `randomized::null_match_outcomes_match_on_generated_existing_occurrences; command: cargo nextest run --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::null_match_outcomes_match_on_generated_existing_occurrences)'`
+- Randomized input scope: Generated cases vary the unresolved policy for an index-target declaration and compare its typed refusal. Five composite tuple pairs under either null-match mode compare actual resolution outcomes and the complete dangling literal or its absence; the fixed index matrix remains a separate exhaustive control.
 - File: `crates/panproto-io/src/resolution/compile.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Lexical-space validation preserves the literal and reports ill-typed values as advisory {#L-keys-and-registration-17}
 
@@ -793,23 +637,12 @@ A *known datatype* is one present in the protocol's value-kind table. A *derived
 - Evidence scope: `12 lexemes (signed, zero-padded, space-padded, fractional, exponent, both 64-bit boundaries, non-numeric, and empty) under the integer and decimal datatypes of the table and one datatype absent from it, 36 cases; each case compares the outcome with the reference, checks advisory admission, and reads back the kept lexeme`
 - Production certificate: `lexical_space_outcomes_match_the_datatype_table_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=lexical_space_outcomes_match_the_datatype_table_reference)'`
 - Independent reference anchor: `lexical_space_outcomes_match_the_datatype_table_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=lexical_space_outcomes_match_the_datatype_table_reference)'`
+- Property differential test: `randomized::lexical_space_admission_and_preservation_match_on_generated_literals; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::lexical_space_admission_and_preservation_match_on_generated_literals)'`
+- Randomized input scope: Generated cases draw from twelve lexical forms and three datatype declarations; production advisory/unsupported outcomes and the unchanged lexical form are compared with the reference.
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-inst/tests/reference_keys.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## An annotated format is preserved and checked only as advisory {#L-keys-and-registration-18}
 
@@ -840,20 +673,9 @@ An *annotated format* is a named constraint whose semantics are `AnnotatedFormat
 - Evidence scope: `eight strings (two UUIDs, a short group, misplaced hyphens, braces, a non-hexadecimal digit, a non-UUID word, and the empty string) under uuid as annotation and as assertion and under one unrecognized annotation, 24 cases: 4 recognized, 6 advisory, 6 refused, 8 unchecked; each case reads back the kept string`
 - Production certificate: `annotated_formats_match_the_independent_recognizer; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=annotated_formats_match_the_independent_recognizer)'`
 - Independent reference anchor: `annotated_formats_match_the_independent_recognizer; command: cargo nextest run --release --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=annotated_formats_match_the_independent_recognizer)'`
+- Property differential test: `randomized::annotated_format_admission_and_preservation_match_on_generated_strings; command: cargo nextest run --locked -p panproto-inst --test reference_keys --no-tests=fail -E 'test(=randomized::annotated_format_admission_and_preservation_match_on_generated_strings)'`
+- Randomized input scope: Generated cases draw from eight strings and three format/assertion configurations; status, diagnostic presence and the unchanged string are compared with the reference.
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
 - File: `crates/panproto-inst/tests/reference_keys.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: key and registration documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.

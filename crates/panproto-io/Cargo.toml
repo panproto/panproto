@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Instance parsing and emission for panproto protocols"
 
 [lints]
@@ -21,7 +24,7 @@ panproto-lens = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-yaml_serde = "0.10"
+yaml_serde = { workspace = true }
 toml = { workspace = true }
 rmp-serde = { workspace = true }
 
@@ -34,7 +37,7 @@ rustc-hash = { workspace = true }
 bumpalo = { workspace = true }
 
 # Fast byte scanning
-memchr = "2.7"
+memchr = { workspace = true }
 
 # XML parsing (zero-copy pull parser)
 quick-xml = "0.41"

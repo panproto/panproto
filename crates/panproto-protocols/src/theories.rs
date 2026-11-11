@@ -1540,3 +1540,58 @@ mod tests {
         assert_eq!(registered_recipe("RecordedAgainSchema"), Some(recipe));
     }
 }
+
+#[cfg(test)]
+mod rewrite_gate_boundary_tests {
+    use super::gate_rewrite_system;
+    use panproto_gat::{DirectedEquation, Operation, Sort, Term, Theory};
+
+    fn theory(rules: Vec<DirectedEquation>) -> Theory {
+        Theory::full(
+            "RewriteGateBoundary",
+            Vec::new(),
+            vec![Sort::simple("S")],
+            vec![
+                Operation::unary("g", "x", "S", "S"),
+                Operation::unary("h", "x", "S", "S"),
+                Operation::unary("f", "x", "S", "S"),
+            ],
+            Vec::new(),
+            rules,
+            Vec::new(),
+        )
+    }
+
+    fn rule(name: &str, from: &str, to: &str) -> DirectedEquation {
+        DirectedEquation::new(
+            name,
+            Term::app(from, vec![Term::var("x")]),
+            Term::app(to, vec![Term::var("x")]),
+            panproto_expr::Expr::Var("_".into()),
+        )
+    }
+
+    #[test]
+    fn registration_gate_accepts_empty_and_decreasing_rules() {
+        gate_rewrite_system(&theory(Vec::new()));
+        gate_rewrite_system(&theory(vec![rule("decreasing", "f", "g")]));
+    }
+
+    #[test]
+    #[should_panic(expected = "non-joining critical pair")]
+    fn registration_gate_refuses_nonjoining_critical_pair() {
+        // Both rules decrease under declaration-order precedence, but
+        // the two irreducible reducts of f(x) do not join.
+        gate_rewrite_system(&theory(vec![
+            rule("left", "f", "g"),
+            rule("right", "f", "h"),
+        ]));
+    }
+
+    #[test]
+    #[should_panic(expected = "not LPO-terminating")]
+    fn registration_gate_refuses_increasing_rule() {
+        // The single rule has no competing reduct, but g ranks below f.
+        gate_rewrite_system(&theory(vec![rule("increasing", "g", "f")]));
+    }
+}

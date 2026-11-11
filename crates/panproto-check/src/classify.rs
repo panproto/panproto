@@ -47,8 +47,11 @@
 //! - **Keys**: adding a primary, unique, or identifier key on a vertex the
 //!   old schema has is breaking because it adds a uniqueness constraint.
 //!   Adding a sort key or index is non-breaking because neither role rejects
-//!   instances. A key on a newly added vertex, and a removed key, are also
-//!   non-breaking. A changed key is breaking when it has new parts, any
+//!   instances. A key on a newly added vertex is non-breaking. Removing a primary
+//!   key is breaking; other removals are non-breaking. Changing a previously
+//!   selected primary id is breaking. Other stored-order or owner-presence
+//!   changes are nonidentical but non-breaking. A changed key is breaking when
+//!   it has new parts, any
 //!   different role, a wider scope (`Global` over `Document` over `Within`,
 //!   and a different `Within` vertex), or a changed equality declaration;
 //!   otherwise it is a non-breaking relaxation. Role changes fail closed
@@ -430,6 +433,24 @@ pub enum BreakingChange {
         /// The target-set ID.
         set_id: String,
     },
+
+    /// A primary key's identity guarantee was removed.
+    PrimaryKeyRemoved {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The removed primary key ID.
+        key_id: String,
+    },
+
+    /// Stored order or roles changed a previously selected primary key.
+    PrimaryKeySelectionChanged {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The previously selected key ID.
+        old_key_id: String,
+        /// The newly selected key ID, if any.
+        new_key_id: Option<String>,
+    },
 }
 
 /// A non-breaking (backward-compatible) change.
@@ -580,6 +601,16 @@ pub enum NonBreakingChange {
         /// The target-set ID.
         set_id: String,
     },
+
+    /// Stored key order or owner presence changed without changing selection.
+    KeySequenceChanged {
+        /// The keyed vertex ID.
+        vertex_id: String,
+        /// The previous sequence, distinguishing absent and empty entries.
+        old: Option<Vec<String>>,
+        /// The new sequence, distinguishing absent and empty entries.
+        new: Option<Vec<String>>,
+    },
 }
 
 /// Classify a [`SchemaDiff`] into breaking and non-breaking changes.
@@ -650,6 +681,8 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         removed_target_sets,
         modified_target_sets,
         renamed_vertices,
+        key_sequence_changes,
+        primary_key_changes,
     } = diff;
 
     // --- Renames --- (record and suppress the removed/added pair)
@@ -964,6 +997,12 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
         &mut breaking,
         &mut non_breaking,
     );
+    classify_key_sequences(
+        key_sequence_changes,
+        primary_key_changes,
+        &mut breaking,
+        &mut non_breaking,
+    );
     classify_references(
         added_references,
         removed_references,
@@ -1004,10 +1043,13 @@ fn classify_keys(
         }
     }
     for (vertex_id, key) in removed {
-        non_breaking.push(NonBreakingChange::KeyRemoved {
-            vertex_id: vertex_id.clone(),
-            key_id: key.id.to_string(),
-        });
+        let vertex_id = vertex_id.clone();
+        let key_id = key.id.to_string();
+        if key.role == KeyRole::Primary {
+            breaking.push(BreakingChange::PrimaryKeyRemoved { vertex_id, key_id });
+        } else {
+            non_breaking.push(NonBreakingChange::KeyRemoved { vertex_id, key_id });
+        }
     }
     for change in modified {
         let vertex_id = change.vertex_id.clone();
@@ -1016,6 +1058,56 @@ fn classify_keys(
             breaking.push(BreakingChange::KeyTightened { vertex_id, key_id });
         } else {
             non_breaking.push(NonBreakingChange::KeyRelaxed { vertex_id, key_id });
+        }
+    }
+}
+
+/// Classify sequence changes without repeating existing key diagnostics.
+fn classify_key_sequences(
+    sequences: &[crate::diff::KeySequenceChange],
+    selections: &[crate::diff::PrimaryKeyChange],
+    breaking: &mut Vec<BreakingChange>,
+    non_breaking: &mut Vec<NonBreakingChange>,
+) {
+    let mut reported: FxHashSet<String> = breaking
+        .iter()
+        .filter_map(|change| match change {
+            BreakingChange::KeyAdded { vertex_id, .. }
+            | BreakingChange::KeyTightened { vertex_id, .. }
+            | BreakingChange::PrimaryKeyRemoved { vertex_id, .. } => Some(vertex_id.clone()),
+            _ => None,
+        })
+        .collect();
+    for change in selections {
+        if let Some(old) = &change.old
+            && reported.insert(change.vertex_id.clone())
+        {
+            breaking.push(BreakingChange::PrimaryKeySelectionChanged {
+                vertex_id: change.vertex_id.clone(),
+                old_key_id: old.to_string(),
+                new_key_id: change.new.as_ref().map(ToString::to_string),
+            });
+        }
+    }
+    reported.extend(non_breaking.iter().filter_map(|change| match change {
+        NonBreakingChange::KeyAdded { vertex_id, .. }
+        | NonBreakingChange::KeyRemoved { vertex_id, .. }
+        | NonBreakingChange::KeyRelaxed { vertex_id, .. } => Some(vertex_id.clone()),
+        _ => None,
+    }));
+    for change in sequences {
+        if !reported.contains(&change.vertex_id) {
+            non_breaking.push(NonBreakingChange::KeySequenceChanged {
+                vertex_id: change.vertex_id.clone(),
+                old: change
+                    .old
+                    .as_ref()
+                    .map(|keys| keys.iter().map(ToString::to_string).collect()),
+                new: change
+                    .new
+                    .as_ref()
+                    .map(|keys| keys.iter().map(ToString::to_string).collect()),
+            });
         }
     }
 }

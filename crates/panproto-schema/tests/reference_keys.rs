@@ -1710,6 +1710,195 @@ fn declaration_validation_matches_reference_on_every_common_refusal() {
 }
 
 #[test]
+fn canonical_declaration_bytes_preserve_raw_key_order_and_primary_selection() {
+    let mut before = canonical_base();
+    let first = &mut before.keys.get_mut("target").expect("target keys")[0];
+    first.id = "a".to_owned();
+    let mut second = first.clone();
+    second.id = "b".to_owned();
+    second.parts.push(reference::KeyPart::Path(vec![]));
+    before
+        .keys
+        .get_mut("target")
+        .expect("target keys")
+        .push(second);
+    before.references.clear();
+    let mut after = before.clone();
+    after.keys.get_mut("target").expect("target keys").reverse();
+    for schema in [&before, &after] {
+        assert_eq!(
+            reference_classes(schema),
+            [],
+            "both key sequences are admitted"
+        );
+        assert_eq!(
+            production_classes(schema),
+            (vec![], vec![]),
+            "production admits both raw key sequences"
+        );
+        let (reference_bytes, production_bytes) = paired_declaration_bytes(schema);
+        assert_eq!(
+            production_bytes, reference_bytes,
+            "stored key order is preserved"
+        );
+    }
+    let (reference_before, production_before) = paired_declaration_bytes(&before);
+    let (reference_after, production_after) = paired_declaration_bytes(&after);
+    assert_eq!(
+        BTreeSet::from([reference_before, reference_after]).len(),
+        2,
+        "reference separates key order"
+    );
+    assert_eq!(
+        BTreeSet::from([production_before, production_after]).len(),
+        2,
+        "production separates key order"
+    );
+
+    let mut declaration = canonical_base()
+        .references
+        .remove("r")
+        .expect("reference fixture");
+    declaration.target_key = None;
+    before
+        .references
+        .insert("r".to_owned(), declaration.clone());
+    after.references.insert("r".to_owned(), declaration);
+    assert_eq!(reference_classes(&before), [], "first primary has one part");
+    assert_eq!(
+        production_classes(&before),
+        (vec![], vec![]),
+        "one-part primary admits source"
+    );
+    assert_eq!(
+        reference_classes(&after),
+        [DeclarationClass::ReferenceArity],
+        "reordered first primary has two parts"
+    );
+    assert_eq!(
+        production_classes(&after),
+        (vec![DeclarationClass::ReferenceArity], vec![]),
+        "production also observes key order in target selection"
+    );
+    assert_eq!(
+        BTreeSet::from([
+            paired_declaration_bytes(&before).1,
+            paired_declaration_bytes(&after).1,
+        ])
+        .len(),
+        2,
+        "different first-primary behavior has distinct declaration bytes"
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MissingTargetCarrier {
+    Vertex,
+    ValidSet,
+    MissingMemberSet,
+}
+
+fn missing_target_obligations_fixture(
+    carrier: MissingTargetCarrier,
+    named_key: Option<&str>,
+    binder: Option<&str>,
+) -> reference::Schema {
+    let mut schema = if carrier == MissingTargetCarrier::Vertex {
+        canonical_base()
+    } else {
+        target_set_schema()
+    };
+    if carrier == MissingTargetCarrier::MissingMemberSet {
+        "missing_member".clone_into(
+            &mut schema
+                .target_sets
+                .get_mut("targets")
+                .expect("target set")
+                .members[0]
+                .1,
+        );
+    }
+    if binder.is_some() {
+        schema.keys.get_mut("target").expect("target keys")[0].role =
+            reference::KeyRole::Identifier;
+    }
+    let declaration = schema.references.get_mut("r").expect("reference fixture");
+    declaration.target_key = named_key.map(str::to_owned);
+    if let Some(binder_key) = binder {
+        declaration.source = reference::RefSource::Variable {
+            field: vec![reference_edge("holder", "scalar", "field")],
+            binder_key: binder_key.to_owned(),
+            binding: reference::VariableBinding::FirstDefines,
+        };
+    }
+    schema
+}
+
+fn missing_target_obligations_expected(
+    carrier: MissingTargetCarrier,
+    named_key: Option<&str>,
+    binder: Option<&str>,
+) -> Vec<DeclarationClass> {
+    let mut expected = Vec::new();
+    if carrier == MissingTargetCarrier::MissingMemberSet {
+        expected.push(DeclarationClass::TargetSetMemberMismatch);
+    }
+    if carrier != MissingTargetCarrier::Vertex && named_key.is_some() {
+        expected.push(DeclarationClass::TargetSetHasKey);
+    }
+    if carrier == MissingTargetCarrier::Vertex && named_key == Some("missing_named") {
+        expected.push(DeclarationClass::UnknownTarget);
+    }
+    // A variable needs its own binder even when its named target key is absent.
+    // A set is not a vertex declaring a binder; an empty resolved member list
+    // instead reports the target failure before any source checks.
+    if carrier == MissingTargetCarrier::MissingMemberSet
+        || (binder.is_some()
+            && (carrier == MissingTargetCarrier::ValidSet || binder == Some("missing_binder")))
+    {
+        expected.push(DeclarationClass::UnknownTarget);
+    }
+    expected
+}
+
+#[test]
+fn independent_named_key_binder_and_target_set_defects_preserve_multiplicity() {
+    let mut cases = 0;
+    for carrier in [
+        MissingTargetCarrier::Vertex,
+        MissingTargetCarrier::ValidSet,
+        MissingTargetCarrier::MissingMemberSet,
+    ] {
+        for named_key in [None, Some("id"), Some("missing_named")] {
+            for binder in [None, Some("id"), Some("missing_binder")] {
+                let schema = missing_target_obligations_fixture(carrier, named_key, binder);
+                let expected = missing_target_obligations_expected(carrier, named_key, binder);
+                assert_eq!(
+                    reference_classes(&schema),
+                    expected,
+                    "reference: {carrier:?}, named={named_key:?}, binder={binder:?}"
+                );
+                let (production, structural) = production_classes(&schema);
+                assert_eq!(
+                    structural,
+                    [],
+                    "structural spill: {carrier:?}, named={named_key:?}, binder={binder:?}"
+                );
+                assert_eq!(
+                    production, expected,
+                    "production: {carrier:?}, named={named_key:?}, binder={binder:?}"
+                );
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(
+        cases, 27,
+        "all independent declaration coordinates were checked"
+    );
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn canonical_declaration_factorization_reconciles_the_exact_carrier() {
     assert_eq!(enumerate::schema_count(), 27_329_908);
@@ -1945,6 +2134,36 @@ impl DeclarationReader<'_> {
         }
     }
 
+    fn equality(&mut self) -> reference_keys::KeyEquality {
+        use reference_keys::{KeyEquality, NumericPrimitive, SqlCollation, SqlPad};
+        match self.tag() {
+            0 => KeyEquality::Representation,
+            1 => KeyEquality::NumericValue,
+            2 => KeyEquality::NumericValueWithinKind(match self.tag() {
+                0 => NumericPrimitive::Decimal,
+                1 => NumericPrimitive::Float(self.tag()),
+                2 => NumericPrimitive::Any,
+                tag => panic!("numeric primitive tag {tag}"),
+            }),
+            3 => {
+                let collation = match self.tag() {
+                    0 => SqlCollation::Binary,
+                    1 => SqlCollation::AsciiCaseInsensitive,
+                    2 => SqlCollation::Named(self.str()),
+                    tag => panic!("SQL collation tag {tag}"),
+                };
+                let pad = match self.tag() {
+                    0 => SqlPad::NoPad,
+                    1 => SqlPad::PadSpace,
+                    tag => panic!("SQL padding tag {tag}"),
+                };
+                KeyEquality::Sql { collation, pad }
+            }
+            4 => KeyEquality::XmlNonCdata,
+            tag => panic!("equality tag {tag}"),
+        }
+    }
+
     fn key(&mut self) -> reference::Key {
         let id = self.str();
         let parts = (0..self.len())
@@ -1969,14 +2188,7 @@ impl DeclarationReader<'_> {
         let equality = if role_byte & 0x80 == 0 {
             Vec::new()
         } else {
-            (0..self.len())
-                .map(|_| match self.tag() {
-                    0 => reference_keys::KeyEquality::Representation,
-                    1 => reference_keys::KeyEquality::NumericValue,
-                    4 => reference_keys::KeyEquality::XmlNonCdata,
-                    tag => panic!("equality tag outside the decoded carrier: {tag}"),
-                })
-                .collect()
+            (0..self.len()).map(|_| self.equality()).collect()
         };
         reference::Key {
             id,
@@ -2249,4 +2461,151 @@ fn declaration_bytes_decode_back_on_every_extension_combination() {
         assert!(encodings.insert(reference_bytes));
     }
     assert_eq!(encodings.len(), carrier.len());
+}
+
+fn compare_generated_declarations(schema: &reference::Schema) {
+    let (actual, structural) = production_classes(schema);
+    assert!(
+        structural.is_empty(),
+        "unexpected structural findings: {structural:?}"
+    );
+    let classes = |items: Vec<DeclarationClass>| {
+        let mut names = items
+            .into_iter()
+            .map(|item| format!("{item:?}"))
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(classes(actual), classes(reference_classes(schema)));
+}
+
+fn compare_generated_declaration_bytes(schema: &reference::Schema) {
+    let (expected, actual) = paired_declaration_bytes(schema);
+    assert_eq!(actual, expected);
+    let decoded = DeclarationReader { bytes: &actual }.declarations();
+    assert_eq!(
+        decoded,
+        (
+            schema.keys.clone(),
+            schema.references.clone(),
+            schema.target_sets.clone()
+        )
+    );
+}
+
+mod randomized {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn descriptor_schema(vertices: usize, graph: usize, slots: [usize; 2]) -> reference::Schema {
+        let graphs = enumerate::structural_schemas(vertices);
+        let descriptors = enumerate::key_descriptors(vertices);
+        enumerate::schema_with_keys(
+            graphs[graph % graphs.len()].clone(),
+            slots.map(|slot| descriptors.get(slot % (descriptors.len() + 1))),
+        )
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn canonical_bytes_distinguish_generated_descriptor_schemas(
+            vertices in 1_usize..=3,
+            graph in 0_usize..148,
+            left in proptest::array::uniform2(0_usize..451),
+            right in proptest::array::uniform2(0_usize..451),
+        ) {
+            let left = descriptor_schema(vertices, graph, left);
+            let right = descriptor_schema(vertices, graph, right);
+            compare_generated_declaration_bytes(&left);
+            compare_generated_declaration_bytes(&right);
+            let (left_reference, left_production) = paired_bytes(&left);
+            let (right_reference, right_production) = paired_bytes(&right);
+            prop_assert_eq!(left_reference == right_reference, left == right);
+            prop_assert_eq!(left_production == right_production, left == right);
+        }
+
+        #[test]
+        fn equality_declaration_words_match_and_decode(
+            indices in proptest::collection::vec(0_usize..12, 0..=3),
+        ) {
+            let configurations = enumerate::equality_configurations();
+            prop_assert_eq!(configurations.len(), 12);
+            let equality = indices.into_iter().map(|index| configurations[index].1.clone()).collect();
+            compare_generated_declaration_bytes(&equality_fixture(equality));
+        }
+
+        #[test]
+        fn extension_declarations_match_and_decode_on_generated_pairs(
+            left in 0_usize..194,
+            right in 0_usize..194,
+        ) {
+            let carrier = extension_carrier();
+            prop_assert_eq!(carrier.len(), 194);
+            compare_generated_declaration_bytes(&carrier[left]);
+            compare_generated_declaration_bytes(&carrier[right]);
+            let (left_reference, left_production) = paired_declaration_bytes(&carrier[left]);
+            let (right_reference, right_production) = paired_declaration_bytes(&carrier[right]);
+            prop_assert_eq!(left_reference == right_reference, left == right);
+            prop_assert_eq!(left_production == right_production, left == right);
+        }
+
+        #[test]
+        fn key_and_reference_admission_match_on_generated_coordinates(
+            role in 0_usize..5,
+            key_parts in 1_usize..=2,
+            equalities in 0_usize..=3,
+            source_parts in 1_usize..=2,
+            duplicate in proptest::bool::ANY,
+            nullable in proptest::bool::ANY,
+            full in proptest::bool::ANY,
+        ) {
+            let mut schema = canonical_base();
+            let key = &mut schema.keys.get_mut("target").expect("target keys")[0];
+            key.role = [reference::KeyRole::Primary, reference::KeyRole::Unique,
+                reference::KeyRole::Identifier, reference::KeyRole::SortKey,
+                reference::KeyRole::Index][role];
+            key.parts = vec![reference::KeyPart::Path(Vec::new()); key_parts];
+            key.equality = vec![reference_keys::KeyEquality::Representation; equalities];
+            if duplicate {
+                let second = key.clone();
+                schema.keys.get_mut("target").expect("target keys").push(second);
+            }
+            let declaration = schema.references.get_mut("r").expect("reference");
+            declaration.source = reference::RefSource::KeyValue {
+                parts: vec![vec![reference_edge("holder", "scalar", "field")]; source_parts],
+            };
+            declaration.nullable = nullable;
+            declaration.null_match = if full { reference::NullMatch::Full } else { reference::NullMatch::Simple };
+            compare_generated_declarations(&schema);
+        }
+
+        #[test]
+        fn target_set_admission_matches_on_generated_member_words(
+            indices in proptest::collection::vec(0_usize..8, 0..=4),
+        ) {
+            let mut schema = target_set_predicate_base();
+            let members = [("a", "id"), ("b", "id"), ("a", "implicit"),
+                ("b", "explicit"), ("b", "two"), ("b", "representation"),
+                ("c", "scoped"), ("missing", "id")];
+            let selected = indices.iter().map(|&index| {
+                let (vertex, key) = members[index];
+                (vertex.to_owned(), key.to_owned())
+            }).collect::<Vec<_>>();
+            let local = reference_target_signatures(&schema, &selected)
+                .map(|members| reference_keys::target_set(&members));
+            schema.target_sets.insert("targets".to_owned(), reference::TargetSet {
+                members: selected, scope: reference::KeyScope::Document,
+            });
+            compare_generated_declarations(&schema);
+            prop_assert_eq!(reference_member_mismatches(&schema), production_member_mismatches(&schema));
+            // The local signature predicate deliberately has no scope coordinate.
+            // On this all-document subdomain it decides complete admission.
+            if indices.iter().all(|&index| index < 6) {
+                prop_assert_eq!(local, Some(production_classes(&schema).0.is_empty()));
+            }
+        }
+    }
 }

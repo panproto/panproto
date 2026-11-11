@@ -23,15 +23,15 @@
 //! layout with an edge that has no image is not moved, and the cell is
 //! decoded from the remaining candidates or as a record-free leaf.
 //!
-//! The encoding is fully faithful over [`GraphKanHom`] and surjective on
-//! objects onto the conforming table instances, so it is an equivalence of
-//! categories (Leinster 2014, Prop 1.3.18, stated), and not an isomorphism:
-//! graphs that differ only in their layout encode to one table. For a fixed
-//! layout, decoding is a quasi-inverse (Leinster 2014, Ex 1.3.32(b), stated),
-//! and the adjunctions `Sigma -| Delta -| Pi` of the table functors transfer
-//! along the equivalence to the graph functors (Leinster 2014, Rem 2.1.11,
-//! stated). Since graphs that differ only in layout are isomorphic, the layout
-//! a graph Kan function selects is a choice of representative.
+//! The encoding is fully faithful over [`GraphKanHom`]. On its image it is
+//! an equivalence of categories (Leinster 2014, Prop 1.3.18, stated), since
+//! graphs that differ only in layout encode to one table. Successful
+//! decoding selects a representative; exhaustion and the final encoding
+//! check can prevent a conforming table from having that representative.
+//! The table hom-set bijections transfer wherever their decoded objects
+//! exist, and are natural on defined composites. Transferring the whole
+//! adjunctions `Sigma -| Delta -| Pi` additionally requires subcategories
+//! closed under these operations (Leinster 2014, Rem 2.1.11, stated).
 //!
 //! The same argument gives a fully faithful relational encoding of the
 //! states of a sketch data model (Johnson and Rosebrugh 2002, Prop 3.3,
@@ -870,7 +870,8 @@ fn collect_cell_layout(
 /// # Errors
 ///
 /// Returns the first conformance error, then node-id, edge-id, or edge-position
-/// exhaustion. No partial graph escapes.
+/// exhaustion, followed by the completed graph's first encodability refusal.
+/// No partial graph escapes.
 pub fn decode_graph(
     tables: &FInstance,
     side: EncodingSide<'_>,
@@ -917,17 +918,15 @@ fn decode_with_trace(
     conform(tables, &side)?;
 
     let row_ids: BTreeSet<u32> = tables.row_ids().into_iter().map(|row| row.0).collect();
-    let node_floor = row_ids
-        .iter()
-        .copied()
-        .chain(layout.reserved_node_ids.iter().copied());
-    let edge_floor = layout.reserved_edge_ids.iter().map(|edge| edge.0);
-    let node_allocator = IdAllocator::from_source(IdRange::FULL, node_floor);
-    let edge_allocator = IdAllocator::from_source(IdRange::FULL, edge_floor);
+    let (layout_nodes, layout_edges) = layout_ids(layout);
+    let node_allocator =
+        IdAllocator::from_source(IdRange::FULL, row_ids.iter().copied().chain(layout_nodes));
+    let edge_allocator = IdAllocator::from_source(IdRange::FULL, layout_edges);
+    preflight_decode_allocations(tables, &side, layout, node_allocator, edge_allocator)?;
     let mut state = DecodeState {
         graph: GInstance::new(),
         pending_edges: Vec::new(),
-        claimed_nodes: row_ids.clone(),
+        claimed_nodes: row_ids,
         claimed_edges: BTreeSet::new(),
         node_allocator,
         edge_allocator,
@@ -1007,11 +1006,92 @@ fn decode_with_trace(
             .insert_edge(pending.id, pending.edge)
             .map_err(graph_construction_error)?;
     }
+    check_encodable(&state.graph, &side)?;
     Ok(DecodeResult {
         graph: state.graph,
         cells,
         relations,
     })
+}
+
+// Prove all node allocations before any edge allocation, independently of
+// the materialization walk. The walk below repeats only deterministic hint
+// selection and integer allocation; no second graph is constructed.
+fn preflight_decode_allocations(
+    tables: &FInstance,
+    side: &SideData,
+    layout: &GraphLayout,
+    mut node_allocator: IdAllocator,
+    mut edge_allocator: IdAllocator,
+) -> Result<(), GraphKanError> {
+    let mut claimed_nodes = tables.row_ids().into_iter().map(|row| row.0).collect();
+    let mut edge_candidates = Vec::new();
+    for row in tables.row_ids() {
+        let Some(table) = tables.table_of(row) else {
+            continue;
+        };
+        for (column, arrow) in side.columns.get(table).into_iter().flatten() {
+            let candidate = tables
+                .row(row)
+                .and_then(|values| values.get(column))
+                .and_then(|value| {
+                    layout
+                        .cells
+                        .get(&(row, column.clone()))
+                        .filter(|cell| cell_fits(cell, value, arrow, side))
+                });
+            if let Some(cell) = candidate {
+                let (nodes, edges) = cell_order(cell)?;
+                for node in nodes {
+                    choose_node_id(Some(node), &mut claimed_nodes, &mut node_allocator)?;
+                }
+                edge_candidates.push(cell.attribute.id);
+                edge_candidates.extend(edges.into_iter().map(Some));
+            } else {
+                choose_node_id(None, &mut claimed_nodes, &mut node_allocator)?;
+                edge_candidates.push(None);
+            }
+        }
+    }
+    let mut claimed_edges = BTreeSet::new();
+    for candidate in edge_candidates {
+        choose_edge_id(candidate, &mut claimed_edges, &mut edge_allocator)?;
+    }
+    for (edge, pairs) in tables.foreign_keys() {
+        for &(source, target) in pairs {
+            let candidate = layout
+                .relations
+                .get(&(edge.clone(), source, target))
+                .and_then(|entry| entry.id);
+            choose_edge_id(candidate, &mut claimed_edges, &mut edge_allocator)?;
+        }
+    }
+    Ok(())
+}
+
+// Public layout hints may omit the reservation sets. Every stored identifier
+// still contributes to the fresh floor, including hints that will be discarded.
+fn layout_ids(layout: &GraphLayout) -> (BTreeSet<u32>, BTreeSet<u32>) {
+    let mut nodes = layout.reserved_node_ids.clone();
+    let mut edges: BTreeSet<u32> = layout.reserved_edge_ids.iter().map(|id| id.0).collect();
+    for (row, node) in &layout.table_nodes {
+        nodes.extend([row.0, node.id]);
+    }
+    for ((row, _), cell) in &layout.cells {
+        nodes.extend([row.0, cell.root]);
+        nodes.extend(cell.nodes.keys().copied());
+        nodes.extend(cell.nodes.values().map(|node| node.id));
+        edges.extend(cell.attribute.id.map(|id| id.0));
+        for (id, edge) in &cell.edges {
+            edges.insert(id.0);
+            nodes.extend([edge.src, edge.tgt]);
+        }
+    }
+    for ((_, source, target), edge) in &layout.relations {
+        nodes.extend([source.0, target.0]);
+        edges.extend(edge.id.map(|id| id.0));
+    }
+    (nodes, edges)
 }
 
 fn allocate_fresh(allocator: &mut IdAllocator) -> Result<u32, ()> {
@@ -1058,8 +1138,9 @@ fn cell_fits(cell: &CellLayout, value: &Value, arrow: &Edge, side: &SideData) ->
             .get(&node)
             .is_some_and(|node| node.anchor == *anchor)
     };
-    cell_order(cell).is_ok()
-        && anchored(cell.root, &arrow.tgt)
+    cell_order(cell).is_ok_and(|(nodes, edges)| {
+        nodes.len() == cell.nodes.len() && edges.len() == cell.edges.len()
+    }) && anchored(cell.root, &arrow.tgt)
         && cell.edges.values().all(|edge| {
             side.inner_edges.contains(&edge.edge)
                 && anchored(edge.src, &edge.edge.src)
@@ -1142,6 +1223,9 @@ fn fold_layout(cell: &CellLayout) -> Result<Value, ()> {
             .filter(|(_, edge)| edge.src == node)
             .map(|(id, edge)| (*id, edge))
             .collect();
+        if !outgoing.is_empty() && current.value.is_some() {
+            return Err(());
+        }
         let value = if outgoing.is_empty() {
             match current.value.as_ref() {
                 Some(FieldPresence::Present(value)) => value.clone(),
@@ -1149,6 +1233,11 @@ fn fold_layout(cell: &CellLayout) -> Result<Value, ()> {
                 None | Some(FieldPresence::Absent) => return Err(()),
             }
         } else if outgoing.iter().all(|(_, edge)| edge.position.is_some()) {
+            let positions: BTreeSet<Option<u32>> =
+                outgoing.iter().map(|(_, edge)| edge.position).collect();
+            if positions.len() != outgoing.len() {
+                return Err(());
+            }
             outgoing.sort_unstable_by_key(|(id, edge)| (edge.position, *id));
             Value::List(
                 outgoing
@@ -1159,7 +1248,12 @@ fn fold_layout(cell: &CellLayout) -> Result<Value, ()> {
         } else if outgoing.iter().all(|(_, edge)| edge.position.is_none()) {
             let mut fields = HashMap::new();
             for (_, edge) in outgoing {
-                fields.insert(column_name(&edge.edge), fold(cell, edge.tgt, visiting)?);
+                if fields
+                    .insert(column_name(&edge.edge), fold(cell, edge.tgt, visiting)?)
+                    .is_some()
+                {
+                    return Err(());
+                }
             }
             Value::Unknown(fields)
         } else {
@@ -1267,10 +1361,7 @@ fn cell_order(cell: &CellLayout) -> Result<(Vec<u32>, Vec<EdgeId>), GraphKanErro
         nodes: &mut Vec<u32>,
         edges: &mut Vec<EdgeId>,
     ) -> Result<(), GraphKanError> {
-        if !seen.insert(node) {
-            return Ok(());
-        }
-        if !cell.nodes.contains_key(&node) {
+        if !seen.insert(node) || !cell.nodes.contains_key(&node) {
             return Err(GraphKanError::NodeIdsExhausted);
         }
         nodes.push(node);
@@ -2560,10 +2651,14 @@ mod tests {
         let cell = CellLayout {
             root: 0,
             attribute: EdgeLayout::default(),
-            nodes: BTreeMap::from([(0, Node::new(0, "record")), (1, Node::new(1, "leaf"))]),
+            nodes: BTreeMap::from([
+                (0, Node::new(0, "record")),
+                (1, Node::new(1, "leaf")),
+                (2, Node::new(2, "leaf")),
+            ]),
             edges: BTreeMap::from([
                 (EdgeId(0), GEdge::new(0, 1, first)),
-                (EdgeId(1), GEdge::new(0, 1, second)),
+                (EdgeId(1), GEdge::new(0, 2, second)),
             ]),
         };
         let agreeing = present(move_cell(&cell, &Name::from("image"), |edge, source| {
@@ -2574,9 +2669,26 @@ mod tests {
                 name: edge.name.clone(),
             })
         }));
+        assert_eq!(agreeing.nodes[&0].anchor, Name::from("image"));
         assert_eq!(agreeing.nodes[&1].anchor, Name::from("shared"));
+        assert_eq!(agreeing.nodes[&2].anchor, Name::from("shared"));
+        assert_eq!(agreeing.edges.len(), 2);
+        assert!(move_cell(&cell, &Name::from("image"), |_, _| None).is_none());
 
-        let conflict = move_cell(&cell, &Name::from("image"), |edge, source| {
+        // A shared leaf is not a value subtree, even when both images agree.
+        let mut shared = cell;
+        shared.nodes.remove(&2);
+        present(shared.edges.get_mut(&EdgeId(1))).tgt = 1;
+        assert!(
+            move_cell(&shared, &Name::from("image"), |edge, source| Some(Edge {
+                src: source.clone(),
+                tgt: Name::from("shared"),
+                kind: edge.kind.clone(),
+                name: edge.name.clone(),
+            }))
+            .is_none()
+        );
+        let conflict = move_cell(&shared, &Name::from("image"), |edge, source| {
             Some(Edge {
                 src: source.clone(),
                 tgt: edge.name.clone()?,

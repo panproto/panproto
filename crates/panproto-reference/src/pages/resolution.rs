@@ -123,6 +123,10 @@ pub mod implementation {
     /// The resolution complement.
     #[derive(Clone, Debug, PartialEq, Eq, Default)]
     pub struct ResComplement {
+        /// Edge slots of the encoded source before resolution adds or removes carriers.
+        /// A recorded resolved occurrence takes priority when its carrier reuses
+        /// a removed source slot; other retained slots remain structural.
+        pub source_edges: BTreeSet<u32>,
         /// Resolved occurrences by their edge id.
         pub resolved: BTreeMap<u32, Occurrence>,
         /// The target each resolved occurrence's edge reached at get.
@@ -130,6 +134,8 @@ pub mod implementation {
         /// Unresolved occurrences with their reason, in (holder, reference,
         /// index) order.
         pub unresolved: Vec<(Occurrence, Unresolved)>,
+        /// Self-binding definition positions, kept separately from unresolved uses.
+        pub definition_occurrences: Vec<Occurrence>,
         /// The fragments of redirected holders, by their root.
         pub redirected: BTreeMap<u32, Fragment>,
         /// Inline occurrence metadata, keyed by the occurrence's incoming
@@ -260,11 +266,14 @@ pub mod implementation {
             RefSource::Variable { binder_key, .. } => Some(binder_key),
             _ => reference.target_key.as_ref(),
         };
-        schema
-            .keys
-            .get(&reference.target_vertex)?
-            .iter()
-            .find(|key| Some(&key.id) == key_id)
+        let keys = schema.keys.get(&reference.target_vertex)?;
+        match key_id {
+            Some(id) => keys.iter().find(|key| key.id == *id),
+            None if matches!(reference.source, RefSource::KeyValue { .. }) => {
+                keys.iter().find(|key| key.role == KeyRole::Primary)
+            }
+            None => None,
+        }
     }
 
     fn target_keys<'a>(
@@ -322,8 +331,43 @@ pub mod implementation {
         holder: u32,
         key: &[Value],
     ) -> Result<Vec<u32>, ResolveError> {
+        // Path occurrences keep their written literal. URI interpretation
+        // changes only the lookup tuple, never the recorded source spelling.
+        let interpreted;
+        let key = if let RefSource::Path { syntax, .. } = &reference.source {
+            let [Value::Str(written)] = key else {
+                return Ok(Vec::new());
+            };
+            let Some(resolved) = resolve_path(schema, graph, holder, syntax, written) else {
+                return Ok(Vec::new());
+            };
+            interpreted = vec![Value::Str(resolved)];
+            interpreted.as_slice()
+        } else {
+            key
+        };
+        key_candidates(schema, graph, reference, holder, key)
+    }
+
+    fn key_candidates(
+        schema: &Schema,
+        graph: &Graph,
+        reference: &Reference,
+        holder: u32,
+        key: &[Value],
+    ) -> Result<Vec<u32>, ResolveError> {
         let target_keys = target_keys(schema, reference);
         if target_keys.is_empty() {
+            if empty_document_key(schema, reference) && key.is_empty() {
+                return Ok(graph
+                    .nodes
+                    .iter()
+                    .filter(|(_, node)| {
+                        node.shape != NodeShape::HyperEdge && node.anchor == reference.target_vertex
+                    })
+                    .map(|(id, _)| *id)
+                    .collect());
+            }
             return Ok(Vec::new());
         }
         let target_scope = schema
@@ -377,26 +421,6 @@ pub mod implementation {
             if equal {
                 result.push(*id);
             }
-        }
-        if let RefSource::Variable { binding, .. } = &reference.source {
-            let order = document_order(graph);
-            let rank: BTreeMap<u32, usize> = order
-                .into_iter()
-                .enumerate()
-                .map(|(rank, node)| (node, rank))
-                .collect();
-            result.sort_by_key(|node| rank.get(node).copied().unwrap_or(usize::MAX));
-            result = match *binding {
-                VariableBinding::FirstDefines => result.into_iter().take(1).collect(),
-                VariableBinding::NearestPreceding => {
-                    let holder_rank = rank.get(&holder).copied().unwrap_or(usize::MAX);
-                    result
-                        .into_iter()
-                        .rfind(|node| rank.get(node).copied().is_some_and(|at| at < holder_rank))
-                        .into_iter()
-                        .collect()
-                }
-            };
         }
         Ok(result)
     }
@@ -501,20 +525,6 @@ pub mod implementation {
         }
     }
 
-    fn occurrence_literal(
-        graph: &Graph,
-        holder: u32,
-        reference: &Reference,
-        values: &[Value],
-    ) -> Value {
-        match &reference.source {
-            RefSource::Path { field, .. } => {
-                keys::path_value(graph, holder, field).unwrap_or_else(|| literal(values))
-            }
-            _ => literal(values),
-        }
-    }
-
     /// A part's value as a sequence: a list's items, one value, or none.
     fn sequence(v: Option<Value>) -> Vec<Value> {
         match v {
@@ -525,14 +535,14 @@ pub mod implementation {
     }
 
     /// The key tuples of a reference at a holder, one per occurrence: for
-    /// `One`, the parts' values when every part has one (else none); for
-    /// `Many`, the positional zip of the parts' sequences.
+    /// `One`, exactly one value per part (or no values on any part of a
+    /// nullable source); for `Many`, the positional zip of the part words.
     ///
     /// # Errors
     ///
-    /// [`ResolveError::ReferenceCardinalityMismatch`] when the sequences of a
-    /// `Many` reference have unequal lengths, or all have length 0 and the
-    /// reference is not nullable.
+    /// [`ResolveError::ReferenceCardinalityMismatch`] when a One source has
+    /// incompatible terminal counts, Many part words have unequal lengths,
+    /// or a nonnullable Many source has no occurrences.
     fn tuples(
         schema: &Schema,
         g: &Graph,
@@ -542,10 +552,7 @@ pub mod implementation {
         let RefSource::KeyValue { parts } = &r.source else {
             return non_key_tuples(schema, g, holder, r);
         };
-        match r.cardinality {
-            Cardinality::One => Ok(one_tuple(g, holder, r, parts)),
-            Cardinality::Many => many_tuples(g, holder, r, parts),
-        }
+        source_tuples(g, holder, r, parts, true)
     }
 
     fn non_key_tuples(
@@ -556,18 +563,12 @@ pub mod implementation {
     ) -> Result<Vec<Vec<Value>>, ResolveError> {
         match &reference.source {
             RefSource::KeyValue { .. } => unreachable!("key-value sources are handled by tuples"),
-            RefSource::Path { field, syntax } => {
-                let Some(Value::Str(written)) = keys::path_value(graph, holder, field) else {
-                    return Ok(Vec::new());
-                };
-                let resolved = resolve_path(schema, graph, holder, syntax, &written);
-                Ok(resolved
-                    .map(|value| vec![vec![Value::Str(value)]])
-                    .unwrap_or_default())
+            RefSource::Path { field, .. } => {
+                source_tuples(graph, holder, reference, std::slice::from_ref(field), false)
             }
-            RefSource::Variable { field, .. } => Ok(keys::path_value(graph, holder, field)
-                .map(|value| vec![vec![value]])
-                .unwrap_or_default()),
+            RefSource::Variable { field, .. } => {
+                source_tuples(graph, holder, reference, std::slice::from_ref(field), true)
+            }
             RefSource::Standoff { .. } => standoff_occurrences(schema, graph, holder, reference)
                 .map(|spans| spans.into_iter().map(|(_, tuple, _)| tuple).collect()),
             RefSource::Inline { field } => {
@@ -601,40 +602,92 @@ pub mod implementation {
         }
     }
 
-    fn one_tuple(
-        graph: &Graph,
-        holder: u32,
-        reference: &Reference,
-        parts: &[Vec<SEdge>],
-    ) -> Vec<Vec<Value>> {
-        let present: Option<Vec<Value>> = parts
+    /// All terminal values of a source path, in source arc-slot order.
+    /// Final-hop fields are used only when the entire frontier has no edge
+    /// with that label. Absent sites contribute no value; keyed One keeps
+    /// explicit nulls for matching, while other forms omit scalar-null sites.
+    fn source_values(graph: &Graph, holder: u32, path: &[SEdge], retain_null: bool) -> Vec<Value> {
+        let own = |id: u32| {
+            graph.nodes.get(&id).and_then(|node| match &node.value {
+                Some(Presence::Present(value)) if retain_null || *value != Value::Null => {
+                    Some(value.clone())
+                }
+                Some(Presence::Null) if retain_null => Some(Value::Null),
+                _ => None,
+            })
+        };
+        let Some((last, hops)) = path.split_last() else {
+            return own(holder).into_iter().collect();
+        };
+        let mut frontier = vec![holder];
+        for hop in hops {
+            frontier = frontier
+                .iter()
+                .flat_map(|id| {
+                    graph.edges.values().filter_map(move |edge| {
+                        (edge.src == *id && edge.label == *hop).then_some(edge.tgt)
+                    })
+                })
+                .collect();
+        }
+        let reached: Vec<u32> = frontier
             .iter()
-            .map(|part| path_value_or_null(graph, holder, part))
+            .flat_map(|id| {
+                graph.edges.values().filter_map(move |edge| {
+                    (edge.src == *id && edge.label == *last).then_some(edge.tgt)
+                })
+            })
             .collect();
-        present
-            .filter(|tuple| tuple_is_present(reference, tuple))
-            .into_iter()
-            .collect()
+        if reached.is_empty() {
+            frontier
+                .into_iter()
+                .filter_map(|id| graph.nodes.get(&id)?.fields.get(last.column()))
+                .filter(|value| retain_null || **value != Value::Null)
+                .cloned()
+                .collect()
+        } else {
+            reached.into_iter().filter_map(own).collect()
+        }
     }
 
-    fn many_tuples(
+    /// Read the complete source words before interpreting their values.
+    /// Keyed forms retain explicit One nulls and apply tuple null matching;
+    /// provider paths and standoff coordinates use the raw present tuples.
+    fn source_tuples(
         graph: &Graph,
         holder: u32,
         reference: &Reference,
         parts: &[Vec<SEdge>],
+        keyed: bool,
     ) -> Result<Vec<Vec<Value>>, ResolveError> {
+        let one = reference.cardinality == Cardinality::One;
         let sequences: Vec<Vec<Value>> = parts
             .iter()
-            .map(|part| sequence(keys::path_value(graph, holder, part)))
+            .map(|part| {
+                let values = source_values(graph, holder, part, keyed && one);
+                if one {
+                    values
+                } else {
+                    values
+                        .into_iter()
+                        .flat_map(|value| sequence(Some(value)))
+                        .collect()
+                }
+            })
             .collect();
         let lengths: Vec<u64> = sequences
             .iter()
-            .map(|sequence| u64::try_from(sequence.len()).unwrap_or(u64::MAX))
+            .map(|part| u64::try_from(part.len()).unwrap_or(u64::MAX))
             .collect();
-        let count = sequences.first().map_or(0, Vec::len);
-        if sequences.iter().any(|sequence| sequence.len() != count)
-            || (count == 0 && !reference.nullable && !parts.is_empty())
-        {
+        let count = if one {
+            1
+        } else {
+            sequences.first().map_or(0, Vec::len)
+        };
+        if one && reference.nullable && !parts.is_empty() && lengths.iter().all(|n| *n == 0) {
+            return Ok(Vec::new());
+        }
+        if sequences.iter().any(|part| part.len() != count) || (count == 0 && !reference.nullable) {
             return Err(ResolveError::ReferenceCardinalityMismatch {
                 reference: reference.id.clone(),
                 at: ViewRef::Node(holder),
@@ -645,10 +698,10 @@ pub mod implementation {
             .map(|index| {
                 sequences
                     .iter()
-                    .map(|sequence| sequence[index].clone())
+                    .map(|part| part[index].clone())
                     .collect::<Vec<_>>()
             })
-            .filter(|tuple| tuple_is_present(reference, tuple))
+            .filter(|tuple| !keyed || tuple_is_present(reference, tuple))
             .collect())
     }
 
@@ -699,6 +752,20 @@ pub mod implementation {
         else {
             return Ok(Vec::new());
         };
+        let paths = [start_path.clone(), end_path.clone()];
+        let mut pairs = Vec::new();
+        for coordinate_holder in coordinate_holders {
+            pairs.extend(source_tuples(
+                graph,
+                *coordinate_holder,
+                reference,
+                &paths,
+                false,
+            )?);
+        }
+        if pairs.is_empty() {
+            return Ok(Vec::new());
+        }
         let text = standoff_text(schema, graph, holder, text_source).map_err(|length| {
             ResolveError::ReferenceCardinalityMismatch {
                 reference: reference.id.clone(),
@@ -706,21 +773,17 @@ pub mod implementation {
                 lengths: vec![u64::try_from(length).unwrap_or(u64::MAX)],
             }
         })?;
+        let unsupported = || ResolveError::UnsupportedSource {
+            reference: reference.id.clone(),
+        };
         let mut spans = Vec::new();
-        for coordinate_holder in coordinate_holders {
-            let Some(written_start) = keys::path_value(graph, *coordinate_holder, start_path)
-                .as_ref()
-                .and_then(unsigned)
-            else {
-                continue;
+        for values in pairs {
+            let [start_value, end_value] = values.as_slice() else {
+                return Err(unsupported());
             };
-            let Some(written_end) = keys::path_value(graph, *coordinate_holder, end_path)
-                .as_ref()
-                .and_then(unsigned)
-            else {
-                continue;
-            };
-            let Some((relative_start, relative_end)) = standoff_bytes(
+            let written_start = unsigned(start_value).ok_or_else(unsupported)?;
+            let written_end = unsigned(end_value).ok_or_else(unsupported)?;
+            let (relative_start, relative_end) = standoff_bytes(
                 &text.text,
                 written_start,
                 written_end,
@@ -728,79 +791,25 @@ pub mod implementation {
                 *end_form,
                 *end_inclusive,
                 *unit,
-            ) else {
-                continue;
-            };
-            let Some(start) = relative_start.checked_add(text.base_byte) else {
-                continue;
-            };
-            let Some(end) = relative_end.checked_add(text.base_byte) else {
-                continue;
-            };
-            let (Ok(start_value), Ok(end_value)) = (i64::try_from(start), i64::try_from(end))
-            else {
-                continue;
-            };
+            )
+            .ok_or_else(unsupported)?;
+            let start = relative_start
+                .checked_add(text.base_byte)
+                .ok_or_else(unsupported)?;
+            let end = relative_end
+                .checked_add(text.base_byte)
+                .ok_or_else(unsupported)?;
             spans.push((
                 ResolutionSpan {
                     text: text.identity.clone(),
                     start,
                     end,
                 },
-                vec![Value::Int(start_value), Value::Int(end_value)],
+                values,
                 text.context.clone(),
             ));
         }
         Ok(spans)
-    }
-
-    fn path_value_or_null(graph: &Graph, holder: u32, path: &[SEdge]) -> Option<Value> {
-        if let Some(value) = keys::path_value(graph, holder, path) {
-            return Some(value);
-        }
-        let (last, hops) = path.split_last()?;
-        let mut frontier = vec![holder];
-        for hop in hops {
-            frontier = frontier
-                .iter()
-                .flat_map(|source| {
-                    graph
-                        .edges
-                        .values()
-                        .filter(move |edge| edge.src == *source && edge.label == *hop)
-                        .map(|edge| edge.tgt)
-                })
-                .collect();
-        }
-        frontier.into_iter().find_map(|source| {
-            let targets: Vec<u32> = graph
-                .edges
-                .values()
-                .filter(|edge| edge.src == source && edge.label == *last)
-                .map(|edge| edge.tgt)
-                .collect();
-            if targets.is_empty() {
-                graph
-                    .nodes
-                    .get(&source)?
-                    .fields
-                    .get(last.column())
-                    .filter(|value| **value == Value::Null)
-                    .cloned()
-            } else {
-                targets.into_iter().find_map(|target| {
-                    graph
-                        .nodes
-                        .get(&target)?
-                        .value
-                        .as_ref()
-                        .and_then(|presence| {
-                            matches!(presence, Presence::Null | Presence::Present(Value::Null))
-                                .then_some(Value::Null)
-                        })
-                })
-            }
-        })
     }
 
     pub(crate) fn reference_tuples(
@@ -1304,6 +1313,9 @@ pub mod implementation {
             SpanEnd::Length => start.checked_add(written_end)?,
         };
         if inclusive {
+            if end < start {
+                return None;
+            }
             end = end.checked_add(1)?;
         }
         let start = unit_boundary(text, start, unit)?;
@@ -1808,6 +1820,7 @@ pub mod implementation {
         let (mut g, _) = tree_to_graph(t, Some(schema)).map_err(|_| ResolveError::NotATree)?;
         let base = g.clone();
         let mut c = ResComplement {
+            source_edges: base.edges.keys().copied().collect(),
             root: t.root,
             ..ResComplement::default()
         };
@@ -1818,6 +1831,8 @@ pub mod implementation {
         insert_resolution_edges(schema, &mut g, resolved, &inside, &mut c)?;
         c.unresolved
             .retain(|(o, _)| !inside.contains(&o.holder) || c.redirected.contains_key(&o.holder));
+        c.definition_occurrences
+            .retain(|o| !inside.contains(&o.holder) || c.redirected.contains_key(&o.holder));
         Ok((g, c))
     }
 
@@ -2005,6 +2020,70 @@ pub mod implementation {
             })
     }
 
+    #[derive(PartialEq, Eq)]
+    enum BindingFate {
+        Outside,
+        Definition,
+        Use(u32),
+    }
+
+    /// Interpret a self-binding variable at its exact source-word position.
+    /// Earlier uses also become candidate binders under `NearestPreceding`.
+    fn binding_fate(
+        schema: &Schema,
+        graph: &Graph,
+        reference: &Reference,
+        holder: u32,
+        index: u32,
+        tuple: &[Value],
+    ) -> Result<BindingFate, ResolveError> {
+        let key = target_key(schema, reference).ok_or_else(|| ResolveError::UnsupportedSource {
+            reference: reference.id.clone(),
+        })?;
+        let scope = if let KeyScope::Within(vertex) = &key.scope {
+            let Some(scope) = keys::nearest_ancestor(graph, holder, vertex) else {
+                return Ok(BindingFate::Outside);
+            };
+            Some((vertex, scope))
+        } else {
+            None
+        };
+        let RefSource::Variable { field, binding, .. } = &reference.source else {
+            unreachable!("self_binding selected a variable");
+        };
+        let mut previous = None;
+        for node in document_order(graph) {
+            if graph.nodes[&node].anchor != reference.holder
+                || guard_rejects(graph, node, reference)
+            {
+                continue;
+            }
+            if scope.is_some_and(|(vertex, bucket)| {
+                keys::nearest_ancestor(graph, node, vertex) != Some(bucket)
+            }) {
+                continue;
+            }
+            for (at, candidate) in
+                source_tuples(graph, node, reference, std::slice::from_ref(field), true)?
+                    .iter()
+                    .enumerate()
+            {
+                if node == holder && u32::try_from(at).ok() == Some(index) {
+                    return Ok(previous.map_or(BindingFate::Definition, BindingFate::Use));
+                }
+                if keys::tuple_equivalence(key, candidate, tuple)
+                    .map_err(|error| key_error(reference, error))?
+                    && (previous.is_none() || *binding == VariableBinding::NearestPreceding)
+                {
+                    previous = Some(node);
+                }
+            }
+        }
+        Err(ResolveError::UnsupportedSource {
+            reference: reference.id.clone(),
+        })
+    }
+
     fn resolve_reference_occurrences(
         schema: &Schema,
         base: &Graph,
@@ -2027,21 +2106,25 @@ pub mod implementation {
                 holder,
                 reference: reference.id.clone(),
                 index,
-                literal: occurrence_literal(base, holder, reference, &values),
+                literal: literal(&values),
             };
             let nulls = null_candidates(schema, base, reference, &values)?;
             if matches!(nulls.as_slice(), [_]) {
                 complement.unresolved.push((occurrence, Unresolved::Null));
                 continue;
             }
-            let mut found = candidates(schema, base, reference, holder, &values)?;
-            // A self-binding variable's occurrence that binds no definition
-            // before it is itself a definition: it adds no edge and records
-            // no occurrence.
-            if self_binding(schema, reference) && (found.is_empty() || found.as_slice() == [holder])
-            {
-                continue;
-            }
+            let mut found = if self_binding(schema, reference) {
+                match binding_fate(schema, base, reference, holder, index, &values)? {
+                    BindingFate::Outside => Vec::new(),
+                    BindingFate::Definition => {
+                        complement.definition_occurrences.push(occurrence);
+                        continue;
+                    }
+                    BindingFate::Use(target) => vec![target],
+                }
+            } else {
+                candidates(schema, base, reference, holder, &values)?
+            };
             add_materialized_span_candidate(
                 schema, base, holder, reference, index, complement, &mut found,
             )?;
@@ -2238,7 +2321,7 @@ pub mod implementation {
     /// node's own-value site, or the field fallback of the last hop. A
     /// present arc or holder determines the site even when its current value
     /// is absent or null.
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     enum Site {
         Own(u32),
         Field(u32, String),
@@ -2250,7 +2333,9 @@ pub mod implementation {
     /// site is the first candidate holding a non-null value, which is where
     /// `keys::path_value` reads, else the first candidate.
     fn path_site(g: &Graph, n: u32, path: &[SEdge]) -> Option<Site> {
-        let (last, hops) = path.split_last()?;
+        let Some((last, hops)) = path.split_last() else {
+            return g.nodes.contains_key(&n).then_some(Site::Own(n));
+        };
         let mut frontier = vec![n];
         for hop in hops {
             frontier = frontier
@@ -2327,25 +2412,34 @@ pub mod implementation {
 
     /// An occurrence as put writes it back: its key tuple and the target it
     /// must re-resolve to (`None` for a recorded unresolved occurrence, which
-    /// keeps its literal and is not re-resolved).
+    /// keeps its literal and must remain unresolved).
     #[derive(Clone)]
     struct Written {
         tuple: Vec<Value>,
         target: Option<u32>,
+        // Final word indices can reuse a removed original slot. Keep origin
+        // independently for placement and retained-unresolved verification.
+        original_index: Option<u32>,
+        /// This source position defines a self-binding variable and creates no edge.
+        is_definition: bool,
     }
 
     /// The key tuple an occurrence's literal holds.
     fn tuple_of(literal: &Value, parts: usize) -> Vec<Value> {
         match literal {
-            Value::List(items) if parts > 1 => items.clone(),
+            Value::List(items) if parts != 1 => items.clone(),
             other => vec![other.clone()],
         }
     }
 
     /// Definition: Resolution put.
     ///
-    /// Every view edge labelled with a reference's edge is a resolution edge:
-    /// one the complement records, with its source unchanged (the holder, or
+    /// Recorded original structural edges retain their role even when their
+    /// label also names a reference. A recorded resolution occurrence takes
+    /// priority if its synthesized carrier reuses a removed source slot; an
+    /// unrecorded edge reusing a hidden fragment's slot is refused. Among the
+    /// remaining reference-labelled edges, one the complement records, with
+    /// its source unchanged (the holder, or
     /// for a redirect the fragment's parent), keeps its occurrence, written
     /// with its literal when its target is unchanged and with the new target's
     /// key otherwise; one the complement does not record is a new occurrence of
@@ -2354,12 +2448,16 @@ pub mod implementation {
     /// is `UnrepresentableReference`. A recorded occurrence whose edge the view
     /// removed is removed from its holder's sequence, and its fragment is not
     /// restored. The fragments of kept redirected occurrences are restored,
-    /// each holder's sequences are written at its key sites (for `One` the one
-    /// tuple or none; for `Many` each part's list). Those written sites must
+    /// each holder's sequences are written at its key sites when their current
+    /// observation differs (for `One` the one tuple or none; for `Many` each
+    /// part's list). Equal observations retain exact source syntax, including
+    /// scalar/list distinctions and null slots. Those written sites must
     /// already have the same values in the candidate view because they remain
     /// visible beside the synthesized resolution edges. The result is read
-    /// back as the tree with the recorded root, and every written occurrence
-    /// must re-resolve to exactly its target.
+    /// back as the tree with the recorded root. Re-reading must yield exactly
+    /// the requested resolved occurrences and preserve visible span payloads;
+    /// retained unresolved occurrences cannot become extra resolved edges.
+    /// Lenient Error occurrences also retain their recorded unresolved reason.
     ///
     /// # Errors
     ///
@@ -2377,6 +2475,25 @@ pub mod implementation {
         let mut kept_fragments: BTreeSet<u32> = BTreeSet::new();
         let mut appended: Vec<(u32, Name, u32)> = Vec::new();
         for (id, edge) in &view.edges {
+            if comp.inline.contains_key(id) {
+                // Recorded inline attachments are restored by their own occurrence
+                // metadata, even when their source slots belong to hidden fragments.
+                continue;
+            }
+            if comp.source_edges.contains(id) && !comp.resolved.contains_key(id) {
+                if comp
+                    .redirected
+                    .values()
+                    .chain(comp.inline_fragments.values())
+                    .any(|fragment| fragment.edges.contains_key(id))
+                {
+                    return Err(ResolveError::UnrepresentableReference {
+                        carrier: ViewRef::Edge(*id),
+                        reference: None,
+                    });
+                }
+                continue;
+            }
             if !declared
                 .iter()
                 .any(|reference| edge_matches_reference(schema, view, reference, edge))
@@ -2408,12 +2525,10 @@ pub mod implementation {
             }
         }
         for (holder, reference, target) in appended {
-            let tuple =
-                target_tuple_for_put(schema, view, comp, &reference, target).ok_or_else(|| {
-                    ResolveError::UnrepresentableReference {
-                        carrier: ViewRef::Node(holder),
-                        reference: Some(reference.clone()),
-                    }
+            let tuple = target_tuple_for_put(schema, view, comp, holder, &reference, target)
+                .ok_or_else(|| ResolveError::UnrepresentableReference {
+                    carrier: ViewRef::Node(holder),
+                    reference: Some(reference.clone()),
                 })?;
             let seq = sequences.entry((holder, reference)).or_default();
             let next = seq.keys().next_back().map_or(0, |k| k + 1);
@@ -2422,10 +2537,12 @@ pub mod implementation {
                 Written {
                     tuple,
                     target: Some(target),
+                    original_index: None,
+                    is_definition: false,
                 },
             );
         }
-        verify_visible_sequences(schema, view, comp, &sequences)?;
+        verify_visible_sequences(schema, &graph, comp, &sequences)?;
         restore_fragments(&mut graph, comp, &kept_fragments);
         write_sequences(schema, comp, &mut graph, &sequences)?;
         restore_inline_occurrences(view, comp, &mut graph)?;
@@ -2437,13 +2554,15 @@ pub mod implementation {
             .map_err(|_| ResolveError::NotATree)?;
         let (check, _) = tree_to_graph(&tree, Some(schema)).map_err(|_| ResolveError::NotATree)?;
         verify_sequences(schema, &check, comp, &sequences)?;
+        verify_resolved_occurrences(schema, view, &tree, comp, &sequences)?;
         Ok(tree)
     }
 
     /// Require every source representation rewritten by put to agree already
-    /// with the candidate view. Resolution edges and their declared source
-    /// sites are both observable in that view; accepting a stale source site
-    /// would therefore violate `PutGet` even when the edge itself is writable.
+    /// with the candidate's syntactic projection, after resolution edges have
+    /// been removed. Those edges can share a source-path label and must not
+    /// shadow the original value sites. Accepting a stale source site would
+    /// violate `PutGet` even when its resolution edge is writable.
     fn verify_visible_sequences(
         schema: &Schema,
         view: &Graph,
@@ -2461,6 +2580,7 @@ pub mod implementation {
             if !view.nodes.contains_key(&holder) {
                 continue;
             }
+            let original = source_word(view, holder, &schema.references[&reference])?;
             let mut rewritten = view.clone();
             write_sequence(
                 schema,
@@ -2470,6 +2590,7 @@ pub mod implementation {
                 sequences
                     .get(&(holder, reference.clone()))
                     .unwrap_or(&empty),
+                original.as_ref(),
             )?;
             if rewritten != *view {
                 return Err(unrepresentable(holder, &reference));
@@ -2482,13 +2603,29 @@ pub mod implementation {
         schema: &Schema,
         graph: &Graph,
         complement: &ResComplement,
+        holder: u32,
         reference: &str,
         target: u32,
     ) -> Option<Vec<Value>> {
         if let Some(span) = complement.span_nodes.get(&target) {
-            let start = i64::try_from(span.start).ok()?;
-            let end = i64::try_from(span.end).ok()?;
-            return Some(vec![Value::Int(start), Value::Int(end)]);
+            // Resolution edges can share source-path labels. Read the
+            // structural projection with hidden source holders restored.
+            let mut source = graph.clone();
+            for edge in complement.resolved.keys() {
+                source.edges.remove(edge);
+            }
+            restore_fragments(
+                &mut source,
+                complement,
+                &complement.redirected.keys().copied().collect(),
+            );
+            return render_standoff_tuple(
+                schema,
+                &source,
+                holder,
+                &schema.references[reference],
+                span,
+            );
         }
         target_tuple(schema, graph, reference, target)
     }
@@ -2787,6 +2924,25 @@ pub mod implementation {
                             parts_len(schema, &occurrence.reference),
                         ),
                         target: None,
+                        original_index: Some(occurrence.index),
+                        is_definition: false,
+                    },
+                );
+        }
+        for occurrence in &complement.definition_occurrences {
+            sequences
+                .entry((occurrence.holder, occurrence.reference.clone()))
+                .or_insert_with(BTreeMap::new)
+                .insert(
+                    occurrence.index,
+                    Written {
+                        tuple: tuple_of(
+                            &occurrence.literal,
+                            parts_len(schema, &occurrence.reference),
+                        ),
+                        target: None,
+                        original_index: Some(occurrence.index),
+                        is_definition: true,
                     },
                 );
         }
@@ -2818,11 +2974,18 @@ pub mod implementation {
                 parts_len(schema, &occurrence.reference),
             )
         } else {
-            target_tuple_for_put(schema, view, complement, &occurrence.reference, edge.tgt)
-                .ok_or_else(|| ResolveError::UnrepresentableReference {
-                    carrier: ViewRef::Edge(id),
-                    reference: Some(occurrence.reference.clone()),
-                })?
+            target_tuple_for_put(
+                schema,
+                view,
+                complement,
+                occurrence.holder,
+                &occurrence.reference,
+                edge.tgt,
+            )
+            .ok_or_else(|| ResolveError::UnrepresentableReference {
+                carrier: ViewRef::Edge(id),
+                reference: Some(occurrence.reference.clone()),
+            })?
         };
         sequences
             .entry((occurrence.holder, occurrence.reference.clone()))
@@ -2832,6 +2995,8 @@ pub mod implementation {
                 Written {
                     tuple,
                     target: Some(edge.tgt),
+                    original_index: Some(occurrence.index),
+                    is_definition: false,
                 },
             );
         Ok(())
@@ -2883,6 +3048,9 @@ pub mod implementation {
         sequences: &BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
     ) -> Result<(), ResolveError> {
         for ((holder, reference), sequence) in sequences {
+            if !graph.nodes.contains_key(holder) {
+                continue;
+            }
             let declaration = &schema.references[reference];
             let found = tuples(schema, graph, *holder, declaration).map_err(|_| {
                 ResolveError::UnrepresentableReference {
@@ -2920,6 +3088,11 @@ pub mod implementation {
                         });
                     }
                     span == target_span && tuple == key
+                } else if self_binding(schema, declaration) {
+                    let index =
+                        u32::try_from(index).map_err(|_| unrepresentable(*holder, reference))?;
+                    binding_fate(schema, graph, declaration, *holder, index, key)?
+                        == BindingFate::Use(target)
                 } else {
                     candidates(schema, graph, declaration, *holder, key)? == vec![target]
                 };
@@ -2929,6 +3102,186 @@ pub mod implementation {
                         reference: Some(reference.clone()),
                     });
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-resolve the complete reconstructed source. A retained unresolved
+    /// tuple contributes no requested edge; neither it nor an untouched
+    /// holder/guard may create an additional resolved occurrence. Unresolved
+    /// reasons may change for Complement declarations. Dense indices follow the
+    /// same filtered occurrence words used by get, not raw source list slots.
+    fn verify_resolved_occurrences(
+        schema: &Schema,
+        view: &Graph,
+        tree: &Tree,
+        complement: &ResComplement,
+        sequences: &BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
+    ) -> Result<(), ResolveError> {
+        let (regotten, reread) = get(schema, tree, true)?;
+        let mut requested = BTreeMap::new();
+        for ((holder, reference), sequence) in sequences {
+            for (index, written) in sequence.values().enumerate() {
+                if let Some(target) = written.target {
+                    let index =
+                        u32::try_from(index).map_err(|_| unrepresentable(*holder, reference))?;
+                    requested.insert((*holder, reference.clone(), index), target);
+                }
+            }
+        }
+        let actual: BTreeMap<_, _> = reread
+            .resolved
+            .iter()
+            .map(|(edge, occurrence)| {
+                (
+                    (
+                        occurrence.holder,
+                        occurrence.reference.clone(),
+                        occurrence.index,
+                    ),
+                    reread.targets[edge],
+                )
+            })
+            .collect();
+        let keys: BTreeSet<_> = requested.keys().chain(actual.keys()).collect();
+        for key @ (holder, reference, _) in keys {
+            let agrees = match (requested.get(key), actual.get(key)) {
+                (Some(wanted), Some(found)) => {
+                    match (
+                        complement.span_nodes.get(wanted),
+                        reread.span_nodes.get(found),
+                    ) {
+                        (Some(before), Some(after)) => {
+                            let wanted_context = complement.span_contexts.get(wanted);
+                            let found_context = reread.span_contexts.get(found);
+                            before == after && wanted_context == found_context
+                        }
+                        (None, None) => wanted == found,
+                        _ => false,
+                    }
+                }
+                _ => false,
+            };
+            if !agrees {
+                return Err(unrepresentable(*holder, reference));
+            }
+        }
+        verify_unresolved_fates(schema, complement, &reread, sequences)?;
+        verify_definition_fates(tree, &reread, sequences)?;
+        verify_span_nodes(view, complement, &regotten, &reread)
+    }
+
+    /// Preserve recorded definitions at their retained word positions.
+    /// Additional definitions from visible source data remain subject to
+    /// the independent resolved-edge and source comparisons.
+    fn verify_definition_fates(
+        tree: &Tree,
+        reread: &ResComplement,
+        sequences: &BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
+    ) -> Result<(), ResolveError> {
+        for ((holder, reference), word) in sequences {
+            if !tree.nodes.contains_key(holder) {
+                continue;
+            }
+            for (index, written) in word.values().enumerate() {
+                if !written.is_definition {
+                    continue;
+                }
+                let retained = reread.definition_occurrences.iter().any(|occurrence| {
+                    occurrence.holder == *holder
+                        && occurrence.reference == *reference
+                        && usize::try_from(occurrence.index).ok() == Some(index)
+                        && occurrence.literal == literal(&written.tuple)
+                });
+                if !retained {
+                    return Err(unrepresentable(*holder, reference));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Materialized spans have no source node to preserve their payload.
+    /// Compare every visible span to the complete reread node, allowing only
+    /// the fresh carrier id to change, and reject an unrequested reread span.
+    fn verify_span_nodes(
+        view: &Graph,
+        original: &ResComplement,
+        regotten: &Graph,
+        reread: &ResComplement,
+    ) -> Result<(), ResolveError> {
+        let mut matched = BTreeSet::new();
+        for (id, span) in &original.span_nodes {
+            let Some(wanted) = view.nodes.get(id) else {
+                continue;
+            };
+            let wanted_context = original.span_contexts.get(id);
+            let counterpart = reread.span_nodes.iter().find(|(found, candidate)| {
+                let found_context = reread.span_contexts.get(found);
+                *candidate == span && wanted_context == found_context
+            });
+            let agrees = counterpart.is_some_and(|(found, _)| {
+                let mut expected = wanted.clone();
+                expected.id = *found;
+                matched.insert(*found);
+                regotten.nodes.get(found) == Some(&expected)
+            });
+            if !agrees {
+                return Err(ResolveError::UnrepresentableReference {
+                    carrier: ViewRef::Node(*id),
+                    reference: None,
+                });
+            }
+        }
+        for id in reread.span_nodes.keys() {
+            if !matched.contains(id) {
+                let holder = reread.resolved.iter().find_map(|(edge, occurrence)| {
+                    (reread.targets[edge] == *id).then_some(occurrence)
+                });
+                return Err(holder.map_or_else(
+                    || ResolveError::UnrepresentableReference {
+                        carrier: ViewRef::Node(*id),
+                        reference: None,
+                    },
+                    |occurrence| unrepresentable(occurrence.holder, &occurrence.reference),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Lenient Error occurrences retain their recorded unresolved fate;
+    /// Complement declarations may remain unresolved for a different reason.
+    /// Match the dense reread position through the requested word to its
+    /// recorded original source index; appended positions have no old fate.
+    fn verify_unresolved_fates(
+        schema: &Schema,
+        original: &ResComplement,
+        reread: &ResComplement,
+        sequences: &BTreeMap<(u32, Name), BTreeMap<u32, Written>>,
+    ) -> Result<(), ResolveError> {
+        for (occurrence, reason) in &reread.unresolved {
+            if schema.references[&occurrence.reference].on_unresolved != OnUnresolved::Error {
+                continue;
+            }
+            let old_index = if matches!(reason, Unresolved::Unselected(_)) {
+                occurrence.index
+            } else {
+                sequences
+                    .get(&(occurrence.holder, occurrence.reference.clone()))
+                    .and_then(|word| word.values().nth(usize::try_from(occurrence.index).ok()?))
+                    .and_then(|written| written.original_index)
+                    .ok_or_else(|| unrepresentable(occurrence.holder, &occurrence.reference))?
+            };
+            let retained = original.unresolved.iter().any(|(before, prior_reason)| {
+                before.holder == occurrence.holder
+                    && before.reference == occurrence.reference
+                    && before.index == old_index
+                    && prior_reason == reason
+            });
+            if !retained {
+                return Err(unrepresentable(occurrence.holder, &occurrence.reference));
             }
         }
         Ok(())
@@ -2949,8 +3302,7 @@ pub mod implementation {
         }
     }
 
-    /// A declaration form outside the domain of the phase-three resolution
-    /// laws.
+    /// A declaration form outside the domain of the resolution laws.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub enum DeferredForm {
         /// An identified inline occurrence.
@@ -2972,7 +3324,7 @@ pub mod implementation {
     }
 
     /// Definition: The first form of `reference` outside the domain of the
-    /// phase-three laws.
+    /// resolution laws.
     ///
     /// The forms are tried in a fixed order: an inline source, a target-set
     /// target, a null vertex, a scope reached through references, standoff
@@ -3688,6 +4040,14 @@ pub mod implementation {
 
     /// The key tuple of a target under a reference's target key, read in the
     /// view.
+    /// With no selected key, an empty key-value source names targets by
+    /// their empty document-scoped tuple.
+    fn empty_document_key(schema: &Schema, reference: &Reference) -> bool {
+        matches!(&reference.source, RefSource::KeyValue { parts } if parts.is_empty())
+            && !schema.target_sets.contains_key(&reference.target_vertex)
+            && target_key(schema, reference).is_none()
+    }
+
     fn target_tuple(
         schema: &Schema,
         view: &Graph,
@@ -3696,15 +4056,219 @@ pub mod implementation {
     ) -> Option<Vec<Value>> {
         let r = schema.references.get(reference)?;
         let anchor = &view.nodes.get(&target)?.anchor;
+        if empty_document_key(schema, r) && *anchor == r.target_vertex {
+            return Some(Vec::new());
+        }
         let (_, key) = target_keys(schema, r)
             .into_iter()
             .find(|(vertex, _)| *vertex == anchor)?;
         keys::key_value(view, target, key)
     }
 
+    /// Original physical sites and the raw rows retained by null matching.
+    struct SourceWord {
+        columns: Vec<Vec<(Site, Option<Value>)>>,
+        rows: Vec<usize>,
+    }
+
+    /// Enumerate source sites before reading their values. Fallback is global
+    /// to the last-hop frontier, so absent reached sites still prevent fallback.
+    fn source_sites(graph: &Graph, holder: u32, path: &[SEdge]) -> Vec<Site> {
+        let Some((last, hops)) = path.split_last() else {
+            return vec![Site::Own(holder)];
+        };
+        let mut frontier = vec![holder];
+        for hop in hops {
+            frontier = frontier
+                .iter()
+                .flat_map(|node| {
+                    graph.edges.values().filter_map(move |edge| {
+                        (edge.src == *node && edge.label == *hop).then_some(edge.tgt)
+                    })
+                })
+                .collect();
+        }
+        let reached: Vec<_> = frontier
+            .iter()
+            .flat_map(|node| {
+                graph.edges.values().filter_map(move |edge| {
+                    (edge.src == *node && edge.label == *last).then_some(Site::Own(edge.tgt))
+                })
+            })
+            .collect();
+        if reached.is_empty() {
+            frontier
+                .into_iter()
+                .map(|node| Site::Field(node, last.column().to_owned()))
+                .collect()
+        } else {
+            reached
+        }
+    }
+
+    fn source_site_value(graph: &Graph, site: &Site) -> Option<Value> {
+        let value = match site {
+            Site::Own(node) => match graph.nodes.get(node)?.value.as_ref()? {
+                Presence::Present(value) => value,
+                Presence::Absent | Presence::Null => return None,
+            },
+            Site::Field(node, field) => graph.nodes.get(node)?.fields.get(field)?,
+        };
+        (*value != Value::Null).then(|| value.clone())
+    }
+
+    /// Snapshot every declaration before overlapping declarations write.
+    fn source_word(
+        graph: &Graph,
+        holder: u32,
+        reference: &Reference,
+    ) -> Result<Option<SourceWord>, ResolveError> {
+        let (parts, keyed): (Vec<&[SEdge]>, bool) = match &reference.source {
+            RefSource::KeyValue { parts } => (parts.iter().map(Vec::as_slice).collect(), true),
+            RefSource::Variable { field, .. } => (vec![field.as_slice()], true),
+            RefSource::Path { field, .. } => (vec![field.as_slice()], false),
+            RefSource::Standoff {
+                start,
+                end,
+                fragments: None,
+                ..
+            } => (vec![start.as_slice(), end.as_slice()], false),
+            _ => return Ok(None),
+        };
+        if reference.cardinality != Cardinality::Many {
+            return Ok(None);
+        }
+        let columns: Vec<Vec<_>> = parts
+            .iter()
+            .map(|path| {
+                source_sites(graph, holder, path)
+                    .into_iter()
+                    .map(|site| {
+                        let value = source_site_value(graph, &site);
+                        (site, value)
+                    })
+                    .collect()
+            })
+            .collect();
+        let values: Vec<Vec<_>> = columns
+            .iter()
+            .map(|sites| {
+                sites
+                    .iter()
+                    .flat_map(|(_, value)| sequence(value.clone()))
+                    .collect()
+            })
+            .collect();
+        let length = values.first().map_or(0, Vec::len);
+        if values.iter().any(|column| column.len() != length)
+            || (length == 0 && !reference.nullable)
+        {
+            return Err(unrepresentable(holder, &reference.id));
+        }
+        let rows = (0..length)
+            .filter(|row| {
+                let tuple: Vec<_> = values.iter().map(|column| column[*row].clone()).collect();
+                !keyed || tuple_is_present(reference, &tuple)
+            })
+            .collect();
+        Ok(Some(SourceWord { columns, rows }))
+    }
+
+    /// The replacement of one original row, or its deletion. Unobserved rows
+    /// retain their exact component even though they have no occurrence index.
+    fn requested_component(
+        row: usize,
+        column: usize,
+        original: &Value,
+        observed: &BTreeSet<usize>,
+        requested: &BTreeMap<usize, &Written>,
+    ) -> Option<Value> {
+        requested
+            .get(&row)
+            .map(|written| written.tuple[column].clone())
+            .or_else(|| (!observed.contains(&row)).then(|| original.clone()))
+    }
+
+    /// Reconstruct a part without moving values between original source sites.
+    fn partitioned_column(
+        sites: &[(Site, Option<Value>)],
+        column: usize,
+        observed: &BTreeSet<usize>,
+        requested: &BTreeMap<usize, &Written>,
+    ) -> Result<Vec<(Site, Value)>, ()> {
+        let mut row = 0;
+        let mut replacements = Vec::new();
+        for (site, value) in sites {
+            let Some(value) = value else { continue };
+            let replacement = if let Value::List(values) = value {
+                let mut result = Vec::new();
+                for original in values {
+                    if let Some(value) =
+                        requested_component(row, column, original, observed, requested)
+                    {
+                        result.push(value);
+                    }
+                    row += 1;
+                }
+                Value::List(result)
+            } else {
+                let value =
+                    requested_component(row, column, value, observed, requested).ok_or(())?;
+                row += 1;
+                value
+            };
+            replacements.push((site.clone(), replacement));
+        }
+        Ok(replacements)
+    }
+
+    /// Apply only recorded-coordinate changes to a multi-site word. Appending
+    /// has no unique source placement when any part has more than one site.
+    fn write_partitioned_word(
+        graph: &mut Graph,
+        holder: u32,
+        reference: &Reference,
+        word: &SourceWord,
+        sequence: &[&Written],
+    ) -> Result<(), ResolveError> {
+        let failure = || unrepresentable(holder, &reference.id);
+        let mut requested = BTreeMap::new();
+        for written in sequence {
+            if written.tuple.len() != word.columns.len() {
+                return Err(failure());
+            }
+            let index = usize::try_from(written.original_index.ok_or_else(failure)?)
+                .map_err(|_| failure())?;
+            let row = *word.rows.get(index).ok_or_else(failure)?;
+            if requested.insert(row, *written).is_some() {
+                return Err(failure());
+            }
+        }
+        let observed = word.rows.iter().copied().collect();
+        let mut replacements = BTreeMap::new();
+        for (column, sites) in word.columns.iter().enumerate() {
+            for (site, value) in
+                partitioned_column(sites, column, &observed, &requested).map_err(|()| failure())?
+            {
+                if replacements
+                    .get(&site)
+                    .is_some_and(|previous| previous != &value)
+                {
+                    return Err(failure());
+                }
+                replacements.insert(site, value);
+            }
+        }
+        for (site, value) in replacements {
+            write_site(graph, &site, Some(value));
+        }
+        Ok(())
+    }
+
     /// Write each holder's occurrence sequences at its key sites: for `One`
     /// the one tuple's values (none removes the sites), for `Many` each part's
-    /// list of the tuples' values in index order.
+    /// list of the tuples' values in index order. A site that already reads as
+    /// the requested occurrence word retains its exact representation.
     fn write_sequences(
         schema: &Schema,
         comp: &ResComplement,
@@ -3717,15 +4281,20 @@ pub mod implementation {
             .map(|o| (o.holder, o.reference.clone()))
             .collect();
         touched.extend(sequences.keys().cloned());
+        let snapshots: Vec<_> = touched
+            .into_iter()
+            .filter(|(holder, _)| graph.nodes.contains_key(holder))
+            .map(|(holder, reference)| {
+                let word = source_word(graph, holder, &schema.references[&reference])?;
+                Ok((holder, reference, word))
+            })
+            .collect::<Result<_, ResolveError>>()?;
         let empty = BTreeMap::new();
-        for (holder, reference) in touched {
-            if !graph.nodes.contains_key(&holder) {
-                continue;
-            }
+        for (holder, reference, word) in snapshots {
             let by_index = sequences
                 .get(&(holder, reference.clone()))
                 .unwrap_or(&empty);
-            write_sequence(schema, graph, holder, &reference, by_index)?;
+            write_sequence(schema, graph, holder, &reference, by_index, word.as_ref())?;
         }
         Ok(())
     }
@@ -3736,6 +4305,7 @@ pub mod implementation {
         holder: u32,
         reference_name: &str,
         by_index: &BTreeMap<u32, Written>,
+        original: Option<&SourceWord>,
     ) -> Result<(), ResolveError> {
         let reference = &schema.references[reference_name];
         let sequence: Vec<&Written> = by_index.values().collect();
@@ -3745,6 +4315,31 @@ pub mod implementation {
             let site = path_site(graph, holder, &guard.field)
                 .ok_or_else(|| unrepresentable(holder, reference_name))?;
             write_site(graph, &site, Some(guard.equals.clone()));
+        }
+        // Reading can forget source syntax: a scalar and a singleton list
+        // have the same Many observation, and null matching omits some slots.
+        // Keep the actual sites when they already encode the requested word.
+        // Guards above and target/context verification after reconstruction
+        // still apply; a changed observation takes the ordinary writer below.
+        if !matches!(reference.source, RefSource::Inline { .. }) {
+            let observed = tuples(schema, graph, holder, reference)
+                .map_err(|_| unrepresentable(holder, reference_name))?;
+            if observed.len() == sequence.len()
+                && observed.iter().zip(&sequence).all(|(values, written)| {
+                    tuple_of(&literal(values), parts_len(schema, reference_name)) == written.tuple
+                })
+            {
+                return Ok(());
+            }
+        }
+        if let Some(word) = original {
+            let standoff = matches!(reference.source, RefSource::Standoff { .. });
+            let appended = sequence
+                .iter()
+                .any(|written| written.original_index.is_none());
+            if word.columns.iter().any(|sites| sites.len() != 1) || (standoff && !appended) {
+                return write_partitioned_word(graph, holder, reference, word, &sequence);
+            }
         }
         match &reference.source {
             RefSource::KeyValue { parts } => {
@@ -3758,7 +4353,7 @@ pub mod implementation {
                 &sequence,
             ),
             RefSource::Standoff { .. } => {
-                write_standoff_sequence(schema, graph, holder, reference, by_index)
+                write_standoff_sequence(graph, holder, reference, by_index)
             }
             RefSource::Inline { field } => {
                 write_inline_sequence(graph, holder, reference_name, field, &sequence)
@@ -3793,7 +4388,6 @@ pub mod implementation {
     }
 
     fn write_standoff_sequence(
-        schema: &Schema,
         graph: &mut Graph,
         holder: u32,
         reference: &Reference,
@@ -3808,24 +4402,23 @@ pub mod implementation {
         else {
             unreachable!("caller selected a standoff source");
         };
-        let coordinate_holders = fragment_holders(graph, holder, fragments.as_ref());
-        if fragments.is_none() && by_index.len() > 1 {
-            return Err(unrepresentable(holder, &reference.id));
+        if fragments.is_none() {
+            let sequence: Vec<_> = by_index.values().collect();
+            return write_parts(
+                graph,
+                holder,
+                reference,
+                &[start.clone(), end.clone()],
+                &sequence,
+            );
         }
+        let coordinate_holders = fragment_holders(graph, holder, fragments.as_ref());
         if by_index.keys().any(|index| {
             usize::try_from(*index).map_or(true, |index| index >= coordinate_holders.len())
         }) {
             return Err(unrepresentable(holder, &reference.id));
         }
         remove_unused_fragments(graph, holder, reference, by_index, &coordinate_holders)?;
-        if by_index.is_empty() && fragments.is_none() {
-            for path in [start, end] {
-                let site = path_site(graph, holder, path)
-                    .ok_or_else(|| unrepresentable(holder, &reference.id))?;
-                write_site(graph, &site, None);
-            }
-            return Ok(());
-        }
         for (index, written) in by_index {
             let coordinate_holder = if fragments.is_some() {
                 coordinate_holders
@@ -3834,14 +4427,7 @@ pub mod implementation {
             } else {
                 holder
             };
-            write_standoff_coordinates(
-                schema,
-                graph,
-                holder,
-                coordinate_holder,
-                reference,
-                written,
-            )?;
+            write_standoff_coordinates(graph, holder, coordinate_holder, reference, written)?;
         }
         Ok(())
     }
@@ -3934,17 +4520,37 @@ pub mod implementation {
     }
 
     fn write_standoff_coordinates(
-        schema: &Schema,
         graph: &mut Graph,
         holder: u32,
         coordinate_holder: u32,
         reference: &Reference,
         written: &Written,
     ) -> Result<(), ResolveError> {
+        let RefSource::Standoff { start, end, .. } = &reference.source else {
+            unreachable!("caller selected a standoff source");
+        };
+        if written.tuple.len() != 2 {
+            return Err(unrepresentable(holder, &reference.id));
+        }
+        for (path, coordinate) in [start, end].into_iter().zip(&written.tuple) {
+            let site = path_site(graph, coordinate_holder, path)
+                .ok_or_else(|| unrepresentable(holder, &reference.id))?;
+            write_site(graph, &site, Some(coordinate.clone()));
+        }
+        Ok(())
+    }
+
+    /// Render a normalized span in the holder's declared written coordinates.
+    /// The text identity must agree before offsets can be converted.
+    fn render_standoff_tuple(
+        schema: &Schema,
+        graph: &Graph,
+        holder: u32,
+        reference: &Reference,
+        span: &ResolutionSpan,
+    ) -> Option<Vec<Value>> {
         let RefSource::Standoff {
             text: source,
-            start: start_path,
-            end: end_path,
             unit,
             end_inclusive,
             end_form,
@@ -3952,43 +4558,33 @@ pub mod implementation {
             ..
         } = &reference.source
         else {
-            unreachable!("caller selected a standoff source");
+            return None;
         };
-        let [Value::Int(start_byte), Value::Int(end_byte)] = written.tuple.as_slice() else {
-            return Err(unrepresentable(holder, &reference.id));
+        let context = standoff_text(schema, graph, holder, source).ok()?;
+        if context.identity != span.text {
+            return None;
+        }
+        let start = span.start.checked_sub(context.base_byte)?;
+        let end = span.end.checked_sub(context.base_byte)?;
+        let start_unit = boundary_unit(&context.text, start, *unit)?;
+        let end_unit = boundary_unit(&context.text, end, *unit)?;
+        if *end_inclusive && start_unit >= end_unit {
+            return None;
+        }
+        let start_written = start_unit.checked_add(*origin)?;
+        let declared_end = if *end_inclusive {
+            end_unit.checked_sub(1)?
+        } else {
+            end_unit
         };
-        let context = standoff_text(schema, graph, holder, source)
-            .map_err(|_| unrepresentable(holder, &reference.id))?;
-        let relative = |byte: i64| {
-            u64::try_from(byte)
-                .ok()
-                .and_then(|byte| byte.checked_sub(context.base_byte))
-                .ok_or_else(|| unrepresentable(holder, &reference.id))
-        };
-        let start_unit = boundary_unit(&context.text, relative(*start_byte)?, *unit)
-            .ok_or_else(|| unrepresentable(holder, &reference.id))?;
-        let end_unit = boundary_unit(&context.text, relative(*end_byte)?, *unit)
-            .ok_or_else(|| unrepresentable(holder, &reference.id))?;
-        let start_written = start_unit
-            .checked_add(*origin)
-            .ok_or_else(|| unrepresentable(holder, &reference.id))?;
         let end_written = match end_form {
-            SpanEnd::Length => end_unit.checked_sub(start_unit),
-            SpanEnd::Offset if *end_inclusive => end_unit
-                .checked_sub(1)
-                .and_then(|end| end.checked_add(*origin)),
-            SpanEnd::Offset => end_unit.checked_add(*origin),
-        }
-        .ok_or_else(|| unrepresentable(holder, &reference.id))?;
-        for (path, coordinate) in [(start_path, start_written), (end_path, end_written)] {
-            let site = path_site(graph, coordinate_holder, path)
-                .ok_or_else(|| unrepresentable(holder, &reference.id))?;
-            let coordinate = i64::try_from(coordinate)
-                .map(Value::Int)
-                .map_err(|_| unrepresentable(holder, &reference.id))?;
-            write_site(graph, &site, Some(coordinate));
-        }
-        Ok(())
+            SpanEnd::Length => declared_end.checked_sub(start_unit),
+            SpanEnd::Offset => declared_end.checked_add(*origin),
+        }?;
+        Some(vec![
+            Value::Int(i64::try_from(start_written).ok()?),
+            Value::Int(i64::try_from(end_written).ok()?),
+        ])
     }
 
     #[cfg(test)]

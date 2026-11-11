@@ -426,6 +426,11 @@ pub struct ResolutionComplement {
     pub assembly: Option<AssemblyResidue>,
     /// Durable identity of the resolution that produced this complement.
     pub identity: Option<IdentityEnvelope>,
+    /// Self-binding variable definitions in source occurrence order. Unlike
+    /// `definitions`, this retains distinct indices and literals at one holder.
+    /// The trailing field is absent in legacy encodings and empty residues.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub definition_occurrences: Vec<RefOccurrence>,
 }
 
 impl ResolutionComplement {
@@ -434,6 +439,7 @@ impl ResolutionComplement {
     pub fn records_nothing(&self) -> bool {
         self.occurrences.is_empty()
             && self.definitions.is_empty()
+            && self.definition_occurrences.is_empty()
             && self.redirected.is_empty()
             && self.order.is_empty()
             && self.spanning.is_empty()
@@ -624,6 +630,7 @@ mod tests {
                 ViewRef::Node(7),
             );
         }
+        complement.definition_occurrences = vec![occurrence(2), occurrence(3)];
         let mut node = Node::new(4, "holder");
         node.value = Some(crate::value::FieldPresence::Present(Value::Str("a".into())));
         complement.redirected.insert(
@@ -782,6 +789,37 @@ mod tests {
         let json = serde_json::to_value(&complement)?;
         assert_eq!(json["occurrences"].as_array().map(Vec::len), Some(2));
         assert_eq!(json["definitions"].as_array().map(Vec::len), Some(2));
+        Ok(())
+    }
+
+    #[test]
+    fn definition_occurrences_extend_the_legacy_complement_prefix() -> TestResult {
+        let legacy = [0x99, 0x90, 0x90, 0x80, 0x80, 0x80, 0x80, 0x90, 0xc0, 0xc0];
+        assert_eq!(rmp_serde::to_vec(&ResolutionComplement::default())?, legacy);
+        let decoded: ResolutionComplement = rmp_serde::from_slice(&legacy)?;
+        assert_eq!(decoded.definition_occurrences.len(), 0);
+        assert!(decoded.records_nothing());
+        let mut complement = ResolutionComplement::default();
+        for index in [0, 2] {
+            complement.definition_occurrences.push(RefOccurrence {
+                holder: ViewRef::Node(7),
+                reference: "variable".into(),
+                index,
+                literal: Value::Str(format!("name-{index}")),
+                form: Some("original".into()),
+                context: Some(Digest([u8::from(index > 0); 32])),
+            });
+        }
+        let extended = rmp_serde::to_vec(&complement)?;
+        assert_eq!(extended[0], 0x9a);
+        assert_eq!(&extended[1..legacy.len()], &legacy[1..]);
+        assert!(!complement.records_nothing());
+        four_encodings(&complement)?;
+        let json = serde_json::to_value(&complement)?;
+        assert_eq!(
+            json["definition_occurrences"].as_array().map(Vec::len),
+            Some(2)
+        );
         Ok(())
     }
 
@@ -1313,13 +1351,17 @@ mod tests {
     fn records_nothing_reads_every_residue_field() {
         assert!(ResolutionComplement::default().records_nothing());
         let full = full_complement();
-        let only: [fn(&ResolutionComplement) -> ResolutionComplement; 8] = [
+        let only: [fn(&ResolutionComplement) -> ResolutionComplement; 9] = [
             |c| ResolutionComplement {
                 occurrences: c.occurrences.clone(),
                 ..ResolutionComplement::default()
             },
             |c| ResolutionComplement {
                 definitions: c.definitions.clone(),
+                ..ResolutionComplement::default()
+            },
+            |c| ResolutionComplement {
+                definition_occurrences: c.definition_occurrences.clone(),
                 ..ResolutionComplement::default()
             },
             |c| ResolutionComplement {

@@ -49,7 +49,9 @@ edition = "2024"
 rust-version = "1.97"
 license = "MIT"
 repository = "https://github.com/panproto/panproto"
-homepage = "https://github.com/panproto/panproto"
+homepage = "https://panproto.dev"
+keywords = ["schema", "migration", "lens", "category-theory", "version-control"]
+categories = ["data-structures", "encoding"]
 
 [workspace.dependencies]
 # Serialization
@@ -89,6 +91,9 @@ insta = { version = "1.43", features = ["json", "yaml"] }
 
 # SIMD byte scanning
 memchr = "2.7"
+regex = "1.12"
+unicode-segmentation = "1.12"
+yaml_serde = "0.10"
 
 # Project manifest
 toml = "1.1"

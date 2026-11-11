@@ -593,6 +593,7 @@ pub mod keys {
     /// Book anchors: `L-keys-and-registration-1`.
     #[must_use]
     pub fn key_value(g: &Graph, n: u32, key: &Key) -> Option<Vec<Value>> {
+        g.nodes.get(&n)?;
         key.parts
             .iter()
             .map(|p| match p {
@@ -1543,6 +1544,26 @@ pub mod schema {
     ) -> Option<Vec<(&'a Name, &'a Key)>> {
         let targets = target_members(schema, reference);
         let targets_set = schema.target_sets.contains_key(&reference.target_vertex);
+        if targets_set && reference.target_key.is_some() {
+            errors.push(DeclarationError::TargetSetHasKey {
+                reference: reference.id.clone(),
+            });
+        }
+        // The named-key and binder-key obligations are independent, so keep
+        // the named-key defect even if the missing binder ends target checking.
+        if !targets_set
+            && matches!(reference.source, RefSource::Variable { .. })
+            && reference.target_key.as_ref().is_some_and(|id| {
+                schema
+                    .keys
+                    .get(&reference.target_vertex)
+                    .is_none_or(|keys| keys.iter().all(|key| key.id != *id))
+            })
+        {
+            errors.push(DeclarationError::UnknownTarget {
+                reference: reference.id.clone(),
+            });
+        }
         // A key-value reference with no named key and no primary key
         // resolves through the empty key; a nonempty source then fails the
         // arity check against zero parts rather than naming a missing key.
@@ -1558,22 +1579,6 @@ pub mod schema {
             });
             return None;
         }
-        // A named target key must exist whatever the source reads; a
-        // variable resolves through its binder, so its missing named key is
-        // reported without stopping the remaining checks.
-        if !targets_set
-            && matches!(reference.source, RefSource::Variable { .. })
-            && reference.target_key.as_ref().is_some_and(|id| {
-                schema
-                    .keys
-                    .get(&reference.target_vertex)
-                    .is_none_or(|keys| keys.iter().all(|key| key.id != *id))
-            })
-        {
-            errors.push(DeclarationError::UnknownTarget {
-                reference: reference.id.clone(),
-            });
-        }
         for (_, key) in targets
             .iter()
             .filter(|(_, key)| matches!(key.role, KeyRole::SortKey | KeyRole::Index))
@@ -1584,11 +1589,6 @@ pub mod schema {
             });
         }
         if let Some(set) = schema.target_sets.get(&reference.target_vertex) {
-            if reference.target_key.is_some() {
-                errors.push(DeclarationError::TargetSetHasKey {
-                    reference: reference.id.clone(),
-                });
-            }
             if let Some(edge) = &reference.edge {
                 let valid = edge.src == reference.holder
                     && edge.tgt == reference.target_vertex
@@ -2154,7 +2154,7 @@ pub mod schema {
     /// Without the extension each such site is followed by a `u64` length
     /// below `2^63`, by [`TARGET_SET_MARKER`], or by the end of the bytes;
     /// this word is at least `2^63` and its first byte is `0x00`, so the
-    /// grammar decides the extension from the bytes and stays prefix-free.
+    /// grammar decides extension presence uniquely from the following bytes.
     ///
     /// Book anchors: `L-keys-and-registration-3`, `L-keys-and-registration-15`.
     pub const EXTENSION_MARKER: u64 = 1 << 63;
@@ -2345,13 +2345,19 @@ pub mod schema {
     ///
     /// Adding a primary, unique, or identifier key on an existing vertex is
     /// breaking; adding a sort key or index is a relaxation because neither
-    /// admits fewer instances. Removing any key is a relaxation. A changed key
+    /// admits fewer instances. Removing a primary key is breaking; removing other
+    /// keys is a relaxation. Changing the first primary id in stored order
+    /// is breaking when one was selected before. Owner presence and harmless
+    /// order changes remain nonidentical. A changed key
     /// is breaking exactly when it adds or changes parts, changes role, widens
     /// its scope, or moves between two distinct `Within` scopes. Reference
     /// changes follow the corresponding cardinality, nullability and
     /// unresolved-value rules. An entry-point change fails closed as
     /// breaking. Other structural schema changes belong to the production
     /// classifier's larger domain and are outside this declaration oracle.
+    /// The oracle requires distinct key ids within each owner in both schemas;
+    /// duplicate ids lose their identity in the keyed maps. Other declaration
+    /// validity is not required by the finite descriptor carrier.
     ///
     /// Book anchors: `L-keys-and-registration-4`.
     #[must_use]
@@ -2368,6 +2374,19 @@ pub mod schema {
                     declaration.role,
                     KeyRole::Primary | KeyRole::Unique | KeyRole::Identifier
                 )
+        });
+        let removed_primary_breaks = before_keys
+            .iter()
+            .any(|(key, old)| old.role == KeyRole::Primary && !after_keys.contains_key(key));
+        let selected_primary_breaks = before.keys.iter().any(|(owner, keys)| {
+            let selected = keys.iter().find(|key| key.role == KeyRole::Primary);
+            selected.is_some_and(|old| {
+                after
+                    .keys
+                    .get(owner)
+                    .and_then(|keys| keys.iter().find(|key| key.role == KeyRole::Primary))
+                    .is_none_or(|new| old.id != new.id)
+            })
         });
         let changed_key_breaks = before_keys.iter().any(|(key, old)| {
             after_keys
@@ -2396,6 +2415,8 @@ pub mod schema {
             })
         });
         if added_key_breaks
+            || removed_primary_breaks
+            || selected_primary_breaks
             || changed_key_breaks
             || added_reference_breaks
             || changed_reference_breaks
@@ -2469,7 +2490,7 @@ pub mod schema {
         writer.bytes
     }
 
-    /// Definition: register one complete Q.6--Q.8 protocol carrier.
+    /// Definition: register one complete protocol carrier.
     ///
     /// Both theories are closed and well typed, both versioned recipes replay
     /// to the declared canonical theory bytes, and equal-name replay is

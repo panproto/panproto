@@ -53,7 +53,7 @@ impl Nat {
     }
 
     fn normalized(mut limbs: Vec<u32>) -> Self {
-        while limbs.last() == Some(&0) {
+        while limbs.last().is_some_and(|&limb| limb == 0) {
             limbs.pop();
         }
         Self { limbs }
@@ -364,6 +364,8 @@ impl Nat {
     /// The greatest common divisor by the binary algorithm (Stein): strip
     /// the common factors of two, then repeatedly replace the larger odd
     /// number by half the difference (`gcd(0, 0) = 0`).
+    /// The common factor is a `Nat`, so its exponent needs no machine-word
+    /// counter.
     #[must_use]
     pub fn gcd(a: &Self, b: &Self) -> Self {
         if a.is_zero() {
@@ -373,11 +375,12 @@ impl Nat {
             return a.clone();
         }
         let (mut x, mut y) = (a.clone(), b.clone());
-        let mut twos = 0u32;
+        // Keep gcd(x, y) * common_factor = gcd(a, b) while halving.
+        let mut common_factor = Self::one();
         while x.is_even() && y.is_even() {
             x = x.half();
             y = y.half();
-            twos += 1;
+            common_factor = common_factor.mul_small(2);
         }
         while x.is_even() {
             x = x.half();
@@ -390,7 +393,7 @@ impl Nat {
             y = std::cmp::max(&x, &y).checked_sub(&low).unwrap_or_default();
             x = low;
         }
-        x.mul(&Self::pow2(twos))
+        x.mul(&common_factor)
     }
 
     /// Whether the number is even.
@@ -867,6 +870,30 @@ mod tests {
     }
 
     #[test]
+    fn natural_normalization_trims_only_most_significant_zero_limbs() {
+        for (input, expected) in [
+            (vec![], vec![]),
+            (vec![0], vec![]),
+            (vec![0, 0, 0], vec![]),
+            (vec![1], vec![1]),
+            (vec![1, 0, 0], vec![1]),
+            (vec![0, 1, 0], vec![0, 1]),
+            (vec![7, 0, 9, 0, 0], vec![7, 0, 9]),
+            (vec![999_999_999, 0], vec![999_999_999]),
+        ] {
+            let normalized = Nat::normalized(input.clone());
+            assert_eq!(normalized.limbs, expected, "normalizing {input:?}");
+            assert_eq!(
+                Nat::normalized(normalized.limbs.clone()),
+                normalized,
+                "normalization is idempotent for {input:?}"
+            );
+        }
+        assert_eq!(Nat::parse("000000000000000000"), Some(Nat::zero()));
+        assert_eq!(Nat::parse("000000001000000000"), Some(Nat::from_u64(BASE)));
+    }
+
+    #[test]
     fn schoolbook_operations_agree_with_machine_integers_on_small_operands() {
         for a in 0u64..60 {
             for b in 0u64..60 {
@@ -894,6 +921,59 @@ mod tests {
             "340282366920938463463374607431768211456"
         );
         assert_eq!(Nat::gcd(&Nat::pow10(20), &Nat::pow2(64)), Nat::pow2(20));
+    }
+
+    #[test]
+    fn natural_gcd_matches_euclid_on_small_operands() {
+        for a in 0_u64..=80 {
+            for b in 0_u64..=80 {
+                let (mut dividend, mut divisor) = (a, b);
+                while divisor != 0 {
+                    (dividend, divisor) = (divisor, dividend % divisor);
+                }
+                assert_eq!(
+                    Nat::gcd(&Nat::from_u64(a), &Nat::from_u64(b)).to_u64(),
+                    Some(dividend),
+                    "gcd({a}, {b}) agrees with the remainder algorithm"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn common_binary_factors_survive_multilimb_gcd_and_rational_reduction() {
+        let common = nat("1361129467683753853853498429727072845824");
+        assert_eq!(common, Nat::pow2(130), "the shared factor is 2^130");
+        let left = common.mul(&Nat::from_u64(45));
+        let right = common.mul(&Nat::from_u64(75));
+        let expected = common.mul(&Nat::from_u64(15));
+        assert_eq!(
+            Nat::gcd(&left, &right),
+            expected,
+            "shared binary and odd factors are retained"
+        );
+        assert_eq!(Nat::gcd(&right, &left), expected, "gcd is symmetric");
+        assert_eq!(
+            Nat::gcd(&left.mul(&Nat::pow2(7)), &right),
+            expected,
+            "extra powers of two in one operand are not common factors"
+        );
+        assert_eq!(Nat::gcd(&common, &common), common, "equal operands survive");
+        assert_eq!(
+            Rat::new(Int::new(false, left.clone()), right.clone()),
+            Rat::new(Int::from_i64(3), Nat::from_u64(5)),
+            "common factors cancel in lowest terms"
+        );
+        assert_eq!(
+            Rat::new(Int::new(true, left), right),
+            Rat::new(Int::from_i64(-3), Nat::from_u64(5)),
+            "reduction preserves the numerator sign"
+        );
+        assert_eq!(
+            Rat::new(Int::from_i64(0), common),
+            Some(Rat::zero()),
+            "zero reduces with a nonzero multilimb denominator"
+        );
     }
 
     #[test]

@@ -3650,6 +3650,36 @@ mod tests {
         );
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::default())]
+
+        #[test]
+        fn randomized_byte_text_route_writer(
+            bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..=16),
+            encoding_index in 0_usize..7,
+        ) {
+            let encodings = [BytesText::Base64, BytesText::Base64Url, BytesText::Base64Padded,
+                BytesText::Base64UrlPadded, BytesText::Hex, BytesText::Raw, BytesText::Latin1];
+            let encoding = &encodings[encoding_index];
+            let expected = encode_bytes(&bytes, encoding);
+            let mut actual = Vec::new();
+            let emitted = write_json_value_at_depth(
+                &Value::Bytes(bytes), &ValueSpec::new(ScalarKind::Bytes(encoding.clone())),
+                &ValueSite::new("value", None), &mut actual, 0,
+            );
+            match expected {
+                Some(expected) => {
+                    emitted.expect("a generic encoding is route-writable");
+                    let actual: String = serde_json::from_slice(&actual).expect("JSON string token");
+                    proptest::prop_assert!(panproto_reference::value_io::bytes(expected.as_bytes(), actual.as_bytes()));
+                }
+                None => proptest::prop_assert!(matches!(emitted,
+                    Err(EmitInstanceError::Value(EmitValueError { reason: EmitValueReason::NotRepresentable, .. }))),
+                    "unexpected byte refusal: {:?}", emitted),
+            }
+        }
+    }
+
     #[test]
     fn every_byte_text_route_writer_agrees_with_the_generic_encoder() {
         let site = ValueSite::new("value", None);

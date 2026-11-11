@@ -1001,7 +1001,7 @@ fn contracted_pair_construction() -> TableComplementConstruction {
     )
 }
 
-/// Stream the seven named constructions whose union witnesses every T.3
+/// Stream the seven named constructions whose union witnesses every table-complement
 /// residue coordinate, table provenance and synthesized foreign-key pairs.
 pub fn for_each_table_complement_construction(mut visit: impl FnMut(TableComplementConstruction)) {
     for construction in [

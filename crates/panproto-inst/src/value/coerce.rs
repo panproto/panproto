@@ -1065,6 +1065,11 @@ fn digit_value(alphabet: &[u8; 64], byte: u8) -> Option<u32> {
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BASE64_URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+/// The decoded length of a base64 body, without overflowing on the encoded length.
+const fn decoded_base64_capacity(length: usize) -> usize {
+    (length / 4) * 3 + (length % 4) * 3 / 4
+}
+
 /// Decode base64 over `alphabet`, padded or not; `None` for a character
 /// outside the alphabet, a misplaced or wrong amount of padding, a length
 /// no encoding produces, or nonzero bits after the last byte (which a
@@ -1082,7 +1087,7 @@ fn decode_base64(text: &str, alphabet: &[u8; 64], padding_required: bool) -> Opt
     if !padding_ok || expected_padding > 2 || body.len() % 4 == 1 {
         return None;
     }
-    let mut out = Vec::with_capacity(body.len() * 3 / 4);
+    let mut out = Vec::with_capacity(decoded_base64_capacity(body.len()));
     let mut acc = 0_u32;
     let mut bits = 0_u32;
     for byte in body.bytes() {
@@ -1594,6 +1599,45 @@ const BINARY32_OVERFLOW: f64 = f64::from_bits(0x47ef_ffff_f000_0000);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_capacity_matches_wide_arithmetic_at_machine_boundaries() {
+        // Supported pointer widths are 32 and 64, so the oracle's product fits u128.
+        let overflow_boundary = usize::MAX / 3;
+        let lengths = (0..=64)
+            .chain((overflow_boundary - 4)..=(overflow_boundary + 4))
+            .chain((usize::MAX - 4)..=usize::MAX);
+        for length in lengths {
+            let expected = (length as u128) * 3 / 4;
+            assert_eq!(
+                decoded_base64_capacity(length) as u128,
+                expected,
+                "base64 capacity is exact for encoded length {length}"
+            );
+        }
+    }
+
+    #[test]
+    fn base64_capacity_handles_an_allocatable_body_above_the_old_product_limit() {
+        let length = ((usize::MAX / 3) / 4 + 1) * 4;
+        let expected = (length as u128) * 3 / 4;
+        assert_eq!(length.checked_mul(3), None, "the old product overflows");
+        assert_eq!(
+            isize::try_from(length).map(|_| ()),
+            Ok(()),
+            "the encoded body fits the collection byte-length limit"
+        );
+        assert_eq!(
+            decoded_base64_capacity(length) as u128,
+            expected,
+            "the decoded capacity remains exact without allocating either body"
+        );
+        assert_eq!(
+            isize::try_from(decoded_base64_capacity(length)).map(|_| ()),
+            Ok(()),
+            "the decoded body also fits the collection byte-length limit"
+        );
+    }
 
     #[test]
     fn exact_float_comparison_keeps_the_767_digit_boundary() {

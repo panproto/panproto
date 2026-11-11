@@ -667,10 +667,15 @@ fn compare_exact(a: &Literal, b: &Literal) -> Option<Result<Ordering, ExprError>
                 got: "incomparable temporals".into(),
             })
         }
-        _ => match (as_decimal(a), as_decimal(b)) {
-            (Some(x), Some(y)) => Ok(x.cmp_numeric(&y)),
-            _ => Err(incomparable()),
-        },
+        // Integer pairs were handled above; this path is for comparisons
+        // involving a decimal, including mixed integer/decimal operands.
+        (Literal::Decimal(_), _) | (_, Literal::Decimal(_)) => {
+            match (as_decimal(a), as_decimal(b)) {
+                (Some(x), Some(y)) => Ok(x.cmp_numeric(&y)),
+                _ => Err(incomparable()),
+            }
+        }
+        _ => Err(incomparable()),
     })
 }
 

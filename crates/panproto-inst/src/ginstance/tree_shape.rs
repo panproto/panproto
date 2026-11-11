@@ -211,6 +211,71 @@ fn fan_is_canonical(graph: &GInstance, schema: Option<&Schema>, fan: &Fan, ids: 
         })
 }
 
+/// Check edge-local conditions in edge order before aggregate fan and
+/// reachability checks when a caller supplies the proposed root.
+fn check_rooted_edges(graph: &GInstance, root: u32) -> Result<(), InstError> {
+    let not_tree = |reason| InstError::NotATree { reason };
+    let mut incoming = HashMap::<u32, u32>::new();
+    for (id, edge) in graph.edges_sorted() {
+        let from = graph.node(edge.src).ok_or(InstError::DanglingEdge {
+            edge: id,
+            endpoint: edge.src,
+        })?;
+        let to = graph.node(edge.tgt).ok_or(InstError::DanglingEdge {
+            edge: id,
+            endpoint: edge.tgt,
+        })?;
+        if edge.position.is_some() {
+            return Err(not_tree(NotTreeReason::PositionedEdge { edge: id }));
+        }
+        if from.shape == crate::NodeShape::HyperEdge {
+            if edge.edge.src != from.anchor || edge.edge.tgt != to.anchor {
+                return Err(not_tree(NotTreeReason::FanNotRepresentable {
+                    node: edge.src,
+                }));
+            }
+            continue;
+        }
+        if edge.edge.kind == reify::HYPER_PARENT_KIND || edge.edge.kind == reify::HYPER_LABEL_KIND {
+            return Err(not_tree(NotTreeReason::FanNotRepresentable {
+                node: edge.src,
+            }));
+        }
+        if to.shape == crate::NodeShape::HyperEdge {
+            return Err(not_tree(NotTreeReason::FanNotRepresentable {
+                node: edge.tgt,
+            }));
+        }
+        if edge.tgt == root {
+            return Err(not_tree(NotTreeReason::NoRoot));
+        }
+        if let Some(first_src) = incoming.insert(edge.tgt, edge.src) {
+            let reason = if first_src == edge.src {
+                NotTreeReason::ParallelEdges {
+                    src: edge.src,
+                    tgt: edge.tgt,
+                }
+            } else {
+                NotTreeReason::MultipleParents {
+                    node: edge.tgt,
+                    edges: graph
+                        .edges_sorted()
+                        .filter(|(_, candidate)| {
+                            candidate.tgt == edge.tgt
+                                && graph
+                                    .node(candidate.src)
+                                    .is_some_and(|node| node.shape != crate::NodeShape::HyperEdge)
+                        })
+                        .map(|(incoming_id, _)| incoming_id)
+                        .collect(),
+                }
+            };
+            return Err(not_tree(reason));
+        }
+    }
+    Ok(())
+}
+
 /// Check the tree part of a graph (every node and edge but the fans): no
 /// positioned edge, at most one parent per node, no parallel edges, no
 /// cycle. Returns the roots (the tree nodes with no parent), ascending.
@@ -595,8 +660,9 @@ impl GInstance {
     /// [`NotTreeReason::FanNotRepresentable`] for a fan outside the fan
     /// domain, a fan carrying what a tree's fan drops, or a root that is a
     /// fan node, [`NotTreeReason::NoRoot`] when another node is
-    /// the root or there are several, and otherwise the reason
-    /// [`Self::tree_shape`] gives.
+    /// the root or there are several. After the root check, edge-local
+    /// failures are checked in ascending edge id before aggregate fan and
+    /// reachability failures.
     pub fn to_wtype_with_schema_root(
         &self,
         root: u32,
@@ -606,10 +672,14 @@ impl GInstance {
             return Err(InstError::MissingRoot);
         }
         let not_tree = |reason| InstError::NotATree { reason };
-        let fans = split_fans(self, None).map_err(not_tree)?;
-        if fans.is_fan_node(root) {
+        if self
+            .node(root)
+            .is_some_and(|node| node.shape == crate::NodeShape::HyperEdge)
+        {
             return Err(not_tree(NotTreeReason::FanNotRepresentable { node: root }));
         }
+        check_rooted_edges(self, root)?;
+        let fans = split_fans(self, None).map_err(not_tree)?;
         let roots = tree_roots(self, &fans).map_err(not_tree)?;
         if roots != [root] {
             return Err(not_tree(NotTreeReason::NoRoot));

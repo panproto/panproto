@@ -1911,7 +1911,7 @@ fn relation_outside_image() -> (Edge, Schema, Schema, CompiledMigration) {
     (f, related, related_target, relating)
 }
 
-/// Spec ruling S3 (11) for the schema-taking Sigma and Pi, in each form
+/// Refusal order for the schema-taking Sigma and Pi, in each form
 /// (with and without provenance): an input wrong at every later stage is
 /// refused at the earliest one, in the order classification (source before
 /// target), functor, encoding, table.
@@ -2003,7 +2003,7 @@ fn graph_sigma_and_pi_error_precedence_is_explicit() {
     }
 }
 
-/// Spec ruling S3 (11), last stage: the schema-taking Sigma and Pi, in each
+/// Refusal order, last stage: the schema-taking Sigma and Pi, in each
 /// form, refuse with the decoding error when every earlier stage succeeds
 /// and the output needs an id above `u32::MAX`.
 #[test]

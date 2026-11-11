@@ -499,7 +499,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     #[test]
-    fn an_s3_8_extend_of_a_set_valued_source_has_no_realized_pair_collision(
+    fn extend_of_a_set_valued_source_has_no_realized_pair_collision(
         drawn in proptest::collection::btree_set((0_u8..8, 0_u8..8), 0..32),
     ) {
         let source_edge = edge("a", "b", "r");

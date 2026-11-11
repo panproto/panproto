@@ -1675,3 +1675,329 @@ fn validation_refuses_values_without_canonical_bytes() -> Result<(), Box<dyn Err
     );
     Ok(())
 }
+
+fn generated_key_values() -> Vec<ReferenceValue> {
+    let mut values = enumerate::equality_values();
+    values.extend([
+        ReferenceValue::Null,
+        ReferenceValue::Bool(true),
+        ill_formed_temporal(1440),
+        ill_formed_temporal(1441),
+        ReferenceValue::List(vec![ReferenceValue::Int(1), ill_formed_temporal(1440)]),
+        ReferenceValue::List(vec![ReferenceValue::Int(1)]),
+    ]);
+    assert_eq!(values.len(), 43);
+    values
+}
+
+fn generated_key_configuration(index: usize) -> reference_keys::KeyEquality {
+    let mut configurations = enumerate::equality_configurations();
+    configurations.push((
+        "named-collation",
+        reference_keys::KeyEquality::Sql {
+            collation: reference_keys::SqlCollation::Named("locale".to_owned()),
+            pad: reference_keys::SqlPad::NoPad,
+        },
+    ));
+    assert_eq!(configurations.len(), 13);
+    configurations.swap_remove(index).1
+}
+
+fn compare_generated_key_pair(
+    configuration: usize,
+    left_index: usize,
+    right_index: usize,
+) -> Result<(), Box<dyn Error>> {
+    let values = generated_key_values();
+    let left = &values[left_index];
+    let right = &values[right_index];
+    let production_left = production_value(left)?;
+    let production_right = production_value(right)?;
+    for value in [left, right] {
+        if let ReferenceValue::Str(text) = value {
+            assert_eq!(
+                production::xml_noncdata(text),
+                reference_keys::xml_noncdata(text),
+            );
+        }
+    }
+    let equality = generated_key_configuration(configuration);
+    let production_equality = production_equality(&equality);
+    let reference_key = reference::Key {
+        id: "key".to_owned(),
+        parts: vec![reference::KeyPart::Path(Vec::new())],
+        role: reference::KeyRole::Unique,
+        scope: reference::KeyScope::Document,
+        equality: vec![equality.clone()],
+    };
+    let key = production_key(&reference_key);
+    let expected = reference_keys::tuple_equivalence(
+        &reference_key,
+        std::slice::from_ref(left),
+        std::slice::from_ref(right),
+    )
+    .map_err(|error| production_keying_error(&error));
+    let actual = production::tuple_equivalence(
+        &key,
+        std::slice::from_ref(&production_left),
+        std::slice::from_ref(&production_right),
+    );
+    assert_eq!(actual, expected);
+    assert_eq!(
+        production::key_equivalence(&production_equality, &production_left, &production_right).ok(),
+        reference_keys::key_equivalence(&equality, left, right),
+    );
+    assert_eq!(
+        production::representation_refines(
+            &production_equality,
+            &production_left,
+            &production_right,
+        )
+        .ok(),
+        reference_keys::representation_refines(&equality, left, right),
+    );
+    for (value, production_value) in [(left, &production_left), (right, &production_right)] {
+        let mut graph = ReferenceGraph::default();
+        graph
+            .nodes
+            .insert(0, ReferenceNode::new(0, "item").with_value(value.clone()));
+        let expected = reference_keys::buckets(&graph, "item", &reference_key)
+            .err()
+            .map(|error| production_keying_error(&error));
+        let actual =
+            production::canonical_key_bytes(&key, std::slice::from_ref(production_value)).err();
+        assert_eq!(actual, expected);
+    }
+    if let (Ok(left_bytes), Ok(right_bytes)) = (
+        production::canonical_key_bytes(&key, std::slice::from_ref(&production_left)),
+        production::canonical_key_bytes(&key, std::slice::from_ref(&production_right)),
+    ) {
+        assert_eq!(Ok(left_bytes == right_bytes), expected);
+    }
+    Ok(())
+}
+
+fn compare_generated_key_order(indices: &[usize]) -> Result<(), Box<dyn Error>> {
+    let values = sort_values()?;
+    let reference_values = indices
+        .iter()
+        .map(|index| values[*index].0.clone())
+        .collect::<Vec<_>>();
+    let production_values = indices
+        .iter()
+        .map(|index| values[*index].1.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        production::key_order(&production_values)?,
+        reference_keys::key_order(&reference_values),
+    );
+    for &left in indices {
+        for &right in indices {
+            assert_eq!(
+                production::sort_order(&values[left].1, &values[right].1)?,
+                reference_keys::sort_order(&values[left].0, &values[right].0),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn compare_generated_bucket_graph(
+    choices: [usize; 3],
+    connected: [bool; 3],
+    scope: usize,
+    path: bool,
+) -> Result<(), Box<dyn Error>> {
+    let entries = ReferenceSchemaEdge::new("document", "item", "prop", Some("entries"));
+    let field = ReferenceSchemaEdge::new("item", "value", "prop", Some("value"));
+    let mut pair = GraphPair::default();
+    for id in [0, 1] {
+        pair.add_node(id, "document", None)?;
+    }
+    for (group, (choice, connected)) in choices.into_iter().zip(connected).enumerate() {
+        let group = u32::try_from(group)?;
+        let presence = match choice {
+            0 => Some(ReferencePresence::Present(ReferenceValue::Int(0))),
+            1 => Some(ReferencePresence::Present(ReferenceValue::Int(1))),
+            2 => Some(ReferencePresence::Present(ReferenceValue::Str(
+                "a".to_owned(),
+            ))),
+            3 => Some(ReferencePresence::Present(ReferenceValue::Str(
+                "A".to_owned(),
+            ))),
+            4 => Some(ReferencePresence::Null),
+            _ => None,
+        };
+        for twin in 0..2 {
+            let id = 10 + 2 * group + twin;
+            pair.add_node(id, "item", if path { None } else { presence.clone() })?;
+            if path {
+                pair.add_node(id + 100, "value", presence.clone())?;
+                pair.add_edge(id + 100, id, id + 100, &field, None)?;
+            }
+            if connected {
+                pair.add_edge(id, group % 2, id, &entries, None)?;
+            }
+        }
+    }
+    let key = reference::Key {
+        id: "generated".to_owned(),
+        parts: vec![reference::KeyPart::Path(if path {
+            vec![field.clone()]
+        } else {
+            Vec::new()
+        })],
+        role: reference::KeyRole::Unique,
+        scope: match scope {
+            0 => reference::KeyScope::Document,
+            1 => reference::KeyScope::Global,
+            _ => reference::KeyScope::Within("document".to_owned()),
+        },
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[
+            ("document", "object"),
+            ("item", "object"),
+            ("value", "scalar"),
+        ],
+        &[entries, field],
+        &[],
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
+fn compare_generated_position_graph(
+    positions: [Option<u32>; 2],
+    global: bool,
+) -> Result<(), Box<dyn Error>> {
+    let within = ReferenceSchemaEdge::new("list", "item", "prop", Some("items"));
+    let mut pair = GraphPair::default();
+    for parent in 0..2 {
+        pair.add_node(parent, "list", None)?;
+        for (slot, position) in positions.into_iter().enumerate() {
+            let id = 10 + 2 * parent + u32::try_from(slot)?;
+            pair.add_node(id, "item", None)?;
+            pair.add_edge(id, parent, id, &within, position)?;
+        }
+    }
+    let key = reference::Key {
+        id: "generated-position".to_owned(),
+        parts: vec![reference::KeyPart::Position {
+            within: within.clone(),
+        }],
+        role: reference::KeyRole::Unique,
+        scope: if global {
+            reference::KeyScope::Global
+        } else {
+            reference::KeyScope::Document
+        },
+        equality: Vec::new(),
+    };
+    let schema = schema_with_key(
+        &[("list", "object"), ("item", "object")],
+        std::slice::from_ref(&within),
+        std::slice::from_ref(&within),
+        "item",
+        &key,
+    );
+    assert_validation_key_index(&pair, &schema, "item", &key)
+}
+
+mod randomized {
+    use proptest::prelude::*;
+
+    use super::{compare_generated_key_order, compare_generated_key_pair};
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn key_values_and_scoped_buckets_match_on_generated_twin_graphs(
+            values in proptest::array::uniform3(0_usize..6),
+            connected in proptest::array::uniform3(proptest::bool::ANY),
+            scope in 0_usize..3,
+            path in proptest::bool::ANY,
+        ) {
+            super::compare_generated_bucket_graph(values, connected, scope, path)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        }
+
+        #[test]
+        fn position_key_values_and_buckets_match_on_generated_sibling_orders(
+            positions in proptest::array::uniform2(proptest::option::of(0_u32..4)),
+            global in proptest::bool::ANY,
+        ) {
+            super::compare_generated_position_graph(positions, global)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        }
+
+        #[test]
+        fn lexical_space_admission_and_preservation_match_on_generated_literals(
+            literal in 0_usize..12,
+            datatype in 0_usize..3,
+        ) {
+            let texts = ["0", "42", "-1", "+1", "007", " 1", "1.5", "1e3",
+                "9223372036854775807", "9223372036854775808", "not-an-integer", ""];
+            let datatype = ["integer", "decimal", "unknown-datatype"][datatype];
+            let text = texts[literal];
+            let expected = super::reference_keys::lexical_space_outcome(text, datatype, &super::lexical_table());
+            let (passed, reported, unsupported, preserved) = super::production_lexical_outcome(text, datatype);
+            prop_assert!(passed);
+            prop_assert_eq!(preserved, text);
+            prop_assert_eq!((reported, unsupported), match expected {
+                super::reference_keys::LexicalOutcome::Coerces => (false, false),
+                super::reference_keys::LexicalOutcome::IllTyped => (true, false),
+                super::reference_keys::LexicalOutcome::UnsupportedDeclaration => (false, true),
+            });
+        }
+
+        #[test]
+        fn annotated_format_admission_and_preservation_match_on_generated_strings(
+            literal in 0_usize..8,
+            mode in 0_usize..3,
+        ) {
+            let texts = ["550e8400-e29b-41d4-a716-446655440000",
+                "550E8400-E29B-41D4-A716-446655440000",
+                "550e8400-e29b-41d4-a716-44665544000",
+                "550e8400e29b-41d4-a716-4466554400000",
+                "{550e8400-e29b-41d4-a716-446655440000}",
+                "550e8400-e29b-41d4-a716-44665544000g", "not-a-uuid", ""];
+            let (format, asserting) = [("uuid", false), ("uuid", true), ("x-unrecognized", false)][mode];
+            let text = texts[literal];
+            let expected = super::reference_keys::annotated_format_outcome(format, text, asserting);
+            let (passed, reported, incomplete, preserved) = super::production_format_outcome(format, text, asserting);
+            prop_assert_eq!(preserved, text);
+            prop_assert!(!incomplete);
+            if format == "uuid" {
+                let recognized = super::reference_keys::uuid_format(text);
+                prop_assert_eq!((passed, reported), (!asserting || recognized, !recognized));
+            }
+            prop_assert_eq!((passed, reported), match expected {
+                super::reference_keys::FormatOutcome::Unchecked | super::reference_keys::FormatOutcome::Recognized => (true, false),
+                super::reference_keys::FormatOutcome::Advisory => (true, true),
+                super::reference_keys::FormatOutcome::Refused => (false, true),
+            });
+        }
+
+        #[test]
+        fn key_kernels_and_typed_refusals_match_on_generated_pairs(
+            configuration in 0_usize..13,
+            left in 0_usize..43,
+            right in 0_usize..43,
+        ) {
+            compare_generated_key_pair(configuration, left, right)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        }
+
+        #[test]
+        fn sort_order_and_adjacent_descent_match_on_generated_words(
+            indices in proptest::collection::vec(0_usize..7, 0..=4),
+        ) {
+            compare_generated_key_order(&indices)
+                .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        }
+    }
+}

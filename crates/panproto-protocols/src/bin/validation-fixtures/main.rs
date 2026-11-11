@@ -25,24 +25,12 @@
 //! Run with the `fixtures` feature, which brings the `MessagePack` and CBOR
 //! writers: `cargo run -p panproto-protocols --features fixtures --bin
 //! validation-fixtures [OUT_DIR]`, where `OUT_DIR` defaults to the
-//! repository's `tests/fixtures/validation`. Built without it, the binary
-//! writes nothing and exits with an error. The validation fixture tests run
+//! repository's `tests/fixtures/validation`. The validation fixture tests run
 //! this binary into a temporary directory and fail when its output differs
 //! from the committed corpus.
 
-#[cfg(feature = "fixtures")]
 mod corpus;
 
-#[cfg(feature = "fixtures")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     corpus::run()
-}
-
-#[cfg(not(feature = "fixtures"))]
-fn main() -> std::process::ExitCode {
-    eprintln!(
-        "validation-fixtures writes MessagePack and CBOR, which need the `fixtures` feature: \
-         cargo run -p panproto-protocols --features fixtures --bin validation-fixtures"
-    );
-    std::process::ExitCode::FAILURE
 }

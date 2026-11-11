@@ -318,6 +318,78 @@ fn reference_entity_outcome(
     }
 }
 
+fn assert_entity_character_outcome(
+    source: &str,
+    declarations: &BTreeMap<String, String>,
+    expected: &EntityOutcome,
+) {
+    let reference = reference_entity_outcome(panproto_reference::value_io::xml_entity(
+        source,
+        declarations,
+    ));
+    let production = production_entity_outcome(expand_xml_entities(source, declarations));
+    assert_eq!(&reference, expected, "independent XML character outcome");
+    assert_eq!(&production, expected, "production XML character outcome");
+}
+
+#[test]
+fn xml_entity_literals_and_replacements_obey_the_character_domain() {
+    let empty = BTreeMap::new();
+    for character in [
+        '\0', '\u{8}', '\u{b}', '\u{c}', '\u{1f}', '\u{fffe}', '\u{ffff}',
+    ] {
+        let text = format!("a{character}b");
+        assert_entity_character_outcome(&text, &empty, &EntityOutcome::Malformed);
+        let declarations = BTreeMap::from([("a".to_owned(), text)]);
+        assert_entity_character_outcome("&a;", &declarations, &EntityOutcome::Malformed);
+    }
+    for character in [
+        '\t',
+        '\n',
+        '\r',
+        ' ',
+        '\u{d7ff}',
+        '\u{e000}',
+        '\u{fffd}',
+        '\u{10000}',
+        '\u{10ffff}',
+    ] {
+        let text = format!("a{character}b");
+        let expected = EntityOutcome::Expanded(text.clone());
+        assert_entity_character_outcome(&text, &empty, &expected);
+        let declarations = BTreeMap::from([("a".to_owned(), text)]);
+        assert_entity_character_outcome("&a;", &declarations, &expected);
+    }
+}
+
+#[test]
+fn xml_entity_character_refusals_keep_append_stage_precedence() {
+    let empty = BTreeMap::new();
+    let at_limit = "x".repeat(MAX_XML_ENTITY_EXPANSION_BYTES);
+    assert_entity_character_outcome(
+        &at_limit,
+        &empty,
+        &EntityOutcome::Expanded(at_limit.clone()),
+    );
+    let over_limit = format!("{at_limit}x");
+    assert_entity_character_outcome(&over_limit, &empty, &EntityOutcome::Bytes);
+    let malformed_and_long = format!("{over_limit}\0");
+    assert_entity_character_outcome(&malformed_and_long, &empty, &EntityOutcome::Malformed);
+    let declarations = BTreeMap::from([("a".to_owned(), malformed_and_long)]);
+    assert_entity_character_outcome("&a;", &declarations, &EntityOutcome::Malformed);
+    assert_entity_character_outcome(
+        &format!("{over_limit}&amp;\0"),
+        &empty,
+        &EntityOutcome::Bytes,
+    );
+    assert_entity_character_outcome("\0&missing;", &empty, &EntityOutcome::Malformed);
+    assert_entity_character_outcome(
+        "&missing;\0",
+        &empty,
+        &EntityOutcome::Undeclared("missing".to_owned()),
+    );
+}
+
 fn production_xml_document_entity_outcome(
     result: Result<WInstance, ParseInstanceError>,
 ) -> EntityOutcome {
@@ -1143,6 +1215,44 @@ fn bounded_canonical_scalar_parsing_matches_reference() {
                 "canonical scalar parse differs: route={route:?}, input={input:?}"
             );
         }
+    }
+}
+
+/// Law 4's quote delimiter boundary on the always-compiled JSON reader.
+#[test]
+fn json_interior_quote_refusals_and_escapes_match_reference() {
+    let tree_text = scalar_schema(
+        "root",
+        &ScalarParseOutcome::Parsed(ParsedScalar::Str(String::new())),
+    );
+    for (token, value) in [
+        ("\"\"\"", None),
+        ("\"a\"b\"", None),
+        ("\"\" \"\"", None),
+        ("\"\\\\\"\"", None),
+        ("\"\"", Some("")),
+        ("\"\\\"\"", Some("\"")),
+        ("\"a\\\"b\"", Some("a\"b")),
+        ("\"\\\\\"", Some("\\")),
+        ("\"\\u0022\"", Some("\"")),
+    ] {
+        let pinned = value.map_or(ScalarParseOutcome::Malformed, |text| {
+            ScalarParseOutcome::Parsed(ParsedScalar::Str(text.to_owned()))
+        });
+        let expected = reference_parse_outcome(panproto_reference::value_io::parse(
+            Route::Json,
+            token.as_bytes(),
+        ));
+        assert_eq!(expected, pinned, "reference JSON quote boundary: {token:?}");
+        let wrapped = wrap_scalar(Route::Json, token.as_bytes());
+        let actual = parse_json_bytes(&tree_text, "root", &wrapped, "cassandra")
+            .map_or_else(production_parse_error, |instance| {
+                ScalarParseOutcome::Parsed(production_tree_scalar(&instance))
+            });
+        assert_eq!(
+            actual, expected,
+            "production JSON quote boundary: {token:?}"
+        );
     }
 }
 
@@ -2020,7 +2130,7 @@ fn bounded_decimal_round_trips_match_reference() {
 /// production CST parses must retain the wrapper byte-for-byte.
 #[cfg(feature = "tree-sitter")]
 #[test]
-#[ignore = "final gate: YAML recovery must reject uncovered source bytes"]
+#[ignore = "YAML error recovery accepts source bytes that the reference rejects"]
 fn bounded_scalar_and_cst_parsing_matches_reference() {
     let tree_codecs = [
         (
@@ -2350,8 +2460,8 @@ fn json_scalar_successes_and_typed_refusals_match_reference() {
 }
 
 /// Law 5 over the page's complete temporal lexical product for the five
-/// canonical emitters in the phase-3 contract: JSON, TOML, XML, CSV and TSV.
-/// The feature-gated YAML CST emitter belongs to the final-gate route proof.
+/// canonical emitters: JSON, TOML, XML, CSV and TSV. The feature-gated YAML
+/// CST emitter is not covered here.
 /// A successfully parsed temporal is offered to both route predicates;
 /// malformed lexemes are refusals on both sides.
 #[test]
@@ -3243,4 +3353,564 @@ fn every_single_scalar_blob_field_matches_the_reference_layout() {
         [1]
     });
     assert_eq!(checked, 1_112_064);
+}
+
+fn generated_io_temporal_lexemes() -> &'static [String] {
+    static LEXEMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LEXEMES.get_or_init(scope::temporal_lexemes)
+}
+
+// Randomized inputs use the same independent observables as the finite scopes.
+// Config::default consumes PROPTEST_RNG_SEED and PROPTEST_CASES; proptest retains
+// shrunk failures. A sampled case is an input, never an entire fixed test.
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_scalar_emission_and_round_trip(
+        character in proptest::option::of(proptest::prelude::any::<char>()),
+        route_index in 0_usize..4,
+    ) {
+        let route = [Route::Json, Route::Xml, Route::Csv, Route::Tsv][route_index];
+        let text = character.map_or_else(String::new, |c| c.to_string());
+        let schema = one_text_column(if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" });
+        let production_value = Value::Str(text.clone());
+        let reference_value = ReferenceValue::Str(text);
+        let (actual, reread) = production_scalar(route, &schema, &production_value);
+        let expected = reference_emission(
+            panproto_reference::value_io::emit(route, &reference_value), "generated scalar",
+        );
+        proptest::prop_assert_eq!(actual, expected);
+        proptest::prop_assert_eq!(
+            panproto_reference::value_io::round_trip(route, &reference_value),
+            reread.is_some_and(|value| same_value(&value, &production_value)),
+        );
+    }
+
+    #[test]
+    fn randomized_numeric_emission_and_round_trip(
+        negative in proptest::prelude::any::<bool>(),
+        coefficient in 0_u8..100,
+        exponent in -1_i8..=1,
+        numeric_class in 0_usize..3,
+        special_index in 0_usize..10,
+        integer_index in 0_usize..13,
+        route_index in 0_usize..5,
+    ) {
+        let finite = format!("{}{coefficient}e{exponent}", if negative { "-" } else { "" });
+        let (kind, production_value, reference_value) = if numeric_class == 2 {
+            let lexemes = scope::exact_integer_lexemes();
+            let text = lexemes[integer_index];
+            let production = coerce(&Lexeme::new(text, LexClass::Number), &ValueSpec::new(ScalarKind::Any))
+                .test_unwrap("generated exact integer");
+            let integer = panproto_reference::exact::parse_numeral(text)
+                .and_then(|n| panproto_reference::exact::integer_of_numeral(&n))
+                .expect("reference integer");
+            let (kind, reference) = match integer {
+                panproto_reference::exact::ExactInteger::Int(value) => ("bigint", ReferenceValue::Int(value)),
+                panproto_reference::exact::ExactInteger::Big(value) => ("varint", ReferenceValue::BigInt(value)),
+            };
+            (kind, production, reference)
+        } else {
+            let specials = scope::special_decimal_lexemes();
+            let text = if numeric_class == 0 { finite.as_str() } else { specials[special_index] };
+            ("decimal", Value::Decimal(DecimalValue::parse(text).test_unwrap("generated decimal")),
+             ReferenceValue::Decimal(panproto_reference::exact::parse_decimal(text).expect("reference decimal")))
+        };
+        let route = CANONICAL_EMIT_ROUTES[route_index];
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = one_kind_column(root, "value", kind);
+        let (actual, reread) = production_scalar(route, &schema, &production_value);
+        let expected = reference_emission(panproto_reference::value_io::emit(route, &reference_value), "generated number");
+        proptest::prop_assert_eq!(&actual, &expected);
+        if route != Route::Toml {
+            proptest::prop_assert_eq!(panproto_reference::value_io::round_trip(route, &reference_value),
+                reread.is_some_and(|value| same_value(&value, &production_value)));
+        } else if let (ScalarEmission::Emitted(token), ScalarEmission::Emitted(reference_token)) = (actual, expected) {
+            let token = std::str::from_utf8(&token).expect("TOML scalar is UTF-8");
+            let text = match &production_value {
+                Value::Decimal(value) => value.to_string(),
+                Value::Int(value) => value.to_string(),
+                Value::BigInt(value) => value.to_string(),
+                _ => unreachable!("generated numeric carrier"),
+            };
+            let reference_kind = if kind == "decimal" { panproto_reference::coerce::ScalarKind::Decimal }
+                else { panproto_reference::coerce::ScalarKind::BigInt };
+            proptest::prop_assert!(panproto_reference::value_io::toml_scalar(&reference_kind, &text, token));
+            proptest::prop_assert!(panproto_reference::value_io::decimal(std::str::from_utf8(&reference_token).expect("reference token"), token));
+        }
+    }
+
+    #[test]
+    fn randomized_canonical_scalar_reading(
+        input in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..=2),
+        route_index in 0_usize..4,
+    ) {
+        let route = [Route::Json, Route::Xml, Route::Csv, Route::Tsv][route_index];
+        let expected = reference_parse_outcome(panproto_reference::value_io::parse(route, &input));
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = scalar_schema(root, &expected);
+        let wrapped = wrap_scalar(route, &input);
+        let actual = if matches!(route, Route::Csv | Route::Tsv) {
+            let delimiter = if route == Route::Csv { b',' } else { b'\t' };
+            match parse_tsv(&schema, &wrapped, "cassandra", "rows", delimiter, None) {
+                Ok(instance) if scalar_occupies_one_cell(route, &input) => production_one_cell_scalar(&instance),
+                Ok(_) => ScalarParseOutcome::Malformed,
+                Err(error) => production_parse_error(error),
+            }
+        } else {
+            let parsed = if route == Route::Json { parse_json_bytes(&schema, "root", &wrapped, "cassandra") }
+                else { parse_xml_bytes(&schema, &wrapped, "cassandra") };
+            parsed.map_or_else(production_parse_error, |instance| ScalarParseOutcome::Parsed(production_tree_scalar(&instance)))
+        };
+        proptest::prop_assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn randomized_presence_outcomes(
+        route_index in 0_usize..5,
+        is_null in proptest::prelude::any::<bool>(),
+    ) {
+        let route = CANONICAL_EMIT_ROUTES[route_index];
+        let presence = if is_null { ReferencePresence::Null } else { ReferencePresence::Absent };
+        let expected = panproto_reference::value_io::presence(route, presence);
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = one_text_column(root);
+        let field = if is_null { FieldPresence::Null } else { FieldPresence::Absent };
+        let emitted = match route {
+            Route::Json => emit_json_bytes(&schema, &one_tree_value(root, field), "cassandra"),
+            Route::Toml => emit_toml_bytes(&schema, &one_tree_value(root, field), "cassandra"),
+            Route::Xml => emit_xml_bytes(&schema, &one_xml_tree_value(root, field), "cassandra"),
+            Route::Csv | Route::Tsv => {
+                let instance = if is_null { one_table_scalar(Value::Null) }
+                    else { FInstance::new().with_table("rows", vec![HashMap::new()]).test_unwrap("absent row") };
+                emit_tsv_with_schema(&schema, &instance, "cassandra", root, if route == Route::Csv { b',' } else { b'\t' })
+            }
+            Route::Yaml => unreachable!("default compiled routes"),
+        };
+        let actual = match emitted {
+            Ok(bytes) => {
+                let text = std::str::from_utf8(&bytes).expect("UTF-8 presence document");
+                if text.contains("null") || text.contains("xsi:nil=\"true\"") { PresenceOutcome::NullSyntax }
+                else {
+                    proptest::prop_assert!(!text.contains("value"));
+                    PresenceOutcome::Omitted
+                }
+            }
+            Err(EmitInstanceError::Value(error)) if error.reason == EmitValueReason::NullNotRepresentable => PresenceOutcome::NullNotRepresentable,
+            Err(EmitInstanceError::Value(error)) if error.reason == EmitValueReason::AbsentNotRepresentable => PresenceOutcome::AbsentNotRepresentable,
+            Err(error) => panic!("unexpected presence refusal: {error:?}"),
+        };
+        proptest::prop_assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn randomized_temporal_route_representability(
+        index in 0_usize..generated_io_temporal_lexemes().len(),
+        route_index in 0_usize..5,
+    ) {
+        let text = &generated_io_temporal_lexemes()[index];
+        let reference = panproto_reference::temporal::parse_union(text);
+        let production = Temporal::parse_union(text);
+        proptest::prop_assert_eq!(reference.is_ok(), production.is_ok());
+        if let (Ok(reference), Ok(production)) = (reference, production) {
+            let route = CANONICAL_EMIT_ROUTES[route_index];
+            let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+            let kind = match production.lexical_form().expect("temporal descriptor").kind {
+                TemporalForm::Date => "date", TemporalForm::Time => "time", TemporalForm::DateTime => "timestamp",
+            };
+            let schema = one_temporal_column(root, kind);
+            let actual = production_representable(production_document(route, &schema, &Value::Temporal(production)), "generated temporal");
+            proptest::prop_assert_eq!(actual, panproto_reference::value_io::temporal(route, &reference));
+        }
+    }
+
+    #[test]
+    fn randomized_tabular_observables(
+        comment in "[#x]{0,2}",
+        missing in "[_x]{0,2}",
+        empty_line in "x{0,2}",
+        columns in 1_usize..=2,
+        quote in "[\"\t\r\n]{0,2}",
+        csv in proptest::prelude::any::<bool>(),
+    ) {
+        let schema = one_text_column("rows");
+        let tsv = DelimitedRoute::TSV;
+        let codec = if csv { DelimitedRoute::CSV } else { tsv };
+        let parsed = tsv.parse_functor(&schema, format!("value\n{comment}\n").as_bytes()).test_unwrap("comment input");
+        let actual = !comment.is_empty() && table_text(&parsed) == Some(comment.as_str());
+        proptest::prop_assert_eq!(actual, panproto_reference::value_io::tsv_comment(&comment));
+        let parsed = codec.parse_functor(&schema, format!("value\n{missing}\n").as_bytes()).test_unwrap("missing token input");
+        proptest::prop_assert_eq!(table_text(&parsed) == Some("_"), panproto_reference::value_io::tabular_missing(&missing));
+        let pair = two_text_columns("rows", "value", "other");
+        let (row_schema, header) = if columns == 1 { (&schema, "value".to_owned()) }
+            else { (&pair, format!("value{}other", if csv { ',' } else { '\t' })) };
+        let parsed = codec.parse_functor(row_schema, format!("{header}\n{empty_line}\n").as_bytes());
+        let actual = parsed.as_ref().is_ok_and(|instance| {
+            let rows = instance.rows("rows");
+            rows.len() == 1 && rows[0].1.len() == 1 && rows[0].1.get("value") == Some(&Value::Str(String::new()))
+        });
+        proptest::prop_assert_eq!(actual, panproto_reference::value_io::tabular_empty_row(columns, &empty_line));
+        if columns == 1 {
+            let parsed = parsed.test_unwrap("one-column empty row");
+            proptest::prop_assert_eq!(codec.emit_functor(row_schema, &parsed).test_unwrap("empty row emit"), format!("value\n{empty_line}\n").into_bytes());
+        }
+        let actual = tsv.emit_functor(&schema, &one_table_value(&quote));
+        match actual {
+            Ok(bytes) => {
+                proptest::prop_assert!(panproto_reference::value_io::tsv_quote(&quote));
+                proptest::prop_assert_eq!(&bytes, &format!("value\n{quote}\n").into_bytes());
+                let parsed = tsv.parse_functor(&schema, &bytes).test_unwrap("quote reread");
+                proptest::prop_assert_eq!(table_text(&parsed), Some(quote.as_str()));
+            }
+            Err(EmitInstanceError::Value(error)) if error.reason == EmitValueReason::NotRepresentable => {
+                proptest::prop_assert!(!panproto_reference::value_io::tsv_quote(&quote));
+            }
+            Err(error) => panic!("unexpected quote refusal: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn randomized_duplicate_member_refusals(
+        members in proptest::collection::vec(0_usize..3, 0..=2),
+        xml in proptest::prelude::any::<bool>(),
+    ) {
+        let schema = one_text_column("root");
+        let spellings = if xml { [("a", "a"), ("{urn:u}a", "p:a"), ("{urn:u}a", "q:a")] }
+            else { [("a", "\"a\""), ("a", "\"\\u0061\""), ("b", "\"b\"")] };
+        let decoded: Vec<_> = members.iter().enumerate().map(|(i, index)| (spellings[*index].0.to_owned(), i)).collect();
+        let mut input = if xml { "<root xmlns:p=\"urn:u\" xmlns:q=\"urn:u\"".to_owned() } else { "{".to_owned() };
+        let mut offsets = Vec::new();
+        for (i, index) in members.iter().enumerate() {
+            if xml { input.push(' '); } else if i > 0 { input.push(','); }
+            offsets.push(input.len());
+            input.push_str(spellings[*index].1);
+            input.push_str(if xml { "=\"x\"" } else { ":\"x\"" });
+        }
+        input.push_str(if xml { "><value>x</value></root>" } else { "}" });
+        let production = if xml { parse_xml_bytes(&schema, input.as_bytes(), "cassandra") }
+            else { parse_json_bytes(&schema, "root", input.as_bytes(), "cassandra") };
+        if panproto_reference::value_io::duplicate_member(&decoded) {
+            proptest::prop_assert!(matches!(production,
+                Err(ParseInstanceError::DuplicateMember { ref protocol, ref name, byte_offset })
+                if protocol == "cassandra" && name == spellings[members[1]].0 && byte_offset == u64::try_from(offsets[1]).ok()),
+                "input={:?}, outcome={:?}", input, production);
+        } else {
+            proptest::prop_assert!(!matches!(production, Err(ParseInstanceError::DuplicateMember { .. })), "{:?}", production);
+        }
+    }
+
+    #[test]
+    fn randomized_xml_entity_expansion(
+        a in 0_usize..5, b in 0_usize..5,
+        atoms in proptest::collection::vec(0_usize..2, 0..=2),
+    ) {
+        let choices = [None, Some("x"), Some("&a;"), Some("&b;"), Some("&amp;")];
+        let declarations: BTreeMap<_, _> = [("a", choices[a]), ("b", choices[b])].into_iter()
+            .filter_map(|(name, text)| text.map(|text| (name.to_owned(), text.to_owned()))).collect();
+        let source: String = atoms.iter().map(|i| ["&a;", "&b;"][*i]).collect();
+        let expected = reference_entity_outcome(panproto_reference::value_io::xml_entity(&source, &declarations));
+        proptest::prop_assert_eq!(production_entity_outcome(expand_xml_entities(&source, &declarations)), expected);
+        let wrapped = format!("L{source}R");
+        let document = format!("<!DOCTYPE root [{}]><root><value>{wrapped}</value></root>", xml_entity_declarations(&declarations));
+        let expected = reference_entity_outcome(panproto_reference::value_io::xml_entity(&wrapped, &declarations));
+        let schema = one_text_column("root");
+        proptest::prop_assert_eq!(production_xml_document_entity_outcome(parse_xml_bytes(&schema, document.as_bytes(), "cassandra")), expected);
+    }
+
+    #[test]
+    fn randomized_blob_writer(
+        reference_text in ".{0,4}", mime in ".{0,4}", size in proptest::prelude::any::<u64>(),
+    ) {
+        let protocol = panproto_schema::Protocol {
+            name: "reference-value-io".into(), schema_theory: "ThReferenceValueIoSchema".into(),
+            instance_theory: "ThReferenceValueIoInstance".into(), obj_kinds: vec!["object".into()], ..Default::default()
+        };
+        let schema = SchemaBuilder::new(&protocol).vertex("root", "object", None)
+            .test_unwrap("blob root").build().test_unwrap("blob schema");
+        let blob = Value::Blob { ref_: reference_text.clone(), mime: mime.clone(), size };
+        let mut root = Node::new(0, "root");
+        root.extra_fields.insert("blob".to_owned(), blob.clone());
+        let instance = WInstance::new(HashMap::from([(0, root)]), Vec::new(), Vec::new(), 0, "root".into());
+        let actual = emit_json_bytes(&schema, &instance, "reference-value-io").test_unwrap("blob emit");
+        let expected = [br#"{"blob":"#.as_slice(), &panproto_reference::value_io::blob_writer(&reference_text, &mime, size), b"}"].concat();
+        proptest::prop_assert_eq!(&actual, &expected);
+        let parsed = parse_json_bytes(&schema, "root", &actual, "reference-value-io").test_unwrap("blob reread");
+        proptest::prop_assert_eq!(parsed.node(parsed.root).and_then(|node| node.extra_fields.get("blob")), Some(&blob));
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_canonical_encoding(
+        text in "[ab0-9]{1,8}", encoding in 0_u8..5, route_index in 0_usize..4,
+    ) {
+        let route = [Route::Json, Route::Xml, Route::Csv, Route::Tsv][route_index];
+        let root = if matches!(route, Route::Csv | Route::Tsv) { "rows" } else { "root" };
+        let schema = one_text_column(root);
+        let value = Value::Str(text.clone());
+        let canonical = production_document(route, &schema, &value).test_unwrap("generated source document");
+        let source = if route == Route::Xml {
+            let declaration = match encoding { 0 => "UTF-8", 1 | 2 => "UTF-16", 3 => "ISO-8859-1", _ => "US-ASCII" };
+            let document = format!("<?xml version=\"1.0\" encoding=\"{declaration}\"?><root><value>{text}</value></root>");
+            if encoding == 1 || encoding == 2 {
+                let mut bytes = if encoding == 1 { vec![0xff, 0xfe] } else { vec![0xfe, 0xff] };
+                for unit in document.encode_utf16() {
+                    bytes.extend_from_slice(&if encoding == 1 { unit.to_le_bytes() } else { unit.to_be_bytes() });
+                }
+                bytes
+            } else { document.into_bytes() }
+        } else { [b"\xef\xbb\xbf".as_slice(), canonical.as_slice()].concat() };
+        let actual = production_reread(route, &schema, &source).expect("accepted generated encoding");
+        proptest::prop_assert!(same_value(&actual, &value));
+        let emitted = production_document(route, &schema, &actual).test_unwrap("normalized generated source");
+        proptest::prop_assert!(panproto_reference::value_io::encoding(&emitted));
+        if route == Route::Xml {
+            proptest::prop_assert!(panproto_reference::value_io::xml_encoding(&emitted));
+        }
+        proptest::prop_assert_eq!(emitted, canonical);
+    }
+
+    #[test]
+    fn randomized_xml_expanded_names(
+        first in 0_usize..6, second in 0_usize..6,
+        p in proptest::prelude::any::<bool>(), q in proptest::prelude::any::<bool>(),
+    ) {
+        let attributes = [(None, "a"), (None, "b"), (Some("p"), "a"), (Some("p"), "b"), (Some("q"), "a"), (Some("q"), "b")];
+        let first = attributes[first];
+        let second = attributes[second];
+        let p_namespace = if p { "urn:a" } else { "urn:b" };
+        let q_namespace = if q { "urn:a" } else { "urn:b" };
+        let expanded = |(prefix, local): (Option<&str>, &str)| {
+            let namespace = match prefix { None => "", Some("p") => p_namespace, Some(_) => q_namespace };
+            panproto_reference::value_io::xml_expanded_name(namespace, local)
+        };
+        let clark = |(namespace, local): &(String, String)| if namespace.is_empty() { local.clone() } else { format!("{{{namespace}}}{local}") };
+        let spelled = |(prefix, local): (Option<&str>, &str)| prefix.map_or_else(|| local.to_owned(), |prefix| format!("{prefix}:{local}"));
+        let head = format!("<root xmlns:p=\"{p_namespace}\" xmlns:q=\"{q_namespace}\" {}=\"1\" ", spelled(first));
+        let offset = u64::try_from(head.len()).expect("bounded offset");
+        let document = format!("{head}{}=\"2\"><value>x</value></root>", spelled(second));
+        let schema = one_text_column("root");
+        let actual = parse_xml_bytes(&schema, document.as_bytes(), "cassandra");
+        let first = expanded(first);
+        let second = expanded(second);
+        if first == second {
+            proptest::prop_assert!(matches!(actual,
+                Err(ParseInstanceError::DuplicateMember { ref protocol, ref name, byte_offset: Some(actual_offset) })
+                if protocol == "cassandra" && name == &clark(&second) && actual_offset == offset), "outcome={:?}", actual);
+        } else {
+            let parsed = actual.test_unwrap("distinct generated XML names");
+            let root = parsed.node(parsed.root).expect("XML root");
+            proptest::prop_assert_eq!(root.extra_fields.get(&clark(&first)), Some(&Value::Str("1".to_owned())));
+            proptest::prop_assert_eq!(root.extra_fields.get(&clark(&second)), Some(&Value::Str("2".to_owned())));
+        }
+    }
+}
+
+mod value_spec_transport {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::value::Value;
+    use panproto_inst::value::coerce::{LexClass, Lexeme, coerce};
+    use panproto_schema::value_kinds::{FloatReading, NumeralDialect};
+    use panproto_schema::{ConstraintSemantics, Protocol, ScalarKind, SchemaBuilder, ValueSpec};
+    use serde_json::{Value as Json, json};
+
+    // The wire contract keeps seven legacy fields. Named human-readable fields
+    // omit each absent extension; binary fields retain the prefix through the
+    // final present extension. Literal slots below are independent expectations.
+    #[test]
+    fn value_spec_extensions_preserve_io_transport_slots() {
+        let names = [
+            "float_reading",
+            "numeral",
+            "discriminators",
+            "time_unit",
+            "time_zone",
+        ];
+        let absent = [
+            json!("exact"),
+            Json::Null,
+            Json::Null,
+            Json::Null,
+            Json::Null,
+        ];
+        let present = [
+            json!("nearest_keeping_lexeme"),
+            json!("json"),
+            json!({"text": "str"}),
+            json!("millis"),
+            json!("UTC"),
+        ];
+        for mask in 0_u32..32 {
+            let enabled = |index: usize| mask & (1 << index) != 0;
+            let spec = ValueSpec {
+                float_reading: if enabled(0) {
+                    FloatReading::NearestKeepingLexeme
+                } else {
+                    FloatReading::Exact
+                },
+                numeral: enabled(1).then_some(NumeralDialect::Json),
+                discriminators: enabled(2)
+                    .then(|| BTreeMap::from([("text".to_owned(), ScalarKind::Str)])),
+                time_unit: enabled(3).then(|| serde_json::from_value(json!("millis")).unwrap()),
+                time_zone: enabled(4).then(|| "UTC".to_owned()),
+                ..ValueSpec::new(ScalarKind::Str)
+            };
+            let legacy = json!({"kind": "str", "precision": null, "scale": null,
+                "max_length": null, "with_time_zone": null, "int_bits": null, "unsigned": false});
+            let mut human = legacy.clone();
+            for (index, name) in names.iter().enumerate() {
+                if enabled(index) {
+                    human[name] = present[index].clone();
+                }
+            }
+            assert_eq!(serde_json::to_value(&spec).unwrap(), human, "mask {mask}");
+            let decoded: ValueSpec = serde_json::from_value(human).unwrap();
+            assert_eq!(decoded, spec, "JSON mask {mask}");
+
+            let width = (0..5).rfind(|index| enabled(*index)).map_or(0, |i| i + 1);
+            let mut positional = vec![
+                json!("str"),
+                Json::Null,
+                Json::Null,
+                Json::Null,
+                Json::Null,
+                Json::Null,
+                json!(false),
+            ];
+            let mut expected_binary_map = legacy;
+            for index in 0..width {
+                let slot = if enabled(index) {
+                    &present[index]
+                } else {
+                    &absent[index]
+                };
+                positional.push(slot.clone());
+                expected_binary_map[names[index]] = slot.clone();
+            }
+            let binary = rmp_serde::to_vec(&spec).unwrap();
+            assert_eq!(
+                binary,
+                rmp_serde::to_vec(&positional).unwrap(),
+                "slots mask {mask}"
+            );
+            let binary_named = rmp_serde::to_vec_named(&spec).unwrap();
+            assert_eq!(
+                rmp_serde::from_slice::<Json>(&binary_named).unwrap(),
+                expected_binary_map,
+                "named binary mask {mask}"
+            );
+            for bytes in [&binary, &binary_named] {
+                let restored: ValueSpec = rmp_serde::from_slice(bytes).unwrap();
+                assert_eq!(restored, spec, "binary round trip mask {mask}");
+                assert_eq!(
+                    coerce(
+                        &Lexeme {
+                            text: "x",
+                            class: LexClass::String
+                        },
+                        &restored
+                    )
+                    .unwrap(),
+                    Value::Str("x".to_owned()),
+                    "transported I/O kind mask {mask}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn protocol_value_parameters_reach_the_io_coercion_boundary() {
+        let declarations = [
+            ("precision", "12"),
+            ("scale", "3"),
+            ("max_length", "80"),
+            ("with_time_zone", "false"),
+            ("int_bits", "8"),
+            ("unsigned", "true"),
+            ("time_unit", "ms"),
+            ("time_zone", "UTC"),
+        ];
+        let kind = ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        };
+        let protocol = Protocol {
+            name: "io-parameter-contract".into(),
+            obj_kinds: vec!["integer".into()],
+            constraint_sorts: declarations
+                .iter()
+                .map(|(name, _)| (*name).to_owned())
+                .collect(),
+            constraint_semantics: declarations
+                .iter()
+                .map(|(name, _)| ((*name).to_owned(), ConstraintSemantics::ValueParameter))
+                .collect(),
+            value_kinds: BTreeMap::from([("integer".to_owned(), kind.clone())]),
+            ..Protocol::default()
+        };
+        let mut builder = SchemaBuilder::new(&protocol)
+            .vertex("value", "integer", None)
+            .unwrap()
+            .constraint("value", "int_bits", "16");
+        for (name, value) in declarations {
+            builder = builder.constraint("value", name, value);
+        }
+        let schema = builder
+            .constraint("value", "int_bits", "invalid")
+            .build()
+            .unwrap();
+        let expected = ValueSpec {
+            precision: Some(12),
+            scale: Some(3),
+            max_length: Some(80),
+            with_time_zone: Some(false),
+            int_bits: Some(8),
+            unsigned: true,
+            time_unit: Some(serde_json::from_value(json!("millis")).unwrap()),
+            time_zone: Some("UTC".to_owned()),
+            ..ValueSpec::new(kind.clone())
+        };
+        let spec = ValueSpec::for_vertex(&schema, &protocol, &"value".into());
+        assert_eq!(
+            spec, expected,
+            "later valid parameters win; malformed ones set nothing"
+        );
+        let number = |text| Lexeme {
+            text,
+            class: LexClass::Number,
+        };
+        assert_eq!(coerce(&number("255"), &spec).unwrap(), Value::Int(255));
+        assert!(
+            coerce(&number("256"), &spec).is_err(),
+            "8-bit unsigned overflow"
+        );
+        assert!(
+            coerce(&number("-1"), &spec).is_err(),
+            "unsigned negative refusal"
+        );
+
+        for semantics in [Some(ConstraintSemantics::Annotation), None] {
+            let mut ignored = protocol.clone();
+            ignored.constraint_semantics = declarations
+                .iter()
+                .filter_map(|(name, _)| {
+                    semantics
+                        .clone()
+                        .map(|meaning| ((*name).to_owned(), meaning))
+                })
+                .collect();
+            let spec = ValueSpec::for_vertex(&schema, &ignored, &"value".into());
+            assert_eq!(
+                spec,
+                ValueSpec::new(kind.clone()),
+                "only value parameters set fields"
+            );
+            assert_eq!(coerce(&number("256"), &spec).unwrap(), Value::Int(256));
+            assert_eq!(coerce(&number("-1"), &spec).unwrap(), Value::Int(-1));
+        }
+    }
 }

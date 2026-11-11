@@ -11,7 +11,7 @@ Install `schema` with a release installer or Cargo:
 
 ```sh
 # Homebrew
-brew install panproto/tap/schema
+brew install panproto/tap/panproto-cli
 
 # Linux or macOS
 curl --proto '=https' -LsSf \

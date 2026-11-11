@@ -27,6 +27,9 @@ use panproto_reference::enumerate::lenses::{
     for_each_table_fixture, for_each_writer_fixture, lens_construction_case_census_certificate,
     lens_construction_count_certificate, table_fixture_count_certificate, writer_count_certificate,
 };
+use panproto_reference::lens::{
+    ConstructionFeature, ConstructionObstruction as ObstructionClass, ConstructionShape,
+};
 use panproto_reference::migration::Migration as RefMigration;
 use panproto_reference::model::{
     Fan as RefFan, Graph as RefGraph, Node as RefNode, NodeShape as RefNodeShape, SEdge as RefEdge,
@@ -403,23 +406,6 @@ fn production_stage(stage: &BoundedLensStage) -> Lens {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum ObstructionClass {
-    Plan,
-    MissingVertex,
-    TargetOnlyVertex,
-    ConditionalVertex,
-    SharedVertexImage,
-    TermAssignment,
-    NonInvertibleTransform,
-    MissingEdge,
-    TargetOnlyEdge,
-    SharedEdgeImage,
-    HyperEdge,
-    RequiredField,
-    Key,
-}
-
 fn vertex_image<'a>(lens: &'a Lens, source: &'a Name) -> &'a Name {
     lens.compiled.vertex_remap.get(source).unwrap_or(source)
 }
@@ -452,7 +438,147 @@ fn mapped_edge(lens: &Lens, source: &Edge) -> Edge {
     carried
 }
 
+fn structural_reference_schema(schema: &Schema) -> RefSchema {
+    RefSchema {
+        vertices: schema
+            .vertices
+            .iter()
+            .map(|(name, vertex)| (name.to_string(), vertex.kind.to_string()))
+            .collect(),
+        edges: schema
+            .edges
+            .keys()
+            .map(|edge| RefEdge::new(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref()))
+            .collect(),
+        ..RefSchema::default()
+    }
+}
+
+fn construction_reference_migration(lens: &Lens) -> RefMigration {
+    let edge = |edge: &Edge| RefEdge::new(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref());
+    RefMigration {
+        surviving_verts: lens
+            .compiled
+            .surviving_verts
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        vertex_remap: lens
+            .compiled
+            .vertex_remap
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect(),
+        edge_remap: lens
+            .compiled
+            .edge_remap
+            .iter()
+            .map(|(a, b)| (edge(a), edge(b)))
+            .collect(),
+        resolver: lens
+            .compiled
+            .resolver
+            .iter()
+            .map(|((a, b), e)| ((a.to_string(), b.to_string()), edge(e)))
+            .collect(),
+        conditional: lens
+            .compiled
+            .conditional_survival
+            .keys()
+            .map(ToString::to_string)
+            .collect(),
+        ..RefMigration::default()
+    }
+}
+
+fn construction_features(lens: &Lens) -> BTreeSet<ConstructionFeature> {
+    let mut out = BTreeSet::new();
+    if lens
+        .compiled
+        .op_term_assignments
+        .values()
+        .any(|values| !values.is_empty())
+    {
+        out.insert(ConstructionFeature::TermAssignments);
+    }
+    if lens
+        .compiled
+        .field_transforms
+        .values()
+        .any(|values| !values.is_empty())
+    {
+        out.insert(ConstructionFeature::FieldTransforms);
+    }
+    if !lens.src_schema.hyper_edges.is_empty()
+        || !lens.tgt_schema.hyper_edges.is_empty()
+        || !lens.compiled.hyper_resolver.is_empty()
+    {
+        out.insert(ConstructionFeature::HyperEdges);
+    }
+    for (schema, required, key) in [
+        (
+            &lens.src_schema,
+            ConstructionFeature::SourceRequired,
+            ConstructionFeature::SourceKey,
+        ),
+        (
+            &lens.tgt_schema,
+            ConstructionFeature::TargetRequired,
+            ConstructionFeature::TargetKey,
+        ),
+    ] {
+        if schema.required.iter().any(|(vertex, edges)| {
+            schema.vertices.contains_key(vertex)
+                && edges
+                    .iter()
+                    .any(|edge| !schema.defaults.contains_key(&edge.tgt))
+        }) {
+            out.insert(required);
+        }
+        if schema
+            .declarations
+            .keys
+            .iter()
+            .any(|(vertex, keys)| schema.vertices.contains_key(vertex) && !keys.is_empty())
+        {
+            out.insert(key);
+        }
+    }
+    out
+}
+
+fn reference_construction_obstruction(
+    lens: &Lens,
+    shape: ConstructionShape,
+) -> Option<ObstructionClass> {
+    panproto_reference::lens::construction_obstruction(
+        &structural_reference_schema(&lens.src_schema),
+        &structural_reference_schema(&lens.tgt_schema),
+        &construction_reference_migration(lens),
+        shape,
+        &construction_features(lens),
+    )
+}
+
 fn independent_tree_obstruction(lens: &Lens) -> Option<ObstructionClass> {
+    let local = local_tree_obstruction(lens);
+    assert_eq!(
+        reference_construction_obstruction(lens, ConstructionShape::Tree),
+        local
+    );
+    local
+}
+
+fn independent_graph_obstruction(lens: &Lens) -> Option<ObstructionClass> {
+    let local = local_graph_obstruction(lens);
+    assert_eq!(
+        reference_construction_obstruction(lens, ConstructionShape::Graph),
+        local
+    );
+    local
+}
+
+fn local_tree_obstruction(lens: &Lens) -> Option<ObstructionClass> {
     let mut images = BTreeSet::new();
     let mut vertices = lens.src_schema.vertices.keys().collect::<Vec<_>>();
     vertices.sort();
@@ -562,7 +688,7 @@ fn independent_tree_obstruction(lens: &Lens) -> Option<ObstructionClass> {
     None
 }
 
-fn independent_graph_obstruction(lens: &Lens) -> Option<ObstructionClass> {
+fn local_graph_obstruction(lens: &Lens) -> Option<ObstructionClass> {
     let mut images = BTreeSet::new();
     let mut vertices = lens.src_schema.vertices.keys().collect::<Vec<_>>();
     vertices.sort();
@@ -1166,6 +1292,14 @@ fn symmetric_graph_and_table_spans_require_one_canonical_middle() -> usize {
     let unequal = plain_schema(&["a", "b"], &[edge("b", "a", "a")]);
     assert_eq!(canonical_bytes(&forward), canonical_bytes(&reverse));
     assert_ne!(canonical_bytes(&forward), canonical_bytes(&unequal));
+    assert!(panproto_reference::lens::span_has_shared_middle(
+        &structural_reference_schema(&forward),
+        &structural_reference_schema(&reverse)
+    ));
+    assert!(!panproto_reference::lens::span_has_shared_middle(
+        &structural_reference_schema(&forward),
+        &structural_reference_schema(&unequal)
+    ));
 
     assert!(
         panproto_lens::graph_symmetric::from_span(
@@ -2268,6 +2402,14 @@ fn assert_random_span_case(selector: u64) {
     let unequal_middle = plain_schema(&[&left, &right], &[reversed]);
     assert_eq!(canonical_bytes(&middle), canonical_bytes(&equal_middle));
     assert_ne!(canonical_bytes(&middle), canonical_bytes(&unequal_middle));
+    assert!(panproto_reference::lens::span_has_shared_middle(
+        &structural_reference_schema(&middle),
+        &structural_reference_schema(&equal_middle)
+    ));
+    assert!(!panproto_reference::lens::span_has_shared_middle(
+        &structural_reference_schema(&middle),
+        &structural_reference_schema(&unequal_middle)
+    ));
 
     assert!(
         panproto_lens::graph_symmetric::from_span(

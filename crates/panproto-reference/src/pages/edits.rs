@@ -3290,8 +3290,9 @@ pub mod edit {
     /// attribute change of its own, even when the payloads are equal. A
     /// state differ cannot see such a replacement, and a replacement is a
     /// new element under a reused id, never an unchanged one (identity
-    /// policy (ii)), so a translation that composes with the translations
-    /// of a delete and a later add (edit-lens functoriality) carries it.
+    /// policy (ii)). Keeping it is an explicit occurrence policy, not an
+    /// unrestricted edit-lens functoriality claim. Node replacements also
+    /// require the before/after incidence closure implemented below.
     ///
     /// Book anchors: `L-edits-8`.
     #[must_use]
@@ -3309,6 +3310,34 @@ pub mod edit {
             delta.del.insert(x.clone(), old);
             delta.add.insert(x.clone(), new);
         }
+        // Close node deletion/addition under incidence in the two states.
+        // No intermediate graph or arbitrary neighbourhood enters the closure.
+        for (id, old) in &before.edges {
+            if delta.del.contains_key(&GElem::Node(old.src))
+                || delta.del.contains_key(&GElem::Node(old.tgt))
+            {
+                let x = GElem::Edge(*id);
+                delta.del.insert(x.clone(), GPayload::Edge(old.clone()));
+                if let Some(new) = after.edges.get(id) {
+                    delta.add.insert(x, GPayload::Edge(new.clone()));
+                }
+            }
+        }
+        for (id, new) in &after.edges {
+            if delta.add.contains_key(&GElem::Node(new.src))
+                || delta.add.contains_key(&GElem::Node(new.tgt))
+            {
+                let x = GElem::Edge(*id);
+                delta.add.insert(x.clone(), GPayload::Edge(new.clone()));
+                if let Some(old) = before.edges.get(id) {
+                    delta.del.insert(x, GPayload::Edge(old.clone()));
+                }
+            }
+        }
+        delta.attrs.retain(|key, _| {
+            let owner = GraphSpace::owner(key);
+            !delta.del.contains_key(&owner) && !delta.add.contains_key(&owner)
+        });
         delta
     }
 

@@ -1812,7 +1812,7 @@ fn literal_adjunction_error(error: &KanError) -> rel::AdjunctionError {
             limit,
         } => rel::AdjunctionError::ProductSizeExceeded {
             vertex: vertex.clone(),
-            actual: *actual,
+            actual: actual.clone(),
             limit: *limit,
         },
         KanError::AttributeOutsideImage { table, column } => {
@@ -2603,7 +2603,7 @@ fn pi_checks_multi_table_fibres_before_enumerating_their_product() {
         rel::pi(&f, &input, 3),
         Err(KanError::ProductSizeExceeded {
             vertex: "m".to_owned(),
-            actual: 4,
+            actual: "4".to_owned(),
             limit: 3,
         })
     );
@@ -3488,6 +3488,7 @@ fn report_exhaustive_kan_progress(pairs: u64, elapsed: std::time::Duration) {
 
 /// The pairs of one source representative of one case against the first
 /// `targets` target representatives of that case.
+#[derive(Clone, Copy)]
 struct PairUnit {
     case: usize,
     source: usize,
@@ -3561,6 +3562,15 @@ fn execute_representative_pairs(
     threads: usize,
 ) -> ExhaustiveKanPairStats {
     let units = pair_units(cases, limit);
+    execute_pair_units(cases, &units, threads)
+}
+
+/// Execute each supplied source unit exactly once, retaining all pair checks.
+fn execute_pair_units(
+    cases: &[RepresentativeCase],
+    units: &[PairUnit],
+    threads: usize,
+) -> ExhaustiveKanPairStats {
     let threads = threads.clamp(1, units.len().max(1));
     let started = std::time::Instant::now();
     let done = AtomicU64::new(0);
@@ -3619,21 +3629,113 @@ fn execute_representative_pairs(
     stats
 }
 
+/// A disjoint share of source units, or the whole certificate when unset.
+fn pair_shard() -> (usize, usize) {
+    let Some(text) = std::env::var_os("PANPROTO_KAN_PAIR_SHARD") else {
+        return (0, 1);
+    };
+    let text = text.into_string().expect("pair shard must be UTF-8");
+    let (index, count) = text.split_once('/').expect("pair shard must be i/n");
+    let index = index.parse::<usize>().expect("invalid pair shard index");
+    let count = count.parse::<usize>().expect("invalid pair shard count");
+    assert!(
+        count > 0 && index < count,
+        "pair shard must satisfy 0 <= i < n"
+    );
+    (index, count)
+}
+
+/// Check that independent execution of disjoint shares preserves every counter.
+#[test]
+fn representative_pair_shards_match_unsharded_prefix() {
+    let cases = representative_cases();
+    let units = pair_units(&cases, 1_000);
+    let full = execute_pair_units(&cases, &units, 1);
+    let mut merged = ExhaustiveKanPairStats::default();
+    let mut indices = BTreeSet::new();
+    for index in 0..3 {
+        let share: Vec<_> = units
+            .iter()
+            .enumerate()
+            .skip(index)
+            .step_by(3)
+            .map(|(ordinal, unit)| {
+                assert!(indices.insert(ordinal));
+                *unit
+            })
+            .collect();
+        merged.absorb(&execute_pair_units(&cases, &share, 2));
+    }
+    assert_eq!(indices, (0..units.len()).collect());
+    assert_eq!(full.pairs, 1_000);
+    assert_eq!(merged, full);
+}
+
 /// Representative pairs in the full certificate.
 const REPRESENTATIVE_PAIRS: u64 = 19_120_495;
 
 #[test]
 fn exhaustive_kan_executes_every_representative_profile_pair() {
     let cases = representative_cases();
-    let stats = execute_representative_pairs(&cases, u64::MAX, pair_threads());
-    assert_eq!(stats.pairs, REPRESENTATIVE_PAIRS);
-    assert_eq!(stats.weighted_pairs, 3_918_714_467);
-    assert!(stats.sigma_homs > 0);
-    assert!(stats.pi_bound4_homs > 0);
-    assert!(stats.pi_bound81_homs > 0);
-    assert!(stats.sigma_refusals > 0);
-    assert!(stats.pi_outside_image > 0);
-    assert!(stats.pi_over_bound > 0);
+    assert!(
+        std::env::var_os("PANPROTO_KAN_PAIR_LIMIT").is_none(),
+        "the full certificate cannot use a pair prefix"
+    );
+    let units = pair_units(&cases, u64::MAX);
+    assert_eq!(units.len(), 9_333);
+    let (index, count) = pair_shard();
+    assert!(
+        count <= units.len(),
+        "pair shards must have nonempty unit shares"
+    );
+    let indices: Vec<_> = (index..units.len()).step_by(count).collect();
+    let share: Vec<_> = indices.iter().map(|&ordinal| units[ordinal]).collect();
+    let all_pairs: u64 = units
+        .iter()
+        .map(|unit| u64::try_from(unit.targets).unwrap())
+        .sum();
+    assert_eq!(all_pairs, REPRESENTATIVE_PAIRS);
+    let expected_pairs: u64 = share
+        .iter()
+        .map(|unit| u64::try_from(unit.targets).unwrap())
+        .sum();
+    let expected_weighted: u64 = share
+        .iter()
+        .map(|unit| {
+            let case = &cases[unit.case];
+            case.sources[unit.source].weight
+                * case.targets[..unit.targets]
+                    .iter()
+                    .map(|target| target.weight)
+                    .sum::<u64>()
+        })
+        .sum();
+    let stats = execute_pair_units(&cases, &share, pair_threads());
+    assert_eq!(stats.pairs, expected_pairs);
+    assert_eq!(stats.weighted_pairs, expected_weighted);
+    if count == 1 {
+        assert_eq!(stats.pairs, REPRESENTATIVE_PAIRS);
+        assert_eq!(stats.weighted_pairs, 3_918_714_467);
+        assert!(stats.sigma_homs > 0);
+        assert!(stats.pi_bound4_homs > 0);
+        assert!(stats.pi_bound81_homs > 0);
+        assert!(stats.sigma_refusals > 0);
+        assert!(stats.pi_outside_image > 0);
+        assert!(stats.pi_over_bound > 0);
+    }
+    println!(
+        "KAN_PAIR_SHARD {{\"index\":{index},\"count\":{count},\"total_units\":{},\"units\":{indices:?},\"pairs\":{},\"weighted\":{},\"sigma_homs\":{},\"pi_bound4_homs\":{},\"pi_bound81_homs\":{},\"sigma_refusals\":{},\"pi_naturality_refusals\":{},\"pi_outside_image\":{},\"pi_over_bound\":{}}}",
+        units.len(),
+        stats.pairs,
+        stats.weighted_pairs,
+        stats.sigma_homs,
+        stats.pi_bound4_homs,
+        stats.pi_bound81_homs,
+        stats.sigma_refusals,
+        stats.pi_naturality_refusals,
+        stats.pi_outside_image,
+        stats.pi_over_bound
+    );
 }
 
 /// The pair prefix for the development-only executor checks:
@@ -4394,10 +4496,18 @@ fn check_literal_pi(
             );
             stats.pi_outputs[index] += 1;
         }
-        Err(error @ KanError::ProductSizeExceeded { actual, limit, .. }) => {
-            assert!(actual > limit);
+        Err(
+            ref error @ KanError::ProductSizeExceeded {
+                ref actual, limit, ..
+            },
+        ) => {
+            let bound_text = limit.to_string();
+            assert!(
+                actual.len() > bound_text.len()
+                    || (actual.len() == bound_text.len() && actual > &bound_text)
+            );
             assert_eq!(limit, bound);
-            check_literal_pi_refusal(context, input_graph, input_tree, &error, bound, stats);
+            check_literal_pi_refusal(context, input_graph, input_tree, error, bound, stats);
             stats.pi_products[index] += 1;
         }
         Err(error @ KanError::AttributeOutsideImage { .. }) => {
@@ -5254,4 +5364,32 @@ fn sigma_clash_features_keep_slots_and_transport_first_witnesses() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([7, 9]),
     );
+}
+
+#[test]
+fn pi_reports_exact_product_above_machine_cardinality() {
+    let mut source = Schema::default();
+    let target = Schema::default().vertex("m", "record");
+    let mut migration = Migration::default();
+    let mut input = Table::default();
+    for index in 0..=usize::BITS {
+        let name = format!("s{index:03}");
+        source = source.vertex(&name, "record");
+        migration.vertex_remap.insert(name.clone(), "m".to_owned());
+        input.rows.insert(index * 2, row(&name, &[]));
+        input.rows.insert(index * 2 + 1, row(&name, &[]));
+    }
+    let f = functor(&source, &target, &migration);
+    let error = rel::pi(&f, &input, 1).unwrap_err();
+    let KanError::ProductSizeExceeded {
+        vertex,
+        actual,
+        limit,
+    } = error
+    else {
+        panic!("expected product refusal, got {error:?}");
+    };
+    assert_eq!(vertex, "m");
+    assert_eq!(limit, 1);
+    assert_eq!(actual, (1_u128 << (usize::BITS + 1)).to_string());
 }

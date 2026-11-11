@@ -3,7 +3,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panproto_check::classify::{BreakingChange, NonBreakingChange, classify};
-use panproto_check::diff::{KeyChange, ReferenceChange, SchemaDiff, diff};
+use panproto_check::diff::{
+    KeyChange, KeySequenceChange, PrimaryKeyChange, ReferenceChange, SchemaDiff, diff,
+};
 use panproto_gat::Name;
 use panproto_schema::{
     Cardinality, Edge, Key, KeyPart, KeyRole, KeyScope, NullMatch, OnUnresolved, Protocol,
@@ -117,6 +119,16 @@ fn schema_diff_reports_key_and_reference_changes() {
         SchemaDiff {
             added_keys: vec![("film".to_owned(), primary.clone())],
             added_references: vec![one.clone()],
+            key_sequence_changes: vec![KeySequenceChange {
+                vertex_id: "film".to_owned(),
+                old: None,
+                new: Some(vec!["pk".into()]),
+            }],
+            primary_key_changes: vec![PrimaryKeyChange {
+                vertex_id: "film".to_owned(),
+                old: None,
+                new: Some("pk".into()),
+            }],
             ..SchemaDiff::default()
         }
     );
@@ -160,42 +172,7 @@ fn verdict(old: &Schema, new: &Schema) -> (Vec<BreakingChange>, Vec<NonBreakingC
     (report.breaking, report.non_breaking)
 }
 
-#[test]
-fn key_changes_are_classified() {
-    let key_added = || BreakingChange::KeyAdded {
-        vertex_id: "film".to_owned(),
-        key_id: "pk".to_owned(),
-    };
-    let key_removed = || NonBreakingChange::KeyRemoved {
-        vertex_id: "film".to_owned(),
-        key_id: "pk".to_owned(),
-    };
-    let key_added_nonbreaking = || NonBreakingChange::KeyAdded {
-        vertex_id: "film".to_owned(),
-        key_id: "pk".to_owned(),
-    };
-    let bare = with(&[], &[]);
-
-    // Adding a primary, unique or identifier key is breaking; removing one
-    // is not.
-    for role in [KeyRole::Primary, KeyRole::Unique, KeyRole::Identifier] {
-        let keyed = with(&[film_key(role, KeyScope::Document)], &[]);
-        assert_eq!(verdict(&bare, &keyed), (vec![key_added()], vec![]));
-        assert_eq!(verdict(&keyed, &bare), (vec![], vec![key_removed()]));
-    }
-
-    // Sort keys and indexes do not impose an instance-admission obligation.
-    // Adding or removing either role is therefore nonbreaking.
-    for role in [KeyRole::SortKey, KeyRole::Index] {
-        let keyed = with(&[film_key(role, KeyScope::Document)], &[]);
-        assert_eq!(
-            verdict(&bare, &keyed),
-            (vec![], vec![key_added_nonbreaking()])
-        );
-        assert_eq!(verdict(&keyed, &bare), (vec![], vec![key_removed()]));
-    }
-
-    // A key on a vertex the new schema adds constrains no existing data.
+fn assert_new_vertex_key_is_nonbreaking(bare: &Schema) {
     let mut grown = with(&[], &[]);
     grown.vertices.insert(
         Name::from("actor"),
@@ -215,12 +192,63 @@ fn key_changes_are_classified() {
             equality: vec![],
         },
     );
-    let (breaking, non_breaking) = verdict(&bare, &grown);
+    let (breaking, non_breaking) = verdict(bare, &grown);
     assert_eq!(breaking, vec![]);
     assert!(non_breaking.contains(&NonBreakingChange::KeyAdded {
         vertex_id: "actor".to_owned(),
         key_id: "pk".to_owned(),
     }));
+}
+
+#[test]
+fn key_changes_are_classified() {
+    let key_added = || BreakingChange::KeyAdded {
+        vertex_id: "film".to_owned(),
+        key_id: "pk".to_owned(),
+    };
+    let key_removed = || NonBreakingChange::KeyRemoved {
+        vertex_id: "film".to_owned(),
+        key_id: "pk".to_owned(),
+    };
+    let key_added_nonbreaking = || NonBreakingChange::KeyAdded {
+        vertex_id: "film".to_owned(),
+        key_id: "pk".to_owned(),
+    };
+    let bare = with(&[], &[]);
+
+    // Primary removal loses an identity guarantee; other removals relax it.
+    for role in [KeyRole::Primary, KeyRole::Unique, KeyRole::Identifier] {
+        let keyed = with(&[film_key(role.clone(), KeyScope::Document)], &[]);
+        assert_eq!(verdict(&bare, &keyed), (vec![key_added()], vec![]));
+        if role == KeyRole::Primary {
+            assert_eq!(
+                verdict(&keyed, &bare),
+                (
+                    vec![BreakingChange::PrimaryKeyRemoved {
+                        vertex_id: "film".to_owned(),
+                        key_id: "pk".to_owned(),
+                    }],
+                    vec![]
+                )
+            );
+        } else {
+            assert_eq!(verdict(&keyed, &bare), (vec![], vec![key_removed()]));
+        }
+    }
+
+    // Sort keys and indexes do not impose an instance-admission obligation.
+    // Adding or removing either role is therefore nonbreaking.
+    for role in [KeyRole::SortKey, KeyRole::Index] {
+        let keyed = with(&[film_key(role, KeyScope::Document)], &[]);
+        assert_eq!(
+            verdict(&bare, &keyed),
+            (vec![], vec![key_added_nonbreaking()])
+        );
+        assert_eq!(verdict(&keyed, &bare), (vec![], vec![key_removed()]));
+    }
+
+    // A key on a vertex the new schema adds constrains no existing data.
+    assert_new_vertex_key_is_nonbreaking(&bare);
 
     // Every role-to-role change fails closed in both directions because the
     // roles impose different uniqueness, ordering, identity, and resolution
@@ -395,6 +423,12 @@ fn declaration_changes_render_in_text_and_json_reports() {
 
     let back = classify(&diff(&keyed, &bare), &protocol());
     let text = panproto_check::report::report_text(&back);
-    assert!(text.contains("Key removed: film pk"), "{text}");
+    assert!(text.contains("Primary key removed: film pk"), "{text}");
+    assert_eq!(
+        panproto_check::report_json(&back)["breaking"],
+        serde_json::json!([{
+            "type": "primary_key_removed", "vertex_id": "film", "key_id": "pk",
+        }])
+    );
     assert!(text.contains("Reference removed: store_film"), "{text}");
 }

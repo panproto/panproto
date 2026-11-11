@@ -868,7 +868,7 @@ fn over_bound() -> Result<Hom, TransposeError> {
     Err(TransposeError::Adjunction(Box::new(
         AdjunctionError::ProductSizeExceeded {
             vertex: "m".to_owned(),
-            actual: 9,
+            actual: "9".to_owned(),
             limit: 4,
         },
     )))

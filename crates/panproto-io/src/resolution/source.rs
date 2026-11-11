@@ -551,3 +551,46 @@ pub const fn node_of(at: &ViewRef) -> Option<u32> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use panproto_inst::{Node, ViewRef, WInstance};
+    use panproto_schema::Edge;
+
+    use super::Source;
+
+    #[test]
+    fn document_order_follows_arc_preorder_before_sorted_unreachable_nodes() {
+        let nodes: HashMap<_, _> = [9, 3, 7, 2, 11, 1]
+            .into_iter()
+            .map(|id| (id, Node::new(id, "item")))
+            .collect();
+        let edge = Edge {
+            src: "item".into(),
+            tgt: "item".into(),
+            kind: "child".into(),
+            name: None,
+        };
+        let tree = WInstance::new(
+            nodes,
+            vec![(9, 7, edge.clone()), (9, 3, edge.clone()), (7, 2, edge)],
+            Vec::new(),
+            9,
+            "item".into(),
+        );
+        assert_eq!(
+            Source::tree(&tree).document_order(),
+            [9, 7, 2, 3, 1, 11].map(ViewRef::Node),
+            "reachable nodes follow root and sibling order; disconnected nodes follow by id"
+        );
+        let mut missing_root = tree;
+        missing_root.root = 99;
+        assert_eq!(
+            Source::tree(&missing_root).document_order(),
+            [1, 2, 3, 7, 9, 11].map(ViewRef::Node),
+            "an absent root leaves every existing node in the sorted remainder"
+        );
+    }
+}

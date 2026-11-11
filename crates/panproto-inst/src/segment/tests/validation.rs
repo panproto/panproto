@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use panproto_reference::{model as reference_model, segment as reference};
 use panproto_schema::{
     ConstraintSemantics, InstanceShapeKind, Key, KeyPart, KeyRole, KeyScope, LengthUnit, Protocol,
     SchemaBuilder, Variant,
@@ -159,26 +160,227 @@ fn validate_segment_has_the_pinned_public_signature() {
     ) -> Result<ValidationReport, SegmentError> = validate_segment_with_external;
 }
 
+// Normalize only the success payload; preserve every capacity-refusal field.
+fn assert_validation_view_capacity_agrees(segment: u32, owned: u64, stubs: u64) {
+    let capacity = 1_u64 << u32::BITS;
+    let total = owned + stubs;
+    let production = check_validation_view_capacity(SegmentId(segment), owned, stubs, capacity)
+        .map(|()| total)
+        .map_err(|error| match error {
+            SegmentError::ValidationViewUnrepresentable { segment, edges } => (segment.0, edges),
+            other => panic!("unexpected production capacity refusal: {other:?}"),
+        });
+    let oracle = reference::validation_view_preflight(reference::SegmentId(segment), owned, stubs)
+        .map_err(|error| match error {
+            reference::SegmentError::ValidationViewUnrepresentable { segment, edges } => {
+                (segment.0, edges)
+            }
+            other => panic!("unexpected reference capacity refusal: {other:?}"),
+        });
+    let expected = if total <= capacity {
+        Ok(total)
+    } else {
+        Err((segment, total))
+    };
+    assert_eq!(
+        production, oracle,
+        "segment={segment}, owned={owned}, stubs={stubs}"
+    );
+    assert_eq!(
+        production, expected,
+        "cardinality boundary for owned={owned}, stubs={stubs}"
+    );
+}
+
 #[test]
 fn validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge() {
-    let segment = SegmentId(7);
     let capacity = 1_u64 << u32::BITS;
+    assert_eq!(reference::VALIDATION_VIEW_EDGE_CAPACITY, capacity);
+    for (owned, stubs) in [
+        (0, 0),
+        (capacity - 1, 0),
+        (capacity, 0),
+        (0, capacity),
+        (capacity - 1, 1),
+        (1, capacity - 1),
+        (capacity, 1),
+        (1, capacity),
+        (capacity + 1, 0),
+        (0, capacity + 1),
+    ] {
+        assert_validation_view_capacity_agrees(7, owned, stubs);
+    }
+}
 
-    assert_eq!(
-        check_validation_view_capacity(segment, capacity, 0, capacity),
-        Ok(())
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    #[test]
+    fn validation_view_capacity_agrees_with_the_reference(
+        segment in any::<u32>(),
+        owned in 0_u64..=((1_u64 << u32::BITS) + 1),
+        stubs in 0_u64..=((1_u64 << u32::BITS) + 1),
+    ) {
+        assert_validation_view_capacity_agrees(segment, owned, stubs);
+    }
+}
+
+fn capacity_precedence_fixture() -> (
+    Partition,
+    reference::Partition,
+    GraphSegment,
+    reference::GraphSegment,
+) {
+    let partition = Partition::new(
+        InstanceShapeKind::Graph,
+        vec![crate::segment::SegmentSpec {
+            id: SegmentId(0),
+            nodes: vec![crate::segment::IdRange { lo: 0, hi: 1 }],
+            alloc_nodes: None,
+            alloc_edges: None,
+        }],
     );
+    let oracle_partition = reference::Partition {
+        shape: reference::InstanceShapeKind::Graph,
+        specs: vec![reference::SegmentSpec {
+            id: reference::SegmentId(0),
+            nodes: vec![reference::IdRange { lo: 0, hi: 1 }],
+            alloc_nodes: None,
+            alloc_edges: None,
+        }],
+    };
+    let graph = GraphSegment {
+        segment: SegmentId(0),
+        nodes: BTreeMap::from([(0, Node::new(0, "a"))]),
+        edges: BTreeMap::from([(
+            EdgeId(0),
+            GEdge::new(0, 0, label("a", "a", "prop", Some("loop"))),
+        )]),
+        boundary: Boundary::default(),
+    };
+    let oracle_graph = reference::GraphSegment {
+        segment: reference::SegmentId(0),
+        nodes: BTreeMap::from([(0, reference_model::Node::new(0, "a"))]),
+        edges: BTreeMap::from([(
+            0,
+            reference_model::GEdge {
+                src: 0,
+                tgt: 0,
+                label: reference_model::SEdge::new("a", "a", "prop", Some("loop")),
+                position: None,
+            },
+        )]),
+        boundary: reference::Boundary::default(),
+    };
+    (partition, oracle_partition, graph, oracle_graph)
+}
+
+#[test]
+fn validation_view_capacity_reaches_only_valid_contracts() -> TestResult {
+    let (partition, oracle_partition, graph, oracle_graph) = capacity_precedence_fixture();
+    let validation_plan = plan()?;
+    let budget = ValidationBudget::default();
+    let external = ExternalVerdicts::default();
+    // A valid one-edge carrier reaches the injected capacity check.
     assert_eq!(
-        check_validation_view_capacity(segment, capacity - 1, 1, capacity),
-        Ok(())
-    );
-    assert_eq!(
-        check_validation_view_capacity(segment, capacity, 1, capacity),
+        validate_segment_with_edge_capacity(
+            &AnySegment::Graph(graph.clone()),
+            &partition,
+            &validation_plan,
+            &budget,
+            &external,
+            0
+        ),
         Err(SegmentError::ValidationViewUnrepresentable {
-            segment,
-            edges: capacity + 1,
+            segment: SegmentId(0),
+            edges: 1
+        }),
+    );
+    assert_eq!(
+        reference::validate_segment_contract(
+            &reference::AnySegment::Graph(oracle_graph),
+            &oracle_partition
+        ),
+        Ok(())
+    );
+    assert!(
+        validate_segment_with_edge_capacity(
+            &AnySegment::Graph(graph),
+            &partition,
+            &validation_plan,
+            &budget,
+            &external,
+            1
+        )
+        .is_ok()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn validation_view_capacity_preserves_contract_error_precedence() -> TestResult {
+    let (partition, mut oracle_partition, mut graph, mut oracle_graph) =
+        capacity_precedence_fixture();
+    let validation_plan = plan()?;
+    let budget = ValidationBudget::default();
+    let external = ExternalVerdicts::default();
+    // The same key/id defect on both inputs precedes the production capacity refusal.
+    graph.nodes.insert(0, Node::new(1, "a"));
+    oracle_graph
+        .nodes
+        .insert(0, reference_model::Node::new(1, "a"));
+    assert_eq!(
+        validate_segment_with_edge_capacity(
+            &AnySegment::Graph(graph.clone()),
+            &partition,
+            &validation_plan,
+            &budget,
+            &external,
+            0
+        ),
+        Err(SegmentError::Invalid {
+            violations: vec![SegmentError::NodeIdMismatch { key: 0, found: 1 }]
         })
     );
+    assert_eq!(
+        reference::validate_segment_contract(
+            &reference::AnySegment::Graph(oracle_graph.clone()),
+            &oracle_partition
+        ),
+        Err(reference::SegmentError::Invalid {
+            violations: vec![reference::SegmentError::NodeIdMismatch { key: 0, found: 1 }]
+        })
+    );
+
+    // A shape defect precedes both the key/id defect and the injected capacity refusal.
+    let wrong_shape = Partition::new(InstanceShapeKind::Table, partition.specs().to_vec());
+    oracle_partition.shape = reference::InstanceShapeKind::Table;
+    assert_eq!(
+        validate_segment_with_edge_capacity(
+            &AnySegment::Graph(graph),
+            &wrong_shape,
+            &validation_plan,
+            &budget,
+            &external,
+            0
+        ),
+        Err(SegmentError::ShapeMismatch {
+            expected: InstanceShapeKind::Table,
+            found: InstanceShapeKind::Graph
+        })
+    );
+    assert_eq!(
+        reference::validate_segment_contract(
+            &reference::AnySegment::Graph(oracle_graph),
+            &oracle_partition
+        ),
+        Err(reference::SegmentError::ShapeMismatch {
+            expected: reference::InstanceShapeKind::Table,
+            found: reference::InstanceShapeKind::Graph
+        })
+    );
+    Ok(())
 }
 
 #[test]

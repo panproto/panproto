@@ -1,8 +1,12 @@
 //! Edit lens: translates individual edits between source and view schemas.
 //!
-//! An [`EditLens`] operates on edits (patches) rather than whole states.
-//! Each edit flows through the lens, and the complement updates
-//! incrementally. The complement is a state machine, not a snapshot.
+//! An [`EditLens`] translates edit words and tracks their source state.
+//! Nonidentity raw get and put calls require initialization. They stage
+//! their translation and compare its endpoint with whole-state get or put,
+//! refusing incoherent results without committing state. A successful call
+//! refreshes residue from whole-state get and retains the allocation floor.
+//! These checks clone states and perform whole-state lens operations; their
+//! cost depends on the instance size, not only on the edit size.
 //!
 //! Translation is derived from two sources:
 //!
@@ -197,12 +201,38 @@ fn preserve_input_replacements(
             parts.add_edges.insert(*id, new.clone());
         }
     }
+    // Replacing a node deletes its old incidence. Even an unchanged edge
+    // synthesized by contraction must be deleted and re-added when it
+    // touches that node; only the before/after states determine this closure.
+    for (id, old) in before.edges_sorted() {
+        if parts.del_nodes.contains_key(&old.src) || parts.del_nodes.contains_key(&old.tgt) {
+            parts.del_edges.insert(id, old.clone());
+            if let Some(new) = after.edge(id) {
+                parts.add_edges.insert(id, new.clone());
+            }
+        }
+    }
+    for (id, new) in after.edges_sorted() {
+        if parts.add_nodes.contains_key(&new.src) || parts.add_nodes.contains_key(&new.tgt) {
+            parts.add_edges.insert(id, new.clone());
+            if let Some(old) = before.edge(id) {
+                parts.del_edges.insert(id, old.clone());
+            }
+        }
+    }
     GraphDelta::normalize(parts)
         .map_err(|error| EditLensError::TranslationFailed(error.to_string()))
 }
 
+pub(crate) fn whole_state_error(error: crate::LensError) -> EditLensError {
+    match error {
+        crate::LensError::Restrict(error) => EditLensError::Restrict(error),
+        other => EditLensError::WholeState(Box::new(other)),
+    }
+}
+
 impl EditLens {
-    /// Clone the state needed to translate a sequence transactionally.
+    /// Clone the state needed to translate an edit transactionally.
     fn staged(&self) -> Self {
         Self {
             compiled: self.compiled.clone(),
@@ -231,8 +261,8 @@ impl EditLens {
             .iter()
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
-        // Stamped from the start, so a complement filled by edits alone,
-        // without a whole-state `initialize`, is still bound to this lens.
+        // Bind the empty complement immediately; initialize supplies the
+        // source required for a later nonidentity translation.
         let mut complement = Complement::empty();
         complement.stamp(lens.identity(ComplementShape::WType), &lens.src_schema);
         Self {
@@ -286,8 +316,9 @@ impl EditLens {
     /// Returns [`EditLensError::TranslationFailed`] when either supplied tree
     /// embedding is incoherent, the current view is not the restriction of
     /// the source, the edited graph cannot be read as a source tree, or the
-    /// whole-state tree translation fails,
-    /// [`EditLensError::EditApply`] when `edit` does not apply to the source,
+    /// strict whole-state tree endpoint comparison fails,
+    /// [`EditLensError::WholeState`] when a non-restriction whole-state
+    /// operation refuses, [`EditLensError::EditApply`] when `edit` does not apply to the source,
     /// and [`EditLensError::Restrict`] when either graph restriction is
     /// refused.
     pub fn get_graph_edit(
@@ -313,7 +344,7 @@ impl EditLens {
         let (before_tree, before_embedding) = before_view
             .to_wtype_embedded(&self.tgt_schema)
             .map_err(|error| EditLensError::TranslationFailed(error.to_string()))?;
-        if !crate::instances_equivalent(&before_tree, view) {
+        if !crate::laws::tree_identical(&before_tree, view) {
             return Err(EditLensError::TranslationFailed(
                 "the supplied view is not the restriction of the supplied source".to_owned(),
             ));
@@ -337,19 +368,18 @@ impl EditLens {
             src_schema: self.src_schema.clone(),
             tgt_schema: self.tgt_schema.clone(),
         };
-        let (expected_view, complement) = crate::get(&lens, &edited_source)
-            .map_err(|error| EditLensError::TranslationFailed(error.to_string()))?;
+        let (expected_view, complement) =
+            crate::get(&lens, &edited_source).map_err(whole_state_error)?;
         let (translated_tree, _) = translated_view
             .to_wtype_embedded(&self.tgt_schema)
             .map_err(|error| EditLensError::TranslationFailed(error.to_string()))?;
-        if !crate::instances_equivalent(&translated_tree, &expected_view) {
+        if !crate::laws::tree_identical(&translated_tree, &expected_view) {
             return Err(EditLensError::TranslationFailed(
                 "translated graph delta does not produce the restricted edited source".to_owned(),
             ));
         }
 
-        self.complement = complement;
-        self.pipeline = Some(EditPipeline::from_lens_and_instance(self, &edited_source));
+        self.commit_translation(&edited_source, complement);
         Ok(translated)
     }
 
@@ -433,8 +463,10 @@ impl EditLens {
 
     /// Translate an edit through an isomorphic lens (bijection).
     ///
-    /// Since the lens is an isomorphism, the complement is unit and
-    /// never changes. This method only remaps anchors and edges.
+    /// This convenience method remaps structure and individual fields without
+    /// advancing the tracked source or complement. It does not perform the
+    /// whole-state endpoint guard of [`Self::get_edit`]. Use an initialized
+    /// `get_edit` when that endpoint guarantee is required.
     ///
     /// # Errors
     ///
@@ -455,11 +487,8 @@ impl EditLens {
     /// preserve this method's totality while making it return something
     /// that is not the isomorphism's action on the edit.
     ///
-    /// The transforms reaching this path are invertible:
-    /// [`Self::optic_kind`] only classifies a migration as `Iso` when the
-    /// composite of its value transforms is
-    /// [`CoercionClass::Iso`], so a lossy transform selects a
-    /// different translation path rather than arriving here.
+    /// The caller selects this helper for an isomorphic migration; the method
+    /// does not enforce [`Self::optic_kind`]'s classification.
     pub fn translate_iso(&self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
         let translated = match edit {
             TreeEdit::Identity => TreeEdit::Identity,
@@ -476,7 +505,7 @@ impl EditLens {
                 }
             }
             TreeEdit::RemoveField { node_id, ref field } => {
-                let new_name = self.translate_field_name(field.as_ref());
+                let new_name = self.translate_field_name(node_id, field.as_ref())?;
                 TreeEdit::RemoveField {
                     node_id,
                     field: Name::from(new_name.as_str()),
@@ -519,7 +548,9 @@ impl EditLens {
     ///
     /// Edits targeting an inactive variant are absorbed into the
     /// complement. Edits targeting the active variant pass through
-    /// with structural remapping.
+    /// with structural remapping. Early absorption branches do not advance
+    /// the tracked source or run the whole-state endpoint guard. Use an
+    /// initialized [`Self::get_edit`] for the guarded state transition.
     ///
     /// # Errors
     ///
@@ -651,20 +682,21 @@ impl EditLens {
         provenance.record_rule(Arc::from("structural_remap"));
 
         // Record field transform rules.
-        if let TreeEdit::SetField { ref field, .. } = edit {
+        if let TreeEdit::SetField {
+            node_id, ref field, ..
+        } = edit
+        {
             let field_str = field.to_string();
-            for transforms in self.compiled.field_transforms.values() {
-                for transform in transforms {
-                    let applies = match transform {
-                        panproto_inst::FieldTransform::RenameField { old_key, .. } => {
-                            old_key == &field_str
-                        }
-                        panproto_inst::FieldTransform::ApplyExpr { key, .. } => key == &field_str,
-                        _ => false,
-                    };
-                    if applies {
-                        provenance.record_rule(Arc::from(format!("field_{field_str}").as_str()));
+            for transform in self.field_transforms_for(node_id)? {
+                let applies = match transform {
+                    panproto_inst::FieldTransform::RenameField { old_key, .. } => {
+                        old_key == &field_str
                     }
+                    panproto_inst::FieldTransform::ApplyExpr { key, .. } => key == &field_str,
+                    _ => false,
+                };
+                if applies {
+                    provenance.record_rule(Arc::from(format!("field_{field_str}").as_str()));
                 }
             }
         }
@@ -712,8 +744,61 @@ impl EditLens {
     /// [`EditLensError::EditApply`] with
     /// [`NodeNotFound`](panproto_inst::EditError::NodeNotFound) when, after
     /// [`initialize`](Self::initialize), a delete names an id the tracked
-    /// source does not hold. A refused sequence leaves the lens unchanged.
+    /// source does not hold. Nonidentity calls require initialization. A
+    /// translated edit is returned only when its application agrees with
+    /// whole-state get; an incoherent primitive translation returns
+    /// [`EditLensError::TranslationFailed`]. A refused edit leaves the lens
+    /// unchanged. The returned word preserves replacement events.
     pub fn get_edit(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
+        if edit.is_identity() {
+            return Ok(TreeEdit::Identity);
+        }
+        let source = self.translation_source()?.clone();
+        let mut after = source.clone();
+        edit.apply(&mut after)?;
+        let lens = self.state_lens();
+        let (mut actual_view, _) = crate::get(&lens, &source).map_err(whole_state_error)?;
+        let mut staged = self.staged();
+        let translated = staged.get_edit_inner(edit)?;
+        translated.apply(&mut actual_view)?;
+        let (expected_view, complement) = crate::get(&lens, &after).map_err(whole_state_error)?;
+        if !crate::laws::tree_identical(&actual_view, &expected_view) {
+            return Err(EditLensError::TranslationFailed(
+                "the translated tree edit does not produce the whole-state get view".to_owned(),
+            ));
+        }
+        staged.commit_translation(&after, complement);
+        *self = staged;
+        Ok(translated)
+    }
+
+    fn translation_source(&self) -> Result<&WInstance, EditLensError> {
+        self.pipeline
+            .as_ref()
+            .map(EditPipeline::source)
+            .ok_or_else(|| {
+                EditLensError::TranslationFailed(
+                    "initialize the edit lens before translating a nonidentity edit".to_owned(),
+                )
+            })
+    }
+
+    fn state_lens(&self) -> Lens {
+        Lens {
+            compiled: self.compiled.clone(),
+            src_schema: self.src_schema.clone(),
+            tgt_schema: self.tgt_schema.clone(),
+        }
+    }
+
+    fn commit_translation(&mut self, source: &WInstance, mut complement: Complement) {
+        // Residue is the whole-state result; allocation history remains monotone.
+        complement.id_floor = complement.id_floor.max(self.complement.id_floor);
+        self.complement = complement;
+        self.pipeline = Some(EditPipeline::from_lens_and_instance(self, source));
+    }
+
+    fn get_edit_inner(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
         // A delete names an existing source node. Once the lens tracks a
         // source, deleting an id that source does not hold is refused before
         // anything is tracked or translated. Inside a sequence this reads the
@@ -738,6 +823,9 @@ impl EditLens {
             && let Some(pipeline) = self.pipeline.as_mut()
         {
             pipeline.track_source_edit(&edit);
+            self.complement.id_floor = self.complement.id_floor.max(
+                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX),
+            );
         }
         match edit {
             TreeEdit::Identity => Ok(TreeEdit::Identity),
@@ -754,7 +842,7 @@ impl EditLens {
                 ref value,
             } => self.get_edit_set_field(node_id, field, value),
             TreeEdit::RemoveField { node_id, ref field } => {
-                Ok(self.get_edit_remove_field(node_id, field))
+                self.get_edit_remove_field(node_id, field)
             }
             TreeEdit::RelabelNode { id, new_anchor } => self.get_edit_relabel(id, new_anchor),
             TreeEdit::MoveSubtree {
@@ -796,8 +884,9 @@ impl EditLens {
         self.complement.arc_order.push((parent, child_id));
         // The id floor is the tracked source's, as it is after a deletion.
         if let Some(pipeline) = &self.pipeline {
-            self.complement.id_floor =
-                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX);
+            self.complement.id_floor = self.complement.id_floor.max(
+                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX),
+            );
         }
         // Step 1: anchor survival.
         let target_anchor = self
@@ -1079,8 +1168,9 @@ impl EditLens {
         let was_dropped = self.complement.dropped_nodes.contains_key(&id);
         self.forget_subtree(id);
         if let Some(pipeline) = &self.pipeline {
-            self.complement.id_floor =
-                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX);
+            self.complement.id_floor = self.complement.id_floor.max(
+                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX),
+            );
         }
         if was_dropped {
             TreeEdit::Identity
@@ -1125,19 +1215,44 @@ impl EditLens {
         })
     }
 
-    fn get_edit_remove_field(&mut self, node_id: u32, field: &Name) -> TreeEdit {
+    fn get_edit_remove_field(
+        &mut self,
+        node_id: u32,
+        field: &Name,
+    ) -> Result<TreeEdit, EditLensError> {
         if let Some(node) = self.complement.dropped_nodes.get_mut(&node_id) {
             node.extra_fields.remove(field.as_ref());
-            return TreeEdit::Identity;
+            return Ok(TreeEdit::Identity);
         }
 
         // If this field was renamed by field transforms, the remove applies
         // to the renamed field in the target schema.
-        let new_name = self.translate_field_name(field.as_ref());
-        TreeEdit::RemoveField {
+        let new_name = self.translate_field_name(node_id, field.as_ref())?;
+        // Removing a rename source can expose a destination field that the
+        // source already held. The tracked source is the post-edit state.
+        if let Some(pipeline) = self.pipeline.as_ref()
+            && let Some((mut transformed, _)) = pipeline.node_snapshot(node_id)
+        {
+            let transforms = self.field_transforms_for(node_id)?;
+            let context = panproto_inst::wtype::TransformContext::new(
+                Some(&self.src_schema),
+                pipeline.source(),
+                node_id,
+                transforms,
+            );
+            panproto_inst::wtype::apply_field_transforms(&mut transformed, transforms, &context)?;
+            if let Some(value) = transformed.extra_fields.get(&new_name) {
+                return Ok(TreeEdit::SetField {
+                    node_id,
+                    field: Name::from(new_name.as_str()),
+                    value: value.clone(),
+                });
+            }
+        }
+        Ok(TreeEdit::RemoveField {
             node_id,
             field: Name::from(new_name.as_str()),
-        }
+        })
     }
 
     fn get_edit_relabel(&mut self, id: u32, new_anchor: Name) -> Result<TreeEdit, EditLensError> {
@@ -1268,21 +1383,18 @@ impl EditLens {
     }
 
     fn get_edit_sequence(&mut self, steps: Vec<TreeEdit>) -> Result<TreeEdit, EditLensError> {
-        let mut staged = self.staged();
         let mut translated = Vec::with_capacity(steps.len());
         for step in steps {
-            let t = staged.get_edit(step)?;
-            if !t.is_identity() {
-                translated.push(t);
+            let next = self.get_edit_inner(step)?;
+            if !next.is_identity() {
+                translated.push(next);
             }
         }
-        let result = match translated.len() {
+        Ok(match translated.len() {
             0 => TreeEdit::Identity,
             1 => translated.into_iter().next().unwrap_or(TreeEdit::Identity),
             _ => TreeEdit::Sequence(translated),
-        };
-        *self = staged;
-        Ok(result)
+        })
     }
 
     /// Translate a view edit back to a source edit, updating the complement.
@@ -1300,8 +1412,55 @@ impl EditLens {
     ///
     /// # Errors
     ///
-    /// Returns [`EditLensError`] if the edit cannot be translated.
+    /// Nonidentity calls require initialization. Returns [`EditLensError`]
+    /// if the view edit or its translation cannot be applied, whole-state
+    /// put refuses, or the translated source disagrees with whole-state put
+    /// or its forward replay. No refusal changes the lens. Successful calls
+    /// retain the translated word and refresh the complement from get.
     pub fn put_edit(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
+        if edit.is_identity() {
+            return Ok(TreeEdit::Identity);
+        }
+        let source = self.translation_source()?.clone();
+        let lens = self.state_lens();
+        let (mut edited_view, _) = crate::get(&lens, &source).map_err(whole_state_error)?;
+        edit.apply(&mut edited_view)?;
+        let expected_source =
+            crate::put(&lens, &edited_view, &self.complement).map_err(whole_state_error)?;
+        let mut staged = self.staged();
+        let translated = staged.put_edit_work(edit)?;
+        let mut actual_source = source;
+        translated.apply(&mut actual_source)?;
+        if !crate::laws::tree_identical(&actual_source, &expected_source) {
+            return Err(EditLensError::TranslationFailed(
+                "the translated tree edit does not produce the whole-state put source".to_owned(),
+            ));
+        }
+        let (replayed_view, complement) =
+            crate::get(&lens, &actual_source).map_err(whole_state_error)?;
+        if !crate::laws::tree_identical(&replayed_view, &edited_view) {
+            return Err(EditLensError::TranslationFailed(
+                "the translated source does not reproduce the edited view".to_owned(),
+            ));
+        }
+        staged.commit_translation(&actual_source, complement);
+        *self = staged;
+        Ok(translated)
+    }
+
+    fn put_edit_work(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
+        let sequence = matches!(edit, TreeEdit::Sequence(_));
+        let translated = self.put_edit_inner(edit)?;
+        if !sequence && let Some(pipeline) = self.pipeline.as_mut() {
+            pipeline.track_source_edit(&translated);
+            self.complement.id_floor = self.complement.id_floor.max(
+                panproto_inst::complement::tree_id_floor(pipeline.source()).unwrap_or(u32::MAX),
+            );
+        }
+        Ok(translated)
+    }
+
+    fn put_edit_inner(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
         match edit {
             TreeEdit::Identity => Ok(TreeEdit::Identity),
             TreeEdit::InsertNode {
@@ -1318,9 +1477,9 @@ impl EditLens {
                 node_id,
                 ref field,
                 ref value,
-            } => Ok(self.put_edit_set_field(node_id, field, value)),
+            } => self.put_edit_set_field(node_id, field, value),
             TreeEdit::RemoveField { node_id, field } => {
-                let source_name = self.translate_field_name_backward(field.as_ref());
+                let source_name = self.translate_field_name_backward(node_id, field.as_ref())?;
                 if let Some(node) = self.complement.dropped_nodes.get_mut(&node_id) {
                     node.extra_fields.remove(source_name.as_str());
                 }
@@ -1376,10 +1535,9 @@ impl EditLens {
                 produce: self.remap_node_backward(&produce),
             }),
             TreeEdit::Sequence(steps) => {
-                let mut staged = self.staged();
                 let mut translated = Vec::with_capacity(steps.len());
                 for step in steps {
-                    let t = staged.put_edit(step)?;
+                    let t = self.put_edit_work(step)?;
                     if !t.is_identity() {
                         translated.push(t);
                     }
@@ -1389,7 +1547,6 @@ impl EditLens {
                     1 => translated.into_iter().next().unwrap_or(TreeEdit::Identity),
                     _ => TreeEdit::Sequence(translated),
                 };
-                *self = staged;
                 Ok(result)
             }
         }
@@ -1423,8 +1580,8 @@ impl EditLens {
         node_id: u32,
         field: &Name,
         value: &panproto_inst::Value,
-    ) -> TreeEdit {
-        let source_name = self.translate_field_name_backward(field.as_ref());
+    ) -> Result<TreeEdit, EditLensError> {
+        let source_name = self.translate_field_name_backward(node_id, field.as_ref())?;
         // For value transforms, the complement stores the original if needed
         // for lossless round-tripping. Field transform expressions are
         // forward-only; inverse behavior requires protocol-level directed
@@ -1435,11 +1592,11 @@ impl EditLens {
         if let Some(node) = self.complement.dropped_nodes.get_mut(&node_id) {
             node.extra_fields.insert(source_name.clone(), value.clone());
         }
-        TreeEdit::SetField {
+        Ok(TreeEdit::SetField {
             node_id,
             field: Name::from(source_name.as_str()),
             value: value.clone(),
-        }
+        })
     }
 
     /// Drop every complement record naming `id`, and every record for a
@@ -1658,34 +1815,54 @@ impl EditLens {
 
     // -- Private helpers: field translation --
 
-    /// Translate a field name through the migration's field transforms.
-    /// If a `RenameField` transform renames this field, return the new name.
-    fn translate_field_name(&self, field: &str) -> String {
-        // Check all vertex anchors for rename transforms that affect this field.
-        for transforms in self.compiled.field_transforms.values() {
-            for transform in transforms {
-                if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform
-                    && old_key == field
-                {
-                    return new_key.clone();
-                }
-            }
+    /// Read only the transforms declared at the edited node's source anchor.
+    fn field_transforms_for(
+        &self,
+        node_id: u32,
+    ) -> Result<&[panproto_inst::FieldTransform], EditLensError> {
+        if self.compiled.field_transforms.is_empty() {
+            return Ok(&[]);
         }
-        field.to_owned()
+        let anchor = self.source_anchor(node_id).ok_or_else(|| {
+            EditLensError::TranslationFailed(format!(
+                "field translation needs the source anchor of node {node_id}; initialize the lens first"
+            ))
+        })?;
+        Ok(self
+            .compiled
+            .field_transforms
+            .get(&anchor)
+            .map_or(&[], Vec::as_slice))
     }
 
-    /// Reverse a field name translation (target name -> source name).
-    fn translate_field_name_backward(&self, field: &str) -> String {
-        for transforms in self.compiled.field_transforms.values() {
-            for transform in transforms {
-                if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform
-                    && new_key == field
-                {
-                    return old_key.clone();
-                }
+    /// Translate a field name through its anchor's ordered renames.
+    fn translate_field_name(&self, node_id: u32, field: &str) -> Result<String, EditLensError> {
+        let mut name = field.to_owned();
+        for transform in self.field_transforms_for(node_id)? {
+            if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform
+                && old_key == &name
+            {
+                name.clone_from(new_key);
             }
         }
-        field.to_owned()
+        Ok(name)
+    }
+
+    /// Reverse the anchor's renames in reverse declaration order.
+    fn translate_field_name_backward(
+        &self,
+        node_id: u32,
+        field: &str,
+    ) -> Result<String, EditLensError> {
+        let mut name = field.to_owned();
+        for transform in self.field_transforms_for(node_id)?.iter().rev() {
+            if let panproto_inst::FieldTransform::RenameField { old_key, new_key } = transform
+                && new_key == &name
+            {
+                name.clone_from(old_key);
+            }
+        }
+        Ok(name)
     }
 
     /// Translate a field edit (name + value) on the node `node_id` through
@@ -1708,37 +1885,34 @@ impl EditLens {
         let mut name = field.to_owned();
         let mut val = value.clone();
 
-        // Apply all relevant field transforms in order.
-        for transforms in self.compiled.field_transforms.values() {
-            for transform in transforms {
-                match transform {
-                    panproto_inst::FieldTransform::RenameField { old_key, new_key }
-                        if old_key == field =>
-                    {
-                        name.clone_from(new_key);
-                    }
-                    panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } if key == field => {
-                        let input = panproto_inst::value_to_expr_literal(&val).map_err(|e| {
-                            panproto_inst::RestrictError::ValueNotExpressible {
-                                node: node_id,
-                                field: key.clone(),
-                                value_type: e.value_type.to_owned(),
-                            }
-                        })?;
-                        let env = panproto_expr::Env::new()
-                            .extend(std::sync::Arc::from(key.as_str()), input);
-                        let config = panproto_expr::EvalConfig::default();
-                        let result =
-                            panproto_expr::eval(expr, &env, &config).map_err(|source| {
-                                panproto_inst::RestrictError::FieldTransformFailed {
-                                    key: key.clone(),
-                                    source,
-                                }
-                            })?;
-                        val = panproto_inst::expr_literal_to_value(&result);
-                    }
-                    _ => {}
+        // Apply only this anchor's field transforms, in declaration order.
+        for transform in self.field_transforms_for(node_id)? {
+            match transform {
+                panproto_inst::FieldTransform::RenameField { old_key, new_key }
+                    if old_key == &name =>
+                {
+                    name.clone_from(new_key);
                 }
+                panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } if key == &name => {
+                    let input = panproto_inst::value_to_expr_literal(&val).map_err(|e| {
+                        panproto_inst::RestrictError::ValueNotExpressible {
+                            node: node_id,
+                            field: key.clone(),
+                            value_type: e.value_type.to_owned(),
+                        }
+                    })?;
+                    let env =
+                        panproto_expr::Env::new().extend(std::sync::Arc::from(key.as_str()), input);
+                    let config = panproto_expr::EvalConfig::default();
+                    let result = panproto_expr::eval(expr, &env, &config).map_err(|source| {
+                        panproto_inst::RestrictError::FieldTransformFailed {
+                            key: key.clone(),
+                            source,
+                        }
+                    })?;
+                    val = panproto_inst::expr_literal_to_value(&result);
+                }
+                _ => {}
             }
         }
 
@@ -1749,9 +1923,332 @@ impl EditLens {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+
+    #[test]
+    fn raw_get_refuses_an_omitted_computed_output_atomically() {
+        use panproto_inst::{FieldTransform, Value};
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        lens.compiled.field_transforms.insert(
+            "post:body".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "createdAt".into(),
+                expr: panproto_expr::Expr::Var("text".into()),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Projection,
+            }],
+        );
+        let mut node = Node::new(0, "post:body");
+        node.extra_fields
+            .insert("text".into(), Value::Str("before".into()));
+        let source = WInstance::new(
+            HashMap::from([(0, node)]),
+            vec![],
+            vec![],
+            0,
+            "post:body".into(),
+        );
+        let mut translator = EditLens::from_lens(
+            crate::Lens {
+                compiled: lens.compiled.clone(),
+                src_schema: lens.src_schema.clone(),
+                tgt_schema: lens.tgt_schema.clone(),
+            },
+            test_protocol(),
+        );
+        translator.initialize(&source).unwrap();
+        let saved = serde_json::to_value(&translator.complement).unwrap();
+        let input = TreeEdit::SetField {
+            node_id: 0,
+            field: "text".into(),
+            value: Value::Str("after".into()),
+        };
+        let mut after = source.clone();
+        input.apply(&mut after).unwrap();
+        let (expected, _) = crate::get(&lens, &after).unwrap();
+        assert_eq!(
+            expected.nodes[&0].extra_fields["createdAt"],
+            Value::Str("after".into())
+        );
+        assert!(matches!(
+            translator.get_edit(input),
+            Err(EditLensError::TranslationFailed(_))
+        ));
+        assert!(crate::instances_equivalent(
+            translator.pipeline.as_ref().unwrap().source(),
+            &source
+        ));
+        assert_eq!(serde_json::to_value(&translator.complement).unwrap(), saved);
+    }
+
+    #[test]
+    fn raw_put_refuses_an_uninverted_output_atomically() {
+        use panproto_inst::{FieldTransform, Value};
+        let schema = panproto_schema::SchemaBuilder::new(&panproto_schema::Protocol::default())
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .vertex("value", "integer", None::<&str>)
+            .unwrap()
+            .edge("a", "value", "prop", Some("f"))
+            .unwrap()
+            .entry("a")
+            .build()
+            .unwrap();
+        let mut lens = identity_lens(&schema);
+        let negate = panproto_expr::Expr::Builtin(
+            panproto_expr::BuiltinOp::Neg,
+            vec![panproto_expr::Expr::Var("f".into())],
+        );
+        lens.compiled.field_transforms.insert(
+            "a".into(),
+            vec![FieldTransform::ApplyExpr {
+                key: "f".into(),
+                expr: negate.clone(),
+                inverse: Some(negate),
+                coercion_class: panproto_gat::CoercionClass::Iso,
+            }],
+        );
+        let mut node = Node::new(0, "a");
+        node.extra_fields.insert("f".into(), Value::Int(1));
+        let source = WInstance::new(HashMap::from([(0, node)]), vec![], vec![], 0, "a".into());
+        let (mut view, complement) = crate::get(&lens, &source).unwrap();
+        let input = TreeEdit::SetField {
+            node_id: 0,
+            field: "f".into(),
+            value: Value::Int(-2),
+        };
+        input.apply(&mut view).unwrap();
+        let expected = crate::put(&lens, &view, &complement).unwrap();
+        assert_eq!(expected.nodes[&0].extra_fields["f"], Value::Int(2));
+        let mut translator = EditLens::from_lens(lens, test_protocol());
+        translator.initialize(&source).unwrap();
+        let saved = serde_json::to_value(&translator.complement).unwrap();
+        assert!(matches!(
+            translator.put_edit(input),
+            Err(EditLensError::TranslationFailed(_))
+        ));
+        assert!(crate::instances_equivalent(
+            translator.pipeline.as_ref().unwrap().source(),
+            &source
+        ));
+        assert_eq!(serde_json::to_value(&translator.complement).unwrap(), saved);
+    }
+
+    fn temporary_leaf_word(source: &WInstance, id: u32) -> TreeEdit {
+        let mut node = source.nodes[&1].clone();
+        node.id = id;
+        let edge = source
+            .arcs
+            .iter()
+            .find(|(_, child, _)| *child == 1)
+            .unwrap()
+            .2
+            .clone();
+        TreeEdit::Sequence(vec![
+            TreeEdit::InsertNode {
+                parent: 0,
+                child_id: id,
+                node,
+                edge,
+            },
+            TreeEdit::DeleteNode { id },
+        ])
+    }
+
+    #[test]
+    fn raw_guard_preserves_identity_projection_replacements_and_allocation_floor() {
+        let schema = three_node_schema();
+        let source = three_node_instance();
+        for lens in [
+            identity_lens(&schema),
+            crate::tests::projection_lens(&schema, "createdAt"),
+        ] {
+            let mut translator = EditLens::from_lens(
+                crate::Lens {
+                    compiled: lens.compiled.clone(),
+                    src_schema: lens.src_schema.clone(),
+                    tgt_schema: lens.tgt_schema.clone(),
+                },
+                test_protocol(),
+            );
+            translator.initialize(&source).unwrap();
+            let (view, _) = crate::get(&lens, &source).unwrap();
+            let edge = source
+                .arcs
+                .iter()
+                .find(|(_, child, _)| *child == 1)
+                .unwrap()
+                .2
+                .clone();
+            let replacement = TreeEdit::Sequence(vec![
+                TreeEdit::DeleteNode { id: 1 },
+                TreeEdit::InsertNode {
+                    parent: 0,
+                    child_id: 1,
+                    node: source.nodes[&1].clone(),
+                    edge,
+                },
+            ]);
+            let mut replaced_source = source.clone();
+            replacement.apply(&mut replaced_source).unwrap();
+            let output = translator.get_edit(replacement).unwrap();
+            let (graph, mut embedding) =
+                panproto_inst::GInstance::from_wtype_embedded(&view, None).unwrap();
+            let delta =
+                panproto_inst::GraphDelta::from_tree_edit(&graph, &mut embedding, &output).unwrap();
+            assert!(delta.del_nodes().contains_key(&1) && delta.add_nodes().contains_key(&1));
+            assert!(crate::laws::tree_identical(
+                translator.pipeline.as_ref().unwrap().source(),
+                &replaced_source
+            ));
+            translator
+                .put_edit(TreeEdit::SetField {
+                    node_id: 1,
+                    field: "text".into(),
+                    value: panproto_inst::Value::Str("back".into()),
+                })
+                .unwrap();
+            let (expected_view, expected_complement) =
+                crate::get(&lens, translator.pipeline.as_ref().unwrap().source()).unwrap();
+            assert_eq!(
+                expected_view.nodes[&1].extra_fields["text"],
+                panproto_inst::Value::Str("back".into())
+            );
+            assert!(
+                crate::laws::complement_divergence(&translator.complement, &expected_complement)
+                    .is_none()
+            );
+            translator
+                .get_edit(temporary_leaf_word(&source, 99))
+                .unwrap();
+            assert!(translator.complement.id_floor >= 100);
+            translator
+                .put_edit(temporary_leaf_word(&source, 199))
+                .unwrap();
+            assert!(translator.complement.id_floor >= 200);
+            let (view, _) =
+                crate::get(&lens, translator.pipeline.as_ref().unwrap().source()).unwrap();
+            let fresh =
+                panproto_inst::complement::fresh_view_node_id(&view, &translator.complement)
+                    .unwrap();
+            assert!(fresh >= translator.complement.id_floor);
+        }
+    }
+
+    #[test]
+    fn graph_edit_guard_refuses_metadata_drift_in_the_supplied_view() {
+        let schema = three_node_schema();
+        let source = three_node_instance();
+        let lens = identity_lens(&schema);
+        let (view, _) = crate::get(&lens, &source).unwrap();
+        let (_, source_embedding) = GInstance::from_wtype_embedded(&source, Some(&schema)).unwrap();
+        let (_, view_embedding) = GInstance::from_wtype_embedded(&view, Some(&schema)).unwrap();
+        for coordinate in 0..4 {
+            let mut changed = view.clone();
+            let node = changed.nodes.get_mut(&1).unwrap();
+            match coordinate {
+                0 => node.shape = panproto_inst::NodeShape::List,
+                1 => node.discriminator = Some("different".into()),
+                2 => node.position = Some(42),
+                3 => {
+                    node.annotations
+                        .insert("audit".into(), panproto_inst::Value::Int(1));
+                }
+                _ => unreachable!(),
+            }
+            assert!(crate::instances_equivalent(&view, &changed));
+            assert!(!crate::laws::tree_identical(&view, &changed));
+            let mut translator = EditLens::from_lens(identity_lens(&schema), test_protocol());
+            translator.initialize(&source).unwrap();
+            let saved = serde_json::to_value(&translator.complement).unwrap();
+            assert!(
+                matches!(
+                    translator.get_graph_edit(
+                        &source,
+                        &source_embedding,
+                        &changed,
+                        &view_embedding,
+                        &GraphDelta::identity(),
+                    ),
+                    Err(EditLensError::TranslationFailed(_))
+                ),
+                "coordinate={coordinate}"
+            );
+            assert_eq!(serde_json::to_value(&translator.complement).unwrap(), saved);
+            assert!(crate::laws::tree_identical(
+                translator.pipeline.as_ref().unwrap().source(),
+                &source
+            ));
+        }
+    }
+
+    #[test]
+    fn strict_guard_comparison_keeps_global_arc_and_fan_order() {
+        let original = three_node_instance();
+        let edge = |parent: u32, child: u32| Edge {
+            src: original.nodes[&parent].anchor.clone(),
+            tgt: original.nodes[&child].anchor.clone(),
+            kind: "prop".into(),
+            name: None,
+        };
+        let first = WInstance::new(
+            original.nodes.clone(),
+            vec![(0, 1, edge(0, 1)), (1, 2, edge(1, 2))],
+            vec![],
+            0,
+            original.schema_root.clone(),
+        );
+        let second = WInstance::new(
+            original.nodes.clone(),
+            vec![(1, 2, edge(1, 2)), (0, 1, edge(0, 1))],
+            vec![],
+            0,
+            original.schema_root.clone(),
+        );
+        assert!(crate::instances_equivalent(&first, &second));
+        assert!(!crate::laws::tree_identical(&first, &second));
+        let mut first = original;
+        first.fans = vec![
+            panproto_inst::Fan::new("fan-a", 0).with_child("a", 1),
+            panproto_inst::Fan::new("fan-b", 0).with_child("b", 2),
+        ];
+        let mut second = first.clone();
+        second.fans.reverse();
+        assert!(crate::instances_equivalent(&first, &second));
+        assert!(!crate::laws::tree_identical(&first, &second));
+    }
+
+    #[test]
+    fn raw_nonidentity_edits_require_initialization() {
+        let schema = three_node_schema();
+        let mut translator = EditLens::from_lens(identity_lens(&schema), test_protocol());
+        assert!(
+            translator
+                .get_edit(TreeEdit::Identity)
+                .unwrap()
+                .is_identity()
+        );
+        assert!(
+            translator
+                .put_edit(TreeEdit::Identity)
+                .unwrap()
+                .is_identity()
+        );
+        assert!(matches!(
+            translator.get_edit(TreeEdit::DeleteNode { id: 1 }),
+            Err(EditLensError::TranslationFailed(_))
+        ));
+        assert!(matches!(
+            translator.put_edit(TreeEdit::DeleteNode { id: 1 }),
+            Err(EditLensError::TranslationFailed(_))
+        ));
+        assert!(translator.pipeline.is_none());
+    }
+
     use panproto_gat::Name;
-    use panproto_inst::{Node, TreeEdit};
+    use panproto_inst::{GInstance, GraphDelta, Node, TreeEdit, WInstance};
     use panproto_schema::{Edge, Protocol};
+    use std::collections::HashMap;
 
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
 
@@ -1901,10 +2398,11 @@ mod tests {
             field: Name::from("text"),
             value: panproto_inst::Value::Token("t".into()),
         };
-        let refused = edit_lens.get_edit(edit(1)).unwrap_err();
-        assert_eq!(format!("{refused:?}"), expected(1));
-        let refused = edit_lens.translate_iso(edit(2)).unwrap_err();
-        assert_eq!(format!("{refused:?}"), expected(2));
+        let refused = edit_lens.get_edit(edit(0)).unwrap_err();
+        assert_eq!(format!("{refused:?}"), expected(0));
+        let refused = edit_lens.translate_iso(edit(0)).unwrap_err();
+        assert_eq!(format!("{refused:?}"), expected(0));
+        assert!(edit_lens.translate_iso(edit(2)).is_ok());
     }
 
     #[test]
@@ -1932,70 +2430,13 @@ mod tests {
     }
 
     #[test]
-    fn put_edit_keeps_the_complement_in_step() {
-        // `three_node_instance` has a `createdAt` child at node 2; the
-        // projection lens drops it, so the complement holds it. A view
-        // edit that removes node 2's parent, or reuses id 2, changes what
-        // the source is, and the complement has to follow.
+    fn put_edit_refuses_edits_outside_the_current_view_atomically() {
         let schema = three_node_schema();
         let instance = three_node_instance();
-
-        // Deleting the node the complement holds must clear its record.
-        let mut edit_lens = EditLens::from_lens(
-            crate::tests::projection_lens(&schema, "createdAt"),
-            test_protocol(),
-        );
-        edit_lens.initialize(&instance).unwrap();
-        assert!(
-            edit_lens.complement.dropped_nodes.contains_key(&2),
-            "the dropped child must start out in the complement"
-        );
-        edit_lens.put_edit(TreeEdit::DeleteNode { id: 2 }).unwrap();
-        assert!(
-            !edit_lens.complement.dropped_nodes.contains_key(&2),
-            "a deleted node must not stay in the complement"
-        );
-        assert!(
-            edit_lens
-                .complement
-                .dropped_arcs
-                .iter()
-                .all(|&(parent, child, _)| parent != 2 && child != 2),
-            "no arc may still name the deleted node: {:?}",
-            edit_lens.complement.dropped_arcs,
-        );
-
-        // Deleting a parent must take the records for what hung off it.
-        let mut edit_lens = EditLens::from_lens(
-            crate::tests::projection_lens(&schema, "createdAt"),
-            test_protocol(),
-        );
-        edit_lens.initialize(&instance).unwrap();
-        let Some(parent) = edit_lens
-            .complement
-            .dropped_arcs
-            .iter()
-            .find(|&&(_, child, _)| child == 2)
-            .map(|&(parent, _, _)| parent)
-        else {
-            panic!("the dropped child must have a recorded parent");
-        };
-        edit_lens
-            .put_edit(TreeEdit::DeleteNode { id: parent })
-            .unwrap();
-        assert!(
-            !edit_lens.complement.dropped_nodes.contains_key(&2),
-            "a child recorded under a deleted parent has nowhere to be restored to"
-        );
-
-        // Reusing the id for a fresh node must not resurrect the old one.
-        let mut edit_lens = EditLens::from_lens(
-            crate::tests::projection_lens(&schema, "createdAt"),
-            test_protocol(),
-        );
-        edit_lens.initialize(&instance).unwrap();
-        edit_lens
-            .put_edit(TreeEdit::InsertNode {
+        let inputs = [
+            TreeEdit::DeleteNode { id: 2 },
+            TreeEdit::DeleteNode { id: 0 },
+            TreeEdit::InsertNode {
                 parent: 0,
                 child_id: 2,
                 node: Node::new(2, "post:body.text"),
@@ -2005,41 +2446,27 @@ mod tests {
                     kind: "prop".into(),
                     name: Some("text".into()),
                 },
-            })
-            .unwrap();
-        assert!(
-            !edit_lens.complement.dropped_nodes.contains_key(&2),
-            "an insert at a reused id must not leave the old record behind"
-        );
-    }
-
-    #[test]
-    fn put_edit_set_field_reaches_a_complement_node() {
-        let schema = three_node_schema();
-        let instance = three_node_instance();
-        let mut edit_lens = EditLens::from_lens(
-            crate::tests::projection_lens(&schema, "createdAt"),
-            test_protocol(),
-        );
-        edit_lens.initialize(&instance).unwrap();
-        assert!(edit_lens.complement.dropped_nodes.contains_key(&2));
-
-        edit_lens
-            .put_edit(TreeEdit::SetField {
+            },
+            TreeEdit::SetField {
                 node_id: 2,
-                field: Name::from("value"),
+                field: "value".into(),
                 value: panproto_inst::Value::Str("2026-01-01".into()),
-            })
-            .unwrap();
-
-        assert_eq!(
-            edit_lens.complement.dropped_nodes[&2]
-                .extra_fields
-                .get("value"),
-            Some(&panproto_inst::Value::Str("2026-01-01".into())),
-            "the backward direction must update the complement's copy the way \
-             the forward direction does",
-        );
+            },
+        ];
+        for input in inputs {
+            let mut translator = EditLens::from_lens(
+                crate::tests::projection_lens(&schema, "createdAt"),
+                test_protocol(),
+            );
+            translator.initialize(&instance).unwrap();
+            let saved = serde_json::to_value(&translator.complement).unwrap();
+            assert!(translator.put_edit(input).is_err());
+            assert_eq!(serde_json::to_value(&translator.complement).unwrap(), saved);
+            assert!(crate::instances_equivalent(
+                translator.pipeline.as_ref().unwrap().source(),
+                &instance,
+            ));
+        }
     }
 
     #[test]
@@ -2073,11 +2500,9 @@ mod tests {
         );
     }
 
-    /// An edit lens that was never initialized from a whole state still
-    /// produces a complement bound to its lens, and `put` accepts it under
-    /// the strict policy once edits have filled it.
+    /// Initialization and later edits retain the complement's lens stamp.
     #[test]
-    fn a_complement_filled_by_edits_alone_is_stamped() {
+    fn an_initialized_complement_remains_stamped_after_edits() {
         use panproto_inst::identity::{ComplementShape, IdentityPolicy, IdentityStatus};
 
         use crate::identity::ComplementIdentity;
@@ -2092,6 +2517,8 @@ mod tests {
             edit_lens.complement.identity,
             Some(lens.identity(ComplementShape::WType))
         );
+
+        edit_lens.initialize(&three_node_instance()).unwrap();
 
         edit_lens
             .get_edit(TreeEdit::InsertNode {
@@ -2302,7 +2729,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_fan_with_dropped_participant_goes_to_complement() {
+    fn undeclared_fan_with_dropped_participant_is_refused() {
         let schema = three_node_schema();
         let lens = crate::tests::projection_lens(&schema, "createdAt");
         let instance = three_node_instance();
@@ -2315,16 +2742,20 @@ mod tests {
             .with_child("b", 2);
         let edit = TreeEdit::InsertFan { fan };
 
-        let result = edit_lens.get_edit(edit).unwrap();
+        let saved = serde_json::to_value(&edit_lens.complement).unwrap();
         assert!(
-            result.is_identity(),
-            "fan with dropped participant should be absorbed"
+            edit_lens.get_edit(edit).is_err(),
+            "the fan has no source declaration"
         );
-        assert_eq!(edit_lens.complement.dropped_fans.len(), 1);
+        assert_eq!(serde_json::to_value(&edit_lens.complement).unwrap(), saved);
+        assert!(crate::instances_equivalent(
+            edit_lens.pipeline.as_ref().unwrap().source(),
+            &instance,
+        ));
     }
 
     #[test]
-    fn insert_fan_all_surviving_passes_through() {
+    fn undeclared_fan_with_surviving_participants_matches_whole_state_get() {
         let schema = three_node_schema();
         let lens = identity_lens(&schema);
         let instance = three_node_instance();
@@ -2336,11 +2767,24 @@ mod tests {
             .with_child("b", 0);
         let edit = TreeEdit::InsertFan { fan };
 
-        let result = edit_lens.get_edit(edit).unwrap();
-        match result {
-            TreeEdit::InsertFan { .. } => {}
-            other => panic!("expected InsertFan, got {other:?}"),
-        }
+        // Raw restriction preserves this fan without checking declarations.
+        // The guarded edit API promises the same endpoint, not validation.
+        let mut expected_source = instance.clone();
+        edit.apply(&mut expected_source).unwrap();
+        let state_lens = edit_lens.state_lens();
+        let (mut view, _) = crate::get(&state_lens, &instance).unwrap();
+        let (expected_view, expected_complement) =
+            crate::get(&state_lens, &expected_source).unwrap();
+        edit_lens.get_edit(edit).unwrap().apply(&mut view).unwrap();
+        assert!(crate::laws::tree_identical(&view, &expected_view));
+        assert_eq!(
+            serde_json::to_value(&edit_lens.complement).unwrap(),
+            serde_json::to_value(&expected_complement).unwrap()
+        );
+        assert!(crate::laws::tree_identical(
+            edit_lens.pipeline.as_ref().unwrap().source(),
+            &expected_source,
+        ));
     }
 
     #[test]
@@ -2369,7 +2813,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_fan_in_complement_is_absorbed() {
+    fn deleting_a_fan_absent_from_the_source_is_refused() {
         let schema = three_node_schema();
         let lens = crate::tests::projection_lens(&schema, "createdAt");
         let instance = three_node_instance();
@@ -2385,9 +2829,14 @@ mod tests {
         let edit = TreeEdit::DeleteFan {
             hyper_edge_id: Name::from("dropped_he"),
         };
-        let result = edit_lens.get_edit(edit).unwrap();
-        assert!(result.is_identity());
-        assert_eq!(edit_lens.complement.dropped_fans, []);
+        let saved = serde_json::to_value(&edit_lens.complement).unwrap();
+        assert!(matches!(
+            edit_lens.get_edit(edit),
+            Err(EditLensError::EditApply(
+                panproto_inst::EditError::FanNotFound(_)
+            ))
+        ));
+        assert_eq!(serde_json::to_value(&edit_lens.complement).unwrap(), saved);
     }
 
     #[test]
@@ -2411,6 +2860,158 @@ mod tests {
             edit_lens.optic_kind(),
             crate::OpticKind::Lens,
             "projection lens should classify as Lens"
+        );
+    }
+    #[test]
+    fn synthetic_incidence_is_replaced_without_touching_unrelated_edges() {
+        use super::preserve_input_replacements;
+        use panproto_inst::graph_edit::GraphDeltaParts;
+        use panproto_inst::{EdgeId, GInstance, GraphDelta};
+        let edge = |src: &str, tgt: &str| Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "e".into(),
+            name: None,
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(1, "b"))
+            .with_node(Node::new(2, "c"))
+            .with_node(Node::new(3, "d"))
+            .with_edge_id(EdgeId(0), 0, 1, edge("a", "b"))
+            .with_edge_id(EdgeId(1), 1, 2, edge("b", "c"))
+            .with_edge_id(EdgeId(9), 2, 3, edge("c", "d"));
+        let view = GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(2, "c"))
+            .with_node(Node::new(3, "d"))
+            .with_edge_id(EdgeId(10), 0, 2, edge("a", "c"))
+            .with_edge_id(EdgeId(9), 2, 3, edge("c", "d"));
+        let mut parts = GraphDeltaParts::default();
+        parts.del_nodes.insert(0, source.node(0).unwrap().clone());
+        parts.add_nodes = parts.del_nodes.clone();
+        parts
+            .del_edges
+            .insert(EdgeId(0), source.edge(EdgeId(0)).unwrap().clone());
+        parts.add_edges = parts.del_edges.clone();
+        let input = GraphDelta::normalize(parts).unwrap();
+        let mut edited_source = source.clone();
+        input.apply(&mut edited_source).unwrap();
+        assert_eq!(edited_source, source);
+        let translated =
+            preserve_input_replacements(GraphDelta::identity(), &input, &view, &view).unwrap();
+        assert_eq!(
+            translated.del_edges().keys().copied().collect::<Vec<_>>(),
+            vec![EdgeId(10)]
+        );
+        assert_eq!(translated.del_edges(), translated.add_edges());
+        let mut edited_view = view.clone();
+        translated.apply(&mut edited_view).unwrap();
+        assert_eq!(edited_view, view);
+        assert_eq!(
+            translated.compose(&GraphDelta::identity()).unwrap(),
+            translated
+        );
+        assert_eq!(
+            GraphDelta::identity().compose(&translated).unwrap(),
+            translated
+        );
+        assert_eq!(
+            preserve_input_replacements(
+                GraphDelta::identity(),
+                &GraphDelta::identity(),
+                &view,
+                &view
+            )
+            .unwrap(),
+            GraphDelta::identity()
+        );
+    }
+    #[test]
+    fn removing_an_unrelated_field_preserves_child_bound_transforms() {
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        lens.compiled.field_transforms.insert(
+            "post:body".into(),
+            vec![panproto_inst::FieldTransform::ComputeField {
+                target_key: "text".into(),
+                expr: panproto_expr::Expr::Var("text".into()),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
+            }],
+        );
+        let mut source = three_node_instance();
+        source
+            .nodes
+            .get_mut(&0)
+            .unwrap()
+            .extra_fields
+            .insert("unrelated".into(), panproto_inst::Value::Int(1));
+        let mut translator = EditLens::from_lens(lens, test_protocol());
+        translator.initialize(&source).unwrap();
+        let translated = translator
+            .get_edit(TreeEdit::RemoveField {
+                node_id: 0,
+                field: "unrelated".into(),
+            })
+            .unwrap();
+        assert!(matches!(translated, TreeEdit::RemoveField { field, .. } if field == "unrelated"));
+    }
+
+    #[test]
+    fn single_get_refusal_restores_tracked_source_and_complement() {
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        lens.compiled.field_transforms.insert(
+            Name::from("post:body"),
+            vec![panproto_inst::FieldTransform::ApplyExpr {
+                key: "text".to_owned(),
+                expr: panproto_expr::Expr::Var("text".into()),
+                inverse: Some(panproto_expr::Expr::Var("text".into())),
+                coercion_class: panproto_gat::CoercionClass::Iso,
+            }],
+        );
+        let source = three_node_instance();
+        let mut translator = EditLens::from_lens(lens, test_protocol());
+        translator.initialize(&source).unwrap();
+        let complement_before = serde_json::to_value(&translator.complement).unwrap();
+        let tracked_before = translator.pipeline.as_ref().unwrap().source().clone();
+        let refused = translator
+            .get_edit(TreeEdit::SetField {
+                node_id: 0,
+                field: "text".into(),
+                value: panproto_inst::Value::Token("unexpressible".into()),
+            })
+            .unwrap_err();
+        assert!(matches!(
+            refused,
+            EditLensError::Restrict(panproto_inst::RestrictError::ValueNotExpressible {
+                node: 0,
+                ..
+            })
+        ));
+        assert!(
+            crate::instances_equivalent(
+                translator.pipeline.as_ref().unwrap().source(),
+                &tracked_before
+            ),
+            "a single failed translation must not commit its source edit"
+        );
+        assert_eq!(
+            serde_json::to_value(&translator.complement).unwrap(),
+            complement_before
+        );
+        // The rejected transaction must leave the lens usable.
+        translator
+            .get_edit(TreeEdit::SetField {
+                node_id: 0,
+                field: "text".into(),
+                value: panproto_inst::Value::Str("accepted".into()),
+            })
+            .unwrap();
+        assert_eq!(
+            translator.pipeline.as_ref().unwrap().source().nodes[&0].extra_fields["text"],
+            panproto_inst::Value::Str("accepted".into())
         );
     }
 }

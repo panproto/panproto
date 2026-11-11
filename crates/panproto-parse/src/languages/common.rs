@@ -429,10 +429,6 @@ fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
         name: protocol_name.into(),
         schema_theory: theory_name.into(),
         instance_theory: format!("{theory_name}Instance"),
-        schema_composition: None,
-        instance_composition: None,
-        obj_kinds: vec![],
-        edge_rules: vec![],
         constraint_sorts: vec![
             "literal-value".into(),
             "literal-type".into(),
@@ -451,14 +447,7 @@ fn build_full_ast_protocol(protocol_name: &str, theory_name: &str) -> Protocol {
             "end-byte".into(),
         ],
         has_order: true,
-        has_coproducts: false,
         has_recursion: true,
-        has_causal: false,
-        nominal_identity: false,
-        has_defaults: false,
-        has_coercions: false,
-        has_mergers: false,
-        has_policies: false,
         ..Default::default()
     }
 }
@@ -469,4 +458,91 @@ fn capitalize_first(s: &str) -> String {
     chars.next().map_or_else(String::new, |c| {
         c.to_uppercase().collect::<String>() + chars.as_str()
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod protocol_and_layout_tests {
+    use super::*;
+    use panproto_schema::SchemaBuilder;
+
+    #[test]
+    fn full_ast_protocol_preserves_theories_constraints_and_capabilities() {
+        let p = build_full_ast_protocol("rust", "ThRustFullAST");
+        assert_eq!(p.name, "rust");
+        assert_eq!(p.schema_theory, "ThRustFullAST");
+        assert_eq!(p.instance_theory, "ThRustFullASTInstance");
+        assert!(p.schema_composition.is_none());
+        assert!(p.instance_composition.is_none());
+        assert_eq!(p.obj_kinds, [] as [String; 0]);
+        assert_eq!(p.edge_rules, [] as [panproto_schema::EdgeRule; 0]);
+        let sorts: Vec<&str> = p.constraint_sorts.iter().map(AsRef::as_ref).collect();
+        assert_eq!(
+            sorts,
+            [
+                "literal-value",
+                "literal-type",
+                "operator",
+                "visibility",
+                "mutability",
+                "async",
+                "static",
+                "generator",
+                "comment",
+                "indent",
+                "trailing-comma",
+                "semicolon",
+                "blank-lines-before",
+                "start-byte",
+                "end-byte"
+            ]
+        );
+        assert!(p.has_order);
+        assert!(p.has_recursion);
+        assert!(!p.has_coproducts);
+        assert!(!p.has_causal);
+        assert!(!p.nominal_identity);
+        assert!(!p.has_defaults);
+        assert!(!p.has_coercions);
+        assert!(!p.has_mergers);
+        assert!(!p.has_policies);
+        assert_eq!(capitalize_first("rust"), "Rust");
+        assert_eq!(capitalize_first("ßeta"), "SSeta");
+        assert_eq!(capitalize_first(""), "");
+    }
+
+    #[test]
+    fn layout_dispatch_requires_an_anchor_and_replay_infers_missing_ends() {
+        let p = build_full_ast_protocol("test", "ThTest");
+        let abstract_schema = SchemaBuilder::new(&p)
+            .vertex("root", "node", None)
+            .unwrap()
+            .constraint("root", "literal-value", "abcd")
+            .build()
+            .unwrap();
+        assert!(!has_layout_complement(&Schema::default()));
+        assert!(!has_layout_complement(&abstract_schema));
+        for literal in [true, false] {
+            // At offset 2, inferred end is 6; multiplication would wrongly
+            // suppress the distinct fragment beginning at offset 6.
+            let (text_sort, start_sort) = if literal {
+                ("literal-value", "start-byte")
+            } else {
+                ("interstitial-0", "interstitial-0-start-byte")
+            };
+            let schema = SchemaBuilder::new(&p)
+                .vertex("root", "node", None)
+                .unwrap()
+                .vertex("next", "node", None)
+                .unwrap()
+                .constraint("root", text_sort, "abcd")
+                .constraint("root", start_sort, "2")
+                .constraint("next", "start-byte", "6")
+                .constraint("next", "literal-value", "Z")
+                .build()
+                .unwrap();
+            assert!(has_layout_complement(&schema));
+            assert_eq!(emit_from_schema(&schema, "test").unwrap(), b"abcdZ");
+        }
+    }
 }

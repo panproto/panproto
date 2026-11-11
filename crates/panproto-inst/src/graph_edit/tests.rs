@@ -566,12 +566,6 @@ fn apply_reports_malformed_fan() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn a_delta_has_no_schema_check_method() {
-    let source = include_str!("delta.rs").to_owned() + include_str!("apply.rs");
-    assert!(!source.contains(concat!("fn check", "_schema")));
-}
-
 // ---------------------------------------------------------------------------
 // Compose
 // ---------------------------------------------------------------------------

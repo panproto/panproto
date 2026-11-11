@@ -389,6 +389,7 @@ fn stored_key(segment: Option<SegmentId>, kind: ArtifactKind) -> ArtifactKey {
 #[test]
 fn verify_manifest_reads_no_segment() -> TestResult {
     let (manifest, parts, partition) = ring_manifest(None)?;
+    let expected_manifest_digest = manifest.digest();
     let schema = Digest([5; 32]);
     let mut store = CountingStore::default();
     let manifest_key = stored_key(None, ArtifactKind::Manifest);
@@ -408,25 +409,25 @@ fn verify_manifest_reads_no_segment() -> TestResult {
     let read: SegmentManifest =
         serde_json::from_slice(&store.read(&manifest_key)?.ok_or("the manifest is stored")?)?;
     assert_eq!(store.reads.get(), 2);
-    verify_manifest(&read)?;
+    verify_manifest(&read, expected_manifest_digest)?;
     assert_eq!(store.reads.get(), 2);
     // With every segment gone from the store, the manifest still verifies:
     // verification needs no segment.
     store
         .held
         .retain(|key, _| key.kind != ArtifactKind::Segment);
-    verify_manifest(&read)?;
+    verify_manifest(&read, expected_manifest_digest)?;
     let mut tampered = read.clone();
     tampered.segments[1].stats.payload_bytes += 1;
     assert!(matches!(
-        verify_manifest(&tampered),
+        verify_manifest(&tampered, expected_manifest_digest),
         Err(SegmentError::DigestMismatch { segment: None, .. })
     ));
     let mut unpaired = read;
     unpaired.segments[1].cross_in.clear();
     unpaired.root = merkle_root(&unpaired.segments);
     assert_eq!(
-        verify_manifest(&unpaired),
+        verify_manifest(&unpaired, expected_manifest_digest),
         Err(SegmentError::CrossMismatch {
             from: SegmentId(0),
             to: SegmentId(1)
@@ -739,7 +740,7 @@ proptest! {
         let partition = interleaved(InstanceShapeKind::Graph, free.max(1), k, 2);
         let parts = segments(&graph, &partition).map_err(fail)?;
         let manifest = seal(records(&parts, &partition, &Digest([5; 32])), header(None), runs(&parts)).map_err(fail)?;
-        verify_manifest(&manifest).map_err(fail)?;
+        verify_manifest(&manifest, manifest.digest()).map_err(fail)?;
         for part in &parts {
             verify_segment(&manifest, part).map_err(fail)?;
         }

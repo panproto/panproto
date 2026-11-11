@@ -113,7 +113,7 @@ pub fn binary32_bits(x: f64) -> Option<u32> {
     let low = fraction & ((1 << 29) - 1);
     let high = u32::try_from(fraction >> 29).ok()?;
     match biased {
-        0x7ff => (low == 0).then_some(sign | 0x7f80_0000 | high),
+        0x7ff => (low == 0).then_some(sign + 0x7f80_0000 + high),
         // A zero; a non-zero binary64 subnormal is below 2^-1022, far below
         // the least binary32, 2^-149.
         0 => (fraction == 0).then_some(sign),
@@ -122,17 +122,17 @@ pub fn binary32_bits(x: f64) -> Option<u32> {
             match exponent {
                 -126..=127 => {
                     let field = u32::try_from(exponent + 127).ok()?;
-                    (low == 0).then_some(sign | (field << 23) | high)
+                    (low == 0).then_some(sign + (field << 23) + high)
                 }
                 -149..=-127 => {
                     // A binary32 subnormal: the significand with its implicit
                     // bit, shifted so that its unit is 2^-149, which needs the
                     // bits shifted out to be zero.
                     let shift = u32::try_from(-97 - exponent).ok()?;
-                    let significand = fraction | (1 << 52);
+                    let significand = fraction + (1 << 52);
                     let out = significand & ((1 << shift) - 1);
                     let field = u32::try_from(significand >> shift).ok()?;
-                    (out == 0).then_some(sign | field)
+                    (out == 0).then_some(sign + field)
                 }
                 _ => None,
             }

@@ -1274,7 +1274,7 @@ fn tree_release_composite_cases(fixtures: TreeReleaseFixtures) -> Vec<TreeReleas
 }
 
 #[test]
-fn e1_apply_matches_reference_on_every_graph_and_atomic_delta() {
+fn apply_matches_reference_on_every_graph_and_atomic_delta() {
     let graphs = carrier::graphs();
     let deltas = carrier::graph_delta_cases();
     assert_eq!(graphs.len(), 105);
@@ -1303,7 +1303,7 @@ fn e1_apply_matches_reference_on_every_graph_and_atomic_delta() {
 }
 
 #[test]
-fn e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier() {
+fn algebra_matches_reference_on_the_exact_atomic_word_carrier() {
     let cases = carrier::graph_delta_cases();
     assert_eq!(cases.len(), 25);
 
@@ -1379,7 +1379,7 @@ fn e2_e3_algebra_matches_reference_on_the_exact_atomic_word_carrier() {
 }
 
 #[test]
-fn e1_independence_and_merge_match_reference_on_every_atomic_pair() {
+fn independence_and_merge_match_reference_on_every_atomic_pair() {
     let cases = carrier::graph_delta_cases();
     let mut count = 0usize;
     for first in &cases {
@@ -1466,7 +1466,7 @@ fn decision_9_delete_then_add_is_replacement_even_for_equal_payloads() {
 }
 
 #[test]
-fn e2_t5_table_apply_and_algebra_match_the_exact_release_carrier() {
+fn table_apply_and_algebra_match_the_exact_release_carrier() {
     let tables = carrier::tables();
     let deltas = carrier::table_deltas();
     assert_eq!(
@@ -1807,7 +1807,7 @@ fn e3a_misfiled_tree_edit_is_outside_the_reference_byte_domain() {
 }
 
 #[test]
-fn e3_malformed_tree_embeddings_refuse_without_mutating_the_embedding() {
+fn malformed_tree_embeddings_refuse_without_mutating_the_embedding() {
     let tree = tree(&[(0, "r"), (1, "a")], &[(0, 1, "a")]);
     let (reference_graph, mut reference_embedding_state) =
         panproto_reference::encode::tree_to_graph(&tree, None).expect("tree embeds");
@@ -1873,7 +1873,7 @@ fn production_applied(delta: &reference::GraphDelta, graph: &GInstance) -> Optio
 }
 
 #[test]
-fn e1_independent_deltas_commute_and_merge_on_every_carrier_graph() {
+fn independent_deltas_commute_and_merge_on_every_carrier_graph() {
     let graphs = carrier::graphs();
     let deltas = two_letter_net_deltas();
     let mut independent_pairs = 0usize;
@@ -1937,7 +1937,7 @@ fn e1_independent_deltas_commute_and_merge_on_every_carrier_graph() {
 }
 
 #[test]
-fn e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair() {
+fn diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair() {
     let tables = carrier::tables();
     let mut count = 0usize;
     for before in &tables {
@@ -1965,7 +1965,7 @@ fn e2_diff_table_applies_and_detects_equality_on_every_well_formed_carrier_pair(
 }
 
 #[test]
-fn e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
+fn diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
     let malformed = reference_model::Table {
         rows: BTreeMap::from([(0, ("a".to_owned(), BTreeMap::new()))]),
         pairs: BTreeSet::from([(reference_model::SEdge::new("a", "b", "e", None), 0, 0)]),
@@ -1979,7 +1979,7 @@ fn e2_diff_table_law_excludes_tables_whose_pairs_leave_their_edge_tables() {
 }
 
 #[test]
-fn e3_unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
+fn unit_associativity_and_anti_homomorphism_hold_on_every_atomic_triple() {
     let cases = carrier::graph_delta_cases();
     let identity = reference::GraphDelta::identity();
     for case in &cases {
@@ -2407,7 +2407,7 @@ fn check_surface_batches(
 }
 
 #[test]
-fn t5_surface_table_edits_lower_check_and_invert_like_the_reference() {
+fn surface_table_edits_lower_check_and_invert_like_the_reference() {
     let mut steps_checked = 0usize;
     let mut applied = 0usize;
     let mut batches_inverted = 0usize;
@@ -2540,38 +2540,104 @@ impl CoverageTally {
     }
 }
 
-/// Run `work` over every `(schema, state)` job on at most four workers and
-/// sum their tallies.
-fn coverage_parallel<S: Sync>(
+/// A deterministic partition of the ordered source-state inventory.
+#[derive(Clone, Copy, Debug)]
+struct CoverageShard {
+    index: usize,
+    count: usize,
+}
+
+impl CoverageShard {
+    fn from_env(total_states: usize) -> Self {
+        let shard = match std::env::var("PANPROTO_EDIT_COVERAGE_SHARD") {
+            Ok(value) => {
+                let (index, count) = value.split_once('/').expect("edit shard is index/count");
+                Self {
+                    index: index
+                        .parse()
+                        .expect("edit shard index is an unsigned integer"),
+                    count: count
+                        .parse()
+                        .expect("edit shard count is an unsigned integer"),
+                }
+            }
+            Err(std::env::VarError::NotPresent) => Self { index: 0, count: 1 },
+            Err(error) => panic!("invalid edit shard environment: {error}"),
+        };
+        assert!(shard.count > 0 && shard.count <= total_states);
+        assert!(shard.index < shard.count);
+        shard
+    }
+
+    const fn contains(self, state: usize) -> bool {
+        state % self.count == self.index
+    }
+}
+
+struct CoverageRun {
+    tally: CoverageTally,
+    shard: CoverageShard,
+    total_states: usize,
+}
+
+/// Run every selected source state completely, partitioning by its global
+/// enumeration index. No word or outcome assertion inside `work` is sampled.
+fn coverage_parallel<S: Sync + std::fmt::Debug>(
     jobs: &[(usize, S)],
     work: impl Fn(&carrier::CoverageSchema, &S, &mut CoverageTally) + Sync,
-) -> CoverageTally {
+) -> CoverageRun {
+    let shard = CoverageShard::from_env(jobs.len());
     let schemas = carrier::coverage_schemas();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let workers = std::thread::available_parallelism().map_or(1, |n| usize::from(n).min(4));
-    std::thread::scope(|threads| {
+    let (tally, mut completed_state_indices) = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
             .map(|_| {
                 threads.spawn(|| {
                     let mut tally = CoverageTally::default();
+                    let mut completed = Vec::new();
                     loop {
                         let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some((schema, state)) = jobs.get(index) else {
                             break;
                         };
+                        if !shard.contains(index) {
+                            continue;
+                        }
                         tally.states += 1;
                         work(&schemas[*schema], state, &mut tally);
+                        completed.push(index);
                     }
-                    tally
+                    (tally, completed)
                 })
             })
             .collect();
         let mut total = CoverageTally::default();
+        let mut completed = Vec::new();
         for handle in handles {
-            total.absorb(handle.join().expect("worker completes"));
+            let (tally, indices) = handle.join().expect("worker completes");
+            total.absorb(tally);
+            completed.extend(indices);
         }
-        total
-    })
+        (total, completed)
+    });
+    completed_state_indices.sort_unstable();
+    let expected: Vec<_> = (0..jobs.len())
+        .filter(|index| shard.contains(*index))
+        .collect();
+    assert_eq!(
+        completed_state_indices, expected,
+        "every selected state finishes exactly once"
+    );
+    assert_eq!(
+        tally.states,
+        u64::try_from(expected.len()).expect("state count fits")
+    );
+    CoverageRun {
+        tally,
+        shard,
+        total_states: jobs.len(),
+    }
 }
 
 fn coverage_jobs<S>(states: impl Fn(&carrier::CoverageSchema) -> Vec<S>) -> Vec<(usize, S)> {
@@ -2622,7 +2688,7 @@ fn check_graph_composite(
     );
     assert_eq!(
         delta_to_reference(&production_composite.invert()),
-        composite.invert(),
+        reference::Delta::invert(&composite),
         "invert {letters:?}"
     );
     let expected_bytes = reference::canonical_graph_delta_bytes(&composite)
@@ -2658,7 +2724,7 @@ fn check_graph_composite(
 #[test]
 fn graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_graphs);
-    let tally = coverage_parallel(&jobs, |schema, graph, tally| {
+    let run = coverage_parallel(&jobs, |schema, graph, tally| {
         let mut prefixes: Vec<GraphPrefix> = Vec::with_capacity(4);
         carrier::coverage_graph_words(schema, graph, &mut |word| {
             let length = word.letters.len();
@@ -2718,16 +2784,24 @@ fn graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope() {
             });
         });
     });
+    let tally = &run.tally;
     println!("graph scope: {tally:?}");
-    assert_coverage_counts(&tally, carrier::coverage_graph_counts_certificate());
-    assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
-    assert!(tally.replacements > 0);
+    assert_eq!(
+        u64::try_from(run.total_states).unwrap(),
+        carrier::coverage_graph_counts_certificate().states
+    );
+    assert_eq!(tally.words[0], tally.states);
+    if run.shard.count == 1 {
+        assert_coverage_counts(tally, carrier::coverage_graph_counts_certificate());
+        assert_eq!(tally.refusals.keys().collect::<Vec<_>>(), ["DanglingEdges"]);
+        assert!(tally.replacements > 0);
+    }
 }
 
 #[test]
 fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_graphs);
-    let tally = coverage_parallel(&jobs, |schema, graph, tally| {
+    let run = coverage_parallel(&jobs, |schema, graph, tally| {
         let letters = carrier::coverage_graph_letters(
             schema,
             graph,
@@ -2800,12 +2874,19 @@ fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_cove
             }
         }
     });
+    let tally = &run.tally;
     println!("graph pairs: {tally:?}");
     assert_eq!(
-        tally.states,
+        u64::try_from(run.total_states).unwrap(),
         carrier::coverage_graph_counts_certificate().states
     );
-    assert!(tally.commuting > 0 && !tally.refusals.is_empty());
+    if run.shard.count == 1 {
+        assert_eq!(
+            tally.states,
+            carrier::coverage_graph_counts_certificate().states
+        );
+        assert!(tally.commuting > 0 && !tally.refusals.is_empty());
+    }
 }
 
 /// The prefix states of the table word under test, by length.
@@ -2874,7 +2955,7 @@ fn check_table_composite(
 #[test]
 fn table_edits_match_reference_on_every_word_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_tables);
-    let tally = coverage_parallel(&jobs, |schema, table, tally| {
+    let run = coverage_parallel(&jobs, |schema, table, tally| {
         let mut prefixes: Vec<TablePrefix> = Vec::with_capacity(4);
         carrier::coverage_table_words(schema, table, &mut |word| {
             let length = word.letters.len();
@@ -2941,13 +3022,21 @@ fn table_edits_match_reference_on_every_word_of_the_coverage_scope() {
             });
         });
     });
+    let tally = &run.tally;
     println!("table scope: {tally:?}");
-    assert_coverage_counts(&tally, carrier::coverage_table_counts_certificate());
     assert_eq!(
-        tally.refusals.keys().collect::<Vec<_>>(),
-        ["DuplicateForeignKey"]
+        u64::try_from(run.total_states).unwrap(),
+        carrier::coverage_table_counts_certificate().states
     );
-    assert!(tally.replacements > 0);
+    assert_eq!(tally.words[0], tally.states);
+    if run.shard.count == 1 {
+        assert_coverage_counts(tally, carrier::coverage_table_counts_certificate());
+        assert_eq!(
+            tally.refusals.keys().collect::<Vec<_>>(),
+            ["DuplicateForeignKey"]
+        );
+        assert!(tally.replacements > 0);
+    }
 }
 
 /// A tree-edit refusal, read exactly from either implementation.
@@ -3053,52 +3142,56 @@ impl TreeWordLowering {
             start.production_embedding
         );
     }
+}
 
-    /// An applied word: equal lowerings, embeddings, applied graphs and
-    /// canonical bytes. Returns whether the lowering holds a replacement.
-    fn check_applied(self, start: &TreeStart, letters: &[reference::TreeEdit]) -> bool {
-        let Self {
-            sequence,
-            production_sequence,
-            lowered,
-            lowered_embedding,
-            production_lowered,
-            production_lowered_embedding,
-        } = self;
-        let lowered =
-            lowered.unwrap_or_else(|error| panic!("reference lowering {letters:?}: {error:?}"));
-        let production_lowered = production_lowered
-            .unwrap_or_else(|error| panic!("production lowering {letters:?}: {error:?}"));
-        assert_eq!(
-            delta_to_reference(&production_lowered),
-            lowered,
-            "lower {letters:?}"
-        );
-        assert_eq!(
-            production_embedding(&production_lowered_embedding),
-            reference_embedding(&lowered_embedding),
-            "embedding after {letters:?}"
-        );
-        let reference_graph = reference::apply(&lowered, &start.reference_graph)
-            .unwrap_or_else(|error| panic!("reference graph apply {letters:?}: {error:?}"));
-        let mut production_graph = start.production_graph.clone();
-        production_lowered
-            .apply(&mut production_graph)
-            .unwrap_or_else(|error| panic!("production graph apply {letters:?}: {error:?}"));
-        assert_eq!(graph_to_reference(&production_graph), reference_graph);
-        let expected_bytes =
-            reference::canonical_tree_edit_bytes(&sequence).expect("a scope word is well filed");
-        let mut writer = CanonicalWriter::new();
-        canonical_tree_edit_bytes(&production_sequence, &mut writer);
-        assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
-        lowered.del.keys().any(|x| lowered.add.contains_key(x))
-    }
+/// An applied word: equal lowerings, embeddings, applied graphs and
+/// canonical bytes. Returns whether the lowering holds a replacement.
+fn check_applied_tree_word(
+    lowering: TreeWordLowering,
+    start: &TreeStart,
+    letters: &[reference::TreeEdit],
+) -> bool {
+    let TreeWordLowering {
+        sequence,
+        production_sequence,
+        lowered,
+        lowered_embedding,
+        production_lowered,
+        production_lowered_embedding,
+    } = lowering;
+    let lowered =
+        lowered.unwrap_or_else(|error| panic!("reference lowering {letters:?}: {error:?}"));
+    let production_lowered = production_lowered
+        .unwrap_or_else(|error| panic!("production lowering {letters:?}: {error:?}"));
+    assert_eq!(
+        delta_to_reference(&production_lowered),
+        lowered,
+        "lower {letters:?}"
+    );
+    assert_eq!(
+        production_embedding(&production_lowered_embedding),
+        reference_embedding(&lowered_embedding),
+        "embedding after {letters:?}"
+    );
+    let reference_graph = reference::apply(&lowered, &start.reference_graph)
+        .unwrap_or_else(|error| panic!("reference graph apply {letters:?}: {error:?}"));
+    let mut production_graph = start.production_graph.clone();
+    production_lowered
+        .apply(&mut production_graph)
+        .unwrap_or_else(|error| panic!("production graph apply {letters:?}: {error:?}"));
+    assert_eq!(graph_to_reference(&production_graph), reference_graph);
+    let expected_bytes =
+        reference::canonical_tree_edit_bytes(&sequence).expect("a scope word is well filed");
+    let mut writer = CanonicalWriter::new();
+    canonical_tree_edit_bytes(&production_sequence, &mut writer);
+    assert_eq!(writer.into_bytes(), expected_bytes, "bytes {letters:?}");
+    lowered.del.keys().any(|x| lowered.add.contains_key(x))
 }
 
 #[test]
 fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope() {
     let jobs = coverage_jobs(carrier::coverage_trees);
-    let tally = coverage_parallel(&jobs, |schema, tree, tally| {
+    let run = coverage_parallel(&jobs, |schema, tree, tally| {
         let (start_graph, start_embedding) = panproto_reference::encode::tree_to_graph(tree, None)
             .expect("a scope tree has a graph form");
         let production_tree = tree_to_production(tree);
@@ -3151,20 +3244,28 @@ fn tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope()
                 *after,
                 "apply {letter:?}"
             );
-            if lowering.check_applied(&start, word.letters) {
+            if check_applied_tree_word(lowering, &start, word.letters) {
                 tally.replacements += 1;
             }
             prefixes.push(production_state);
         })
         .expect("a scope tree has a graph form");
     });
+    let tally = &run.tally;
     println!("tree scope: {tally:?}");
-    assert_coverage_counts(&tally, carrier::coverage_tree_counts_certificate());
     assert_eq!(
-        tally.refusals.keys().collect::<Vec<_>>(),
-        ["Cycle", "NotLeaf", "RootOperation"]
+        u64::try_from(run.total_states).unwrap(),
+        carrier::coverage_tree_counts_certificate().states
     );
-    assert!(tally.replacements > 0);
+    assert_eq!(tally.words[0], tally.states);
+    if run.shard.count == 1 {
+        assert_coverage_counts(tally, carrier::coverage_tree_counts_certificate());
+        assert_eq!(
+            tally.refusals.keys().collect::<Vec<_>>(),
+            ["Cycle", "NotLeaf", "RootOperation"]
+        );
+        assert!(tally.replacements > 0);
+    }
 }
 
 /// Every move of the root, under each node including itself, is a root
@@ -3384,4 +3485,281 @@ fn inverse_reusing_an_arc_id_below_the_floor_is_no_tree_edit() {
         matches!(refused, Err(EditError::NotTreeEdit { .. })),
         "{refused:?}"
     );
+}
+
+fn generated_edit_schema() -> carrier::CoverageSchema {
+    carrier::CoverageSchema {
+        vertices: vec!["a".into()],
+        edges: vec![reference_model::SEdge::new("a", "a", "e", None)],
+    }
+}
+
+fn generated_edit_graph(values: &[i64], edges: &[(u8, u8)]) -> reference_model::Graph {
+    let nodes = values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let id = u32::try_from(index).unwrap();
+            (
+                id,
+                reference_model::Node::new(id, "a").with_value(ReferenceValue::Int(*value)),
+            )
+        })
+        .collect();
+    let count = u32::try_from(values.len()).unwrap();
+    let edges = edges
+        .iter()
+        .enumerate()
+        .map(|(index, (a, b))| {
+            (
+                u32::try_from(index).unwrap(),
+                reference_model::GEdge {
+                    src: u32::from(*a) % count,
+                    tgt: u32::from(*b) % count,
+                    label: reference_model::SEdge::new("a", "a", "e", None),
+                    position: None,
+                },
+            )
+        })
+        .collect();
+    reference_model::Graph { nodes, edges }
+}
+
+fn generated_graph_word_agrees(graph: &reference_model::Graph, choices: &[usize]) {
+    let schema = generated_edit_schema();
+    assert_eq!(graph_to_reference(&graph_to_production(graph)), *graph);
+    assert_eq!(
+        delta_to_reference(&GraphDelta::diff(
+            &graph_to_production(graph),
+            &graph_to_production(graph)
+        )),
+        reference::diff(graph, graph)
+    );
+    let mut floors = carrier::CoverageFloors::of_graph(graph);
+    let mut prefixes = vec![GraphPrefix {
+        reference: graph.clone(),
+        production: graph_to_production(graph),
+        composite: reference::GraphDelta::identity(),
+        production_composite: GraphDelta::identity(),
+    }];
+    let mut word = Vec::new();
+    let mut tally = CoverageTally::default();
+    for choice in choices {
+        let before = prefixes.last().unwrap();
+        let alphabet = carrier::coverage_graph_letters(&schema, &before.reference, floors);
+        let letter = alphabet[*choice % alphabet.len()].clone();
+        let production_letter = delta_to_production(&letter);
+        let mut production = before.production.clone();
+        let actual = production_letter
+            .apply(&mut production)
+            .map(|()| graph_to_reference(&production))
+            .map_err(|e| production_apply_error(&e));
+        let expected =
+            reference::apply(&letter, &before.reference).map_err(|e| reference_apply_error(&e));
+        assert_eq!(actual, expected);
+        let Ok(after) = expected else {
+            assert_eq!(graph_to_reference(&production), before.reference);
+            break;
+        };
+        word.push(letter.clone());
+        let (composite, production_composite) = check_graph_composite(
+            &prefixes,
+            &letter,
+            &production_letter,
+            &word,
+            &production,
+            &mut tally,
+        );
+        let expected_diff = reference::diff(graph, &after);
+        let actual_diff = GraphDelta::diff(&prefixes[0].production, &production);
+        assert_eq!(delta_to_reference(&actual_diff), expected_diff);
+        assert_eq!(actual_diff.is_identity(), graph == &after);
+        floors = floors.after_graph(&after);
+        prefixes.push(GraphPrefix {
+            reference: after,
+            production,
+            composite,
+            production_composite,
+        });
+    }
+}
+
+fn generated_table_word_agrees(table: &reference_model::Table, choices: &[usize]) {
+    let schema = generated_edit_schema();
+    assert_eq!(table_to_reference(&table_to_production(table)), *table);
+    assert_eq!(
+        table_delta_to_reference(&TableDelta::diff(
+            &table_to_production(table),
+            &table_to_production(table)
+        )),
+        reference::diff_table(table, table)
+    );
+    let mut floors = carrier::CoverageFloors::of_table(table);
+    let mut prefixes = vec![TablePrefix {
+        reference: table.clone(),
+        production: table_to_production(table),
+        composite: reference::TableDelta::identity(),
+        production_composite: TableDelta::identity(),
+    }];
+    let mut word = Vec::new();
+    let mut tally = CoverageTally::default();
+    for choice in choices {
+        let before = prefixes.last().unwrap();
+        let alphabet = carrier::coverage_table_letters(&schema, &before.reference, floors);
+        let letter = alphabet[*choice % alphabet.len()].clone();
+        let production_letter = table_edit_to_production(&letter);
+        let lowered = reference::table_edit_delta(&letter).unwrap();
+        let production_lowered = production_letter.to_delta().unwrap();
+        assert_eq!(table_delta_to_reference(&production_lowered), lowered);
+        let mut production = before.production.clone();
+        let actual = production_letter
+            .apply(&mut production)
+            .map(|()| table_to_reference(&production))
+            .map_err(|e| production_table_apply_error(&e));
+        let expected = reference::apply_table_step(&letter, &before.reference)
+            .map_err(|e| reference_table_apply_error(&e));
+        assert_eq!(actual, expected);
+        let Ok(after) = expected else {
+            assert_eq!(table_to_reference(&production), before.reference);
+            break;
+        };
+        word.push(letter);
+        let (composite, production_composite) = check_table_composite(
+            &prefixes,
+            &lowered,
+            &production_lowered,
+            &word,
+            &after,
+            &mut tally,
+        );
+        let actual_diff = TableDelta::diff(&prefixes[0].production, &production);
+        assert_eq!(
+            table_delta_to_reference(&actual_diff),
+            reference::diff_table(table, &after)
+        );
+        assert_eq!(actual_diff.is_identity(), table == &after);
+        floors = floors.after_table(&after);
+        prefixes.push(TablePrefix {
+            reference: after,
+            production,
+            composite,
+            production_composite,
+        });
+    }
+}
+
+fn generated_tree_word_agrees(tree: &reference_model::Tree, choices: &[usize]) {
+    let schema = generated_edit_schema();
+    let (reference_graph, reference_embedding) =
+        panproto_reference::encode::tree_to_graph(tree, None).unwrap();
+    let mut production = tree_to_production(tree);
+    let (production_graph, production_embedding) =
+        GInstance::from_wtype_embedded(&production, None).unwrap();
+    let start = TreeStart {
+        reference_embedding,
+        reference_graph,
+        production_embedding,
+        production_graph,
+    };
+    assert_eq!(
+        graph_to_reference(&start.production_graph),
+        start.reference_graph
+    );
+    assert_eq!(tree_to_reference(&production), *tree);
+    let mut expected_tree = tree.clone();
+    let mut expected_embedding = start.reference_embedding.clone();
+    let mut floors = carrier::CoverageFloors::of_tree(tree);
+    let mut word = Vec::new();
+    for choice in choices {
+        let alphabet = carrier::coverage_tree_letters(&schema, &expected_tree, floors);
+        let letter = alphabet[*choice % alphabet.len()].clone();
+        let before = production.clone();
+        let old_embedding = expected_embedding.clone();
+        let expected = reference::apply_tree(&letter, &expected_tree, &mut expected_embedding);
+        let actual = tree_edit_to_production(&letter).apply(&mut production);
+        word.push(letter);
+        let lowering = lower_tree_word(&start, tree, &word);
+        match (expected, actual) {
+            (Ok(after), Ok(())) => {
+                assert_eq!(tree_to_reference(&production), after);
+                check_applied_tree_word(lowering, &start, &word);
+                floors = floors.after_tree(&after);
+                expected_tree = after;
+            }
+            (Err(expected), Err(actual)) => {
+                assert_eq!(
+                    reference_tree_refusal(&expected),
+                    production_tree_refusal(&actual)
+                );
+                assert_eq!(tree_to_reference(&production), tree_to_reference(&before));
+                assert_eq!(expected_embedding, old_embedding);
+                lowering.assert_refused(&start, &reference_tree_refusal(&expected), &word);
+                break;
+            }
+            (expected, actual) => panic!("generated tree apply differs: {expected:?} / {actual:?}"),
+        }
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_graph_edit_algebra_differential(
+        values in proptest::collection::vec(proptest::prelude::any::<i64>(),1..6),
+        edges in proptest::collection::vec((proptest::prelude::any::<u8>(),proptest::prelude::any::<u8>()),0..7),
+        choices in proptest::collection::vec(proptest::prelude::any::<usize>(),0..6),
+        first in proptest::prelude::any::<usize>(),second in proptest::prelude::any::<usize>(),
+    ) {
+        let graph=generated_edit_graph(&values,&edges);
+        generated_graph_word_agrees(&graph,&choices);
+        let alphabet=carrier::coverage_graph_letters(&generated_edit_schema(),&graph,carrier::CoverageFloors::of_graph(&graph));
+        let (a,b)=(&alphabet[first%alphabet.len()],&alphabet[second%alphabet.len()]);
+        let (pa,pb)=(delta_to_production(a),delta_to_production(b));
+        assert_eq!(pa.independence(&pb).iter().map(production_conflict).collect::<Vec<_>>(),reference::independence(a,b).iter().map(reference_conflict).collect::<Vec<_>>());
+        match (pa.merge(&pb),reference::merge(a,b)) {
+            (Ok(actual),Ok(expected)) => {
+                assert_eq!(delta_to_reference(&actual),expected);
+                let mut first_state=graph_to_production(&graph);
+                let mut second_state=first_state.clone();
+                if pa.apply(&mut first_state).is_ok() && pb.apply(&mut second_state).is_ok() {
+                    pb.apply(&mut first_state).unwrap();
+                    pa.apply(&mut second_state).unwrap();
+                    let merged=reference::apply(&expected,&graph).unwrap();
+                    assert_eq!(graph_to_reference(&first_state),merged);
+                    assert_eq!(graph_to_reference(&second_state),merged);
+                }
+            },
+            (Err(actual),Err(expected)) => assert_eq!(production_conflict(&actual),reference_conflict(&expected)),
+            (actual,expected) => panic!("generated merge differs: {actual:?} / {expected:?}"),
+        }
+        let node=graph.nodes[&0].clone();
+        let mut delete=reference::GraphDelta::identity();
+        delete.del.insert(reference::GElem::Node(0),reference::GPayload::Node(node.clone()));
+        let mut add=reference::GraphDelta::identity();
+        add.add.insert(reference::GElem::Node(0),reference::GPayload::Node(node));
+        let expected=reference::Delta::compose(&delete,&add).unwrap();
+        let actual=delta_to_production(&delete).compose(&delta_to_production(&add)).unwrap();
+        assert_eq!(delta_to_reference(&actual),expected);
+        assert!(!actual.is_identity());
+        assert_eq!(actual.invert(),actual);
+    }
+
+    #[test]
+    fn randomized_table_edit_algebra_differential(
+        values in proptest::collection::vec(proptest::prelude::any::<i64>(),1..6),
+        choices in proptest::collection::vec(proptest::prelude::any::<usize>(),0..6),
+    ) {
+        let table=reference_model::Table { rows:values.iter().enumerate().map(|(index,value)|(u32::try_from(index).unwrap(),("a".into(),BTreeMap::from([("f".into(),ReferenceValue::Int(*value))])))).collect(),pairs:BTreeSet::new() };
+        generated_table_word_agrees(&table,&choices);
+    }
+
+    #[test]
+    fn randomized_tree_edit_algebra_differential(
+        nodes in proptest::collection::vec((proptest::prelude::any::<u8>(),proptest::prelude::any::<i64>()),1..6),
+        choices in proptest::collection::vec(proptest::prelude::any::<usize>(),0..6),
+    ) {
+        let tree=reference_model::Tree { nodes:nodes.iter().enumerate().map(|(index,(_,value))| { let id=u32::try_from(index).unwrap(); (id,reference_model::Node::new(id,"a").with_value(ReferenceValue::Int(*value))) }).collect(),arcs:nodes.iter().enumerate().skip(1).map(|(index,(parent,_))|(u32::try_from(usize::from(*parent)%index).unwrap(),u32::try_from(index).unwrap(),reference_model::SEdge::new("a","a","e",None))).collect(),fans:Vec::new(),root:0 };
+        generated_tree_word_agrees(&tree,&choices);
+    }
 }

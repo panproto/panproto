@@ -986,3 +986,33 @@ fn canonical_theory_and_composition_bytes_match_reference_on_bounded_fixtures() 
         }
     }
 }
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_theory_and_composition_canonical_bytes(
+        fixture in 0_u8..3, name in "[a-z]{0,8}", explicit in proptest::prelude::any::<bool>(),
+        reverse in proptest::prelude::any::<bool>(),
+    ) {
+        let (mut production, mut oracle) = match fixture {
+            0 => empty_theory(), 1 => unary_theory(), _ => exhaustive_theory(),
+        };
+        production.name = name.clone().into();
+        oracle.name = name;
+        if reverse {
+            production.sorts.reverse();
+            production.ops.reverse();
+            production.eqs.reverse();
+            oracle.sorts.reverse();
+            oracle.ops.reverse();
+            oracle.eqs.reverse();
+        }
+        proptest::prop_assert_eq!(canonical_theory_bytes(&production), reference::canonical_theory_bytes(&oracle));
+        let (production_mode, oracle_mode) = if explicit {
+            (CompositionMode::ExplicitIdentity, reference::CompositionMode::ExplicitIdentity)
+        } else { (CompositionMode::Amalgamate, reference::CompositionMode::Amalgamate) };
+        let (production, oracle) = composition(production, oracle, production_mode, oracle_mode);
+        proptest::prop_assert_eq!(canonical_composition_bytes(&production), reference::canonical_composition_bytes(&oracle));
+    }
+}

@@ -2026,18 +2026,31 @@ fn value_constraint(
                     // An XSD lexeme outside its datatype's lexical space is
                     // ill-typed even where the kind's reader would take it.
                     let outside_lexical_space = match value {
-                        Value::Str(lexeme) | Value::Token(lexeme) => {
+                        Value::Str(lexeme) | Value::Token(lexeme) | Value::CidLink(lexeme) => {
                             super::xsd_lexical::in_lexical_space(datatype, lexeme) == Some(false)
                         }
                         _ => false,
                     };
                     if outside_lexical_space
-                        || crate::value::coerce::coerce_value(
-                            value,
-                            spec,
-                            ValueSite::new(vertex.clone(), None),
-                        )
-                        .is_err()
+                        || if let Value::CidLink(lexeme) = value {
+                            // Here a link carries source text, so read that text under the
+                            // declared kind instead of coercing the stored link value.
+                            crate::value::coerce::coerce(
+                                &crate::value::coerce::Lexeme::new(
+                                    lexeme,
+                                    crate::value::coerce::LexClass::String,
+                                ),
+                                spec,
+                            )
+                            .is_err()
+                        } else {
+                            crate::value::coerce::coerce_value(
+                                value,
+                                spec,
+                                ValueSite::new(vertex.clone(), None),
+                            )
+                            .is_err()
+                        }
                     {
                         out.findings.push(Finding::new(
                             vec![n.clone()],

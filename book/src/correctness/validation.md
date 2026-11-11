@@ -30,29 +30,19 @@ An *open required check* is a required diagnostic or required incomplete entry. 
 - Reference: `panproto_reference::validation::validate`
 - Reference: `panproto_reference::validation::validate_table`
 - Reference: `panproto_reference::validation::validate_tree`
+- Reference: `panproto_reference::validation::status`
 - Evidence scope: `the compact carrier: shapes=3, cases per shape=4; the same graph carrier with an application check under three verdicts (passed, rejected, missing), 12 cases reaching all three statuses, compared field by field with incomplete entries and the failed and incomplete coverage counts per kind; every sequence of at most three required or advisory diagnostics and incomplete entries (85 sequences)`
 - Production certificate: `status_law_holds_with_external_verdicts_on_every_shape_status; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=status_law_holds_with_external_verdicts_on_every_shape_status)'`
 - Status fold differential: `status_fold_agrees_with_the_reference_on_every_short_entry_sequence; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=status_fold_agrees_with_the_reference_on_every_short_entry_sequence)'`
 - Independent reference anchor: `whole_validation_agrees_exactly_on_the_compact_three_shape_carrier; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=whole_validation_agrees_exactly_on_the_compact_three_shape_carrier)'`
 - Exhaustive differential test: `whole_validation_agrees_exactly_on_the_compact_three_shape_carrier; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=whole_validation_agrees_exactly_on_the_compact_three_shape_carrier)'`
-- Production property test: `v1_status_soundness_over_random_verdict_sets; command: cargo nextest run -p panproto-inst --test validation --no-tests=fail -E 'test(=v1_status_soundness_over_random_verdict_sets)'`
+- Production property test: `status_soundness_over_random_verdict_sets; command: cargo nextest run -p panproto-inst --test validation --no-tests=fail -E 'test(=status_soundness_over_random_verdict_sets)'`
+- Property differential test: `randomized::compact_reports_match_on_generated_shape_and_case; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::compact_reports_match_on_generated_shape_and_case)'`
+- Property scope: `three shapes and four compact cases per shape; ordered report comparison and repeated production report bytes within one process; separate process certificates remain required; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/validation/report.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Changing a required diagnostic into an advisory diagnostic is equivalent to deleting it for status aggregation. No other mutation equivalence is recorded.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Reports and witnesses are deterministic {#L-validation-2}
 
@@ -82,23 +72,13 @@ The claim does not compare inputs that differ in application-supplied external e
 - Production certificate: `validation_reports_are_identical_across_processes; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=validation_reports_are_identical_across_processes)'`
 - Production witness certificate: `validation_witnesses_are_identical_across_processes; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=validation_witnesses_are_identical_across_processes)'`
 - Independent reference anchor: `reference_validation_anchors_are_stable_on_compact_native_carriers; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=reference_validation_anchors_are_stable_on_compact_native_carriers)'`
+- Property differential test: `randomized::compact_reports_match_on_generated_shape_and_case; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::compact_reports_match_on_generated_shape_and_case)'`
+- Property scope: `three shapes and four compact cases per shape; ordered report comparison and repeated production report bytes within one process; separate process certificates remain required; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/report.rs`
 - File: `crates/panproto-inst/src/validation/witness.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Reordering a map before inserting it into an ordered map is equivalent. Reordering any stored diagnostic, incomplete entry, read trace, or scheduled instance is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## A footprint contains every changed dependency {#L-validation-3}
 
@@ -127,28 +107,18 @@ The *persistent set* is the intersection of the baseline and target check-instan
 - Reference: `panproto_reference::validation::witness_with_trust`
 - Reference: `panproto_reference::validation::incremental_footprint`
 - Evidence scope: `independent differential: 12 transitions (four base graphs of the compact carrier, each with a value change, a relabel and an edge insertion or removal) compared with the reference footprint model; production property tests over graph, table, and tree transitions of the local finite generators`
-- Production certificate: `v3_v4_hold_on_every_bounded_graph_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_v4_hold_on_every_bounded_graph_transition)'`
+- Production certificate: `footprint_soundness_and_edit_agreement_hold_on_every_bounded_graph_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=footprint_soundness_and_edit_agreement_hold_on_every_bounded_graph_transition)'`
 - Independent reference anchor: `incremental_transitions_agree_with_the_independent_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=incremental_transitions_agree_with_the_independent_reference)'`
 - Witness anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
-- Supplemental production tests: `v3_v4_hold_on_every_bounded_table_transition` and `v3_v4_hold_on_every_bounded_tree_step`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/v3_v4_hold_on_every_bounded_(table_transition|tree_step)/)'`
-- Property differential test: `v3_footprint_soundness; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_footprint_soundness)'`
+- Supplemental production tests: `footprint_soundness_and_edit_agreement_hold_on_every_bounded_table_transition` and `footprint_soundness_and_edit_agreement_hold_on_every_bounded_tree_step`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/v3_v4_hold_on_every_bounded_(table_transition|tree_step)/)'`
+- Property differential test: `footprint_soundness; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=footprint_soundness)'`
+- Property differential test: `randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits)'`
+- Property scope: `four compact graphs and their twelve applicable edits; created and retired checks, read sets, changed-check inclusion, reports and admitted witnesses; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/footprint.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Replacing unused external entries is equivalent. Omitting any changed external entry, created check, retired check, rerun check, or read is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Incremental and whole-instance reports agree after one edit {#L-validation-4}
 
@@ -176,27 +146,17 @@ The edit must lower and apply. The target validation budget is unlimited. The ba
 - Reference: `panproto_reference::validation::witness_with_trust`
 - Reference: `panproto_reference::validation::incremental_report`
 - Evidence scope: `graph, table, and tree transitions over the local finite generators; the reference anchor is one labelled nonidentity transition`
-- Production certificate: `v3_v4_hold_on_every_bounded_table_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v3_v4_hold_on_every_bounded_table_transition)'`
+- Production certificate: `footprint_soundness_and_edit_agreement_hold_on_every_bounded_table_transition; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=footprint_soundness_and_edit_agreement_hold_on_every_bounded_table_transition)'`
 - Independent reference anchor: `incremental_transitions_agree_with_the_independent_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=incremental_transitions_agree_with_the_independent_reference)'`
-- Supplemental production tests: `v3_v4_hold_on_every_bounded_graph_transition` and `v3_v4_hold_on_every_bounded_tree_step`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/v3_v4_hold_on_every_bounded_(graph_transition|tree_step)/)'`
-- Property differential test: `v4_edit_agreement; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v4_edit_agreement)'`
+- Supplemental production tests: `footprint_soundness_and_edit_agreement_hold_on_every_bounded_graph_transition` and `footprint_soundness_and_edit_agreement_hold_on_every_bounded_tree_step`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/v3_v4_hold_on_every_bounded_(graph_transition|tree_step)/)'`
+- Property differential test: `edit_agreement; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=edit_agreement)'`
+- Property differential test: `randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits)'`
+- Property scope: `four compact graphs and their twelve applicable edits; created and retired checks, read sets, changed-check inclusion, reports and admitted witnesses; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Only the report-scope rewrite is equivalent. Dropping multiplicity, changing order, or projecting away coverage is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Agreement composes across admitted edit sequences {#L-validation-5}
 
@@ -226,25 +186,15 @@ The *sequence agreement* is the induction of one-step edit agreement across comm
 - Production certificate: `sequence_law_holds_on_every_bounded_graph_sequence; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=sequence_law_holds_on_every_bounded_graph_sequence)'`
 - Independent reference anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
 - Supplemental production tests: `sequence_law_holds_on_every_bounded_table_sequence` and `sequence_law_holds_on_every_bounded_tree_sequence`; `command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(/sequence_law_holds_on_every_bounded_(table|tree)_sequence/)'`
-- Property differential test: `v5_sequence_agreement; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v5_sequence_agreement)'`
+- Property differential test: `sequence_agreement; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=sequence_agreement)'`
 - Domain-boundary counterexample: `a_finite_transition_budget_breaks_sequence_agreement; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=a_finite_transition_budget_breaks_sequence_agreement)'`
+- Property differential test: `randomized::committed_sequences_match_reference_reports_and_admission; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::committed_sequences_match_reference_reports_and_admission)'`
+- Property scope: `four compact graph baselines and zero to four applicable value, anchor or edge edits; both admission policies, reference target witnesses, committed report agreement, state reattachment and atomic rejection; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-An edit that is rejected before simulation is equivalent to one rejected by admission only with respect to unchanged instance and state bytes. Their typed errors are not equivalent.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Every edit witness replays the committed transition {#L-validation-6}
 
@@ -274,24 +224,14 @@ A *committed witness field* is any field used to reconstruct the transition sche
 - Production certificate: `witness_law_holds_on_every_bounded_step; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=witness_law_holds_on_every_bounded_step)'`
 - Independent reference anchor: `incremental_transitions_agree_with_the_independent_reference; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=incremental_transitions_agree_with_the_independent_reference)'`
 - Witness anchor: `reference_incremental_witness_anchor_verifies; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=reference_incremental_witness_anchor_verifies)'`
-- Property differential test: `v6_every_witness_verifies_and_mutations_fail; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=v6_every_witness_verifies_and_mutations_fail)'`
+- Property differential test: `every_witness_verifies_and_mutations_fail; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=every_witness_verifies_and_mutations_fail)'`
+- Property differential test: `randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::incremental_footprints_reports_and_witnesses_match_on_generated_carrier_edits)'`
+- Property scope: `four compact graphs and their twelve applicable edits; created and retired checks, read sets, changed-check inclusion, reports and admitted witnesses; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/witness.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Changing an external verdict that no scheduled check can address is equivalent. Removing, inserting, or reordering a run or read is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Finite budgets expose an ordered suffix {#L-validation-7}
 
@@ -324,24 +264,13 @@ The *unlimited work count* is the sum, over every scheduled instance that is not
 - Independent reference anchor: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
 - Exhaustive differential test: `finite_budget_cuts_are_the_same_ordered_suffix; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_cuts_are_the_same_ordered_suffix)'`
 - Failing-carrier differential: `finite_budget_law_holds_against_the_reference_on_failing_carriers; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=finite_budget_law_holds_against_the_reference_on_failing_carriers)'`
-- Production property test: `v7_finite_budget_never_passes_where_unlimited_does_not; command: cargo nextest run -p panproto-inst --test validation --no-tests=fail -E 'test(=v7_finite_budget_never_passes_where_unlimited_does_not)'`
+- Production property test: `finite_budget_never_passes_where_unlimited_does_not; command: cargo nextest run -p panproto-inst --test validation --no-tests=fail -E 'test(=finite_budget_never_passes_where_unlimited_does_not)'`
+- Property differential test: `randomized::budget_refusals_match_on_generated_existing_limits; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::budget_refusals_match_on_generated_existing_limits)'`
+- Property scope: `the documented budget fixture under limits zero through two; status, ordered diagnostics and exact incomplete suffix entries; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/validation/schedule.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-The subject repeated by a reference refusal and the `from` subject of its budget reason encode the same first skipped site. Dropping that site, changing the suffix, or merging distinct check keys is not equivalent.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Native and graph presentations commute with shared validation {#L-validation-8}
 
@@ -370,29 +299,19 @@ A *shared check* is a check kind defined on both the native shape and its graph 
 - Reference: `panproto_reference::validation::validate_table`
 - Reference: `panproto_reference::validation::validate_tree`
 - Evidence scope: `one reference graph, one one-row table, and one one-node tree that each fail the same required scalar property at native id 7; 512 compared production cases per native shape, trees without a graph presentation rejected and redrawn`
-- Production certificate: `v8_table_square; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v8_table_square)'`
+- Production certificate: `the_table_square_commutes; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_table_square_commutes)'`
 - Independent reference anchor: `reference_required_value_shape_square; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=reference_required_value_shape_square)'`
 - Production fixed test: `the_tree_square_holds_for_equal_fans; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_tree_square_holds_for_equal_fans)'`
 - Production fixed table certificate: `column_constraints_are_read_from_cells_in_every_shape; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=column_constraints_are_read_from_cells_in_every_shape)'`
 - Production fixed tree certificate: `a_column_value_held_by_a_child_node_is_not_a_field_site; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=a_column_value_held_by_a_child_node_is_not_a_field_site)'`
-- Production property tests: `v8_tree_square` and `v8_table_square`, with 512 generated cases per native shape; `command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(/v8_(tree|table)_square/)'`
+- Production property tests: `the_tree_square_commutes` and `the_table_square_commutes`, with 512 generated cases per native shape; `command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(/v8_(tree|table)_square/)'`
+- Property differential test: `randomized::compact_reports_match_on_generated_shape_and_case; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::compact_reports_match_on_generated_shape_and_case)'`
+- Property scope: `three shapes and four compact cases per shape; ordered report comparison and repeated production report bytes within one process; separate process certificates remain required; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/tests/validation_laws.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Fresh graph ids allocated only for presentation are equivalent through the embedding. Removing a shared check key or projecting out a column value is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Restriction validates both sides of its boundary {#L-validation-9}
 
@@ -423,25 +342,14 @@ The *validation boundary* is the ordered pair of source validation before restri
 - Independent reference anchor: `restrict_boundary_agrees_with_the_reference_on_every_status_pair; command: cargo nextest run --release --locked -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restrict_boundary_agrees_with_the_reference_on_every_status_pair)'`
 - Fixed boundary test: `restrict_boundary_errors_carry_the_side_and_report; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restrict_boundary_errors_carry_the_side_and_report)'`
 - Probe test: `restricting_the_probe_under_an_unrelated_schema_fails_at_input; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restricting_the_probe_under_an_unrelated_schema_fails_at_input)'`
-- Production property test: `v9_restrict_boundary; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=v9_restrict_boundary)'`
+- Production property test: `restrict_is_validation_then_compilation_then_the_engine; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=restrict_is_validation_then_compilation_then_the_engine)'`
+- Property differential test: `randomized_restriction_boundary_matches_on_all_status_pairs; command: cargo nextest run -p panproto-inst --test restrict_boundary --no-tests=fail -E 'test(=randomized_restriction_boundary_matches_on_all_status_pairs)'`
+- Property scope: `all nine input/output status pairs realized through the existing restriction fixtures; exact refusal side and status; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/restrict_boundary.rs`
 - File: `crates/panproto-inst/src/graph_restrict.rs`
 - File: `crates/panproto-inst/tests/restrict_boundary.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-There is no side-erasing equivalence. The same report attached to `Input` and `Output` denotes different boundary failures.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Endpoint diagnostics realize the graph-instance equations {#L-validation-10}
 
@@ -468,27 +376,16 @@ The *endpoint equation* requires an edge's source and target anchors to belong t
 - Law ID: `validation.v10`
 - Reference: `panproto_reference::validation::validate`
 - Evidence scope: `schema a, b with edges ab, aa: every graph of at most 4 nodes and 4 edges up to node renaming (more than 300,000 graphs), against the theory and the reference; the same schema with undeclared anchor z and label zb: at most 3 nodes and 3 edges, against the theory and the reference; the anchor-family schema: at most 3 nodes and 3 edges, against the theory; one fixed reference carrier`
-- Production certificate: `v10_endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_with_the_graph_instance_theory)'`
-- Independent reference anchor: `v10_endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_with_the_graph_instance_theory)'`
-- Undeclared-boundary differential: `v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels)'`
-- Anchor-family differential: `v10_endpoint_coherence_agrees_on_anchor_families; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=v10_endpoint_coherence_agrees_on_anchor_families)'`
+- Production certificate: `endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=endpoint_coherence_agrees_with_the_graph_instance_theory)'`
+- Independent reference anchor: `endpoint_coherence_agrees_with_the_graph_instance_theory; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=endpoint_coherence_agrees_with_the_graph_instance_theory)'`
+- Undeclared-boundary differential: `endpoint_coherence_agrees_on_undeclared_anchors_and_labels; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=endpoint_coherence_agrees_on_undeclared_anchors_and_labels)'`
+- Anchor-family differential: `endpoint_coherence_agrees_on_anchor_families; command: cargo nextest run --release --locked -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=endpoint_coherence_agrees_on_anchor_families)'`
+- Property differential test: `randomized_endpoint_findings_match_the_reference_and_theory; command: cargo nextest run -p panproto-protocols --test endpoint_coherence_is_the_graph_instance_theory --no-tests=fail -E 'test(=randomized_endpoint_findings_match_the_reference_and_theory)'`
+- Property scope: `the documented undeclared-anchor and label carrier: up to three nodes and three edges, including empty graphs; exact endpoint-finding multisets and successful theory evaluation; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-protocols/tests/endpoint_coherence_is_the_graph_instance_theory.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Two anchor-family presentations are equivalent only when they induce the same membership relation. Swapping endpoint side or replacing the found anchor is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Keys and references agree with direct finite search {#L-validation-11}
 
@@ -515,28 +412,18 @@ A *key bucket* groups nonnull key vectors by declared scope. A *reference candid
 - Law ID: `validation.v11`
 - Reference: `panproto_reference::validation::validate`
 - Evidence scope: `512 generated production-oracle cases per shape draw compared as sorted vectors, 3,000 fixed coverage draws in which every failure kind occurs on every shape and the outside-scope observation occurs on graphs and trees, and matching fixed production and reference carriers with one duplicate-key bucket and four reference holders (two resolved, one dangling, and one ambiguous)`
-- Production certificate: `v11_keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v11_keys_and_references_match_the_oracle)'`
+- Production certificate: `keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=keys_and_references_match_the_oracle)'`
 - Independent reference anchor: `reference_validation_anchors_are_stable_on_compact_native_carriers; command: cargo nextest run --release --locked -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=reference_validation_anchors_are_stable_on_compact_native_carriers)'`
 - Production fixed certificate: `fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=fixed_key_and_reference_carrier_reports_each_v11_boundary_exactly)'`
 - Production coverage test: `the_oracle_expects_every_key_and_reference_failure; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=the_oracle_expects_every_key_and_reference_failure)'`
-- Production property test: `v11_keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=v11_keys_and_references_match_the_oracle)'`
+- Production property test: `keys_and_references_match_the_oracle; command: cargo nextest run -p panproto-inst --test validation_laws --no-tests=fail -E 'test(=keys_and_references_match_the_oracle)'`
+- Property differential test: `randomized::key_and_reference_reports_match_on_generated_person_values; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::key_and_reference_reports_match_on_generated_person_values)'`
+- Property scope: `four persons with independent key and reference values from 10, 20, 30 and 99; 65,536 assignments on the existing labelled person graph, comparing status and complete ordered key/reference diagnostics; configured successful cases per seed=256`
+- File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-The order in which a set of targets is discovered is equivalent after canonical sorting. Changing key-part order, nearest scope, null exclusion, or candidate multiplicity is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Admission compares complete required outcome bundles {#L-validation-12}
 
@@ -565,23 +452,12 @@ A *required bundle* is one of three things: the required projection of an open c
 - Evidence scope: `the test-local enumerator every_abstract_state: three required instances and one advisory instance, each required outcome passed, failed or incomplete with one of two byte values, a budget cut from each of four schedule positions with two spent counts or none, an advisory entry inside the first required bundle or not; 1,122 states and all 1,258,884 ordered pairs, once over a plan with no static finding and once over a plan with two required static findings`
 - Production certificate: `admission_policies_agree_with_their_predicates_on_three_bundles; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=admission_policies_agree_with_their_predicates_on_three_bundles)'`
 - Independent reference anchor: `admission_policies_agree_with_their_predicates_on_three_bundles; command: cargo nextest run --release --locked -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=admission_policies_agree_with_their_predicates_on_three_bundles)'`
+- Property differential test: `randomized_admission_matches_reference_on_the_complete_bundle_carrier; command: cargo nextest run -p panproto-inst --test validation_incremental --no-tests=fail -E 'test(=randomized_admission_matches_reference_on_the_complete_bundle_carrier)'`
+- Property scope: `all 1,122 abstract bundle states on each side and both plans, with and without two required static findings; both admission policies; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/validation_incremental.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Adding, removing or changing an advisory entry is equivalent for admission, including an advisory entry inside a required check instance. Changing any byte of a required bundle is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Keys compare by the key function of their declared equality {#L-validation-13}
 
@@ -612,24 +488,13 @@ The *key function* of an equality maps a part value to bytes; production compute
 - Independent reference anchor: `declared_key_equality_is_the_kernel_of_the_production_key_function; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=declared_key_equality_is_the_kernel_of_the_production_key_function)'`
 - Validation use test: `key_unique_under_a_named_collation_is_undecided_on_text; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=key_unique_under_a_named_collation_is_undecided_on_text)'`
 - Resolution test: `resolution_uses_the_exact_declared_key_equality_operation; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=resolution_uses_the_exact_declared_key_equality_operation)'`
+- Property differential test: `randomized::declared_key_kernel_matches_on_generated_existing_pairs; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::declared_key_kernel_matches_on_generated_existing_pairs)'`
+- Property scope: `six declared equalities and all pairs of seven values from the existing 294-pair kernel carrier; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/key.rs`
 - File: `crates/panproto-inst/src/validation/state.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-No equality-family substitution is equivalent. A normalization is equivalent only when the selected equality explicitly defines it.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Variable binding chooses the declared preceding definition {#L-validation-14}
 
@@ -662,24 +527,13 @@ The *preceding candidate set* contains definitions $(q,x,v)$ with $q<p$. First-d
 - Independent reference anchor: `variable_binding_matches_the_reference_on_every_bounded_holder_sequence; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=variable_binding_matches_the_reference_on_every_bounded_holder_sequence)'`
 - Production fixed test: `nearest_preceding_binding_ignores_later_and_other_named_definitions; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=nearest_preceding_binding_ignores_later_and_other_named_definitions)'`
 - Supplemental observable test: `validation_key_binding_and_form_observables_execute_their_exact_paths; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_key_binding_and_form_observables_execute_their_exact_paths)'`
+- Property differential test: `randomized::variable_bindings_match_on_generated_bounded_holder_sequences; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::variable_bindings_match_on_generated_bounded_holder_sequences)'`
+- Property scope: `one to five holders over each existing three-value alphabet, both binding modes and both equalities; ordered binding edges and GetPut source; configured successful cases per seed=256`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Changing incidental map iteration is equivalent because source position decides the result. Replacing strict precedence by non-strict precedence, retaining the first definition in nearest-preceding mode, or sharing a partition across names or scopes is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## The finite declaration carrier preserves guard, target-set, sort, and key refusals {#L-validation-15}
 
@@ -689,7 +543,7 @@ Across the named finite carrier, production declaration validation and the refer
 
 ### Outside the domain
 
-The law checks 27 common declaration/refusal cases and nine target-set declaration fixtures, eight of which are projected to the local predicate. It does not quantify over every possible declaration. It concerns declaration form, not the dynamic truth of a well-formed guard or reference.
+The law checks 30 common declaration/refusal cases and nine target-set declaration fixtures, eight of which are projected to the local predicate. It does not quantify over every possible declaration. It concerns declaration form, not the dynamic truth of a well-formed guard or reference.
 
 ### Definitions used
 
@@ -706,26 +560,17 @@ The *declaration carrier* is the explicit collection of valid and invalid schema
 - Law ID: `validation.guard-target-set-sort-key-checks`
 - Reference: `panproto_reference::keys::target_set`
 - Reference: `panproto_reference::schema::validate_declarations`
-- Evidence scope: `9 target-set declaration fixtures, 8 projected to the local predicate, and 27 common declaration/refusal cases; this is the named finite carrier, not every possible declaration`
+- Evidence scope: `9 target-set declaration fixtures, 8 projected to the local predicate, and 30 common declaration/refusal cases; this is the named finite carrier, not every possible declaration`
 - Production certificate: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Independent reference anchor: `target_sets_match_on_the_complete_local_predicate; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=target_sets_match_on_the_complete_local_predicate)'`
 - Exhaustive differential tests: `target_sets_match_on_the_complete_local_predicate` and `declaration_validation_matches_reference_on_every_common_refusal`; `command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(/(target_sets_match_on_the_complete_local_predicate|declaration_validation_matches_reference_on_every_common_refusal)/)'`
+- Property differential test: `randomized::target_set_admission_matches_on_generated_member_words; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::target_set_admission_matches_on_generated_member_words)'`
+- Property scope: `zero to four members from the existing eight-member carrier; target-set admission and exact member findings; configured successful cases per seed=256`
+- Property differential test: `randomized::key_and_reference_admission_match_on_generated_coordinates; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::key_and_reference_admission_match_on_generated_coordinates)'`
+- Property scope: `five roles, one or two key/source parts, equality arity zero through three and duplicate, nullable and FULL flags; common declaration classes and absence of unrelated structural errors; configured successful cases per seed=256`
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-schema/tests/reference_keys.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-Reordering independently stored declarations is equivalent after canonical sorting. Deleting an error or accepting one failed predicate is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Index targets are refused and composite null matching follows its declaration {#L-validation-16}
 
@@ -758,25 +603,18 @@ An *index key* is a declared key whose role is `Index`; it supports ordering but
 - Evidence scope: `two null-match modes over five composite tuple classes; four key roles under two unresolved policies (eight declarations)`
 - Production certificate: `composite_foreign_key_null_matching_uses_real_resolution_occurrences; command: cargo nextest run --release --locked -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=composite_foreign_key_null_matching_uses_real_resolution_occurrences)'`
 - Independent reference anchor: `every_index_target_is_refused_under_both_unresolved_policies; command: cargo nextest run --release --locked -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=every_index_target_is_refused_under_both_unresolved_policies)'`
+- Property differential test: `randomized::index_refusal_matches_under_generated_unresolved_policy; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::index_refusal_matches_under_generated_unresolved_policy)'`
+- Property scope: `the existing index-target declaration under Error and Complement unresolved policies; typed key and reference refusal fields; configured successful cases per seed=256`
+- Property differential test: `randomized::null_match_outcomes_match_on_generated_existing_occurrences; command: cargo nextest run -p panproto-io --test reference_resolution --no-tests=fail -E 'test(=randomized::null_match_outcomes_match_on_generated_existing_occurrences)'`
+- Property scope: `five existing composite-key value pairs under SIMPLE and FULL; resolution outcome and complete dangling literal; configured successful cases per seed=256`
+- Property differential test: `randomized::key_and_reference_admission_match_on_generated_coordinates; command: cargo nextest run -p panproto-schema --test reference_keys --no-tests=fail -E 'test(=randomized::key_and_reference_admission_match_on_generated_coordinates)'`
+- Property scope: `five roles, one or two key/source parts, equality arity zero through three and duplicate, nullable and FULL flags; common declaration classes and absence of unrelated structural errors; configured successful cases per seed=256`
 - File: `crates/panproto-schema/src/validate.rs`
 - File: `crates/panproto-schema/tests/reference_keys.rs`
 - File: `crates/panproto-io/src/resolution/occur.rs`
 - File: `crates/panproto-io/tests/reference_resolution.rs`
 - File: `crates/panproto-reference/src/pages/resolution.rs`
 - File: `crates/panproto-reference/src/pages/keys_and_registration.rs`
-
-### Mutation equivalences
-
-Changing storage order is equivalent because key-part order comes from the declaration. Accepting an `Index` target under either policy, dropping a partly null `Full` tuple, retaining an all-null tuple, or normalizing the dangling tuple is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Lexical-space validation selects a kind and preserves the source text {#L-validation-17}
 
@@ -806,13 +644,16 @@ The *source lexeme* is the exact stored `Str`, `Token`, or `CidLink` text. The *
 - Law ID: `validation.lexical-space-advisory`
 - Reference: `panproto_reference::validation::classify_selector`
 - Reference: `panproto_reference::validation::lexical_space`
-- Evidence scope: `23 literals over seven covered XSD datatypes, one unsuitable XSD datatype and one unknown datatype, including every boundary case (abc as integer, 2026-02-30, a leap second, 01999, inf, 24:00:00, INF, 1., .5); schema selector multiplicities=0,1,2; runtime subjects=6`
+- Evidence scope: `23 literals over seven covered XSD datatypes, one unsuitable XSD datatype and one unknown datatype, including every boundary case (abc as integer, 2026-02-30, a leap second, 01999, inf, 24:00:00, INF, 1., .5); schema selector multiplicities=0,1,2; runtime subjects=6; separate carrier expansion=23 original pairs × Str/Token/CidLink (69 observations); supplemental integer coercion controls=3 pairs × 3 carriers (9 observations), covering XSD i64 overflow and non-XSD integer success/refusal; original 23-Str census retained`
 - Production certificate: `lexical_space_reports_exactly_the_ill_typed_literals; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=lexical_space_reports_exactly_the_ill_typed_literals)'`
+- Supplemental differential test: `lexical_space_checks_all_text_carriers_and_preserves_exact_findings; command: cargo nextest run --cargo-profile ci-test --profile ci --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=lexical_space_checks_all_text_carriers_and_preserves_exact_findings)'`
 - Boundary test: `lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_is_selected_by_the_declared_tag_edge_and_is_advisory)'`
 - Boundary test: `lexical_space_unknown_tag_is_advisory_and_preserves_passed_status; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_unknown_tag_is_advisory_and_preserves_passed_status)'`
 - Boundary test: `lexical_space_ambiguous_tag_remains_a_required_declaration_failure; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=lexical_space_ambiguous_tag_remains_a_required_declaration_failure)'`
 - Independent reference anchor: `lexical_space_reports_exactly_the_ill_typed_literals; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=lexical_space_reports_exactly_the_ill_typed_literals)'`
 - Supplemental test: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
+- Property differential test: `randomized::lexical_advisory_matches_on_generated_existing_literals; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::lexical_advisory_matches_on_generated_existing_literals)'`
+- Property scope: `the existing 23 datatype and lexeme pairs plus XSD integer overflow and non-XSD integer success/refusal, each sampled as Str, Token or CidLink; advisory status, lexical membership, coercion, exact preserved value/bound and unsupported datatype outcomes; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/src/validation/xsd_lexical.rs`
@@ -821,19 +662,6 @@ The *source lexeme* is the exact stored `Str`, `Token`, or `CidLink` text. The *
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-No normalization is equivalent unless the declared kind itself performs it. Reordering selector edges, ignoring a second selector edge, changing the selected datatype, or changing the source lexeme before coercion is not equivalent.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Fresh-main integration and combined verification of the CID and DID fixes remain pending, together with the independent audit.
 
 ## Without the assertion vocabulary a format does not change the parse {#L-validation-18}
 
@@ -864,24 +692,13 @@ An *annotated format* is a constraint whose sort the protocol means as `Annotate
 - Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Reference unit test: `validation_format_observables_distinguish_advisory_and_asserting_use; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_format_observables_distinguish_advisory_and_asserting_use)'`
+- Property differential test: `randomized::annotated_parse_matches_on_generated_existing_numeric_forms; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::annotated_parse_matches_on_generated_existing_numeric_forms)'`
+- Property scope: `the existing 63 numeric kind, format and lexeme combinations; identical bare/annotated specifications and paired coercion observations; configured successful cases per seed=256`
 - File: `crates/panproto-schema/src/value_kinds.rs`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-Adding, changing or removing an annotated format is equivalent for parsing. Recording a format as a value parameter, or applying its width during coercion, is not.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## Advisory format reporting is the recognizer complement {#L-validation-19}
 
@@ -911,24 +728,13 @@ The *width kind* of a width format is the signed integer of its width or the bin
 - Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Width and unknown-format test: `annotated_formats_are_advisory_and_width_formats_use_exact_coercion; command: cargo nextest run --release --locked -p panproto-inst --test validation --no-tests=fail -E 'test(=annotated_formats_are_advisory_and_width_formats_use_exact_coercion)'`
+- Property differential test: `randomized::annotated_advisory_matches_on_generated_existing_values; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::annotated_advisory_matches_on_generated_existing_values)'`
+- Property scope: `the existing 48 value and format pairs; status, check presence and advisory outcome; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-inst/src/validation/checks.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-For a recognized format, there are no report-dropping equivalences. Ignoring an unknown format is the specified behavior. Rounding a value into a width kind instead of refusing it is not equivalent.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and post-commit verification are pending.
 
 ## With the assertion vocabulary acceptance is coercion under the format's width {#L-validation-20}
 
@@ -959,22 +765,11 @@ The *asserting specification* of a position is its value specification with the 
 - Production certificate: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Independent reference anchor: `supplemental_validation_definitions_have_bounded_production_witnesses; command: cargo nextest run --release --locked -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=supplemental_validation_definitions_have_bounded_production_witnesses)'`
 - Reference unit test: `validation_format_observables_distinguish_advisory_and_asserting_use; command: cargo nextest run -p panproto-reference --test validation --no-tests=fail -E 'test(=validation_format_observables_distinguish_advisory_and_asserting_use)'`
+- Property differential test: `randomized::assertion_acceptance_matches_on_generated_existing_numeric_forms; command: cargo nextest run -p panproto-inst --test reference_validation --no-tests=fail -E 'test(=randomized::assertion_acceptance_matches_on_generated_existing_numeric_forms)'`
+- Property scope: `the existing eighteen asserted integer-width and numeric-lexeme combinations; named-format fixed certificates remain required; configured successful cases per seed=256`
 - File: `crates/panproto-schema/src/value_kinds.rs`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-inst/src/validation/plan.rs`
 - File: `crates/panproto-inst/tests/reference_validation.rs`
 - File: `crates/panproto-reference/src/pages/validation.rs`
 - File: `crates/panproto-reference/src/enumerate/validation.rs`
-
-### Mutation equivalences
-
-There are no admission-erasing equivalences. Treating an asserting width format as an annotation, or a required named format as advisory, violates this law.
-
-### Audit record
-
-- Author: validation documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Fresh-main integration and combined verification of the CID and DID fixes remain pending, together with the independent audit.

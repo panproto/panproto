@@ -263,6 +263,16 @@ fn format_breaking(change: &BreakingChange) -> String {
         BreakingChange::KeyAdded { vertex_id, key_id } => {
             format!("Key added: {vertex_id} {key_id}")
         }
+        BreakingChange::PrimaryKeyRemoved { vertex_id, key_id } => {
+            format!("Primary key removed: {vertex_id} {key_id}")
+        }
+        BreakingChange::PrimaryKeySelectionChanged {
+            vertex_id,
+            old_key_id,
+            new_key_id,
+        } => {
+            format!("Primary key selection changed: {vertex_id} {old_key_id} -> {new_key_id:?}")
+        }
         BreakingChange::KeyTightened { vertex_id, key_id } => {
             format!("Key tightened: {vertex_id} {key_id}")
         }
@@ -347,6 +357,13 @@ fn format_non_breaking(change: &NonBreakingChange) -> String {
         }
         NonBreakingChange::KeyAdded { vertex_id, key_id } => {
             format!("Key added: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::KeySequenceChanged {
+            vertex_id,
+            old,
+            new,
+        } => {
+            format!("Stored key sequence changed: {vertex_id} {old:?} -> {new:?}")
         }
         NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
             format!("Key removed: {vertex_id} {key_id}")
@@ -597,6 +614,17 @@ fn breaking_to_json(change: &BreakingChange) -> serde_json::Value {
             "new_id": new_id,
         }),
         BreakingChange::KeyAdded { vertex_id, key_id } => key_json("key_added", vertex_id, key_id),
+        BreakingChange::PrimaryKeyRemoved { vertex_id, key_id } => {
+            key_json("primary_key_removed", vertex_id, key_id)
+        }
+        BreakingChange::PrimaryKeySelectionChanged {
+            vertex_id,
+            old_key_id,
+            new_key_id,
+        } => json!({
+            "type": "primary_key_selection_changed", "vertex_id": vertex_id,
+            "old_key_id": old_key_id, "new_key_id": new_key_id,
+        }),
         BreakingChange::KeyTightened { vertex_id, key_id } => {
             key_json("key_tightened", vertex_id, key_id)
         }
@@ -630,13 +658,7 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             tgt,
             kind,
             name,
-        } => json!({
-            "type": "added_edge",
-            "src": src,
-            "tgt": tgt,
-            "kind": kind,
-            "name": name,
-        }),
+        } => edge_json("added_edge", src, tgt, kind, name.as_deref()),
         NonBreakingChange::ConstraintRelaxed {
             vertex_id,
             sort,
@@ -659,13 +681,7 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             tgt,
             kind,
             name,
-        } => json!({
-            "type": "removed_edge_non_governed",
-            "src": src,
-            "tgt": tgt,
-            "kind": kind,
-            "name": name,
-        }),
+        } => edge_json("removed_edge_non_governed", src, tgt, kind, name.as_deref()),
         NonBreakingChange::AddedNsid { vertex_id, nsid } => json!({
             "type": "added_nsid",
             "vertex_id": vertex_id,
@@ -693,6 +709,13 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
         NonBreakingChange::KeyAdded { vertex_id, key_id } => {
             key_json("key_added", vertex_id, key_id)
         }
+        NonBreakingChange::KeySequenceChanged {
+            vertex_id,
+            old,
+            new,
+        } => json!({
+            "type": "key_sequence_changed", "vertex_id": vertex_id, "old": old, "new": new,
+        }),
         NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
             key_json("key_removed", vertex_id, key_id)
         }
@@ -715,6 +738,23 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             target_set_json("target_set_relaxed", set_id)
         }
     }
+}
+
+/// The JSON of an edge change, retaining every endpoint and label field.
+fn edge_json(
+    change_kind: &str,
+    src: &str,
+    tgt: &str,
+    kind: &str,
+    name: Option<&str>,
+) -> serde_json::Value {
+    json!({
+        "type": change_kind,
+        "src": src,
+        "tgt": tgt,
+        "kind": kind,
+        "name": name,
+    })
 }
 
 /// The JSON of a change identified by one declaration id.

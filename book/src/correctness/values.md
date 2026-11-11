@@ -49,6 +49,7 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 - Enumerator: `panproto_reference::enumerate::values::canonical_values; bound: values=1997`
 - Exhaustive differential test: `representation_is_canonical_byte_equality_on_every_pair; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=representation_is_canonical_byte_equality_on_every_pair)'`
 - Property differential test: `randomized_values_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_values_differential)'`
+- Supplemental property differential test: `randomized_coercion_differential; command: cargo nextest run --locked -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-expr/src/value.rs`
 - File: `crates/panproto-inst/src/value.rs`
 - File: `crates/panproto-inst/src/identity.rs`
@@ -59,18 +60,6 @@ A pair in which some value lies outside $D$ has no reference result: `representa
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 ## Declared kinds determine lexical mappings {#L-values-2}
 
 ### Statement
@@ -139,18 +128,6 @@ The production `coerce` in `crates/panproto-inst/src/value/coerce.rs` is require
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 ## Value conversion preserves exact values {#L-values-3}
 
 ### Statement
@@ -181,7 +158,7 @@ The production `coerce_value` in `crates/panproto-inst/src/value/coerce.rs` is r
 
 ### Outside the domain
 
-- A float specification with the nearest-keeping-lexeme reading, and an inadmissible specification ([L-values-2](#L-values-2)), give `None`: no rule states how an existing value is read there.
+- A float specification with the nearest-keeping-lexeme reading, and an inadmissible specification ([L-values-2](#L-values-2)), are outside this theorem. An inadmissible specification may still produce `Some` through an earlier null, passthrough, or nonfinite-value branch.
 - An exact source whose digit `Nat` violates Premise D is outside the proved domain. This is a width boundary on `digit_count`, separate from Premise A's allocation boundary.
 
 ### Definitions used
@@ -245,19 +222,6 @@ The production `coerce_value` in `crates/panproto-inst/src/value/coerce.rs` is r
 - File: `crates/panproto-reference/src/num.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Coercion preserves admitted source lexemes {#L-values-4}
 
 ### Statement
@@ -280,7 +244,7 @@ The production `coerce` is required to equal this definition exactly, as the nam
 
 ### Outside the domain
 
-- Refusals keep nothing, and are described in [L-values-2](#L-values-2); an inadmissible specification gives `None`.
+- Refusals keep nothing, and are described in [L-values-2](#L-values-2). Inadmissible specifications are outside the theorem; the earlier null and dialect branches described there may still produce an outcome.
 - The float nearest-keeping-lexeme reading is not lossless by design: its value is the nearest pattern and its lexeme is kept outside the value. It is excluded from clause 6.
 
 ### Definitions used
@@ -320,19 +284,6 @@ The production `coerce` is required to equal this definition exactly, as the nam
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Coercion is idempotent {#L-values-5}
 
 ### Statement
@@ -347,7 +298,7 @@ The production `coerce_value` is required to equal this definition exactly, as t
 
 ### Outside the domain
 
-Specifications that are not value-admissible (an inadmissible kind, or a float kind with the nearest-keeping-lexeme reading) give `None` from `coerce_value` for every value ([L-values-3](#L-values-3)), so the law says nothing about them. No other input is excluded.
+Specifications that are not value-admissible (an inadmissible kind, or a float kind with the nearest-keeping-lexeme reading) are outside this law ([L-values-3](#L-values-3)). Some inadmissible specifications still admit null or passthrough values. No other input is excluded.
 
 ### Definitions used
 
@@ -381,19 +332,6 @@ Specifications that are not value-admissible (an inadmissible kind, or a float k
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Direct and value coercion have the same fixed points {#L-values-6}
 
 ### Statement
@@ -411,7 +349,7 @@ The production `coerce` and `coerce_value` are required to equal these definitio
 
 ### Outside the domain
 
-Specifications that are not value-admissible give `None` from `coerce_value` for every value, so they have no fixed points in this sense ([L-values-3](#L-values-3)). No other input is excluded.
+The fixed-point characterization is limited to value-admissible specifications ([L-values-3](#L-values-3)). An excluded specification may still have fixed points, including `Null` under an inadmissible integer kind. No other input is excluded.
 
 ### Definitions used
 
@@ -445,19 +383,6 @@ Specifications that are not value-admissible give `None` from `coerce_value` for
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Computed NaNs use the canonical quiet pattern {#L-values-7}
 
 ### Statement
@@ -471,7 +396,7 @@ The reference evaluator of module `value` (which the production `apply_builtin` 
 
 ### Outside the domain
 
-Item 2 constrains only results of the form `Ok(Value::Float(_))`; every other outcome of the nine operations is a typed refusal and carries no float. `EvalError::ArityMismatch` for a wrong number of arguments; `EvalError::ExactArithmetic` for an exact operand (`Decimal`, `BigInt` or `Temporal`) of `Add`, `Sub`, `Mul`, `Div`, `Neg` or `Abs`; `EvalError::DivisionByZero` for `Div` by an integer zero or a float equal to zero; `EvalError::Overflow` for integer overflow; `EvalError::TypeError` for operands of the wrong kind, and for `Clamp` with a NaN bound or a lower bound above the upper one; `EvalError::InvalidDecimal` when `DecimalToFloat` cannot read its decimal text. Item 3 concerns a name bound in `env`; an unbound name gives `Err(EvalError::NotAFunction)` when it names a builtin (`builtin_named(x)` is `Some`, so `eval_runtime` returns a `Runtime::Builtin` with no argument supplied, which `Runtime::value` refuses), and `Err(EvalError::UnboundVariable)` otherwise. Item 4 constrains only `Ok(Value::Float(_))` results: `StrToFloat` refuses a string that the platform parser `str::parse::<f64>` rejects with `EvalError::InvalidDecimal`, a wrong argument count with `EvalError::ArityMismatch`, and a non-string argument with `EvalError::TypeError`. Which texts the platform parser reads as a NaN is the parser's grammar, not part of this law; the law fixes the bits of every NaN it reads.
+Item 2 constrains only results of the form `Ok(Value::Float(_))`. Successful non-float results, including integer arithmetic, are outside that item; failed calls return the following typed refusals. `EvalError::ArityMismatch` for a wrong number of arguments; `EvalError::ExactArithmetic` for an exact operand (`Decimal`, `BigInt` or `Temporal`) of `Add`, `Sub`, `Mul`, `Div`, `Neg` or `Abs`; `EvalError::DivisionByZero` for `Div` by an integer zero or a float equal to zero; `EvalError::Overflow` for integer overflow; `EvalError::TypeError` for operands of the wrong kind, and for `Clamp` with a NaN bound or a lower bound above the upper one; `EvalError::InvalidDecimal` when `DecimalToFloat` cannot read its decimal text. Item 3 concerns a name bound in `env`; an unbound name gives `Err(EvalError::NotAFunction)` when it names a builtin (`builtin_named(x)` is `Some`, so `eval_runtime` returns a `Runtime::Builtin` with no argument supplied, which `Runtime::value` refuses), and `Err(EvalError::UnboundVariable)` otherwise. Item 4 constrains only `Ok(Value::Float(_))` results: `StrToFloat` refuses a string that the platform parser `str::parse::<f64>` rejects with `EvalError::InvalidDecimal`, a wrong argument count with `EvalError::ArityMismatch`, and a non-string argument with `EvalError::TypeError`. Which texts the platform parser reads as a NaN is the parser's grammar, not part of this law; the law fixes the bits of every NaN it reads.
 
 ### Definitions used
 
@@ -511,19 +436,6 @@ Item 2 constrains only results of the form `Ok(Value::Float(_))`; every other ou
 - File: `crates/panproto-expr/src/eval.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## NaN bit transport is exact at every reference width {#L-values-8}
 
@@ -578,19 +490,6 @@ The production correspondence has a narrower domain. At binary16, `binary16_wide
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Closest-shortest printing breaks ties to even {#L-values-9}
 
 ### Statement
@@ -630,7 +529,7 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 - **`Nat`, `Int`, `Rat` and their operations.** The definitions in `num.rs` (`Nat` as base-$10^{9}$ limbs with `add`, `checked_sub`, `mul_small`, `shift_limbs`, `shift10`, `mul`, `div_small`, `div_rem`, `cmp`, `gcd`, `pow`, `pow2`; `Int` as sign and magnitude; `Rat` as a pair built by `Rat::new`; `pow2_wide`, `pow2_by_halving`, `pow10_wide` and `pow10_by_halving`). Steps 1 to 9 prove that these are exact natural, integer and rational arithmetic and order.
 - **`floor_log2`, `floor_log10`, `bit_length`, `digit_count`, `Nat::is_even`, `Rat::floor`.** The definitions in `num.rs`: `floor_log2(r)` is `None` for $r \le 0$ and otherwise, with $e$ the bit length of the numerator less that of the denominator, $e - 1$ when $2^{e} > r$ and $e$ otherwise; `floor_log10` is the same with decimal digit counts and powers of ten. Steps 10 to 13 prove that these compute $\lfloor \log_2 r \rfloor$, $\lfloor \log_{10} r \rfloor$, the binary and decimal lengths, parity and the floor.
 - **Rationals.** `Rat` holds a rational in lowest terms with a positive denominator, so `==` and `cmp` on `Rat` are equality and order of rational numbers, and `add`, `sub`, `mul`, `div`, `floor`, `abs` and `neg` are the exact operations (steps 8 and 12).
-- **Premise P** (a property of the operands, not proved here): every `Nat` whose `bit_length` or `digit_count` `floor_log2` or `floor_log10` converts to `i64` has bit length and digit count below $2^{63}$, so those conversions succeed. It holds for every rational this block rounds or prints whose numerator and denominator have fewer than $2^{63}$ bits, which every rational built from a finite pattern or a numeral of fewer than $2^{60}$ characters satisfies.
+- **Premise P** (a property of the operands, not proved here): every `Nat` whose `bit_length` or `digit_count` `floor_log2` or `floor_log10` converts to `i64` has bit length and digit count below $2^{63}$, so those conversions succeed. Rationals decoded from the finite patterns and midpoint intervals of the supported binary formats satisfy this bound. A decimal numeral needs a bound on its expanded magnitude as well as its coefficient length: the 22-character numeral `1e10000000000000000000` denotes $10^{10^{19}}$, whose numerator has more than $3\cdot 10^{19} > 2^{63}$ bits. Its written length thus does not establish Premise P.
 - **`round_to(F, q, z)`.** The reference definition: `negative` is $z$ when $q = 0$ and $q < 0$ otherwise, `sign` is $S$ when `negative` holds and $0$ otherwise; a zero $q$ returns `Finite(sign)`; otherwise, with $e$ = `floor_log2(|q|)`, `qe` $= \max(e, e_{\min}) - p + 1$, `scaled` $s = |q| / 2^{\text{qe}}$, `floor` $n_0 = \lfloor s \rfloor$ and `rem` $r = s - n_0$, the significand $n$ is $n_0 + 1$ when $r > 1/2$ or ($r = 1/2$ and $n_0$ odd), else $n_0$; a significand of $2^{p}$ becomes $2^{p-1}$ with `qe` increased by one; a zero significand returns `Finite(sign)`; `qe` $+ p - 1 > e_{\max}$ returns `Overflow { negative }`; a significand below $2^{p-1}$ returns `Finite(sign | n)`; otherwise the result is `Finite(sign | (qe + p - 1 + bias) << (p - 1) | (n - 2^(p-1)))`.
 - `shortest`, `midpoints`, `ceil_div` (the ceiling of `a.div(u)`, computed from `floor` and `is_integer`), `lo_floor_div` (the magnitude of the floor of `a.div(u)`), `pick_closer`, `last_significant_digit`, `Dec::normalized`, `Dec::value` and `Dec::significant_digits`: the reference definitions in module `float`.
 - *Decimal.* A rational of the form $a \cdot 10^{k}$ with $a, k$ integers. A positive decimal is uniquely $a \cdot 10^{k}$ with $a \ge 1$ not divisible by $10$; its *significant digits* are the decimal digits of this $a$, their number is written $\#(d)$, and its *last significant digit* is $a \bmod 10$, which is non-zero. `last_significant_digit(c)` returns the least-weight non-zero digit of $c$ (`Nat::digit(i)` is the digit of weight $10^{i}$), which is the last significant digit of $c \cdot 10^{k}$ for every $k$.
@@ -644,10 +543,10 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 2. *Lemma (`Nat::cmp`).* `cmp` compares the numbers of limbs, then the limbs from the most significant down, returning the first difference. For normal vectors, $x$ with more limbs than $y$ has $x \ge B^{n-1} > y$, since $y < B^{n-1}$ when $y$ has at most $n - 1$ limbs. With equal lengths and first difference at limb $i$, the higher limbs agree and the lower parts are below $B^{i}$, so the order of $\ell_i$ decides. Hence `cmp` is the order of natural numbers, and `<`, `>` and `min`/`max` are too.
 3. *Lemma (`Nat::add`).* With $c_0 = 0$, the loop sets $s_i = a_i + b_i + c_i$, pushes $s_i \bmod B$ and carries $c_{i+1} = \lfloor s_i / B \rfloor$. By induction $c_i \in \{0, 1\}$ (as $s_i \le 2B - 1$, far below $2^{64}$) and $\sum_{j<i} o_j B^{j} + c_i B^{i} = \sum_{j<i} (a_j + b_j) B^{j}$. After $n = \max$ of the two lengths, pushing the final carry gives $a + b$.
 4. *Lemma (`Nat::checked_sub`).* It returns `None` exactly when $a < b$ (step 2). Otherwise, with borrow $\beta_0 = 0$, it sets $t_i = b_i + \beta_i$ and pushes $a_i - t_i$ with $\beta_{i+1} = 0$ when $a_i \ge t_i$, and $a_i + B - t_i$ with $\beta_{i+1} = 1$ otherwise; each pushed limb lies in $[0, B)$. By induction $\sum_{j<i} o_j B^{j} - \beta_i B^{i} = \sum_{j<i} (a_j - b_j) B^{j}$. After the $n$ limbs of $a$ ($b \le a$ has at most $n$ limbs), $\sum_{j<n} o_j B^{j} - \beta_n B^{n} = a - b \ge 0$ with $0 \le \sum_{j<n} o_j B^{j} < B^{n}$, so $\beta_n = 0$ and the result is $a - b$.
-5. *Lemma (`mul_small`, `shift_limbs`, `shift10`, `mul`).* For $0 \le d < B$ (every call has such $d$: a limb in `mul`, a quotient digit below $B$ in `div_rem` by step 7, and $10^{k \bmod 9} \le 10^{8}$ in `shift10`), `mul_small` sets $p_i = x_i d + c_i$, pushes $p_i \bmod B$ and carries $c_{i+1} = \lfloor p_i / B \rfloor$; by induction $c_i < B$, so $p_i < B^{2} < 2^{64}$, and $\sum_{j<i} o_j B^{j} + c_i B^{i} = d \sum_{j<i} x_j B^{j}$; the final loop writes the last carry in base $B$, so the result is $d x$. `shift_limbs(k)` prepends $k$ zero limbs to a non-zero $x$ (and returns $0$ for $x = 0$), giving $x B^{k}$. `shift10(k)` is $x \cdot 10^{k \bmod 9} \cdot B^{\lfloor k/9 \rfloor} = x \cdot 10^{k}$. `mul(x, y)` accumulates $\sum_i (x\,y_i) B^{i} = x y$ by step 3.
+5. *Lemma (`mul_small`, `shift_limbs`, `shift10`, `mul`).* For $0 \le d < B$ (every call has such $d$: a limb in `mul`, a quotient digit below $B$ in `div_rem` by step 7, $10^{k \bmod 9} \le 10^{8}$ in `shift10`, and $2$ in `gcd`), `mul_small` sets $p_i = x_i d + c_i$, pushes $p_i \bmod B$ and carries $c_{i+1} = \lfloor p_i / B \rfloor$; by induction $c_i < B$, so $p_i < B^{2} < 2^{64}$, and $\sum_{j<i} o_j B^{j} + c_i B^{i} = d \sum_{j<i} x_j B^{j}$; the final loop writes the last carry in base $B$, so the result is $d x$. `shift_limbs(k)` prepends $k$ zero limbs to a non-zero $x$ (and returns $0$ for $x = 0$), giving $x B^{k}$. `shift10(k)` is $x \cdot 10^{k \bmod 9} \cdot B^{\lfloor k/9 \rfloor} = x \cdot 10^{k}$. `mul(x, y)` accumulates $\sum_i (x\,y_i) B^{i} = x y$ by step 3.
 6. *Lemma (`div_small`, `half`).* For $0 < d \le 2^{32}$, `div_small` runs from the most significant limb with `carry` initially $0$; by induction, before limb $i$ the carry is $c = X_{i+1} \bmod d$, where $X_{i+1} = \sum_{j > i} x_j B^{j-i-1}$, and the limbs written so far are the base-$B$ digits of $\lfloor X_{i+1} / d \rfloor$. Then `cur` $= cB + x_i = X_i - \lfloor X_{i+1}/d \rfloor d B$ satisfies `cur` $< dB \le 2^{32} \cdot 10^{9} < 2^{62}$, the digit `cur / d` is below $B$, and the new carry is `cur % d` $= X_i \bmod d$; since $X_i = B X_{i+1} + x_i$, the digits now spell $\lfloor X_i / d \rfloor$. At the end the result is $(\lfloor x/d \rfloor, x \bmod d)$. `half` is $\lfloor x/2 \rfloor$.
 7. *Lemma (`div_rem`).* For a non-zero divisor $v$ with $k$ limbs, `div_rem(x, v)` performs long division in base $B$. Invariant: before processing limb $i$ (from the top), `rem` $= X_{i+1} \bmod v$ with $X_{i+1}$ as in step 6, so `rem` $< v$. The new remainder $r' = \text{rem} \cdot B + x_i$ (steps 3 and 5) satisfies $r' < vB$ and $r' = X_i - \lfloor X_{i+1}/v \rfloor v B$. Let $\delta = \lfloor r'/v \rfloor$, which is below $B$. *The estimate is at most $\delta$.* For $k = 1$, `lead` is $v$ and `top` is $r'$ itself (the limbs $1, 0$ of $r' < B^{2}$), so the estimate `top / lead` is $\delta$. For $k \ge 2$, write $v = V_1 B^{k-1} + V_2 B^{k-2} + v'$ with $v' < B^{k-2}$; `lead` $= V_1 B + V_2 + 1$, so $v < \text{lead} \cdot B^{k-2}$, and since $r' < vB < B^{k+1}$, `top` (limbs $k$ down to $k-2$ of $r'$) is $\lfloor r' / B^{k-2} \rfloor$. Then $\text{top}/\text{lead} \le (r'/B^{k-2}) / (v / B^{k-2}) = r'/v$, so $\lfloor \text{top}/\text{lead} \rfloor \le \delta$. In both cases `top` $< B^{3}$ fits `u128` and the estimate, at most $\delta < B$, fits `u64`, so the fallback of `u64::try_from` is not taken. *The correction loop.* Starting from $q$ = the estimate and `product` $= vq$ (step 5), the loop replaces $(q, \text{product})$ by $(q+1, \text{product} + v)$ while `product + v` $\le r'$ (step 2); it stops at the least $q$ with $v(q+1) > r'$, which is $\delta$, after at most $\delta$ passes. Then `checked_sub` gives $r' - v\delta = r' \bmod v = X_i \bmod v$ (step 4; its `None` is impossible as $v \delta \le r'$), and the quotient digit $\delta < B$ is stored. After the last limb, $x = Q v + R$ with $Q$ the digit vector (normalized) and $0 \le R < v$, so `div_rem` returns $(\lfloor x/v \rfloor, x \bmod v)$; it returns `None` only for $v = 0$.
-8. *Lemma (`Nat::gcd`, `Int`, `Rat`).* `gcd(a, b)` returns $b$ for $a = 0$ and $a$ for $b = 0$. Otherwise it halves both (`half`, step 6) while both are even (`is_even` tests the least limb, whose parity is that of the number because $B$ is even), counting `twos`; then halves $x$ while it is even; then, while $y \ne 0$, halves $y$ while it is even and replaces $(x, y)$ by $(\min, \max - \min)$; it returns $x \cdot 2^{\text{twos}}$. Invariant: $\gcd(x, y) \cdot 2^{\text{twos}} = \gcd(a, b)$. Halving both preserves it because $\gcd(2x', 2y') = 2\gcd(x', y')$. After the first loop one of $x$, $y$ is odd; halving an even $x$ while $y$ is odd preserves $\gcd(x, y)$ because $2$ divides only one of them, and afterwards $x$ is odd, which every later step keeps ($x$ becomes the minimum of two odd numbers). Halving an even $y$ while $x$ is odd preserves $\gcd$ for the same reason, and $\gcd(\min, \max - \min) = \gcd(x, y)$. Each pass of the main loop with $y \ne 0$ makes $x$, $y$ odd and replaces $x + y$ by $\max(x, y) < x + y$, so the loop ends, with $y = 0$ and $\gcd(x, 0) = x$. Hence `gcd` is the greatest common divisor. An `Int` is a sign and a `Nat` magnitude, and `Int::new` clears the sign of zero; `add` adds magnitudes of equal signs and otherwise subtracts the smaller magnitude from the larger (steps 2, 4), keeping the sign of the larger; `neg`, `sub`, `mul` and `cmp` are the sign rules on exact magnitudes. So `Int` is exact integer arithmetic and order. `Rat::new(n, d)` refuses $d = 0$, and otherwise divides $n$ and $d$ by $g = \gcd(|n|, d)$ (exactly, `div_rem` with zero remainder) unless $g = 1$, giving lowest terms with $d > 0$; `from_int`, `zero`, `abs`, `neg`, `pow2` and `pow10` build pairs already in lowest terms with positive denominator; `add`, `sub`, `mul` and `div` apply the fraction formulas and `Rat::new` (`div` moves the sign of the divisor to the numerator); `cmp` compares $n d'$ with $n' d$, which is the order of rationals as $d, d' > 0$. Since the lowest-terms form with positive denominator is unique, the derived `==` on `Rat` is equality of rationals.
+8. *Lemma (`Nat::gcd`, `Int`, `Rat`).* `gcd(a, b)` returns $b$ for $a = 0$ and $a$ for $b = 0$. Otherwise it halves both (`half`, step 6) while both are even (`is_even` tests the least limb, whose parity is that of the number because $B$ is even), doubling an exact `Nat` factor $f$, initially $1$, by `mul_small(2)` (step 5); then halves $x$ while it is even; then, while $y \ne 0$, halves $y$ while it is even and replaces $(x, y)$ by $(\min, \max - \min)$; it returns $x \cdot f$. Invariant: $\gcd(x, y) \cdot f = \gcd(a, b)$. Halving both and doubling $f$ preserves it because $\gcd(2x', 2y') = 2\gcd(x', y')$. The factor never exceeds $\min(a,b)$ and needs no fixed-width exponent counter. After the first loop one of $x$, $y$ is odd; halving an even $x$ while $y$ is odd preserves $\gcd(x, y)$ because $2$ divides only one of them, and afterwards $x$ is odd, which every later step keeps ($x$ becomes the minimum of two odd numbers). Halving an even $y$ while $x$ is odd preserves $\gcd$ for the same reason, and $\gcd(\min, \max - \min) = \gcd(x, y)$. Each pass of the main loop with $y \ne 0$ makes $x$, $y$ odd and replaces $x + y$ by $\max(x, y) < x + y$, so the loop ends, with $y = 0$ and $\gcd(x, 0) = x$. Hence `gcd` is the greatest common divisor. An `Int` is a sign and a `Nat` magnitude, and `Int::new` clears the sign of zero; `add` adds magnitudes of equal signs and otherwise subtracts the smaller magnitude from the larger (steps 2, 4), keeping the sign of the larger; `neg`, `sub`, `mul` and `cmp` are the sign rules on exact magnitudes. So `Int` is exact integer arithmetic and order. `Rat::new(n, d)` refuses $d = 0$, and otherwise divides $n$ and $d$ by $g = \gcd(|n|, d)$ (exactly, `div_rem` with zero remainder) unless $g = 1$, giving lowest terms with $d > 0$; `from_int`, `zero`, `abs`, `neg`, `pow2` and `pow10` build pairs already in lowest terms with positive denominator; `add`, `sub`, `mul` and `div` apply the fraction formulas and `Rat::new` (`div` moves the sign of the divisor to the numerator); `cmp` compares $n d'$ with $n' d$, which is the order of rationals as $d, d' > 0$. Since the lowest-terms form with positive denominator is unique, the derived `==` on `Rat` is equality of rationals.
 9. *Lemma (powers).* `Nat::pow(base, e)` keeps $\text{acc} \cdot b^{e} = \text{base}^{\text{exp}}$ (an odd $e$ moves one factor $b$ into `acc`, then $b$ is squared and $e$ halved) and stops at $e = 0$, returning $\text{base}^{\text{exp}}$. `Nat::pow2(k)` returns a memoized value that was computed as `pow(2, k)` and stored unchanged, so it is $2^{k}$. `pow2_by_halving(m, limit)` is $2^{m}$ for every $m$, by strong induction on $m$: when $m \le$ `limit` and $m$ fits `u32` it is `Nat::pow2(m)`; otherwise $m > 0$, the recursive call on $h = \lfloor m/2 \rfloor < m$ gives $2^{h}$ by the induction hypothesis, its square is $2^{2h}$, and a further factor $2$ when $m$ is odd gives $2^{m}$. `pow2_wide(m)` is `pow2_by_halving(m, 2^32 - 1)`, so it is $2^{m}$ for every `u64` $m$, and `Rat::pow2(k)` is $1 / 2^{|k|}$ for $k < 0$ and $2^{k} / 1$ otherwise: exactly $2^{k}$ for every `i64` $k$, in lowest terms. `Nat::pow10(k)` is `one().shift10(k)` $= 10^{k}$ (step 5). The same strong-induction argument proves `pow10_by_halving(m, limit) = 10^m`: its recursive case squares $10^{\lfloor m/2 \rfloor}$ and multiplies by $10$ exactly when $m$ is odd. `pow10_wide(m)` chooses the largest exponent that the target's `usize` can represent for its direct branch, so, under Premise A, `Rat::pow10(k)` builds $10^{|k|}/1$ or $1/10^{|k|}$ exactly for every `i64` $k$, without saturating the exponent on a narrower target. *Normal results.* `add`, `checked_sub`, `mul_small`, `div_small` and the quotient of `div_rem` push limbs below $B$ (steps 3 to 7) and end with `normalized`, which removes the most-significant zeros; `shift_limbs` prepends zeros to a normal non-zero vector; `mul`, `pow`, the remainder of `div_rem` and `shift10` are built from these. So each `u32::try_from(·).unwrap_or(0)` in them converts a number below $B < 2^{32}$ and its fallback is not taken, and every result is normal, which completes the induction of step 1.
 10. *Lemma (`bit_length` and `digit_count`).* Let $x$ be a `Nat` (step 1). (a) For $x \ge 1$, `x.bit_length()` is the least $c$ with $x < 2^{c}$: by step 6 (`div_small` by $2^{32}$) the loop keeps $n = \lfloor x / 2^{\text{bits}} \rfloor$ (initially $n = x$, $\text{bits} = 0$; each pass replaces $n$ by $\lfloor n / 2^{32} \rfloor$ and adds $32$), and stops when $\lfloor n / 2^{32} \rfloor = 0$, that is $n < 2^{32}$, returning $\text{bits} + c_0$ where $c_0 = 64 - $ `leading_zeros(n)` is the least $c_0$ with $n < 2^{c_0}$. Then $x < (n + 1)2^{\text{bits}} \le 2^{c_0 + \text{bits}}$, and $x \ge n\,2^{\text{bits}} \ge 2^{c_0 - 1 + \text{bits}}$ since $n \ge 2^{c_0-1}$ ($n \ge 1$: on the first pass $n = x \ge 1$, and a later pass is entered only with $\lfloor n/2^{32} \rfloor \ge 1$). So $2^{c-1} \le x < 2^{c}$ for $c$ = `bit_length`. (b) For $x \ge 1$ with $\ell$ limbs and top limb $t \ge 1$, `digit_count` is $9(\ell - 1) + d$ with $d$ the length of the decimal text of $t$, so $10^{d-1} \le t < 10^{d}$; since $x = t \cdot 10^{9(\ell-1)} + y$ with $0 \le y < 10^{9(\ell-1)}$, we get $10^{L-1} \le x < 10^{L}$ for $L$ = `digit_count`.
 11. *Lemma (`floor_log2`, `floor_log10`).* Let $r > 0$ be a `Rat` with numerator $a' \ge 1$ and denominator $b' \ge 1$, and let $a$, $b$ be their bit lengths. By step 10(a), $2^{a-1} \le a' < 2^{a}$ and $2^{b-1} \le b' < 2^{b}$, so $2^{a-b-1} < r < 2^{a-b+1}$. Under Premise P the conversions of $a$ and $b$ to `i64` succeed (the fallback `i64::MAX` is not taken) and $e = a - b$ does not overflow. `floor_log2(r)` returns $e - 1$ when `Rat::pow2(e) > r` and $e$ otherwise; `Rat::pow2(e)` is exactly $2^{e}$ (step 9) and the comparison is the exact order of rationals (step 8). In the first case $2^{e-1} < r < 2^{e}$; in the second $2^{e} \le r < 2^{e+1}$. Either way the result $g$ satisfies $2^{g} \le r < 2^{g+1}$. For a zero or negative `Rat` it returns `None`. The same argument with digit counts (step 10(b)), $10^{\ell_a - \ell_b - 1} < r < 10^{\ell_a - \ell_b + 1}$, Premise P for the digit counts, and the exact comparison with `Rat::pow10(e)` $= 10^{e}$ (step 9; here $|e| \le \max(\ell_a, \ell_b)$ is at most the largest `usize`) shows that `floor_log10(r)` is the integer $g$ with $10^{g} \le r < 10^{g+1}$.
@@ -720,19 +619,6 @@ The block has two parts. Part I is the rounding lemma: the properties of `round_
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Finite decimals compare by exact numeric value {#L-values-10}
 
 ### Statement
@@ -781,19 +667,6 @@ Subject to Assumption W, every value of the reference type `DecimalValue` is in 
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Decimal compare-total orders representations {#L-values-11}
 
@@ -845,19 +718,6 @@ Subject to Assumption W, every value of the reference type `Decimal` is in the d
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Comparable temporals follow chronological order {#L-values-12}
 
@@ -912,19 +772,6 @@ Let $\mathcal T$ be the set of values `v: Temporal` with `v.well_formed()`. For 
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Canonical value bytes are injective {#L-values-13}
 
@@ -987,19 +834,6 @@ A target that violates Assumption W's pointer-width condition, or a held value t
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Expression evaluation is exact and lexically scoped {#L-values-14}
 
@@ -1075,19 +909,6 @@ Every expression and every environment is in the domain; each failure is one of 
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Exact temporal parsing preserves the accepted lexeme {#L-values-15}
 
 ### Statement
@@ -1134,19 +955,6 @@ Hence `parse_display(F, text)` is true exactly when `parse_as(F, text)` is `Some
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Temporal display parses to the same value {#L-values-16}
 
 ### Statement
@@ -1187,19 +995,6 @@ For every value `v: Temporal` with `v.well_formed()`, `v.lexical_form()` is `Som
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Temporal comparison reverses with its arguments {#L-values-17}
 
@@ -1245,19 +1040,6 @@ So `cmp_chronological(a, b)` is `None` exactly when `cmp_chronological(b, a)` is
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Each temporal comparability class is a total preorder {#L-values-18}
 
@@ -1306,19 +1088,6 @@ Moreover: (4) every comparable pair $a, b \in \mathcal T$ lies in a common class
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Chronological equality ignores written temporal form {#L-values-19}
 
 ### Statement
@@ -1362,19 +1131,6 @@ Moreover, $a \approx b$ does not imply $a = b$: two written-form variants differ
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Complete temporal forms retain their established order {#L-values-20}
 
@@ -1427,19 +1183,6 @@ By clauses 1 and 2, relative to commit `b05a4ced^`, the extended comparator neit
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Extended temporal forms have distinct canonical bytes {#L-values-21}
 
 ### Statement
@@ -1483,19 +1226,6 @@ So canonical bytes are injective on the whole carrier: on reduced, truncated, in
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Discriminator tables select tagged coercions {#L-values-22}
 
@@ -1541,19 +1271,6 @@ The production `coerce_discriminated` in `crates/panproto-inst/src/value/coerce.
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Numeral dialects agree with their declared grammars {#L-values-23}
 
@@ -1624,19 +1341,6 @@ Every normal form denotes, under the default reading, the number the dialect's t
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Latin-1 decoding followed by encoding is identity {#L-values-24}
 
 ### Statement
@@ -1676,19 +1380,6 @@ The domain is every byte string, so no input lies outside it. The only refusal `
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Accepted padded base64 text is canonical {#L-values-25}
 
@@ -1737,19 +1428,6 @@ The domain is the set of texts that `decode_base64(·, true)` accepts; on every 
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Optional-padding base64 decodes canonical encodings {#L-values-26}
 
 ### Statement
@@ -1791,19 +1469,6 @@ The domain is every byte string, and the texts read are $t$ and $t^{\circ}$, so 
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Optional base64 padding preserves decoded bytes {#L-values-27}
 
 ### Statement
@@ -1843,19 +1508,6 @@ Two cases fall outside the domain. First, when $|u| \bmod 4 = 1$ no padding comp
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Epoch counts round-trip through temporals {#L-values-28}
 
@@ -1897,19 +1549,6 @@ For every count $c$ (`i128`), unit $u$ (`TimeUnit`) and flag `instant`, let $d_u
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Canonical epoch temporals round-trip through counts {#L-values-29}
 
 ### Statement
@@ -1949,19 +1588,6 @@ With [Epoch counts round-trip through temporals](#L-values-28), the image of `fr
 - File: `crates/panproto-expr/src/exact/temporal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Binary16 lexical mapping is exact {#L-values-30}
 
@@ -2005,19 +1631,6 @@ A rational that does not satisfy Premise P is outside the proved arithmetic doma
 - File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Nearest reading accepts finite rounded numerals {#L-values-31}
 
@@ -2077,19 +1690,6 @@ Two facts used by later laws are part of this statement. (a) For every finite `D
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Closest-shortest text round-trips without a complement {#L-values-33}
 
 ### Statement
@@ -2137,19 +1737,6 @@ These are statements about the reference operations, which the production printe
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## The exact float reading is the fidelity law {#L-values-34}
 
 ### Statement
@@ -2195,24 +1782,12 @@ A rational that does not satisfy Premise P is outside the proved reference domai
 - Property differential test: `randomized_exact_reading_differential; command: cargo nextest run -p panproto-expr --test reference_values --no-tests=fail -E 'test(=randomized_exact_reading_differential)'`
 - Supplemental exhaustive test: `nearest_reading_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=nearest_reading_coercion_agrees_with_the_reference)'` (items 1 and 2 at widths 32 and 64, both classes, under the exact reading beside the nearest one)
 - Supplemental exhaustive test: `float16_coercion_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=float16_coercion_agrees_with_the_reference)'` (items 1 and 2 at width 16)
+- Supplemental property differential test: `randomized_coercion_differential; command: cargo nextest run --locked -p panproto-inst --test reference_coercion --no-tests=fail -E 'test(=randomized_coercion_differential)'`
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-expr/src/exact.rs`
 - File: `crates/panproto-expr/src/exact/binary16.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Decimal numeric comparison is a total preorder {#L-values-35}
 
@@ -2261,19 +1836,6 @@ Assume Assumption W throughout.
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Decimal special values have fixed numeric placement {#L-values-36}
 
 ### Statement
@@ -2314,19 +1876,6 @@ Every value of the reference type `Decimal` is in the domain, as in [L-values-35
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Compare-total refines decimal numeric comparison {#L-values-37}
 
@@ -2372,19 +1921,6 @@ Assume Assumption W throughout.
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Special decimals have injective canonical bytes {#L-values-38}
 
@@ -2432,19 +1968,6 @@ A target that violates Assumption W's pointer-width condition, or a held value t
 - File: `crates/panproto-inst/src/identity.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Unwritten YAML UTC remains a distinct representation {#L-values-39}
 
@@ -2496,19 +2019,6 @@ The derived `Hash` of `Temporal` reads the same fields as `==`, so it is consist
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Latin-1 encoding followed by decoding is identity {#L-values-41}
 
 ### Statement
@@ -2549,19 +2059,6 @@ A string that is not admitted contains a character whose code point exceeds U+00
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
 
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
-
 ## Padded base64 encoding followed by decoding is identity {#L-values-42}
 
 ### Statement
@@ -2600,19 +2097,6 @@ The domain is every byte string, so no input lies outside it. No refusal can ari
 - File: `crates/panproto-inst/src/value/coerce.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.
 
 ## Exact binary rounding uses ties to even {#L-values-43}
 
@@ -2654,16 +2138,3 @@ A rational that does not satisfy Premise P is outside the proved arithmetic doma
 - File: `crates/panproto-expr/src/exact/decimal.rs`
 - File: `crates/panproto-reference/src/pages/values.rs`
 - File: `crates/panproto-reference/src/enumerate/values.rs`
-
-### Mutation equivalences
-
-None recorded. Mutation closure is pending.
-
-### Audit record
-
-- Author: values documentation author
-- Auditor: independent proof auditor
-- Date: 2026-10-15
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and dynamic verification are pending.

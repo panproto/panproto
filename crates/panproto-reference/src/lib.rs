@@ -93,11 +93,16 @@
 //! | Representation equality and expression evaluation | [`value::representation`], [`value::eval`] | `values.md` |
 //! | Reification and tree edit application | [`encode::reify`], [`edit::apply_tree`] | `representation.md`, `edits.md` |
 //! | Protolens operations | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`] | `lenses.md` |
+//! | Tree view alignment | [`lens::align_tree_view`] | `lenses.md` |
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
 //! | Migration observable squares | [`migration::graph_square`], [`migration::table_square`], [`migration::tree_square`] | `lenses.md` |
 //! | Declared equality, refinement, target sets and XML lexical boundaries | [`keys::representation_refines`], [`keys::target_set`], [`keys::xml_noncdata`] | `keys-and-registration.md`, `validation.md` |
 //! | Lexical-space and annotated-format declarations | [`keys::lexical_space_outcome`], [`keys::annotated_format_outcome`], [`keys::uuid_format`] | `keys-and-registration.md` |
-//! | Schema declaration validation | [`schema::validate_declarations`] | `validation.md` |
+//! | Schema declaration validation | [`schema::validate_declarations`] | `validation.md`, `keys-and-registration.md` |
+//! | Validation status fold | [`validation::status`] | `validation.md` |
+//! | Tree and graph presentation equivalence | [`lens::GraphShape::equivalent`](lens::LensShape::equivalent), [`lens::TreeShape::equivalent`](lens::LensShape::equivalent) | `lenses.md` |
+//! | Lens construction obstructions and span compatibility | [`lens::construction_obstruction`], [`lens::span_has_shared_middle`] | `lenses.md` |
+//! | Table isomorphism and complement-free put | [`table::is_isomorphism`], [`table::obstruction_to_isomorphism`], [`table::put_without_complement`] | `lenses.md` |
 //! | Theory morphisms, quotients and recomposition | [`theory::check_morphism`], [`theory::quotient`], [`theory::recompose`] | `theories.md` |
 //! | Declared resolution observables | [`resolution::declared_key_equality`], [`resolution::guarded_partition`], [`resolution::inherited_base`], [`resolution::preserving_registry`], [`resolution::text_identity`], [`resolution::uri_environment`] | `resolution.md` |
 //! | Validation observables for new declarations | [`validation::annotated_format_advisory`], [`validation::annotated_format_parse`], [`validation::classify_selector`], [`validation::format_assertion_acceptance`], [`validation::lexical_space`] | `validation.md` |

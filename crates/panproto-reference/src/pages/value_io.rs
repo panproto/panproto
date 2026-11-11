@@ -204,6 +204,9 @@ pub mod implementation {
         let mut out = String::new();
         let mut chars = text[1..text.len() - 1].chars().peekable();
         while let Some(character) = chars.next() {
+            if character == '"' {
+                return Err(ValueIoError::Malformed);
+            }
             if character != '\\' {
                 if !literal_in_double_quotes(route, character) {
                     return Err(ValueIoError::Malformed);
@@ -271,10 +274,11 @@ pub mod implementation {
     }
 
     /// Whether `character` may stand unescaped inside a double-quoted string:
-    /// RFC 8259's `unescaped` (every scalar from U+0020) on JSON, TOML 1.0's
+    /// RFC 8259's control-character range on JSON, TOML 1.0's
     /// `basic-unescaped` with its tab (no C0 control but tab, and no DEL) on
     /// TOML, and YAML 1.2.2's `nb-json` (tab or any scalar from U+0020) on
-    /// YAML. Quote and backslash never reach this test. A line break is
+    /// YAML. The caller separately refuses quote and handles backslash escapes,
+    /// so neither reaches this test. A line break is
     /// refused on YAML as well, since one scalar line is the modelled form.
     fn literal_in_double_quotes(route: Route, character: char) -> bool {
         let code = u32::from(character);
@@ -383,6 +387,10 @@ pub mod implementation {
         } else {
             raw.trim_matches([' ', '\t', '\r', '\n'])
         };
+        // This reference models one-line scalars, not YAML's multiline folding.
+        if route == Route::Yaml && text.contains(['\r', '\n']) {
+            return Err(ValueIoError::Malformed);
+        }
         if text.is_empty() && matches!(route, Route::Json | Route::Toml) {
             return Err(ValueIoError::Malformed);
         }
@@ -543,6 +551,14 @@ pub mod implementation {
         route: Route,
         value: &crate::exact::BigIntValue,
     ) -> Result<String, ValueIoError> {
+        let normalized = crate::exact::ExactInteger::from_parts(
+            value.negative,
+            &value.significand,
+            &value.zeros,
+        );
+        if normalized != crate::exact::ExactInteger::Big(value.clone()) {
+            return Err(ValueIoError::NotRepresentable);
+        }
         let sign = if value.negative { "-" } else { "" };
         let significand = value.significand.to_string();
         let zeros = value.zeros.to_u64();
@@ -1052,6 +1068,41 @@ pub mod implementation {
         };
 
         #[test]
+        fn yaml_reading_obeys_the_one_line_scalar_domain() {
+            assert_eq!(
+                parse(Route::Yaml, b" \t\r\n "),
+                Ok(Value::Null),
+                "surrounding whitespace still leaves the empty plain scalar"
+            );
+            for body in ["a\nb", "a\rb", "a\r\nb"] {
+                for token in [body.to_owned(), format!("'{body}'"), format!("\"{body}\"")] {
+                    assert_eq!(
+                        parse(Route::Yaml, token.as_bytes()),
+                        Err(ValueIoError::Malformed),
+                        "a literal line break is outside the modelled YAML scalar: {token:?}"
+                    );
+                }
+            }
+            for (token, expected) in [
+                ("''", ""),
+                ("'a\tb'", "a\tb"),
+                ("'é𝄞'", "é𝄞"),
+                ("'it''s'", "it's"),
+                ("''''", "'"),
+                ("\r\n \tplain\r\n \t", "plain"),
+                ("\r\n \t'quoted'\r\n \t", "quoted"),
+                ("\"a\\nb\"", "a\nb"),
+                ("\"a\\rb\"", "a\rb"),
+            ] {
+                assert_eq!(
+                    parse(Route::Yaml, token.as_bytes()),
+                    Ok(Value::Str(expected.to_owned())),
+                    "legal one-line YAML remains admitted: {token:?}"
+                );
+            }
+        }
+
+        #[test]
         fn json_number_grammar_precedes_exact_coercion() {
             for token in ["-", "00", "01", "1.", "1e", "1e+"] {
                 assert!(!json_number_token(token), "token={token:?}");
@@ -1129,8 +1180,8 @@ pub mod implementation {
 
         #[test]
         fn double_quoted_literals_follow_each_route_grammar() {
-            // RFC 8259 admits every scalar from U+0020 unescaped, DEL and the
-            // C1 controls included, and no C0 control.
+            // Outside quote and backslash, RFC 8259 admits every scalar from
+            // U+0020 unescaped, DEL and C1 included, and no C0 control.
             for (input, expected) in [
                 ("\"\u{7f}\"", Some("\u{7f}")),
                 ("\"\u{80}\u{9f}\"", Some("\u{80}\u{9f}")),

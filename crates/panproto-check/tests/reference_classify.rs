@@ -566,3 +566,227 @@ fn every_key_change_classifies_through_the_factorization_certificate() {
         "classification certificate: 148 structural graphs; every directed descriptor-axis change; 816,223,680 full-carrier classifications"
     );
 }
+
+fn ordered_key_schema(roles: &[reference::KeyRole]) -> reference::Schema {
+    let mut schema = reference::Schema::default().vertex("item", "object");
+    schema.keys.insert(
+        "item".to_owned(),
+        roles
+            .iter()
+            .enumerate()
+            .map(|(index, role)| reference::Key {
+                id: format!("k{index}"),
+                parts: vec![],
+                role: *role,
+                scope: reference::KeyScope::Document,
+                equality: vec![],
+            })
+            .collect(),
+    );
+    schema
+}
+
+const fn key_roles() -> [reference::KeyRole; 5] {
+    use reference::KeyRole::{Identifier, Index, Primary, SortKey, Unique};
+    [Primary, Unique, Identifier, SortKey, Index]
+}
+
+#[test]
+fn stored_key_order_and_primary_removal_match_reference() {
+    use reference::Change::{BackwardCompatible, Breaking};
+    for first in key_roles() {
+        for second in key_roles() {
+            let before = ordered_key_schema(&[first, second]);
+            let mut reversed = before.clone();
+            reversed.keys.get_mut("item").expect("owner").reverse();
+            let expected =
+                if first == reference::KeyRole::Primary && second == reference::KeyRole::Primary {
+                    Breaking
+                } else {
+                    BackwardCompatible
+                };
+            assert_eq!(reference::classify_change(&before, &reversed), expected);
+            assert_eq!(production_change(&before, &reversed), expected);
+            let delta = diff(&production_schema(&before), &production_schema(&reversed));
+            assert_eq!(delta.key_sequence_changes.len(), 1);
+            assert_eq!(
+                delta.key_sequence_changes[0].old,
+                Some(vec![Name::from("k0"), Name::from("k1")])
+            );
+            assert_eq!(
+                delta.key_sequence_changes[0].new,
+                Some(vec![Name::from("k1"), Name::from("k0")])
+            );
+            assert_eq!(
+                delta.primary_key_changes.len(),
+                usize::from(expected == Breaking)
+            );
+            for index in 0..2 {
+                let mut removed = before.clone();
+                let old = removed.keys.get_mut("item").expect("owner").remove(index);
+                let expected = if old.role == reference::KeyRole::Primary {
+                    Breaking
+                } else {
+                    BackwardCompatible
+                };
+                assert_eq!(reference::classify_change(&before, &removed), expected);
+                assert_eq!(production_change(&before, &removed), expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn key_owner_presence_and_role_selection_are_recorded() {
+    let absent = reference::Schema::default().vertex("item", "object");
+    let empty = ordered_key_schema(&[]);
+    for (before, after) in [(&absent, &empty), (&empty, &absent)] {
+        assert_eq!(
+            reference::classify_change(before, after),
+            reference::Change::BackwardCompatible
+        );
+        assert_eq!(
+            production_change(before, after),
+            reference::Change::BackwardCompatible
+        );
+        let delta = diff(&production_schema(before), &production_schema(after));
+        assert_eq!(delta.key_sequence_changes.len(), 1);
+        assert_eq!(
+            delta.key_sequence_changes[0].old,
+            before.keys.get("item").map(|_| vec![])
+        );
+        assert_eq!(
+            delta.key_sequence_changes[0].new,
+            after.keys.get("item").map(|_| vec![])
+        );
+        let report = classify(&delta, &protocol());
+        assert_eq!(report.non_breaking.len(), 1);
+        assert_eq!(
+            panproto_check::report_json(&report)["non_breaking"],
+            serde_json::json!([{
+                "type": "key_sequence_changed", "vertex_id": "item",
+                "old": delta.key_sequence_changes[0].old,
+                "new": delta.key_sequence_changes[0].new,
+            }])
+        );
+        assert!(panproto_check::report_text(&report).contains("Stored key sequence changed: item"));
+        assert!(matches!(
+            &report.non_breaking[0],
+            panproto_check::NonBreakingChange::KeySequenceChanged { .. }
+        ));
+        assert_eq!(
+            serde_json::from_str::<panproto_check::SchemaDiff>(
+                &serde_json::to_string(&delta).expect("encode")
+            )
+            .expect("decode"),
+            delta
+        );
+    }
+    let before = ordered_key_schema(&[reference::KeyRole::Primary, reference::KeyRole::Primary]);
+    let mut after = before.clone();
+    after.keys.get_mut("item").expect("owner")[0].role = reference::KeyRole::Index;
+    assert_agree(&before, &after);
+    let delta = diff(&production_schema(&before), &production_schema(&after));
+    assert_eq!(delta.key_sequence_changes.len(), 0);
+    assert_eq!(
+        delta.primary_key_changes,
+        vec![panproto_check::diff::PrimaryKeyChange {
+            vertex_id: "item".to_owned(),
+            old: Some("k0".into()),
+            new: Some("k1".into()),
+        }]
+    );
+    assert_eq!(classify(&delta, &protocol()).breaking.len(), 1);
+}
+
+#[test]
+fn isolated_primary_selection_metadata_is_classified_and_rendered() {
+    let delta = panproto_check::SchemaDiff {
+        primary_key_changes: vec![panproto_check::diff::PrimaryKeyChange {
+            vertex_id: "item".to_owned(),
+            old: Some("k0".into()),
+            new: Some("k1".into()),
+        }],
+        ..panproto_check::SchemaDiff::default()
+    };
+    assert!(
+        !delta.is_empty(),
+        "primary selection is a structural change"
+    );
+    let report = classify(&delta, &protocol());
+    assert_eq!(
+        report.breaking,
+        vec![panproto_check::BreakingChange::PrimaryKeySelectionChanged {
+            vertex_id: "item".to_owned(),
+            old_key_id: "k0".to_owned(),
+            new_key_id: Some("k1".to_owned()),
+        }]
+    );
+    assert_eq!(
+        panproto_check::report_json(&report)["breaking"],
+        serde_json::json!([{
+            "type": "primary_key_selection_changed", "vertex_id": "item",
+            "old_key_id": "k0", "new_key_id": "k1",
+        }])
+    );
+    assert!(
+        panproto_check::report_text(&report).contains("Primary key selection changed: item k0")
+    );
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_key_change_classification(
+        vertices in 1_usize..=3,
+        graph_pick in proptest::prelude::any::<usize>(),
+        transition_pick in proptest::prelude::any::<usize>(),
+        other_pick in proptest::option::of(proptest::prelude::any::<usize>()),
+        slot in 0_usize..2,
+    ) {
+        let graphs = enumerate::structural_schemas(vertices);
+        let transitions = enumerate::axis_transitions(vertices);
+        let descriptors = enumerate::key_descriptors(vertices);
+        let graph = &graphs[graph_pick % graphs.len()];
+        let transition = &transitions[transition_pick % transitions.len()];
+        let other = other_pick.map(|index| &descriptors[index % descriptors.len()]);
+        let (before, after) = contextual_schemas(graph, slot, transition, other);
+        proptest::prop_assert_eq!(production_change(&before, &after), reference::classify_change(&before, &after));
+    }
+
+    #[test]
+    fn randomized_stored_key_sequence_classification(
+        first in 0_usize..5, second in 0_usize..5,
+        reverse in proptest::prelude::any::<bool>(),
+        removal in proptest::option::of(0_usize..2),
+    ) {
+        let roles = key_roles();
+        let before = ordered_key_schema(&[roles[first], roles[second]]);
+        let mut after = before.clone();
+        let keys = after.keys.get_mut("item").expect("owner");
+        if reverse { keys.reverse(); }
+        if let Some(index) = removal { keys.remove(index); }
+        proptest::prop_assert_eq!(production_change(&before, &after), reference::classify_change(&before, &after));
+    }
+
+    #[test]
+    fn randomized_reference_change_classification(
+        nullable in proptest::prelude::any::<bool>(),
+        many in proptest::prelude::any::<bool>(),
+        complement in proptest::prelude::any::<bool>(),
+        remove in proptest::prelude::any::<bool>(),
+        reverse in proptest::prelude::any::<bool>(),
+    ) {
+        let before = classification_base();
+        let mut after = before.clone();
+        if remove { after.references.clear(); } else {
+            let declaration = after.references.get_mut("r").expect("base reference");
+            declaration.nullable = nullable;
+            declaration.cardinality = if many { reference::Cardinality::Many } else { reference::Cardinality::One };
+            declaration.on_unresolved = if complement { reference::OnUnresolved::Complement } else { reference::OnUnresolved::Error };
+        }
+        let (before, after) = if reverse { (after, before) } else { (before, after) };
+        proptest::prop_assert_eq!(production_change(&before, &after), reference::classify_change(&before, &after));
+    }
+}

@@ -786,8 +786,9 @@ pub mod restrict {
 
     /// Scalar child bindings of a reference tree in source arc order.
     ///
-    /// Self loops do not bind children. A repeated column binds one list,
-    /// retaining duplicates and the order of the corresponding arcs.
+    /// Self loops and columns shadowed by the parent's own fields do not bind
+    /// children. A repeated column binds one list, retaining duplicates and
+    /// the order of the corresponding arcs.
     ///
     /// Book anchors: `L-restrict-and-contraction-7`.
     #[must_use]
@@ -802,6 +803,13 @@ pub mod restrict {
                 continue;
             }
             let column = edge.column().to_owned();
+            if tree
+                .nodes
+                .get(&parent)
+                .is_some_and(|node| node.fields.contains_key(&column))
+            {
+                continue;
+            }
             *multiplicity.entry(column.clone()).or_default() += 1;
             if let Some(Node {
                 value: Some(Presence::Present(value)),

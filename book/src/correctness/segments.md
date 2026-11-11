@@ -31,24 +31,13 @@ Partition validation sorts all ranges by their lower endpoint and rejects the fi
 - Enumerator: `panproto_reference::enumerate::segments::graph_partition_cases; bound: graphs=25, partitions=290`
 - Exhaustive differential test: `bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_partition_glue_and_segment_bytes_agree_exhaustively)'`
 - Property differential test: `segment::tests::partition::every_generated_partition_is_valid; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::partition::every_generated_partition_is_valid)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Property scope: `five documented shape witnesses; paired partition, glue, segment bytes, manifest bytes, digest and authenticated verification; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/partition.rs`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
-
-### Mutation equivalences
-
-Reordering ranges before building the private search index is equivalent when their stored canonical order remains unchanged. Changing ownership or accepting an overlap is not equivalent.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## A boundary is the exact cut of the owned edge relation {#L-segments-2}
 
@@ -74,25 +63,14 @@ Partitioning visits each edge once. A crossing edge inserts its target into the 
 - Reference: `panproto_reference::segment::partition`
 - Enumerator: `panproto_reference::enumerate::segments::shape_witnesses; bound: shapes=3, witnesses=5, segments=2`
 - Exhaustive differential test: `graph_table_and_tree_artifacts_match_the_reference_exactly; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=graph_table_and_tree_artifacts_match_the_reference_exactly)'`
-- Property differential test: `segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Fixed regression certificate: `segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles)'`
+
 - File: `crates/panproto-inst/src/segment/body.rs`
 - File: `crates/panproto-inst/src/segment/check.rs`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
-
-### Mutation equivalences
-
-Coalescing several ghosts of the same remote target is equivalent because a boundary stores one ghost per target. Coalescing incoming stubs or changing any recorded anchor or label is not equivalent.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Partitioning and assembly are inverse on valid inputs {#L-segments-3}
 
@@ -128,41 +106,30 @@ Fan order needs its own argument, because a segment lists its fans by fan node i
 - Enumerator: `panproto_reference::enumerate::segments::partition_cases; bound: graphs=25, fan_trees=2, partitions=330`
 - Exhaustive differential test: `bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively)'`
 - Property differential test: `segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Property scope: `five documented shape witnesses; paired partition, glue, segment bytes, manifest bytes, digest and authenticated verification; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
 
-### Mutation equivalences
-
-None. Any change to an owned element, boundary record, root, ordering identifier, or embedding counter is observable after assembly. In particular, ordering fans by fan node identifier in place of parent edge identifier changes the assembled fan order of the second fan-bearing tree, whose fan node identifiers run opposite to its fan order.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## Canonical segment artifacts bind all semantic inputs {#L-segments-4}
 
 ### Statement
 
-Canonical segment bytes contain the format version, shape, schema digest, segment specification, complete owned body, and complete boundary in a fixed order. A tree body writes each fan as its fan node, parent edge, and labelled child edges, in ascending fan node order, and writes no global fan position. Segment digests derive from exactly those bytes under the segment context. Manifest records bind the segment digest, counts, greatest identifiers, owned edge-identifier run, and crossing-edge digests; the manifest root and instance digest are deterministic functions of those records and their streams.
+Canonical segment bytes contain the format version, shape, schema digest, segment specification, complete owned body, and complete boundary in a fixed order. A tree body writes each fan as its fan node, parent edge, and labelled child edges, in ascending fan node order, and writes no global fan position. Segment digests derive from exactly those bytes under the segment context. Manifest records bind the segment digest, counts, greatest identifiers, owned edge-identifier run, and crossing-edge digests; the manifest root and instance digest are deterministic functions of those records and their streams. Manifest verification also takes a trusted expected manifest digest and compares it with the complete canonical manifest, including its schema digest and other header fields.
 
 ### Outside the domain
 
-A malformed segment, noncanonical value, partition mismatch, changed schema digest, duplicate edge identifier, unpaired crossing digest, or malformed record stream is refused before a manifest verifies. Decoders also refuse truncation, trailing bytes, and noncanonical ordering.
+Segment-contract checking refuses malformed ownership, endpoints and boundary records. Sealing checks the records’ partition, crossing-digest pairs, allocation floors and committed edge-id runs, and refuses duplicate edge identifiers. Full sealing additionally refuses record streams whose shape, order, counts or stated statistics disagree. After validating the manifest layout version, manifest verification checks the partition, statistics identifiers, crossing pairs and Merkle root in that order, then refuses a full digest that differs from the trusted expected identity. A changed schema digest is thus refused even when the records and Merkle root remain unchanged. Verification of a supplied segment separately checks its contract and its complete record under the manifest schema. Decoding refuses malformed or noncanonical encodings, including truncated data, trailing bytes and invalid ordering.
 
 ### Definitions used
 
-A *crossing digest* hashes the canonical records for one ordered pair of source and target segments. The manifest root is the domain-separated binary Merkle root over canonical record bytes.
+A *crossing digest* hashes the canonical records for one ordered pair of source and target segments. The manifest root is the domain-separated binary Merkle root over canonical record bytes. The expected manifest identity comes from a trusted artifact reference or an original sealed manifest; hashing the supplied manifest itself does not establish that expectation.
 
 ### Proof
 
-Every byte writer traverses fields in declaration order and ordered collections in key order. Segment verification recomputes its complete record, while manifest verification recomputes the partition, cross-pair agreement, and Merkle root without reading a segment body. Streaming instance records merge in the same canonical order as whole-instance writers, which gives the same instance digest without assembly.
+Every byte writer traverses fields in declaration order and ordered collections in key order. Segment verification recomputes its complete record. After validating the manifest layout version, manifest verification checks the partition, then every statistics identifier. A statistics identifier that differs from its record identifier produces `MalformedPartition` with `NotDense` carrying the actual statistics identifier. It next checks crossing pairs in record order: outgoing entries precede incoming entries, with peer identifiers ascending within each map. A self-cross is refused even when its two digests agree, since the cut contains only edges whose owners differ. After those checks, verification recomputes the Merkle root and compares the digest of all canonical manifest bytes with the expected identity, without reading a segment body. The schema digest occurs in those bytes, so a header change is covered by the comparison even when every record is unchanged. Streaming instance records merge in the same canonical order as whole-instance writers, which gives the same instance digest without assembly.
 
 ### Executable counterpart
 
@@ -174,24 +141,20 @@ Every byte writer traverses fields in declaration order and ordered collections 
 - Enumerator: `panproto_reference::enumerate::segments::shape_witnesses; bound: shapes=3, witnesses=5, segments=2`
 - Exhaustive differential test: `graph_table_and_tree_artifacts_match_the_reference_exactly; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=graph_table_and_tree_artifacts_match_the_reference_exactly)'`
 - Property differential test: `segment::tests::laws::streaming_instance_digest_equals_the_digest_of_the_assembled_instance; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::streaming_instance_digest_equals_the_digest_of_the_assembled_instance)'`
+- Production certificate: `manifest_header_schema_mutation_preserves_records_but_refuses_original_identity; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=manifest_header_schema_mutation_preserves_records_but_refuses_original_identity)'`
+- Production certificate: `manifest_header_schema_mutation_must_refuse_the_original_identity; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=manifest_header_schema_mutation_must_refuse_the_original_identity)'`
+- Production certificate: `manifest_cross_refusal_precedes_root_and_identity_refusals; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=manifest_cross_refusal_precedes_root_and_identity_refusals)'`
+- Production certificate: `manifest_root_refusal_precedes_identity_refusal_when_cross_pairs_agree; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=manifest_root_refusal_precedes_identity_refusal_when_cross_pairs_agree)'`
+- Production certificate: `malformed_manifests_preserve_the_complete_structural_refusal_order; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=malformed_manifests_preserve_the_complete_structural_refusal_order)'`
+- Property differential test: `randomized::boundary_cut_matches_the_reference_on_generated_shape_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::boundary_cut_matches_the_reference_on_generated_shape_choices)'`
+- Property scope: `five documented shape witnesses; paired partition, glue, segment bytes, manifest bytes, digest and authenticated verification; configured successful cases per seed=256`
+- Property differential test: `randomized::manifest_refusals_match_on_generated_structural_mutations; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::manifest_refusals_match_on_generated_structural_mutations)'`
+- Property scope: `six existing malformed-manifest cases with rebuilt roots and the original trusted identity; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/bytes.rs`
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/src/segment/stream.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
-
-### Mutation equivalences
-
-No field covered by canonical bytes admits an equivalence. A caller-local numbering map is outside the artifact and may change without changing any digest.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## The storage vocabulary has one stable typed layout {#L-segments-5}
 
@@ -220,29 +183,18 @@ The Rust declarations determine the serde tags. `TaskKey` carries an optional se
 - Production certificate: `storage_vocabulary_serde_layout_and_run_identity_are_stable; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=storage_vocabulary_serde_layout_and_run_identity_are_stable)'`
 - Independent reference anchor: `bounded_task_input_digest_and_journal_reuse_match_the_reference; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_task_input_digest_and_journal_reuse_match_the_reference)'`
 - Exhaustive differential test: `bounded_task_input_digest_and_journal_reuse_match_the_reference; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=bounded_task_input_digest_and_journal_reuse_match_the_reference)'`
+- Property differential test: `randomized::task_digest_and_reuse_match_the_reference_on_generated_carrier_choices; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::task_digest_and_reuse_match_the_reference_on_generated_carrier_choices)'`
+- Property scope: `six phases, three segment choices, five input lists and two lens digests; matching, changed-input, changed-output and absent-task reuse queries; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/store.rs`
 - File: `crates/panproto-inst/src/segment/partition.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 
-### Mutation equivalences
-
-Permuting input digests is equivalent for `TaskRecord::inputs_digest`; changing the multiset, including a duplicate count, is not. `RunJournal::reusable` does not observe the run digest or a task record's byte count, while a changed task key, input digest, or output digest changes its result on the witnessed carrier. No equivalence applies to the observed serde tags, task-key forms, or production run-identity inputs. This law makes no claim about canonical production journal-content bytes.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## Segment refusals preserve variant and witness data {#L-segments-6}
 
 ### Statement
 
-For a fixed invalid input, segment operations return the same typed error variant and structured witness in every run. Structural validation precedes artifact and operation checks. Within one stage, errors are ordered by segment identifier, element reference, and the variant-specific precedence key. A segment that breaks its contract returns `Invalid` listing every violation, sorted by element: an owned edge whose source is owned elsewhere is still checked at its target. Tree counters held without the root name no element, so the contract reports them as `MalformedPartition` with the `CountersWithoutRoot` defect before any element-located violation. Every segment entry point checks a segment's shape against the partition before it validates the partition, so a segment of the wrong shape under an invalid partition is a `ShapeMismatch`. Partitioning a whole tree whose node key differs from its node identifier returns `NotEmbedded` at that node, since such a tree does not agree with its embedding.
+For a fixed invalid input, segment operations return the same typed error variant and structured witness in every run. Structural validation precedes artifact and operation checks. Within one stage, errors are ordered by segment identifier, element reference, and the variant-specific precedence key. For manifest crossing errors, the ordering segment is the record being checked: outgoing entries precede incoming entries, and each map is visited by ascending peer identifier. A segment that breaks its contract returns `Invalid` listing every violation, sorted by element: an owned edge whose source is owned elsewhere is still checked at its target. Tree counters held without the root name no element, so the contract reports them as `MalformedPartition` with the `CountersWithoutRoot` defect before any element-located violation. Every segment entry point checks a segment's shape against the partition before it validates the partition, so a segment of the wrong shape under an invalid partition is a `ShapeMismatch`. Partitioning a whole tree whose node key differs from its node identifier returns `NotEmbedded` at that node, since such a tree does not agree with its embedding.
 
 ### Outside the domain
 
@@ -254,7 +206,7 @@ A *typed witness* is the complete payload of a `SegmentError`, including element
 
 ### Proof
 
-Partition and segment checks traverse ordered carriers, accumulate local violations in canonical order, and select the first structural error before decoding later artifacts. The differential maps each reference error field for field into the production vocabulary and compares the complete values, so it observes branch selection, the order of an `Invalid` list, and every payload field. The labelled refusal carrier covers each stage once: partition validation, splitting, and the segment contract, including a segment that breaks four contract clauses at once, a segment of the wrong shape under an invalid partition, and a whole tree whose node key differs from its node identifier.
+Partition and segment checks traverse ordered carriers, accumulate local violations in canonical order, and select the first structural error before decoding later artifacts. The differential maps each reference error field for field into the production vocabulary and compares the complete values, so it observes branch selection, the order of an `Invalid` list, and every payload field. The labelled refusal carrier covers each stage once: partition validation, splitting, and the segment contract, including a segment that breaks four contract clauses at once, a segment of the wrong shape under an invalid partition, and a whole tree whose node key differs from its node identifier. A separate six-case manifest matrix checks reciprocal self-crosses, the crossing traversal tie, a statistics-identifier mismatch, a partition defect together with a statistics defect, a later statistics defect together with an earlier crossing defect, and an isolated density defect.
 
 ### Executable counterpart
 
@@ -262,9 +214,13 @@ Partition and segment checks traverse ordered carriers, accumulate local violati
 - Reference: `panproto_reference::segment::decode_segment_bytes`
 - Reference: `panproto_reference::segment::partition`
 - Reference: `panproto_reference::segment::validate_segment_contract`
+- Reference: `panproto_reference::segment::verify_manifest`
 - Enumerator: `panproto_reference::enumerate::segments::refusal_cases; bound: refusals=11`
 - Exhaustive differential test: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
-- Property differential test: `segment::tests::segments::invalid_segments_list_every_violation_sorted; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::invalid_segments_list_every_violation_sorted)'`
+- Property differential test: `randomized::typed_refusals_match_the_reference_on_generated_carrier_choices; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::typed_refusals_match_the_reference_on_generated_carrier_choices)'`
+- Fixed regression certificate: `segment::tests::segments::invalid_segments_list_every_violation_sorted; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::segments::invalid_segments_list_every_violation_sorted)'`
+- Production certificate: `malformed_manifests_preserve_the_complete_structural_refusal_order; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=malformed_manifests_preserve_the_complete_structural_refusal_order)'`
+- File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/src/segment/error.rs`
 - File: `crates/panproto-inst/src/segment/check.rs`
 - File: `crates/panproto-inst/src/segment/bytes.rs`
@@ -272,19 +228,6 @@ Partition and segment checks traverse ordered carriers, accumulate local violati
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
-
-### Mutation equivalences
-
-Changing an error message while retaining a structured storage error is equivalent only where the message is explicitly external. Changing a variant, payload field, or precedence order is not equivalent.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Local validation retains node identity {#L-segments-7}
 
@@ -312,30 +255,19 @@ The contract check compares every ordered node-map key with `Node.id` before loc
 - Production certificate: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
 - Independent reference anchor: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
 - Exhaustive differential test: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
-- Property differential test: `segment::tests::validation::validate_segment_returns_every_contract_violation_before_validation; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validate_segment_returns_every_contract_violation_before_validation)'`
+- Property differential test: `randomized::node_identity_refusals_match_the_reference_on_generated_identifiers; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::node_identity_refusals_match_the_reference_on_generated_identifiers)'`
+- Property scope: `map keys=0..4, embedded node id=key+offset, offsets=1..5, identifier pairs=25`
+- Fixed regression certificate: `segment::tests::validation::validate_segment_returns_every_contract_violation_before_validation; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validate_segment_returns_every_contract_violation_before_validation)'`
 - File: `crates/panproto-inst/src/segment/check.rs`
 - File: `crates/panproto-inst/src/segment/validate.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 
-### Mutation equivalences
-
-None. Omitting the check changes both the addressed validation subject and the canonical identity of the segment.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
-
 ## Validation-view capacity is checked before construction {#L-segments-8}
 
 ### Statement
 
-Let $C = 2^{32}$, the cardinality of the `EdgeId` carrier. A graph or tree segment with $e$ owned view edges and $s$ incoming stubs is representable for local validation exactly when $e+s \le C$. The sum is computed in `u64` before any temporary edge identifier is assigned. A larger carrier is refused as `ValidationViewUnrepresentable` with the exact total. The executable evidence checks this boundary in two implementations, but it does not expose a shared production-reference seam.
+Let $C = 2^{32}$, the cardinality of the `EdgeId` carrier. A graph or tree segment with $e$ owned view edges and $s$ incoming stubs is representable for local validation exactly when $e+s \le C$. The sum is computed in `u64` before any temporary edge identifier is assigned. A larger carrier is refused as `ValidationViewUnrepresentable` with the exact total. The executable evidence calls both capacity checks on the same counts and compares the exact segment identifier and refused total.
 
 ### Outside the domain
 
@@ -353,26 +285,20 @@ There are exactly $C$ distinct `u32` edge identifiers. Assigning one identifier 
 
 - Law ID: `segments.s10a`
 - Reference: `panproto_reference::segment::validation_view_preflight`
-- Evidence scope: `capacity=2^32, accepted count=capacity, refused count=capacity+1`
+- Reference: `panproto_reference::segment::validate_segment_contract`
+- Evidence scope: `capacity=2^32, boundary pairs=10, generated count pairs=512 per run with each count from 0 through capacity+1; valid, key/id mismatch and shape-mismatch controls on a one-edge graph with injected capacities 0 and 1`
 - Production certificate: `segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge)'`
 - Independent reference anchor: `partition_and_decoder_refusals_preserve_typed_error_precedence; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=partition_and_decoder_refusals_preserve_typed_error_precedence)'`
+- Exhaustive differential test: `segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_accepts_the_full_edge_id_domain_and_refuses_the_next_edge)'`
+- Property differential test: `segment::tests::validation::validation_view_capacity_agrees_with_the_reference; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_agrees_with_the_reference)'`
+- Production certificate: `segment::tests::validation::validation_view_capacity_preserves_contract_error_precedence; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_preserves_contract_error_precedence)'`
+- Production certificate: `segment::tests::validation::validation_view_capacity_reaches_only_valid_contracts; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validation_view_capacity_reaches_only_valid_contracts)'`
+- Production certificate: `segment::tests::validation::validate_segment_runs_the_capacity_preflight_before_constructing_the_view; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::validation::validate_segment_runs_the_capacity_preflight_before_constructing_the_view)'`
+- File: `crates/panproto-inst/src/segment/tests/validation.rs`
 - File: `crates/panproto-inst/src/segment/validate.rs`
 - File: `crates/panproto-inst/src/segment/error.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
-
-### Mutation equivalences
-
-None at the boundary $C$. Counting in `u32`, using a strict inequality, or omitting incoming stubs changes the admitted domain.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Segment observation equals observation of the glued instance {#L-segments-9}
 
@@ -403,24 +329,13 @@ The reference run validates every segment, assembles the family by checked glue,
 - Enumerator: `panproto_reference::enumerate::segments::allocated_graph_partition_cases; bound: graphs=25, partitions=290, allocations=3`
 - Exhaustive differential test: `segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal)'`
 - Property differential test: `segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition; command: cargo nextest run -p panproto-inst --lib --no-tests=fail -E 'test(=segment::tests::laws::partitioning_then_assembling_returns_the_identical_instance_for_every_partition)'`
+- Property differential test: `randomized::segmented_observation_matches_on_generated_allocated_partitions; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::segmented_observation_matches_on_generated_allocated_partitions)'`
+- Property scope: `870 documented allocated graph partitions; exact assembled bytes or typed seal-floor refusal; configured successful cases per seed=256`
 - File: `crates/panproto-inst/src/segment/split.rs`
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
-
-### Mutation equivalences
-
-None for the canonical identity observation. A projection that deliberately discards fields would be a different law.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.
 
 ## Allocation is append-only within each declared range {#L-segments-10}
 
@@ -446,21 +361,9 @@ Both implementations filter source and used identifiers to $R$, take their maxim
 - Reference: `panproto_reference::segment::fresh`
 - Enumerator: `panproto_reference::enumerate::segments::allocation_cases; bound: ranges=15, identifiers=6, allocations=61440`
 - Exhaustive differential test: `append_floor_and_exhaustion_agree_on_an_independently_counted_carrier; command: cargo nextest run -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=append_floor_and_exhaustion_agree_on_an_independently_counted_carrier)'`
-- Property differential test: `allocation_floor_is_append_only_on_the_exact_small_carrier; command: cargo nextest run -p panproto-reference --test segments --no-tests=fail -E 'test(=allocation_floor_is_append_only_on_the_exact_small_carrier)'`
+- Property differential test: `randomized::append_floor_matches_the_reference_on_generated_small_carriers; command: cargo +1.99 nextest run --cargo-profile ci-test --profile ci -p panproto-inst --test reference_segments --no-tests=fail -E 'test(=randomized::append_floor_matches_the_reference_on_generated_small_carriers)'`
+- Fixed regression certificate: `allocation_floor_is_append_only_on_the_exact_small_carrier; command: cargo nextest run -p panproto-reference --test segments --no-tests=fail -E 'test(=allocation_floor_is_append_only_on_the_exact_small_carrier)'`
 - File: `crates/panproto-inst/src/segment/ids.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
-
-### Mutation equivalences
-
-Identifiers outside $R$ are observationally irrelevant to this allocator. Changing the maximum within $R$, admitting `u32::MAX`, or choosing a least absent identifier below the floor is not equivalent.
-
-### Audit record
-
-- Author: segment correctness author
-- Auditor: pending independent verifier
-- Date: 2026-10-26
-- Commit: 0000000
-- Verdict: fail
-- Defects: Independent audit and mutation verification are pending.

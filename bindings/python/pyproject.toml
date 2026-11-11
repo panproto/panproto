@@ -4,16 +4,11 @@ build-backend = "maturin"
 
 [project]
 name = "panproto"
-# Version is intentionally dynamic: maturin reads it from
-# `crates/panproto-py/Cargo.toml`, which uses
-# `version.workspace = true`. This keeps the published wheel pinned
-# to the workspace version on every release, with no manual sync.
-# A previous literal `version = "0.40.0"` here silently stranded
-# PyPI at 0.40 when the workspace bumped to 0.41 (PyPI uses
-# `skip-existing: true`, so the publish step succeeded without
-# actually uploading anything new).
+# The version is dynamic: maturin reads it from
+# `crates/panproto-py/Cargo.toml`, which inherits the workspace version,
+# so the wheel and the workspace cannot disagree.
 dynamic = ["version"]
-description = "Automatic schema migration and version control for 51 schema languages and 261 programming languages"
+description = "Schematic version control for 51 schema languages and 261 programming languages"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
@@ -27,9 +22,17 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://panproto.dev"
+Documentation = "https://panproto.dev/book/"
+Repository = "https://github.com/panproto/panproto"
+Issues = "https://github.com/panproto/panproto/issues"
+Changelog = "https://github.com/panproto/panproto/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

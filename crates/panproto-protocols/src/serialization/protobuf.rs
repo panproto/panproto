@@ -934,6 +934,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_unterminated_map_type_is_refused_without_panicking() {
+        // A map type with no closing `>` is an error, at the end of the
+        // input, inside a message, and among control bytes.
+        assert!(parse_proto("message M { map<string, string labels = 1; }").is_err());
+        assert!(parse_proto("message M { map<").is_err());
+        for input in [
+            "message ;\r\u{b}\nmap<\0\0\0et  y !\u{18}me ",
+            "message ;\r\u{b}\nmmap<\0\0\0et  y !\u{18}me ",
+            "message ;\r\u{b}\nmap<\0 y e ",
+            "map<",
+        ] {
+            // Whether such input is refused or skipped as unrecognized, the
+            // parser returns.
+            let _ = parse_proto(input);
+        }
+    }
+
+    #[test]
     fn protocol_creates_valid_definition() {
         let p = protocol();
         assert_eq!(p.name, "protobuf");

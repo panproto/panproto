@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use panproto_expr::exact::WideInt;
 use panproto_gat::Name;
 use panproto_schema::{Edge, Protocol, Schema};
 
@@ -581,6 +582,28 @@ fn walk(components: &[Component], steps: &[Step<'_>], gather: &mut Gather) {
     );
 }
 
+/// Multiply machine-sized counts without losing the exact cardinality.
+/// Binary multiplication uses the existing arbitrary-precision integer's
+/// addition, independently of the reference's decimal multiplication.
+fn exact_product(counts: impl IntoIterator<Item = usize>) -> WideInt {
+    counts
+        .into_iter()
+        .fold(WideInt::from(1), |value, mut factor| {
+            let mut sum = WideInt::zero();
+            let mut multiple = value;
+            while factor != 0 {
+                if factor & 1 != 0 {
+                    sum = sum.plus(&multiple);
+                }
+                factor >>= 1;
+                if factor != 0 {
+                    multiple = multiple.plus(&multiple);
+                }
+            }
+            sum
+        })
+}
+
 /// The cones at one target table: tuples with one row of each fibre table
 /// whose values agree at every target column, ascending by tuple.
 ///
@@ -607,14 +630,11 @@ fn table_limit<'a>(
     max: usize,
 ) -> Result<TableLimit<'a>, RestrictError> {
     if fibre.len() > 1 {
-        let product = fibre
-            .iter()
-            .try_fold(1_usize, |acc, s| acc.checked_mul(instance.row_count(s)))
-            .unwrap_or(usize::MAX);
-        if product > max {
+        let product = exact_product(fibre.iter().map(|s| instance.row_count(s)));
+        if product > WideInt::from(max) {
             return Err(RestrictError::ProductSizeExceeded {
                 vertex: table.to_string(),
-                actual: product,
+                actual: product.to_string(),
                 limit: max,
             });
         }
@@ -795,11 +815,11 @@ fn relation_limit(
     max: usize,
 ) -> Result<Vec<(usize, usize)>, RestrictError> {
     let Some((first, rest)) = carried.split_first() else {
-        let count = from.tuples.len().saturating_mul(to.tuples.len());
-        if count > max {
+        let count = exact_product([from.tuples.len(), to.tuples.len()]);
+        if count > WideInt::from(max) {
             return Err(RestrictError::ProductSizeExceeded {
                 vertex: relation.src.to_string(),
-                actual: count,
+                actual: count.to_string(),
                 limit: max,
             });
         }
@@ -1581,10 +1601,10 @@ mod tests {
         assert!(matches!(
             pi(&inst, &src, &tgt, &migration, 1),
             Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
-                actual: 2,
+                actual,
                 limit: 1,
                 ..
-            }))
+            })) if actual == "2"
         ));
     }
 
@@ -1626,9 +1646,9 @@ mod tests {
                 &out,
                 Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
                     vertex,
-                    actual: 9,
+                    actual,
                     limit: 4,
-                })) if vertex == "m"
+                })) if vertex == "m" && actual == "9"
             ),
             "{out:?}"
         );
@@ -1636,6 +1656,46 @@ mod tests {
             pi(&inst, &src, &tgt, &migration, 9).unwrap().row_count("m"),
             1
         );
+    }
+
+    #[test]
+    fn pi_reports_exact_overflow_before_join_work() {
+        let names: Vec<String> = (0..=usize::BITS).map(|n| format!("s{n:03}")).collect();
+        let source_tables: Vec<(&str, &[&str])> =
+            names.iter().map(|n| (n.as_str(), &[][..])).collect();
+        let mapping: Vec<(&str, &str)> = names.iter().map(|n| (n.as_str(), "m")).collect();
+        let src = tables(&source_tables, &[]);
+        let tgt = tables(&[("m", &[])], &[]);
+        let migration = migration_of(&mapping, &[]);
+        let mut input = FInstance::new();
+        for (index, name) in names.iter().enumerate() {
+            let first = u32::try_from(index * 2).unwrap();
+            input = input
+                .with_rows(name.as_str(), blank_rows(&[first, first + 1]))
+                .unwrap();
+        }
+        // A small bound makes this regression safe even before the repair:
+        // the old implementation refuses, but reports the wrong actual count.
+        let error = pi(&input, &src, &tgt, &migration, 1).unwrap_err();
+        let expected = (1_u128 << (usize::BITS + 1)).to_string();
+        assert!(
+            matches!(error, AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
+            actual, limit: 1, ..
+        }) if actual == expected)
+        );
+    }
+
+    #[test]
+    fn exact_product_handles_overflow_zero_and_the_maximum_bound() {
+        let overflow = exact_product(std::iter::repeat_n(2, usize::BITS as usize + 1));
+        assert_eq!(
+            overflow.to_string(),
+            (1_u128 << (usize::BITS + 1)).to_string()
+        );
+        assert!(overflow > WideInt::from(usize::MAX));
+        assert_eq!(exact_product([usize::MAX, usize::MAX, 0]), WideInt::zero());
+        assert_eq!(exact_product([usize::MAX, 1]), WideInt::from(usize::MAX));
+        assert_eq!(exact_product([]), WideInt::from(1));
     }
 
     /// A table whose fibre is one table is never bounded: Pi along the
@@ -1859,10 +1919,10 @@ mod tests {
             matches!(
                 out,
                 Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
-                    actual: 343_000_000,
+                    ref actual,
                     limit: 4,
                     ..
-                }))
+                })) if actual == "343000000"
             ),
             "{out:?}"
         );

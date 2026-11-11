@@ -802,7 +802,7 @@ proptest! {
     /// left undecided, while every instance before the cut is decided as
     /// the unlimited run decides it.
     #[test]
-    fn v7_budget(
+    fn a_finite_budget_leaves_undecided_exactly_a_suffix(
         case in arb_validation_schema(),
         instance in arb_validated(),
         fraction in 0_u64..=100,
@@ -1053,7 +1053,7 @@ proptest! {
 
     /// The tree square over drawn schemas and trees (see [`tree_square`]).
     #[test]
-    fn v8_tree_square(case in arb_validation_schema(), spec in arb_tree_spec(8)) {
+    fn the_tree_square_commutes(case in arb_validation_schema(), spec in arb_tree_spec(8)) {
         tree_square(&case, &spec)?;
     }
 
@@ -1062,7 +1062,7 @@ proptest! {
     /// for edge through the table's embedding. Every shared check is
     /// compared, the constraints on column and table vertices among them.
     #[test]
-    fn v8_table_square(case in arb_validation_schema(), spec in arb_table_spec()) {
+    fn the_table_square_commutes(case in arb_validation_schema(), spec in arb_table_spec()) {
         let table = table_of(&spec);
         let (graph, emb) =
             GInstance::from_finstance(&table).expect("a table instance has a graph form");
@@ -2042,7 +2042,7 @@ proptest! {
     /// References are checked on the shape the protocol writes instances
     /// in, which here is the instance's own.
     #[test]
-    fn v11_keys_and_references_match_the_oracle(
+    fn keys_and_references_match_the_oracle(
         case in arb_validation_schema(),
         instance in arb_validated(),
     ) {

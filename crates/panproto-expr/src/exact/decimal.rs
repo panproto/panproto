@@ -763,7 +763,8 @@ pub(super) fn closest_shortest(
                 // against one half of a unit in the n-th digit (`5`), and at
                 // an exact tie the even one of two consecutive integers.
                 let rest = &exact[n..];
-                let lo_is_even = (lo.as_bytes()[n - 1] - b'0').is_multiple_of(2);
+                // ASCII zero is even, so its offset preserves digit parity.
+                let lo_is_even = lo.as_bytes()[n - 1].is_multiple_of(2);
                 let take_lo = match rest.as_bytes()[0].cmp(&b'5') {
                     Ordering::Less => true,
                     Ordering::Greater => false,

@@ -422,7 +422,7 @@ fn sweep_one(
 }
 
 #[test]
-fn v10_endpoint_coherence_agrees_with_the_graph_instance_theory() {
+fn endpoint_coherence_agrees_with_the_graph_instance_theory() {
     assert_reference_validation_on_the_endpoint_carrier();
     let schema = schema();
     let (graphs, incoherent) = sweep(
@@ -444,7 +444,7 @@ fn v10_endpoint_coherence_agrees_with_the_graph_instance_theory() {
 /// label it does not declare (`zb: z -> b`), on every graph of up to three
 /// nodes and three edges.
 #[test]
-fn v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels() {
+fn endpoint_coherence_agrees_on_undeclared_anchors_and_labels() {
     let schema = schema();
     let (graphs, incoherent) = sweep(
         &schema,
@@ -533,7 +533,7 @@ fn an_edge_into_a_union_may_end_at_a_variant() {
 /// variants, a recursion point and a reference vertex), over every graph of
 /// up to three nodes and three edges anchored anywhere in the schema.
 #[test]
-fn v10_endpoint_coherence_agrees_on_anchor_families() {
+fn endpoint_coherence_agrees_on_anchor_families() {
     let schema = family_schema();
     let (graphs, incoherent) = sweep(
         &schema,
@@ -553,4 +553,37 @@ fn v10_endpoint_coherence_agrees_on_anchor_families() {
         incoherent > graphs / 2,
         "{incoherent} of {graphs} graphs incoherent"
     );
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(256))]
+
+    #[test]
+    fn randomized_endpoint_findings_match_the_reference_and_theory(
+        anchors in proptest::collection::vec(0_usize..3, 0..=3),
+        edges in proptest::collection::vec((0_usize..3, 0_usize..3, 0_usize..3), 0..=3),
+    ) {
+        let schema = schema();
+        let plan = ValidationPlan::compile(
+            &schema, &Protocol::default(), &ValidationOptions::default(),
+        );
+        let labels = [edge("a", "b", "ab"), edge("a", "a", "aa"), edge("z", "b", "zb")];
+        let mut graph = GInstance::new();
+        for (id, anchor) in anchors.iter().enumerate() {
+            graph = graph.with_node(Node::new(
+                u32::try_from(id).unwrap(), ["a", "b", "z"][*anchor],
+            ));
+        }
+        if !anchors.is_empty() {
+            for (source, target, label) in edges {
+                graph = graph.with_edge(u32::try_from(source % anchors.len()).unwrap(),
+                    u32::try_from(target % anchors.len()).unwrap(), labels[label].clone());
+            }
+        }
+        let actual = reported(&plan, &graph);
+        let (theory, complete) = refuted(&graph, &schema);
+        proptest::prop_assert!(complete);
+        proptest::prop_assert_eq!(&actual, &theory);
+        proptest::prop_assert_eq!(actual, reference_reported(&schema, &graph));
+    }
 }
