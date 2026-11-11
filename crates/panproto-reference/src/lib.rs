@@ -72,6 +72,9 @@
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |
 //! | Segmented graph restriction, by whole-state restriction of the glued graph | [`segment::restrict_graph_segmented`] | `segments.md` |
 //! | The checkpointed run of segmented graph restriction | [`segment::segmented_restrict_with_progress`] | `segments.md` |
+//! | Record streams of segments, by frames of the canonical instance records | [`segment::segment_record_stream`] | `segments.md` |
+//! | Manifest record bytes | [`segment::canonical_record_bytes`] | `segments.md` |
+//! | Manifest records of a family, without the seal floor | [`segment::manifest_records`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |
 //! | `L_b`: round to nearest, ties to even, at widths 16, 32 and 64 | [`float::round_to`] | `values.md` |
