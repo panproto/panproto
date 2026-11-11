@@ -1,0 +1,3 @@
+# W3C RDF test suite entries a route does not pass, each with the limit
+# the book's RDF formats page states for it.
+rdf11/rdf-n-triples/literal_ascii_boundaries raw-nul-or-delete

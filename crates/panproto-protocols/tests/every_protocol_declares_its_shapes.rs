@@ -65,6 +65,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("naf", Tree, Graph),
     ("neo4j", Tree, Graph),
     ("nif", Tree, Graph),
+    ("ntriples", Graph, Graph),
     ("odf", Tree, Graph),
     ("openapi", Tree, Tree),
     ("parquet", Table, Table),

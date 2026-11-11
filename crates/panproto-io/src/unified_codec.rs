@@ -58,6 +58,37 @@ use crate::json_codec::{missing_entry_message, resolve_entry_vertex};
 use crate::json_pathway::protocol_definition;
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
+/// The CST parser of the bundled tree-sitter grammar `grammar_name`.
+///
+/// # Errors
+///
+/// Returns [`UnifiedCodecError::MissingGrammar`] if the grammar is not
+/// compiled in, or [`UnifiedCodecError::ParserInit`] if its initialization
+/// fails.
+pub(crate) fn language_parser(grammar_name: &str) -> Result<LanguageParser, UnifiedCodecError> {
+    let grammar = panproto_grammars::grammars()
+        .into_iter()
+        .find(|g| g.name == grammar_name)
+        .ok_or_else(|| UnifiedCodecError::MissingGrammar {
+            format: grammar_name.to_owned(),
+        })?;
+
+    let config = panproto_parse::languages::walker_configs::walker_config_for(grammar_name);
+    LanguageParser::from_language_with_grammar_json(
+        grammar_name,
+        grammar.extensions.to_vec(),
+        grammar.language,
+        grammar.node_types,
+        grammar.tags_query,
+        config,
+        grammar.grammar_json,
+    )
+    .map_err(|e| UnifiedCodecError::ParserInit {
+        format: grammar_name.to_owned(),
+        source: Box::new(e),
+    })
+}
+
 /// A unified codec backed by tree-sitter parsing and CST extraction.
 ///
 /// Supports format-preserving round-trips: `parse → modify → emit` produces
@@ -153,29 +184,7 @@ impl UnifiedCodec {
         native_repr: NativeRepr,
     ) -> Result<Self, UnifiedCodecError> {
         let protocol = protocol.into();
-        let grammar_name = format.grammar_name();
-
-        let grammar = panproto_grammars::grammars()
-            .into_iter()
-            .find(|g| g.name == grammar_name)
-            .ok_or_else(|| UnifiedCodecError::MissingGrammar {
-                format: grammar_name.to_owned(),
-            })?;
-
-        let config = panproto_parse::languages::walker_configs::walker_config_for(grammar_name);
-        let lang_parser = LanguageParser::from_language_with_grammar_json(
-            grammar_name,
-            grammar.extensions.to_vec(),
-            grammar.language,
-            grammar.node_types,
-            grammar.tags_query,
-            config,
-            grammar.grammar_json,
-        )
-        .map_err(|e| UnifiedCodecError::ParserInit {
-            format: grammar_name.to_owned(),
-            source: Box::new(e),
-        })?;
+        let lang_parser = language_parser(format.grammar_name())?;
 
         Ok(Self {
             protocol,
