@@ -9,7 +9,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{
-    ComplementShape, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
+    ComplementShape, Digest, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
+};
+use panproto_inst::segment::{
+    Budget, GraphRestrictRun, RunSpec, SegmentManifest, SegmentSource, SegmentStore,
+    graph_restrict_run,
 };
 use panproto_inst::{
     BoundaryProtocols, ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, GEdge,
@@ -61,6 +65,58 @@ pub fn get_with_protocols(
         protocols,
     )?;
     get_with_plan(lens, source, &plan)
+}
+
+/// Forward graph-lens direction over a graph held as segments, as a
+/// checkpointed run.
+///
+/// The graph restrict plan of `lens` is compiled once and run by
+/// [`graph_restrict_run`] over the graph the manifest `manifest` seals,
+/// whose trusted digest is `input`, reading its segments from `source` and
+/// committing every task to `store` under `budget`. The run's lens identity
+/// and view schema are those of the graph identity of `lens`
+/// ([`Lens::identity`]), so its run identity is a function of the lens and
+/// the input alone; it stops once `cancel_after_tasks` tasks are done, and a
+/// later call against the same store resumes it. A complete run emits each
+/// segment's view and complement, read back with
+/// [`read_emitted`](panproto_inst::segment::read_emitted) and
+/// [`GraphComplementSegment::from_canonical_bytes`](panproto_inst::segment::GraphComplementSegment::from_canonical_bytes);
+/// assembled, they are [`get`] of the glued graph without its identity
+/// stamp.
+///
+/// A lens whose restrict carries an expression is declined by the run with
+/// a global residual before any segment is read; budgets, refusals and
+/// store failures are reported in the run's report.
+///
+/// # Errors
+///
+/// Returns the plan compilation error.
+pub fn get_segmented<Src: SegmentSource, St: SegmentStore>(
+    lens: &Lens,
+    manifest: &SegmentManifest,
+    input: Digest,
+    source: &Src,
+    budget: Budget,
+    store: &mut St,
+    cancel_after_tasks: Option<u32>,
+) -> Result<GraphRestrictRun, LensError> {
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
+    let identity = lens.identity(ComplementShape::Graph);
+    let spec = RunSpec {
+        lens: identity.lens,
+        input,
+        view_schema: identity.target_schema,
+        cancel_after_tasks,
+    };
+    Ok(graph_restrict_run(
+        &plan,
+        manifest,
+        source,
+        spec,
+        budget,
+        store,
+        &mut |_| {},
+    ))
 }
 
 fn get_with_plan(

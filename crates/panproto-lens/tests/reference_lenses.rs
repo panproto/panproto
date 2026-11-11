@@ -17956,3 +17956,459 @@ mod graph_edit_lens_differential {
         }
     }
 }
+
+/// Segmented graph get: the checkpointed run of a graph lens's restrict
+/// over a sealed segment family, against the reference definition of
+/// segmented restriction and whole-state get of the glued graph.
+mod segmented_graph_get {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::InstanceShapeKind;
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, GraphComplementSegment, GraphRestrictRun, IdRange,
+        ManifestHeader, ManifestRole, MemoryStore, Partition, RecordSource, Residual,
+        RunIncompleteReason, RunStatus, SegmentId, SegmentManifest, SegmentRecord, SegmentSpec,
+        SegmentedRestrict, partition_graph, read_emitted, seal_full,
+    };
+    use panproto_lens::{Lens, graph_lens};
+    use panproto_reference::enumerate::segments::{
+        SEGMENTED_RESTRICT_ALLOCATION_BASE, segmented_restrict_cases,
+    };
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::{
+        RefGraph, RefMigration, RefSchema, prod_graph, prod_migration, prod_schema, ref_complement,
+        ref_graph,
+    };
+
+    const SOURCE_SCHEMA: [u8; 32] = [7; 32];
+
+    fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Graph,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    /// A sealed source family: its manifest, the segments' canonical bytes
+    /// and the production partition.
+    struct Input {
+        manifest: SegmentManifest,
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        partition: Partition,
+    }
+
+    fn input(graph: &RefGraph, partition: &reference::Partition) -> Input {
+        let partition = prod_partition(partition);
+        let segments: Vec<AnySegment> = partition_graph(&prod_graph(graph), &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Graph)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter())
+                        as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: InstanceShapeKind::Graph,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Input {
+            manifest,
+            bytes,
+            partition,
+        }
+    }
+
+    fn lens_of(schema: &RefSchema, migration: &RefMigration) -> Lens {
+        let schema = prod_schema(schema);
+        Lens {
+            compiled: prod_migration(migration),
+            src_schema: schema.clone(),
+            tgt_schema: schema,
+        }
+    }
+
+    fn run(
+        lens: &Lens,
+        input: &Input,
+        budget: Budget,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> GraphRestrictRun {
+        graph_lens::get_segmented(
+            lens,
+            &input.manifest,
+            input.manifest.digest(),
+            &input.bytes,
+            budget,
+            store,
+            cancel,
+        )
+        .expect("the lens's plan compiles")
+    }
+
+    /// The emitted view and complement segments of a complete run, the
+    /// complements decoded from their canonical bytes.
+    fn emitted(store: &MemoryStore, run: &GraphRestrictRun, input: &Input) -> SegmentedRestrict {
+        let identity = run.run.expect("a run identity");
+        let (mut views, mut complements) = (Vec::new(), Vec::new());
+        for spec in input.partition.specs() {
+            let emitted =
+                read_emitted(store, identity, &input.partition, spec.id).expect("emitted segment");
+            complements.push(
+                GraphComplementSegment::from_canonical_bytes(&emitted.complement, spec.id)
+                    .expect("the emitted complement decodes"),
+            );
+            views.push(emitted.view);
+        }
+        SegmentedRestrict { views, complements }
+    }
+
+    /// The outcome of one case.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Outcome {
+        Complete,
+        Refused,
+    }
+
+    /// Check the law on one case: the complete run's segments are, byte for
+    /// byte, the reference definition's, they assemble to whole-state get,
+    /// and every cancellation point resumes to the uninterrupted run.
+    fn check_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> Outcome {
+        let lens = lens_of(schema, migration);
+        let input = input(graph, partition);
+        let mut store = MemoryStore::default();
+        let baseline = run(&lens, &input, Budget::unlimited(), &mut store, None);
+        let reference_segments =
+            reference::partition_graph(graph, partition).expect("reference split");
+        let expected = reference::restrict_graph_segmented(
+            schema,
+            schema,
+            migration,
+            &NoValueLayer,
+            &reference_segments,
+            partition,
+        );
+        let whole = graph_lens::get(&lens, &prod_graph(graph));
+        let outcome = match (&baseline.report.status, expected) {
+            (RunStatus::Complete { manifest }, Ok(expected)) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let output = emitted(&store, &baseline, &input);
+                let view_schema =
+                    reference::Digest(lens.identity(ComplementShape::Graph).target_schema.0);
+                for ((view, complement), (expected_view, expected_complement)) in
+                    output.views.iter().zip(&output.complements).zip(&expected)
+                {
+                    assert_eq!(
+                        AnySegment::Graph(view.clone())
+                            .canonical_bytes(&Digest(view_schema.0), &input.partition)
+                            .expect("view bytes"),
+                        reference::canonical_segment_bytes(
+                            &reference::AnySegment::Graph(expected_view.clone()),
+                            view_schema,
+                            partition,
+                        )
+                        .expect("reference view bytes"),
+                        "view segment of {graph:?} under {partition:?}"
+                    );
+                    assert_eq!(
+                        complement.canonical_bytes().expect("complement bytes"),
+                        reference::canonical_complement_segment_bytes(
+                            &reference::AnyComplementSegment::Graph(expected_complement.clone()),
+                        )
+                        .expect("reference complement bytes"),
+                        "complement segment of {graph:?} under {partition:?}"
+                    );
+                }
+                let (view, complement) = output
+                    .assemble(&input.partition)
+                    .expect("the emitted segments assemble");
+                let (whole_view, whole_complement) = whole.expect("whole-state get accepts");
+                assert_eq!(
+                    ref_graph(&view),
+                    ref_graph(&whole_view),
+                    "assembled view of {graph:?}"
+                );
+                assert_eq!(
+                    ref_complement(&complement),
+                    ref_complement(&whole_complement),
+                    "assembled complement of {graph:?}"
+                );
+                Outcome::Complete
+            }
+            (RunStatus::Failed(_), Err(reference::SegmentedRestrictRefusal::Restrict { .. })) => {
+                assert!(whole.is_err(), "whole-state get refuses {graph:?}");
+                Outcome::Refused
+            }
+            (status, expected) => {
+                panic!(
+                    "segmented get disagrees on {graph:?} under {partition:?}: {status:?} / {expected:?}"
+                )
+            }
+        };
+        check_resumption(&lens, &input, &baseline);
+        outcome
+    }
+
+    /// Stopping the run of `lens` over `input` at every cancellation point
+    /// and resuming it against the same store ends as `baseline`, the
+    /// uninterrupted run, reusing every task the stopped run committed.
+    fn check_resumption(lens: &Lens, input: &Input, baseline: &GraphRestrictRun) {
+        let finished = baseline.report.progress.tasks_done;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            let mut store = MemoryStore::default();
+            let stopped = run(lens, input, Budget::unlimited(), &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(lens, input, Budget::unlimited(), &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+            assert_eq!(resumed.report.orphans, Vec::new());
+        }
+    }
+
+    /// Every 97th case of the segmented restriction carrier, read as a lens
+    /// over its schema: the segmented get agrees with the reference
+    /// definition segment by segment, assembles to whole-state get, and
+    /// resumes from every cancellation point.
+    #[test]
+    fn segmented_graph_get_assembles_to_whole_state_get_and_resumes_from_every_cancellation_point()
+    {
+        let (mut complete, mut refused) = (0_u64, 0_u64);
+        for case in segmented_restrict_cases().step_by(97) {
+            match check_case(&case.schema, &case.migration, &case.graph, &case.partition) {
+                Outcome::Complete => complete += 1,
+                Outcome::Refused => refused += 1,
+            }
+        }
+        assert_eq!(complete + refused, 1_323);
+        assert!(
+            complete > 0 && refused > 0,
+            "{complete} complete, {refused} refused"
+        );
+    }
+
+    /// A budget admitting fewer segments than the partition holds declines
+    /// the segmented get before any task, and a lens whose restrict carries
+    /// a survival predicate is declined with a global residual.
+    #[test]
+    fn segmented_graph_get_declines_an_exceeded_budget_and_an_expression_before_any_task() {
+        let case = segmented_restrict_cases()
+            .find(|case| case.partition.specs.len() == 3)
+            .expect("a three-segment case");
+        let lens = lens_of(&case.schema, &case.migration);
+        let input = input(&case.graph, &case.partition);
+        let mut store = MemoryStore::default();
+        let budget = Budget {
+            affected_segments: 2,
+            ..Budget::unlimited()
+        };
+        let declined = run(&lens, &input, budget, &mut store, None);
+        assert!(
+            matches!(
+                declined.report.status,
+                RunStatus::Residual(Residual::BudgetExceeded { .. })
+            ),
+            "{:?}",
+            declined.report.status
+        );
+        assert_eq!(declined.report.progress.tasks_done, 0);
+
+        let mut predicated = lens;
+        let vertex = predicated
+            .src_schema
+            .vertices
+            .keys()
+            .next()
+            .cloned()
+            .expect("a vertex");
+        predicated.compiled.conditional_survival.insert(
+            vertex,
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let mut store = MemoryStore::default();
+        let global = run(&predicated, &input, Budget::unlimited(), &mut store, None);
+        assert!(
+            matches!(
+                global.report.status,
+                RunStatus::Residual(Residual::Global { .. })
+            ),
+            "{:?}",
+            global.report.status
+        );
+        assert_eq!(global.report.progress.tasks_done, 0);
+    }
+
+    const ANCHORS: [&str; 3] = ["a", "b", "c"];
+
+    /// A generated case over a three-vertex schema with every edge and loop:
+    /// the schema, a survival classification, a graph and a partition giving
+    /// each node to one of `segments` segments with its own allocation range.
+    fn generated(
+        anchors: &[usize],
+        edges: &[(usize, usize)],
+        owners: &[u32],
+        segments: u32,
+        surviving: u8,
+    ) -> (RefSchema, RefMigration, RefGraph, reference::Partition) {
+        let mut schema = RefSchema::default();
+        for anchor in ANCHORS {
+            schema = schema.vertex(anchor, "record");
+        }
+        for src in ANCHORS {
+            for tgt in ANCHORS {
+                schema = schema.edge(src, tgt, "prop", Some(&format!("{src}{tgt}")));
+            }
+        }
+        let survivors: Vec<&str> = (0..3)
+            .filter(|i| surviving & (1 << i) != 0)
+            .map(|i| ANCHORS[i])
+            .collect();
+        let migration = RefMigration {
+            surviving_verts: survivors.iter().map(|a| (*a).to_owned()).collect(),
+            surviving_edges: schema
+                .edges
+                .iter()
+                .filter(|e| {
+                    survivors.contains(&e.src.as_str()) && survivors.contains(&e.tgt.as_str())
+                })
+                .cloned()
+                .collect(),
+            ..RefMigration::default()
+        };
+        let n = anchors.len();
+        let mut graph = RefGraph::default();
+        for (id, anchor) in (0_u32..).zip(anchors) {
+            graph
+                .nodes
+                .insert(id, super::RefNode::new(id, ANCHORS[*anchor]));
+        }
+        for (id, (src, tgt)) in (0_u32..).zip(edges.iter().filter(|(s, t)| *s < n && *t < n)) {
+            let (a, b) = (ANCHORS[anchors[*src]], ANCHORS[anchors[*tgt]]);
+            graph.edges.insert(
+                id,
+                super::RefGEdge {
+                    src: u32::try_from(*src).expect("a small index"),
+                    tgt: u32::try_from(*tgt).expect("a small index"),
+                    label: super::RefSEdge::new(a, b, "prop", Some(&format!("{a}{b}"))),
+                    position: None,
+                },
+            );
+        }
+        let partition = reference::Partition {
+            shape: reference::InstanceShapeKind::Graph,
+            specs: (0..segments)
+                .map(|segment| {
+                    let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * segment;
+                    let range = reference::IdRange { lo, hi: lo + 9 };
+                    let mut nodes: Vec<reference::IdRange> = (0_u32..)
+                        .zip(owners)
+                        .take(n)
+                        .filter(|(_, owner)| **owner % segments == segment)
+                        .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                        .collect();
+                    nodes.push(range);
+                    reference::SegmentSpec {
+                        id: reference::SegmentId(segment),
+                        nodes,
+                        alloc_nodes: Some(range),
+                        alloc_edges: Some(range),
+                    }
+                })
+                .collect(),
+        };
+        (schema, migration, graph, partition)
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                generated(&anchors, &edges, &owners, segments, surviving);
+            let outcome = check_case(&schema, &migration, &graph, &partition);
+            proptest::prop_assert!(matches!(outcome, Outcome::Complete | Outcome::Refused));
+        }
+    }
+}
