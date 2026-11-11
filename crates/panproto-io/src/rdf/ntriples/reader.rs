@@ -285,11 +285,21 @@ impl<'a> Reader<'a> {
         })
     }
 
-    fn document(&self, root: &Cursor<'_>) -> Result<Vec<Triple>, RdfReadError> {
+    /// The triples of the document, in order. When the parser could not
+    /// read the document from `recovery` on, the children that end before
+    /// it are still walked, so a fault there is reported first.
+    fn document(
+        &self,
+        root: &Cursor<'_>,
+        recovery: Option<usize>,
+    ) -> Result<Vec<Triple>, RdfReadError> {
         let mut triples = Vec::new();
         let mut cursor = 0;
         let mut previous_triple_end: Option<usize> = None;
         for child in self.tree.children(root) {
+            if recovery.is_some_and(|offset| child.end > offset) {
+                break;
+            }
             if let Some(i) = self.text[cursor..child.start]
                 .find(|c: char| !matches!(c, ' ' | '\t' | '\n' | '\r'))
             {
@@ -312,6 +322,9 @@ impl<'a> Reader<'a> {
                 _ => return Err(not_in_format(&child)),
             }
             cursor = child.end;
+        }
+        if let Some(offset) = recovery {
+            return Err(RdfReadError::new(offset, RdfReadErrorKind::Syntax));
         }
         if let Some(i) = self.text[cursor..].find(|c: char| !matches!(c, ' ' | '\t' | '\n' | '\r'))
         {
@@ -347,8 +360,8 @@ impl NTriplesCodec {
     ///
     /// Returns [`RdfReadError`] naming the byte offset of the first fault
     /// the reader meets: invalid UTF-8, then a raw U+0000 or U+007F (which
-    /// the grammar cannot read in a string), then the first parser recovery
-    /// marker, then the first fault in document order.
+    /// the grammar cannot read in a string), then the first fault in
+    /// document order, a place the grammar cannot read included.
     pub fn read(&self, input: &[u8]) -> Result<Vec<Triple>, RdfReadError> {
         let text = std::str::from_utf8(input)
             .map_err(|e| RdfReadError::new(e.valid_up_to(), RdfReadErrorKind::NotUtf8))?;
@@ -366,22 +379,23 @@ impl NTriplesCodec {
             .parse(input, "input.nt")
             .map_err(|_| RdfReadError::new(0, RdfReadErrorKind::Syntax))?;
         let tree = Tree { cst: &cst };
-        if let Some(offset) = tree.first_recovery() {
-            return Err(RdfReadError::new(offset, RdfReadErrorKind::Syntax));
-        }
+        let recovery = tree.first_recovery();
         let root = cst
             .vertices
             .iter()
             .find(|(_, v)| v.kind.as_ref() == "document")
             .map(|(name, _)| tree.cursor(name.as_ref()));
         let Some(root) = root else {
+            if let Some(offset) = recovery {
+                return Err(RdfReadError::new(offset, RdfReadErrorKind::Syntax));
+            }
             return if text.trim_matches([' ', '\t', '\n', '\r']).is_empty() {
                 Ok(Vec::new())
             } else {
                 Err(RdfReadError::new(0, RdfReadErrorKind::Syntax))
             };
         };
-        Reader { text, tree }.document(&root)
+        Reader { text, tree }.document(&root, recovery)
     }
 }
 

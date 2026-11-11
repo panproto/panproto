@@ -4,7 +4,7 @@
 //! object, over three kinds of term: IRIs, blank nodes and literals (RDF 1.1
 //! Concepts and Abstract Syntax, Sec 3). Every RDF protocol of this module
 //! reads its documents into one graph encoding, the *RDF graph encoding*,
-//! fixed by [`graph_schema`]:
+//! fixed by [`graph_schema`](crate::rdf::graph_schema):
 //!
 //! - one `iri` node per distinct IRI, holding the IRI as a string;
 //! - one `blank` node per distinct blank node of the document, holding the

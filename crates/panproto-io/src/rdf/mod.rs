@@ -666,7 +666,10 @@ fn check_node(graph: &GInstance, id: u32) -> Result<OutEdges<'_>, RdfWriteError>
                     },
                 ));
             }
-            let lang_string = node_string(&graph.nodes()[&datatype])? == RDF_LANG_STRING;
+            let lang_string = matches!(
+                &graph.nodes()[&datatype].value,
+                Some(FieldPresence::Present(Value::Str(iri))) if iri == RDF_LANG_STRING
+            );
             if lang_string != (tags == 1) {
                 return Err(RdfWriteError::new(id, RdfWriteErrorKind::LanguageDatatype));
             }

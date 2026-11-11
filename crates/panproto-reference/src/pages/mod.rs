@@ -5,6 +5,7 @@ pub mod kan_extensions;
 pub mod keys_and_registration;
 pub mod lenses;
 mod lexical_formats;
+pub mod rdf_formats;
 pub mod representation;
 pub mod resolution;
 pub mod restrict_and_contraction;
