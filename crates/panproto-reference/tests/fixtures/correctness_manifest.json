@@ -5045,6 +5045,12 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_restrict",
               "test": "segmented_randomized::segmented_restrict_matches_the_reference_on_generated_partitions"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::a_segmented_restrict_of_a_segmented_view_agrees_with_the_reference_and_assembles_to_whole_state_restrict"
             }
           ]
         },
