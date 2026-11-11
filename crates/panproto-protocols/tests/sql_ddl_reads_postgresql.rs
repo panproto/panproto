@@ -155,6 +155,26 @@ fn keys_are_named_as_postgresql_names_them_and_imply_not_null() {
 }
 
 #[test]
+fn a_unique_index_reads_the_default_nulls_distinct_and_refuses_nulls_not_distinct() {
+    let schema = read(
+        "CREATE TABLE t (a int, b int);\n\
+         CREATE UNIQUE INDEX t_a ON t (a) NULLS DISTINCT;\n\
+         CREATE UNIQUE INDEX ON t (a, b) NULLS DISTINCT;",
+    );
+    let mut ids: Vec<&str> = schema.declarations.keys["t"]
+        .iter()
+        .map(|k| k.id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, ["t_a", "t_a_b_idx"]);
+    assert_round_trip(&schema);
+    let ddl = "CREATE TABLE t (a int);\nCREATE UNIQUE INDEX ON t (a) NULLS NOT DISTINCT;";
+    let error = refusal(ddl);
+    assert_eq!(error.class(), "Unsupported", "{error}");
+    assert!(ddl[error.offset()..].starts_with("NULLS NOT"), "{error}");
+}
+
+#[test]
 fn a_foreign_key_resolves_to_the_key_its_columns_name() {
     let schema = read(
         "CREATE TABLE p (x int, y text, PRIMARY KEY (x, y));\n\
