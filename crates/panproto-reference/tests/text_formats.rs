@@ -3,8 +3,7 @@
 //! order, with the bounded scopes' closed-form counts.
 
 use panproto_reference::enumerate::text_formats::{
-    toml_documents, toml_documents_count, yaml_directive_sequences,
-    yaml_directive_sequences_count,
+    toml_documents, toml_documents_count, yaml_directive_sequences, yaml_directive_sequences_count,
 };
 use panproto_reference::pages::text_formats::toml::{Item, KeyRefusal, Statement, resolve_keys};
 use panproto_reference::pages::text_formats::yaml::{Directive, DirectiveRefusal, read_directives};

@@ -33,9 +33,5 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     registry.register_optional(UnifiedCodec::yaml("yaml"));
     registry.register_optional(UnifiedCodec::toml("toml"));
     registry.register_optional(UnifiedCodec::csv("csv"));
-    registry.register_optional(UnifiedCodec::new(
-        "tsv",
-        FormatKind::Tsv,
-        NativeRepr::Table,
-    ));
+    registry.register_optional(UnifiedCodec::new("tsv", FormatKind::Tsv, NativeRepr::Table));
 }

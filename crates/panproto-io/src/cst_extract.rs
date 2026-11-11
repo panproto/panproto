@@ -2193,7 +2193,9 @@ impl<'a> TomlTable<'a> {
     }
 
     fn position(&self, key: &str) -> Option<usize> {
-        self.entries.iter().position(|(existing, _)| existing == key)
+        self.entries
+            .iter()
+            .position(|(existing, _)| existing == key)
     }
 }
 
@@ -2599,9 +2601,7 @@ fn toml_define_pair<'a>(
             toml_offset_text(cst, pair)
         )));
     }
-    current
-        .entries
-        .push((last.clone(), TomlItem::Value(value)));
+    current.entries.push((last.clone(), TomlItem::Value(value)));
     Ok(())
 }
 
@@ -4878,8 +4878,10 @@ pub fn extract_yaml_cst_with_protocol(
 fn check_yaml_directives(cst: &Schema, document: &str) -> Result<(), CstCodecError> {
     let mut version_directive: Option<&Name> = None;
     for child in cst_children_by_edge_kind(cst, document, "child_of") {
-        let offset = cst_byte_offset(cst, child)
-            .map_or_else(|| "an unrecorded byte".to_owned(), |byte| format!("byte {byte}"));
+        let offset = cst_byte_offset(cst, child).map_or_else(
+            || "an unrecorded byte".to_owned(),
+            |byte| format!("byte {byte}"),
+        );
         match cst_vertex_kind(cst, child).as_deref() {
             Some("yaml_directive") => {
                 if version_directive.replace(child).is_some() {
