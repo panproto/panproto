@@ -28,10 +28,16 @@ pub mod toml {
         /// The value of the pair at this statement index.
         Value(usize),
         /// A table: its keys and their items in first-definition order.
-        Table(Vec<(String, Item)>),
+        Table(Vec<(String, Self)>),
         /// An array of tables, element by element.
-        Tables(Vec<Vec<(String, Item)>>),
+        Tables(Vec<Vec<(String, Self)>>),
     }
+
+    /// A table's keys and their items, in first-definition order.
+    pub type Entries = Vec<(String, Item)>;
+
+    /// The root table, or the index of the first refused statement and why.
+    pub type Resolution = Result<Entries, (usize, KeyRefusal)>;
 
     /// Why a statement is refused.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,9 +164,7 @@ pub mod toml {
     /// `ArrayConflict`. An empty key list is no statement the grammar
     /// admits and gives `None`.
     #[must_use]
-    pub fn resolve_keys(
-        statements: &[Statement],
-    ) -> Option<Result<Vec<(String, Item)>, (usize, KeyRefusal)>> {
+    pub fn resolve_keys(statements: &[Statement]) -> Option<Resolution> {
         let mut state = State {
             kinds: BTreeMap::new(),
             keys: BTreeMap::new(),

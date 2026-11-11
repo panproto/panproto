@@ -2572,15 +2572,14 @@ fn toml_define_pair<'a>(
     };
     let mut current = table;
     for (key, key_vertex) in prefix {
-        let index = if let Some(index) = current.position(key) {
-            index
-        } else {
+        let found = current.position(key);
+        let index = found.unwrap_or_else(|| {
             current.entries.push((
                 key.clone(),
                 TomlItem::Table(TomlTable::new(key_vertex, TomlTableOrigin::Dotted)),
             ));
             current.entries.len() - 1
-        };
+        });
         match &mut current.entries[index].1 {
             TomlItem::Table(next) if next.origin == TomlTableOrigin::Dotted => current = next,
             _ => {
@@ -2632,15 +2631,14 @@ fn toml_open_header<'a, 'b>(
     };
     let mut current = root;
     for (key, key_vertex) in prefix {
-        let index = if let Some(index) = current.position(key) {
-            index
-        } else {
+        let found = current.position(key);
+        let index = found.unwrap_or_else(|| {
             current.entries.push((
                 key.clone(),
                 TomlItem::Table(TomlTable::new(key_vertex, TomlTableOrigin::Implicit)),
             ));
             current.entries.len() - 1
-        };
+        });
         current = match &mut current.entries[index].1 {
             TomlItem::Table(next) => next,
             TomlItem::TableArray(elements) => elements
@@ -2656,14 +2654,12 @@ fn toml_open_header<'a, 'b>(
 
     let existing = current.position(last);
     if array {
-        let index = if let Some(index) = existing {
-            index
-        } else {
+        let index = existing.unwrap_or_else(|| {
             current
                 .entries
                 .push((last.clone(), TomlItem::TableArray(Vec::new())));
             current.entries.len() - 1
-        };
+        });
         let TomlItem::TableArray(elements) = &mut current.entries[index].1 else {
             return Err(refuse("appends to a key that is not an array of tables"));
         };
