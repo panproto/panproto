@@ -4867,7 +4867,7 @@ mod segmented_witnesses {
                 &mut |_| {},
             );
             assert_eq!(resumed.report.tasks_reused, fail_at - 1);
-            assert!(resumed.report.orphans.is_empty());
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
             assert_eq!(resumed.manifest, baseline.manifest);
             assert_eq!(
                 format!("{:?}", resumed.report.status),
