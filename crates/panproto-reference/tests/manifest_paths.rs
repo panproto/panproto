@@ -30,10 +30,10 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .values()
         .flat_map(|page| &page.laws)
         .collect();
-    assert_eq!(laws.len(), 221);
+    assert_eq!(laws.len(), 222);
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        408
+        409
     );
 
     let value_io_cst_presentation = manifest.pages["value-io"]

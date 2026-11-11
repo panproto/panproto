@@ -1,10 +1,10 @@
 # Segments
 
-A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The first ten laws below cover the segment foundation; the eleventh runs graph restriction segment by segment, the twelfth runs it as a checkpointed sequence of tasks that resumes after any interruption, the thirteenth fixes the record frames through which that run seals its output without holding a view segment, and the fourteenth reads a complement segment back from the bytes that run writes. Storage backends and segmented edits belong to later components.
+A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The first ten laws below cover the segment foundation; the eleventh runs graph restriction segment by segment, the twelfth runs it as a checkpointed sequence of tasks that resumes after any interruption, the thirteenth fixes the record frames through which that run seals its output without holding a view segment, the fourteenth reads a complement segment back from the bytes that run writes, and the fifteenth runs the get of a graph lens as that run. Storage backends and segmented edits belong to later components.
 
 Let $I$ be a finite tree, table, or graph instance, and let $P$ be a partition for the same shape. We write $P(n)$ for the segment that owns node or row identifier $n$, $\operatorname{split}_P(I)$ for partitioning, and $\operatorname{glue}_P$ for checked assembly. An edge is owned by the owner of its source endpoint. The finite differential carrier contains 25 labelled graphs and all 290 assignments of their nodes to two or three labelled segments, together with two fan-bearing trees and all 40 assignments of their tree and fan nodes to two segments; one crossing-boundary witness for each instance shape, and one for each fan-bearing tree, checks the shape-specific representation.
 
-First, the page establishes ownership, boundary, and assembly laws. Second, it fixes canonical artifacts, the storage vocabulary, and typed refusals. Third, it states the validation and allocation boundaries that the segment core must preserve. Fourth, it shows that graph restriction run segment by segment, with one boundary exchange and a reachability summary, assembles to whole-state restriction, that the checkpointed run of it reports and resumes as its reference runner does, that the record frames its Seal reads decode to the records they encode, and that the complement segments it writes decode to the complements they encode.
+First, the page establishes ownership, boundary, and assembly laws. Second, it fixes canonical artifacts, the storage vocabulary, and typed refusals. Third, it states the validation and allocation boundaries that the segment core must preserve. Fourth, it shows that graph restriction run segment by segment, with one boundary exchange and a reachability summary, assembles to whole-state restriction, that the checkpointed run of it reports and resumes as its reference runner does, that the record frames its Seal reads decode to the records they encode, that the complement segments it writes decode to the complements they encode, and that the get of a graph lens run this way assembles to its whole-state get.
 
 ## Ownership is a total partial function on declared ranges {#L-segments-1}
 
@@ -555,4 +555,47 @@ The layout is the one `canonical_bytes` documents: the version and shape tag, th
 - File: `crates/panproto-inst/src/segment/reader.rs`
 - File: `crates/panproto-inst/src/segment/bytes.rs`
 - File: `crates/panproto-inst/tests/reference_restrict.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Segmented graph get assembles to whole-state get {#L-segments-15}
+
+### Statement
+
+Let $\ell = (m, S, T)$ be a graph lens whose plan $\pi$ compiles and carries no expression, and let $S_\bullet$, $P$, the manifest $M$ with trusted digest $d$ and the budget $B$ satisfy the hypotheses of [L-segments-12](#L-segments-12) for $\pi$. Then `graph_lens::get_segmented` of $\ell$ over $M$, $d$ and $B$ is the run of [L-segments-12](#L-segments-12) for $\pi$ with lens identity and view schema those of the graph identity envelope of $\ell$. In particular:
+
+1. its run identity is a function of $\ell$, $d$ and $P$ alone;
+2. when the run completes, each segment $i$ emits the view and complement segments the reference definition of [L-segments-11](#L-segments-11) gives segment $i$, byte for byte, and assembling the emitted view segments with the complement segments decoded from their bytes ([L-segments-14](#L-segments-14)) gives
+$$\operatorname{assemble}_P(V, C) = \operatorname{get}_\ell(\operatorname{glue}_P(S_\bullet)),$$
+the whole-state get of the glued graph without its identity stamp;
+3. when whole-state get refuses $\operatorname{glue}_P(S_\bullet)$ with a restrict refusal, the run fails with the refusal of [L-segments-11](#L-segments-11);
+4. a run stopped after any number $c$ of tasks and resumed against the same store reuses $\min(c, k)$ tasks, where $k$ is the number the uninterrupted run completes, and ends with the uninterrupted run's status and manifest and no orphan.
+
+### Outside the domain
+
+A lens whose plan does not compile returns the compilation error and runs nothing. A lens whose restrict carries an expression (a survival predicate, a term assignment or a field transform other than renaming, dropping, adding or keeping fields) is declined with `Residual::Global` before any task, and a budget below the partition's segment count or a record's working-set estimate is declined before any task, as in [L-segments-12](#L-segments-12). The identity stamp is not part of a complement segment, which is filed under its run; a caller binds the assembled complement to $\ell$ with the envelope whole-state get writes.
+
+### Definitions used
+
+$\operatorname{get}_\ell$ is whole-state graph get ([Lenses](lenses.md)): graph restriction along $\pi$, its complement stamped with the graph identity envelope of $\ell$. The graph identity envelope names the lens digest and the target schema digest, which serve as the run's lens identity and view schema.
+
+### Proof
+
+1. Get of $\ell$ is graph restriction along $\pi$ followed by the identity stamp, and `get_segmented` compiles the same $\pi$ from the same lens and passes it to the checkpointed run with the envelope's lens and target schema digests. Item 1 follows from the run identity of [L-segments-12](#L-segments-12), whose inputs are those digests, $d$ and $P$.
+2. By [L-segments-12](#L-segments-12) a complete run emits the reference definition's segments, and by [L-segments-14](#L-segments-14) decoding the emitted complement bytes recovers each complement segment. By [L-segments-11](#L-segments-11) the assembly of those segments is whole-state restriction of the glued graph, which is get of $\ell$ before its stamp.
+3. Refusals and the declines before any task are those of the run, by [L-segments-11](#L-segments-11) and [L-segments-12](#L-segments-12), and whole-state get returns the restrict refusal of whole-state restriction.
+4. Resumption is item 2 of [L-segments-12](#L-segments-12).
+5. The finite certificate takes every 97th case of the carrier of [L-segments-11](#L-segments-11), $1{,}323$ cases read as lenses over their schemas; it compares each completing run's emitted segments with the reference definition byte for byte and its assembly with whole-state get, checks a refusal against whole-state get, and stops and resumes each run at every cancellation point. Witnesses cover the budget decline and the decline of a survival predicate.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-graph-get`
+- Reference: `panproto_reference::segment::restrict_graph_segmented`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_restrict_cases; bound: every 97th case, cases=1323, cancellation points=4n+3 per case`
+- Exhaustive differential test: `segmented_graph_get::segmented_graph_get_assembles_to_whole_state_get_and_resumes_from_every_cancellation_point; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_graph_get::segmented_graph_get_assembles_to_whole_state_get_and_resumes_from_every_cancellation_point)'`
+- Property differential test: `segmented_graph_get::segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_graph_get::segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions)'`
+- Property scope: `graphs of 2 to 8 nodes over a three-vertex schema with every edge and loop, up to 14 edges, every survival choice, owners from 2 to 4 segments; emitted segments against the reference, assembly against whole-state get, every cancellation point resumed; 64 cases`
+- Production certificate: `segmented_graph_get::segmented_graph_get_declines_an_exceeded_budget_and_an_expression_before_any_task; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_graph_get::segmented_graph_get_declines_an_exceeded_budget_and_an_expression_before_any_task)'`
+- File: `crates/panproto-lens/src/graph_lens.rs`
+- File: `crates/panproto-inst/src/segment/runner.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`

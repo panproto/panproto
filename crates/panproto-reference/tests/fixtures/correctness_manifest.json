@@ -5131,6 +5131,27 @@
               "test": "segmented::a_complement_segment_with_every_entry_kind_decodes_and_malformed_tags_are_refused"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-graph-get",
+          "anchor": "L-segments-15",
+          "references": [
+            "panproto_reference::segment::restrict_graph_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_get::segmented_graph_get_assembles_to_whole_state_get_and_resumes_from_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_get::segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions"
+            }
+          ]
         }
       ]
     },
