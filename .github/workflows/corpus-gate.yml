@@ -163,6 +163,22 @@ jobs:
             binary: reference_lenses
             test: graph_edit_lens_differential::graph_edit_lens_law_certificate
             shard: 3/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 3/4
           - package: panproto-inst
             binary: reference_edits
             test: graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope

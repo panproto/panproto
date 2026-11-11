@@ -18768,18 +18768,18 @@ mod segmented_graph_put {
         );
     }
 
-    /// Every 97th case of the segmented restriction carrier, read as a lens
-    /// over its schema, with every edit of its segmented view: segmented put
-    /// agrees with the reference definition segment by segment and, glued,
-    /// with whole-state put of the glued view, refusing exactly when it
-    /// refuses and with the same violation; GetPut and PutGet hold over
-    /// segments where they hold whole.
-    #[test]
-    fn segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put() {
+    /// Run [`check_case`] on the cases of every 97th case of the segmented
+    /// restriction carrier whose position among them `select` admits, and
+    /// return how many there are and how many were selected.
+    fn sweep(select: impl Fn(usize) -> bool) -> (usize, usize, Tally) {
         let mut tally = Tally::default();
-        let mut cases = 0_u64;
-        for case in segmented_restrict_cases().step_by(97) {
+        let (mut cases, mut selected) = (0, 0);
+        for (position, case) in segmented_restrict_cases().step_by(97).enumerate() {
             cases += 1;
+            if !select(position) {
+                continue;
+            }
+            selected += 1;
             check_case(
                 &case.schema,
                 &case.migration,
@@ -18788,7 +18788,10 @@ mod segmented_graph_put {
                 &mut tally,
             );
         }
-        assert_eq!(cases, 1_323);
+        (cases, selected, tally)
+    }
+
+    fn assert_every_outcome(tally: &Tally) {
         assert!(
             tally.restored > 0 && tally.refused > 0 && tally.crossing > 0,
             "{} restored, {} refused, {} crossing, {} refused by the next get",
@@ -18797,6 +18800,32 @@ mod segmented_graph_put {
             tally.crossing,
             tally.get_refused
         );
+    }
+
+    /// Every 97th case of the segmented restriction carrier, read as a lens
+    /// over its schema, with every edit of its segmented view: segmented put
+    /// agrees with the reference definition segment by segment and, glued,
+    /// with whole-state put of the glued view, refusing exactly when it
+    /// refuses and with the same violation; GetPut and PutGet hold over
+    /// segments where they hold whole. `PANPROTO_TEST_SHARD=i/n` restricts
+    /// the check to the cases at positions `i` modulo `n`.
+    #[test]
+    fn segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put() {
+        let shard = super::LawShard::from_environment();
+        let (cases, selected, tally) =
+            sweep(|position| shard.is_none_or(|shard| shard.contains(position)));
+        assert_eq!(cases, 1_323);
+        assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
+        assert_every_outcome(&tally);
+    }
+
+    /// The eighth of the certificate's cases at positions divisible by eight,
+    /// checked on every run.
+    #[test]
+    fn segmented_graph_put_slice_agrees_with_the_reference_on_every_eighth_case() {
+        let (cases, selected, tally) = sweep(|position| position % 8 == 0);
+        assert_eq!((cases, selected), (1_323, 166));
+        assert_every_outcome(&tally);
     }
 
     proptest::proptest! {
