@@ -2904,12 +2904,13 @@ mod segmented {
     };
     use panproto_inst::InstanceShapeKind;
     use panproto_inst::segment::{
-        GraphComplementSegment, GraphSegment, IdRange, Partition, SegmentId, SegmentSpec,
-        SegmentedRestrictError, graph_restrict_segmented, partition_graph,
+        GraphComplementSegment, GraphSegment, IdRange, Partition, SegmentError, SegmentId,
+        SegmentSpec, SegmentedRestrictError, assemble_graph, graph_restrict_segmented,
+        partition_graph,
     };
     use panproto_inst::{EdgeId, GEdge};
     use panproto_reference::enumerate::segments::{
-        segmented_restrict_case_count, segmented_restrict_cases,
+        SEGMENTED_RESTRICT_ALLOCATION_BASE, segmented_restrict_case_count, segmented_restrict_cases,
     };
     use panproto_reference::segment as reference;
 
@@ -3036,6 +3037,18 @@ mod segmented {
         }
     }
 
+    /// A production segment refusal as the reference writes it, where an
+    /// edge id is a bare `u32`.
+    fn production_segment_error(error: &SegmentError) -> String {
+        match error {
+            SegmentError::EdgeIdOutsideAllocation { edge, segment } => format!(
+                "EdgeIdOutsideAllocation {{ edge: {}, segment: {segment:?} }}",
+                edge.0
+            ),
+            other => format!("{other:?}"),
+        }
+    }
+
     /// The outcome of one segmented case.
     #[derive(Debug, PartialEq, Eq)]
     pub enum Outcome {
@@ -3134,7 +3147,7 @@ mod segmented {
                 Err(reference::SegmentedRestrictRefusal::Segment(expected)),
             ) => {
                 assert_eq!(
-                    format!("{error:?}"),
+                    production_segment_error(&error),
                     format!("{expected:?}"),
                     "segment refusal of {graph:?}"
                 );
@@ -3182,6 +3195,81 @@ mod segmented {
             "both outcomes occur: {counts:?}"
         );
     }
+
+    /// Every survival classification of `schema` without a conditional
+    /// vertex, with its compiled plan.
+    fn plans_of(schema: &RefSchema) -> Vec<(RefMigration, RestrictPlan)> {
+        use panproto_reference::enumerate::restrict_and_contraction::survival_classifications;
+        let compiled = prod_schema(schema);
+        survival_classifications(schema)
+            .into_iter()
+            .filter(|migration| migration.conditional.is_empty())
+            .map(|migration| {
+                let plan = RestrictPlan::compile(&compiled, &compiled, &prod_migration(&migration))
+                    .expect("release plans compile");
+                (migration, plan)
+            })
+            .collect()
+    }
+
+    /// Every 97th case of the carrier whose segmented restrict completes:
+    /// its view family, holding the edge ids its run allocated, is the
+    /// source of a second segmented restrict under the same partition along
+    /// every survival classification of the schema, which agrees with the
+    /// reference and assembles to whole-state restrict of the glued view.
+    #[test]
+    fn a_segmented_restrict_of_a_segmented_view_agrees_with_the_reference_and_assembles_to_whole_state_restrict()
+     {
+        let mut plans: Option<(RefSchema, Vec<(RefMigration, RestrictPlan)>)> = None;
+        let (mut first, mut agreed, mut refused, mut allocated) = (0_u64, 0_u64, 0_u64, 0_u64);
+        for case in segmented_restrict_cases().step_by(97) {
+            if !matches!(&plans, Some((schema, _)) if *schema == case.schema) {
+                plans = Some((case.schema.clone(), plans_of(&case.schema)));
+            }
+            let Some((_, plans)) = &plans else {
+                unreachable!("the plans were just compiled")
+            };
+            let partition = prod_partition(&case.partition);
+            let segments =
+                partition_graph(&prod_graph(&case.graph), &partition).expect("production split");
+            let Some((_, plan)) = plans.iter().find(|(m, _)| *m == case.migration) else {
+                unreachable!("the case's migration is a survival classification")
+            };
+            let Ok(output) = graph_restrict_segmented(plan, &segments, &partition) else {
+                continue;
+            };
+            first += 1;
+            let glued = assemble_graph(output.views.clone(), &partition).expect("the views glue");
+            if glued
+                .edges()
+                .keys()
+                .any(|id| id.0 >= SEGMENTED_RESTRICT_ALLOCATION_BASE)
+            {
+                allocated += 1;
+            }
+            let glued = ref_graph(&glued);
+            for (migration, second) in plans {
+                match check_case(
+                    &case.schema,
+                    &case.schema,
+                    migration,
+                    second,
+                    &glued,
+                    &case.partition,
+                ) {
+                    Outcome::Agreed => agreed += 1,
+                    Outcome::Refused => refused += 1,
+                }
+            }
+        }
+        // A release schema has three vertices and no conditional one, so
+        // eight survival classifications.
+        assert_eq!(agreed + refused, 8 * first);
+        assert!(
+            first > 0 && allocated > 0 && agreed > 0,
+            "first runs {first}, with an allocated edge id {allocated}, second runs agreed {agreed}, refused {refused}"
+        );
+    }
 }
 
 /// The checkpointed run of segmented graph restriction against the
@@ -3204,7 +3292,8 @@ mod segmented_runner {
     use std::collections::BTreeMap;
 
     const SOURCE_SCHEMA: [u8; 32] = [1; 32];
-    const VIEW_SCHEMA: [u8; 32] = [2; 32];
+    /// The schema digest of a run's view segments.
+    pub const VIEW_SCHEMA: [u8; 32] = [2; 32];
     const LENS: [u8; 32] = [3; 32];
 
     /// A report in a form both implementations project to.
@@ -3946,12 +4035,33 @@ mod segmented_witnesses {
                 }
             ))
         ));
-        // An edge range below an edge id in use.
+        // An edge id at or above the least edge range that lies outside the
+        // range of the segment holding it: edge 3 leaves node 3, which
+        // segment 1 owns, and the least range is segment 0's.
+        let mut outside = partition(&owners, Some(10), Some(10));
+        outside.specs[0].alloc_edges = Some(reference::IdRange { lo: 3, hi: 9 });
+        assert_eq!(
+            check_case(&schema, &schema, &migration, &plan, &graph, &outside),
+            Outcome::Refused
+        );
+        let segments =
+            partition_graph(&prod_graph(&graph), &prod_partition(&outside)).expect("split");
+        assert!(matches!(
+            graph_restrict_segmented(&plan, &segments, &prod_partition(&outside)),
+            Err(SegmentedRestrictError::Segment(
+                SegmentError::EdgeIdOutsideAllocation {
+                    edge: panproto_inst::EdgeId(3),
+                    segment: SegmentId(1)
+                }
+            ))
+        ));
+        // An edge range starting at an edge id the same segment holds is
+        // admitted, and allocation proceeds above it.
         let mut below = partition(&owners, Some(10), Some(10));
         below.specs[1].alloc_edges = Some(reference::IdRange { lo: 4, hi: 9 });
         assert_eq!(
             check_case(&schema, &schema, &migration, &plan, &graph, &below),
-            Outcome::Refused
+            Outcome::Agreed
         );
         // An expansion of two edges into a one-id edge range.
         let (source, target, expanding, tree) = fan_floor_fixture();
@@ -4311,6 +4421,125 @@ mod segmented_witnesses {
                 .staged_uncommitted(run)
                 .unwrap_or_else(|never| match never {}))
         }
+    }
+
+    /// The view segments a complete run emitted, in segment order.
+    fn emitted_views(
+        store: &MemoryStore,
+        run: Digest,
+        input: &segmented_runner::Input,
+    ) -> Vec<panproto_inst::segment::GraphSegment> {
+        input
+            .partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                read_emitted(store, run, &input.partition, spec.id)
+                    .expect("emitted segment")
+                    .view
+            })
+            .collect()
+    }
+
+    /// A contracting run's sealed view manifest, with its view segments as
+    /// the segment source, is the input of a second checkpointed run that
+    /// drops the surviving target: the second run completes, emits the
+    /// output of segmented restrict on the first run's views, and assembles
+    /// to whole-state restrict of their glued graph.
+    #[test]
+    fn the_sealed_view_of_a_checkpointed_run_is_the_input_of_a_second_run() {
+        use panproto_inst::graph_restrict_with_plan;
+        use panproto_inst::segment::{SegmentId, assemble_graph};
+        use std::collections::BTreeMap;
+        let (schema, first_migration, graph) = hidden_path_fixture();
+        let first_plan = compile(&schema, &schema, &first_migration);
+        let second_migration = RefMigration {
+            surviving_verts: std::iter::once("a".to_owned()).collect(),
+            ..RefMigration::default()
+        };
+        let second_plan = compile(&schema, &schema, &second_migration);
+        let split = partition(&[&[0, 3], &[1, 4], &[2]], Some(10), Some(10));
+        let input = segmented_runner::input(&graph, &split);
+        let mut store = MemoryStore::default();
+        let first = segmented_runner::production_run(
+            &first_plan,
+            &input,
+            Budget::unlimited(),
+            None,
+            &mut store,
+        );
+        let manifest = first.manifest.expect("the first run completes");
+        let views = emitted_views(&store, first.run.expect("a run identity"), &input);
+        assert!(
+            views
+                .iter()
+                .flat_map(|view| view.edges.keys())
+                .any(|id| id.0 >= SEGMENTED_RESTRICT_ALLOCATION_BASE),
+            "the first view holds an allocated edge id"
+        );
+        let view_schema = Digest(segmented_runner::VIEW_SCHEMA);
+        let source: BTreeMap<SegmentId, Vec<u8>> = views
+            .iter()
+            .map(|view| {
+                (
+                    view.segment,
+                    AnySegment::Graph(view.clone())
+                        .canonical_bytes(&view_schema, &input.partition)
+                        .expect("view bytes"),
+                )
+            })
+            .collect();
+        let mut second_store = MemoryStore::default();
+        let second = graph_restrict_run(
+            &second_plan,
+            &manifest,
+            &source,
+            RunSpec {
+                lens: Digest([4; 32]),
+                input: manifest.digest(),
+                view_schema: Digest([5; 32]),
+                cancel_after_tasks: None,
+            },
+            Budget::unlimited(),
+            &mut second_store,
+            &mut |_| {},
+        );
+        let second_manifest = second.manifest.expect("the second run completes");
+        assert_eq!(
+            verify_manifest(&second_manifest, second_manifest.digest()),
+            Ok(())
+        );
+        let expected = graph_restrict_segmented(&second_plan, &views, &input.partition)
+            .expect("segmented restrict of the first views");
+        let second_run = second.run.expect("a run identity");
+        for (spec, (view, complement)) in input
+            .partition
+            .specs()
+            .iter()
+            .zip(expected.views.iter().zip(&expected.complements))
+        {
+            let emitted = read_emitted(&second_store, second_run, &input.partition, spec.id)
+                .expect("emitted segment");
+            assert_eq!(
+                super::segmented::ref_view(&emitted.view),
+                super::segmented::ref_view(view)
+            );
+            assert_eq!(
+                emitted.complement,
+                complement.canonical_bytes().expect("complement bytes")
+            );
+        }
+        let glued = assemble_graph(views, &input.partition).expect("the first views glue");
+        let (view, complement) = expected
+            .assemble(&input.partition)
+            .expect("the second views assemble");
+        let (whole_view, whole_complement) =
+            graph_restrict_with_plan(&glued, &second_plan).expect("whole-state restrict accepts");
+        assert_eq!(super::ref_graph(&view), super::ref_graph(&whole_view));
+        assert_eq!(
+            super::ref_complement(&complement),
+            super::ref_complement(&whole_complement)
+        );
     }
 
     #[test]

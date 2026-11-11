@@ -357,7 +357,7 @@ pub mod segment {
         Seal,
     }
 
-    /// The 26 segment refusal variants, in the book's order.
+    /// The 25 segment refusal variants, in the book's order.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum SegmentError {
         /// An inverted range.
@@ -456,13 +456,6 @@ pub mod segment {
             /// Id kind.
             kind: IdKind,
         },
-        /// Allocation range begins below the floor.
-        AllocationBelowFloor {
-            /// Segment.
-            segment: SegmentId,
-            /// Id kind.
-            kind: IdKind,
-        },
         /// Edge id outside its owner's allocation range.
         EdgeIdOutsideAllocation {
             /// Edge id.
@@ -547,18 +540,17 @@ pub mod segment {
                 Self::ShapeMismatch { .. } => 11,
                 Self::NoAllocationRange { .. } => 12,
                 Self::AllocationExhausted { .. } => 13,
-                Self::AllocationBelowFloor { .. } => 14,
-                Self::EdgeIdOutsideAllocation { .. } => 15,
-                Self::Invalid { .. } => 16,
-                Self::Restrict { .. } => 17,
-                Self::PutDomain(_) => 18,
-                Self::Edit { .. } => 19,
-                Self::Identity(_) => 20,
-                Self::Decode { .. } => 21,
-                Self::MalformedPartition { .. } => 22,
-                Self::DanglingEndpoint { .. } => 23,
-                Self::NotEmbedded { .. } => 24,
-                Self::ValidationViewUnrepresentable { .. } => 25,
+                Self::EdgeIdOutsideAllocation { .. } => 14,
+                Self::Invalid { .. } => 15,
+                Self::Restrict { .. } => 16,
+                Self::PutDomain(_) => 17,
+                Self::Edit { .. } => 18,
+                Self::Identity(_) => 19,
+                Self::Decode { .. } => 20,
+                Self::MalformedPartition { .. } => 21,
+                Self::DanglingEndpoint { .. } => 22,
+                Self::NotEmbedded { .. } => 23,
+                Self::ValidationViewUnrepresentable { .. } => 24,
             }
         }
 
@@ -580,7 +572,6 @@ pub mod segment {
                 Self::ShapeMismatch { .. } => "shape_mismatch",
                 Self::NoAllocationRange { .. } => "no_allocation_range",
                 Self::AllocationExhausted { .. } => "allocation_exhausted",
-                Self::AllocationBelowFloor { .. } => "allocation_below_floor",
                 Self::EdgeIdOutsideAllocation { .. } => "edge_id_outside_allocation",
                 Self::Invalid { .. } => "invalid",
                 Self::Restrict { .. } => "restrict",
@@ -7916,7 +7907,7 @@ pub mod segmented_restrict {
 
     use super::segment::{
         GraphComplementSegment, GraphSegment, IdKind, IdRange, Partition, SegmentError,
-        SegmentFloors, SegmentId, assemble_graph, fresh, partition_graph,
+        SegmentFloors, SegmentId, assemble_graph, check_new_edge_id, fresh, partition_graph,
     };
     use crate::migration::Migration;
     use crate::model::{GEdge, Graph, Node};
@@ -8082,9 +8073,10 @@ pub mod segmented_restrict {
     /// glued graph.
     ///
     /// Glue `segments` under `p` and refuse an invalid family with the glue
-    /// refusal; refuse with `AllocationBelowFloor` the least segment whose
-    /// edge allocation range starts at or below the greatest edge id of the
-    /// glued graph; run whole-state [`get`] and return its refusal in the
+    /// refusal; refuse the least edge id of the glued graph at or above the
+    /// least edge allocation range that lies outside the range of the
+    /// segment owning its source, as [`check_new_edge_id`] refuses it; run
+    /// whole-state [`get`] and return its refusal in the
     /// segment owning the element it is about. Otherwise give each
     /// synthesized element to the segment owning its chain and number it
     /// there, segment by segment in id order, nodes before edges, each kind
@@ -8107,18 +8099,21 @@ pub mod segmented_restrict {
         p: &Partition,
     ) -> Result<Vec<SegmentOutput>, SegmentedRestrictRefusal> {
         let g = assemble_graph(segments, p).map_err(SegmentedRestrictRefusal::Segment)?;
-        if let Some(max_edge) = g.edges.keys().copied().max()
-            && let Some(spec) = p
-                .specs
-                .iter()
-                .find(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= max_edge))
-        {
-            return Err(SegmentedRestrictRefusal::Segment(
-                SegmentError::AllocationBelowFloor {
-                    segment: spec.id,
-                    kind: IdKind::Edge,
-                },
-            ));
+        // The seal floor rule: an edge id at or above the lower bound of any
+        // edge allocation range lies in the range of the segment holding it,
+        // the owner of its source. The least id that does not is refused.
+        let floor = p
+            .specs
+            .iter()
+            .filter_map(|spec| spec.alloc_edges.map(|range| range.lo))
+            .min();
+        for (id, edge) in &g.edges {
+            if floor.is_some_and(|floor| floor <= *id)
+                && let Some(holder) = p.owner_of_node(edge.src)
+            {
+                check_new_edge_id(p, holder, *id, false)
+                    .map_err(SegmentedRestrictRefusal::Segment)?;
+            }
         }
         let (view, c) =
             get(src, tgt, m, vl, &g).map_err(|error| match refusal_owner(&error, &g, p) {

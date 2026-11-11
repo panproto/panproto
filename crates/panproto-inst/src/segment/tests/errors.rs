@@ -102,10 +102,6 @@ fn range_and_digest_errors(pair: &ViewRef) -> Vec<SegmentError> {
             segment: s(2),
             kind: IdKind::Edge,
         },
-        SegmentError::AllocationBelowFloor {
-            segment: s(1),
-            kind: IdKind::Edge,
-        },
         SegmentError::EdgeIdOutsideAllocation {
             edge: EdgeId(4),
             segment: s(0),
@@ -211,7 +207,6 @@ fn validation_view_unrepresentable_is_appended_without_changing_existing_error_b
             "shape_mismatch",
             "no_allocation_range",
             "allocation_exhausted",
-            "allocation_below_floor",
             "edge_id_outside_allocation",
             "invalid",
             "restrict",
@@ -230,21 +225,21 @@ fn validation_view_unrepresentable_is_appended_without_changing_existing_error_b
         br#"{"node_id_mismatch":{"key":3,"found":9}}"#
     );
     assert_eq!(
-        serde_json::to_vec(&errors[24])?,
+        serde_json::to_vec(&errors[23])?,
         br#"{"not_embedded":{"elem":{"node":0}}}"#
     );
     assert_eq!(
-        serde_json::to_vec(&errors[25])?,
+        serde_json::to_vec(&errors[24])?,
         br#"{"validation_view_unrepresentable":{"segment":3,"edges":4294967297}}"#
     );
     assert_eq!(SEGMENT_FORMAT_VERSION, 1);
     assert_eq!(SEGMENT_MANIFEST_VERSION, 1);
 
     // Length-delimited JSON bytes of every pre-existing variant. The digest
-    // pins all 24 old wire encodings, including nested payloads.
+    // pins all 23 old wire encodings, including nested payloads.
     let mut old_bytes = blake3::Hasher::new();
     for (index, error) in errors.iter().enumerate() {
-        if matches!(index, 4 | 25) {
+        if matches!(index, 4 | 24) {
             continue;
         }
         let bytes = serde_json::to_vec(error)?;
@@ -253,7 +248,7 @@ fn validation_view_unrepresentable_is_appended_without_changing_existing_error_b
     }
     assert_eq!(
         old_bytes.finalize().to_hex().as_str(),
-        "bdef94b07c81e51bc8923cdc72a174937b96fe5d1107f9ffa2ee2c8c6a749c63"
+        "c3204c3be0eb035bd2e7cca3b9bdda5a213ea4863d721e8ab22abce6d919a013"
     );
     Ok(())
 }

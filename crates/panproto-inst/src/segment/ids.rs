@@ -875,7 +875,6 @@ mod tests {
                 SegmentError::InvertedRange { segment, range: IdRange { lo, hi } },
                 SegmentError::NoAllocationRange { segment, kind: IdKind::Node },
                 SegmentError::AllocationExhausted { segment, kind: IdKind::Edge },
-                SegmentError::AllocationBelowFloor { segment, kind: IdKind::Edge },
             ];
             let fail = |e: &dyn std::fmt::Display| TestCaseError::fail(e.to_string());
             for error in errors {

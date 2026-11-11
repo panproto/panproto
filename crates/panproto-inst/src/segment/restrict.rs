@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 
 use super::body::{Boundary, Ghost, GraphSegment, InStub};
 use super::error::{Residual, SegmentError};
-use super::ids::{IdAllocator, IdKind, SegmentId};
+use super::ids::{EdgeFloor, IdAllocator, IdKind, SegmentId};
 use super::partition::{OwnerIndex, Partition};
 use super::split::assemble_graph;
 use crate::error::RestrictError;
@@ -508,8 +508,11 @@ pub(super) fn keep_least(
 /// segment by segment.
 ///
 /// The segments are checked as [`verify_partition`] checks them, and every
-/// declared edge allocation range must lie above every edge id they hold.
-/// The run then follows the stages of
+/// edge id they hold must satisfy the seal floor rule ([`EdgeFloor`]): an
+/// id at or above the least edge allocation range lies in the edge
+/// allocation range of the segment holding it. The view of a segmented
+/// restrict satisfies the rule, so it can be restricted again under the
+/// same partition. The run then follows the stages of
 /// [`graph_restrict_with_plan`](crate::graph_restrict_with_plan): the fan
 /// domain, stage 0 in every segment, the exchange of the fates of in-stub
 /// targets, the reach summaries and their closure, stages 1 to 3 in every
@@ -526,9 +529,8 @@ pub(super) fn keep_least(
 /// [`SegmentedRestrictError::Residual`] with [`Residual::Global`] when
 /// [`graph_restrict_locality`] classifies the plan as global, before any
 /// segment is read; [`SegmentedRestrictError::Segment`] with the error of
-/// [`verify_partition`](super::verify_partition), then
-/// [`SegmentError::AllocationBelowFloor`] for the least segment whose edge
-/// allocation range starts at or below the greatest edge id held;
+/// [`verify_partition`](super::verify_partition), then the refusal of
+/// [`EdgeFloor::check`] for the least edge id the rule refuses;
 /// [`SegmentedRestrictError::Restrict`] with the refusal whole-state
 /// restrict returns, other than the exhaustion of synthesized ids, in the
 /// segment owning its element; and, in the least segment that fails to
@@ -624,7 +626,8 @@ pub fn graph_restrict_segmented(
     emit(segments, partition, &index, parts).map_err(SegmentedRestrictError::Segment)
 }
 
-/// Check the family and the edge allocation ranges, and index the owners.
+/// Check the family and the seal floor rule for its edge ids, and index
+/// the owners.
 fn check_family(
     segments: &[GraphSegment],
     partition: &Partition,
@@ -635,19 +638,19 @@ fn check_family(
         .map(super::body::AnySegment::Graph)
         .collect();
     super::check::verify_partition(&any, partition)?;
-    let max_edge = segments
+    let rule = EdgeFloor::new(
+        partition
+            .specs()
+            .iter()
+            .map(|spec| (spec.id, spec.alloc_edges)),
+    );
+    let mut held: Vec<(u32, SegmentId)> = segments
         .iter()
-        .filter_map(|s| s.edges.keys().next_back().map(|id| id.0))
-        .max();
-    if let Some(max_edge) = max_edge {
-        for spec in partition.specs() {
-            if spec.alloc_edges.is_some_and(|range| range.lo <= max_edge) {
-                return Err(SegmentError::AllocationBelowFloor {
-                    segment: spec.id,
-                    kind: IdKind::Edge,
-                });
-            }
-        }
+        .flat_map(|segment| segment.edges.keys().map(|id| (id.0, segment.segment)))
+        .collect();
+    held.sort_unstable();
+    for (edge, segment) in held {
+        rule.check(segment, edge)?;
     }
     partition.owner_index()
 }

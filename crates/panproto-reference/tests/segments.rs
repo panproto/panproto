@@ -2152,10 +2152,6 @@ fn structural_error_vocabulary() -> Vec<SegmentError> {
             segment,
             kind: IdKind::Node,
         },
-        SegmentError::AllocationBelowFloor {
-            segment,
-            kind: IdKind::Edge,
-        },
         SegmentError::EdgeIdOutsideAllocation { edge: 0, segment },
         SegmentError::Invalid {
             violations: Vec::new(),
@@ -2203,12 +2199,12 @@ fn pipeline_error_vocabulary() -> Vec<SegmentError> {
 }
 
 #[test]
-fn all_twenty_six_external_error_names_are_stable_and_distinct() {
+fn all_twenty_five_external_error_names_are_stable_and_distinct() {
     let mut errors = structural_error_vocabulary();
     errors.extend(pipeline_error_vocabulary());
-    assert_eq!(errors.len(), 26);
+    assert_eq!(errors.len(), 25);
     let variants: HashSet<_> = errors.iter().map(discriminant).collect();
-    assert_eq!(variants.len(), 26);
+    assert_eq!(variants.len(), 25);
     let names = [
         "inverted_range",
         "overlapping_ranges",
@@ -2224,7 +2220,6 @@ fn all_twenty_six_external_error_names_are_stable_and_distinct() {
         "shape_mismatch",
         "no_allocation_range",
         "allocation_exhausted",
-        "allocation_below_floor",
         "edge_id_outside_allocation",
         "invalid",
         "restrict",
@@ -2434,7 +2429,7 @@ fn tree_operational_errors_remain_outside_the_exact_report_vocabulary() {
     }
     assert_eq!(
         structural_error_vocabulary().len() + pipeline_error_vocabulary().len(),
-        26
+        25
     );
 }
 

@@ -365,16 +365,6 @@ pub enum SegmentError {
         kind: IdKind,
     },
 
-    /// `segment`'s allocation range for `kind` does not lie above every id of
-    /// that kind in the input of an operation that requires it to.
-    #[error("the {kind} allocation range of {segment} does not lie above every {kind} id in use")]
-    AllocationBelowFloor {
-        /// The segment.
-        segment: SegmentId,
-        /// The kind of id.
-        kind: IdKind,
-    },
-
     /// A fresh edge of `segment`, one whose id lies at or above the least
     /// edge allocation range of the family, carries an id outside the edge
     /// allocation range of `segment`.
@@ -490,7 +480,6 @@ impl SegmentError {
             Self::ShapeMismatch { .. } => "shape_mismatch",
             Self::NoAllocationRange { .. } => "no_allocation_range",
             Self::AllocationExhausted { .. } => "allocation_exhausted",
-            Self::AllocationBelowFloor { .. } => "allocation_below_floor",
             Self::EdgeIdOutsideAllocation { .. } => "edge_id_outside_allocation",
             Self::Invalid { .. } => "invalid",
             Self::Restrict { .. } => "restrict",
