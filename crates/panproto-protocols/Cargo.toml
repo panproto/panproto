@@ -10,6 +10,11 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+# The binaries of this crate generate test corpora; none is a released
+# program.
+[package.metadata.dist]
+dist = false
+
 [dependencies]
 panproto-gat = { workspace = true }
 # The shared resource-limits policy every public parse charges against.
