@@ -4055,6 +4055,41 @@
               "test": "randomized_graph_edit_lens_differential"
             }
           ]
+        },
+        {
+          "id": "edits.table-edit-lens",
+          "anchor": "L-edits-10",
+          "references": [
+            "panproto_reference::edit::diff_keeping_replacements_table",
+            "panproto_reference::edit::table_edit_get",
+            "panproto_reference::edit::table_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "table_edit_lens_agrees_with_the_reference_on_the_relational_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "graph_and_table_edit_lenses_commute_on_the_relational_carrier"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "table_edit_lens_letter_census_is_the_closed_form_over_the_relational_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "randomized_table_edit_lens_differential"
+            }
+          ]
         }
       ]
     },

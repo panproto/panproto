@@ -50,7 +50,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Instance representation](representation.md) | 8 |
 | [Kan extensions](kan-extensions.md) | 12 |
 | [Restriction and contraction](restrict-and-contraction.md) | 13 |
-| [Edits](edits.md) | 9 |
+| [Edits](edits.md) | 10 |
 | [Validation](validation.md) | 20 |
 | [Segments](segments.md) | 10 |
 | [Lenses](lenses.md) | 20 |

@@ -2,7 +2,7 @@
 //! table deltas in both directions.
 //!
 //! A [`TableEditLens`] is the table shape of
-//! [`ShapeEditLens`](crate::ShapeEditLens). Its forward step applies a
+//! [`ShapeEditLens`]. Its forward step applies a
 //! source [`TableDelta`], runs table get on the edited source under the
 //! boundary protocols of its [`TableContext`], and returns the
 //! incidence-closed replacement differ from the held view to that view

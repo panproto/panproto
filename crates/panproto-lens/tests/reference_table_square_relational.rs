@@ -886,14 +886,14 @@ mod table_edit_lens_differential {
         run: impl FnOnce(TableLetterSchema<'_>) -> T,
     ) -> T {
         let relations = [reference_relation()];
-        let a_column: Vec<&str> = match kind {
-            None => vec!["x"],
-            Some(kind) => kind.target_a_column().into_iter().collect(),
-        };
-        let b_column: Vec<&str> = match kind {
-            None => vec!["y"],
-            Some(kind) => kind.target_b_column().into_iter().collect(),
-        };
+        let a_column: Vec<&str> = kind.map_or_else(
+            || vec!["x"],
+            |kind| kind.target_a_column().into_iter().collect(),
+        );
+        let b_column: Vec<&str> = kind.map_or_else(
+            || vec!["y"],
+            |kind| kind.target_b_column().into_iter().collect(),
+        );
         let mut tables: Vec<(&str, &[&str])> = vec![("a", a_column.as_slice())];
         if kind.is_none_or(MigrationKind::target_has_b) {
             tables.push(("b", b_column.as_slice()));
