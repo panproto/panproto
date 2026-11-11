@@ -4961,31 +4961,7 @@ pub fn extract_yaml_cst_with_protocol(
                 "YAML document is not valid YAML: {error}"
             )));
         }
-        let root_id = state.alloc_id();
-        state.nodes.insert(
-            root_id,
-            Node::new(root_id, root_vertex).with_value(FieldPresence::Null),
-        );
-        state
-            .node_to_cst_struct
-            .insert(root_id, Name::from(doc_vertex.as_str()));
-        let complement = CstComplement {
-            format: "yaml".into(),
-            cst_schema: cst.clone(),
-            node_to_cst_value: state.node_to_cst_value,
-            node_to_cst_struct: state.node_to_cst_struct,
-            cell_to_cst_value: HashMap::new(),
-            source_vertex: Some(Name::from(root_vertex)),
-            byte_order_mark: false,
-        };
-        let instance = WInstance::new(
-            state.nodes,
-            Vec::new(),
-            Vec::new(),
-            root_id,
-            Name::from(root_vertex),
-        );
-        return Ok((instance, complement));
+        return Ok(empty_yaml_document(cst, &doc_vertex, root_vertex));
     };
 
     if let Ok(document) = &decoded {
@@ -5090,6 +5066,41 @@ fn check_yaml_directives(cst: &Schema, document: &str) -> Result<(), CstCodecErr
         }
     }
     Ok(())
+}
+
+/// The instance of a YAML document with no content node: a null root,
+/// recorded against the document vertex and with no value carrier.
+fn empty_yaml_document(
+    cst: &Schema,
+    doc_vertex: &str,
+    root_vertex: &str,
+) -> (WInstance, CstComplement) {
+    let mut state = ExtractState::new();
+    let root_id = state.alloc_id();
+    state.nodes.insert(
+        root_id,
+        Node::new(root_id, root_vertex).with_value(FieldPresence::Null),
+    );
+    state
+        .node_to_cst_struct
+        .insert(root_id, Name::from(doc_vertex));
+    let complement = CstComplement {
+        format: "yaml".into(),
+        cst_schema: cst.clone(),
+        node_to_cst_value: state.node_to_cst_value,
+        node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
+        source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
+    };
+    let instance = WInstance::new(
+        state.nodes,
+        Vec::new(),
+        Vec::new(),
+        root_id,
+        Name::from(root_vertex),
+    );
+    (instance, complement)
 }
 
 fn find_yaml_top_value(cst: &Schema, root: &str) -> Option<Name> {
@@ -5841,9 +5852,9 @@ enum YamlNode {
     Bool(bool),
     Number,
     String(String),
-    Tagged(String, Box<YamlNode>),
-    Sequence(Vec<YamlNode>),
-    Mapping(Vec<(YamlNode, YamlNode)>),
+    Tagged(String, Box<Self>),
+    Sequence(Vec<Self>),
+    Mapping(Vec<(Self, Self)>),
 }
 
 impl YamlNode {
@@ -6029,41 +6040,6 @@ impl YamlStreamText {
         let before = self.text.get(..start)?;
         Some(before.len() - before.rfind('\n').map_or(0, |newline| newline + 1))
     }
-
-    /// Refuse a multi-line flow scalar inside a block collection entry at
-    /// column `indent` whose continuation line is not indented past that
-    /// column with spaces (YAML 1.2.2 Sec 7.3 and 7.4 take continuation
-    /// lines at the indentation of the block context, and a tab is not
-    /// indentation).
-    fn check_continuation_indent(
-        &self,
-        cst: &Schema,
-        scalar: &Name,
-        indent: Option<usize>,
-    ) -> Result<(), CstCodecError> {
-        let Some(indent) = indent else {
-            return Ok(());
-        };
-        if !matches!(
-            cst_vertex_kind(cst, scalar).as_deref(),
-            Some("plain_scalar" | "double_quote_scalar" | "single_quote_scalar")
-        ) {
-            return Ok(());
-        }
-        let token = cst_source_text(cst, scalar);
-        let misindented = token.split('\n').skip(1).any(|line| {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            let spaces = line.bytes().take_while(|byte| *byte == b' ').count();
-            !line.trim().is_empty() && spaces <= indent
-        });
-        if misindented {
-            return Err(CstCodecError::Structure(format!(
-                "YAML scalar at {} continues on a line not indented past its block entry",
-                cst_offset_text(cst, scalar)
-            )));
-        }
-        Ok(())
-    }
 }
 
 /// Whether every scalar of a YAML document means the same decoded alone as
@@ -6083,6 +6059,40 @@ fn yaml_scalars_read_alone(cst: &Schema) -> bool {
             }
             _ => true,
         })
+}
+
+/// Refuse a multi-line flow scalar inside a block collection entry at
+/// column `indent` whose continuation line is not indented past that
+/// column with spaces (YAML 1.2.2 Sec 7.3 and 7.4 take continuation
+/// lines at the indentation of the block context, and a tab is not
+/// indentation).
+fn check_yaml_continuation_indent(
+    cst: &Schema,
+    scalar: &Name,
+    indent: Option<usize>,
+) -> Result<(), CstCodecError> {
+    let Some(indent) = indent else {
+        return Ok(());
+    };
+    if !matches!(
+        cst_vertex_kind(cst, scalar).as_deref(),
+        Some("plain_scalar" | "double_quote_scalar" | "single_quote_scalar")
+    ) {
+        return Ok(());
+    }
+    let token = cst_source_text(cst, scalar);
+    let misindented = token.split('\n').skip(1).any(|line| {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+        !line.trim().is_empty() && spaces <= indent
+    });
+    if misindented {
+        return Err(CstCodecError::Structure(format!(
+            "YAML scalar at {} continues on a line not indented past its block entry",
+            cst_offset_text(cst, scalar)
+        )));
+    }
+    Ok(())
 }
 
 /// Refuse a scalar the whole-document decoder and the CST read differently.
@@ -6258,7 +6268,7 @@ fn align_yaml_document(
                 return Err(misread());
             }
             check_yaml_scalar_decoding(cst, vertex, &semantic, value)?;
-            stream.check_continuation_indent(cst, &semantic, place.indent)?;
+            check_yaml_continuation_indent(cst, &semantic, place.indent)?;
             let token = literal_text_deep(cst, &semantic);
             let raw = cst_source_text(cst, vertex);
             let source_tag = yaml_explicit_tag(&raw).map(|(tag, _)| tag);
