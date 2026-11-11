@@ -5152,6 +5152,33 @@
               "test": "segmented_graph_get::segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-graph-put",
+          "anchor": "L-segments-16",
+          "references": [
+            "panproto_reference::segment::put_graph_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put::segmented_graph_put_slice_agrees_with_the_reference_on_every_eighth_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put::segmented_graph_put_matches_the_reference_on_generated_partitions"
+            }
+          ]
         }
       ]
     },

@@ -75,6 +75,7 @@
 //! | Record streams of segments, by frames of the canonical instance records | [`segment::segment_record_stream`] | `segments.md` |
 //! | Manifest record bytes | [`segment::canonical_record_bytes`] | `segments.md` |
 //! | Manifest records of a family, without the seal floor | [`segment::manifest_records`] | `segments.md` |
+//! | Segmented graph put, by whole-state put of the glued view | [`segment::put_graph_segmented`] | `segments.md` |
 //! | Graph complement segment bytes and their decoding | [`segment::canonical_complement_segment_bytes`], [`segment::decode_complement_segment_bytes`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |
