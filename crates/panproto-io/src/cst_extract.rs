@@ -6235,7 +6235,6 @@ fn align_yaml_document(
                     None => return Err(misread()),
                 }
             }
-            Ok(())
         }
         Some("block_sequence" | "flow_sequence") => {
             let YamlNode::Sequence(items) = untagged else {
@@ -6261,7 +6260,6 @@ fn align_yaml_document(
                     _ => return Err(misread()),
                 }
             }
-            Ok(())
         }
         _ => {
             if matches!(untagged, YamlNode::Mapping(_) | YamlNode::Sequence(_)) {
@@ -6282,9 +6280,9 @@ fn align_yaml_document(
                 Some(tag) => (text, LexClass::Tagged(Name::from(tag))),
             };
             scalars.insert(vertex.clone(), lexeme);
-            Ok(())
         }
     }
+    Ok(())
 }
 
 /// The entries of a YAML mapping, in source order: its pairs, and in a

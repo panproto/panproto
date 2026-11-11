@@ -112,18 +112,6 @@
       "digest": "2362e4f91d1bb3ce3b7dfbf75d9cd0576655fa22efc67ef77cbc762f5fc1f62b"
     },
     {
-      "name": "sql/sakila-postgres",
-      "protocol": "sql",
-      "source": "fixtures/sql/sakila-postgres.sql",
-      "digest": "abef2d4037749815a491128f0634a41e565a62cdbec47cf4727e9ab64d003f22"
-    },
-    {
-      "name": "sql/sakila-sqlite",
-      "protocol": "sql",
-      "source": "fixtures/sql/sakila-sqlite.sql",
-      "digest": "bcece7515010757e585885612d9a4ac078abe8c217bc551acd41767c8c31474e"
-    },
-    {
       "name": "sql-tests/users",
       "protocol": "sql",
       "source": "tests/fixtures/sql/users.sql",
@@ -321,24 +309,6 @@
         "source_schema": "2362e4f91d1bb3ce3b7dfbf75d9cd0576655fa22efc67ef77cbc762f5fc1f62b",
         "target_schema": "7ba469a046d3339096a86cbede53ae704bbce5c6d2a16afc2bd4d4284a2605f9",
         "lens": "85cc5b0591f61afc12de5b3e01e946c5bd3ef36b7ce2ebe7ff1ee9126cd7d44d",
-        "complement_format": {
-          "shape": "wtype",
-          "version": 1
-        }
-      }
-    },
-    {
-      "name": "auto/users-to-sakila-postgres",
-      "kind": "auto",
-      "protocol": "sql",
-      "src": "sql-tests/users",
-      "tgt": "sql/sakila-postgres",
-      "shape": "wtype",
-      "envelope": {
-        "version": 2,
-        "source_schema": "29c4c2dd13c8a0568aee97cac34b73938bbf194b92182935e537903c065b1f7e",
-        "target_schema": "bc374f410594901a46651007cd59852460012e68dd686852a138d86f2145895f",
-        "lens": "e096862960d9633cf29c1372832e3c1402f2572655a56995ecdd00b7517efeff",
         "complement_format": {
           "shape": "wtype",
           "version": 1

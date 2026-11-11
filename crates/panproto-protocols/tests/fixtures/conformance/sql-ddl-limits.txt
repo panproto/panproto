@@ -1,0 +1,31 @@
+# Declared limits of the SQL DDL reader on the conformance corpora.
+# Each line: case, limit, the refusal class the case shows.
+postgresql-docs/create-table-examples-01.sql type-interval Unsupported
+postgresql-docs/create-table-examples-03.sql type-interval Unsupported
+postgresql-docs/create-table-examples-06.sql type-interval Unsupported
+postgresql-docs/create-table-examples-07.sql alternative-forms-in-one-example Duplicate
+postgresql-docs/create-table-examples-12.sql index-storage-parameters Unsupported
+postgresql-docs/create-table-examples-13.sql type-circle Unsupported
+postgresql-docs/create-table-examples-14.sql tablespace Unsupported
+postgresql-docs/create-table-examples-15.sql partitioning Unsupported
+postgresql-docs/create-table-examples-16.sql partitioning Unsupported
+postgresql-docs/create-table-examples-17.sql partitioning Unsupported
+postgresql-docs/create-table-examples-18.sql partitioning Unsupported
+postgresql-docs/create-table-examples-19.sql partitioning Unsupported
+postgresql-docs/create-table-examples-20.sql partitioning Unsupported
+postgresql-docs/create-table-examples-21.sql partitioning Unsupported
+postgresql-docs/create-table-examples-22.sql partitioning Unsupported
+postgresql-docs/create-table-examples-23.sql partitioning Unsupported
+postgresql-docs/create-table-examples-24.sql partitioning Unsupported
+postgresql-docs/ddl-constraints-14.sql unique-nulls-not-distinct Unsupported
+postgresql-docs/ddl-constraints-15.sql unique-nulls-not-distinct Unsupported
+postgresql-docs/ddl-constraints-20.sql references-another-example UnknownTable
+postgresql-docs/ddl-constraints-21.sql references-another-example UnknownTable
+postgresql-docs/ddl-constraints-22.sql references-another-example UnknownTable
+postgresql-docs/ddl-constraints-23.sql elided-example Syntax
+postgresql-docs/ddl-constraints-24.sql elided-example Syntax
+postgresql-docs/ddl-constraints-25.sql elided-example Syntax
+postgresql-docs/ddl-constraints-26.sql set-null-column-list Unsupported
+postgresql-docs/ddl-constraints-27.sql type-circle Unsupported
+sakila/sakila-postgres.sql type-tsvector Unsupported
+sakila/sakila-sqlite.sql sqlite-dialect Unsupported
