@@ -6481,6 +6481,84 @@
           ]
         }
       ]
+    },
+    "sql-ddl": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/sql_ddl.rs",
+        "crates/panproto-reference/src/enumerate/sql_ddl.rs"
+      ],
+      "laws": [
+        {
+          "id": "sql-ddl.column-types",
+          "anchor": "L-sql-ddl-1",
+          "references": [
+            "panproto_reference::pages::sql_ddl::column_type"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::reference_sql_ddl",
+              "test": "column_types_read_as_the_reference_on_every_bounded_spelling"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::sql_ddl",
+              "test": "column_types_read_as_table_8_1_names_them"
+            }
+          ]
+        },
+        {
+          "id": "sql-ddl.keys-and-references",
+          "anchor": "L-sql-ddl-2",
+          "references": [
+            "panproto_reference::pages::sql_ddl::render",
+            "panproto_reference::pages::sql_ddl::read_script"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::reference_sql_ddl",
+              "test": "keys_and_references_match_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::reference_sql_ddl",
+              "test": "randomized_keys_and_references_match_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::sql_ddl",
+              "test": "keys_and_foreign_keys_resolve_as_create_table_defines_them"
+            }
+          ]
+        },
+        {
+          "id": "sql-ddl.canonical-text",
+          "anchor": "L-sql-ddl-3",
+          "references": [
+            "panproto_reference::pages::sql_ddl::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-protocols",
+              "binary": "panproto-protocols::reference_sql_ddl",
+              "test": "canonical_text_matches_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::sql_ddl",
+              "test": "the_script_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }

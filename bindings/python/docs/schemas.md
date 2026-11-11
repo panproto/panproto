@@ -8,7 +8,7 @@ A protocol defines:
 
 - **Sorts** $\mathcal{S}$: the vertex kinds (e.g., `table`, `integer`, `string` for SQL)
 - **Operations** $\mathcal{O}$: the edge kinds (e.g., `prop`, `foreign-key`) with source/target kind constraints
-- **Equations** $\mathcal{E}$: structural laws (e.g., constraint sorts like `primary_key`, `maxLength`)
+- **Equations** $\mathcal{E}$: structural laws (e.g., constraint sorts like `NOT NULL`, `maxLength`)
 
 ```python
 import panproto
@@ -36,7 +36,7 @@ builder.vertex("users.id", "integer")
 builder.vertex("users.name", "string")
 builder.edge("users", "users.id", "prop", "id")
 builder.edge("users", "users.name", "prop", "name")
-builder.constraint("users.id", "primary_key", "")
+builder.constraint("users.id", "NOT NULL", "true")
 schema = builder.build()
 ```
 
