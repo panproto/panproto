@@ -4,7 +4,7 @@ A [protocol](../glossary.md#protocol) names a schema language together with its 
 
 ## Semantic protocols
 
-The protocol registry lists 57 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The three generic text formats, `csv`, `toml` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`.
+The protocol registry lists 58 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The four generic text formats, `csv`, `toml`, `tsv` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`.
 
 | Category module | Protocol names |
 |---|---|
@@ -16,7 +16,7 @@ The protocol registry lists 57 semantic protocols. Names in this table are the c
 | `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `sql` |
 | `domain` | `edi-x12`, `fhir`, `geojson`, `rss-atom`, `swift-mt`, `vcard-ical` |
 | `serialization` | `asn1`, `avro`, `bond`, `flatbuffers`, `msgpack-schema`, `protobuf` |
-| `text` | `csv`, `toml`, `yaml` |
+| `text` | `csv`, `toml`, `tsv`, `yaml` |
 | `web_document` | `atproto`, `docx`, `odf` |
 
 The `raw_file` module is the text-or-binary fallback used during project assembly. It is a protocol implementation, but is not listed by either generic schema-dispatch function.

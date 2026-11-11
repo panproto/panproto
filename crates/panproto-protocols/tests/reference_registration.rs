@@ -615,7 +615,7 @@ fn registered_theories_agree_with_the_reference_typecheck_compose_and_recompose(
     assert_eq!(recipes, 2 * descriptors().len());
     assert_eq!(
         (descriptors().len(), theories.len(), recipes),
-        (57, 125, 114)
+        (58, 127, 116)
     );
     eprintln!(
         "reference registration: {} protocols, {} distinct registered theories, {recipes} recipes",

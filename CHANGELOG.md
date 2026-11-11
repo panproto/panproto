@@ -4,6 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **TSV is a named protocol** (`panproto-protocols`, `panproto-io`): `tsv` joins `csv`, `toml` and `yaml` in the protocol registry, with the constrained hypergraph schema theory `ThTsvSchema`, the table instance theory `ThTsvInstance`, and table as both its syntactic and semantic shape. Under the `tree-sitter` feature, `default_registry` registers a format-preserving `tsv` codec that reads the table at the schema's entry vertex in the IANA `text/tab-separated-values` dialect, so `parse_functor`, `parse_functor_preserving` and their emitters reach TSV by name.
+
 ### Fixed
 
 - **Node-link JSON keeps the sign and payload of every NaN** (`panproto-inst`): `to_node_link_json` and the human-readable `GInstance` encoding wrote every NaN as `{"Float": "NaN"}` and read it back as the positive canonical NaN, so the negative canonical NaN and every NaN with a payload changed its bits on a round trip. Nodes are now written through the `Value` float form, which spells those NaNs `"-NaN"` and `"NaN:0x"` followed by sixteen lowercase hexadecimal digits, and every float reads back bit for bit. Documents written before this change still read.

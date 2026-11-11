@@ -33,7 +33,15 @@ const CODEC_NOT_YET_REPLACED: &[(&str, NativeRepr)] = &[
 #[cfg(feature = "tree-sitter")]
 const NO_CODEC_YET: &[&str] = &["graphql", "json-schema", "protobuf"];
 #[cfg(not(feature = "tree-sitter"))]
-const NO_CODEC_YET: &[&str] = &["csv", "graphql", "json-schema", "protobuf", "toml", "yaml"];
+const NO_CODEC_YET: &[&str] = &[
+    "csv",
+    "graphql",
+    "json-schema",
+    "protobuf",
+    "toml",
+    "tsv",
+    "yaml",
+];
 
 /// What is wrong with the codec registered as `name`, if anything: its
 /// native representation against its protocol's syntactic shape, and the

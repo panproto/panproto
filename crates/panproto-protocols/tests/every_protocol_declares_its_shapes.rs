@@ -78,6 +78,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("tei", Tree, Graph),
     ("timeml", Tree, Graph),
     ("toml", Tree, Tree),
+    ("tsv", Table, Table),
     ("ucca", Tree, Graph),
     ("uima", Tree, Graph),
     ("vcard-ical", Tree, Tree),

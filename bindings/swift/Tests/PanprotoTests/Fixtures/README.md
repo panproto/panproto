@@ -22,7 +22,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
-| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 415 | the whole built-in catalogue |
+| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 419 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
 | `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
@@ -75,6 +75,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-tei.cbor` | `Raw.registryGetBuiltin(name:)` | 2519 | name `tei` |
 | `protocol-timeml.cbor` | `Raw.registryGetBuiltin(name:)` | 2181 | name `timeml` |
 | `protocol-toml.cbor` | `Raw.registryGetBuiltin(name:)` | 1217 | name `toml` |
+| `protocol-tsv.cbor` | `Raw.registryGetBuiltin(name:)` | 902 | name `tsv` |
 | `protocol-ucca.cbor` | `Raw.registryGetBuiltin(name:)` | 1891 | name `ucca` |
 | `protocol-uima.cbor` | `Raw.registryGetBuiltin(name:)` | 2318 | name `uima` |
 | `protocol-vcard-ical.cbor` | `Raw.registryGetBuiltin(name:)` | 1455 | name `vcard-ical` |
