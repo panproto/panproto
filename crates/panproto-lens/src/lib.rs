@@ -46,6 +46,7 @@ pub mod edit_provenance;
 pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
+pub mod graph_edit_lens;
 pub mod graph_lens;
 pub mod graph_protolens;
 pub mod graph_symmetric;
@@ -97,6 +98,7 @@ pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
 pub use error::{LawViolation, LensError, NotTableComplementReason, NotTreeComplementReason};
+pub use graph_edit_lens::{GraphEditDirection, GraphEditLens, GraphEditLensError, GraphEditStep};
 pub use graph_lens::{
     AlignError, Aligner, Alignment, GraphComposite, GraphCompositeComplement, IdAligner,
     SequentialGraphLens,

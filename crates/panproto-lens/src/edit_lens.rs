@@ -170,16 +170,22 @@ fn remap_old_edge_ids(
     .map_err(|error| EditLensError::TranslationFailed(error.to_string()))
 }
 
-/// Keep replacement events carried by the input delta even when their old
-/// and new payloads happen to be equal. A state diff cannot recover this
-/// provenance, while canonical graph-delta normal form deliberately retains
-/// it.
-fn preserve_input_replacements(
+/// The incidence-closed replacement differ: `delta` (the state differ from
+/// `before` to `after`) with every replacement of the input delta whose id
+/// both states hold, closed under the incident edges of every deleted node
+/// of `before` and every added node of `after`.
+///
+/// A state diff cannot recover a replacement whose old and new payloads
+/// are equal, while canonical graph-delta normal form deliberately retains
+/// it. The closure reads only edges `before` and `after` hold, so a caller
+/// may pass parts of two larger states that hold every edge incident to the
+/// nodes the delta changes.
+pub(crate) fn incidence_closed_differ(
     delta: GraphDelta,
     input: &GraphDelta,
     before: &GInstance,
     after: &GInstance,
-) -> Result<GraphDelta, EditLensError> {
+) -> Result<GraphDelta, panproto_inst::graph_edit::MalformedDelta> {
     let mut parts = delta.into_parts();
     for id in input
         .del_nodes()
@@ -221,7 +227,6 @@ fn preserve_input_replacements(
         }
     }
     GraphDelta::normalize(parts)
-        .map_err(|error| EditLensError::TranslationFailed(error.to_string()))
 }
 
 pub(crate) fn whole_state_error(error: crate::LensError) -> EditLensError {
@@ -350,12 +355,13 @@ impl EditLens {
             ));
         }
         let edge_ids = edge_presentation_map(&before_embedding, view_embedding)?;
-        let translated = preserve_input_replacements(
+        let translated = incidence_closed_differ(
             GraphDelta::diff(&before_view, &after_view),
             edit,
             &before_view,
             &after_view,
-        )?;
+        )
+        .map_err(|error| EditLensError::TranslationFailed(error.to_string()))?;
         let translated = remap_old_edge_ids(translated, &edge_ids)?;
         let mut translated_view = current_view;
         translated.apply(&mut translated_view)?;
@@ -2864,7 +2870,7 @@ mod tests {
     }
     #[test]
     fn synthetic_incidence_is_replaced_without_touching_unrelated_edges() {
-        use super::preserve_input_replacements;
+        use super::incidence_closed_differ;
         use panproto_inst::graph_edit::GraphDeltaParts;
         use panproto_inst::{EdgeId, GInstance, GraphDelta};
         let edge = |src: &str, tgt: &str| Edge {
@@ -2899,7 +2905,7 @@ mod tests {
         input.apply(&mut edited_source).unwrap();
         assert_eq!(edited_source, source);
         let translated =
-            preserve_input_replacements(GraphDelta::identity(), &input, &view, &view).unwrap();
+            incidence_closed_differ(GraphDelta::identity(), &input, &view, &view).unwrap();
         assert_eq!(
             translated.del_edges().keys().copied().collect::<Vec<_>>(),
             vec![EdgeId(10)]
@@ -2917,7 +2923,7 @@ mod tests {
             translated
         );
         assert_eq!(
-            preserve_input_replacements(
+            incidence_closed_differ(
                 GraphDelta::identity(),
                 &GraphDelta::identity(),
                 &view,
