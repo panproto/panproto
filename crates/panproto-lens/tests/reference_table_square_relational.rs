@@ -747,3 +747,522 @@ proptest! {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Table edit lenses (L-edits-10)
+// ---------------------------------------------------------------------------
+
+mod table_edit_lens_differential {
+    use panproto_inst::TableEmbedding;
+    use panproto_inst::table_delta::{CellChange, TableChange, TableDelta, TableDeltaParts};
+    use panproto_lens::{GraphEditLens, ShapeEditError, TableContext, TableEditLens};
+    use panproto_reference::edit::{
+        self as ref_edit, TElem, TKey, TPayload, TVal, TableDelta as RefTableDelta, TableEditError,
+        TableEditState,
+    };
+    use panproto_reference::enumerate::edits::{
+        TableLetterSchema, table_edit_lens_letter_count, table_edit_lens_letters,
+    };
+
+    use super::*;
+
+    const VALUES: [RefValue; 2] = [RefValue::Int(0), RefValue::Int(1)];
+
+    fn production_delta(delta: &RefTableDelta) -> TableDelta {
+        let mut parts = TableDeltaParts::default();
+        for (side, map) in [(true, &delta.del), (false, &delta.add)] {
+            for (element, payload) in map {
+                match (element, payload) {
+                    (TElem::Row(id), TPayload::Row(table, cells)) => {
+                        let row = (
+                            table.as_str().into(),
+                            cells
+                                .iter()
+                                .map(|(column, value)| (column.clone(), production_value(value)))
+                                .collect(),
+                        );
+                        if side {
+                            parts.del_rows.insert(RowId(*id), row);
+                        } else {
+                            parts.add_rows.insert(RowId(*id), row);
+                        }
+                    }
+                    (TElem::Pair(edge, src, tgt), TPayload::Pair) => {
+                        let pair = (production_edge(edge), RowId(*src), RowId(*tgt));
+                        if side {
+                            parts.del_pairs.insert(pair);
+                        } else {
+                            parts.add_pairs.insert(pair);
+                        }
+                    }
+                    other => panic!("cross-sort reference table element: {other:?}"),
+                }
+            }
+        }
+        for (key, (old, new)) in &delta.attrs {
+            match (key, old, new) {
+                (TKey::Cell(row, column), TVal::Cell(old), TVal::Cell(new)) => {
+                    parts.cells.insert(
+                        (RowId(*row), column.clone()),
+                        CellChange {
+                            old: old.as_ref().map(production_value),
+                            new: new.as_ref().map(production_value),
+                        },
+                    );
+                }
+                (TKey::Table(row), TVal::Table(old), TVal::Table(new)) => {
+                    parts.tables.insert(
+                        RowId(*row),
+                        TableChange {
+                            old: old.as_str().into(),
+                            new: new.as_str().into(),
+                        },
+                    );
+                }
+                other => panic!("cross-sort reference table attribute: {other:?}"),
+            }
+        }
+        TableDelta::normalize(parts)
+    }
+
+    fn reference_delta(delta: &TableDelta) -> RefTableDelta {
+        let mut out = RefTableDelta::identity();
+        let row = |table: &panproto_gat::Name, cells: &panproto_inst::Row| {
+            TPayload::Row(
+                table.to_string(),
+                cells
+                    .iter()
+                    .map(|(column, value)| (column.clone(), reference_value(value)))
+                    .collect(),
+            )
+        };
+        for (id, (table, cells)) in delta.del_rows() {
+            out.del.insert(TElem::Row(id.0), row(table, cells));
+        }
+        for (id, (table, cells)) in delta.add_rows() {
+            out.add.insert(TElem::Row(id.0), row(table, cells));
+        }
+        for (edge, src, tgt) in delta.del_pairs() {
+            out.del.insert(
+                TElem::Pair(reference_edge(edge), src.0, tgt.0),
+                TPayload::Pair,
+            );
+        }
+        for (edge, src, tgt) in delta.add_pairs() {
+            out.add.insert(
+                TElem::Pair(reference_edge(edge), src.0, tgt.0),
+                TPayload::Pair,
+            );
+        }
+        for ((row, column), change) in delta.cells() {
+            out.attrs.insert(
+                TKey::Cell(row.0, column.clone()),
+                (
+                    TVal::Cell(change.old.as_ref().map(reference_value)),
+                    TVal::Cell(change.new.as_ref().map(reference_value)),
+                ),
+            );
+        }
+        for (row, change) in delta.tables() {
+            out.attrs.insert(
+                TKey::Table(row.0),
+                (
+                    TVal::Table(change.old.to_string()),
+                    TVal::Table(change.new.to_string()),
+                ),
+            );
+        }
+        out
+    }
+
+    fn reference_relation() -> RefEdge {
+        reference_edge(&relation())
+    }
+
+    /// The tables, columns and relation of the source schema, or of the
+    /// target schema of `kind`.
+    fn with_letter_schema<T>(
+        kind: Option<MigrationKind>,
+        run: impl FnOnce(TableLetterSchema<'_>) -> T,
+    ) -> T {
+        let relations = [reference_relation()];
+        let a_column: Vec<&str> = match kind {
+            None => vec!["x"],
+            Some(kind) => kind.target_a_column().into_iter().collect(),
+        };
+        let b_column: Vec<&str> = match kind {
+            None => vec!["y"],
+            Some(kind) => kind.target_b_column().into_iter().collect(),
+        };
+        let mut tables: Vec<(&str, &[&str])> = vec![("a", a_column.as_slice())];
+        if kind.is_none_or(MigrationKind::target_has_b) {
+            tables.push(("b", b_column.as_slice()));
+        }
+        let relations: &[RefEdge] = if kind.is_none_or(MigrationKind::target_has_relation) {
+            &relations
+        } else {
+            &[]
+        };
+        run(TableLetterSchema {
+            tables: &tables,
+            relations,
+            values: &VALUES,
+        })
+    }
+
+    fn letters(kind: Option<MigrationKind>, table: &RefTable) -> Vec<RefTableDelta> {
+        with_letter_schema(kind, |schema| {
+            let letters = table_edit_lens_letters(schema, table);
+            assert_eq!(letters.len(), table_edit_lens_letter_count(schema, table));
+            letters
+        })
+    }
+
+    fn context() -> TableContext {
+        TableContext {
+            src: protocol(),
+            tgt: protocol(),
+        }
+    }
+
+    /// The reference put of the relational carrier: the relational oracle,
+    /// refusing an edited view that reuses the id of a source row the view
+    /// does not show, as the reserved-id clause of the put domain does.
+    fn oracle_state_put(
+        kind: MigrationKind,
+        source: &RefTable,
+        view: &RefTable,
+    ) -> Result<RefTable, String> {
+        let shown = relational_table_get(kind.reference(), source);
+        if view
+            .rows
+            .keys()
+            .any(|id| source.rows.contains_key(id) && !shown.rows.contains_key(id))
+        {
+            return Err("IdCollision".to_owned());
+        }
+        Ok(relational_table_put(kind.reference(), source, view))
+    }
+
+    fn production_refusal(error: &ShapeEditError) -> String {
+        match error {
+            ShapeEditError::Apply(_) => "apply".to_owned(),
+            ShapeEditError::Put(error)
+                if matches!(
+                    error.as_ref(),
+                    LensError::PutDomain(reason)
+                        if matches!(reason.as_ref(), PutDomainError::IdCollision { .. })
+                ) =>
+            {
+                "put IdCollision".to_owned()
+            }
+            ShapeEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+            other => format!("production refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(error: &TableEditError<String, String>) -> String {
+        match error {
+            TableEditError::Apply(_) => "apply".to_owned(),
+            TableEditError::Get(reason) => format!("get {reason}"),
+            TableEditError::Put(reason) => format!("put {reason}"),
+            TableEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Outcome {
+        Admitted(RefTableDelta, RefTable, RefTable),
+        Refused(String),
+    }
+
+    /// Translate `letter` on both sides, assert agreement and that a
+    /// refusal leaves the production lens as it was, and return the
+    /// advanced states when the edit is admitted.
+    fn step(
+        kind: MigrationKind,
+        production: &TableEditLens,
+        state: &TableEditState,
+        put: bool,
+        letter: &RefTableDelta,
+    ) -> Option<(TableEditLens, TableEditState)> {
+        let get =
+            |source: &RefTable| Ok::<_, String>(relational_table_get(kind.reference(), source));
+        let put_oracle = |source: &RefTable, view: &RefTable| oracle_state_put(kind, source, view);
+        let reference = if put {
+            ref_edit::table_edit_put(&get, &put_oracle, state, letter)
+        } else {
+            ref_edit::table_edit_get::<String, String>(&get, state, letter)
+        };
+        let mut advanced = production.clone();
+        let edit = production_delta(letter);
+        let produced = if put {
+            advanced.put_edit(&edit)
+        } else {
+            advanced.get_edit(&edit)
+        };
+        let production_outcome = match &produced {
+            Ok(step) => Outcome::Admitted(
+                reference_delta(if put {
+                    &step.source_delta
+                } else {
+                    &step.view_delta
+                }),
+                reference_table(advanced.source()),
+                reference_table(advanced.view()),
+            ),
+            Err(error) => {
+                assert_eq!(advanced.source(), production.source());
+                assert_eq!(advanced.view(), production.view());
+                assert_eq!(advanced.complement(), production.complement());
+                Outcome::Refused(production_refusal(error))
+            }
+        };
+        let reference_outcome = match &reference {
+            Ok((delta, next)) => {
+                Outcome::Admitted(delta.clone(), next.source.clone(), next.view.clone())
+            }
+            Err(error) => Outcome::Refused(reference_refusal(error)),
+        };
+        assert_eq!(
+            production_outcome,
+            reference_outcome,
+            "{kind:?} {} of {letter:?} from {:?}",
+            if put { "put" } else { "get" },
+            state.source
+        );
+        match reference {
+            Ok((_, next)) if produced.is_ok() => Some((advanced, next)),
+            _ => None,
+        }
+    }
+
+    /// The table edits one sweep compared.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct Counts {
+        bases: usize,
+        get_letters: usize,
+        put_letters: usize,
+        inverses: usize,
+    }
+
+    fn unit(kind: MigrationKind, reference_source: &RefTable, source: &FInstance) -> Counts {
+        let protocol = protocol();
+        let production = TableEditLens::new(lens(kind, &protocol), source.clone(), context())
+            .expect("table get accepts every relational source");
+        let state = TableEditState {
+            source: reference_source.clone(),
+            view: relational_table_get(kind.reference(), reference_source),
+        };
+        assert_eq!(reference_table(production.view()), state.view);
+        let mut counts = Counts {
+            bases: 1,
+            ..Counts::default()
+        };
+        for letter in letters(None, reference_source) {
+            counts.get_letters += 1;
+            if let Some((advanced, next)) = step(kind, &production, &state, false, &letter) {
+                counts.inverses += 1;
+                step(kind, &advanced, &next, false, &letter.invert());
+            }
+        }
+        for letter in letters(Some(kind), &state.view) {
+            counts.put_letters += 1;
+            step(kind, &production, &state, true, &letter);
+        }
+        counts
+    }
+
+    /// The closed-form letter census of the relational carrier: bases, get
+    /// letters on the sources and put letters on the oracle views.
+    const TABLE_EDIT_LENS_CENSUS: (usize, usize, usize) = (9_155, 200_655, 166_227);
+
+    fn census() -> (usize, usize, usize) {
+        let (mut bases, mut get, mut put) = (0, 0, 0);
+        for_each_relational_table_source(|source| {
+            for kind in MigrationKind::ALL {
+                bases += 1;
+                get += with_letter_schema(None, |schema| {
+                    table_edit_lens_letter_count(schema, &source)
+                });
+                let view = relational_table_get(kind.reference(), &source);
+                put += with_letter_schema(Some(kind), |schema| {
+                    table_edit_lens_letter_count(schema, &view)
+                });
+            }
+        });
+        (bases, get, put)
+    }
+
+    #[test]
+    fn table_edit_lens_letter_census_is_the_closed_form_over_the_relational_carrier() {
+        let census = census();
+        println!("table edit lens census: {census:?}");
+        assert_eq!(census, TABLE_EDIT_LENS_CENSUS);
+    }
+
+    #[test]
+    fn table_edit_lens_agrees_with_the_reference_on_the_relational_carrier() {
+        let mut counts = Counts::default();
+        for_each_source(|reference_source, source| {
+            for kind in MigrationKind::ALL {
+                let unit = unit(kind, reference_source, source);
+                counts.bases += unit.bases;
+                counts.get_letters += unit.get_letters;
+                counts.put_letters += unit.put_letters;
+                counts.inverses += unit.inverses;
+            }
+        });
+        println!("table edit lens relational carrier: {counts:?}");
+        assert_eq!(
+            (counts.bases, counts.get_letters, counts.put_letters),
+            TABLE_EDIT_LENS_CENSUS
+        );
+    }
+
+    /// The graph edit lens translation of a table edit, read back as a
+    /// table delta with the next table source and view, or its refusal.
+    fn graph_route(
+        lens_kind: MigrationKind,
+        source: &FInstance,
+        put: bool,
+        edit: &TableDelta,
+    ) -> Result<(TableDelta, FInstance, FInstance), String> {
+        let protocol = protocol();
+        let lens = lens(lens_kind, &protocol);
+        let tgt_schema = lens.tgt_schema.clone();
+        let src_schema = lens.src_schema.clone();
+        let (graph, _) = GInstance::from_finstance(source).expect("relational graph form");
+        let mut graph_lens = GraphEditLens::new(lens, graph).expect("graph get of the graph form");
+        let read = |graph: &GInstance, schema: &Schema| {
+            graph
+                .try_to_finstance(schema)
+                .expect("graph route states are tables")
+        };
+        let (_, mut source_embedding) = read(graph_lens.source(), &src_schema);
+        let (_, mut view_embedding) = read(graph_lens.view(), &tgt_schema);
+        let embedding: &mut TableEmbedding = if put {
+            &mut view_embedding
+        } else {
+            &mut source_embedding
+        };
+        let graph_edit = edit
+            .to_graph_delta(embedding)
+            .map_err(|_| "apply".to_owned())?;
+        let (_, mut before) = if put {
+            read(graph_lens.source(), &src_schema)
+        } else {
+            read(graph_lens.view(), &tgt_schema)
+        };
+        let step = if put {
+            graph_lens.put_edit(&graph_edit)
+        } else {
+            graph_lens.get_edit(&graph_edit)
+        }
+        .map_err(|error| production_refusal(&error))?;
+        let translated = if put {
+            &step.source_delta
+        } else {
+            &step.view_delta
+        };
+        let read_back = TableDelta::from_graph_delta(translated, &mut before)
+            .expect("a translated delta between table states is a table delta");
+        Ok((
+            read_back,
+            read(graph_lens.source(), &src_schema).0,
+            read(graph_lens.view(), &tgt_schema).0,
+        ))
+    }
+
+    #[test]
+    fn graph_and_table_edit_lenses_commute_on_the_relational_carrier() {
+        let mut compared = 0_usize;
+        for_each_source(|reference_source, source| {
+            for kind in MigrationKind::ALL {
+                if !kind.commutes_with_protocol_free_graph() {
+                    continue;
+                }
+                let protocol = protocol();
+                let table_lens =
+                    TableEditLens::new(lens(kind, &protocol), source.clone(), context())
+                        .expect("table get accepts every relational source");
+                let view = reference_table(table_lens.view());
+                for (put, letters) in [
+                    (false, letters(None, reference_source)),
+                    (true, letters(Some(kind), &view)),
+                ] {
+                    for letter in letters {
+                        compared += 1;
+                        let edit = production_delta(&letter);
+                        let mut table_route = table_lens.clone();
+                        let table = if put {
+                            table_route.put_edit(&edit)
+                        } else {
+                            table_route.get_edit(&edit)
+                        }
+                        .map(|step| {
+                            (
+                                if put {
+                                    step.source_delta
+                                } else {
+                                    step.view_delta
+                                },
+                                table_route.source().clone(),
+                                table_route.view().clone(),
+                            )
+                        })
+                        .map_err(|error| production_refusal(&error));
+                        let graph = graph_route(kind, source, put, &edit);
+                        assert_eq!(
+                            graph,
+                            table,
+                            "{kind:?} {} of {letter:?} from {reference_source:?}",
+                            if put { "put" } else { "get" }
+                        );
+                    }
+                }
+            }
+        });
+        println!("graph and table edit lens square: compared={compared}");
+        assert!(compared > 0);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn randomized_table_edit_lens_differential(
+            a_rows in prop::collection::vec((0_u8..8, prop::option::of(0_i64..2)), 0..5),
+            b_rows in prop::collection::vec((0_u8..8, prop::option::of(0_i64..2)), 0..5),
+            pair_mask in any::<u32>(),
+            kind in 0_usize..MIGRATIONS,
+            word in prop::collection::vec((any::<bool>(), any::<usize>()), 1..6),
+        ) {
+            let kind = MigrationKind::ALL[kind];
+            let source = generated_source(&a_rows, &b_rows, pair_mask);
+            let reference_source = reference_table(&source);
+            let protocol = protocol();
+            let mut production = TableEditLens::new(lens(kind, &protocol), source, context())
+                .expect("table get accepts every generated source");
+            let mut state = TableEditState {
+                view: relational_table_get(kind.reference(), &reference_source),
+                source: reference_source,
+            };
+            for (put, choice) in &word {
+                let letters = if *put {
+                    letters(Some(kind), &state.view)
+                } else {
+                    letters(None, &state.source)
+                };
+                if letters.is_empty() {
+                    continue;
+                }
+                let letter = &letters[choice % letters.len()];
+                if let Some((advanced, next)) = step(kind, &production, &state, *put, letter) {
+                    production = advanced;
+                    state = next;
+                }
+            }
+        }
+    }
+}

@@ -4395,6 +4395,156 @@ pub mod edit {
         delta
     }
 
+    /// Definition: The table differ from `before` to `after` that keeps the
+    /// replacements of an input delta and is closed under incidence.
+    ///
+    /// Every row or pair the input replaces that both tables hold becomes a
+    /// replacement from its `before` payload to its `after` payload, with no
+    /// attribute change of its own. Every pair of `before` incident to a
+    /// deleted row is deleted, and every pair of `after` incident to an added
+    /// row is added, each with its counterpart when the other table holds
+    /// it.
+    ///
+    /// Book anchors: `L-edits-10`.
+    #[must_use]
+    pub fn diff_keeping_replacements_table(
+        before: &Table,
+        after: &Table,
+        input: &TableDelta,
+    ) -> TableDelta {
+        let mut delta = diff_table(before, after);
+        let element = |table: &Table, x: &TElem| match x {
+            TElem::Row(id) => table
+                .rows
+                .get(id)
+                .map(|(name, cells)| TPayload::Row(name.clone(), cells.clone())),
+            TElem::Pair(edge, src, tgt) => table
+                .pairs
+                .contains(&(edge.clone(), *src, *tgt))
+                .then_some(TPayload::Pair),
+        };
+        for x in input.del.keys().filter(|x| input.add.contains_key(*x)) {
+            let (Some(old), Some(new)) = (element(before, x), element(after, x)) else {
+                continue;
+            };
+            delta.attrs.retain(|key, _| TableSpace::owner(key) != *x);
+            delta.del.insert(x.clone(), old);
+            delta.add.insert(x.clone(), new);
+        }
+        let deleted_row = |delta: &TableDelta, id: u32| delta.del.contains_key(&TElem::Row(id));
+        let added_row = |delta: &TableDelta, id: u32| delta.add.contains_key(&TElem::Row(id));
+        for (edge, src, tgt) in &before.pairs {
+            if deleted_row(&delta, *src) || deleted_row(&delta, *tgt) {
+                let x = TElem::Pair(edge.clone(), *src, *tgt);
+                delta.del.insert(x.clone(), TPayload::Pair);
+                if after.pairs.contains(&(edge.clone(), *src, *tgt)) {
+                    delta.add.insert(x, TPayload::Pair);
+                }
+            }
+        }
+        for (edge, src, tgt) in &after.pairs {
+            if added_row(&delta, *src) || added_row(&delta, *tgt) {
+                let x = TElem::Pair(edge.clone(), *src, *tgt);
+                delta.add.insert(x.clone(), TPayload::Pair);
+                if before.pairs.contains(&(edge.clone(), *src, *tgt)) {
+                    delta.del.insert(x, TPayload::Pair);
+                }
+            }
+        }
+        delta.attrs.retain(|key, _| {
+            let owner = TableSpace::owner(key);
+            !delta.del.contains_key(&owner) && !delta.add.contains_key(&owner)
+        });
+        delta
+    }
+
+    /// The state of a reference table edit lens: a source table with the
+    /// view the lens holds for it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TableEditState {
+        /// The source.
+        pub source: Table,
+        /// The held view.
+        pub view: Table,
+    }
+
+    /// Why the reference table edit lens refuses an edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum TableEditError<G, P> {
+        /// The edit does not apply to the source (get) or view (put).
+        Apply(TableApplyError),
+        /// Whole-state get refuses the edited source.
+        Get(G),
+        /// Whole-state put refuses the edited view.
+        Put(P),
+        /// The get of the put source is not the edited view.
+        PutGetMismatch,
+    }
+
+    /// Whole-state table get oracle of the reference table edit lens.
+    pub type TableStateGet<'a, G> = dyn Fn(&Table) -> Result<Table, G> + 'a;
+
+    /// Whole-state table put oracle of the reference table edit lens: the
+    /// held source and the edited view to the put source.
+    pub type TableStatePut<'a, P> = dyn Fn(&Table, &Table) -> Result<Table, P> + 'a;
+
+    /// A translated table delta with the next state, or the refusal.
+    pub type TableEditOutcome<G, P> = Result<(TableDelta, TableEditState), TableEditError<G, P>>;
+
+    /// Definition: The reference table edit lens's translation of a source edit.
+    ///
+    /// The edited source is `d` applied to the held source, its view is
+    /// whole-state get of it, and the translated delta is the closed differ
+    /// from the held view to that view keeping the replacements of `d`
+    /// ([`diff_keeping_replacements_table`]). A table view carries no
+    /// synthesized id, so no presentation is chosen.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `d` or of get.
+    ///
+    /// Book anchors: `L-edits-10`.
+    pub fn table_edit_get<G, P>(
+        get: &TableStateGet<'_, G>,
+        state: &TableEditState,
+        d: &TableDelta,
+    ) -> TableEditOutcome<G, P> {
+        let source = apply_table(d, &state.source).map_err(TableEditError::Apply)?;
+        let view = get(&source).map_err(TableEditError::Get)?;
+        let delta = diff_keeping_replacements_table(&state.view, &view, d);
+        Ok((delta, TableEditState { source, view }))
+    }
+
+    /// Definition: The reference table edit lens's translation of a view edit.
+    ///
+    /// The edited view is `e` applied to the held view; put it; the
+    /// translated delta is the closed differ from the held source to the
+    /// put source keeping the replacements of `e`; and the next state is
+    /// the translation of that delta by [`table_edit_get`], whose view must
+    /// be the edited view.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `e`, of put, of the forward translation, or
+    /// `PutGetMismatch`.
+    ///
+    /// Book anchors: `L-edits-10`.
+    pub fn table_edit_put<G, P>(
+        get: &TableStateGet<'_, G>,
+        put: &TableStatePut<'_, P>,
+        state: &TableEditState,
+        e: &TableDelta,
+    ) -> TableEditOutcome<G, P> {
+        let view = apply_table(e, &state.view).map_err(TableEditError::Apply)?;
+        let source = put(&state.source, &view).map_err(TableEditError::Put)?;
+        let d = diff_keeping_replacements_table(&state.source, &source, e);
+        let (_, next) = table_edit_get(get, state, &d)?;
+        if next.view != view {
+            return Err(TableEditError::PutGetMismatch);
+        }
+        Ok((d, next))
+    }
+
     /// Domain separator for graph-delta digests.
     pub const GRAPH_DELTA_CONTEXT: &str = "panproto 2026-09 graph delta v1";
     /// Domain separator for table-delta digests.

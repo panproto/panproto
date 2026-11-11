@@ -1450,6 +1450,185 @@ fn graph_edit_lens_edge_letters(
     out
 }
 
+/// The tables, columns, relations and cell values a table edit lens letter
+/// may name.
+#[derive(Clone, Copy, Debug)]
+pub struct TableLetterSchema<'a> {
+    /// Each table with its columns.
+    pub tables: &'a [(&'a str, &'a [&'a str])],
+    /// The relations, each a foreign key from one table to another.
+    pub relations: &'a [SEdge],
+    /// The cell values, in the order a cell cycles through them.
+    pub values: &'a [Value],
+}
+
+impl TableLetterSchema<'_> {
+    fn columns(&self, table: &str) -> &[&str] {
+        self.tables
+            .iter()
+            .find(|(name, _)| *name == table)
+            .map_or(&[], |(_, columns)| columns)
+    }
+
+    /// The value after `value` in the cycle absent, `values[0]`, ...,
+    /// absent.
+    fn next(&self, value: Option<&Value>) -> Option<Value> {
+        match value {
+            None => self.values.first().cloned(),
+            Some(value) => {
+                let at = self.values.iter().position(|v| v == value)?;
+                self.values.get(at + 1).cloned()
+            }
+        }
+    }
+}
+
+/// The one-letter edits of the table edit lens carrier at `table`, in this
+/// order:
+///
+/// 1. each row addition, without cells, at the fresh id (one above the
+///    largest row id), one per table of `schema`;
+/// 2. for each row, ascending: its deletion with every incident pair, its
+///    bare deletion (refused when it has an incident pair), its
+///    replacement by an equal row with every incident pair replaced alike,
+///    and one cell change per column of its table, to the next value of the
+///    cycle absent, `values[0]`, ..., absent;
+/// 3. for each relation and each pair of rows of its two tables it does
+///    not join, the addition of that pair;
+/// 4. each pair's deletion;
+/// 5. one stale deletion of the least row, under another table name, and,
+///    when `schema` has a relation, one addition of it between two rows the
+///    table does not hold.
+///
+/// Letters 5 always refuse; the others apply exactly when stated.
+///
+/// Book anchors: `L-edits-10`.
+#[must_use]
+pub fn table_edit_lens_letters(
+    schema: TableLetterSchema<'_>,
+    table: &crate::model::Table,
+) -> Vec<TableDelta> {
+    let fresh = table.rows.keys().next_back().map_or(0, |id| id + 1);
+    let mut out = Vec::new();
+    for (name, _) in schema.tables {
+        let mut delta = TableDelta::identity();
+        delta.add.insert(
+            TElem::Row(fresh),
+            TPayload::Row((*name).to_owned(), BTreeMap::new()),
+        );
+        out.push(delta);
+    }
+    for (id, (name, cells)) in &table.rows {
+        let mut cascade = TableDelta::identity();
+        cascade
+            .del
+            .insert(TElem::Row(*id), TPayload::Row(name.clone(), cells.clone()));
+        for (edge, src, tgt) in &table.pairs {
+            if src == id || tgt == id {
+                cascade
+                    .del
+                    .insert(TElem::Pair(edge.clone(), *src, *tgt), TPayload::Pair);
+            }
+        }
+        let mut replacement = cascade.clone();
+        replacement.add = replacement.del.clone();
+        let mut bare = TableDelta::identity();
+        bare.del
+            .insert(TElem::Row(*id), TPayload::Row(name.clone(), cells.clone()));
+        out.extend([cascade, bare, replacement]);
+        for column in schema.columns(name) {
+            let old = cells.get(*column);
+            let mut delta = TableDelta::identity();
+            delta.attrs.insert(
+                TKey::Cell(*id, (*column).to_owned()),
+                (TVal::Cell(old.cloned()), TVal::Cell(schema.next(old))),
+            );
+            out.push(delta);
+        }
+    }
+    for relation in schema.relations {
+        for (src, (src_table, _)) in &table.rows {
+            for (tgt, (tgt_table, _)) in &table.rows {
+                if *src_table != relation.src
+                    || *tgt_table != relation.tgt
+                    || table.pairs.contains(&(relation.clone(), *src, *tgt))
+                {
+                    continue;
+                }
+                let mut delta = TableDelta::identity();
+                delta
+                    .add
+                    .insert(TElem::Pair(relation.clone(), *src, *tgt), TPayload::Pair);
+                out.push(delta);
+            }
+        }
+    }
+    for (edge, src, tgt) in &table.pairs {
+        let mut delta = TableDelta::identity();
+        delta
+            .del
+            .insert(TElem::Pair(edge.clone(), *src, *tgt), TPayload::Pair);
+        out.push(delta);
+    }
+    if let Some((id, (name, cells))) = table.rows.iter().next() {
+        let mut delta = TableDelta::identity();
+        delta.del.insert(
+            TElem::Row(*id),
+            TPayload::Row(format!("{name}~"), cells.clone()),
+        );
+        out.push(delta);
+    }
+    if let Some(relation) = schema.relations.first() {
+        let mut delta = TableDelta::identity();
+        delta.add.insert(
+            TElem::Pair(relation.clone(), fresh, fresh + 1),
+            TPayload::Pair,
+        );
+        out.push(delta);
+    }
+    out
+}
+
+/// The number of letters [`table_edit_lens_letters`] gives at `table`.
+///
+/// It is counted from the structure of `schema` and `table` without
+/// building a letter: one addition per table; per row three structural
+/// letters and one cell change per column of its table; per relation one
+/// addition per pair of rows of its two tables it does not join; one
+/// deletion per pair; and the refused letters when the table has a row and
+/// the schema a relation.
+///
+/// Book anchors: `L-edits-10`.
+#[must_use]
+pub fn table_edit_lens_letter_count(
+    schema: TableLetterSchema<'_>,
+    table: &crate::model::Table,
+) -> usize {
+    let rows_of = |name: &str| table.rows.values().filter(|(t, _)| t == name).count();
+    let mut count = schema.tables.len() + 3 * table.rows.len();
+    count += table
+        .rows
+        .values()
+        .map(|(name, _)| schema.columns(name).len())
+        .sum::<usize>();
+    for relation in schema.relations {
+        let joined = table
+            .pairs
+            .iter()
+            .filter(|(edge, src, tgt)| {
+                edge == relation
+                    && table.rows.get(src).is_some_and(|(t, _)| *t == relation.src)
+                    && table.rows.get(tgt).is_some_and(|(t, _)| *t == relation.tgt)
+            })
+            .count();
+        count += rows_of(&relation.src) * rows_of(&relation.tgt) - joined;
+    }
+    count
+        + table.pairs.len()
+        + usize::from(!table.rows.is_empty())
+        + usize::from(!schema.relations.is_empty())
+}
+
 /// The direction in which a named edit-translation carrier case runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditTranslationDirection {
