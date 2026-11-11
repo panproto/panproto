@@ -289,7 +289,7 @@ fn reinserting_a_hidden_edge_restores_the_contracted_edge_at_the_least_free_id()
 fn a_cycle_through_a_hidden_node_contracts_to_a_loop_and_back() -> TestResult {
     let mut lens = GraphEditLens::new(contraction_lens(true)?, source())?;
     let back =
-        GraphDelta::identity().with_added_edge(EdgeId(5), GEdge::new(1, 0, edge("h", "a", "ha")));
+        GraphDelta::identity().with_added_edge(EdgeId(20), GEdge::new(1, 0, edge("h", "a", "ha")));
     let step = lens.get_edit(&back)?;
     let added: Vec<&GEdge> = step.view_delta.add_edges().values().collect();
     assert_eq!(added.len(), 1);
@@ -298,6 +298,31 @@ fn a_cycle_through_a_hidden_node_contracts_to_a_loop_and_back() -> TestResult {
     let inverse = back.invert();
     let step = lens.get_edit(&inverse)?;
     assert_eq!(step.view_delta.del_edges().len(), 1);
+    assert_matches_whole_state(&lens)?;
+    Ok(())
+}
+
+#[test]
+fn a_source_edge_that_takes_a_synthesized_id_moves_the_synthesized_edge() -> TestResult {
+    let mut lens = GraphEditLens::new(contraction_lens(true)?, source())?;
+    let taken = synth_edge_id(&lens, 0, 2).ok_or("no contracted edge")?;
+    let parallel =
+        GraphDelta::identity().with_added_edge(taken, GEdge::new(0, 2, edge("a", "b", "ab")));
+    let step = lens.get_edit(&parallel)?;
+    let moved = synth_edge_id(&lens, 0, 2).ok_or("no contracted edge")?;
+    assert_ne!(moved, taken);
+    // The new source edge has the payload the synthesized edge had, so the
+    // view keeps an equal edge at that id and gains the moved one.
+    assert!(step.view_delta.del_edges().is_empty());
+    assert_eq!(
+        step.view_delta
+            .add_edges()
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![moved]
+    );
+    assert!(lens.complement().synthesized_edges.get(&taken).is_none());
     assert_matches_whole_state(&lens)?;
     Ok(())
 }
