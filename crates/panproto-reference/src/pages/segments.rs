@@ -3494,6 +3494,142 @@ pub mod segment {
         Ok(w.0)
     }
 
+    /// Definition: the record stream of a segment.
+    ///
+    /// Each record is a frame written after its length as eight
+    /// little-endian bytes. A frame is a
+    /// tag byte and the record as the whole instance's canonical bytes
+    /// write it: `0` and a node, then `1` and an edge with its id, for a
+    /// graph; `2` and a row with its id and table, then `3` and a pair, for
+    /// a table; for a tree, `0` and each node that is no fan's node, `4`,
+    /// the arc's id and the arc for each arc that is no fan's parent or
+    /// child edge, then `5` and each fan as its parent, its schema
+    /// hyper-edge and its children by label, the fans in ascending order of
+    /// those three fields. A fan's parent is its parent edge's target and a
+    /// child is its child edge's target.
+    ///
+    /// # Errors
+    ///
+    /// Returns a decode refusal for a node or row value outside the
+    /// canonical value layout.
+    pub fn segment_record_stream(segment: &AnySegment) -> Result<Vec<u8>, SegmentError> {
+        Ok(segment_frames(segment)?
+            .iter()
+            .flat_map(|frame| {
+                let mut w = Canonical::default();
+                w.bytes(frame);
+                w.0
+            })
+            .collect())
+    }
+
+    /// A fan record's parent, schema hyper-edge and children by label.
+    type FanFields = (u32, String, Vec<(String, u32)>);
+
+    /// The frames of [`segment_record_stream`], in stream order.
+    fn segment_frames(segment: &AnySegment) -> Result<Vec<Vec<u8>>, SegmentError> {
+        let node_frame = |node: &Node| {
+            let mut frame = Writer::default();
+            frame.tag(0);
+            write_node(&mut frame, node)
+                .ok_or_else(|| decode_error(ArtifactKind::Segment, "noncanonical node"))?;
+            Ok::<_, SegmentError>(frame.bytes)
+        };
+        let mut frames = Vec::new();
+        match segment {
+            AnySegment::Graph(value) => {
+                for node in value.nodes.values() {
+                    frames.push(node_frame(node)?);
+                }
+                for (id, edge) in &value.edges {
+                    let mut frame = Writer::default();
+                    frame.tag(1);
+                    write_graph_edge(&mut frame, *id, edge);
+                    frames.push(frame.bytes);
+                }
+            }
+            AnySegment::Table(value) => {
+                for (id, (table, cells)) in &value.rows {
+                    let mut frame = Writer::default();
+                    frame.tag(2);
+                    frame.u32(*id);
+                    frame.str(table);
+                    write_map(&mut frame, cells)
+                        .ok_or_else(|| decode_error(ArtifactKind::Segment, "noncanonical row"))?;
+                    frames.push(frame.bytes);
+                }
+                for (edge, source, target) in &value.pairs {
+                    let mut frame = Writer::default();
+                    frame.tag(3);
+                    frame.edge(edge);
+                    frame.u32(*source);
+                    frame.u32(*target);
+                    frames.push(frame.bytes);
+                }
+            }
+            AnySegment::Tree(value) => {
+                let fan_nodes: BTreeSet<u32> = value.fans.iter().map(|fan| fan.node).collect();
+                let fan_edges: BTreeSet<u32> = value
+                    .fans
+                    .iter()
+                    .flat_map(|fan| {
+                        std::iter::once(fan.parent_edge).chain(fan.child_edges.values().copied())
+                    })
+                    .collect();
+                for node in value.nodes.values() {
+                    if !fan_nodes.contains(&node.id) {
+                        frames.push(node_frame(node)?);
+                    }
+                }
+                for (id, (parent, child, edge)) in &value.arcs {
+                    if fan_edges.contains(id) {
+                        continue;
+                    }
+                    let mut frame = Writer::default();
+                    frame.tag(4);
+                    frame.u32(*id);
+                    frame.u32(*parent);
+                    frame.u32(*child);
+                    frame.edge(edge);
+                    frames.push(frame.bytes);
+                }
+                let target = |edge: u32| value.arcs.get(&edge).map_or(0, |arc| arc.1);
+                let mut fans: Vec<FanFields> = value
+                    .fans
+                    .iter()
+                    .map(|fan| {
+                        (
+                            target(fan.parent_edge),
+                            value
+                                .nodes
+                                .get(&fan.node)
+                                .map(|node| node.anchor.clone())
+                                .unwrap_or_default(),
+                            fan.child_edges
+                                .iter()
+                                .map(|(label, edge)| (label.clone(), target(*edge)))
+                                .collect(),
+                        )
+                    })
+                    .collect();
+                fans.sort();
+                for (parent, hyper_edge, children) in fans {
+                    let mut frame = Writer::default();
+                    frame.tag(5);
+                    frame.u32(parent);
+                    frame.str(&hyper_edge);
+                    frame.len(children.len());
+                    for (label, child) in children {
+                        frame.str(&label);
+                        frame.u32(child);
+                    }
+                    frames.push(frame.bytes);
+                }
+            }
+        }
+        Ok(frames)
+    }
+
     #[derive(Clone, Copy, Debug)]
     struct DecodeFailure;
 
@@ -4481,7 +4617,10 @@ pub mod segment {
             w.digest(*digest);
         }
     }
-    fn record_bytes(record: &SegmentRecord) -> Vec<u8> {
+    /// Definition: a manifest record's canonical bytes, as the manifest
+    /// writes each record.
+    #[must_use]
+    pub fn canonical_record_bytes(record: &SegmentRecord) -> Vec<u8> {
         let mut w = Canonical::default();
         w.u32(record.id.0);
         w.len(record.nodes.len());
@@ -4533,7 +4672,7 @@ pub mod segment {
         }
         w.len(manifest.segments.len());
         for record in &manifest.segments {
-            w.0.extend(record_bytes(record));
+            w.0.extend(canonical_record_bytes(record));
         }
         w.digest(manifest.root);
         w.bool(manifest.instance_digest.is_some());
@@ -4729,7 +4868,7 @@ pub mod segment {
     fn merkle(records: &[SegmentRecord]) -> Digest {
         match records.len() {
             0 => Digest::derive(MANIFEST_NODE_CONTEXT, &[]),
-            1 => Digest::derive(MANIFEST_LEAF_CONTEXT, &record_bytes(&records[0])),
+            1 => Digest::derive(MANIFEST_LEAF_CONTEXT, &canonical_record_bytes(&records[0])),
             n => {
                 let split = n.next_power_of_two() / 2;
                 let mut bytes = Vec::with_capacity(64);
@@ -5192,9 +5331,39 @@ pub mod segment {
                 check_new_edge_id(p, segment, id, false)?;
             }
         }
-        let (cross_out, cross_in) = cross_maps(&ordered);
+        let records = manifest_records(&ordered, p, schema)?;
+        let root = merkle(&records);
+        Ok(SegmentManifest {
+            version: SEGMENT_MANIFEST_VERSION,
+            shape: p.shape,
+            schema,
+            role,
+            binding,
+            segments: records,
+            root,
+            instance_digest: Some(whole_instance_digest(&whole)?),
+        })
+    }
+
+    /// Definition: the manifest records of a family `ordered` in partition
+    /// order, one per segment.
+    ///
+    /// A record holds its spec's ranges, its summary, the digest of its
+    /// ascending edge ids, its content digest under `schema` and its cross
+    /// maps over the family. No seal floor is checked.
+    ///
+    /// # Errors
+    ///
+    /// Returns a segment the partition does not name, or the refusal of
+    /// [`canonical_segment_bytes`] or of the segment's summary.
+    pub fn manifest_records(
+        ordered: &[AnySegment],
+        p: &Partition,
+        schema: Digest,
+    ) -> Result<Vec<SegmentRecord>, SegmentError> {
+        let (cross_out, cross_in) = cross_maps(ordered);
         let mut records = Vec::with_capacity(ordered.len());
-        for segment in &ordered {
+        for segment in ordered {
             let spec =
                 p.spec(segment.segment())
                     .ok_or_else(|| SegmentError::MalformedPartition {
@@ -5226,17 +5395,7 @@ pub mod segment {
                 cross_in: cross_in[index(segment.segment())].clone(),
             });
         }
-        let root = merkle(&records);
-        Ok(SegmentManifest {
-            version: SEGMENT_MANIFEST_VERSION,
-            shape: p.shape,
-            schema,
-            role,
-            binding,
-            segments: records,
-            root,
-            instance_digest: Some(whole_instance_digest(&whole)?),
-        })
+        Ok(records)
     }
 
     /// Verify a manifest against a trusted expected full identity without segments.
@@ -5513,7 +5672,7 @@ pub mod segment {
     /// Digest the canonical leaf bytes of one manifest record.
     #[must_use]
     pub fn manifest_leaf(record: &SegmentRecord) -> Digest {
-        Digest::derive(MANIFEST_LEAF_CONTEXT, &record_bytes(record))
+        Digest::derive(MANIFEST_LEAF_CONTEXT, &canonical_record_bytes(record))
     }
 
     /// Budgeted resource.
@@ -5966,7 +6125,10 @@ pub mod segment {
         pub tasks: u32,
         /// Tasks reused from the committed journal.
         pub reused: u32,
-        /// Peak deterministic memory estimate.
+        /// Peak deterministic memory estimate: for Seal of a restrict run,
+        /// the bytes Seal holds of the Emit artifacts summed over them; for
+        /// every other phase, the greatest working-set estimate of an input
+        /// segment.
         pub peak_estimated_bytes: u64,
         /// Optional measured wall time; absent in the deterministic reference.
         pub wall_ms: Option<u64>,
@@ -7066,25 +7228,87 @@ pub mod segment {
         w.0
     }
 
+    /// The length of the fixed header of an Emit artifact: seven `u64`.
+    pub const EMIT_HEADER_LEN: u64 = 56;
+
+    /// One segment's Emit artifact and what Seal holds of it.
+    struct EmitArtifact {
+        /// The complement's entry count.
+        elements: u64,
+        /// The complement's byte length.
+        complement: u64,
+        /// The bytes Seal holds at once while it reads this artifact.
+        seal_held: u64,
+        /// The artifact.
+        bytes: Vec<u8>,
+    }
+
+    /// Definition: the Emit artifact of one view segment. A header of seven
+    /// little-endian `u64` (the complement's entry count; the lengths of the
+    /// view segment's canonical bytes, the complement's canonical bytes and
+    /// the view's manifest record; the number of the view's edge ids; the
+    /// length of its record stream; the length of its longest frame with
+    /// the frame's eight-byte length, `0` for no frame), then those
+    /// sections in that order, the edge ids ascending as four little-endian
+    /// bytes each between the record and the stream.
+    ///
+    /// Seal holds, of this artifact, its header, its record, one edge id
+    /// when there is one, and its longest frame with its length.
     fn restrict_emit_bytes(
         view: &GraphSegment,
         complement: &GraphComplementSegment,
+        record: &SegmentRecord,
         schema: Digest,
         p: &Partition,
-    ) -> Result<(u64, u64, Vec<u8>), SegmentError> {
+    ) -> Result<EmitArtifact, SegmentError> {
+        let size = |bytes: &[u8]| u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let complement = AnyComplementSegment::Graph(complement.clone());
         let elements = complement.element_count();
         let complement_bytes = complement.canonical_bytes()?;
-        let view_bytes = canonical_segment_bytes(&AnySegment::Graph(view.clone()), schema, p)?;
+        let view = AnySegment::Graph(view.clone());
+        let view_bytes = canonical_segment_bytes(&view, schema, p)?;
+        let record_bytes = canonical_record_bytes(record);
+        let mut run: Vec<u32> = owned_edges(&view)
+            .into_iter()
+            .filter_map(|edge| edge.id)
+            .collect();
+        run.sort_unstable();
+        let frames = segment_frames(&view)?;
+        let longest = frames
+            .iter()
+            .map(|frame| size(frame).saturating_add(8))
+            .max()
+            .unwrap_or(0);
+        let stream = segment_record_stream(&view)?;
         let mut w = Canonical::default();
-        w.u64(elements);
-        w.bytes(&view_bytes);
-        w.bytes(&complement_bytes);
-        Ok((
+        for field in [
             elements,
-            u64::try_from(complement_bytes.len()).unwrap_or(u64::MAX),
-            w.0,
-        ))
+            size(&view_bytes),
+            size(&complement_bytes),
+            size(&record_bytes),
+            u64::try_from(run.len()).unwrap_or(u64::MAX),
+            size(&stream),
+            longest,
+        ] {
+            w.u64(field);
+        }
+        w.0.extend(&view_bytes);
+        w.0.extend(&complement_bytes);
+        w.0.extend(&record_bytes);
+        for id in &run {
+            w.u32(*id);
+        }
+        w.0.extend(&stream);
+        let one_id = if run.is_empty() { 0 } else { 4 };
+        Ok(EmitArtifact {
+            elements,
+            complement: size(&complement_bytes),
+            seal_held: EMIT_HEADER_LEN
+                .saturating_add(size(&record_bytes))
+                .saturating_add(one_id)
+                .saturating_add(longest),
+            bytes: w.0,
+        })
     }
 
     fn restrict_report(
@@ -7270,21 +7494,37 @@ pub mod segment {
         }
 
         /// Emit, each task preceded by the running complement budget; the
-        /// emitted artifacts in task order.
+        /// emitted artifacts in task order and the bytes Seal holds at once
+        /// while it reads them, the sum over the artifacts.
         fn restrict_emit(
             &mut self,
             outputs: &[super::segmented_restrict::SegmentOutput],
             assembly: &[u8],
-        ) -> Result<Vec<u8>, RestrictStop> {
+        ) -> Result<(Vec<u8>, u64), RestrictStop> {
             let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            let views: Vec<AnySegment> = outputs
+                .iter()
+                .map(|(view, _)| AnySegment::Graph(view.clone()))
+                .collect();
+            let records = manifest_records(&views, self.p, self.spec.schema);
             let mut emitted = Canonical::default();
-            for (view, complement) in outputs {
+            let mut seal_held: u64 = 0;
+            for (position, (view, complement)) in outputs.iter().enumerate() {
                 if self.cancelled() {
                     return Err(PipelineStop::Cancelled.into());
                 }
-                let (elements, bytes, artifact) =
-                    restrict_emit_bytes(view, complement, self.spec.schema, self.p)
-                        .map_err(PipelineStop::Failed)?;
+                let record = match &records {
+                    Ok(records) => &records[position],
+                    Err(error) => return Err(PipelineStop::Failed(error.clone()).into()),
+                };
+                let EmitArtifact {
+                    elements,
+                    complement: bytes,
+                    seal_held: held,
+                    bytes: artifact,
+                } = restrict_emit_bytes(view, complement, record, self.spec.schema, self.p)
+                    .map_err(PipelineStop::Failed)?;
+                seal_held = seal_held.saturating_add(held);
                 let needed = self.report.complement.bytes.saturating_add(bytes);
                 if self.budget.complement.is_some_and(|limit| needed > limit) {
                     return Err(PipelineStop::Residual(Residual::BudgetExceeded {
@@ -7319,14 +7559,15 @@ pub mod segment {
                 reuse_before,
                 self.peak,
             );
-            Ok(emitted.0)
+            Ok((emitted.0, seal_held))
         }
 
-        /// Seal the view segments as a view of the input manifest `input`.
+        /// Seal the view segments as a view of the input manifest `input`,
+        /// holding `seal_held` bytes at once.
         fn restrict_seal(
             &mut self,
             outputs: &[super::segmented_restrict::SegmentOutput],
-            emitted: &[u8],
+            (emitted, seal_held): (&[u8], u64),
             input: Digest,
         ) -> Result<(Vec<u8>, SegmentManifest), RestrictStop> {
             if self.cancelled() {
@@ -7358,7 +7599,7 @@ pub mod segment {
                 Phase::Seal,
                 run_before,
                 reuse_before,
-                self.peak,
+                seal_held,
             );
             Ok((bytes, manifest))
         }
@@ -7374,8 +7615,8 @@ pub mod segment {
                 .whole
                 .as_ref()
                 .map_err(|refusal| RestrictStop::Refused(refusal.clone()))?;
-            let emitted = self.restrict_emit(outputs, &assembly)?;
-            self.restrict_seal(outputs, &emitted, input)
+            let (emitted, seal_held) = self.restrict_emit(outputs, &assembly)?;
+            self.restrict_seal(outputs, (&emitted, seal_held), input)
         }
     }
 
@@ -7502,7 +7743,9 @@ pub mod segment {
     /// refusal and otherwise declines when the summary bytes and its own
     /// artifact exceed the summary budget; per segment Emit, each preceded by
     /// the running complement budget check; and Seal, which seals the view
-    /// segments as a view of the input manifest. It stops before any task
+    /// segments as a view of the input manifest and whose phase peak is the
+    /// sum over the Emit artifacts of the bytes Seal holds of each (see
+    /// `restrict_emit_bytes`). It stops before any task
     /// once `cancel_after_tasks` tasks are done, and reuses every committed
     /// task whose inputs and artifact are unchanged.
     pub fn segmented_restrict_with_progress<S: SegmentStore>(

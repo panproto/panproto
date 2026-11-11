@@ -33,7 +33,10 @@
 //!   Emit artifact's header and record whole and its edge id run and record
 //!   stream one id and one record at a time ([`SegmentStore::read_at`]), so
 //!   it holds the `n` records, one id per run and one record per stream,
-//!   and never a view segment.
+//!   and never a view segment. Its reported peak
+//!   ([`PhaseReport::peak_estimated_bytes`]) is that holding as the Emit
+//!   headers state it, so it grows with the number of segments and the
+//!   longest record of each, not with the records a segment holds.
 //!
 //! A task whose key is journaled with the same inputs, and whose artifact
 //! still hashes to the recorded output, is reused rather than recomputed
@@ -184,7 +187,13 @@ pub struct PhaseReport {
     pub tasks: u32,
     /// Its tasks this invocation reused.
     pub reused: u32,
-    /// The greatest working-set estimate of an input segment.
+    /// The phase's deterministic memory estimate: for Seal of a graph
+    /// restrict run ([`graph_restrict_run`]), the bytes Seal holds at once
+    /// (per Emit artifact its 56-byte header, its manifest record, four
+    /// bytes when its edge id run is not empty and its longest record frame
+    /// with its eight-byte length, summed over the artifacts); for every
+    /// other phase, the greatest working-set estimate ([`MemoryModel`]) of
+    /// an input segment.
     pub peak_estimated_bytes: u64,
     /// The measured wall time, when the caller measures it.
     pub wall_ms: Option<u64>,
@@ -1401,16 +1410,21 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         Ok(())
     }
 
-    /// The output manifest, sealed from the emitted artifacts.
+    /// The output manifest, sealed from the emitted artifacts, and the
+    /// bytes Seal holds at once.
     ///
     /// Each Emit artifact's header and manifest record are read whole; its
     /// edge id run and record stream are read one id and one frame at a
-    /// time while [`seal_full`] merges them.
-    fn sealed(&self) -> Result<SegmentManifest, Stop> {
+    /// time while [`seal_full`] merges them. Seal thus holds, per artifact,
+    /// its header, its record, one id when the run is not empty and at most
+    /// its longest frame with its length prefix; the sum over the artifacts
+    /// bounds what it holds at once.
+    fn sealed(&self) -> Result<(SegmentManifest, u64), Stop> {
         let journal = self.store.journal(&self.run).map_err(store_stop)?;
         let kind = ArtifactKind::ComplementSegment;
         let mut sections = Vec::new();
         let mut records = Vec::new();
+        let mut held: u64 = 0;
         for id in self.ids() {
             let key = self.key(emit_key(id), kind);
             let header = self
@@ -1431,6 +1445,12 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 .map_err(store_stop)?
                 .ok_or_else(|| missing_section(kind))?;
             let record = SegmentRecord::from_canonical_bytes(&record)?;
+            let one_id = if layout.run_ids == 0 { 0 } else { 4 };
+            held = held
+                .saturating_add(EMIT_HEADER_LEN)
+                .saturating_add(layout.record)
+                .saturating_add(one_id)
+                .saturating_add(layout.longest);
             sections.push((id, key, layout, record.stats));
             records.push(record);
         }
@@ -1486,7 +1506,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         if let Some(stop) = failure.into_inner() {
             return Err(stop);
         }
-        sealed.map_err(Stop::from)
+        Ok((sealed?, held))
     }
 
     fn seal(&mut self) -> Result<SegmentManifest, Stop> {
@@ -1496,12 +1516,12 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         let before = self.counts();
         let from: Vec<TaskKey> = self.ids().into_iter().map(emit_key).collect();
         let inputs = self.inputs(seal_key(), &from);
-        let manifest = self.sealed()?;
+        let (manifest, held) = self.sealed()?;
         let computed = manifest.canonical_bytes();
         let bytes = self.task(seal_key(), ArtifactKind::Manifest, inputs, |_| {
             Ok(computed.clone())
         })?;
-        self.finish_phase(Phase::Seal, before, self.peak);
+        self.finish_phase(Phase::Seal, before, held);
         if bytes != computed {
             return Err(Stop::from(malformed(
                 ArtifactKind::Manifest,

@@ -3195,10 +3195,10 @@ mod segmented_runner {
     };
     use panproto_inst::identity::Digest;
     use panproto_inst::segment::{
-        AnySegment, Budget, EdgeIdRun, GraphRestrictRun, ManifestHeader, ManifestRole, MemoryStore,
-        RecordSource, RunSpec, RunStatus, SegmentId, SegmentManifest, SegmentRecord,
-        SegmentRunReport, SegmentStore, SegmentedRestrictError, graph_restrict_run,
-        partition_graph, read_emitted, seal_full,
+        AnySegment, ArtifactKey, ArtifactKind, Budget, EdgeIdRun, GraphRestrictRun, ManifestHeader,
+        ManifestRole, MemoryStore, Phase, RecordSource, RunSpec, RunStatus, SegmentId,
+        SegmentManifest, SegmentRecord, SegmentRunReport, SegmentStore, SegmentedRestrictError,
+        TaskKey, graph_restrict_run, partition_graph, read_emitted, seal_full,
     };
     use panproto_reference::segment as reference;
     use std::collections::BTreeMap;
@@ -3524,6 +3524,76 @@ mod segmented_runner {
             .collect()
     }
 
+    /// The emitted view and complement of every segment of a complete run,
+    /// after checking them and the Emit artifacts against the reference
+    /// run's.
+    fn complete_outputs(
+        store: &MemoryStore,
+        baseline: &GraphRestrictRun,
+        reference_store: &reference::MemoryStore,
+        expected: &reference::RestrictRun,
+        input: &Input,
+        context: &str,
+    ) -> Vec<(String, Vec<u8>)> {
+        let emitted = emitted(store, baseline, input);
+        let expected_outputs = expected.output.as_ref().expect("reference output");
+        for ((view, complement), (expected_view, expected_complement)) in
+            emitted.iter().zip(expected_outputs)
+        {
+            assert_eq!(view, &format!("{expected_view:?}"), "view of {context}");
+            let expected_bytes = reference::canonical_complement_segment_bytes(
+                &reference::AnyComplementSegment::Graph(expected_complement.clone()),
+            )
+            .expect("reference complement bytes");
+            assert_eq!(complement, &expected_bytes, "complement of {context}");
+        }
+        assert_emit_artifacts_agree(store, baseline, reference_store, expected, input, context);
+        emitted
+    }
+
+    /// Every segment's Emit artifact is the same bytes in the production
+    /// and reference stores.
+    fn assert_emit_artifacts_agree(
+        store: &MemoryStore,
+        run: &GraphRestrictRun,
+        reference_store: &reference::MemoryStore,
+        expected: &reference::RestrictRun,
+        input: &Input,
+        context: &str,
+    ) {
+        use reference::SegmentStore as _;
+        let run = run.run.expect("a run identity");
+        for spec in input.partition.specs() {
+            let production = store
+                .read(&ArtifactKey {
+                    run,
+                    task: TaskKey {
+                        phase: Phase::Emit,
+                        segment: Some(spec.id),
+                    },
+                    kind: ArtifactKind::ComplementSegment,
+                })
+                .unwrap_or_else(|never| match never {})
+                .expect("a production Emit artifact");
+            let reference = reference_store
+                .read(&reference::ArtifactKey {
+                    run: expected.run,
+                    task: reference::TaskKey {
+                        phase: reference::Phase::Emit,
+                        segment: Some(reference::SegmentId(spec.id.0)),
+                    },
+                    kind: reference::ArtifactKind::ComplementSegment,
+                })
+                .unwrap_or_else(|never| match never {})
+                .expect("a reference Emit artifact");
+            assert_eq!(
+                production, reference,
+                "Emit artifact of segment {} of {context}",
+                spec.id.0
+            );
+        }
+    }
+
     /// What one case showed.
     #[derive(Debug, Default, PartialEq, Eq)]
     pub struct Counts {
@@ -3566,19 +3636,14 @@ mod segmented_runner {
                     .as_ref()
                     .expect("a complete run's manifest");
                 assert_eq!(sealed.digest(), *manifest, "{context}");
-                let emitted = emitted(&store, &baseline, &input);
-                let expected_outputs = expected.output.as_ref().expect("reference output");
-                for ((view, complement), (expected_view, expected_complement)) in
-                    emitted.iter().zip(expected_outputs)
-                {
-                    assert_eq!(view, &format!("{expected_view:?}"), "view of {context}");
-                    let expected_bytes = reference::canonical_complement_segment_bytes(
-                        &reference::AnyComplementSegment::Graph(expected_complement.clone()),
-                    )
-                    .expect("reference complement bytes");
-                    assert_eq!(complement, &expected_bytes, "complement of {context}");
-                }
-                Some(emitted)
+                Some(complete_outputs(
+                    &store,
+                    &baseline,
+                    &reference_store,
+                    &expected,
+                    &input,
+                    &context,
+                ))
             }
             RunStatus::Failed(_) => {
                 counts.refused += 1;
@@ -3694,9 +3759,9 @@ mod segmented_witnesses {
     use panproto_inst::identity::Digest;
     use panproto_inst::locality::{GlobalReason, SegmentOp};
     use panproto_inst::segment::{
-        AnySegment, ArtifactKey, Budget, MemoryStore, RunIncompleteReason, RunJournal, RunSpec,
-        RunStatus, SegmentStore, TaskRecord, graph_restrict_run, read_emitted, verify_manifest,
-        verify_segment,
+        AnySegment, ArtifactKey, Budget, MemoryStore, Phase, RunIncompleteReason, RunJournal,
+        RunSpec, RunStatus, SegmentStore, TaskRecord, graph_restrict_run, read_emitted,
+        verify_manifest, verify_segment,
     };
     use panproto_inst::segment::{
         IdKind, Residual, SegmentError, SegmentId, SegmentedRestrictError,
@@ -3990,6 +4055,107 @@ mod segmented_witnesses {
             );
         }
         assert_eq!((counts.residual, counts.complete), (4, 1), "{counts:?}");
+    }
+
+    /// The peaks of the Validate and Seal phases of a complete production
+    /// run of `graph`, after checking the run against the reference runner.
+    fn validate_and_seal_peaks(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        split: &reference::Partition,
+    ) -> (u64, u64) {
+        let plan = compile(schema, schema, migration);
+        let mut counts = segmented_runner::Counts::default();
+        let case = segmented_runner::Case {
+            source: schema,
+            target: schema,
+            migration,
+            plan: &plan,
+            graph,
+            partition: split,
+        };
+        segmented_runner::check_case(&case, Budget::unlimited(), &mut counts);
+        assert_eq!(counts.complete, 1, "the run completes: {counts:?}");
+        let input = segmented_runner::input(graph, split);
+        let mut store = MemoryStore::default();
+        let run =
+            segmented_runner::production_run(&plan, &input, Budget::unlimited(), None, &mut store);
+        let peak = |phase: Phase| {
+            run.report
+                .phases
+                .iter()
+                .find(|report| report.phase == phase)
+                .map(|report| report.peak_estimated_bytes)
+                .expect("the phase finished")
+        };
+        (peak(Phase::Validate), peak(Phase::Seal))
+    }
+
+    #[test]
+    fn seal_holds_the_same_bytes_for_graphs_with_more_records_per_segment_while_the_segment_peak_grows()
+     {
+        let schema = RefSchema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .edge("a", "b", "prop", Some("ab"));
+        let migration = keep_everything(&schema);
+        let spec = |index: u32| reference::SegmentSpec {
+            id: reference::SegmentId(index),
+            nodes: vec![reference::IdRange {
+                lo: 10 * index,
+                hi: 10 * index + 9,
+            }],
+            alloc_nodes: None,
+            alloc_edges: None,
+        };
+        let split = reference::Partition {
+            shape: reference::InstanceShapeKind::Graph,
+            specs: vec![spec(0), spec(1)],
+        };
+        // `width` nodes `a` in segment 0, `width` nodes `b` in segment 1,
+        // and edge `i` from the `i`th `a` to the `i`th `b`: one cross peer
+        // each way whatever the width.
+        let graph = |width: u32| {
+            let mut graph = RefGraph::default();
+            for i in 0..width {
+                graph.nodes.insert(i, RefNode::new(i, "a"));
+                graph.nodes.insert(10 + i, RefNode::new(10 + i, "b"));
+                graph.edges.insert(
+                    i,
+                    RefGEdge {
+                        src: i,
+                        tgt: 10 + i,
+                        label: RefEdge::new("a", "b", "prop", Some("ab")),
+                        position: None,
+                    },
+                );
+            }
+            graph
+        };
+        let (narrow_validate, narrow_seal) =
+            validate_and_seal_peaks(&schema, &migration, &graph(1), &split);
+        let (wide_validate, wide_seal) =
+            validate_and_seal_peaks(&schema, &migration, &graph(3), &split);
+        assert!(
+            wide_validate > narrow_validate,
+            "the segment peak grows: {narrow_validate} then {wide_validate}"
+        );
+        assert_eq!(narrow_seal, wide_seal);
+        // Per segment: the 56-byte header and the record (id 4, one node
+        // range 8 after its count 8, two absent allocation ranges 2, stats
+        // 52, the greatest node 5, the greatest edge 5 or 1, two digests
+        // 64, the outgoing and incoming cross maps 8 + 36 per peer each);
+        // segment 0 adds one edge id 4 and its longest frame, an edge
+        // (tag 1, id, endpoints 12, the label's three names 9 + 9 + 12,
+        // its name 1 + 10, no position 1, after its length 8); segment 1
+        // adds its longest frame, a node (tag 1, id 4, anchor 9, no value,
+        // discriminator or position 3, no fields or annotations 16, plain
+        // shape 1, after its length 8).
+        let record = |max_edge: u64| 4 + 8 + 8 + 2 + 52 + 5 + max_edge + 64 + 8 + 8 + 36;
+        let segment_0 = 56 + record(5) + 4 + (1 + 4 + 8 + 9 + 9 + 12 + 11 + 1 + 8);
+        let segment_1 = 56 + record(1) + (1 + 4 + 9 + 3 + 16 + 1 + 8);
+        assert_eq!(narrow_seal, segment_0 + segment_1);
     }
 
     /// Run a plan whose view synthesizes edges through the checkpointed

@@ -10,10 +10,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_inst::segment::{
     AnySegment, ArtifactKind, Boundary, EdgeIdRun, Ghost, GraphSegment, IdAllocator, IdKind,
-    IdRange, InStub, ManifestHeader, ManifestRole, Partition, PartitionDefect, Phase, RunJournal,
-    SegmentError, SegmentId, SegmentRecord, SegmentSpec, TaskKey, TaskRecord, TreeSegment,
-    assemble_graph, assemble_table, assemble_tree, check_segment, partition_graph, partition_table,
-    partition_tree, seal_full, verify_manifest, verify_segment,
+    IdRange, InStub, InstanceRecord, ManifestHeader, ManifestRole, Partition, PartitionDefect,
+    Phase, RunJournal, SegmentError, SegmentId, SegmentRecord, SegmentSpec, TaskKey, TaskRecord,
+    TreeSegment, assemble_graph, assemble_table, assemble_tree, check_segment,
+    decode_record_stream, partition_graph, partition_table, partition_tree, record_stream,
+    seal_full, verify_manifest, verify_segment,
 };
 use panproto_inst::{
     Digest, EdgeId, FInstance, Fan, FanEmbedding, GEdge, GInstance, Node, NodeShape, RowId,
@@ -484,7 +485,81 @@ fn assert_segment_bytes_agree(
                 .expect("reference segment digest")
                 .0,
         );
+        let stream = production_segment.record_stream();
+        assert_eq!(
+            stream,
+            reference::segment_record_stream(reference_segment).expect("reference record stream"),
+            "record stream of segment {}",
+            production_segment.segment().0
+        );
+        assert_record_stream_round_trips(&stream);
     }
+    let reference_records =
+        reference::manifest_records(reference_segments, reference_partition, reference_schema)
+            .expect("reference manifest records");
+    for (reference_record, production_segment) in reference_records.iter().zip(production_segments)
+    {
+        let spec = production_partition
+            .spec(production_segment.segment())
+            .expect("a partition spec");
+        let bytes =
+            SegmentRecord::of(production_segment, spec, &production_schema).canonical_bytes();
+        assert_eq!(bytes, reference::canonical_record_bytes(reference_record));
+        assert_record_round_trips(&bytes);
+    }
+}
+
+/// A record stream decodes to records that re-encode to it, and each frame
+/// decodes to a record whose frame is the same bytes; every proper prefix
+/// of a frame, the frame with a trailing byte, and the frame under every
+/// tag byte past the six record tags are refused.
+fn assert_record_stream_round_trips(stream: &[u8]) {
+    let records = decode_record_stream(stream).expect("a record stream decodes");
+    assert_eq!(record_stream(&records), stream);
+    for record in &records {
+        let frame = record.frame();
+        assert_eq!(
+            InstanceRecord::from_frame(&frame)
+                .expect("a frame decodes")
+                .frame(),
+            frame
+        );
+        for end in 0..frame.len() {
+            assert!(
+                InstanceRecord::from_frame(&frame[..end]).is_err(),
+                "a frame cut to {end} of {} bytes is refused",
+                frame.len()
+            );
+        }
+        let mut trailing = frame.clone();
+        trailing.push(0);
+        assert!(InstanceRecord::from_frame(&trailing).is_err());
+        for tag in 6..=u8::MAX {
+            let mut unknown = frame.clone();
+            unknown[0] = tag;
+            assert!(
+                InstanceRecord::from_frame(&unknown).is_err(),
+                "frame tag {tag} is refused"
+            );
+        }
+    }
+}
+
+/// A manifest record decodes to a record with the same canonical bytes;
+/// every proper prefix and the record with a trailing byte are refused.
+fn assert_record_round_trips(bytes: &[u8]) {
+    let record = SegmentRecord::from_canonical_bytes(bytes).expect("a record decodes");
+    assert_eq!(record.canonical_bytes(), bytes);
+    for end in 0..bytes.len() {
+        assert!(
+            SegmentRecord::from_canonical_bytes(&bytes[..end]).is_err(),
+            "a record cut to {end} of {} bytes is refused",
+            bytes.len()
+        );
+    }
+    let mut trailing = bytes.to_vec();
+    trailing.push(0);
+    assert!(SegmentRecord::from_canonical_bytes(&trailing).is_err());
 }
 
 fn partition_and_assemble_shape(
