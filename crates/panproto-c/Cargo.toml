@@ -40,7 +40,7 @@ headers = ["safer-ffi/headers"]
 # safety end-to-end. Off by default; the symbol is always available
 # under `cfg(test)` for in-crate tests.
 panic-test = []
-# Full-AST tree-sitter parsing (261 grammars). Adds C compilation deps.
+# Full-AST tree-sitter parsing (262 grammars). Adds C compilation deps.
 full-parse = ["panproto-core/full-parse"]
 # Multi-file project assembly via coproduct.
 project = ["panproto-core/project"]

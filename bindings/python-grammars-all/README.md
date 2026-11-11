@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/panproto-grammars-all)](https://pypi.org/project/panproto-grammars-all/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Python companion package that enables all 261 entries in the `panproto-grammars` manifest. A grammar is available at runtime only if its vendored source compiled into the wheel.
+Python companion package that enables all 262 entries in the `panproto-grammars` manifest. A grammar is available at runtime only if its vendored source compiled into the wheel.
 
 ## Installation
 

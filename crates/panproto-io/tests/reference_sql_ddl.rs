@@ -3,9 +3,11 @@
 //! the canonical text on every bounded script, and keys and references on
 //! generated larger scripts.
 
+#![cfg(feature = "tree-sitter")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use panproto_protocols::database::sql::{OtherStatements, emit_ddl, parse_ddl, read_ddl};
+use panproto_io::postgresql::{parse_ddl, read_ddl};
+use panproto_protocols::database::sql::{OtherStatements, emit_ddl};
 use panproto_reference::enumerate::sql_ddl::{ddl_scripts, ddl_scripts_count, type_spellings};
 use panproto_reference::pages::sql_ddl::{
     Column, ColumnConstraint, KeyReading, ReferenceReading, Script, ScriptRefusal, Table,
@@ -208,9 +210,6 @@ fn compare(script: &Script, canonical: bool) -> bool {
             true
         }
         (Err((statement, refusal)), Err(error)) => {
-            let panproto_protocols::ProtocolError::SqlDdl(error) = error else {
-                panic!("{text}: {error}")
-            };
             let at = text[..error.offset()].matches('\n').count();
             assert_eq!(
                 (at, error.class()),

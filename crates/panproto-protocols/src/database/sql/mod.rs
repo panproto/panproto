@@ -5,8 +5,12 @@
 //! instance theory (`ThFunctor`): its syntax and its data are both read as
 //! tables.
 //!
-//! [`read_ddl`](crate::database::sql::read_ddl) reads a script of `PostgreSQL` 17 DDL statements into a
-//! [`Schema`](panproto_schema::Schema). Each table is a `table` vertex and a hyper-edge over its
+//! A script of `PostgreSQL` 17 DDL is read in two steps. A reader of the
+//! source text (`panproto_io::postgresql::read_ddl`, which parses through the
+//! tree-sitter grammar generated from `PostgreSQL`'s own `gram.y`) turns each
+//! statement into a [`Statement`]; [`read_statements`] then resolves the
+//! statements in script order into a [`Schema`](panproto_schema::Schema).
+//! Each table is a `table` vertex and a hyper-edge over its
 //! columns; each column is a vertex `<table>.<column>`, joined to its table
 //! by a `prop` edge whose position is the column's, and an array column is
 //! an `array` vertex with an `items` edge per dimension to its element.
@@ -15,9 +19,10 @@
 //! dialect, the statements read and every feature refused are stated in
 //! the book's chapter on SQL DDL.
 
+mod catalog;
 mod error;
-mod lex;
-mod parse;
+mod quote;
+mod statements;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -31,11 +36,16 @@ use panproto_schema::{
 };
 
 pub use error::SqlDdlError;
-pub use parse::{OtherStatements, StatementNotRead};
+pub use quote::quote_identifier;
+pub use statements::{
+    AlterAction, BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, DomainConstraints,
+    MAX_IDENTIFIER_BYTES, Name, OtherStatements, References, ReferentialAction, Scalar, Statement,
+    StatementNotRead, TableConstraint, TableConstraintKind, TableElement, TypeSpec,
+};
 
 use crate::error::ProtocolError;
 use crate::theories;
-use parse::{Catalog, ReferentialAction, Role, Scalar};
+use catalog::{Catalog, Role};
 
 /// The vertex kinds of the protocol.
 const OBJ_KINDS: &[&str] = &[
@@ -102,7 +112,7 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
     theories::register_hypergraph_functor(registry, "ThSQLSchema", "ThSQLInstance");
 }
 
-/// What [`read_ddl`] read from a script.
+/// What [`read_statements`] read from a script.
 #[derive(Debug)]
 pub struct DdlReading {
     /// The tables the script declares.
@@ -118,35 +128,29 @@ impl From<SqlDdlError> for ProtocolError {
     }
 }
 
-/// Parse a `PostgreSQL` 17 DDL script into a [`Schema`], refusing any
-/// statement that declares something other than tables and their types.
-///
-/// This is [`read_ddl`] with [`OtherStatements::Refuse`].
-///
-/// # Errors
-///
-/// Returns [`ProtocolError::SqlDdl`] with the first refusal in script
-/// order.
-pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
-    Ok(read_ddl(ddl, OtherStatements::Refuse)?.schema)
-}
-
-/// Read a `PostgreSQL` 17 DDL script.
+/// Resolve a script's statements, in script order, into the tables they
+/// declare.
 ///
 /// The statements read are `CREATE TABLE`, `CREATE UNIQUE INDEX`, `CREATE
 /// TYPE ... AS ENUM`, `CREATE DOMAIN`, `ALTER TABLE ... ADD` and `DROP
-/// TABLE`, each taking effect in script order. A statement that declares
-/// nothing a table schema holds (a function, view, trigger, sequence,
-/// non-unique index, grant, ownership change, comment or session setting,
-/// or `COPY` and `INSERT` data) is refused or listed as `others` says.
+/// TABLE`, each taking effect in script order against the catalog the
+/// statements before it declared. A [`Statement::NotRead`] (a function,
+/// view, trigger, sequence, non-unique index, grant, ownership change,
+/// comment or session setting, or `COPY` and `INSERT`) is refused or listed
+/// as `others` says. Each item is a statement or the refusal of the
+/// statement at that place, so a reader may hand over its statements as it
+/// reads them.
 ///
 /// # Errors
 ///
-/// Returns the first [`SqlDdlError`] in script order: a lexical or syntax
-/// error, a named feature the reader does not carry, or a name that does
-/// not resolve.
-pub fn read_ddl(ddl: &str, others: OtherStatements) -> Result<DdlReading, SqlDdlError> {
-    let catalog = parse::read(ddl, others)?;
+/// Returns the first [`SqlDdlError`] in script order: a refusal the reader
+/// handed over, a statement `others` refuses, a name that does not resolve
+/// or is declared twice, or a schema panproto cannot build.
+pub fn read_statements<I>(statements: I, others: OtherStatements) -> Result<DdlReading, SqlDdlError>
+where
+    I: IntoIterator<Item = Result<Statement, SqlDdlError>>,
+{
+    let catalog = catalog::read(statements, others)?;
     let schema = build(&catalog).map_err(|e| SqlDdlError::Unsupported {
         offset: 0,
         feature: format!("a schema panproto cannot build: {e}"),
@@ -207,7 +211,7 @@ fn build(catalog: &Catalog) -> Result<Schema, ProtocolError> {
     // Tables and foreign keys are added in name order, so the schema's
     // adjacency lists, and with them its canonical bytes, do not depend on
     // the order the script declared them in.
-    let mut tables: Vec<&parse::Table> = catalog.tables.iter().collect();
+    let mut tables: Vec<&catalog::Table> = catalog.tables.iter().collect();
     tables.sort_by(|a, b| a.name.cmp(&b.name));
     for table in &tables {
         let t = table.name.as_str();
@@ -232,7 +236,7 @@ fn build(catalog: &Catalog) -> Result<Schema, ProtocolError> {
     // A foreign key's edge joins two table vertices, so every table is
     // declared first.
     for table in &tables {
-        let mut foreign_keys: Vec<&parse::ForeignKey> = table.foreign_keys.iter().collect();
+        let mut foreign_keys: Vec<&catalog::ForeignKey> = table.foreign_keys.iter().collect();
         foreign_keys.sort_by(|a, b| a.name.cmp(&b.name));
         for fk in foreign_keys {
             builder = build_foreign_key(builder, table, fk)?;
@@ -248,7 +252,7 @@ fn build(catalog: &Catalog) -> Result<Schema, ProtocolError> {
 fn build_column(
     mut builder: SchemaBuilder,
     t: &str,
-    column: &parse::Column,
+    column: &catalog::Column,
 ) -> Result<SchemaBuilder, ProtocolError> {
     let id = column_id(t, &column.name);
     let mut levels = vec![id.clone()];
@@ -288,7 +292,7 @@ fn build_column(
 
 /// The schema key of a primary or unique key: each part compares as SQL
 /// compares, a `character(n)` part ignoring trailing spaces.
-fn build_key(table: &parse::Table, key: &parse::KeyDecl) -> Key {
+fn build_key(table: &catalog::Table, key: &catalog::KeyDecl) -> Key {
     let t = table.name.as_str();
     let equality = key
         .columns
@@ -327,8 +331,8 @@ fn build_key(table: &parse::Table, key: &parse::KeyDecl) -> Key {
 /// action is not `NO ACTION`, its `FOREIGN KEY ACTION` constraint.
 fn build_foreign_key(
     builder: SchemaBuilder,
-    table: &parse::Table,
-    fk: &parse::ForeignKey,
+    table: &catalog::Table,
+    fk: &catalog::ForeignKey,
 ) -> Result<SchemaBuilder, ProtocolError> {
     let t = table.name.as_str();
     let edge = Edge {
@@ -371,7 +375,7 @@ fn build_foreign_key(
         }
     }
     if !actions.is_empty() {
-        let value = format!("{}{actions}", parse::quote_identifier(&fk.name));
+        let value = format!("{}{actions}", quote_identifier(&fk.name));
         builder = builder.constraint(t, "FOREIGN KEY ACTION", &value);
     }
     Ok(builder)
@@ -471,7 +475,7 @@ fn enum_labels(labels: &[String]) -> String {
 /// value parameter or declaration with no SQL form, or two definitions of
 /// one type name.
 pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
-    let q = parse::quote_identifier;
+    let q = quote_identifier;
     let mut tables: Vec<&str> = schema
         .vertices
         .values()
@@ -542,7 +546,7 @@ fn key_columns(key: &Key) -> Result<Vec<String>, ProtocolError> {
             KeyPart::Path(path) if path.len() == 1 => path[0]
                 .name
                 .as_deref()
-                .map(parse::quote_identifier)
+                .map(quote_identifier)
                 .ok_or_else(|| emit_error(format!("key {} has an unnamed part", key.id))),
             _ => Err(emit_error(format!("key {} has no SQL form", key.id))),
         })
@@ -557,7 +561,7 @@ fn column_line(
     edge: &Edge,
     types: &mut BTreeMap<String, String>,
 ) -> Result<String, ProtocolError> {
-    let q = parse::quote_identifier;
+    let q = quote_identifier;
     let name = edge
         .name
         .as_deref()
@@ -620,7 +624,7 @@ fn column_line(
 /// Write an `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` statement
 /// for each reference table `t` holds, by reference id.
 fn foreign_key_statements(schema: &Schema, t: &str, out: &mut String) -> Result<(), ProtocolError> {
-    let q = parse::quote_identifier;
+    let q = quote_identifier;
     let mut references: Vec<&Reference> = schema
         .declarations
         .references

@@ -9,24 +9,17 @@
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum SqlDdlError {
-    /// The text is not a sequence of `PostgreSQL` tokens: an unterminated
-    /// literal, quoted identifier or comment, or a character no token
-    /// starts with.
-    #[error("SQL lexical error at byte {offset}: {reason}")]
-    Lex {
-        /// The byte offset of the token.
-        offset: usize,
-        /// What is wrong.
-        reason: &'static str,
-    },
-    /// The tokens are not a statement of the grammar the reader reads.
+    /// The text is not `PostgreSQL` 17 syntax (the `gram.y` grammar,
+    /// including its tokens: an unterminated literal is refused here), or a
+    /// statement the reader reads has a value out of the range `PostgreSQL`
+    /// accepts.
     #[error("SQL syntax error at byte {offset}: expected {expected}, found {found}")]
     Syntax {
         /// The byte offset of the token found.
         offset: usize,
         /// What the grammar expects there.
         expected: &'static str,
-        /// The token found, as written, or `end of statement`.
+        /// The token found, as written, or `end of input`.
         found: String,
     },
     /// A `PostgreSQL` feature the reader does not carry, named.
@@ -98,8 +91,7 @@ impl SqlDdlError {
     #[must_use]
     pub const fn offset(&self) -> usize {
         match self {
-            Self::Lex { offset, .. }
-            | Self::Syntax { offset, .. }
+            Self::Syntax { offset, .. }
             | Self::Unsupported { offset, .. }
             | Self::UnknownType { offset, .. }
             | Self::UnknownTable { offset, .. }
@@ -113,7 +105,6 @@ impl SqlDdlError {
     #[must_use]
     pub const fn class(&self) -> &'static str {
         match self {
-            Self::Lex { .. } => "Lex",
             Self::Syntax { .. } => "Syntax",
             Self::Unsupported { .. } => "Unsupported",
             Self::UnknownType { .. } => "UnknownType",

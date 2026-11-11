@@ -99,6 +99,9 @@ pub mod rdf;
 #[cfg(feature = "tree-sitter")]
 pub mod unified_codec;
 
+#[cfg(feature = "tree-sitter")]
+pub mod postgresql;
+
 // ── Protocol category modules ──────────────────────────────────────────
 
 pub mod annotation;

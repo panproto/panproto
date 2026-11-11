@@ -4,11 +4,11 @@
 //! references, statements outside a table schema are refused or listed,
 //! and the canonical text it writes reads back as the same schema.
 
+#![cfg(feature = "tree-sitter")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use panproto_protocols::database::sql::{
-    OtherStatements, SqlDdlError, emit_ddl, parse_ddl, read_ddl,
-};
+use panproto_io::postgresql::{parse_ddl, read_ddl};
+use panproto_protocols::database::sql::{OtherStatements, SqlDdlError, emit_ddl};
 use panproto_schema::{
     KeyEquality, KeyPart, KeyRole, NullMatch, RefSource, Schema, SqlCollation, SqlPad,
     canonical_bytes,
@@ -321,8 +321,8 @@ fn every_refusal_names_its_class_and_place() {
             "Unsupported",
             "CREATE VIEW",
         ),
-        ("CREATE TABLE t (a int,);", "Syntax", ")"),
-        ("CREATE TABLE t (a text DEFAULT 'x);", "Lex", "'x);"),
+        ("CREATE TABLE t (a int,);", "Syntax", ",);"),
+        ("CREATE TABLE t (a text DEFAULT 'x);", "Syntax", "'x);"),
         ("CREATE TABLE other.t (a int);", "Unsupported", "other.t"),
         (
             "CREATE TABLE t (a int, CONSTRAINT e EXCLUDE USING gist (a WITH =));",
@@ -349,7 +349,7 @@ fn every_refusal_names_its_class_and_place() {
 #[test]
 fn statements_outside_a_table_schema_are_listed_when_asked() {
     let ddl = "SET search_path = public;\nCREATE TABLE t (a int);\n\
-               COPY t (a) FROM stdin;\n1\n2\n\\.\n\
+               COPY t (a) FROM '/srv/t.dat';\n\
                CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;\n\
                ALTER TABLE t OWNER TO postgres;\nCREATE INDEX t_a ON t (a);";
     let reading = read_ddl(ddl, OtherStatements::List).expect("listed");
@@ -372,4 +372,15 @@ fn statements_outside_a_table_schema_are_listed_when_asked() {
     assert_eq!(refusal(ddl).class(), "Unsupported");
     let other_path = read_ddl("SET search_path = app;", OtherStatements::List).expect_err("path");
     assert_eq!(other_path.class(), "Unsupported");
+}
+
+/// The data lines after `COPY ... FROM stdin;` are not statements, and the
+/// grammar reads none: the script is refused inside the data, at the
+/// end-of-data marker `\.`, which no `PostgreSQL` token starts with.
+#[test]
+fn copy_from_stdin_data_is_refused_inside_the_data() {
+    let ddl = "CREATE TABLE t (a int);\nCOPY t (a) FROM stdin;\n1\n2\n\\.\n";
+    let error = read_ddl(ddl, OtherStatements::List).expect_err("data lines are not syntax");
+    assert_eq!(error.class(), "Syntax", "{error}");
+    assert_eq!(&ddl[error.offset()..], "\\.\n", "{error}");
 }

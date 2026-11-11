@@ -52,7 +52,7 @@ The source tree is the catalog authority:
 
 ## Source-code grammars
 
-`panproto-grammars` defines 261 individual `lang-*` features under `group-all`. A selected feature contributes a tree-sitter `Language` and its vendored AST metadata to [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html). The default `group-core` is a subset. Callers do not receive all grammars unless their selected feature set includes them.
+`panproto-grammars` defines 262 individual `lang-*` features under `group-all`. A selected feature contributes a tree-sitter `Language` and its vendored AST metadata to [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html). The default `group-core` is a subset. Callers do not receive all grammars unless their selected feature set includes them.
 
 [`emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports test coverage for the registered parser, not a proof about all inputs:
 

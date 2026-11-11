@@ -37,6 +37,15 @@ pub enum Parser {
     /// Reads text in the protocol's own syntax. Reached by
     /// [`parse_schema_source`](crate::parse_schema_source).
     Source(fn(&str) -> Result<Schema, ProtocolError>),
+    /// Reads text in the protocol's own syntax through a tree-sitter
+    /// grammar. This crate does not link the grammars, so the reading is
+    /// done by `panproto-io` under its `tree-sitter` feature, at the path
+    /// named here, and both dispatches refuse the protocol with an error
+    /// that names it.
+    Grammar {
+        /// The path of the reader, as `crate::module::function`.
+        reader: &'static str,
+    },
     /// Reads no schema documents. The protocol is a generic data format
     /// whose files carry no schema, so its schemas are built in code with
     /// [`SchemaBuilder`](panproto_schema::SchemaBuilder), and both
@@ -702,7 +711,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "sql",
         aliases: &[],
-        parser: Parser::Source(database::sql::parse_ddl),
+        parser: Parser::Grammar {
+            reader: "panproto_io::postgresql::read_ddl",
+        },
         protocol: database::sql::protocol,
         register_theories: |r| {
             database::sql::register_theories(r);

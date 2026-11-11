@@ -33,7 +33,7 @@ The workspace contains 36 `panproto-*` crates. This page groups them by dependen
 |---|---|
 | `panproto-io` | Instance-level codecs for native data formats, with optional tree-sitter integration. |
 | `panproto-parse` | Feature-selected tree-sitter full-AST parsing, layout preservation, source emission, and parser registry. |
-| `panproto-grammars` | Vendored tree-sitter grammar build and `group-*` / `lang-*` Cargo features. `group-all` currently names 261 grammars. |
+| `panproto-grammars` | Vendored tree-sitter grammar build and `group-*` / `lang-*` Cargo features. `group-all` currently names 262 grammars. |
 | `panproto-project` | Directory walking, package detection, manifest configuration, parsing cache, import resolution, and schema coproduct assembly. |
 | `panproto-grammars-all` | Python companion extension containing `group-all`. |
 | `panproto-grammars-functional` | Python companion extension for `group-functional`. |

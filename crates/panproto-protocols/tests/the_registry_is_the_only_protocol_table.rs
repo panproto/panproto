@@ -166,7 +166,7 @@ fn every_listed_protocol_is_reachable_through_its_dispatch() {
                 .err()
                 .map(|e| e.to_string()),
             Parser::Source(_) => parse_schema_source(d.name, "").err().map(|e| e.to_string()),
-            Parser::Programmatic => continue,
+            Parser::Grammar { .. } | Parser::Programmatic => continue,
         };
         if let Some(message) = refusal {
             assert!(
@@ -244,6 +244,32 @@ fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
                 message.contains("reads no schema documents"),
                 "{name}: {message:?}"
             );
+        }
+        assert!(!document_parser_protocols().contains(&name));
+        assert!(!source_parser_protocols().contains(&name));
+    }
+}
+
+/// A protocol read through a tree-sitter grammar is refused by both
+/// dispatches of this crate, which does not link the grammars, with an
+/// error that names the reader to use, and neither listing offers it.
+#[test]
+fn a_protocol_read_through_a_grammar_names_its_reader() {
+    let grammar_read: Vec<(&str, &str)> = descriptors()
+        .iter()
+        .filter_map(|d| match d.parser {
+            Parser::Grammar { reader } => Some((d.name, reader)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(grammar_read, [("sql", "panproto_io::postgresql::read_ddl")]);
+    for (name, reader) in grammar_read {
+        for refusal in [
+            parse_schema_document(name, &serde_json::json!({})).err(),
+            parse_schema_source(name, "CREATE TABLE t (a int);").err(),
+        ] {
+            let message = refusal.map(|e| e.to_string()).unwrap_or_default();
+            assert!(message.contains(reader), "{name}: {message:?}");
         }
         assert!(!document_parser_protocols().contains(&name));
         assert!(!source_parser_protocols().contains(&name));

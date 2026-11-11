@@ -10,6 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panproto_inst::{RelSchema, RelSchemaError};
+use panproto_protocols::database::sql::Scalar;
 use panproto_protocols::registry::descriptor;
 use panproto_protocols::{parse_schema_document, parse_schema_source};
 use panproto_schema::{Edge, Schema};
@@ -164,8 +165,13 @@ fn conllu_tags_are_attributes_of_the_word_table() {
 /// the cell's value.
 #[test]
 fn an_sql_array_column_is_an_attribute() {
-    let ddl = "CREATE TABLE post (id INTEGER PRIMARY KEY, tags TEXT[]);";
-    let schema = parse_schema_source("sql", ddl).unwrap();
+    let schema = sql_table(
+        "post",
+        &[
+            ("id", Scalar::Int(32), 0, true),
+            ("tags", Scalar::Text, 1, false),
+        ],
+    );
     let rel = classify("sql", &schema).unwrap();
     assert_eq!(tables(&rel), ["post"]);
     assert_eq!(columns(&rel, "post"), ["id", "tags"]);
@@ -307,4 +313,51 @@ fn each_table_protocol_sample_builds_a_rel_schema() {
         assert!(rel.is_table(table), "{protocol}: {rel:?}");
         assert!(!rel.columns(table).is_empty(), "{protocol}: {rel:?}");
     }
+}
+
+/// The schema of one table, read from its statement as a `PostgreSQL`
+/// reader hands it over: columns `(name, type, NOT NULL)`, each a built-in
+/// type with its array dimensions.
+fn sql_table(
+    table: &str,
+    columns: &[(&str, panproto_protocols::database::sql::Scalar, usize, bool)],
+) -> Schema {
+    use panproto_protocols::database::sql::{
+        BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, Name, OtherStatements,
+        Statement, TableElement, TypeSpec, read_statements,
+    };
+    let name = |text: &str| Name {
+        text: text.to_owned(),
+        offset: 0,
+    };
+    let elements = columns
+        .iter()
+        .map(|(column, scalar, dims, not_null)| {
+            TableElement::Column(ColumnDef {
+                name: name(column),
+                ty: TypeSpec {
+                    base: BaseType::Builtin(scalar.clone()),
+                    dims: *dims,
+                    offset: 0,
+                },
+                constraints: if *not_null {
+                    vec![ColumnConstraint {
+                        name: None,
+                        kind: ColumnConstraintKind::NotNull,
+                        offset: 0,
+                    }]
+                } else {
+                    Vec::new()
+                },
+            })
+        })
+        .collect();
+    let statement = Statement::CreateTable {
+        if_not_exists: false,
+        name: name(table),
+        elements,
+    };
+    read_statements([Ok(statement)], OtherStatements::Refuse)
+        .expect("the table reads")
+        .schema
 }

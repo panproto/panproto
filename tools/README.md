@@ -1,6 +1,6 @@
 # Grammar maintenance tools
 
-These scripts read the 261 entries in the workspace-level `grammars.toml` and update files under `grammars/`. Run them from the repository root.
+These scripts read the 262 entries in the workspace-level `grammars.toml` and update files under `grammars/`. Run them from the repository root.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ These scripts read the 261 entries in the workspace-level `grammars.toml` and up
 - Git
 - The `tree-sitter` CLI when a repository does not contain generated parser data
 
-The scripts clone the current default branch of each upstream repository. `grammars.toml` does not pin revisions. `fetch-grammars.py` records the resolved commit in `grammars/<name>/REVISION` after a successful fetch.
+`fetch-grammars.py` clones the commit an entry's optional `rev` names, and otherwise the current default branch; the other scripts always clone the default branch. `fetch-grammars.py` records the resolved commit in `grammars/<name>/REVISION` after a successful fetch.
 
 ## `fetch-grammars.py`
 
@@ -19,7 +19,7 @@ python3 tools/fetch-grammars.py --dry-run
 python3 tools/fetch-grammars.py --clean
 ```
 
-With no language arguments, the script processes all manifest entries. It copies generated parser sources, `node-types.json`, C and C++ scanners, headers, other source-side JSON files, and available query files. It runs `tree-sitter generate` when `parser.c` is absent but a grammar source is present. It also rewrites selected `common/` includes and copies unresolved local headers from sibling grammar directories after the fetch.
+With no language arguments, the script processes all manifest entries. A source file that upstream stores in [Git LFS](https://git-lfs.com) arrives in the clone as a pointer; the script asks the repository's LFS batch endpoint for the object, checks its sha256 and size against the pointer, and puts it in place before copying, so `git-lfs` need not be installed. It copies generated parser sources, `node-types.json`, C and C++ scanners, headers, other source-side JSON files, and available query files. It runs `tree-sitter generate` when `parser.c` is absent but a grammar source is present. It also rewrites selected `common/` includes and copies unresolved local headers from sibling grammar directories after the fetch.
 
 `--clean` deletes the entire `grammars/` directory before fetching, including the two grammars authored in this repository. Use it only when a complete refetch is intended.
 
