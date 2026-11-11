@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6c5dc55761b0a618c895d7ee1d40222e5e4eac8ec5e5580de211e91f5183c649 # shrinks to script = [Table { columns: [Column { constraint: PrimaryKey, references: Some(0) }, Column { constraint: None, references: Some(0) }], key: Unique, foreign_key: Swapped(0) }]

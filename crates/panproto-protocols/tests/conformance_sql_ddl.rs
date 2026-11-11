@@ -12,6 +12,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use panproto_protocols::database::sql::{OtherStatements, emit_ddl, parse_ddl, read_ddl};
@@ -107,7 +108,7 @@ fn every_case_reads_or_is_a_declared_limit() {
     }
     let mut report = String::new();
     for (name, (class, message)) in &failing {
-        report.push_str(&format!("{name} {class}: {message}\n"));
+        let _ = writeln!(report, "{name} {class}: {message}");
     }
     let failing_names: Vec<&String> = failing.keys().collect();
     let limit_names: Vec<&String> = limits.keys().collect();

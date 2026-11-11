@@ -62,14 +62,17 @@ fn ref_target<'a>(schema: &'a Schema, src: &str) -> &'a str {
 #[test]
 fn a_bracket_quoted_identifier_is_refused_as_another_dialect() {
     let error = parse_ddl("CREATE TABLE [t] ([id] [int] NOT NULL);")
-        .expect_err("T-SQL quoting is not PostgreSQL");
+        .err()
+        .unwrap_or_else(|| panic!("T-SQL quoting is not PostgreSQL"));
     assert!(
         error
             .to_string()
             .contains("T-SQL bracket-quoted identifier"),
         "{error}"
     );
-    let error = parse_ddl("CREATE TABLE t (`id` int);").expect_err("MySQL quoting");
+    let error = parse_ddl("CREATE TABLE t (`id` int);")
+        .err()
+        .unwrap_or_else(|| panic!("MySQL quoting"));
     assert!(
         error.to_string().contains("MySQL backquoted identifier"),
         "{error}"
@@ -107,7 +110,8 @@ fn a_drop_removes_its_create_whatever_the_case_of_an_unquoted_name() {
     assert!(schema.has_vertex("keep"));
 
     let error = parse_ddl("CREATE TABLE \"Foo\" (id INT); DROP TABLE foo;")
-        .expect_err("a quoted name keeps its case, so foo names no table");
+        .err()
+        .unwrap_or_else(|| panic!("a quoted name keeps its case, so foo names no table"));
     assert!(
         error.to_string().contains("unknown SQL table \"foo\""),
         "{error}"
@@ -126,7 +130,9 @@ fn a_drop_removes_its_create_whichever_side_is_qualified() {
             .required("DDL parses");
     assert!(!schema.has_vertex("t"), "public.t names t");
 
-    let error = parse_ddl("CREATE TABLE a.t (id INT);").expect_err("schema a is not read");
+    let error = parse_ddl("CREATE TABLE a.t (id INT);")
+        .err()
+        .unwrap_or_else(|| panic!("schema a is not read"));
     assert!(
         error.to_string().contains("a schema other than public"),
         "{error}"

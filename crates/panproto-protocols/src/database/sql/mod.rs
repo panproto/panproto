@@ -204,7 +204,12 @@ fn build(catalog: &Catalog) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut orderings: Vec<(Edge, u32)> = Vec::new();
-    for table in &catalog.tables {
+    // Tables and foreign keys are added in name order, so the schema's
+    // adjacency lists, and with them its canonical bytes, do not depend on
+    // the order the script declared them in.
+    let mut tables: Vec<&parse::Table> = catalog.tables.iter().collect();
+    tables.sort_by(|a, b| a.name.cmp(&b.name));
+    for table in &tables {
         let t = table.name.as_str();
         builder = builder.vertex(t, "table", None)?;
         let mut signature = HashMap::new();
@@ -226,8 +231,10 @@ fn build(catalog: &Catalog) -> Result<Schema, ProtocolError> {
     }
     // A foreign key's edge joins two table vertices, so every table is
     // declared first.
-    for table in &catalog.tables {
-        for fk in &table.foreign_keys {
+    for table in &tables {
+        let mut foreign_keys: Vec<&parse::ForeignKey> = table.foreign_keys.iter().collect();
+        foreign_keys.sort_by(|a, b| a.name.cmp(&b.name));
+        for fk in foreign_keys {
             builder = build_foreign_key(builder, table, fk)?;
         }
     }

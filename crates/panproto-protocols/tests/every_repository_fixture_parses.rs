@@ -471,7 +471,8 @@ fn a_table_dropped_before_it_is_created_is_declared() {
         "sql",
         "CREATE TABLE u (id INTEGER);\nDROP TABLE u;\nALTER TABLE u ADD COLUMN gone INTEGER;",
     )
-    .expect_err("a dropped table is unknown");
+    .err()
+    .unwrap_or_else(|| panic!("a dropped table is unknown"));
     assert!(error.to_string().contains("unknown SQL table"), "{error}");
 }
 

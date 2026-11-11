@@ -9,6 +9,7 @@ pub mod representation;
 pub mod resolution;
 pub mod restrict_and_contraction;
 pub mod segments;
+pub mod sql_ddl;
 pub mod text_formats;
 pub mod theories;
 pub mod validation;
