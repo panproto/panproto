@@ -1,12 +1,15 @@
 //! Value-kind rows for the `sql` protocol.
 //!
-//! The SQL parser gives `FLOAT`, `DOUBLE`, `REAL`, `DECIMAL` and `NUMERIC`
-//! columns one vertex kind, `number`, which therefore holds an exact
-//! decimal (every float lexeme is one); every integer type is `integer`,
-//! at the widest width, narrowed by a column's `int_bits` parameter; a
-//! `BYTEA` or `BLOB` literal is hexadecimal. An array column holds one list
-//! value in its cell, of any element kind, so `array` is a value kind like
-//! `json`, and its element vertex is part of that value.
+//! The DDL reader gives each `PostgreSQL` type family one vertex kind:
+//! every integer type is `integer`, at the widest width, narrowed by the
+//! column's `int_bits` parameter; `numeric` is `number`, an exact decimal
+//! with its `precision` and `scale`; `real` and `double precision` are the
+//! binary floats `real` and `double`; `text` and `character varying` are
+//! `string` and `character(n)` is `character`, each with its `max_length`;
+//! `timestamp` carries `with_time_zone`. A `bytea` literal is hexadecimal.
+//! An array column holds one list value in its cell, of any element kind,
+//! so `array` is a value kind like `json`, and its element vertex is part
+//! of that value.
 
 use panproto_schema::{BytesText, ScalarKind};
 
@@ -24,7 +27,27 @@ pub(super) const ROWS: &[ValueKindRow] = &[
     },
     ValueKindRow {
         protocol: "sql",
+        vertex_kind: "number",
+        kind: ScalarKind::Decimal,
+    },
+    ValueKindRow {
+        protocol: "sql",
+        vertex_kind: "real",
+        kind: ScalarKind::Float { bits: 32 },
+    },
+    ValueKindRow {
+        protocol: "sql",
+        vertex_kind: "double",
+        kind: ScalarKind::Float { bits: 64 },
+    },
+    ValueKindRow {
+        protocol: "sql",
         vertex_kind: "string",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "sql",
+        vertex_kind: "character",
         kind: ScalarKind::Str,
     },
     ValueKindRow {
@@ -34,23 +57,23 @@ pub(super) const ROWS: &[ValueKindRow] = &[
     },
     ValueKindRow {
         protocol: "sql",
-        vertex_kind: "number",
-        kind: ScalarKind::Decimal,
-    },
-    ValueKindRow {
-        protocol: "sql",
         vertex_kind: "bytes",
         kind: ScalarKind::Bytes(BytesText::Hex),
     },
     ValueKindRow {
         protocol: "sql",
-        vertex_kind: "timestamp",
-        kind: ScalarKind::DateTime,
+        vertex_kind: "date",
+        kind: ScalarKind::Date,
     },
     ValueKindRow {
         protocol: "sql",
-        vertex_kind: "date",
-        kind: ScalarKind::Date,
+        vertex_kind: "time",
+        kind: ScalarKind::Time,
+    },
+    ValueKindRow {
+        protocol: "sql",
+        vertex_kind: "timestamp",
+        kind: ScalarKind::DateTime,
     },
     ValueKindRow {
         protocol: "sql",
@@ -60,6 +83,11 @@ pub(super) const ROWS: &[ValueKindRow] = &[
     ValueKindRow {
         protocol: "sql",
         vertex_kind: "json",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "sql",
+        vertex_kind: "jsonb",
         kind: ScalarKind::Any,
     },
     ValueKindRow {
