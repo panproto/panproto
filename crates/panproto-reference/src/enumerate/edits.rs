@@ -1205,6 +1205,183 @@ pub const fn table_delta_sequences_count_certificate() -> u64 {
     1 + 11 + 11 * 11 + 11 * 11 * 11
 }
 
+/// The one-letter edits of the graph edit lens carrier at `graph`, a graph
+/// over `schema`, in this order:
+///
+/// 1. each plain node addition at the fresh id (one above the largest id),
+///    one per schema vertex;
+/// 2. for each node, ascending: its deletion with every incident edge, its
+///    bare deletion (refused with `DanglingEdges` when it has an incident
+///    edge), its replacement by an equal node with every incident edge
+///    replaced alike, and, for a plain node, each change of its anchor to
+///    another schema vertex and the toggle of its `field` between absent
+///    and `value`;
+/// 3. for each ordinary schema edge and each ordered pair of plain nodes it
+///    joins by anchor, its addition at the fresh edge id;
+/// 4. for each edge, ascending: its deletion and, for an ordinary edge,
+///    each reconnection (a replacement under its id) to another ordered
+///    pair of plain nodes its label joins;
+/// 5. one stale deletion of the least node, under a payload with a
+///    changed anchor, and, when the schema has an ordinary edge, one
+///    addition of it to a node id the graph does not hold.
+///
+/// Letters 5 always refuse; the others apply exactly when stated.
+///
+/// Book anchors: `L-edits-9`.
+#[must_use]
+pub fn graph_edit_lens_letters(
+    schema: &crate::schema::Schema,
+    graph: &Graph,
+    field: &str,
+    value: &Value,
+) -> Vec<GraphDelta> {
+    let fresh = graph.nodes.keys().next_back().map_or(0, |id| id + 1);
+    let fresh_edge = graph.edges.keys().next_back().map_or(0, |id| id + 1);
+    let plain = |node: &Node| node.shape != NodeShape::HyperEdge;
+    let incident = |id: u32| {
+        graph
+            .edges
+            .iter()
+            .filter(move |(_, edge)| edge.src == id || edge.tgt == id)
+    };
+    let mut out = Vec::new();
+    for vertex in schema.vertices.keys() {
+        let mut delta = GraphDelta::identity();
+        delta
+            .add
+            .insert(GElem::Node(fresh), GPayload::Node(Node::new(fresh, vertex)));
+        out.push(delta);
+    }
+    for (id, node) in &graph.nodes {
+        let mut cascade = GraphDelta::identity();
+        cascade
+            .del
+            .insert(GElem::Node(*id), GPayload::Node(node.clone()));
+        for (edge_id, edge) in incident(*id) {
+            cascade
+                .del
+                .insert(GElem::Edge(*edge_id), GPayload::Edge(edge.clone()));
+        }
+        let mut replacement = cascade.clone();
+        replacement.add = replacement.del.clone();
+        out.push(cascade);
+        let mut bare = GraphDelta::identity();
+        bare.del
+            .insert(GElem::Node(*id), GPayload::Node(node.clone()));
+        out.push(bare);
+        out.push(replacement);
+        if !plain(node) {
+            continue;
+        }
+        for vertex in schema.vertices.keys().filter(|v| **v != node.anchor) {
+            let mut delta = GraphDelta::identity();
+            delta.attrs.insert(
+                AttrKey::Anchor(*id),
+                (
+                    AttrVal::Anchor(node.anchor.clone()),
+                    AttrVal::Anchor(vertex.clone()),
+                ),
+            );
+            out.push(delta);
+        }
+        let old = node.fields.get(field).cloned();
+        let new = if old.is_some() {
+            None
+        } else {
+            Some(value.clone())
+        };
+        let mut delta = GraphDelta::identity();
+        delta.attrs.insert(
+            AttrKey::Field(*id, field.to_owned()),
+            (AttrVal::Field(old), AttrVal::Field(new)),
+        );
+        out.push(delta);
+    }
+    let joins = |label: &SEdge| {
+        let mut pairs = Vec::new();
+        for src in graph
+            .nodes
+            .values()
+            .filter(|n| plain(n) && n.anchor == label.src)
+        {
+            for tgt in graph
+                .nodes
+                .values()
+                .filter(|n| plain(n) && n.anchor == label.tgt)
+            {
+                pairs.push((src.id, tgt.id));
+            }
+        }
+        pairs
+    };
+    for label in &schema.edges {
+        for (src, tgt) in joins(label) {
+            let mut delta = GraphDelta::identity();
+            delta.add.insert(
+                GElem::Edge(fresh_edge),
+                GPayload::Edge(GEdge {
+                    src,
+                    tgt,
+                    label: label.clone(),
+                    position: None,
+                }),
+            );
+            out.push(delta);
+        }
+    }
+    for (id, edge) in &graph.edges {
+        let mut delta = GraphDelta::identity();
+        delta
+            .del
+            .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
+        out.push(delta);
+        if !schema.edges.contains(&edge.label) {
+            continue;
+        }
+        for (src, tgt) in joins(&edge.label) {
+            if (src, tgt) == (edge.src, edge.tgt) {
+                continue;
+            }
+            let mut delta = GraphDelta::identity();
+            delta
+                .del
+                .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
+            delta.add.insert(
+                GElem::Edge(*id),
+                GPayload::Edge(GEdge {
+                    src,
+                    tgt,
+                    ..edge.clone()
+                }),
+            );
+            out.push(delta);
+        }
+    }
+    if let Some(node) = graph.nodes.values().next() {
+        let mut stale = node.clone();
+        stale.anchor = format!("{}~", node.anchor);
+        let mut delta = GraphDelta::identity();
+        delta
+            .del
+            .insert(GElem::Node(node.id), GPayload::Node(stale));
+        out.push(delta);
+    }
+    if let Some(label) = schema.edges.iter().next() {
+        let mut delta = GraphDelta::identity();
+        delta.add.insert(
+            GElem::Edge(fresh_edge),
+            GPayload::Edge(GEdge {
+                src: fresh,
+                tgt: fresh,
+                label: label.clone(),
+                position: None,
+            }),
+        );
+        out.push(delta);
+    }
+    out
+}
+
 /// The direction in which a named edit-translation carrier case runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditTranslationDirection {

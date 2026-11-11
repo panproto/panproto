@@ -17378,3 +17378,493 @@ mod transformed_tables {
         assert_eq!(agreed_put(&pair, &view, &view).put, Ok(view.clone()));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Graph edit lenses (L-edits-9)
+// ---------------------------------------------------------------------------
+
+mod graph_edit_lens_differential {
+    use panproto_inst::GraphDelta;
+    use panproto_inst::graph_edit::{AttrChange, AttrKey, AttrVal, GraphDeltaParts, NodeMeta};
+    use panproto_lens::{GraphEditLens, GraphEditLensError};
+    use panproto_reference::edit::{
+        self as ref_edit, GraphDelta as RefGraphDelta, GraphEditError, GraphEditState,
+    };
+    use panproto_reference::enumerate::edits::graph_edit_lens_letters;
+    use panproto_reference::enumerate::lenses::bounded_lens_stages;
+
+    use super::*;
+
+    fn ref_meta(meta: &NodeMeta) -> ref_edit::NodeMeta {
+        ref_edit::NodeMeta {
+            discriminator: meta.discriminator.as_deref().map(str::to_owned),
+            position: meta.position,
+            shape: ref_shape(&meta.shape),
+            annotations: meta
+                .annotations
+                .iter()
+                .map(|(name, value)| (name.clone(), ref_value(value)))
+                .collect(),
+        }
+    }
+
+    fn prod_meta(meta: &ref_edit::NodeMeta) -> NodeMeta {
+        NodeMeta {
+            discriminator: meta.discriminator.as_deref().map(Into::into),
+            position: meta.position,
+            shape: prod_shape(&meta.shape),
+            annotations: meta
+                .annotations
+                .iter()
+                .map(|(name, value)| (name.clone(), prod_value(value)))
+                .collect(),
+        }
+    }
+
+    fn ref_attr_key(key: &AttrKey) -> ref_edit::AttrKey {
+        match key {
+            AttrKey::Value { node } => ref_edit::AttrKey::Value(*node),
+            AttrKey::Field { node, field } => ref_edit::AttrKey::Field(*node, field.clone()),
+            AttrKey::Meta { node } => ref_edit::AttrKey::Meta(*node),
+            AttrKey::Anchor { node } => ref_edit::AttrKey::Anchor(*node),
+            AttrKey::EdgeLabel { edge } => ref_edit::AttrKey::EdgeLabel(edge.0),
+            AttrKey::EdgePosition { edge } => ref_edit::AttrKey::EdgePosition(edge.0),
+            other => panic!("table key in a graph delta: {other:?}"),
+        }
+    }
+
+    fn prod_attr_key(key: &ref_edit::AttrKey) -> AttrKey {
+        match key {
+            ref_edit::AttrKey::Value(node) => AttrKey::Value { node: *node },
+            ref_edit::AttrKey::Field(node, field) => AttrKey::Field {
+                node: *node,
+                field: field.clone(),
+            },
+            ref_edit::AttrKey::Meta(node) => AttrKey::Meta { node: *node },
+            ref_edit::AttrKey::Anchor(node) => AttrKey::Anchor { node: *node },
+            ref_edit::AttrKey::EdgeLabel(edge) => AttrKey::EdgeLabel {
+                edge: EdgeId(*edge),
+            },
+            ref_edit::AttrKey::EdgePosition(edge) => AttrKey::EdgePosition {
+                edge: EdgeId(*edge),
+            },
+        }
+    }
+
+    fn ref_attr_val(value: &AttrVal) -> ref_edit::AttrVal {
+        match value {
+            AttrVal::Presence(value) => {
+                ref_edit::AttrVal::Presence(value.as_ref().map(ref_presence))
+            }
+            AttrVal::Field(value) => ref_edit::AttrVal::Field(value.as_ref().map(ref_value)),
+            AttrVal::Meta(value) => ref_edit::AttrVal::Meta(ref_meta(value)),
+            AttrVal::Anchor(value) => ref_edit::AttrVal::Anchor(value.to_string()),
+            AttrVal::Label(value) => ref_edit::AttrVal::Label(ref_edge(value)),
+            AttrVal::Position(value) => ref_edit::AttrVal::Position(*value),
+        }
+    }
+
+    fn prod_attr_val(value: &ref_edit::AttrVal) -> AttrVal {
+        match value {
+            ref_edit::AttrVal::Presence(value) => {
+                AttrVal::Presence(value.as_ref().map(prod_presence))
+            }
+            ref_edit::AttrVal::Field(value) => AttrVal::Field(value.as_ref().map(prod_value)),
+            ref_edit::AttrVal::Meta(value) => AttrVal::Meta(prod_meta(value)),
+            ref_edit::AttrVal::Anchor(value) => AttrVal::Anchor(value.as_str().into()),
+            ref_edit::AttrVal::Label(value) => AttrVal::Label(prod_edge(value)),
+            ref_edit::AttrVal::Position(value) => AttrVal::Position(*value),
+        }
+    }
+
+    fn prod_delta(delta: &RefGraphDelta) -> GraphDelta {
+        let mut parts = GraphDeltaParts::default();
+        for (element, payload) in &delta.del {
+            match (element, payload) {
+                (ref_edit::GElem::Node(id), ref_edit::GPayload::Node(node)) => {
+                    parts.del_nodes.insert(*id, prod_node(node));
+                }
+                (ref_edit::GElem::Edge(id), ref_edit::GPayload::Edge(edge)) => {
+                    parts.del_edges.insert(EdgeId(*id), prod_gedge(edge));
+                }
+                other => panic!("cross-sort reference deletion: {other:?}"),
+            }
+        }
+        for (element, payload) in &delta.add {
+            match (element, payload) {
+                (ref_edit::GElem::Node(id), ref_edit::GPayload::Node(node)) => {
+                    parts.add_nodes.insert(*id, prod_node(node));
+                }
+                (ref_edit::GElem::Edge(id), ref_edit::GPayload::Edge(edge)) => {
+                    parts.add_edges.insert(EdgeId(*id), prod_gedge(edge));
+                }
+                other => panic!("cross-sort reference addition: {other:?}"),
+            }
+        }
+        parts.attrs = delta
+            .attrs
+            .iter()
+            .map(|(key, (old, new))| {
+                (
+                    prod_attr_key(key),
+                    AttrChange {
+                        old: prod_attr_val(old),
+                        new: prod_attr_val(new),
+                    },
+                )
+            })
+            .collect();
+        GraphDelta::normalize(parts).expect("a carrier letter is normal")
+    }
+
+    fn ref_delta(delta: &GraphDelta) -> RefGraphDelta {
+        let mut out = RefGraphDelta::identity();
+        for (id, node) in delta.del_nodes() {
+            out.del.insert(
+                ref_edit::GElem::Node(*id),
+                ref_edit::GPayload::Node(ref_node(node)),
+            );
+        }
+        for (id, edge) in delta.del_edges() {
+            out.del.insert(
+                ref_edit::GElem::Edge(id.0),
+                ref_edit::GPayload::Edge(ref_gedge(edge)),
+            );
+        }
+        for (id, node) in delta.add_nodes() {
+            out.add.insert(
+                ref_edit::GElem::Node(*id),
+                ref_edit::GPayload::Node(ref_node(node)),
+            );
+        }
+        for (id, edge) in delta.add_edges() {
+            out.add.insert(
+                ref_edit::GElem::Edge(id.0),
+                ref_edit::GPayload::Edge(ref_gedge(edge)),
+            );
+        }
+        out.attrs = delta
+            .attrs()
+            .iter()
+            .map(|(key, change)| {
+                (
+                    ref_attr_key(key),
+                    (ref_attr_val(&change.old), ref_attr_val(&change.new)),
+                )
+            })
+            .collect();
+        out
+    }
+
+    /// The observable outcome of one edit: the translated delta with the
+    /// next source, view and complement, or a refusal by class and reason.
+    #[derive(Debug, PartialEq)]
+    enum Outcome {
+        Admitted {
+            delta: RefGraphDelta,
+            source: RefGraph,
+            view: RefGraph,
+            complement: RefComplement,
+        },
+        Refused(String),
+    }
+
+    fn production_refusal(error: &GraphEditLensError) -> String {
+        match error {
+            GraphEditLensError::Apply(_) => "apply".to_owned(),
+            GraphEditLensError::Get(error) => format!("get {:?}", lens_reason(error)),
+            GraphEditLensError::Put(error) => format!("put {:?}", lens_reason(error)),
+            GraphEditLensError::IdsExhausted { .. } => "ids exhausted".to_owned(),
+            GraphEditLensError::PutGetMismatch => "put-get mismatch".to_owned(),
+            other => format!("production refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(error: &GraphEditError<RefRestrictError, RefLensError>) -> String {
+        match error {
+            GraphEditError::Apply(_) => "apply".to_owned(),
+            GraphEditError::Get(error) => {
+                format!("get {:?}", Reason::Restrict(ref_restrict_reason(error)))
+            }
+            GraphEditError::Put(error) => format!("put {:?}", ref_lens_reason(error)),
+            GraphEditError::IdsExhausted => "ids exhausted".to_owned(),
+            GraphEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+        }
+    }
+
+    fn production_state(lens: &GraphEditLens) -> (RefGraph, RefGraph, RefComplement) {
+        (
+            ref_graph(lens.source()),
+            ref_graph(lens.view()),
+            ref_complement(lens.complement()),
+        )
+    }
+
+    /// Translate `letter` in direction `put` on both sides, assert that the
+    /// outcomes agree and that a refusal leaves the production lens as it
+    /// was, and return the two advanced states when the edit is admitted.
+    fn step(
+        lens: &RefGraphLens<'_>,
+        production: &GraphEditLens,
+        state: &GraphEditState,
+        put: bool,
+        letter: &RefGraphDelta,
+    ) -> Option<(GraphEditLens, GraphEditState)> {
+        let get = |source: &RefGraph| panproto_reference::lens::get(lens, source);
+        let put_oracle = |view: &RefGraph, complement: &RefComplement| lens.put(view, complement);
+        let reference = if put {
+            ref_edit::graph_edit_put(&get, &put_oracle, state, letter)
+        } else {
+            ref_edit::graph_edit_get::<RefRestrictError, RefLensError>(&get, state, letter)
+        };
+        let mut advanced = production.clone();
+        let edit = prod_delta(letter);
+        let produced = if put {
+            advanced.put_edit(&edit)
+        } else {
+            advanced.get_edit(&edit)
+        };
+        let (production_outcome, translated) = match &produced {
+            Ok(step) => {
+                let (source, view, complement) = production_state(&advanced);
+                let delta = if put {
+                    &step.source_delta
+                } else {
+                    &step.view_delta
+                };
+                (
+                    Outcome::Admitted {
+                        delta: ref_delta(delta),
+                        source,
+                        view,
+                        complement,
+                    },
+                    true,
+                )
+            }
+            Err(error) => {
+                assert_eq!(
+                    production_state(&advanced),
+                    production_state(production),
+                    "a refused edit changed the lens: {letter:?}"
+                );
+                (Outcome::Refused(production_refusal(error)), false)
+            }
+        };
+        let reference_outcome = match &reference {
+            Ok((delta, next)) => Outcome::Admitted {
+                delta: delta.clone(),
+                source: next.source.clone(),
+                view: next.view.clone(),
+                complement: without_identity(&next.complement),
+            },
+            Err(error) => Outcome::Refused(reference_refusal(error)),
+        };
+        assert_eq!(
+            production_outcome,
+            reference_outcome,
+            "graph edit lens {} of {letter:?} from {:?}",
+            if put { "put" } else { "get" },
+            state.source
+        );
+        match reference {
+            Ok((_, next)) if translated => Some((advanced, next)),
+            _ => None,
+        }
+    }
+
+    /// Bind both sides to `source`, or `None` when graph get refuses it.
+    fn bind(
+        pair: &Pair,
+        lens: &RefGraphLens<'_>,
+        source: &RefGraph,
+    ) -> Option<(GraphEditLens, GraphEditState)> {
+        let (view, complement) = panproto_reference::lens::get(lens, source).ok()?;
+        let production = Lens {
+            compiled: pair.production.compiled.clone(),
+            src_schema: pair.production.src_schema.clone(),
+            tgt_schema: pair.production.tgt_schema.clone(),
+        };
+        let production = GraphEditLens::new(production, prod_graph(source))
+            .expect("production get accepts what reference get accepts");
+        let state = GraphEditState {
+            source: source.clone(),
+            view,
+            complement,
+        };
+        assert_eq!(ref_graph(production.view()), state.view);
+        assert_eq!(
+            ref_complement(production.complement()),
+            without_identity(&state.complement)
+        );
+        Some((production, state))
+    }
+
+    /// Every one-letter get and put edit of one carrier base, and the
+    /// inverse of each admitted get edit after it; returns the number of
+    /// edits compared.
+    fn unit(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> usize {
+        pair.with_reference(|lens| {
+            let Ok(lens) = lens else { return 0 };
+            let Some((production, state)) = bind(pair, lens, source) else {
+                return 0;
+            };
+            let mut compared = 0;
+            for letter in graph_edit_lens_letters(
+                &stage.source,
+                source,
+                BOUNDED_LENS_FIELD,
+                &BOUNDED_LENS_VALUE,
+            ) {
+                compared += 1;
+                if let Some((advanced, next)) = step(lens, &production, &state, false, &letter) {
+                    compared += 1;
+                    step(lens, &advanced, &next, false, &letter.invert());
+                }
+            }
+            for letter in graph_edit_lens_letters(
+                &stage.target,
+                &state.view,
+                BOUNDED_LENS_FIELD,
+                &BOUNDED_LENS_VALUE,
+            ) {
+                compared += 1;
+                step(lens, &production, &state, true, &letter);
+            }
+            compared
+        })
+    }
+
+    /// Run [`unit`] on every graph base of the bounded lens carrier that
+    /// `select` admits, by position; returns the bases and edits compared.
+    fn sweep(select: impl Fn(usize, &RefGraph) -> bool) -> (usize, usize, usize) {
+        let stages = bounded_lens_stages();
+        let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+        let (mut bases, mut selected, mut edits) = (0, 0, 0);
+        for_each_lens_equivalence_case(|case| {
+            if let LensEquivalenceCase::Graph { stage, source } = case {
+                if select(bases, &source) {
+                    selected += 1;
+                    edits += unit(&pairs[stage], &stages[stage], &source);
+                }
+                bases += 1;
+            }
+        });
+        (bases, selected, edits)
+    }
+
+    #[test]
+    fn graph_edit_lens_agrees_with_the_reference_on_every_two_node_base() {
+        let (bases, selected, edits) = sweep(|_, source| source.nodes.len() <= 2);
+        println!(
+            "graph edit lens two-node scope: bases={bases}, selected={selected}, edits={edits}"
+        );
+        assert_eq!(bases, 144_397);
+        assert!(selected > 0 && edits > selected);
+    }
+
+    #[test]
+    fn graph_edit_lens_law_certificate() {
+        let shard = LawShard::from_environment();
+        let (bases, selected, edits) =
+            sweep(|position, _| shard.is_none_or(|shard| shard.contains(position)));
+        println!(
+            "graph edit lens carrier: bases={bases}, shard={shard:?}, selected={selected}, edits={edits}"
+        );
+        assert_eq!(bases, 144_397);
+        assert_eq!(selected, shard.map_or(bases, |shard| shard.share(bases)));
+    }
+
+    /// A graph over the plain vertices of `stage` built from generated
+    /// choices: one node per entry of `nodes`, and each entry of `edges`
+    /// that names a schema edge between the anchors of its two nodes.
+    fn generated_source(
+        stage: &BoundedLensStage,
+        nodes: &[u8],
+        edges: &[(u8, u8, u8)],
+    ) -> Option<RefGraph> {
+        let vertices: Vec<&String> = stage.source.vertices.keys().collect();
+        if vertices.is_empty() {
+            return None;
+        }
+        let mut graph = RefGraph::default();
+        for (id, choice) in nodes.iter().enumerate() {
+            let id = u32::try_from(id).ok()?;
+            let anchor = vertices[usize::from(*choice) % vertices.len()];
+            graph.nodes.insert(id, RefNode::new(id, anchor));
+        }
+        let count = nodes.len();
+        for (index, (src, tgt, label)) in edges.iter().enumerate() {
+            let src = u32::try_from(usize::from(*src) % count).ok()?;
+            let tgt = u32::try_from(usize::from(*tgt) % count).ok()?;
+            let joining: Vec<&RefSEdge> = stage
+                .source
+                .edges
+                .iter()
+                .filter(|edge| {
+                    edge.src == graph.nodes[&src].anchor && edge.tgt == graph.nodes[&tgt].anchor
+                })
+                .collect();
+            if joining.is_empty() {
+                continue;
+            }
+            let label = joining[usize::from(*label) % joining.len()].clone();
+            graph.edges.insert(
+                u32::try_from(index).ok()?,
+                RefGEdge {
+                    src,
+                    tgt,
+                    label,
+                    position: None,
+                },
+            );
+        }
+        Some(graph)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn randomized_graph_edit_lens_differential(
+            stage in 0usize..1024,
+            nodes in prop::collection::vec(any::<u8>(), 1..6),
+            edges in prop::collection::vec((any::<u8>(), any::<u8>(), any::<u8>()), 0..8),
+            word in prop::collection::vec((any::<bool>(), any::<usize>()), 1..6),
+        ) {
+            let stages = bounded_lens_stages();
+            let stage = &stages[stage % stages.len()];
+            let pair = Pair::from_stage(stage);
+            let Some(source) = generated_source(stage, &nodes, &edges) else {
+                return Ok(());
+            };
+            pair.with_reference(|lens| {
+                let Ok(lens) = lens else { return };
+                let Some((mut production, mut state)) = bind(&pair, lens, &source) else {
+                    return;
+                };
+                for (put, choice) in &word {
+                    let (schema, graph) = if *put {
+                        (&stage.target, &state.view)
+                    } else {
+                        (&stage.source, &state.source)
+                    };
+                    let letters = graph_edit_lens_letters(
+                        schema,
+                        graph,
+                        BOUNDED_LENS_FIELD,
+                        &BOUNDED_LENS_VALUE,
+                    );
+                    if letters.is_empty() {
+                        continue;
+                    }
+                    let letter = &letters[choice % letters.len()];
+                    if let Some((advanced, next)) = step(lens, &production, &state, *put, letter) {
+                        production = advanced;
+                        state = next;
+                    }
+                }
+            });
+        }
+    }
+}

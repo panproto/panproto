@@ -3393,6 +3393,198 @@ pub mod edit {
         })
     }
 
+    /// The state of a reference graph edit lens: a source with the view and
+    /// complement the lens holds for it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct GraphEditState {
+        /// The source.
+        pub source: Graph,
+        /// The held view.
+        pub view: Graph,
+        /// The held complement.
+        pub complement: crate::restrict::Complement,
+    }
+
+    /// Why the reference graph edit lens refuses an edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum GraphEditError<G, P> {
+        /// The edit does not apply to the source (get) or view (put).
+        Apply(ApplyError),
+        /// Whole-state get refuses the edited source.
+        Get(G),
+        /// Whole-state put refuses the edited view.
+        Put(P),
+        /// No id below `u32::MAX` remains for a synthesized element.
+        IdsExhausted,
+        /// The get of the put source is not the edited view.
+        PutGetMismatch,
+    }
+
+    /// Whole-state put oracle of the reference graph edit lens.
+    pub type StatePut<P> = dyn Fn(&Graph, &crate::restrict::Complement) -> Result<Graph, P>;
+
+    /// Ids for the keys of `keys` (key, whole-state id), ascending by key:
+    /// the id `held` records for a key when `in_source` does not hold it,
+    /// else the least id at or above `floor` that no earlier key took,
+    /// never `u32::MAX`.
+    fn stable_ids(
+        keys: &BTreeMap<crate::restrict::SynthKey, u32>,
+        held: &BTreeMap<crate::restrict::SynthKey, u32>,
+        in_source: &dyn Fn(u32) -> bool,
+        floor: u32,
+    ) -> Option<BTreeMap<u32, u32>> {
+        let mut out = BTreeMap::new();
+        let mut taken = BTreeSet::new();
+        for (key, id) in keys {
+            if let Some(old) = held.get(key).copied().filter(|old| !in_source(*old)) {
+                out.insert(*id, old);
+                taken.insert(old);
+            }
+        }
+        let mut next = floor;
+        for id in keys.values() {
+            if out.contains_key(id) {
+                continue;
+            }
+            while taken.contains(&next) {
+                next = next.checked_add(1)?;
+            }
+            if next == u32::MAX {
+                return None;
+            }
+            out.insert(*id, next);
+            taken.insert(next);
+        }
+        Some(out)
+    }
+
+    /// Definition: The stable presentation of a whole-state get.
+    ///
+    /// `view` and `complement` are the get of `source`; `held` is the
+    /// complement the lens held before. Every synthesized node or edge whose
+    /// key `held` records keeps its held id when `source` holds no element
+    /// of that id; every other one, in ascending key order, takes the least
+    /// id at or above the complement's floor that no synthesized element of
+    /// the same kind took. `None` when no such id remains below `u32::MAX`.
+    ///
+    /// Book anchors: `L-edits-9`.
+    #[must_use]
+    pub fn stable_presentation(
+        held: &crate::restrict::Complement,
+        source: &Graph,
+        view: &Graph,
+        complement: &crate::restrict::Complement,
+    ) -> Option<(Graph, crate::restrict::Complement)> {
+        let invert = |map: &BTreeMap<u32, crate::restrict::SynthKey>| {
+            map.iter()
+                .map(|(id, key)| (key.clone(), *id))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let nodes = stable_ids(
+            &invert(&complement.synthesized_nodes),
+            &invert(&held.synthesized_nodes),
+            &|id| source.nodes.contains_key(&id),
+            complement.floor.0,
+        )?;
+        let edges = stable_ids(
+            &invert(&complement.synthesized_edges),
+            &invert(&held.synthesized_edges),
+            &|id| source.edges.contains_key(&id),
+            complement.floor.1,
+        )?;
+        let node = |id: u32| nodes.get(&id).copied().unwrap_or(id);
+        let edge = |id: u32| edges.get(&id).copied().unwrap_or(id);
+        let mut out = Graph::default();
+        for (id, n) in &view.nodes {
+            let mut n = n.clone();
+            n.id = node(*id);
+            out.nodes.insert(n.id, n);
+        }
+        for (id, e) in &view.edges {
+            let mut e = e.clone();
+            e.src = node(e.src);
+            e.tgt = node(e.tgt);
+            out.edges.insert(edge(*id), e);
+        }
+        let mut renamed = complement.clone();
+        renamed.synthesized_nodes = complement
+            .synthesized_nodes
+            .iter()
+            .map(|(id, key)| (node(*id), key.clone()))
+            .collect();
+        renamed.synthesized_edges = complement
+            .synthesized_edges
+            .iter()
+            .map(|(id, key)| (edge(*id), key.clone()))
+            .collect();
+        Some((out, renamed))
+    }
+
+    /// Definition: The reference graph edit lens's translation of a source edit.
+    ///
+    /// The edited source is `d` applied to the held source; its view and
+    /// complement are the stable presentation of its whole-state get
+    /// relative to the held complement ([`stable_presentation`]); and the
+    /// translated delta is the incidence-closed replacement differ from the
+    /// held view to that view, keeping the replacements of `d`
+    /// ([`diff_keeping_replacements`]).
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `d`, of get, or `IdsExhausted`.
+    ///
+    /// Book anchors: `L-edits-9`.
+    pub fn graph_edit_get<G, P>(
+        get: &EditGet<crate::restrict::Complement, G>,
+        state: &GraphEditState,
+        d: &GraphDelta,
+    ) -> Result<(GraphDelta, GraphEditState), GraphEditError<G, P>> {
+        let source = apply(d, &state.source).map_err(GraphEditError::Apply)?;
+        let (view, complement) = get(&source).map_err(GraphEditError::Get)?;
+        let (view, complement) =
+            stable_presentation(&state.complement, &source, &view, &complement)
+                .ok_or(GraphEditError::IdsExhausted)?;
+        let delta = diff_keeping_replacements(&state.view, &view, d);
+        Ok((
+            delta,
+            GraphEditState {
+                source,
+                view,
+                complement,
+            },
+        ))
+    }
+
+    /// Definition: The reference graph edit lens's translation of a view edit.
+    ///
+    /// The edited view is `e` applied to the held view; put it against the
+    /// held complement; the translated delta is the incidence-closed
+    /// replacement differ from the held source to the put source, keeping
+    /// the replacements of `e`; and the next state is the translation of
+    /// that delta by [`graph_edit_get`], whose view must be the edited view.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `e`, of put, of the forward translation, or
+    /// `PutGetMismatch`.
+    ///
+    /// Book anchors: `L-edits-9`.
+    pub fn graph_edit_put<G, P>(
+        get: &EditGet<crate::restrict::Complement, G>,
+        put: &StatePut<P>,
+        state: &GraphEditState,
+        e: &GraphDelta,
+    ) -> Result<(GraphDelta, GraphEditState), GraphEditError<G, P>> {
+        let view = apply(e, &state.view).map_err(GraphEditError::Apply)?;
+        let source = put(&view, &state.complement).map_err(GraphEditError::Put)?;
+        let d = diff_keeping_replacements(&state.source, &source, e);
+        let (_, next) = graph_edit_get(get, state, &d)?;
+        if next.view != view {
+            return Err(GraphEditError::PutGetMismatch);
+        }
+        Ok((d, next))
+    }
+
     /// The table delta space: rows with their table and cells, pairs without
     /// payload; cell and table attributes.
     #[derive(Clone, Copy, Debug)]
