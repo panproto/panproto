@@ -94,6 +94,8 @@ pub mod byte_tabular;
 
 pub mod cst_extract;
 
+pub mod rdf;
+
 #[cfg(feature = "tree-sitter")]
 pub mod unified_codec;
 
@@ -150,6 +152,8 @@ pub fn default_registry() -> ProtocolRegistry {
     serialization::register_all(&mut registry);
     #[cfg(feature = "tree-sitter")]
     text_format::register_all(&mut registry);
+    #[cfg(feature = "tree-sitter")]
+    rdf::register_all(&mut registry);
     web_document::register_all(&mut registry);
     registry
 }
@@ -229,10 +233,11 @@ mod tests {
             "edi_x12",
         ];
 
-        // The generic text-format codecs are format-preserving and thus
-        // only registered under the tree-sitter feature.
+        // The generic text-format codecs are format-preserving and the
+        // N-Triples codec reads through the Turtle grammar, so they are only
+        // registered under the tree-sitter feature.
         #[cfg(feature = "tree-sitter")]
-        let extra: &[&str] = &["yaml", "toml", "csv", "tsv"];
+        let extra: &[&str] = &["yaml", "toml", "csv", "tsv", "ntriples"];
         #[cfg(not(feature = "tree-sitter"))]
         let extra: &[&str] = &[];
 

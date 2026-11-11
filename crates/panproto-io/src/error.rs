@@ -231,6 +231,16 @@ pub enum ParseInstanceError {
         byte_offset: Option<u64>,
     },
 
+    /// An RDF document the protocol's reader refuses, with the byte offset
+    /// of the token at fault.
+    #[error("protocol '{protocol}' refuses the document {error}")]
+    Rdf {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::rdf::RdfReadError,
+    },
+
     /// The syntactic source parsed, and resolving it into its semantic
     /// shape failed with this typed error.
     #[error("resolution error: {0}")]
@@ -297,6 +307,15 @@ pub enum EmitInstanceError {
         row: RowId,
         /// The column containing the placeholder.
         column: String,
+    },
+
+    /// A graph the protocol's RDF writer refuses, with the node at fault.
+    #[error("protocol '{protocol}' cannot write the graph: {error}")]
+    Rdf {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::rdf::RdfWriteError,
     },
 
     /// Putting the semantic instance back to its syntactic source failed

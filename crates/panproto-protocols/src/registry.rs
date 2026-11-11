@@ -18,7 +18,7 @@ use panproto_schema::{Protocol, Schema};
 
 use crate::error::ProtocolError;
 use crate::{
-    annotation, api, config, data_schema, data_science, database, domain, serialization, text,
+    annotation, api, config, data_schema, data_science, database, domain, rdf, serialization, text,
     web_document,
 };
 
@@ -586,6 +586,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         protocol: annotation::nif::protocol,
         register_theories: |r| {
             annotation::nif::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "ntriples",
+        aliases: &["n-triples"],
+        parser: Parser::Programmatic,
+        protocol: rdf::ntriples::protocol,
+        register_theories: |r| {
+            rdf::ntriples::register_theories(r);
             Ok(())
         },
         bundle: false,
