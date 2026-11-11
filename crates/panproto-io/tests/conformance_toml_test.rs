@@ -68,11 +68,11 @@ fn tagged(instance: &WInstance, node_id: u32) -> Json {
     }
 }
 
-fn tag(kind: &str, value: String) -> Json {
+fn tag(kind: &str, value: &str) -> Json {
     serde_json::json!({"type": kind, "value": value})
 }
 
-fn temporal_kind(temporal: &Temporal) -> &'static str {
+const fn temporal_kind(temporal: &Temporal) -> &'static str {
     match temporal {
         Temporal::Date(_) => "date-local",
         Temporal::Time(_, offset) if !offset.is_zoned() => "time-local",
@@ -84,20 +84,20 @@ fn temporal_kind(temporal: &Temporal) -> &'static str {
 
 fn scalar(value: &Value) -> Json {
     match value {
-        Value::Str(text) => tag("string", text.clone()),
-        Value::Bool(flag) => tag("bool", flag.to_string()),
-        Value::Int(number) => tag("integer", number.to_string()),
-        Value::BigInt(number) => tag("integer", number.to_string()),
-        Value::Float(number) => tag("float", float_text(*number)),
+        Value::Str(text) => tag("string", text),
+        Value::Bool(flag) => tag("bool", &flag.to_string()),
+        Value::Int(number) => tag("integer", &number.to_string()),
+        Value::BigInt(number) => tag("integer", &number.to_string()),
+        Value::Float(number) => tag("float", &float_text(*number)),
         Value::Decimal(number) => tag(
             "float",
-            float_text(number.to_string().parse::<f64>().unwrap_or(f64::NAN)),
+            &float_text(number.to_string().parse::<f64>().unwrap_or(f64::NAN)),
         ),
         Value::Temporal(temporal) => tag(
             temporal_kind(temporal),
-            normalize_temporal(&temporal.to_string()),
+            &normalize_temporal(&temporal.to_string()),
         ),
-        other => tag("unexpected", format!("{other:?}")),
+        other => tag("unexpected", &format!("{other:?}")),
     }
 }
 
@@ -152,7 +152,7 @@ fn normalize_expected(json: &Json) -> Json {
             match kind {
                 "float" => tag(
                     "float",
-                    match value {
+                    &match value {
                         "nan" | "+nan" | "-nan" => "nan".to_owned(),
                         "inf" | "+inf" => "inf".to_owned(),
                         "-inf" => "-inf".to_owned(),
@@ -160,7 +160,7 @@ fn normalize_expected(json: &Json) -> Json {
                     },
                 ),
                 "datetime" | "datetime-local" | "date-local" | "time-local" => {
-                    tag(kind, normalize_temporal(value))
+                    tag(kind, &normalize_temporal(value))
                 }
                 _ => json.clone(),
             }
@@ -238,8 +238,15 @@ fn toml_test_cases_pass_or_are_declared_limits() {
     for case in &cases {
         if let Some(outcome) = run_case(&codec, &schema, case) {
             failing.insert((*case).to_owned());
-            if !limits.contains_key(*case) {
-                undeclared.push(format!("{case}: {outcome}"));
+            // The grammar's one limit shows as parser recovery: the
+            // tree-sitter TOML grammar cannot lex the string.
+            let observed = if outcome.contains("parser recovery marker") {
+                "line-ending-backslash-before-whitespace"
+            } else {
+                "unclassified"
+            };
+            if limits.get(*case).map(String::as_str) != Some(observed) {
+                undeclared.push(format!("{case} ({observed}): {outcome}"));
             }
         }
     }

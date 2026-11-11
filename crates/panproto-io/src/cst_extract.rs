@@ -267,7 +267,7 @@ fn validate_tree_structure(
     domain_schema: &Schema,
     protocol: &Protocol,
     format: &str,
-) -> Result<(), CstCodecError> {
+) -> Result<WInstance, CstCodecError> {
     if complement.format != format {
         return Err(unsupported_structural_edit(
             format,
@@ -357,7 +357,7 @@ fn validate_tree_structure(
             "an XML node gained a value without an element carrier",
         ));
     }
-    Ok(())
+    Ok(original)
 }
 
 /// Errors returned by the source-compatible CST extraction API.
@@ -526,6 +526,9 @@ struct ExtractState {
     depth: usize,
     /// Scalar fidelity failures in source order.
     fidelity: Vec<ValueFidelityError>,
+    /// The decoded lexeme of each YAML scalar, keyed by the CST vertex the
+    /// extractor reads it from, as the whole document decodes it.
+    yaml_scalars: HashMap<Name, (String, LexClass)>,
 }
 
 impl ExtractState {
@@ -538,6 +541,7 @@ impl ExtractState {
             node_to_cst_struct: HashMap::new(),
             depth: 0,
             fidelity: Vec::new(),
+            yaml_scalars: HashMap::new(),
         }
     }
 
@@ -2053,7 +2057,7 @@ fn validate_toml_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
         toml::from_str::<toml::Table>(&synthetic).map_err(|error| {
             CstCodecError::Structure(format!(
                 "invalid TOML string token at {}: {error}",
-                toml_offset_text(cst, name)
+                cst_offset_text(cst, name)
             ))
         })?;
     }
@@ -2079,7 +2083,7 @@ fn validate_toml_cst_years(cst: &Schema) -> Result<(), CstCodecError> {
         if !four_digit_year {
             return Err(CstCodecError::Structure(format!(
                 "TOML date at {} does not write a four-digit year",
-                toml_offset_text(cst, name)
+                cst_offset_text(cst, name)
             )));
         }
     }
@@ -2122,7 +2126,7 @@ fn validate_toml_cst_line_ends(cst: &Schema, document: &Name) -> Result<(), CstC
     let refuse = |vertex: &Name, what: &str| {
         CstCodecError::Structure(format!(
             "TOML {what} at {} is followed by more than a comment on its line",
-            toml_offset_text(cst, vertex)
+            cst_offset_text(cst, vertex)
         ))
     };
     let mut statements = vec![document];
@@ -2345,7 +2349,7 @@ fn toml_key_path<'a>(
     let malformed = || {
         CstCodecError::Structure(format!(
             "TOML key at {} has no key segments",
-            toml_offset_text(cst, entry)
+            cst_offset_text(cst, entry)
         ))
     };
     let mut current = toml_entry_key_vertex(cst, entry).ok_or_else(malformed)?;
@@ -2370,7 +2374,7 @@ fn toml_key_path<'a>(
 }
 
 /// `byte N` for a CST vertex with a recorded start, for refusal messages.
-fn toml_offset_text(cst: &Schema, vertex: &Name) -> String {
+fn cst_offset_text(cst: &Schema, vertex: &Name) -> String {
     cst_byte_offset(cst, vertex).map_or_else(
         || "an unrecorded byte".to_owned(),
         |byte| format!("byte {byte}"),
@@ -2677,7 +2681,7 @@ fn toml_define_pair<'a>(
         CstCodecError::Structure(format!(
             "TOML pair {} at {} has no value",
             toml_path_text(&path),
-            toml_offset_text(cst, pair)
+            cst_offset_text(cst, pair)
         ))
     })?;
     let Some(((last, _), prefix)) = path.split_last() else {
@@ -2700,7 +2704,7 @@ fn toml_define_pair<'a>(
                     "TOML dotted key {} at {} extends key {key} of a table its dotted keys \
                      did not define",
                     toml_path_text(&path),
-                    toml_offset_text(cst, pair)
+                    cst_offset_text(cst, pair)
                 )));
             }
         }
@@ -2709,7 +2713,7 @@ fn toml_define_pair<'a>(
         return Err(CstCodecError::Structure(format!(
             "duplicate TOML key {} at {}",
             toml_path_text(&path),
-            toml_offset_text(cst, pair)
+            cst_offset_text(cst, pair)
         )));
     }
     current.entries.push((last.clone(), TomlItem::Value(value)));
@@ -2734,7 +2738,7 @@ fn toml_open_header<'a, 'b>(
     let refuse = |reason: &str| {
         CstCodecError::Structure(format!(
             "TOML header {spelled} at {} {reason}",
-            toml_offset_text(cst, header)
+            cst_offset_text(cst, header)
         ))
     };
     let Some(((last, _), prefix)) = path.split_last() else {
@@ -4936,8 +4940,43 @@ pub fn extract_yaml_cst_with_protocol(
     let doc_vertex = find_unique_yaml_document(cst)?;
     check_yaml_directives(cst, &doc_vertex)?;
 
-    let top_value = find_yaml_top_value(cst, &doc_vertex)
-        .ok_or_else(|| CstCodecError::Structure("no value node in YAML document".into()))?;
+    // The whole document's decoding gives each scalar its meaning in place.
+    // A document the decoder refuses is refused after extraction, so a
+    // refusal the extractor states itself (a duplicate key, say) keeps its
+    // own message, unless every scalar of it reads the same alone.
+    let text = YamlStreamText::of(cst);
+    let decoded = yaml_serde::from_str::<YamlNode>(&text.text);
+
+    // A document with no content node is the empty node, which the core
+    // schema reads as null, when a `---` marker opens it; a stream holding
+    // only comments or a `...` marker has no document at all.
+    let Some(top_value) = find_yaml_top_value(cst, &doc_vertex) else {
+        if !cst_source_text(cst, &Name::from(doc_vertex.as_str())).contains("---") {
+            return Err(CstCodecError::Structure(
+                "YAML stream has no document".into(),
+            ));
+        }
+        if let Err(error) = decoded {
+            return Err(CstCodecError::Structure(format!(
+                "YAML document is not valid YAML: {error}"
+            )));
+        }
+        return Ok(empty_yaml_document(cst, &doc_vertex, root_vertex));
+    };
+
+    if let Ok(document) = &decoded {
+        align_yaml_document(
+            cst,
+            &text,
+            &top_value,
+            document,
+            &mut state.yaml_scalars,
+            YamlPlace {
+                depth: 0,
+                indent: None,
+            },
+        )?;
+    }
 
     let root_id = state.alloc_id();
     extract_yaml_value(
@@ -4951,6 +4990,13 @@ pub fn extract_yaml_cst_with_protocol(
     )?;
 
     finish_fidelity(&mut state)?;
+    if let Err(error) = decoded
+        && !yaml_scalars_read_alone(cst)
+    {
+        return Err(CstCodecError::Structure(format!(
+            "YAML document is not valid YAML: {error}"
+        )));
+    }
     let complement = CstComplement {
         format: "yaml".into(),
         cst_schema: cst.clone(),
@@ -5020,6 +5066,41 @@ fn check_yaml_directives(cst: &Schema, document: &str) -> Result<(), CstCodecErr
         }
     }
     Ok(())
+}
+
+/// The instance of a YAML document with no content node: a null root,
+/// recorded against the document vertex and with no value carrier.
+fn empty_yaml_document(
+    cst: &Schema,
+    doc_vertex: &str,
+    root_vertex: &str,
+) -> (WInstance, CstComplement) {
+    let mut state = ExtractState::new();
+    let root_id = state.alloc_id();
+    state.nodes.insert(
+        root_id,
+        Node::new(root_id, root_vertex).with_value(FieldPresence::Null),
+    );
+    state
+        .node_to_cst_struct
+        .insert(root_id, Name::from(doc_vertex));
+    let complement = CstComplement {
+        format: "yaml".into(),
+        cst_schema: cst.clone(),
+        node_to_cst_value: state.node_to_cst_value,
+        node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
+        source_vertex: Some(Name::from(root_vertex)),
+        byte_order_mark: false,
+    };
+    let instance = WInstance::new(
+        state.nodes,
+        Vec::new(),
+        Vec::new(),
+        root_id,
+        Name::from(root_vertex),
+    );
+    (instance, complement)
 }
 
 fn find_yaml_top_value(cst: &Schema, root: &str) -> Option<Name> {
@@ -5224,14 +5305,15 @@ fn extract_yaml_value_open(
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
     let extracted = match kind.as_str() {
-        "block_mapping" | "flow_mapping" => {
+        "block_mapping" | "flow_mapping" | "flow_pair" => {
             extract_yaml_mapping_open(cst, cst_vertex, anchor, node_id, state)
         }
         "block_sequence" | "flow_sequence" => {
             extract_yaml_sequence_open(cst, cst_vertex, anchor, node_id, state)
         }
         _ => {
-            let (text, class) = yaml_scalar_lexeme(cst, &source_vertex, cst_vertex);
+            let (text, class) =
+                decoded_yaml_lexeme(cst, &state.yaml_scalars, &source_vertex, cst_vertex);
             let carrier = yaml_value_carrier(cst, &source_vertex);
             state.node_to_cst_value.insert(node_id, vec![carrier]);
             let presence = match coerce_yaml_lexeme(&text, class, &ValueSpec::new(ScalarKind::Any))
@@ -5264,13 +5346,13 @@ fn extract_yaml_mapping_open(
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
     state.nodes.insert(node_id, Node::new(node_id, anchor));
-    for (pair_name, key) in decoded_yaml_mapping_pairs(cst, cst_vertex)? {
+    for (pair_name, key) in decoded_yaml_mapping_pairs(cst, &state.yaml_scalars, cst_vertex)? {
         let child_anchor = format!("{anchor}:{key}");
         let child_id = state.alloc_id();
         if let Some(value_vertex) = find_yaml_pair_value(cst, &pair_name) {
             extract_yaml_value_open(cst, &value_vertex, &child_anchor, child_id, state)?;
         } else {
-            insert_empty_yaml_pair_node(&pair_name, &child_anchor, child_id, state);
+            insert_empty_yaml_pair_node(cst, &pair_name, &child_anchor, child_id, state);
         }
         let synth_edge = Edge {
             src: Name::from(anchor),
@@ -5295,7 +5377,7 @@ fn extract_yaml_sequence_open(
     let mut node = Node::new(node_id, anchor);
     node.shape = NodeShape::List;
     state.nodes.insert(node_id, node);
-    for item_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+    for item_name in &yaml_sequence_items(cst, cst_vertex) {
         let child_anchor = format!("{anchor}:items");
         let child_id = state.alloc_id();
         if let Some(value_vertex) = find_yaml_sequence_item_value(cst, item_name) {
@@ -5475,7 +5557,7 @@ fn extract_yaml_value(
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
     let extracted = match kind.as_str() {
-        "block_mapping" | "flow_mapping" => extract_yaml_mapping(
+        "block_mapping" | "flow_mapping" | "flow_pair" => extract_yaml_mapping(
             cst,
             domain_schema,
             protocol,
@@ -5494,7 +5576,8 @@ fn extract_yaml_value(
             state,
         ),
         _ => {
-            let (text, class) = yaml_scalar_lexeme(cst, &source_vertex, cst_vertex);
+            let (text, class) =
+                decoded_yaml_lexeme(cst, &state.yaml_scalars, &source_vertex, cst_vertex);
             let carrier = yaml_value_carrier(cst, &source_vertex);
             state.node_to_cst_value.insert(node_id, vec![carrier]);
             let presence = coerce_yaml_cst_scalar(
@@ -5536,7 +5619,7 @@ fn extract_yaml_mapping(
 
     let mut node = Node::new(node_id, domain_vertex);
     let mut handled_keys = std::collections::HashSet::new();
-    let decoded_pairs = decoded_yaml_mapping_pairs(cst, cst_vertex)?;
+    let decoded_pairs = decoded_yaml_mapping_pairs(cst, &state.yaml_scalars, cst_vertex)?;
 
     for domain_edge in &domain_edges {
         let field_name = domain_edge.name.as_deref().unwrap_or(&domain_edge.tgt);
@@ -5556,7 +5639,7 @@ fn extract_yaml_mapping(
                         state,
                     )?;
                 } else {
-                    insert_empty_yaml_pair_node(pair_name, &domain_edge.tgt, child_id, state);
+                    insert_empty_yaml_pair_node(cst, pair_name, &domain_edge.tgt, child_id, state);
                 }
                 state.arcs.push((node_id, child_id, domain_edge.clone()));
             }
@@ -5579,13 +5662,24 @@ fn extract_yaml_mapping(
     Ok(())
 }
 
-fn insert_empty_yaml_pair_node(pair: &Name, anchor: &str, node_id: u32, state: &mut ExtractState) {
+/// The node of a mapping entry with an empty value. A pair is the carrier
+/// an edit writes a value into after its `:`; a key written with no `:` has
+/// no such place, so it records no value carrier and an edit is refused.
+fn insert_empty_yaml_pair_node(
+    cst: &Schema,
+    pair: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) {
     state.nodes.insert(
         node_id,
         Node::new(node_id, anchor).with_value(FieldPresence::Null),
     );
     state.node_to_cst_struct.insert(node_id, pair.clone());
-    state.node_to_cst_value.insert(node_id, vec![pair.clone()]);
+    if cst_vertex_kind(cst, pair).as_deref() != Some("flow_node") {
+        state.node_to_cst_value.insert(node_id, vec![pair.clone()]);
+    }
 }
 
 fn extract_yaml_sequence(
@@ -5612,7 +5706,7 @@ fn extract_yaml_sequence(
         return extract_yaml_sequence_open(cst, cst_vertex, domain_vertex, node_id, state);
     };
 
-    for item_name in cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+    for item_name in yaml_sequence_items(cst, cst_vertex) {
         let child_id = state.alloc_id();
         if let Some(value_vertex) = find_yaml_sequence_item_value(cst, item_name) {
             extract_yaml_value(
@@ -5633,8 +5727,12 @@ fn extract_yaml_sequence(
     Ok(())
 }
 
-fn extract_yaml_pair_key(cst: &Schema, pair_vertex: &Name) -> Result<String, CstCodecError> {
-    let key_vertex = cst_child_by_edge_kind(cst, pair_vertex, "key").ok_or_else(|| {
+fn extract_yaml_pair_key(
+    cst: &Schema,
+    scalars: &HashMap<Name, (String, LexClass)>,
+    pair_vertex: &Name,
+) -> Result<String, CstCodecError> {
+    let key_vertex = yaml_entry_key(cst, pair_vertex).ok_or_else(|| {
         CstCodecError::Structure(format!("YAML mapping pair {pair_vertex} has no key"))
     })?;
     let scalar_vertex = unwrap_yaml_node(cst, key_vertex);
@@ -5668,24 +5766,19 @@ fn extract_yaml_pair_key(cst: &Schema, pair_vertex: &Name) -> Result<String, Cst
             "YAML mapping key at {pair_vertex} is not a scalar"
         )));
     }
-    Ok(yaml_scalar_lexeme(cst, key_vertex, &scalar_vertex).0)
+    Ok(decoded_yaml_lexeme(cst, scalars, key_vertex, &scalar_vertex).0)
 }
 
 fn decoded_yaml_mapping_pairs(
     cst: &Schema,
+    scalars: &HashMap<Name, (String, LexClass)>,
     mapping_vertex: &Name,
 ) -> Result<Vec<(Name, String)>, CstCodecError> {
     let mut seen = HashSet::new();
-    cst_children_by_edge_kind(cst, mapping_vertex, "child_of")
+    yaml_mapping_entries(cst, mapping_vertex)
         .iter()
-        .filter(|pair| {
-            matches!(
-                cst_vertex_kind(cst, pair).as_deref(),
-                Some("block_mapping_pair" | "flow_pair")
-            )
-        })
         .map(|pair| {
-            let key = extract_yaml_pair_key(cst, pair)?;
+            let key = extract_yaml_pair_key(cst, scalars, pair)?;
             if !seen.insert(key.clone()) {
                 let offset = cst_byte_offset(cst, pair)
                     .map_or_else(|| "unknown".to_owned(), |value| value.to_string());
@@ -5698,11 +5791,540 @@ fn decoded_yaml_mapping_pairs(
         .collect()
 }
 
+/// The items of a YAML sequence, comments excluded.
+fn yaml_sequence_items<'a>(cst: &'a Schema, sequence: &Name) -> Vec<&'a Name> {
+    cst_children_by_edge_kind(cst, sequence, "child_of")
+        .into_iter()
+        .filter(|item| cst_vertex_kind(cst, item).as_deref() != Some("comment"))
+        .collect()
+}
+
+/// The decoded lexeme of the YAML scalar read from `source`: the whole
+/// document's decoding when [`align_yaml_document`] recorded one, otherwise
+/// the scalar's own text decoded in isolation.
+fn decoded_yaml_lexeme(
+    cst: &Schema,
+    scalars: &HashMap<Name, (String, LexClass)>,
+    source: &Name,
+    scalar: &Name,
+) -> (String, LexClass) {
+    scalars
+        .get(source)
+        .cloned()
+        .unwrap_or_else(|| yaml_scalar_lexeme(cst, source, scalar))
+}
+
+/// The lexeme a scalar of the whole-document decoding gives, with `token`
+/// the scalar's own source token for a number.
+///
+/// A number keeps its source token so that an exact decimal or a wide
+/// integer reaches coercion unrounded.
+fn yaml_semantic_lexeme(value: &YamlNode, token: &str) -> (String, LexClass) {
+    match value {
+        YamlNode::Null => ("null".to_owned(), LexClass::Null),
+        YamlNode::Bool(flag) => (flag.to_string(), LexClass::Bool),
+        YamlNode::Number => {
+            let compact = token.trim_start_matches(['+', '-']).replace('_', "");
+            if compact.starts_with("0b") {
+                (token.to_owned(), LexClass::String)
+            } else {
+                (
+                    normalize_yaml_number(token, &LexClass::Number),
+                    LexClass::Number,
+                )
+            }
+        }
+        YamlNode::String(text) => (text.clone(), LexClass::String),
+        YamlNode::Tagged(tag, inner) => (
+            yaml_semantic_lexeme(inner, token).0,
+            LexClass::Tagged(Name::from(tag.as_str())),
+        ),
+        YamlNode::Sequence(_) | YamlNode::Mapping(_) => (token.to_owned(), LexClass::String),
+    }
+}
+
+/// A YAML node as the whole-document decoder reads it, with every number
+/// kept only as a number: the extractor reads a number's exact value from
+/// its source token, and the decoder's own numbers stop at 128 bits.
+#[derive(Debug)]
+enum YamlNode {
+    Null,
+    Bool(bool),
+    Number,
+    String(String),
+    Tagged(String, Box<Self>),
+    Sequence(Vec<Self>),
+    Mapping(Vec<(Self, Self)>),
+}
+
+impl YamlNode {
+    const fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for YamlNode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(YamlNodeVisitor)
+    }
+}
+
+struct YamlNodeVisitor;
+
+impl<'de> serde::de::Visitor<'de> for YamlNodeVisitor {
+    type Value = YamlNode;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a YAML node")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<YamlNode, E> {
+        Ok(YamlNode::Bool(value))
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<YamlNode, E> {
+        Ok(YamlNode::Number)
+    }
+
+    fn visit_u64<E>(self, _: u64) -> Result<YamlNode, E> {
+        Ok(YamlNode::Number)
+    }
+
+    fn visit_i128<E>(self, _: i128) -> Result<YamlNode, E> {
+        Ok(YamlNode::Number)
+    }
+
+    fn visit_u128<E>(self, _: u128) -> Result<YamlNode, E> {
+        Ok(YamlNode::Number)
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<YamlNode, E> {
+        Ok(YamlNode::Number)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<YamlNode, E> {
+        Ok(YamlNode::String(value.to_owned()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<YamlNode, E> {
+        Ok(YamlNode::String(value))
+    }
+
+    fn visit_unit<E>(self) -> Result<YamlNode, E> {
+        Ok(YamlNode::Null)
+    }
+
+    fn visit_none<E>(self) -> Result<YamlNode, E> {
+        Ok(YamlNode::Null)
+    }
+
+    fn visit_some<D: serde::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<YamlNode, D::Error> {
+        serde::Deserialize::deserialize(deserializer)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<YamlNode, A::Error> {
+        let mut items = Vec::new();
+        while let Some(item) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(YamlNode::Sequence(items))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<YamlNode, A::Error> {
+        let mut entries = Vec::new();
+        while let Some(entry) = map.next_entry()? {
+            entries.push(entry);
+        }
+        Ok(YamlNode::Mapping(entries))
+    }
+
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, data: A) -> Result<YamlNode, A::Error> {
+        use serde::de::VariantAccess;
+        let (tag, variant): (String, _) = data.variant()?;
+        let value = variant.newtype_variant::<YamlNode>()?;
+        Ok(YamlNode::Tagged(tag, Box::new(value)))
+    }
+}
+
+/// Where a YAML node sits: how deep the alignment walk is, and the column of
+/// the innermost block collection entry holding it (`None` at the top).
+#[derive(Clone, Copy)]
+struct YamlPlace {
+    depth: usize,
+    indent: Option<usize>,
+}
+
+impl YamlPlace {
+    /// One level deeper, inside an entry at `column` when that entry
+    /// belongs to a block collection.
+    const fn within(self, column: Option<usize>) -> Self {
+        Self {
+            depth: self.depth + 1,
+            indent: match column {
+                Some(column) => Some(column),
+                None => self.indent,
+            },
+        }
+    }
+}
+
+/// A YAML stream's source text and the byte at which it starts.
+struct YamlStreamText {
+    text: String,
+    base: usize,
+}
+
+impl YamlStreamText {
+    fn of(cst: &Schema) -> Self {
+        let stream = cst
+            .vertices
+            .iter()
+            .find(|(_, vertex)| *vertex.kind == *"stream")
+            .map(|(name, _)| name.clone());
+        stream.map_or_else(
+            || Self {
+                text: String::new(),
+                base: 0,
+            },
+            |stream| {
+                // Bytes ahead of the stream's span (leading spaces or a
+                // comment) are its `doc-prefix`; they set the columns of
+                // what follows, so the text starts with them.
+                let prefix = cst
+                    .constraints
+                    .get(&stream)
+                    .and_then(|constraints| {
+                        constraints
+                            .iter()
+                            .find(|constraint| constraint.sort.as_ref() == "doc-prefix")
+                    })
+                    .map(|constraint| constraint.value.clone())
+                    .unwrap_or_default();
+                let start = cst_span(cst, &stream).map_or(0, |(start, _)| start);
+                let base = start - prefix.len().min(start);
+                let mut text = (prefix + &cst_source_text(cst, &stream)).into_bytes();
+                // A reserved directive carries no meaning (YAML 1.2.2 Sec
+                // 6.8) and libyaml refuses one, so the decoder reads it as
+                // the comment it is to the document: its `%` becomes `#`,
+                // which keeps every byte where it was.
+                for (name, vertex) in &cst.vertices {
+                    if *vertex.kind == *"reserved_directive"
+                        && let Some((at, _)) = cst_span(cst, name)
+                        && let Some(byte) = at.checked_sub(base).and_then(|at| text.get_mut(at))
+                        && *byte == b'%'
+                    {
+                        *byte = b'#';
+                    }
+                }
+                Self {
+                    base,
+                    text: String::from_utf8(text).unwrap_or_default(),
+                }
+            },
+        )
+    }
+
+    /// The column at which `entry` starts, when `collection` is a block
+    /// collection.
+    fn block_column(&self, cst: &Schema, collection: &Name, entry: &Name) -> Option<usize> {
+        if !matches!(
+            cst_vertex_kind(cst, collection).as_deref(),
+            Some("block_mapping" | "block_sequence")
+        ) {
+            return None;
+        }
+        let start = cst_span(cst, entry)?.0.checked_sub(self.base)?;
+        let before = self.text.get(..start)?;
+        Some(before.len() - before.rfind('\n').map_or(0, |newline| newline + 1))
+    }
+}
+
+/// Whether every scalar of a YAML document means the same decoded alone as
+/// in place: no block scalar (whose indentation and final line break come
+/// from its context), no anchor or tag, and no flow scalar spanning lines.
+///
+/// libyaml, the whole-document decoder, refuses some YAML 1.2.2 documents,
+/// `{a:}` among them. Such a document is still read when this holds, each
+/// scalar decoded from its own token, and refused otherwise.
+fn yaml_scalars_read_alone(cst: &Schema) -> bool {
+    cst.vertices
+        .iter()
+        .all(|(name, vertex)| match vertex.kind.as_ref() {
+            "block_scalar" | "anchor" | "tag" => false,
+            "plain_scalar" | "double_quote_scalar" | "single_quote_scalar" => {
+                !cst_source_text(cst, name).contains('\n')
+            }
+            _ => true,
+        })
+}
+
+/// Refuse a multi-line flow scalar inside a block collection entry at
+/// column `indent` whose continuation line is not indented past that
+/// column with spaces (YAML 1.2.2 Sec 7.3 and 7.4 take continuation
+/// lines at the indentation of the block context, and a tab is not
+/// indentation).
+fn check_yaml_continuation_indent(
+    cst: &Schema,
+    scalar: &Name,
+    indent: Option<usize>,
+) -> Result<(), CstCodecError> {
+    let Some(indent) = indent else {
+        return Ok(());
+    };
+    if !matches!(
+        cst_vertex_kind(cst, scalar).as_deref(),
+        Some("plain_scalar" | "double_quote_scalar" | "single_quote_scalar")
+    ) {
+        return Ok(());
+    }
+    let token = cst_source_text(cst, scalar);
+    let misindented = token.split('\n').skip(1).any(|line| {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+        !line.trim().is_empty() && spaces <= indent
+    });
+    if misindented {
+        return Err(CstCodecError::Structure(format!(
+            "YAML scalar at {} continues on a line not indented past its block entry",
+            cst_offset_text(cst, scalar)
+        )));
+    }
+    Ok(())
+}
+
+/// Refuse a scalar the whole-document decoder and the CST read differently.
+///
+/// The decoder follows libyaml, which departs from YAML 1.2.2 in a few
+/// places the CST does not: an anchor name ends at its first character
+/// outside `[A-Za-z0-9_-]`, `?` opens an explicit key even inside a flow
+/// collection, and a block scalar whose last line holds only spaces at the
+/// end of the stream loses that line. Each is refused rather than read
+/// with the decoder's meaning: an anchor name outside that alphabet, a
+/// single-line flow scalar whose decoded text differs from its own token
+/// decoded alone, and a block scalar ending the stream on such a line.
+fn check_yaml_scalar_decoding(
+    cst: &Schema,
+    source: &Name,
+    scalar: &Name,
+    value: &YamlNode,
+) -> Result<(), CstCodecError> {
+    let refuse = |what: &str| {
+        CstCodecError::Structure(format!(
+            "YAML {what} at {} is outside what this route reads",
+            cst_offset_text(cst, scalar)
+        ))
+    };
+    for child in cst_children_by_edge_kind(cst, source, "child_of") {
+        if cst_vertex_kind(cst, child).as_deref() == Some("anchor") {
+            let name = cst_source_text(cst, child);
+            let name = name.trim().trim_start_matches('&');
+            if !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            {
+                return Err(refuse("anchor name"));
+            }
+        }
+    }
+    let kind = cst_vertex_kind(cst, scalar).unwrap_or_default();
+    let token = cst_source_text(cst, scalar);
+    if kind == "block_scalar" {
+        let ends_stream = cst_span(cst, scalar).is_some_and(|(_, end)| {
+            cst.vertices
+                .keys()
+                .filter_map(|vertex| cst_span(cst, vertex))
+                .all(|(_, other_end)| other_end <= end)
+        });
+        let last_line = token.rsplit('\n').next().unwrap_or_default();
+        if ends_stream
+            && token.contains('\n')
+            && !last_line.is_empty()
+            && last_line.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
+        {
+            return Err(refuse("block scalar ending the stream on a line of spaces"));
+        }
+        return Ok(());
+    }
+    let untagged = yaml_explicit_tag(&cst_source_text(cst, source)).is_none();
+    if untagged
+        && matches!(
+            kind.as_str(),
+            "plain_scalar" | "double_quote_scalar" | "single_quote_scalar"
+        )
+        && !token.contains('\n')
+        && let YamlNode::String(decoded) = value
+        && !matches!(
+            yaml_serde::from_str::<yaml_serde::Value>(&token),
+            Ok(yaml_serde::Value::String(alone)) if *decoded == alone
+        )
+    {
+        return Err(refuse("scalar"));
+    }
+    Ok(())
+}
+
+/// Decode a YAML document whole and record, for every scalar the extractor
+/// reads, the lexeme that decoding gives it.
+///
+/// A scalar decoded on its own loses its context: a block scalar's
+/// indentation and final line break, an anchor in front of it. Decoding
+/// the document once and walking it beside the CST gives each scalar its
+/// meaning in place. The walk follows the extractor's own reading of the
+/// CST, and a document whose structure the two read differently is
+/// refused, since its tree would not be the document's.
+fn align_yaml_document(
+    cst: &Schema,
+    stream: &YamlStreamText,
+    vertex: &Name,
+    value: &YamlNode,
+    scalars: &mut HashMap<Name, (String, LexClass)>,
+    place: YamlPlace,
+) -> Result<(), CstCodecError> {
+    let depth = place.depth;
+    if depth > MAX_EXTRACT_DEPTH {
+        return Err(CstCodecError::NestingTooDeep {
+            limit: MAX_EXTRACT_DEPTH,
+        });
+    }
+    let semantic = unwrap_yaml_node(cst, vertex);
+    let misread = || {
+        CstCodecError::Structure(format!(
+            "YAML node at {} has a structure this route does not read",
+            cst_offset_text(cst, &semantic)
+        ))
+    };
+    let untagged = match value {
+        YamlNode::Tagged(_, inner) => inner,
+        other => other,
+    };
+    match cst_vertex_kind(cst, &semantic).as_deref() {
+        Some("block_mapping" | "flow_mapping" | "flow_pair") => {
+            let YamlNode::Mapping(mapping) = untagged else {
+                return Err(misread());
+            };
+            let pairs = yaml_mapping_entries(cst, &semantic);
+            if pairs.len() != mapping.len() {
+                return Err(misread());
+            }
+            for (pair, (key, entry)) in pairs.into_iter().zip(mapping) {
+                if let Some(key_vertex) = yaml_entry_key(cst, pair) {
+                    align_yaml_document(
+                        cst,
+                        stream,
+                        key_vertex,
+                        key,
+                        scalars,
+                        place.within(stream.block_column(cst, &semantic, pair)),
+                    )?;
+                }
+                match find_yaml_pair_value(cst, pair) {
+                    Some(value_vertex) => {
+                        align_yaml_document(
+                            cst,
+                            stream,
+                            &value_vertex,
+                            entry,
+                            scalars,
+                            place.within(stream.block_column(cst, &semantic, pair)),
+                        )?;
+                    }
+                    None if entry.is_null() => {}
+                    None => return Err(misread()),
+                }
+            }
+            Ok(())
+        }
+        Some("block_sequence" | "flow_sequence") => {
+            let YamlNode::Sequence(items) = untagged else {
+                return Err(misread());
+            };
+            let cst_items = yaml_sequence_items(cst, &semantic);
+            if cst_items.len() != items.len() {
+                return Err(misread());
+            }
+            for (item, entry) in cst_items.into_iter().zip(items) {
+                match find_yaml_sequence_item_value(cst, item) {
+                    Some(value_vertex) => {
+                        align_yaml_document(
+                            cst,
+                            stream,
+                            &value_vertex,
+                            entry,
+                            scalars,
+                            place.within(stream.block_column(cst, &semantic, item)),
+                        )?;
+                    }
+                    None if entry.is_null() => {}
+                    _ => return Err(misread()),
+                }
+            }
+            Ok(())
+        }
+        _ => {
+            if matches!(untagged, YamlNode::Mapping(_) | YamlNode::Sequence(_)) {
+                return Err(misread());
+            }
+            check_yaml_scalar_decoding(cst, vertex, &semantic, value)?;
+            check_yaml_continuation_indent(cst, &semantic, place.indent)?;
+            let token = literal_text_deep(cst, &semantic);
+            let raw = cst_source_text(cst, vertex);
+            let source_tag = yaml_explicit_tag(&raw).map(|(tag, _)| tag);
+            // The tag written in the source classifies the decoded payload,
+            // as coercion reads it; the non-specific tag `!` makes it a
+            // string whatever it spells.
+            let (text, class) = yaml_semantic_lexeme(value, token.trim());
+            let lexeme = match source_tag {
+                None => (text, class),
+                Some("!") => (text, LexClass::String),
+                Some(tag) => (text, LexClass::Tagged(Name::from(tag))),
+            };
+            scalars.insert(vertex.clone(), lexeme);
+            Ok(())
+        }
+    }
+}
+
+/// The entries of a YAML mapping, in source order: its pairs, and in a
+/// flow mapping each key written with no `:` (YAML 1.2.2 Sec 7.4.1), whose
+/// value is empty. A `flow_pair` standing as a single-pair mapping is its
+/// own one entry.
+fn yaml_mapping_entries<'a>(cst: &'a Schema, mapping: &'a Name) -> Vec<&'a Name> {
+    if cst_vertex_kind(cst, mapping).as_deref() == Some("flow_pair") {
+        return vec![mapping];
+    }
+    let flow = cst_vertex_kind(cst, mapping).as_deref() == Some("flow_mapping");
+    cst_children_by_edge_kind(cst, mapping, "child_of")
+        .into_iter()
+        .filter(|entry| match cst_vertex_kind(cst, entry).as_deref() {
+            Some("block_mapping_pair" | "flow_pair") => true,
+            Some("flow_node") => flow,
+            _ => false,
+        })
+        .collect()
+}
+
+/// The key vertex of a mapping entry: a pair's `key` child, or the entry
+/// itself when it is a key written with no `:`.
+fn yaml_entry_key<'a>(cst: &'a Schema, entry: &'a Name) -> Option<&'a Name> {
+    if cst_vertex_kind(cst, entry).as_deref() == Some("flow_node") {
+        return Some(entry);
+    }
+    cst_child_by_edge_kind(cst, entry, "key")
+}
+
 fn find_yaml_pair_value(cst: &Schema, pair_vertex: &Name) -> Option<Name> {
     cst_child_by_edge_kind(cst, pair_vertex, "value").cloned()
 }
 
 fn find_yaml_sequence_item_value(cst: &Schema, item_vertex: &Name) -> Option<Name> {
+    // A `key: value` written inside a flow sequence is a single-pair
+    // mapping (YAML 1.2.2 Sec 7.4.1), carried by its `flow_pair` vertex.
+    if cst_vertex_kind(cst, item_vertex).as_deref() == Some("flow_pair") {
+        return Some(item_vertex.clone());
+    }
     for edge in cst.outgoing_edges(item_vertex) {
         let inner = unwrap_yaml_node(cst, &edge.tgt);
         let kind = cst_vertex_kind(cst, &inner).unwrap_or_default();
@@ -5752,9 +6374,11 @@ fn extract_yaml_generic_value(
     let cst_vertex = &semantic_vertex;
 
     let value = match kind.as_str() {
-        "block_mapping" | "flow_mapping" => {
+        "block_mapping" | "flow_mapping" | "flow_pair" => {
             let mut fields = HashMap::new();
-            for (pair_name, key) in decoded_yaml_mapping_pairs(cst, cst_vertex)? {
+            for (pair_name, key) in
+                decoded_yaml_mapping_pairs(cst, &state.yaml_scalars, cst_vertex)?
+            {
                 let value = match find_yaml_pair_value(cst, &pair_name) {
                     Some(val_vertex) => {
                         extract_yaml_generic_value(cst, &val_vertex, domain_vertex, state)?
@@ -5766,7 +6390,7 @@ fn extract_yaml_generic_value(
             Value::Unknown(fields)
         }
         "block_sequence" | "flow_sequence" => {
-            let items = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
+            let items = yaml_sequence_items(cst, cst_vertex);
             Value::List(
                 items
                     .iter()
@@ -5782,7 +6406,8 @@ fn extract_yaml_generic_value(
             )
         }
         _ => {
-            let (text, class) = yaml_scalar_lexeme(cst, source_vertex, cst_vertex);
+            let (text, class) =
+                decoded_yaml_lexeme(cst, &state.yaml_scalars, source_vertex, cst_vertex);
             match coerce_yaml_lexeme(&text, class, &ValueSpec::new(ScalarKind::Any)) {
                 Ok(value) => value,
                 Err(error) => {
@@ -5831,19 +6456,32 @@ pub fn inject_yaml_cst_with_protocol(
     domain_schema: &Schema,
     protocol: &Protocol,
 ) -> Result<Schema, CstCodecError> {
-    validate_tree_structure(instance, complement, domain_schema, protocol, "yaml")?;
+    let original = validate_tree_structure(instance, complement, domain_schema, protocol, "yaml")?;
     let mut cst = complement.cst_schema.clone();
 
     for (&node_id, node) in &instance.nodes {
         let Some(ref presence) = node.value else {
             continue;
         };
-        let Some(segments) = complement.node_to_cst_value.get(&node_id) else {
-            continue;
+        let unchanged = original
+            .nodes
+            .get(&node_id)
+            .and_then(|original| original.value.as_ref())
+            .is_some_and(|before| same_presence(before, presence));
+        let Some(head) = complement
+            .node_to_cst_value
+            .get(&node_id)
+            .and_then(|segments| segments.first())
+        else {
+            if unchanged {
+                continue;
+            }
+            return Err(unsupported_structural_edit(
+                "yaml",
+                format!("node {node_id} has no source carrier for an edited value"),
+            ));
         };
-        let Some(head) = segments.first() else {
-            continue;
-        };
+        let segments = &complement.node_to_cst_value[&node_id];
         if is_empty_yaml_pair_carrier(&cst, head) {
             if matches!(presence, FieldPresence::Null) {
                 continue;
@@ -5881,17 +6519,13 @@ pub fn inject_yaml_cst_with_protocol(
             continue;
         }
         // A YAML scalar's lexical form does not survive a round-trip through
-        // the parsed `Value`: `yes` and `true` are the same boolean, `1.0`
-        // and `1` the same number, and a quoted scalar carries quotes the
-        // value does not. When the CST's own text still parses to the
-        // instance's value nothing has changed, so leave the bytes alone
-        // rather than re-serialising a form the source never used.
+        // the parsed `Value`: a quoted, folded or literal scalar carries
+        // quotes, indentation and line breaks the value does not. When the
+        // preserved source still reads as the instance's value nothing has
+        // changed, so leave the bytes alone rather than re-serialising a
+        // form the source never used.
         let spec = ValueSpec::for_vertex(domain_schema, protocol, &node.anchor);
-        let scalar = unwrap_yaml_node(&cst, head);
-        let (old_text, old_class) = yaml_scalar_lexeme(&cst, head, &scalar);
-        if coerce_yaml_lexeme(&old_text, old_class, &spec)
-            .is_ok_and(|value| presence_matches_value(presence, &value))
-        {
+        if unchanged {
             continue;
         }
         let site = ValueSite::new(node.anchor.clone(), cst_byte_offset(&cst, head));
@@ -5903,6 +6537,18 @@ pub fn inject_yaml_cst_with_protocol(
     }
 
     Ok(cst)
+}
+
+/// Whether two presences hold the same value, compared by canonical bytes.
+fn same_presence(left: &FieldPresence, right: &FieldPresence) -> bool {
+    match (left, right) {
+        (FieldPresence::Present(left), FieldPresence::Present(right)) => {
+            left.canonical_bytes() == right.canonical_bytes()
+        }
+        (FieldPresence::Null, FieldPresence::Null)
+        | (FieldPresence::Absent, FieldPresence::Absent) => true,
+        _ => false,
+    }
 }
 
 fn yaml_mapping_value_colon(source: &str) -> Option<usize> {
@@ -6187,6 +6833,22 @@ pub fn extract_tabular_cst_with_protocol(
         cell_to_cst: HashMap::new(),
         fidelity: Vec::new(),
     };
+    if format == "tsv" {
+        let rows = reader.tsv_rows()?;
+        let TabularReader {
+            cell_to_cst,
+            fidelity,
+            ..
+        } = reader;
+        if !fidelity.is_empty() {
+            return Err(CstCodecError::Fidelity(fidelity));
+        }
+        let instance = FInstance::new()
+            .with_table(table_vertex, rows)
+            .map_err(|e| CstCodecError::Structure(e.to_string()))?;
+        return Ok((instance, tabular_complement(cst, cell_to_cst, table_vertex)));
+    }
+
     // Each row is addressed by its position in the instance, so a blank line
     // read as a row below takes a position, and every later cell carrier is
     // keyed past it.
@@ -6374,6 +7036,117 @@ impl TabularReader<'_> {
             ),
             None => ((0..fields.len()).collect(), false),
         })
+    }
+
+    /// The rows of a TSV document, read line by line from its source.
+    ///
+    /// The tree-sitter TSV grammar counts a tab among its extras, so an
+    /// empty field leaves no node and a line of tabs alone leaves no row.
+    /// TSV has no quoting, so its lines and tabs are its records and fields
+    /// exactly: each line after the header is a record, and each tab
+    /// separates two fields. The first line names the columns. An empty line
+    /// is a record of one empty field in a one-column table and no record
+    /// otherwise, as on the canonical route. A field takes as its carrier
+    /// the CST field node spanning exactly its bytes; an empty field, or one
+    /// a quoted grammar token runs past, has none, and an edit of it is
+    /// refused.
+    fn tsv_rows(&mut self) -> Result<Vec<HashMap<String, Value>>, CstCodecError> {
+        let cst = self.cst;
+        let base = self.document_start.unwrap_or(0);
+        let source = std::mem::take(&mut self.source);
+        let mut field_at: HashMap<usize, (usize, &Name)> = HashMap::new();
+        for vertex in cst.vertices.keys() {
+            if cst_vertex_kind(cst, vertex).as_deref() == Some("field")
+                && let Some((start, end)) = cst_recorded_span(cst, vertex)
+            {
+                field_at.insert(start, (end, vertex));
+            }
+        }
+        let mut lines = Vec::new();
+        let mut line_start = 0;
+        let bytes = source.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'\n' => {
+                    lines.push((line_start, &source[line_start..index]));
+                    index += 1;
+                    line_start = index;
+                }
+                b'\r' => {
+                    lines.push((line_start, &source[line_start..index]));
+                    index += if bytes.get(index + 1) == Some(&b'\n') {
+                        2
+                    } else {
+                        1
+                    };
+                    line_start = index;
+                }
+                _ => index += 1,
+            }
+        }
+        if line_start < bytes.len() {
+            lines.push((line_start, &source[line_start..]));
+        }
+        let Some(((_, header), body)) = lines.split_first() else {
+            self.source = source;
+            return Ok(Vec::new());
+        };
+        let headers: Vec<String> = header.split('\t').map(str::to_owned).collect();
+        let mut distinct = HashSet::with_capacity(headers.len());
+        if let Some(duplicate) = headers.iter().find(|name| !distinct.insert(name.as_str())) {
+            return Err(CstCodecError::Structure(format!(
+                "duplicate tabular header name '{duplicate}'"
+            )));
+        }
+        self.headers = headers;
+        let mut rows = Vec::new();
+        for (record, (start, line)) in body.iter().enumerate() {
+            if line.is_empty() {
+                if self.headers.len() == 1 {
+                    let column = self.headers[0].clone();
+                    if let Some(value) = self.coerce_cell(&column, "", None) {
+                        rows.push(HashMap::from([(column, value)]));
+                    }
+                }
+                continue;
+            }
+            let fields: Vec<&str> = line.split('\t').collect();
+            if fields.len() != self.headers.len() {
+                return Err(CstCodecError::Structure(format!(
+                    "data row {} at byte {} has {} fields but {} header fields are declared",
+                    record + 1,
+                    base + start,
+                    fields.len(),
+                    self.headers.len()
+                )));
+            }
+            let position = rows.len();
+            let mut row = HashMap::with_capacity(fields.len());
+            let mut field_start = base + start;
+            for (column_index, text) in fields.into_iter().enumerate() {
+                let column = self.headers[column_index].clone();
+                let offset = u64::try_from(field_start).ok();
+                if let Some(value) = self.coerce_cell(&column, text, offset) {
+                    row.insert(column, value);
+                }
+                if let Some((end, vertex)) = field_at.get(&field_start)
+                    && !text.is_empty()
+                    && *end == field_start + text.len()
+                    && let (Ok(row_u32), Ok(column_u32)) =
+                        (u32::try_from(position), u32::try_from(column_index))
+                {
+                    self.cell_to_cst.insert(
+                        tabular_cell_key(row_u32, column_u32),
+                        vec![deepest_literal_vertex(cst, vertex)],
+                    );
+                }
+                field_start += text.len() + 1;
+            }
+            rows.push(row);
+        }
+        self.source = source;
+        Ok(rows)
     }
 
     /// The cells of one data row, recording each field's CST carrier.
