@@ -17386,7 +17386,7 @@ mod transformed_tables {
 mod graph_edit_lens_differential {
     use panproto_inst::GraphDelta;
     use panproto_inst::graph_edit::{AttrChange, AttrKey, AttrVal, GraphDeltaParts, NodeMeta};
-    use panproto_lens::{GraphEditLens, GraphEditLensError};
+    use panproto_lens::{GraphEditLens, ShapeEditError};
     use panproto_reference::edit::{
         self as ref_edit, GraphDelta as RefGraphDelta, GraphEditError, GraphEditState,
     };
@@ -17574,13 +17574,13 @@ mod graph_edit_lens_differential {
         complement: RefComplement,
     }
 
-    fn production_refusal(error: &GraphEditLensError) -> String {
+    fn production_refusal(error: &ShapeEditError) -> String {
         match error {
-            GraphEditLensError::Apply(_) => "apply".to_owned(),
-            GraphEditLensError::Get(error) => format!("get {:?}", lens_reason(error)),
-            GraphEditLensError::Put(error) => format!("put {:?}", lens_reason(error)),
-            GraphEditLensError::IdsExhausted { .. } => "ids exhausted".to_owned(),
-            GraphEditLensError::PutGetMismatch => "put-get mismatch".to_owned(),
+            ShapeEditError::Apply(_) => "apply".to_owned(),
+            ShapeEditError::Get(error) => format!("get {:?}", lens_reason(error)),
+            ShapeEditError::Put(error) => format!("put {:?}", lens_reason(error)),
+            ShapeEditError::IdsExhausted { .. } => "ids exhausted".to_owned(),
+            ShapeEditError::PutGetMismatch => "put-get mismatch".to_owned(),
             other => format!("production refusal outside the carrier: {other:?}"),
         }
     }

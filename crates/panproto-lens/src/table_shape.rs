@@ -17,7 +17,7 @@ pub struct TableContext {
 }
 
 impl TableContext {
-    const fn protocols(&self) -> BoundaryProtocols<'_> {
+    pub(crate) const fn protocols(&self) -> BoundaryProtocols<'_> {
         BoundaryProtocols {
             src: &self.src,
             tgt: &self.tgt,

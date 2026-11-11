@@ -44,6 +44,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
+use crate::lens_shape::GraphShape;
+use crate::shape_edit_lens::{
+    EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, get_refusal, incoherent,
+};
+use crate::{Lens, LensError, graph_lens};
 use panproto_inst::graph_edit::{ComposeError, ElemRef};
 use panproto_inst::identity::{ComplementShape, Digest, IdentityCarrier};
 use panproto_inst::segment::IdKind;
@@ -52,77 +57,6 @@ use panproto_inst::{
     GraphDelta, HYPER_LABEL_KIND, HYPER_PARENT_KIND, IdFloor, Node, NodeShape, RestrictPlan,
     SynthKey, graph_restrict_with_plan,
 };
-use serde::{Deserialize, Serialize};
-
-use crate::edit_lens::incidence_closed_differ;
-use crate::{Lens, LensError, graph_lens};
-
-/// Why a graph edit lens refuses an edit. Every refusal leaves the lens
-/// unchanged.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum GraphEditLensError {
-    /// The edit does not apply to the held source (for `get_edit`) or the
-    /// held view (for `put_edit`): a stale payload, a missing element or
-    /// endpoint, a dangling edge, a reused id or a malformed fan.
-    #[error("the edit does not apply: {0}")]
-    Apply(#[source] EditError),
-    /// Graph get refuses the edited source, with the refusal a whole-state
-    /// get of that source returns.
-    #[error("get refuses the edited source: {0}")]
-    Get(#[source] Box<LensError>),
-    /// Graph put refuses the edited view, with the refusal a whole-state
-    /// put returns: an envelope refusal or the first put-domain violation.
-    #[error("put refuses the edited view: {0}")]
-    Put(#[source] Box<LensError>),
-    /// The edits of a batch do not compose.
-    #[error("the batch does not compose: {0}")]
-    Compose(#[source] ComposeError),
-    /// No id below `u32::MAX` remains for a synthesized element.
-    #[error("no {kind:?} id remains for a synthesized element")]
-    IdsExhausted {
-        /// Whether node or edge ids ran out.
-        kind: IdKind,
-    },
-    /// The get of the put source does not give back the edited view.
-    #[error("the source put returns does not get back the edited view")]
-    PutGetMismatch,
-    /// The held state broke an invariant of the construction; this names a
-    /// defect, never a property of the edit.
-    #[error("graph edit lens invariant broken: {0}")]
-    Incoherent(String),
-}
-
-/// Which direction an edit was translated in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GraphEditDirection {
-    /// A source edit translated to the view.
-    Get,
-    /// A view edit translated to the source.
-    Put,
-}
-
-/// One admitted edit with its translation: the record an audit log keeps.
-///
-/// `source_delta` took the held source to the new one and `view_delta` the
-/// held view to the new one; in the `Get` direction the first is the input
-/// and in the `Put` direction the second is. `input` is the digest of the
-/// input delta, the edit's identity, and `sequence` counts the edits the
-/// lens has admitted, from one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GraphEditStep {
-    /// The position of this edit among those the lens admitted, from one.
-    pub sequence: u64,
-    /// The direction the edit was translated in.
-    pub direction: GraphEditDirection,
-    /// The digest of the input delta.
-    pub input: Digest,
-    /// The source delta.
-    pub source_delta: GraphDelta,
-    /// The view delta.
-    pub view_delta: GraphDelta,
-}
 
 /// The source element that owns a synthesized chain: the start of a
 /// contracted pair, or an expanded edge.
@@ -182,14 +116,6 @@ fn floor_above(max: Option<u32>) -> u32 {
     max.map_or(0, |m| m.saturating_add(1))
 }
 
-fn incoherent(detail: impl Into<String>) -> GraphEditLensError {
-    GraphEditLensError::Incoherent(detail.into())
-}
-
-fn get_refusal(error: impl Into<LensError>) -> GraphEditLensError {
-    GraphEditLensError::Get(Box::new(error.into()))
-}
-
 /// The elements one source delta may change the get outcome of.
 #[derive(Default)]
 struct Region {
@@ -203,9 +129,9 @@ struct Region {
     owners: BTreeSet<ChainOwner>,
 }
 
-/// A translated source delta, ready to commit: the source already holds
+/// A translated graph delta, ready to commit: the source already holds
 /// the edited state, and `undo` restores it.
-struct Staged {
+pub struct GraphStaged {
     undo: GraphDelta,
     view_delta: GraphDelta,
     region: Region,
@@ -217,8 +143,23 @@ struct Staged {
     max_node: Option<u32>,
 }
 
-/// A graph lens that translates graph deltas and holds its source, view and
-/// complement.
+/// The state a [`GraphEditLens`] holds: the source, its view and complement,
+/// the compiled plan, and the index of synthesized chains by key and owner.
+#[derive(Clone, Debug)]
+pub struct GraphHeld {
+    plan: RestrictPlan,
+    local: bool,
+    source: GInstance,
+    view: GInstance,
+    complement: GraphComplement,
+    synth_node_ids: HashMap<SynthKey, u32>,
+    synth_edge_ids: HashMap<SynthKey, EdgeId>,
+    chains: BTreeMap<ChainOwner, BTreeSet<SynthKey>>,
+    max_node: Option<u32>,
+}
+
+/// A graph lens bound to a source graph, translating graph deltas in both
+/// directions.
 ///
 /// ```
 /// use panproto_inst::{CompiledMigration, GInstance, GraphDelta, Node};
@@ -244,71 +185,39 @@ struct Staged {
 /// assert_eq!(step.view_delta, add);
 /// assert!(edit_lens.view().node(1).is_some());
 /// ```
-pub struct GraphEditLens {
-    lens: Lens,
-    plan: RestrictPlan,
-    local: bool,
-    source: GInstance,
-    view: GInstance,
-    complement: GraphComplement,
-    synth_node_ids: HashMap<SynthKey, u32>,
-    synth_edge_ids: HashMap<SynthKey, EdgeId>,
-    chains: BTreeMap<ChainOwner, BTreeSet<SynthKey>>,
-    max_node: Option<u32>,
-    sequence: u64,
-}
+pub type GraphEditLens = ShapeEditLens<GraphShape>;
 
-impl Clone for GraphEditLens {
-    fn clone(&self) -> Self {
-        Self {
-            lens: Lens {
-                compiled: self.lens.compiled.clone(),
-                src_schema: self.lens.src_schema.clone(),
-                tgt_schema: self.lens.tgt_schema.clone(),
-            },
-            plan: self.plan.clone(),
-            local: self.local,
-            source: self.source.clone(),
-            view: self.view.clone(),
-            complement: self.complement.clone(),
-            synth_node_ids: self.synth_node_ids.clone(),
-            synth_edge_ids: self.synth_edge_ids.clone(),
-            chains: self.chains.clone(),
-            max_node: self.max_node,
-            sequence: self.sequence,
-        }
-    }
-}
+/// An admitted graph edit with its translation.
+pub type GraphEditStep = ShapeEditStep<GraphDelta>;
 
-impl std::fmt::Debug for GraphEditLens {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GraphEditLens")
-            .field("lens", &self.lens)
-            .field("source", &self.source)
-            .field("view", &self.view)
-            .field("complement", &self.complement)
-            .field("sequence", &self.sequence)
-            .finish_non_exhaustive()
-    }
-}
-
-impl GraphEditLens {
+impl ShapeEditLens<GraphShape> {
     /// Bind `lens` to `source`: run graph get on it and hold the source,
     /// the view and the stamped complement.
     ///
     /// # Errors
     ///
-    /// [`GraphEditLensError::Get`] with the refusal of graph get on
-    /// `source`.
-    pub fn new(lens: Lens, source: GInstance) -> Result<Self, GraphEditLensError> {
+    /// [`ShapeEditError::Get`] with the refusal of graph get on `source`.
+    pub fn new(lens: Lens, source: GInstance) -> Result<Self, ShapeEditError> {
+        Self::bind(lens, (), source)
+    }
+}
+
+impl EditShape for GraphShape {
+    type Instance = GInstance;
+    type Complement = GraphComplement;
+    type Delta = GraphDelta;
+    type Context = ();
+    type Held = GraphHeld;
+    type Staged = GraphStaged;
+
+    fn bind(lens: &Lens, (): &(), source: GInstance) -> Result<GraphHeld, ShapeEditError> {
         let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
             .map_err(get_refusal)?;
         let (view, mut complement) =
             graph_restrict_with_plan(&source, &plan).map_err(get_refusal)?;
         complement.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
-        let mut out = Self {
+        let mut held = GraphHeld {
             local: migration_is_local(&lens.compiled),
-            lens,
             plan,
             max_node: source.max_node_id(),
             source,
@@ -317,151 +226,95 @@ impl GraphEditLens {
             synth_node_ids: HashMap::new(),
             synth_edge_ids: HashMap::new(),
             chains: BTreeMap::new(),
-            sequence: 0,
         };
-        for (id, key) in &out.complement.synthesized_nodes {
+        for (id, key) in &held.complement.synthesized_nodes {
             let owner = chain_owner(key)
                 .ok_or_else(|| incoherent("graph get synthesized a node no chain owns"))?;
-            out.synth_node_ids.insert(key.clone(), *id);
-            out.chains.entry(owner).or_default().insert(key.clone());
+            held.synth_node_ids.insert(key.clone(), *id);
+            held.chains.entry(owner).or_default().insert(key.clone());
         }
-        for (id, key) in &out.complement.synthesized_edges {
+        for (id, key) in &held.complement.synthesized_edges {
             let owner = chain_owner(key)
                 .ok_or_else(|| incoherent("graph get synthesized an edge no chain owns"))?;
-            out.synth_edge_ids.insert(key.clone(), *id);
-            out.chains.entry(owner).or_default().insert(key.clone());
+            held.synth_edge_ids.insert(key.clone(), *id);
+            held.chains.entry(owner).or_default().insert(key.clone());
         }
-        Ok(out)
+        Ok(held)
     }
 
-    /// The lens.
-    #[must_use]
-    pub const fn lens(&self) -> &Lens {
-        &self.lens
+    fn source(held: &GraphHeld) -> &GInstance {
+        &held.source
     }
 
-    /// The held source.
-    #[must_use]
-    pub const fn source(&self) -> &GInstance {
-        &self.source
+    fn view(held: &GraphHeld) -> &GInstance {
+        &held.view
     }
 
-    /// The held view.
-    #[must_use]
-    pub const fn view(&self) -> &GInstance {
-        &self.view
+    fn complement(held: &GraphHeld) -> &GraphComplement {
+        &held.complement
     }
 
-    /// The held complement, stamped with the graph identity of the lens.
-    #[must_use]
-    pub const fn complement(&self) -> &GraphComplement {
-        &self.complement
+    fn stage(
+        _lens: &Lens,
+        (): &(),
+        held: &mut GraphHeld,
+        delta: &GraphDelta,
+    ) -> Result<GraphStaged, ShapeEditError> {
+        held.stage(delta)
     }
 
-    /// How many edits the lens has admitted.
-    #[must_use]
-    pub const fn sequence(&self) -> u64 {
-        self.sequence
+    fn staged_view_delta(staged: &GraphStaged) -> &GraphDelta {
+        &staged.view_delta
     }
 
-    /// Translate the source delta `edit` to the view, and advance the held
-    /// source, view and complement.
-    ///
-    /// # Errors
-    ///
-    /// [`GraphEditLensError::Apply`] when `edit` does not apply to the held
-    /// source, [`GraphEditLensError::Get`] when graph get refuses the edited
-    /// source, and [`GraphEditLensError::IdsExhausted`] when a new
-    /// synthesized element finds no id. The lens is then unchanged.
-    pub fn get_edit(&mut self, edit: &GraphDelta) -> Result<GraphEditStep, GraphEditLensError> {
-        let staged = self.stage(edit)?;
-        let view_delta = staged.view_delta.clone();
-        self.commit(staged)?;
-        Ok(self.record(GraphEditDirection::Get, edit, edit.clone(), view_delta))
+    fn abort(held: &mut GraphHeld, staged: &GraphStaged) -> Result<(), ShapeEditError> {
+        held.abort(staged)
     }
 
-    /// Translate the view delta `edit` to the source, and advance the held
-    /// source, view and complement.
-    ///
-    /// The edited view is put against the held complement; the source delta
-    /// is the incidence-closed replacement differ from the held source to
-    /// the put source, keeping the replacements of `edit`. Its get must give
-    /// back the edited view exactly.
-    ///
-    /// # Errors
-    ///
-    /// [`GraphEditLensError::Apply`] when `edit` does not apply to the held
-    /// view, [`GraphEditLensError::Put`] when graph put refuses the edited
-    /// view, [`GraphEditLensError::Get`] or
-    /// [`GraphEditLensError::IdsExhausted`] when the get of the put source
-    /// refuses, and [`GraphEditLensError::PutGetMismatch`] when it does not
-    /// give back the edited view. The lens is then unchanged.
-    pub fn put_edit(&mut self, edit: &GraphDelta) -> Result<GraphEditStep, GraphEditLensError> {
-        let mut edited_view = self.view.clone();
-        edit.apply(&mut edited_view)
-            .map_err(GraphEditLensError::Apply)?;
-        let put = graph_lens::put(&self.lens, &edited_view, &self.complement)
-            .map_err(|error| GraphEditLensError::Put(Box::new(error)))?;
-        let source_delta = incidence_closed_differ(
-            GraphDelta::diff(&self.source, &put),
-            edit,
-            &self.source,
-            &put,
-        )
-        .map_err(|error| incoherent(error.to_string()))?;
-        let staged = self.stage(&source_delta)?;
-        let mut probe = self.view.clone();
-        let agrees = staged.view_delta.apply(&mut probe).is_ok()
-            && GInstance::identical(&probe, &edited_view);
-        if !agrees {
-            self.abort(&staged)?;
-            return Err(GraphEditLensError::PutGetMismatch);
-        }
-        self.commit(staged)?;
-        Ok(self.record(GraphEditDirection::Put, edit, source_delta, edit.clone()))
+    fn commit(held: &mut GraphHeld, staged: GraphStaged) -> Result<(), ShapeEditError> {
+        held.commit(staged)
     }
 
-    /// Translate a batch of source deltas, applied in order, as one edit.
-    ///
-    /// # Errors
-    ///
-    /// [`GraphEditLensError::Compose`] when two adjacent deltas do not
-    /// compose, and otherwise as [`Self::get_edit`] on the composite. No
-    /// delta of the batch is admitted unless all are.
-    pub fn get_batch(&mut self, edits: &[GraphDelta]) -> Result<GraphEditStep, GraphEditLensError> {
-        let composite = compose_all(edits)?;
-        self.get_edit(&composite)
+    fn apply(delta: &GraphDelta, instance: &mut GInstance) -> Result<(), EditError> {
+        delta.apply(instance)
     }
 
-    /// Translate a batch of view deltas, applied in order, as one edit.
-    ///
-    /// # Errors
-    ///
-    /// [`GraphEditLensError::Compose`] when two adjacent deltas do not
-    /// compose, and otherwise as [`Self::put_edit`] on the composite. No
-    /// delta of the batch is admitted unless all are.
-    pub fn put_batch(&mut self, edits: &[GraphDelta]) -> Result<GraphEditStep, GraphEditLensError> {
-        let composite = compose_all(edits)?;
-        self.put_edit(&composite)
+    fn identity() -> GraphDelta {
+        GraphDelta::identity()
     }
 
-    fn record(
-        &mut self,
-        direction: GraphEditDirection,
+    fn compose(first: &GraphDelta, next: &GraphDelta) -> Result<GraphDelta, ComposeError> {
+        first.compose(next)
+    }
+
+    fn digest(delta: &GraphDelta) -> Digest {
+        delta.digest()
+    }
+
+    fn identical(a: &GInstance, b: &GInstance) -> bool {
+        GInstance::identical(a, b)
+    }
+
+    fn closed_diff(
+        before: &GInstance,
+        after: &GInstance,
         input: &GraphDelta,
-        source_delta: GraphDelta,
-        view_delta: GraphDelta,
-    ) -> GraphEditStep {
-        self.sequence += 1;
-        GraphEditStep {
-            sequence: self.sequence,
-            direction,
-            input: input.digest(),
-            source_delta,
-            view_delta,
-        }
+    ) -> Result<GraphDelta, ShapeEditError> {
+        GraphDelta::diff_keeping_replacements(before, after, input)
+            .map_err(|error| incoherent(error.to_string()))
     }
 
+    fn put(
+        lens: &Lens,
+        (): &(),
+        view: &GInstance,
+        complement: &GraphComplement,
+    ) -> Result<GInstance, LensError> {
+        graph_lens::put(lens, view, complement)
+    }
+}
+
+impl GraphHeld {
     /// Whether the source node `id` survives in the held state: the view
     /// holds it as a source node.
     fn kept(&self, id: u32) -> bool {
@@ -470,7 +323,7 @@ impl GraphEditLens {
 
     /// Apply `edit` to the source and translate it; on refusal the source is
     /// restored.
-    fn stage(&mut self, edit: &GraphDelta) -> Result<Staged, GraphEditLensError> {
+    fn stage(&mut self, edit: &GraphDelta) -> Result<GraphStaged, ShapeEditError> {
         let changed: BTreeSet<u32> = edit
             .del_nodes()
             .keys()
@@ -504,10 +357,10 @@ impl GraphEditLens {
         };
 
         edit.apply(&mut self.source)
-            .map_err(GraphEditLensError::Apply)?;
+            .map_err(ShapeEditError::Apply)?;
         let undo = edit.invert();
         match self.translate(edit, &changed, &before_fans, &touched_ends, before_sources) {
-            Ok(staged) => Ok(Staged { undo, ..staged }),
+            Ok(staged) => Ok(GraphStaged { undo, ..staged }),
             Err(error) => {
                 undo.apply(&mut self.source)
                     .map_err(|undo_error| incoherent(undo_error.to_string()))?;
@@ -517,7 +370,7 @@ impl GraphEditLens {
     }
 
     /// Restore the source of a staged translation that is not committed.
-    fn abort(&mut self, staged: &Staged) -> Result<(), GraphEditLensError> {
+    fn abort(&mut self, staged: &GraphStaged) -> Result<(), ShapeEditError> {
         staged
             .undo
             .apply(&mut self.source)
@@ -532,7 +385,7 @@ impl GraphEditLens {
         before_fans: &BTreeSet<u32>,
         touched_ends: &BTreeSet<u32>,
         before_sources: BTreeSet<u32>,
-    ) -> Result<Staged, GraphEditLensError> {
+    ) -> Result<GraphStaged, ShapeEditError> {
         let max_node = self.next_max_node(edit);
         let floor = IdFloor {
             node: floor_above(max_node),
@@ -547,7 +400,7 @@ impl GraphEditLens {
             graph_restrict_with_plan(&sub, &self.plan).map_err(get_refusal)?;
         let ids = self.assign_ids(&region, &sub_complement, floor)?;
         let view_delta = self.view_delta(edit, &region, &sub_view, &sub_complement, &ids)?;
-        Ok(Staged {
+        Ok(GraphStaged {
             undo: GraphDelta::identity(),
             view_delta,
             region,
@@ -615,7 +468,7 @@ impl GraphEditLens {
         before_fans: &BTreeSet<u32>,
         touched_ends: &BTreeSet<u32>,
         before_sources: BTreeSet<u32>,
-    ) -> Result<(Region, GInstance), GraphEditLensError> {
+    ) -> Result<(Region, GInstance), ShapeEditError> {
         let source = &self.source;
         let mut region = Region::default();
         region.nodes.extend(changed.iter().copied());
@@ -716,7 +569,7 @@ impl GraphEditLens {
         region: &Region,
         outcome: &GraphComplement,
         floor: IdFloor,
-    ) -> Result<SynthIds, GraphEditLensError> {
+    ) -> Result<SynthIds, ShapeEditError> {
         let owned = |key: &&SynthKey| chain_owner(key).is_some_and(|o| region.owners.contains(&o));
         let removed_nodes: HashSet<u32> = self
             .region_keys(region)
@@ -765,7 +618,7 @@ impl GraphEditLens {
         sub_view: &GInstance,
         outcome: &GraphComplement,
         ids: &SynthIds,
-    ) -> Result<GraphDelta, GraphEditLensError> {
+    ) -> Result<GraphDelta, ShapeEditError> {
         let (synth_nodes, synth_edges) = (&ids.nodes, &ids.edges);
         // The new view's region elements.
         let mut renumber: HashMap<u32, u32> = HashMap::new();
@@ -869,21 +722,21 @@ impl GraphEditLens {
                 .insert_edge(id, edge)
                 .map_err(|error| incoherent(error.to_string()))?;
         }
-        incidence_closed_differ(GraphDelta::diff(&before, &after), edit, &before, &after)
+        GraphDelta::diff_keeping_replacements(&before, &after, edit)
             .map_err(|error| incoherent(error.to_string()))
     }
 
     /// Advance the view, the complement and the indexes to a staged
     /// translation. The view delta is checked against the view before
     /// anything changes; on a refusal the source is restored.
-    fn commit(&mut self, staged: Staged) -> Result<(), GraphEditLensError> {
+    fn commit(&mut self, staged: GraphStaged) -> Result<(), ShapeEditError> {
         if let Err(error) = staged.view_delta.apply(&mut self.view) {
             self.abort(&staged)?;
             return Err(incoherent(format!(
                 "the translated view delta does not apply to the held view: {error}"
             )));
         }
-        let Staged {
+        let GraphStaged {
             region,
             outcome,
             ids,
@@ -953,7 +806,7 @@ fn region_subgraph(
     region: &Region,
     sources: &BTreeSet<u32>,
     survives: &dyn Fn(u32) -> bool,
-) -> Result<GInstance, GraphEditLensError> {
+) -> Result<GInstance, ShapeEditError> {
     let mut nodes: BTreeSet<u32> = region
         .nodes
         .iter()
@@ -1024,7 +877,7 @@ fn assign_presentation<I: Copy + Eq + std::hash::Hash>(
     in_source: &dyn Fn(I) -> bool,
     occupied: &dyn Fn(I) -> bool,
     (floor, wrap, kind): (u32, fn(u32) -> I, IdKind),
-) -> Result<BTreeMap<SynthKey, I>, GraphEditLensError> {
+) -> Result<BTreeMap<SynthKey, I>, ShapeEditError> {
     let mut out: BTreeMap<SynthKey, I> = BTreeMap::new();
     let mut taken: HashSet<I> = HashSet::new();
     for key in &keys {
@@ -1043,10 +896,10 @@ fn assign_presentation<I: Copy + Eq + std::hash::Hash>(
         while taken.contains(&wrap(next)) || occupied(wrap(next)) {
             next = next
                 .checked_add(1)
-                .ok_or(GraphEditLensError::IdsExhausted { kind })?;
+                .ok_or(ShapeEditError::IdsExhausted { kind })?;
         }
         if next == u32::MAX {
-            return Err(GraphEditLensError::IdsExhausted { kind });
+            return Err(ShapeEditError::IdsExhausted { kind });
         }
         out.insert(key.clone(), wrap(next));
         taken.insert(wrap(next));
@@ -1064,13 +917,6 @@ fn set_entry<K: Ord + Copy, V: Clone>(map: &mut BTreeMap<K, V>, outcome: &BTreeM
             map.remove(&key);
         }
     }
-}
-
-/// The composite of `edits`, applied in order.
-fn compose_all(edits: &[GraphDelta]) -> Result<GraphDelta, GraphEditLensError> {
-    edits.iter().try_fold(GraphDelta::identity(), |acc, edit| {
-        acc.compose(edit).map_err(GraphEditLensError::Compose)
-    })
 }
 
 /// The surviving nodes of `graph` whose search through dropped nodes may

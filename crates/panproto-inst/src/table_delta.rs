@@ -1251,6 +1251,65 @@ impl TableDelta {
         parts.add_pairs = after.difference(&before).cloned().collect();
         Self::normalize(parts)
     }
+
+    /// The incidence-closed replacement differ from `a` to `b` keeping the
+    /// replacements of `input`: the table form of
+    /// [`GraphDelta::diff_keeping_replacements`](crate::GraphDelta::diff_keeping_replacements).
+    ///
+    /// It is [`Self::diff`] with every row or pair `input` replaces that
+    /// both states hold made a replacement from its `a` payload to its `b`
+    /// payload, and then closed under incidence: every pair of `a` incident
+    /// to a deleted row is deleted, and every pair of `b` incident to an
+    /// added row is added, each with its counterpart when the other state
+    /// holds it. The closure reads only pairs the two states hold. The result
+    /// applies to `a` with result `b` when both are well formed.
+    #[must_use]
+    pub fn diff_keeping_replacements(a: &FInstance, b: &FInstance, input: &Self) -> Self {
+        let mut parts = Self::diff(a, b).into_parts();
+        let payload = |tables: &FInstance, id: RowId| {
+            tables
+                .table_of(id)
+                .zip(tables.row(id))
+                .map(|(table, row)| (table.clone(), row.clone()))
+        };
+        for id in input
+            .del_rows()
+            .keys()
+            .filter(|id| input.add_rows().contains_key(id))
+        {
+            if let (Some(old), Some(new)) = (payload(a, *id), payload(b, *id)) {
+                parts.del_rows.insert(*id, old);
+                parts.add_rows.insert(*id, new);
+            }
+        }
+        let (before, after): (BTreeSet<Pair>, BTreeSet<Pair>) = (
+            a.all_pairs().into_iter().collect(),
+            b.all_pairs().into_iter().collect(),
+        );
+        for pair in input.del_pairs().intersection(input.add_pairs()) {
+            if before.contains(pair) && after.contains(pair) {
+                parts.del_pairs.insert(pair.clone());
+                parts.add_pairs.insert(pair.clone());
+            }
+        }
+        for pair in &before {
+            if parts.del_rows.contains_key(&pair.1) || parts.del_rows.contains_key(&pair.2) {
+                parts.del_pairs.insert(pair.clone());
+                if after.contains(pair) {
+                    parts.add_pairs.insert(pair.clone());
+                }
+            }
+        }
+        for pair in &after {
+            if parts.add_rows.contains_key(&pair.1) || parts.add_rows.contains_key(&pair.2) {
+                parts.add_pairs.insert(pair.clone());
+                if before.contains(pair) {
+                    parts.del_pairs.insert(pair.clone());
+                }
+            }
+        }
+        Self::normalize(parts)
+    }
 }
 
 impl EditConflict {

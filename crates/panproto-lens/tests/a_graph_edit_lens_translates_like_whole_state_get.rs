@@ -13,9 +13,7 @@ use panproto_inst::{
     CompiledMigration, EdgeId, EditError, GEdge, GInstance, GraphComplement, GraphDelta, Node,
     SynthKey,
 };
-use panproto_lens::{
-    GraphEditLens, GraphEditLensError, Lens, LensError, PutDomainError, graph_lens,
-};
+use panproto_lens::{GraphEditLens, Lens, LensError, PutDomainError, ShapeEditError, graph_lens};
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -381,18 +379,18 @@ fn an_edit_that_does_not_apply_is_refused_and_changes_nothing() -> TestResult {
     let refusal = lens.get_edit(&dangling);
     assert!(matches!(
         refusal,
-        Err(GraphEditLensError::Apply(EditError::DanglingEdges { .. }))
+        Err(ShapeEditError::Apply(EditError::DanglingEdges { .. }))
     ));
     let stale = GraphDelta::identity().with_deleted_node(Node::new(0, "b"));
     assert!(matches!(
         lens.get_edit(&stale),
-        Err(GraphEditLensError::Apply(EditError::StaleNode { node: 0 }))
+        Err(ShapeEditError::Apply(EditError::StaleNode { node: 0 }))
     ));
     let missing =
         GraphDelta::identity().with_added_edge(EdgeId(9), GEdge::new(0, 77, edge("a", "b", "ab")));
     assert!(matches!(
         lens.get_edit(&missing),
-        Err(GraphEditLensError::Apply(EditError::MissingEndpoint { .. }))
+        Err(ShapeEditError::Apply(EditError::MissingEndpoint { .. }))
     ));
     assert_eq!(snapshot(&lens), before);
     Ok(())
@@ -415,7 +413,7 @@ fn an_edit_outside_the_get_domain_is_refused_like_whole_state_get() -> TestResul
         .err()
         .ok_or("whole-state get accepts")?;
     match lens.get_edit(&path) {
-        Err(GraphEditLensError::Get(refusal)) => {
+        Err(ShapeEditError::Get(refusal)) => {
             assert_eq!(format!("{refusal:?}"), format!("{whole:?}"));
         }
         other => return Err(format!("expected a get refusal, found {other:?}").into()),
@@ -486,7 +484,7 @@ fn deleting_a_contracted_edge_in_the_view_is_refused_by_put_and_changes_nothing(
     let payload = lens.view().edge(contracted).ok_or("no view edge")?.clone();
     let before = snapshot(&lens);
     match lens.put_edit(&GraphDelta::identity().with_deleted_edge(contracted, payload)) {
-        Err(GraphEditLensError::Put(refusal)) => assert!(matches!(
+        Err(ShapeEditError::Put(refusal)) => assert!(matches!(
             *refusal,
             LensError::PutDomain(ref violation)
                 if matches!(**violation, PutDomainError::SynthesizedEdited { .. })
