@@ -113,6 +113,7 @@
 //! | CST preservation and duplicate handling | [`value_io::parse_cst`], [`value_io::round_trip_cst`], [`value_io::preserve`], [`value_io::preserve_cst`], [`value_io::duplicate_member_cst`], [`value_io::encoding_bom_cst`] | `value-io.md` |
 //! | TOML, TSV, tabular and XML edge observables | [`toml::decimal_bigint_cst`], [`value_io::toml_scalar`], [`value_io::tsv_comment`], [`value_io::tsv_quote`], [`value_io::tabular_empty_row`], [`value_io::tabular_missing`], [`value_io::xml_entity`], [`value_io::xml_expanded_name`] | `value-io.md` |
 //! | XML CST laws | [`xml::bounded_expansion_cst`], [`xml::expanded_name_cst`], [`xml::round_trip_cst`] | `value-io.md` |
+//! | TOML key resolution and YAML directive acceptance | [`pages::text_formats::toml::resolve_keys`], [`pages::text_formats::yaml::read_directives`] | `text-formats.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),

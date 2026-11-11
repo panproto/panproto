@@ -232,7 +232,7 @@ mod tests {
         // The generic text-format codecs are format-preserving and thus
         // only registered under the tree-sitter feature.
         #[cfg(feature = "tree-sitter")]
-        let extra: &[&str] = &["yaml", "toml", "csv"];
+        let extra: &[&str] = &["yaml", "toml", "csv", "tsv"];
         #[cfg(not(feature = "tree-sitter"))]
         let extra: &[&str] = &[];
 

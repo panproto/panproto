@@ -110,6 +110,7 @@
   - [Segments](./correctness/segments.md)
   - [Lenses](./correctness/lenses.md)
   - [Reference resolution](./correctness/resolution.md)
+  - [Text formats](./correctness/text-formats.md)
 
 ---
 

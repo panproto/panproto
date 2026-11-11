@@ -31,7 +31,7 @@
 //! - **Data Science**: Parquet, Arrow, `DataFrame`
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
 //! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
-//! - **Text**: YAML, TOML, CSV
+//! - **Text**: YAML, TOML, CSV, TSV
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -62,7 +62,7 @@ pub mod registry;
 /// Per-protocol semantic declarations attached by every `protocol()`.
 pub mod semantics;
 
-/// Generic text format protocols (YAML, TOML, CSV).
+/// Generic text format protocols (YAML, TOML, CSV, TSV).
 pub mod text;
 
 /// A parsed document's size, for charging against an input allowance.

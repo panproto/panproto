@@ -748,6 +748,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "tsv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: text::tsv::protocol,
+        register_theories: |r| {
+            text::tsv::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "ucca",
         aliases: &[],
         parser: Parser::Document(annotation::ucca::parse_ucca),

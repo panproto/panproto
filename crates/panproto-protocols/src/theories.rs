@@ -731,7 +731,7 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
 /// Instance: `ThFunctor`.
 ///
 /// Used by: SQL, Cassandra, `DynamoDB`, Parquet, Arrow, `DataFrame`,
-/// CSV/Table Schema, EDI X12, SWIFT MT.
+/// CSV, TSV, EDI X12, SWIFT MT.
 ///
 /// # Panics
 ///
