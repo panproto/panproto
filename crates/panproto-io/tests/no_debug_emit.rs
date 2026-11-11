@@ -24,10 +24,6 @@ const FILES: &[&str] = &[
 const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
     (
         "src/cst_extract.rs",
-        r#"format!( "invalid TOML basic string token at byte {:?}: {error}", cst_byte_offset(cst, name) )"#,
-    ),
-    (
-        "src/cst_extract.rs",
         r#"format!( "invalid XML namespace declaration {key:?}" )"#,
     ),
     (

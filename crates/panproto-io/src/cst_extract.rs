@@ -2040,22 +2040,131 @@ fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
     Ok(())
 }
 
+/// Check every TOML string and quoted-key token against the TOML string
+/// grammar, which the tree-sitter grammar admits more loosely: a literal
+/// multi-line string holding three apostrophes, for instance, lexes there as one token.
 fn validate_toml_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
     for (name, vertex) in &cst.vertices {
         if !matches!(vertex.kind.as_ref(), "string" | "quoted_key") {
             continue;
         }
         let token = cst_source_text(cst, name);
-        if !token.starts_with('"') {
-            continue;
-        }
         let synthetic = format!("value = {token}");
         toml::from_str::<toml::Table>(&synthetic).map_err(|error| {
             CstCodecError::Structure(format!(
-                "invalid TOML basic string token at byte {:?}: {error}",
-                cst_byte_offset(cst, name)
+                "invalid TOML string token at {}: {error}",
+                toml_offset_text(cst, name)
             ))
         })?;
+    }
+    Ok(())
+}
+
+/// The CST kinds of TOML temporal tokens that begin with a date.
+const TOML_DATED_KINDS: [&str; 3] = ["local_date", "local_date_time", "offset_date_time"];
+
+/// Check that every dated TOML temporal writes a four-digit year.
+///
+/// TOML 1.0.0 takes its date grammar from RFC 3339, whose `date-fullyear`
+/// is exactly four digits; the tree-sitter grammar admits more.
+fn validate_toml_cst_years(cst: &Schema) -> Result<(), CstCodecError> {
+    for (name, vertex) in &cst.vertices {
+        if !TOML_DATED_KINDS.contains(&vertex.kind.as_ref()) {
+            continue;
+        }
+        let token = cst_source_text(cst, name);
+        let bytes = token.as_bytes();
+        let four_digit_year =
+            bytes.len() > 4 && bytes[..4].iter().all(u8::is_ascii_digit) && bytes[4] == b'-';
+        if !four_digit_year {
+            return Err(CstCodecError::Structure(format!(
+                "TOML date at {} does not write a four-digit year",
+                toml_offset_text(cst, name)
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The start and end byte of a CST vertex.
+fn cst_span(cst: &Schema, vertex: &Name) -> Option<(usize, usize)> {
+    let constraints = cst.constraints.get(vertex)?;
+    let byte = |sort: &str| {
+        constraints
+            .iter()
+            .find(|constraint| constraint.sort.as_ref() == sort)?
+            .value
+            .parse::<usize>()
+            .ok()
+    };
+    Some((byte("start-byte")?, byte("end-byte")?))
+}
+
+/// Check that each top-level pair and each header ends its line.
+///
+/// TOML 1.0.0 puts one key/value pair or one header on a line: after the
+/// value or the closing bracket only whitespace and a comment may follow
+/// before the line break or the end of the document. The tree-sitter
+/// grammar also accepts a second pair or header on the same line.
+fn validate_toml_cst_line_ends(cst: &Schema, document: &Name) -> Result<(), CstCodecError> {
+    let Some((base, _)) = cst_span(cst, document) else {
+        return Ok(());
+    };
+    let text = cst_source_text(cst, document);
+    let ends_line = |offset: usize| {
+        let rest = offset
+            .checked_sub(base)
+            .and_then(|start| text.get(start..))
+            .unwrap_or_default();
+        let rest = rest.trim_start_matches([' ', '\t']);
+        rest.is_empty() || rest.starts_with(['\n', '#']) || rest.starts_with("\r\n")
+    };
+    let refuse = |vertex: &Name, what: &str| {
+        CstCodecError::Structure(format!(
+            "TOML {what} at {} is followed by more than a comment on its line",
+            toml_offset_text(cst, vertex)
+        ))
+    };
+    let mut statements = vec![document];
+    for container in cst_children_by_edge_kind(cst, document, "child_of") {
+        if matches!(
+            cst_vertex_kind(cst, container).as_deref(),
+            Some("table" | "table_array_element")
+        ) {
+            statements.push(container);
+        }
+    }
+    for container in statements {
+        if container != document {
+            let header_end = toml_entry_key_vertex(cst, container)
+                .and_then(|key| cst_span(cst, key))
+                .map(|(_, end)| end);
+            let closed = header_end.and_then(|end| {
+                let rest = text.get(end.checked_sub(base)?..)?;
+                let after_space = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+                let rest = &rest[after_space..];
+                let brackets = if rest.starts_with("]]") {
+                    2
+                } else {
+                    usize::from(rest.starts_with(']'))
+                };
+                (brackets > 0).then_some(end + after_space + brackets)
+            });
+            if !closed.is_some_and(ends_line) {
+                return Err(refuse(container, "header"));
+            }
+        }
+        for pair in cst_children_by_edge_kind(cst, container, "child_of") {
+            if cst_vertex_kind(cst, pair).as_deref() != Some("pair") {
+                continue;
+            }
+            let value_end = toml_pair_value(cst, pair)
+                .and_then(|value| cst_span(cst, value))
+                .map(|(_, end)| end);
+            if !value_end.is_some_and(ends_line) {
+                return Err(refuse(pair, "pair"));
+            }
+        }
     }
     Ok(())
 }
@@ -2103,6 +2212,7 @@ pub fn extract_toml_cst_with_protocol(
 ) -> Result<(WInstance, CstComplement), CstCodecError> {
     validate_cst_has_no_recovery_markers(cst, "TOML")?;
     validate_toml_cst_string_tokens(cst)?;
+    validate_toml_cst_years(cst)?;
     if !domain_schema.has_vertex(root_vertex) {
         return Err(CstCodecError::SchemaMismatch(format!(
             "root vertex '{root_vertex}' not found in domain schema"
@@ -2111,6 +2221,7 @@ pub fn extract_toml_cst_with_protocol(
 
     let mut state = ExtractState::new();
     let doc_vertex = Name::from(find_cst_root(cst)?.as_str());
+    validate_toml_cst_line_ends(cst, &doc_vertex)?;
     let document = toml_document(cst, &doc_vertex)?;
 
     let root_id = state.alloc_id();
