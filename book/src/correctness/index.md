@@ -56,3 +56,4 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Lenses](lenses.md) | 20 |
 | [Reference resolution](resolution.md) | 16 |
 | [Text formats](text-formats.md) | 4 |
+| [SQL DDL](sql-ddl.md) | 3 |
