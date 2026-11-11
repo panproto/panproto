@@ -36,11 +36,12 @@ fn render_toml(statements: &[Statement]) -> (String, Vec<usize>) {
     let mut starts = Vec::new();
     for (index, statement) in statements.iter().enumerate() {
         starts.push(text.len());
-        match statement {
-            Statement::Pair(keys) => text.push_str(&format!("{} = {index}\n", keys.join("."))),
-            Statement::Header(keys) => text.push_str(&format!("[{}]\n", keys.join("."))),
-            Statement::ArrayHeader(keys) => text.push_str(&format!("[[{}]]\n", keys.join("."))),
-        }
+        let line = match statement {
+            Statement::Pair(keys) => format!("{} = {index}\n", keys.join(".")),
+            Statement::Header(keys) => format!("[{}]\n", keys.join(".")),
+            Statement::ArrayHeader(keys) => format!("[[{}]]\n", keys.join(".")),
+        };
+        text.push_str(&line);
     }
     (text, starts)
 }
