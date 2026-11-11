@@ -6,16 +6,12 @@
 //! `descriptor.proto`), so each one exercises constructs the parsers' unit
 //! tests do not: references to definitions declared later, `type` lists
 //! next to `properties`, JSON pointer references into nested subschemas,
-//! and option values spanning lines. The SQL cases below are the
-//! `PostgreSQL` dump constructs: comments, dollar-quoted function bodies,
-//! `ALTER TABLE ONLY ... ADD CONSTRAINT`, domains, enum types, array
-//! columns and foreign keys to keys of other names. Each construct has a
-//! minimal case of its own below, and the parse is checked against what
+//! and option values spanning lines. Each construct has a minimal case of
+//! its own below, and the parse is checked against what
 //! the file declares, not only for success.
 
 use std::path::{Path, PathBuf};
 
-use panproto_protocols::database::sql::{OtherStatements, read_ddl};
 use panproto_protocols::{parse_schema_document, parse_schema_source};
 use panproto_schema::Schema;
 use serde_json::json;
@@ -371,152 +367,4 @@ fn an_rpc_refers_to_its_request_and_response_apart() {
             .any(|e| e.src == "S.Echo" && e.kind == "type-of"),
         "an rpc's types are not field types"
     );
-}
-
-// SQL.
-
-#[test]
-fn a_statement_after_a_comment_is_read() {
-    let schema = parse_schema_source(
-        "sql",
-        "-- the users table; it has one column\nCREATE TABLE users (\n  id INTEGER, -- the key\n  check_in DATE\n);",
-    )
-    .required("the table parses");
-    assert!(schema.has_vertex("users.id"));
-    assert_eq!(kind(&schema, "users.check_in"), "date");
-}
-
-#[test]
-fn a_postgres_dump_declares_its_tables_and_lists_the_rest() {
-    let ddl = r"
-CREATE DOMAIN year AS integer CONSTRAINT year_check CHECK (VALUE >= 1901);
-CREATE FUNCTION f() RETURNS trigger AS $$
-BEGIN NEW.x := 1; RETURN NEW; END $$ LANGUAGE plpgsql;
-CREATE TABLE parent (id integer NOT NULL, born year);
-CREATE TABLE child (id integer, CONSTRAINT c CHECK ((id > 0)));
-ALTER TABLE public.parent OWNER TO postgres;
-ALTER TABLE ONLY parent ADD CONSTRAINT parent_pkey PRIMARY KEY (id);
-ALTER TABLE ONLY child ADD CONSTRAINT child_fk FOREIGN KEY (id) REFERENCES parent(id);
-COPY parent (id, born) FROM stdin;
-1	1999
-\.
-";
-    let reading = read_ddl(ddl, OtherStatements::List).required("the dump reads");
-    let schema = reading.schema;
-    let listed: Vec<&str> = reading.not_read.iter().map(|n| n.statement).collect();
-    assert_eq!(listed, ["CREATE FUNCTION", "ALTER TABLE OWNER TO", "COPY"]);
-    assert_eq!(
-        kind(&schema, "parent.born"),
-        "integer",
-        "through the domain"
-    );
-    assert!(schema.declarations.key("parent", "parent_pkey").is_some());
-    let fk = &schema.declarations.references["child.child_fk"];
-    assert_eq!(fk.target_key.as_deref(), Some("parent_pkey"));
-    assert_eq!(
-        constraint(&schema, "child", "CHECK"),
-        Some("CONSTRAINT c CHECK ((id > 0))")
-    );
-    assert!(
-        parse_schema_source("sql", ddl).is_err(),
-        "refused when not listed"
-    );
-}
-
-#[test]
-fn a_foreign_key_names_the_key_it_references() {
-    let schema = parse_schema_source(
-        "sql",
-        r"
-CREATE TABLE a (id INTEGER PRIMARY KEY, code TEXT, n INTEGER, UNIQUE (code, n));
-CREATE TABLE b (
-  x INTEGER REFERENCES a(id),
-  w INTEGER REFERENCES a,
-  y INTEGER,
-  z INTEGER,
-  c TEXT,
-  m INTEGER,
-  FOREIGN KEY (y) REFERENCES a (id),
-  FOREIGN KEY (c, m) REFERENCES a (code, n)
-);
-ALTER TABLE ONLY b ADD CONSTRAINT b_z_fkey FOREIGN KEY (z) REFERENCES a(id);
-",
-    )
-    .required("the foreign keys parse");
-    let target = |id: &str| {
-        schema.declarations.references[id]
-            .target_key
-            .as_deref()
-            .map(str::to_owned)
-    };
-    assert_eq!(target("b.b_x_fkey").as_deref(), Some("a_pkey"));
-    // With no column list, the reference is to the primary key.
-    assert_eq!(target("b.b_w_fkey").as_deref(), Some("a_pkey"));
-    assert_eq!(target("b.b_y_fkey").as_deref(), Some("a_pkey"));
-    assert_eq!(target("b.b_z_fkey").as_deref(), Some("a_pkey"));
-    assert_eq!(target("b.b_c_m_fkey").as_deref(), Some("a_code_n_key"));
-}
-
-#[test]
-fn a_table_dropped_before_it_is_created_is_declared() {
-    let schema = parse_schema_source(
-        "sql",
-        "DROP TABLE IF EXISTS t, u;\nCREATE TABLE t (id INTEGER);\n\
-         CREATE TABLE u (id INTEGER);\nDROP TABLE u;",
-    )
-    .required("the script parses");
-    assert!(schema.has_vertex("t.id"));
-    assert!(!schema.has_vertex("u"), "dropped after it was created");
-    let error = parse_schema_source(
-        "sql",
-        "CREATE TABLE u (id INTEGER);\nDROP TABLE u;\nALTER TABLE u ADD COLUMN gone INTEGER;",
-    )
-    .err()
-    .unwrap_or_else(|| panic!("a dropped table is unknown"));
-    assert!(error.to_string().contains("unknown SQL table"), "{error}");
-}
-
-#[test]
-fn a_quoted_table_name_is_read_whole() {
-    let schema = parse_schema_source(
-        "sql",
-        r#"CREATE TABLE "u;v" (id INTEGER PRIMARY KEY); CREATE TABLE "a (b" ("x y" INTEGER, "id" INTEGER, FOREIGN KEY ("x y") REFERENCES "u;v" ("id"));"#,
-    )
-    .required("quoted names parse");
-    assert!(schema.has_vertex("u;v"));
-    assert!(schema.has_vertex("u;v.id"));
-    assert!(schema.has_vertex("a (b.x y"));
-    let fk = &schema.declarations.references["a (b.a (b_x y_fkey"];
-    assert_eq!(fk.target_vertex.as_str(), "u;v");
-}
-
-#[test]
-fn postgres_arrays_and_enums_keep_their_shape() {
-    let schema = parse_schema_source(
-        "sql",
-        r"
-CREATE TYPE public.mood AS ENUM ('sad', 'ok', 'it''s fine');
-CREATE TABLE t (
-  m mood NOT NULL,
-  labels text[],
-  grid integer[][],
-  scores numeric ARRAY
-);
-",
-    )
-    .required("arrays and enums parse");
-    assert_eq!(kind(&schema, "t.m"), "string");
-    assert_eq!(
-        constraint(&schema, "t.m", "ENUM"),
-        Some(r#"["sad","ok","it's fine"]"#)
-    );
-    assert_eq!(constraint(&schema, "t.m", "NOT NULL"), Some("true"));
-    assert_eq!(kind(&schema, "t.labels"), "array");
-    assert!(has_edge(&schema, "t.labels", "t.labels:items", "items"));
-    assert_eq!(kind(&schema, "t.labels:items"), "string");
-    assert_eq!(kind(&schema, "t.grid"), "array");
-    assert_eq!(kind(&schema, "t.grid:items"), "array");
-    assert_eq!(kind(&schema, "t.grid:items:items"), "integer");
-    assert_eq!(kind(&schema, "t.scores"), "array");
-    assert_eq!(kind(&schema, "t.scores:items"), "number");
 }

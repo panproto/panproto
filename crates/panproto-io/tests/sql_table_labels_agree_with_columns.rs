@@ -1,3 +1,4 @@
+#![cfg(feature = "tree-sitter")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! A SQL table's hyper-edge and its column edges never disagree: each label
 //! of the table's hyper-edge names the column vertex that a `prop` edge of
@@ -9,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use panproto_gat::Name;
-use panproto_protocols::database::sql::parse_ddl;
+use panproto_io::postgresql::parse_ddl;
 use panproto_schema::Schema;
 
 /// Pairs `(label, column vertex)`.

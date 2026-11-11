@@ -6361,8 +6361,8 @@
           "consumers": [
             {
               "role": "differential",
-              "crate": "panproto-protocols",
-              "binary": "panproto-protocols::reference_sql_ddl",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_sql_ddl",
               "test": "column_types_read_as_the_reference_on_every_bounded_spelling"
             },
             {
@@ -6383,14 +6383,14 @@
           "consumers": [
             {
               "role": "differential",
-              "crate": "panproto-protocols",
-              "binary": "panproto-protocols::reference_sql_ddl",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_sql_ddl",
               "test": "keys_and_references_match_the_reference_on_every_bounded_script"
             },
             {
               "role": "differential",
-              "crate": "panproto-protocols",
-              "binary": "panproto-protocols::reference_sql_ddl",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_sql_ddl",
               "test": "randomized_keys_and_references_match_the_reference"
             },
             {
@@ -6410,8 +6410,8 @@
           "consumers": [
             {
               "role": "differential",
-              "crate": "panproto-protocols",
-              "binary": "panproto-protocols::reference_sql_ddl",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_sql_ddl",
               "test": "canonical_text_matches_the_reference_on_every_bounded_script"
             },
             {

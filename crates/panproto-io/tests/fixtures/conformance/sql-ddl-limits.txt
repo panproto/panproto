@@ -28,4 +28,4 @@ postgresql-docs/ddl-constraints-25.sql elided-example Syntax
 postgresql-docs/ddl-constraints-26.sql set-null-column-list Unsupported
 postgresql-docs/ddl-constraints-27.sql type-circle Unsupported
 sakila/sakila-postgres.sql type-tsvector Unsupported
-sakila/sakila-sqlite.sql sqlite-dialect Unsupported
+sakila/sakila-sqlite.sql sqlite-dialect Syntax

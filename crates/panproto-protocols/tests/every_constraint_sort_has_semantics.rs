@@ -18,6 +18,10 @@ use std::path::{Path, PathBuf};
 use panproto_gat::CheckStatus;
 use panproto_inst::validation::{CheckKind, Violation, validate_table};
 use panproto_inst::{FInstance, RowId, Value, ViewRef};
+use panproto_protocols::database::sql::{
+    BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, DomainConstraints, Name,
+    OtherStatements, Scalar, Statement, TableElement, TypeSpec, read_statements,
+};
 use panproto_protocols::registry::{descriptor, descriptors};
 use panproto_protocols::semantics::constraint_semantics;
 use panproto_protocols::{parse_schema_document, parse_schema_source};
@@ -204,10 +208,15 @@ fn sql_not_null_is_required_value() {
         sql.constraint_semantics.get("NOT NULL"),
         Some(&ConstraintSemantics::RequiredValue)
     );
-    // The parser writes `NOT NULL` as a constraint the validator reads as a
-    // required value.
-    let schema = parse_schema_source("sql", "CREATE TABLE t (a INTEGER NOT NULL, b TEXT);")
-        .expect("the table parses");
+    // The reading writes `NOT NULL` as a constraint the validator reads as
+    // a required value.
+    let schema = sql_table(
+        "t",
+        &[
+            ("a", Scalar::Int(32), 0, true),
+            ("b", Scalar::Text, 0, false),
+        ],
+    );
     let not_null: Vec<(&str, &str)> = schema
         .constraints
         .iter()
@@ -412,11 +421,11 @@ fn conllu_values_are_annotations_that_compile_to_no_check() {
 fn sql_enum_labels_are_an_enumeration() {
     use panproto_inst::validation::{SchemaRef, ValidationOptions, ValidationPlan};
     let sql = (descriptor("sql").expect("sql is registered").protocol)();
-    let schema = parse_schema_source(
-        "sql",
-        "CREATE TYPE rating AS ENUM ('G', 'PG');\nCREATE TABLE film (r rating);",
-    )
-    .expect("the script parses");
+    // CREATE TYPE rating AS ENUM ('G', 'PG'); CREATE TABLE film (r rating);
+    let schema = film_of_rating(Statement::CreateEnum {
+        name: sql_name("rating"),
+        labels: vec!["G".to_owned(), "PG".to_owned()],
+    });
     let column = schema
         .edges
         .keys()
@@ -566,11 +575,21 @@ fn check_external_column_rows(protocol: &str, sort: &str, schema: &Schema, cells
 #[test]
 fn external_column_rows_have_an_instance_per_row() {
     use panproto_protocols::data_science::dataframe::parse_dataframe_schema;
-    let sql = parse_schema_source(
-        "sql",
-        "CREATE DOMAIN rating AS text CHECK (VALUE IN ('G', 'PG'));\nCREATE TABLE film (r rating);",
-    )
-    .expect("the script parses");
+    // CREATE DOMAIN rating AS text CHECK (VALUE IN ('G', 'PG'));
+    // CREATE TABLE film (r rating);
+    let sql = film_of_rating(Statement::CreateDomain {
+        name: sql_name("rating"),
+        ty: TypeSpec {
+            base: BaseType::Builtin(Scalar::Text),
+            dims: 0,
+            offset: 0,
+        },
+        constraints: DomainConstraints {
+            not_null: false,
+            default: None,
+            checks: vec![(None, "VALUE IN ('G', 'PG')".to_owned())],
+        },
+    });
     check_external_column_rows(
         "sql",
         "DOMAIN CHECK",
@@ -678,4 +697,72 @@ fn hidden_files_beside_the_fixtures_are_not_fixtures() {
         Ok(vec![("graphql", false, "graphql/users.graphql".to_owned())]),
         "hidden entries must not be classified as fixtures"
     );
+}
+
+fn sql_name(text: &str) -> Name {
+    Name {
+        text: text.to_owned(),
+        offset: 0,
+    }
+}
+
+/// The schema `statements` declare, read as a `PostgreSQL` reader hands
+/// them over.
+fn sql_read(statements: Vec<Statement>) -> Schema {
+    read_statements(statements.into_iter().map(Ok), OtherStatements::Refuse)
+        .expect("the statements read")
+        .schema
+}
+
+/// The schema of `rating` (an enum or domain) and `CREATE TABLE film (r
+/// rating)`.
+fn film_of_rating(rating: Statement) -> Schema {
+    sql_read(vec![
+        rating,
+        Statement::CreateTable {
+            if_not_exists: false,
+            name: sql_name("film"),
+            elements: vec![TableElement::Column(ColumnDef {
+                name: sql_name("r"),
+                ty: TypeSpec {
+                    base: BaseType::Named(sql_name("rating")),
+                    dims: 0,
+                    offset: 0,
+                },
+                constraints: Vec::new(),
+            })],
+        },
+    ])
+}
+
+/// The schema of one table: columns `(name, type, array dimensions, NOT
+/// NULL)`, each of a built-in type.
+fn sql_table(table: &str, columns: &[(&str, Scalar, usize, bool)]) -> Schema {
+    let elements = columns
+        .iter()
+        .map(|(column, scalar, dims, not_null)| {
+            TableElement::Column(ColumnDef {
+                name: sql_name(column),
+                ty: TypeSpec {
+                    base: BaseType::Builtin(scalar.clone()),
+                    dims: *dims,
+                    offset: 0,
+                },
+                constraints: if *not_null {
+                    vec![ColumnConstraint {
+                        name: None,
+                        kind: ColumnConstraintKind::NotNull,
+                        offset: 0,
+                    }]
+                } else {
+                    Vec::new()
+                },
+            })
+        })
+        .collect();
+    sql_read(vec![Statement::CreateTable {
+        if_not_exists: false,
+        name: sql_name(table),
+        elements,
+    }])
 }

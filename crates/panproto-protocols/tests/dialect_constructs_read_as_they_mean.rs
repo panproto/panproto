@@ -1,15 +1,11 @@
-//! SQL and JSON Schema constructs whose meaning depends on the dialect
-//! read as that dialect defines them, and survive an emit and re-parse.
+//! JSON Schema constructs whose meaning depends on the dialect read as
+//! that dialect defines them, and survive an emit and re-parse.
 //!
-//! Each case is one construct: an identifier quoted as another SQL
-//! dialect quotes it, refused by name, an array bound after a column type,
-//! a `DROP TABLE` that names its table in another case or qualification,
-//! enum labels holding a comma or an escaped quote, a `$id` ending in an empty
+//! Each case is one construct: a `$id` ending in an empty
 //! fragment, the draft-04 `id` keyword, 2020-12 `prefixItems` beside
 //! `items`, and boolean `items` and `additionalItems`.
 
 use panproto_protocols::data_schema::json_schema::{emit_json_schema, parse_json_schema};
-use panproto_protocols::database::sql::{emit_ddl, parse_ddl};
 use panproto_schema::Schema;
 use serde_json::json;
 
@@ -34,20 +30,6 @@ fn kind<'a>(schema: &'a Schema, vertex: &str) -> &'a str {
         .as_ref()
 }
 
-fn constraint(schema: &Schema, vertex: &str, sort: &str) -> Option<String> {
-    schema
-        .constraints
-        .get(vertex)?
-        .iter()
-        .find(|c| c.sort == sort)
-        .map(|c| c.value.clone())
-}
-
-/// The ids of a schema's vertices, in order.
-fn vertex_ids(schema: &Schema) -> std::collections::BTreeSet<String> {
-    schema.vertices.keys().map(ToString::to_string).collect()
-}
-
 /// The target of the one `ref` edge out of `src`.
 fn ref_target<'a>(schema: &'a Schema, src: &str) -> &'a str {
     let refs: Vec<_> = schema
@@ -57,120 +39,6 @@ fn ref_target<'a>(schema: &'a Schema, src: &str) -> &'a str {
         .collect();
     assert_eq!(refs.len(), 1, "one ref edge out of {src}: {refs:?}");
     refs[0].tgt.as_ref()
-}
-
-#[test]
-fn a_bracket_quoted_identifier_is_refused_as_another_dialect() {
-    let error = parse_ddl("CREATE TABLE [t] ([id] [int] NOT NULL);")
-        .err()
-        .unwrap_or_else(|| panic!("T-SQL quoting is not PostgreSQL"));
-    assert!(
-        error
-            .to_string()
-            .contains("T-SQL bracket-quoted identifier"),
-        "{error}"
-    );
-    let error = parse_ddl("CREATE TABLE t (`id` int);")
-        .err()
-        .unwrap_or_else(|| panic!("MySQL quoting"));
-    assert!(
-        error.to_string().contains("MySQL backquoted identifier"),
-        "{error}"
-    );
-}
-#[test]
-fn a_bracket_after_the_column_type_is_an_array_bound() {
-    let schema = parse_ddl(
-        "CREATE TABLE t (\
-            a VARCHAR(10) CHECK (a <> '[x]'), \
-            c INTEGER [3], \
-            d INTEGER ARRAY, \
-            e TIMESTAMP WITH TIME ZONE[]\
-        );",
-    )
-    .required("DDL parses");
-    assert_eq!(kind(&schema, "t.a"), "string");
-    assert!(!schema.has_vertex("t.a:items"));
-    for array in ["t.c", "t.d", "t.e"] {
-        assert_eq!(kind(&schema, array), "array", "{array}");
-        assert!(
-            !schema.has_vertex(&format!("{array}:items:items")),
-            "{array}"
-        );
-    }
-    assert_eq!(kind(&schema, "t.c:items"), "integer");
-    assert_eq!(kind(&schema, "t.e:items"), "timestamp");
-}
-#[test]
-fn a_drop_removes_its_create_whatever_the_case_of_an_unquoted_name() {
-    let schema =
-        parse_ddl("CREATE TABLE Foo (id INT); DROP TABLE foo; CREATE TABLE keep (id INT);")
-            .required("DDL parses");
-    assert!(!schema.has_vertex("Foo"), "FOO and foo name one table");
-    assert!(schema.has_vertex("keep"));
-
-    let error = parse_ddl("CREATE TABLE \"Foo\" (id INT); DROP TABLE foo;")
-        .err()
-        .unwrap_or_else(|| panic!("a quoted name keeps its case, so foo names no table"));
-    assert!(
-        error.to_string().contains("unknown SQL table \"foo\""),
-        "{error}"
-    );
-}
-
-#[test]
-fn a_drop_removes_its_create_whichever_side_is_qualified() {
-    let schema =
-        parse_ddl("CREATE TABLE public.t (id INT); DROP TABLE t; CREATE TABLE keep (id INT);")
-            .required("DDL parses");
-    assert!(!schema.has_vertex("t"), "t names public.t");
-
-    let schema =
-        parse_ddl("CREATE TABLE t (id INT); DROP TABLE public.t; CREATE TABLE keep (id INT);")
-            .required("DDL parses");
-    assert!(!schema.has_vertex("t"), "public.t names t");
-
-    let error = parse_ddl("CREATE TABLE a.t (id INT);")
-        .err()
-        .unwrap_or_else(|| panic!("schema a is not read"));
-    assert!(
-        error.to_string().contains("a schema other than public"),
-        "{error}"
-    );
-}
-#[test]
-fn an_enum_label_reads_the_same_however_it_is_spelled() {
-    let doubled = parse_ddl("CREATE TYPE q AS ENUM ('it''s', 'a,b'); CREATE TABLE t (m q);")
-        .required("DDL parses");
-    let escaped = parse_ddl("CREATE TYPE q AS ENUM (E'it\\'s' , 'a,b'); CREATE TABLE t (m q);")
-        .required("DDL parses");
-    assert_eq!(
-        constraint(&doubled, "t.m", "ENUM"),
-        constraint(&escaped, "t.m", "ENUM"),
-    );
-}
-
-#[test]
-fn an_enum_survives_emit_and_reparse() {
-    let ddl = "CREATE TYPE mood AS ENUM ('sad', 'a,b', 'it''s');\n\
-               CREATE TABLE t (m mood NOT NULL, ms mood[]);";
-    let first = parse_ddl(ddl).required("first parse");
-    let emitted = emit_ddl(&first).required("emit");
-    let second = parse_ddl(&emitted).required("re-parse");
-    let labels = constraint(&first, "t.m", "ENUM");
-    assert!(labels.is_some(), "the column carries its labels");
-    assert_eq!(constraint(&second, "t.m", "ENUM"), labels, "{emitted}");
-    assert_eq!(
-        constraint(&second, "t.ms:items", "ENUM"),
-        labels,
-        "{emitted}"
-    );
-    assert_eq!(kind(&second, "t.ms"), "array", "{emitted}");
-    assert_eq!(
-        constraint(&second, "t.m", "NOT NULL").as_deref(),
-        Some("true"),
-        "{emitted}"
-    );
 }
 
 #[test]
@@ -333,104 +201,6 @@ fn an_identity_that_is_only_a_fragment_leaves_the_document_unnamed() {
         let emitted = emit_json_schema(&schema).required("the document emits");
         assert_eq!(emitted["properties"]["p"]["type"], "string", "{emitted}");
     }
-}
-
-#[test]
-fn an_array_of_a_multi_word_character_type_is_an_array() {
-    let schema = parse_ddl("CREATE TABLE t (c NATIONAL CHARACTER VARYING(5)[], d CHARACTER(3)[]);")
-        .required("DDL parses");
-    assert_eq!(kind(&schema, "t.c"), "array");
-    assert_eq!(kind(&schema, "t.c:items"), "string");
-    assert_eq!(kind(&schema, "t.d"), "array");
-}
-
-#[test]
-fn an_array_default_and_an_odd_column_name_survive_emit_and_reparse() {
-    let ddl = "CREATE TABLE t (id INT, f INT[] DEFAULT ARRAY[1, 2], \
-               g TEXT CHECK (g IN ('[a]')), \"h]x\" INT, s TEXT DEFAULT 'a b');";
-    let first = parse_ddl(ddl).required("first parse");
-    assert_eq!(
-        constraint(&first, "t.f", "DEFAULT").as_deref(),
-        Some("ARRAY[1, 2]")
-    );
-    assert_eq!(
-        constraint(&first, "t.s", "DEFAULT").as_deref(),
-        Some("'a b'")
-    );
-    assert!(first.has_vertex("t.h]x"));
-    let emitted = emit_ddl(&first).required("emit");
-    let second = parse_ddl(&emitted).required("re-parse");
-    for column in ["t.id", "t.f", "t.g", "t.h]x", "t.s"] {
-        assert!(second.has_vertex(column), "{column} survives: {emitted}");
-    }
-    assert_eq!(
-        constraint(&second, "t.f", "DEFAULT"),
-        constraint(&first, "t.f", "DEFAULT"),
-        "{emitted}"
-    );
-    assert_eq!(
-        constraint(&second, "t.s", "DEFAULT"),
-        constraint(&first, "t.s", "DEFAULT"),
-        "{emitted}"
-    );
-}
-
-#[test]
-fn an_odd_table_name_survives_emit_and_reparse() {
-    let ddl = "CREATE TABLE \"h]x\" (id INT); CREATE TABLE \"my table\" (id INT); \
-               CREATE TABLE public.\"T\" (id INT);";
-    let first = parse_ddl(ddl).required("first parse");
-    for vertex in ["h]x", "h]x.id", "my table", "my table.id", "T", "T.id"] {
-        assert!(first.has_vertex(vertex), "{vertex} parses");
-    }
-    let emitted = emit_ddl(&first).required("emit");
-    let second = parse_ddl(&emitted).required("re-parse");
-    assert_eq!(vertex_ids(&second), vertex_ids(&first), "{emitted}");
-}
-#[test]
-fn an_enum_column_of_an_odd_table_survives_emit_and_reparse() {
-    let ddl = "CREATE TYPE mood AS ENUM ('sad', 'ok'); \
-               CREATE TABLE \"my table\" (\"a b\" mood, c mood[]);";
-    let first = parse_ddl(ddl).required("first parse");
-    let labels = constraint(&first, "my table.a b", "ENUM");
-    assert!(labels.is_some(), "the column carries its labels");
-    let emitted = emit_ddl(&first).required("emit");
-    let second = parse_ddl(&emitted).required("re-parse");
-    assert_eq!(
-        constraint(&second, "my table.a b", "ENUM"),
-        labels,
-        "{emitted}"
-    );
-    assert_eq!(
-        constraint(&second, "my table.c:items", "ENUM"),
-        labels,
-        "{emitted}"
-    );
-}
-
-#[test]
-fn a_quote_inside_a_quoted_identifier_is_part_of_its_name() {
-    let ddl = "CREATE TABLE \"t\"\"x\" (\"a\"\"b\" INT, \"c'd\" TEXT DEFAULT 'q;r', \"e(f\" INT, \
-               g INT[] DEFAULT ARRAY[[1, 2], [3, 4]]); CREATE TABLE u (\";\" INT);";
-    let first = parse_ddl(ddl).required("first parse");
-    for vertex in [
-        "t\"x",
-        "t\"x.a\"b",
-        "t\"x.c'd",
-        "t\"x.e(f",
-        "t\"x.g",
-        "u",
-        "u.;",
-    ] {
-        assert!(first.has_vertex(vertex), "{vertex} parses");
-    }
-    assert_eq!(
-        constraint(&first, "t\"x.g", "DEFAULT").as_deref(),
-        Some("ARRAY[[1, 2], [3, 4]]")
-    );
-    let emitted = emit_ddl(&first).required("emit");
-    let second = parse_ddl(&emitted).required("re-parse");
-    assert_eq!(vertex_ids(&second), vertex_ids(&first), "{emitted}");
 }
 
 /// An option a test requires to be `Some`.

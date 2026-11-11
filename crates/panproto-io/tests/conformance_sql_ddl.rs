@@ -9,13 +9,15 @@
 //! the limit's name and the refusal class it shows, and the test fails if
 //! the list and the failing cases differ in either direction.
 
+#![cfg(feature = "tree-sitter")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use panproto_protocols::database::sql::{OtherStatements, emit_ddl, parse_ddl, read_ddl};
+use panproto_io::postgresql::{parse_ddl, read_ddl};
+use panproto_protocols::database::sql::{OtherStatements, emit_ddl};
 use panproto_schema::canonical_bytes;
 
 fn corpus() -> PathBuf {
@@ -113,12 +115,16 @@ fn every_case_reads_or_is_a_declared_limit() {
     let failing_names: Vec<&String> = failing.keys().collect();
     let limit_names: Vec<&String> = limits.keys().collect();
     assert_eq!(failing_names, limit_names, "failing cases:\n{report}");
-    for (name, (limit, class)) in &limits {
-        assert_eq!(
-            &failing[name].0, class,
-            "{name} ({limit}): {}",
-            failing[name].1
-        );
-    }
+    let mismatched: Vec<String> = limits
+        .iter()
+        .filter(|(name, (_, class))| &failing[*name].0 != class)
+        .map(|(name, (limit, class))| {
+            format!(
+                "{name} ({limit}): declared {class}, shows {}: {}",
+                failing[name].0, failing[name].1
+            )
+        })
+        .collect();
+    assert_eq!(mismatched, Vec::<String>::new(), "refusal classes");
     println!("{passed} of {} cases read", cases.len());
 }

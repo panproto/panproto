@@ -9,8 +9,6 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-# The vendored conformance corpora are test data with their own licences.
-exclude = ["tests/fixtures/conformance"]
 
 # The binaries of this crate generate test corpora; none is a released
 # program.

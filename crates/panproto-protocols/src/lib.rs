@@ -275,6 +275,7 @@ pub fn parse_schema_document_within(
                 "protocol {protocol:?} is read from source text, not a JSON document; \
                  use parse_schema_source"
             ))),
+            registry::Parser::Grammar { reader } => Err(read_through_grammar(protocol, reader)),
             registry::Parser::Programmatic => Err(no_schema_documents(protocol)),
         },
         None => Err(ProtocolError::Parse(format!(
@@ -288,8 +289,7 @@ pub fn parse_schema_document_within(
 /// [`Schema`], dispatching on protocol name.
 ///
 /// The text counterpart to [`parse_schema_document`], for the protocols
-/// whose source is a language rather than a JSON document: SQL DDL,
-/// GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+/// whose source is a language rather than a JSON document: GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
 /// `ASN.1`, Microsoft Bond, `FlatBuffers` `.fbs`, and `CoNLL-U`. Name matching
 /// is the same normalization as [`parse_schema_document`].
 ///
@@ -318,6 +318,7 @@ pub fn parse_schema_source_within(
     match registry::descriptor(protocol) {
         Some(d) => match d.parser {
             registry::Parser::Source(parse) => parse(source),
+            registry::Parser::Grammar { reader } => Err(read_through_grammar(protocol, reader)),
             registry::Parser::Document(_) => Err(ProtocolError::Parse(format!(
                 "protocol {protocol:?} is read from a JSON document, not source text; \
                  use parse_schema_document"
@@ -329,6 +330,15 @@ pub fn parse_schema_source_within(
             source_parser_protocols()
         ))),
     }
+}
+
+/// The refusal of a protocol whose source text is read through a
+/// tree-sitter grammar, which this crate does not link.
+fn read_through_grammar(protocol: &str, reader: &str) -> ProtocolError {
+    ProtocolError::Parse(format!(
+        "protocol {protocol:?} is read through its tree-sitter grammar; \
+         use {reader} (panproto-io, feature tree-sitter)"
+    ))
 }
 
 /// The refusal of a protocol that reads no schema documents.
@@ -381,14 +391,10 @@ mod dispatch_tests {
     }
 
     #[test]
-    fn source_dispatch_routes_graphql_sql_protobuf() {
+    fn source_dispatch_routes_graphql_protobuf() {
         let g = parse_schema_source("graphql", "type Query { hello: String }")
             .expect("graphql sdl should parse");
         assert!(g.has_vertex("Query"));
-
-        let s = parse_schema_source("sql", "CREATE TABLE users (id INTEGER PRIMARY KEY);")
-            .expect("sql ddl should parse");
-        assert!(s.has_vertex("users"));
 
         let p = parse_schema_source("protobuf", "message User { string name = 1; }")
             .expect("proto should parse");
@@ -416,7 +422,7 @@ mod dispatch_tests {
         // A text-source protocol passed to the document dispatch is told
         // to use the source dispatch, and vice versa.
         let doc = serde_json::json!({});
-        let err = parse_schema_document("sql", &doc).expect_err("sql is text-source");
+        let err = parse_schema_document("graphql", &doc).expect_err("graphql is text-source");
         assert!(err.to_string().contains("parse_schema_source"));
 
         let err = parse_schema_source("json-schema", "{}").expect_err("json-schema is a document");
@@ -426,10 +432,10 @@ mod dispatch_tests {
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
         assert_eq!(document_parser_protocols().len(), 43);
-        assert_eq!(source_parser_protocols().len(), 11);
+        assert_eq!(source_parser_protocols().len(), 10);
         assert!(document_parser_protocols().contains(&"json-schema"));
         assert!(source_parser_protocols().contains(&"graphql"));
-        assert!(source_parser_protocols().contains(&"sql"));
+        assert!(!source_parser_protocols().contains(&"sql"));
         assert!(source_parser_protocols().contains(&"protobuf"));
     }
 }

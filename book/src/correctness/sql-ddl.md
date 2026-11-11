@@ -2,11 +2,11 @@
 
 A SQL schema is the most common source of table structure, and reading one into a panproto schema is what lets SQL data be migrated and validated. This page states what the SQL route reads, what it refuses, and the laws its reader satisfies.
 
-The route reads one dialect: the DDL of PostgreSQL 17, as the PostgreSQL 17 documentation defines it (the reader and its corpus follow release 17.12). A DDL script is read as a table, and so is the data it describes: the `sql` protocol declares a table syntactic shape and a table semantic shape, and its foreign keys are schema references between tables. Other dialects are refused by name where their syntax first departs from PostgreSQL's: a MySQL backquoted identifier, a T-SQL or SQLite bracket-quoted identifier, and any statement PostgreSQL does not have. The reader is [`read_ddl`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/sql/fn.read_ddl.html), and [`parse_ddl`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/sql/fn.parse_ddl.html) is the form the protocol registry calls.
+The route reads one dialect: the DDL of PostgreSQL 17, as the PostgreSQL 17 documentation defines it (the reader and its corpus follow release 17.12). A DDL script is read as a table, and so is the data it describes: the `sql` protocol declares a table syntactic shape and a table semantic shape, and its foreign keys are schema references between tables. Other dialects are refused where their syntax first departs from PostgreSQL's, a MySQL backquoted identifier and a T-SQL or SQLite bracket-quoted identifier by name. The reader is [`read_ddl`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_ddl.html) in `panproto-io` (feature `tree-sitter`), with [`parse_ddl`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.parse_ddl.html) the form that refuses every statement outside a table schema; `panproto-protocols` resolves the statements it reads with [`read_statements`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/sql/fn.read_statements.html) and does not parse SQL text itself, so its `parse_schema_source` refuses the protocol and names this reader.
 
 ## What the reader reads
 
-The reader splits a script into statements as PostgreSQL's lexer does (Sec 4.1 of the documentation): comments, nested block comments, quoted identifiers, standard and `E` string constants with their continuation across a line break, and dollar-quoted strings. Unquoted names fold to lowercase and quoted names keep their bytes. A name may be qualified by the schema `public` and by nothing else. Statements take effect in script order, and each resolves the names it uses against the tables and types declared before it, as PostgreSQL does.
+The reader parses a script with the tree-sitter grammar [gmr/tree-sitter-postgres](https://github.com/gmr/tree-sitter-postgres), which is generated from PostgreSQL's own `gram.y` and so reads the tokens of Sec 4.1 of the documentation (comments, nested block comments, quoted identifiers, standard and `E` string constants, and dollar-quoted strings) and the statements of the grammar as PostgreSQL does. It walks each statement's syntax tree into a statement model, folding the `DEFERRABLE` and `INITIALLY` clauses after a column constraint onto that constraint as PostgreSQL's `transformConstraintAttrs` does. Unquoted names fold to lowercase and quoted names keep their bytes. A name may be qualified by the schema `public` and by nothing else. Statements take effect in script order, and each resolves the names it uses against the tables and types declared before it, as PostgreSQL does.
 
 | Statement | What it declares |
 |---|---|
@@ -43,10 +43,13 @@ An unquoted key or foreign key is named as PostgreSQL names it: `<table>_pkey` f
 
 ## What the reader refuses
 
-Every refusal is a [`SqlDdlError`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/sql/enum.SqlDdlError.html) naming the byte offset of the token it is about, and the reader stops at the first one in script order. A statement that declares nothing a table schema holds (a function, procedure, view, trigger, rule, aggregate, sequence, extension, schema or language; a non-unique index; a grant, ownership change, comment or session setting; `COPY` and `INSERT` data) is refused by [`parse_ddl`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/sql/fn.parse_ddl.html) with its name, and listed with its offset by `read_ddl` under `OtherStatements::List`. A `SET search_path` naming a schema other than `public` is refused in both modes, since it changes what the names after it denote.
+Every refusal is a [`SqlDdlError`](https://docs.rs/panproto-protocols/latest/panproto_protocols/database/sql/enum.SqlDdlError.html) naming the byte offset of the token it is about, and the reader stops at the first one in script order. A statement that declares nothing a table schema holds (a function, procedure, view, trigger, rule, aggregate, sequence, extension, schema or language; a non-unique index; a grant, ownership change, comment or session setting; `COPY` and `INSERT` data) is refused by [`parse_ddl`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.parse_ddl.html) with its name, and listed with its offset by `read_ddl` under `OtherStatements::List`. A `SET search_path` naming a schema other than `public` is refused in both modes, since it changes what the names after it denote.
 
 | Feature | Refusal | Reason |
 |---|---|---|
+| Text that is not PostgreSQL 17 syntax: an unterminated literal, a reserved word as a name, another dialect's statement, the data lines after `COPY ... FROM stdin` | `Syntax`, at the first place the parser could not read | PostgreSQL refuses it too |
+| A MySQL backquoted or T-SQL bracket-quoted identifier | `Unsupported`, naming the dialect | PostgreSQL refuses it as a syntax error |
+| A numeric precision, length or `float` precision out of range; a `DEFERRABLE` or `INITIALLY` clause after a constraint that takes none, or given twice | `Syntax` | PostgreSQL refuses it too |
 | `money`, `interval`, `time with time zone`, `xml`, network, geometric, bit-string, text-search and range types, `bpchar` without a length | `Unsupported`, naming the type | No vertex kind holds their values exactly |
 | A type the script did not declare and PostgreSQL does not define | `UnknownType` | PostgreSQL refuses it too |
 | Fractional-second precision `timestamp(p)`, `time(p)` | `Unsupported` | The precision would be lost |
@@ -63,7 +66,7 @@ Every refusal is a [`SqlDdlError`](https://docs.rs/panproto-protocols/latest/pan
 | A referenced column set with no primary or unique key | `NoMatchingKey` | PostgreSQL refuses it too |
 | A second primary key, column, table, type or constraint name | `Duplicate` | PostgreSQL refuses it too |
 
-The reader does not check that the columns of a foreign key have types PostgreSQL can compare with the referenced ones, and it reads a reserved word written as an unquoted column name, both of which PostgreSQL refuses.
+The reader does not check that the columns of a foreign key have types PostgreSQL can compare with the referenced ones, which PostgreSQL refuses.
 
 ## Canonical output
 
@@ -71,7 +74,7 @@ The reader does not check that the columns of a foreign key have types PostgreSQ
 
 ## Conformance corpora
 
-The reader is run against two corpora vendored under `crates/panproto-protocols/tests/fixtures/conformance` with their licences and upstream commits: the `CREATE TABLE` and constraint examples of the PostgreSQL 17 documentation (51 cases, from release 17.12, regenerated by the `extract.py` beside them) and the two Sakila sample schemas of jOOQ (`conformance_sql_ddl.rs`). A case passes when the reader reads it with other statements listed, every reference names a key of its target, and its canonical text reads back as the same schema. A case that does not pass is a declared limit in `sql-ddl-limits.txt`, with the refusal class it shows, and the test fails if the list and the failing cases differ in either direction. The reader reads 24 of the 53 cases.
+The reader is run against two corpora vendored under `crates/panproto-io/tests/fixtures/conformance` with their licences and upstream commits: the `CREATE TABLE` and constraint examples of the PostgreSQL 17 documentation (51 cases, from release 17.12, regenerated by the `extract.py` beside them) and the two Sakila sample schemas of jOOQ (`conformance_sql_ddl.rs`). A case passes when the reader reads it with other statements listed, every reference names a key of its target, and its canonical text reads back as the same schema. A case that does not pass is a declared limit in `sql-ddl-limits.txt`, with the refusal class it shows, and the test fails if the list and the failing cases differ in either direction. The reader reads 24 of the 53 cases.
 
 | Limit | Cases | What the reader does |
 |---|---|---|
@@ -86,7 +89,7 @@ The reader is run against two corpora vendored under `crates/panproto-protocols/
 | `tablespace` | 1 | Refuses `TABLESPACE` |
 | `set-null-column-list` | 1 | Refuses a column list on `ON DELETE SET NULL` |
 | `type-tsvector` | 1 | Refuses the `tsvector` column of PostgreSQL Sakila's `film` |
-| `sqlite-dialect` | 1 | Refuses SQLite Sakila at the `END` of its first trigger body, which is no PostgreSQL statement |
+| `sqlite-dialect` | 1 | Refuses SQLite Sakila at its first trigger, whose `BEGIN ... END` body is no PostgreSQL syntax, with `Syntax` |
 
 ## Column types read as their kinds {#L-sql-ddl-1}
 
@@ -104,7 +107,7 @@ $T$ reads the names and aliases of PostgreSQL 17 Table 8.1 with the modifiers Se
 
 ### Proof
 
-1. The production reader reads a type by its first word and the words and parenthesized modifiers its grammar allows after it, and the reference reads the same spelling by its name and modifier list; both enumerate the same names, so each spelling of the scope selects the same case in both.
+1. The production reader reads a type from the node the PostgreSQL grammar parses it to (a keyword type such as `Numeric`, `Character` or `ConstDatetime`, or a `GenericType` named by an identifier) with its modifiers, and the reference reads the same spelling by its name and modifier list; both enumerate the same names, so each spelling of the scope selects the same case in both. A spelling the grammar does not admit, such as `integer(5)`, is `Syntax` in both.
 2. For each case, the production reader's kind and parameters are those of `element_kind` in the SQL module, and the reference's are those of its `element` table; the two tables agree row by row with the type table above, which is the case analysis of this step.
 3. The array suffix is read after the type in both, one dimension per `[...]` and one for `ARRAY`, and a serial type with a suffix is refused in both.
 4. The differential checks the equality of every reading and every refusal class on all 300 spellings: 60 type names, aliases and modifiers, each with no suffix, `[]`, `[3]`, ` array` and `[][]`.
@@ -114,9 +117,10 @@ $T$ reads the names and aliases of PostgreSQL 17 Table 8.1 with the modifiers Se
 - Law ID: `sql-ddl.column-types`
 - Reference: `panproto_reference::pages::sql_ddl::column_type`
 - Enumerator: `panproto_reference::enumerate::sql_ddl::type_spellings; bound: spellings=300`
-- Exhaustive differential test: `column_types_read_as_the_reference_on_every_bounded_spelling; command: cargo nextest run -p panproto-protocols --test reference_sql_ddl --no-tests=fail -E 'test(=column_types_read_as_the_reference_on_every_bounded_spelling)'`
+- Exhaustive differential test: `column_types_read_as_the_reference_on_every_bounded_spelling; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_sql_ddl --no-tests=fail -E 'test(=column_types_read_as_the_reference_on_every_bounded_spelling)'`
 - Reference test: `column_types_read_as_table_8_1_names_them; command: cargo nextest run -p panproto-reference --test sql_ddl --no-tests=fail -E 'test(=column_types_read_as_table_8_1_names_them)'`
-- File: `crates/panproto-protocols/src/database/sql/parse.rs`
+- File: `crates/panproto-io/src/postgresql.rs`
+- File: `crates/panproto-protocols/src/database/sql/catalog.rs`
 - File: `crates/panproto-protocols/src/database/sql/mod.rs`
 - File: `crates/panproto-reference/src/pages/sql_ddl.rs`
 
@@ -148,11 +152,12 @@ $R$ writes one `CREATE TABLE` per line, the tables named `t`, `u`, `v`, `w` and 
 - Reference: `panproto_reference::pages::sql_ddl::render`
 - Reference: `panproto_reference::pages::sql_ddl::read_script`
 - Enumerator: `panproto_reference::enumerate::sql_ddl::ddl_scripts; bound: scripts=22620`
-- Exhaustive differential test: `keys_and_references_match_the_reference_on_every_bounded_script; command: cargo nextest run -p panproto-protocols --test reference_sql_ddl --no-tests=fail -E 'test(=keys_and_references_match_the_reference_on_every_bounded_script)'`
-- Property differential test: `randomized_keys_and_references_match_the_reference; command: cargo nextest run -p panproto-protocols --test reference_sql_ddl --no-tests=fail -E 'test(=randomized_keys_and_references_match_the_reference)'`
+- Exhaustive differential test: `keys_and_references_match_the_reference_on_every_bounded_script; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_sql_ddl --no-tests=fail -E 'test(=keys_and_references_match_the_reference_on_every_bounded_script)'`
+- Property differential test: `randomized_keys_and_references_match_the_reference; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_sql_ddl --no-tests=fail -E 'test(=randomized_keys_and_references_match_the_reference)'`
 - Reference test: `keys_and_foreign_keys_resolve_as_create_table_defines_them; command: cargo nextest run -p panproto-reference --test sql_ddl --no-tests=fail -E 'test(=keys_and_foreign_keys_resolve_as_create_table_defines_them)'`
 - Randomized input scope: up to four tables of one to four columns, each column with any of the four constraints and any reference, each table of two or more columns with any table key and table foreign key.
-- File: `crates/panproto-protocols/src/database/sql/parse.rs`
+- File: `crates/panproto-io/src/postgresql.rs`
+- File: `crates/panproto-protocols/src/database/sql/catalog.rs`
 - File: `crates/panproto-protocols/src/database/sql/mod.rs`
 - File: `crates/panproto-reference/src/pages/sql_ddl.rs`
 - File: `crates/panproto-reference/src/enumerate/sql_ddl.rs`
@@ -183,7 +188,7 @@ $C$ is the canonical output defined above, restricted to the model: each table b
 - Law ID: `sql-ddl.canonical-text`
 - Reference: `panproto_reference::pages::sql_ddl::canonical_text`
 - Enumerator: `panproto_reference::enumerate::sql_ddl::ddl_scripts; bound: scripts=22620`
-- Exhaustive differential test: `canonical_text_matches_the_reference_on_every_bounded_script; command: cargo nextest run -p panproto-protocols --test reference_sql_ddl --no-tests=fail -E 'test(=canonical_text_matches_the_reference_on_every_bounded_script)'`
+- Exhaustive differential test: `canonical_text_matches_the_reference_on_every_bounded_script; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_sql_ddl --no-tests=fail -E 'test(=canonical_text_matches_the_reference_on_every_bounded_script)'`
 - Reference test: `the_script_scope_has_its_closed_form_count; command: cargo nextest run -p panproto-reference --test sql_ddl --no-tests=fail -E 'test(=the_script_scope_has_its_closed_form_count)'`
 - File: `crates/panproto-protocols/src/database/sql/mod.rs`
 - File: `crates/panproto-reference/src/pages/sql_ddl.rs`
