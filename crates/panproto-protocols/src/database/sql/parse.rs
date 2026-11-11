@@ -1468,6 +1468,9 @@ impl Parser<'_, '_> {
             }
             self.expect_punct(",", "`,` or `)` in the index columns")?;
         }
+        if self.at_words(&["nulls", "distinct"]) {
+            self.i += 2;
+        }
         if let Some(t) = self.peek() {
             let feature = match t.text.as_str() {
                 "where" => "a partial index",
