@@ -22,7 +22,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
-| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 419 | the whole built-in catalogue |
+| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 428 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
 | `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
@@ -62,6 +62,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-naf.cbor` | `Raw.registryGetBuiltin(name:)` | 2445 | name `naf` |
 | `protocol-neo4j.cbor` | `Raw.registryGetBuiltin(name:)` | 1565 | name `neo4j` |
 | `protocol-nif.cbor` | `Raw.registryGetBuiltin(name:)` | 2375 | name `nif` |
+| `protocol-ntriples.cbor` | `Raw.registryGetBuiltin(name:)` | 1411 | name `ntriples` |
 | `protocol-odf.cbor` | `Raw.registryGetBuiltin(name:)` | 1846 | name `odf` |
 | `protocol-openapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1920 | name `openapi` |
 | `protocol-parquet.cbor` | `Raw.registryGetBuiltin(name:)` | 1427 | name `parquet` |
