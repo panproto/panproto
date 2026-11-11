@@ -55,4 +55,4 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Segments](segments.md) | 11 |
 | [Lenses](lenses.md) | 20 |
 | [Reference resolution](resolution.md) | 16 |
-| [Text formats](text-formats.md) | 2 |
+| [Text formats](text-formats.md) | 4 |

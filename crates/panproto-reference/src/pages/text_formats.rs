@@ -1,7 +1,8 @@
 //! Complete reference operations assigned to `text-formats`.
 
 pub mod toml {
-    //! TOML 1.0.0 key resolution over a statement model.
+    //! TOML 1.0.0 key resolution and document reading over a statement
+    //! model.
     //!
     //! The model keeps every table and value at its absolute path from the
     //! root, with one step per key and one per array-of-tables element, and
@@ -244,10 +245,91 @@ pub mod toml {
         }
         Some(Ok(state.table(&[])))
     }
+
+    /// A TOML document's content read whole: its resolved tables, with
+    /// each pair's value read by the TOML scalar function.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Read {
+        /// A scalar value.
+        Value(crate::value::Value),
+        /// A table: its keys and their contents in first-definition order.
+        Table(Vec<(String, Self)>),
+        /// An array of tables, element by element.
+        Tables(Vec<Vec<(String, Self)>>),
+    }
+
+    /// Why a TOML document is refused when read whole.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum DocumentRefusal {
+        /// A statement's key, by [`resolve_keys`].
+        Key(usize, KeyRefusal),
+        /// A pair's value token, by the TOML scalar function.
+        Scalar(usize, crate::value_io::ValueIoError),
+    }
+
+    fn read_entries(
+        entries: &[(String, Item)],
+        tokens: &[&[u8]],
+    ) -> Result<Vec<(String, Read)>, DocumentRefusal> {
+        entries
+            .iter()
+            .map(|(key, item)| Ok((key.clone(), read_item(item, tokens)?)))
+            .collect()
+    }
+
+    fn read_item(item: &Item, tokens: &[&[u8]]) -> Result<Read, DocumentRefusal> {
+        Ok(match item {
+            Item::Value(index) => {
+                let token = tokens.get(*index).copied().unwrap_or_default();
+                Read::Value(
+                    crate::value_io::parse(crate::value_io::Route::Toml, token)
+                        .map_err(|error| DocumentRefusal::Scalar(*index, error))?,
+                )
+            }
+            Item::Table(entries) => Read::Table(read_entries(entries, tokens)?),
+            Item::Tables(elements) => Read::Tables(
+                elements
+                    .iter()
+                    .map(|element| read_entries(element, tokens))
+                    .collect::<Result<_, _>>()?,
+            ),
+        })
+    }
+
+    /// Read a TOML document whole, the token of statement `i` being
+    /// `tokens[i]` (ignored for a header).
+    ///
+    /// Definition. The document reads as [`resolve_keys`] resolves its
+    /// statements, with each pair's value the TOML scalar function
+    /// [`crate::value_io::parse`] applied to its token. A key refusal is
+    /// the document's refusal; otherwise the first pair, in statement
+    /// order, whose token the scalar function refuses is. `None` where
+    /// [`resolve_keys`] gives `None`.
+    #[must_use]
+    pub fn read_document(
+        statements: &[Statement],
+        tokens: &[&[u8]],
+    ) -> Option<Result<Vec<(String, Read)>, DocumentRefusal>> {
+        let resolved = match resolve_keys(statements)? {
+            Ok(entries) => entries,
+            Err((index, reason)) => return Some(Err(DocumentRefusal::Key(index, reason))),
+        };
+        for (index, statement) in statements.iter().enumerate() {
+            if let Statement::Pair(_) = statement
+                && let Err(error) = crate::value_io::parse(
+                    crate::value_io::Route::Toml,
+                    tokens.get(index).copied().unwrap_or_default(),
+                )
+            {
+                return Some(Err(DocumentRefusal::Scalar(index, error)));
+            }
+        }
+        Some(read_entries(&resolved, tokens))
+    }
 }
 
 pub mod yaml {
-    //! YAML 1.2.2 directive acceptance.
+    //! YAML 1.2.2 directive acceptance and block-style documents.
 
     /// One directive line that opens a YAML document.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -306,5 +388,130 @@ pub mod yaml {
             }
         }
         Ok(())
+    }
+
+    /// A YAML document in the block style the reference renders: a scalar
+    /// token, a mapping from distinct keys, or a sequence.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Node {
+        /// A scalar written as this one-line token.
+        Scalar(String),
+        /// A mapping, entries in order.
+        Mapping(Vec<(String, Self)>),
+        /// A sequence, items in order.
+        Sequence(Vec<Self>),
+    }
+
+    /// A YAML document read whole.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Read {
+        /// A scalar value.
+        Value(crate::value::Value),
+        /// A mapping, entries in order.
+        Mapping(Vec<(String, Self)>),
+        /// A sequence, items in order.
+        Sequence(Vec<Self>),
+    }
+
+    fn indent(out: &mut String, columns: usize) {
+        out.extend(std::iter::repeat_n(' ', columns));
+    }
+
+    fn render_value(out: &mut String, node: &Node, columns: usize) {
+        match node {
+            Node::Scalar(token) if token.is_empty() => out.push('\n'),
+            Node::Scalar(token) => {
+                out.push(' ');
+                out.push_str(token);
+                out.push('\n');
+            }
+            Node::Mapping(entries) if entries.is_empty() => out.push_str(" {}\n"),
+            Node::Sequence(items) if items.is_empty() => out.push_str(" []\n"),
+            collection => {
+                out.push('\n');
+                render_block_at(out, collection, columns + 2);
+            }
+        }
+    }
+
+    fn render_block_at(out: &mut String, node: &Node, columns: usize) {
+        match node {
+            Node::Scalar(token) => {
+                indent(out, columns);
+                out.push_str(token);
+                out.push('\n');
+            }
+            Node::Mapping(entries) if entries.is_empty() => {
+                indent(out, columns);
+                out.push_str("{}\n");
+            }
+            Node::Sequence(items) if items.is_empty() => {
+                indent(out, columns);
+                out.push_str("[]\n");
+            }
+            Node::Mapping(entries) => {
+                for (key, value) in entries {
+                    indent(out, columns);
+                    out.push_str(key);
+                    out.push(':');
+                    render_value(out, value, columns);
+                }
+            }
+            Node::Sequence(items) => {
+                for item in items {
+                    indent(out, columns);
+                    out.push('-');
+                    render_value(out, item, columns);
+                }
+            }
+        }
+    }
+
+    /// The block-style text of a document.
+    ///
+    /// Definition. A mapping writes one `key:` line per entry and a
+    /// sequence one `-` line per item, at the collection's indentation; a
+    /// scalar follows its indicator after one space on the same line, an
+    /// empty scalar writes nothing after it, an empty collection is `{}`
+    /// or `[]`, and any other collection follows on the next lines,
+    /// indented two columns further. A top-level scalar is its token on one
+    /// line.
+    #[must_use]
+    pub fn render_block(node: &Node) -> String {
+        let mut out = String::new();
+        render_block_at(&mut out, node, 0);
+        out
+    }
+
+    /// Read a block-style document whole.
+    ///
+    /// Definition. A mapping reads as its entries in order and a sequence
+    /// as its items in order, each value read the same way, and a scalar as
+    /// the YAML scalar function [`crate::value_io::parse`] applied to its
+    /// token; the first scalar, in document order, the scalar function
+    /// refuses is the document's refusal.
+    ///
+    /// # Errors
+    ///
+    /// The scalar function's refusal of the first refused token.
+    pub fn read_block_document(node: &Node) -> Result<Read, crate::value_io::ValueIoError> {
+        Ok(match node {
+            Node::Scalar(token) => Read::Value(crate::value_io::parse(
+                crate::value_io::Route::Yaml,
+                token.as_bytes(),
+            )?),
+            Node::Mapping(entries) => Read::Mapping(
+                entries
+                    .iter()
+                    .map(|(key, value)| Ok((key.clone(), read_block_document(value)?)))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Node::Sequence(items) => Read::Sequence(
+                items
+                    .iter()
+                    .map(read_block_document)
+                    .collect::<Result<_, _>>()?,
+            ),
+        })
     }
 }
