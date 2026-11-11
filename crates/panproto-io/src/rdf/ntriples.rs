@@ -19,7 +19,7 @@
 //!
 //! # Canonical output
 //!
-//! [`write`] prints a graph's triples as canonical N-Triples: one triple per
+//! [`write`](fn@write) prints a graph's triples as canonical N-Triples: one triple per
 //! line in ascending code point order of the lines, each line its subject,
 //! predicate and object followed by ` .` and a line feed, the terms
 //! separated by one space. An IRI is written between angle brackets with no

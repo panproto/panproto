@@ -6423,6 +6423,102 @@
           ]
         }
       ]
+    },
+    "rdf-formats": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/rdf_formats.rs",
+        "crates/panproto-reference/src/enumerate/rdf_formats.rs"
+      ],
+      "laws": [
+        {
+          "id": "rdf-formats.ntriples-reading",
+          "anchor": "L-rdf-formats-1",
+          "references": [
+            "panproto_reference::pages::rdf_formats::ntriples::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "ntriples_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "randomized_ntriples_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "ntriples_reads_the_examples_of_the_recommendation"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "ntriples_refusals_name_the_line_of_the_first_fault"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.graph-encoding",
+          "anchor": "L-rdf-formats-2",
+          "references": [
+            "panproto_reference::pages::rdf_formats::ntriples::encode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "the_graph_encoding_matches_the_reference_on_every_bounded_triple_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "the_graph_encoding_numbers_nodes_by_first_mention_and_reads_a_set"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.canonical-ntriples",
+          "anchor": "L-rdf-formats-3",
+          "references": [
+            "panproto_reference::pages::rdf_formats::ntriples::canonical_text",
+            "panproto_reference::pages::rdf_formats::ntriples::write_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "canonical_ntriples_matches_the_reference_on_every_bounded_graph"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "canonical_text_sorts_lines_and_escapes_as_the_canonical_form_does"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "the_writer_refuses_what_no_document_reads_back_as"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "the_rdf_scopes_have_their_closed_form_counts"
+            }
+          ]
+        }
+      ]
     }
   }
 }
