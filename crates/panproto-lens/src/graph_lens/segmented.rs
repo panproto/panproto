@@ -224,40 +224,7 @@ pub fn put_segmented(
         });
     }
 
-    // The node facts every owner offers: the restored form of each node it
-    // owns, restored from its own view and complement segments.
-    let offered: Vec<GInstance> = parts
-        .iter()
-        .map(|part| restore_nodes(lens, &part.local, &part.complement, &part.scope).0)
-        .collect();
-    let position: BTreeMap<SegmentId, usize> = views
-        .iter()
-        .enumerate()
-        .map(|(at, view)| (view.segment, at))
-        .collect();
-    for part in &mut parts {
-        for node in requests(part, &index) {
-            let Some(owner) = index
-                .owner_of_node(node)
-                .and_then(|owner| position.get(&owner))
-                .and_then(|at| views.get(*at).zip(offered.get(*at)))
-            else {
-                continue;
-            };
-            if let Some(shown) = owner.0.nodes.get(&node)
-                && !part.scope.foreign.contains(&node)
-            {
-                part.local = std::mem::take(&mut part.local)
-                    .with_node(Node::new(node, shown.anchor.clone()));
-                part.scope.foreign.insert(node);
-            }
-            if let Some(restored) = owner.1.node(node) {
-                let mut placeholder = Node::new(node, restored.anchor.clone());
-                placeholder.value.clone_from(&restored.value);
-                part.scope.restored.insert(node, placeholder);
-            }
-        }
-    }
+    exchange_node_facts(lens, &mut parts, views, &index);
 
     // Restoration, segment by segment.
     let mut found: Vec<PutDomainError> = Vec::new();
@@ -283,9 +250,51 @@ pub fn put_segmented(
             lens, &plan, &parts, &restored, &family, partition,
         )?);
     }
-    match least(found) {
-        Some(error) => Err(refused(error)),
-        None => Ok(family),
+    least(found).map_or(Ok(family), |error| Err(refused(error)))
+}
+
+/// The exchange of node facts: each owner offers the restored form of each
+/// node it owns, restored from its own view and complement segments, and
+/// each segment takes, for every remote node it reads, a placeholder with
+/// the node's view anchor when the view holds it and the node's restored
+/// anchor and value when it restores.
+fn exchange_node_facts(
+    lens: &Lens,
+    parts: &mut [Part<'_>],
+    views: &[GraphSegment],
+    index: &OwnerIndex,
+) {
+    let offered: Vec<GInstance> = parts
+        .iter()
+        .map(|part| restore_nodes(lens, &part.local, &part.complement, &part.scope).0)
+        .collect();
+    let position: BTreeMap<SegmentId, usize> = views
+        .iter()
+        .enumerate()
+        .map(|(at, view)| (view.segment, at))
+        .collect();
+    for part in parts.iter_mut() {
+        for node in requests(part, index) {
+            let Some(owner) = index
+                .owner_of_node(node)
+                .and_then(|owner| position.get(&owner))
+                .and_then(|at| views.get(*at).zip(offered.get(*at)))
+            else {
+                continue;
+            };
+            if let Some(shown) = owner.0.nodes.get(&node)
+                && !part.scope.foreign.contains(&node)
+            {
+                part.local = std::mem::take(&mut part.local)
+                    .with_node(Node::new(node, shown.anchor.clone()));
+                part.scope.foreign.insert(node);
+            }
+            if let Some(restored) = owner.1.node(node) {
+                let mut placeholder = Node::new(node, restored.anchor.clone());
+                placeholder.value.clone_from(&restored.value);
+                part.scope.restored.insert(node, placeholder);
+            }
+        }
     }
 }
 
@@ -588,11 +597,11 @@ fn restored_family(
             if segment.nodes.contains_key(&edge.tgt) {
                 continue;
             }
-            let owner = index.owner_of_node(edge.tgt).ok_or_else(|| {
-                SegmentedPutError::Segment(SegmentError::Unowned {
+            let owner = index
+                .owner_of_node(edge.tgt)
+                .ok_or(SegmentedPutError::Segment(SegmentError::Unowned {
                     elem: ViewRef::Edge(*id),
-                })
-            })?;
+                }))?;
             let anchor = |node: u32| {
                 outcome
                     .source

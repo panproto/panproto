@@ -17985,7 +17985,7 @@ mod segmented_graph_get {
 
     const SOURCE_SCHEMA: [u8; 32] = [7; 32];
 
-    pub(super) fn prod_partition(partition: &reference::Partition) -> Partition {
+    pub fn prod_partition(partition: &reference::Partition) -> Partition {
         let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
         Partition::new(
             InstanceShapeKind::Graph,
@@ -18067,7 +18067,7 @@ mod segmented_graph_get {
         }
     }
 
-    pub(super) fn lens_of(schema: &RefSchema, migration: &RefMigration) -> Lens {
+    pub fn lens_of(schema: &RefSchema, migration: &RefMigration) -> Lens {
         let schema = prod_schema(schema);
         Lens {
             compiled: prod_migration(migration),
@@ -18313,12 +18313,12 @@ mod segmented_graph_get {
         assert_eq!(global.report.progress.tasks_done, 0);
     }
 
-    pub(super) const ANCHORS: [&str; 3] = ["a", "b", "c"];
+    pub const ANCHORS: [&str; 3] = ["a", "b", "c"];
 
     /// A generated case over a three-vertex schema with every edge and loop:
     /// the schema, a survival classification, a graph and a partition giving
     /// each node to one of `segments` segments with its own allocation range.
-    pub(super) fn generated(
+    pub fn generated(
         anchors: &[usize],
         edges: &[(usize, usize)],
         owners: &[u32],
@@ -18502,7 +18502,7 @@ mod segmented_graph_put {
         let label = |src: &str, tgt: &str| {
             super::RefSEdge::new(src, tgt, "prop", Some(&format!("{src}{tgt}")))
         };
-        let anchor = |graph: &RefGraph, node: u32| graph.nodes[&node].anchor.to_string();
+        let anchor = |graph: &RefGraph, node: u32| graph.nodes[&node].anchor.clone();
         let mut out = vec![view.clone()];
         for node in view.nodes.keys() {
             let mut edited = view.clone();
@@ -18600,19 +18600,8 @@ mod segmented_graph_put {
         let Ok(got) = graph_restrict_segmented(&plan, &source, &prod_p) else {
             return;
         };
-        let reference_source =
-            reference::partition_graph(graph, partition).expect("reference split");
-        let expected = reference::restrict_graph_segmented(
-            schema,
-            schema,
-            migration,
-            &NoValueLayer,
-            &reference_source,
-            partition,
-        )
-        .expect("the reference restricts what production restricts");
-        let (reference_views, reference_complements): (Vec<_>, Vec<_>) =
-            expected.into_iter().unzip();
+        let (reference_views, reference_complements) =
+            reference_get(schema, migration, graph, partition);
         let reference_plan = panproto_reference::restrict::compile(schema, schema, migration)
             .expect("the reference plan compiles");
         let reference_lens = RefGraphLens::new(
@@ -18686,39 +18675,87 @@ mod segmented_graph_put {
                 }
                 (Err(SegmentedPutError::Lens(error)), Err(whole)) => {
                     assert_ne!(at, 0, "GetPut refused on {graph:?}");
-                    assert_eq!(lens_reason(error), lens_reason(whole), "{edited:?}");
-                    match &expected {
-                        Err(reference::SegmentedPutRefusal::Put(expected)) => {
-                            assert_eq!(lens_reason(error), ref_lens_reason(expected), "{edited:?}");
-                            tally.refused += 1;
-                        }
-                        // Whole-state production put refuses a view whose
-                        // restored source its own get refuses; the
-                        // reference's put-domain clause (5) reads only
-                        // survival predicates on that get and accepts it.
-                        Ok(_)
-                            if matches!(
-                                error,
-                                LensError::PutDomain(found) if matches!(
-                                    **found,
-                                    PutDomainError::SurvivalPredicateRefused {
-                                        refusal: panproto_inst::PredicateRefusal::EvaluationFailed { .. },
-                                        ..
-                                    }
-                                )
-                            ) && reference_get_refuses(&reference_lens, &expected) =>
-                        {
-                            tally.get_refused += 1;
-                        }
-                        expected => panic!(
-                            "the reference disagrees on {edited:?} under {partition:?}: {error:?} / {expected:?}"
-                        ),
-                    }
+                    check_refusal(
+                        error,
+                        whole,
+                        &expected,
+                        &reference_lens,
+                        &edited,
+                        partition,
+                        tally,
+                    );
                 }
                 outcomes => panic!(
                     "segmented put disagrees with whole-state put on {edited:?} under {partition:?}: {outcomes:?}"
                 ),
             }
+        }
+    }
+
+    /// The segment-get of the reference definition: each segment's view and
+    /// complement.
+    fn reference_get(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> (
+        Vec<reference::GraphSegment>,
+        Vec<reference::GraphComplementSegment>,
+    ) {
+        let source = reference::partition_graph(graph, partition).expect("reference split");
+        reference::restrict_graph_segmented(
+            schema,
+            schema,
+            migration,
+            &NoValueLayer,
+            &source,
+            partition,
+        )
+        .expect("the reference restricts what production restricts")
+        .into_iter()
+        .unzip()
+    }
+
+    /// A refused segmented put: whole-state put refuses with the same
+    /// reason, and so does the reference definition, except where the two
+    /// whole-state definitions disagree on a view whose restored source get
+    /// refuses.
+    fn check_refusal(
+        error: &LensError,
+        whole: &LensError,
+        expected: &Result<Vec<reference::GraphSegment>, reference::SegmentedPutRefusal>,
+        reference_lens: &RefGraphLens<'_>,
+        edited: &RefGraph,
+        partition: &reference::Partition,
+        tally: &mut Tally,
+    ) {
+        assert_eq!(lens_reason(error), lens_reason(whole), "{edited:?}");
+        match expected {
+            Err(reference::SegmentedPutRefusal::Put(expected)) => {
+                assert_eq!(lens_reason(error), ref_lens_reason(expected), "{edited:?}");
+                tally.refused += 1;
+            }
+            // Whole-state production put refuses a view whose restored
+            // source its own get refuses; the reference's put-domain clause
+            // (5) reads only survival predicates on that get and accepts it.
+            Ok(_)
+                if matches!(
+                    error,
+                    LensError::PutDomain(found) if matches!(
+                        **found,
+                        PutDomainError::SurvivalPredicateRefused {
+                            refusal: panproto_inst::PredicateRefusal::EvaluationFailed { .. },
+                            ..
+                        }
+                    )
+                ) && reference_get_refuses(reference_lens, expected) =>
+            {
+                tally.get_refused += 1;
+            }
+            expected => panic!(
+                "the reference disagrees on {edited:?} under {partition:?}: {error:?} / {expected:?}"
+            ),
         }
     }
 
@@ -18806,7 +18843,7 @@ mod segmented_graph_put {
     /// over its schema, with every edit of its segmented view: segmented put
     /// agrees with the reference definition segment by segment and, glued,
     /// with whole-state put of the glued view, refusing exactly when it
-    /// refuses and with the same violation; GetPut and PutGet hold over
+    /// refuses and with the same violation; `GetPut` and `PutGet` hold over
     /// segments where they hold whole. `PANPROTO_TEST_SHARD=i/n` restricts
     /// the check to the cases at positions `i` modulo `n`.
     #[test]
