@@ -1,8 +1,8 @@
 //! Instance codecs for domain-specific protocols.
 //!
-//! - JSON-based: geojson, fhir, vcard_ical (via jCard/jCal JSON encoding)
-//! - XML-based: rss_atom
-//! - Delimited: swift_mt (colon-delimited), edi_x12 (asterisk-delimited)
+//! - JSON-based: geojson, fhir, `vcard_ical` (via jCard/jCal JSON encoding)
+//! - XML-based: `rss_atom`
+//! - Delimited: `swift_mt` (colon-delimited), `edi_x12` (asterisk-delimited)
 
 use crate::byte_tabular::ByteTabularCodec;
 use crate::registry::ProtocolRegistry;

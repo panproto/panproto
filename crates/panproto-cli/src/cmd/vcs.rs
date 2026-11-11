@@ -688,15 +688,15 @@ pub fn cmd_log(opts: &LogCmdOptions<'_>) -> Result<()> {
 
     for commit in &commits {
         // Apply filters.
-        if let Some(author_pat) = opts.filter_author {
-            if !commit.author.contains(author_pat) {
-                continue;
-            }
+        if let Some(author_pat) = opts.filter_author
+            && !commit.author.contains(author_pat)
+        {
+            continue;
         }
-        if let Some(grep_pat) = opts.filter_grep {
-            if !commit.message.contains(grep_pat) {
-                continue;
-            }
+        if let Some(grep_pat) = opts.filter_grep
+            && !commit.message.contains(grep_pat)
+        {
+            continue;
         }
 
         if let Some(fmt_str) = opts.fmt {

@@ -181,7 +181,7 @@ pub fn cmd_lift(
 
     match instance_type {
         "functor" => {
-            return cmd_lift_functor(&compiled, &record_json, direction);
+            return cmd_lift_functor(&compiled, &src_schema, &tgt_schema, &record_json, direction);
         }
         "wtype" => {}
         other => {
@@ -206,9 +206,15 @@ pub fn cmd_lift(
         .clone()
     };
 
-    let instance = inst::parse_json(&src_schema, &root_vertex, &record_json)
+    let src_protocol = resolve_protocol(&src_schema.protocol)?;
+    let instance = inst::parse_json(&src_schema, &src_protocol, &root_vertex, &record_json)
         .into_diagnostic()
         .wrap_err("failed to parse record as W-type instance")?;
+    let tgt_protocol = resolve_protocol(&tgt_schema.protocol)?;
+    let protocols = inst::BoundaryProtocols {
+        src: &src_protocol,
+        tgt: &tgt_protocol,
+    };
 
     if verbose {
         eprintln!(
@@ -219,12 +225,14 @@ pub fn cmd_lift(
     }
 
     let lifted = match direction {
-        "restrict" => mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance)
+        "restrict" => mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance, protocols)
             .into_diagnostic()
             .wrap_err(WTYPE_RESTRICT_ERROR)?,
-        "sigma" => mig::lift_wtype_sigma(&compiled, &tgt_schema, &instance)
-            .into_diagnostic()
-            .wrap_err("source-to-target W-type `Sigma_F` lift failed")?,
+        "sigma" => {
+            { mig::lift_wtype_sigma(&compiled, &src_schema, &tgt_schema, &instance, protocols) }
+                .into_diagnostic()
+                .wrap_err("source-to-target W-type `Sigma_F` lift failed")?
+        }
         "pi" => mig::lift_wtype_pi(&compiled, &tgt_schema, &instance, 10_000)
             .into_diagnostic()
             .wrap_err("source-to-target W-type `pi` relabeling failed")?,
@@ -233,7 +241,9 @@ pub fn cmd_lift(
         }
     };
 
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let output = inst::to_json(&tgt_schema, &lifted)
+        .into_diagnostic()
+        .wrap_err("failed to write the instance as JSON")?;
     let pretty = serde_json::to_string_pretty(&output)
         .into_diagnostic()
         .wrap_err("failed to serialize output")?;
@@ -244,23 +254,39 @@ pub fn cmd_lift(
 
 pub fn cmd_lift_functor(
     compiled: &inst::CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     record_json: &serde_json::Value,
     direction: &str,
 ) -> Result<()> {
     let instance: inst::FInstance = serde_json::from_value(record_json.clone())
         .into_diagnostic()
         .wrap_err("failed to parse record as functor instance")?;
+    let src_protocol = super::helpers::resolve_protocol(&src_schema.protocol)?;
+    let tgt_protocol = super::helpers::resolve_protocol(&tgt_schema.protocol)?;
+    let protocols = inst::BoundaryProtocols {
+        src: &src_protocol,
+        tgt: &tgt_protocol,
+    };
 
     let lifted = match direction {
-        "restrict" => mig::lift_functor(compiled, &instance)
+        "restrict" => mig::lift_functor(compiled, src_schema, tgt_schema, &instance, protocols)
             .into_diagnostic()
             .wrap_err(FUNCTOR_RESTRICT_ERROR)?,
-        "sigma" => inst::functor_extend(&instance, compiled)
+        "sigma" => inst::functor_extend(&instance, src_schema, tgt_schema, compiled, protocols)
             .into_diagnostic()
             .wrap_err("source-to-target functor `Sigma_F` lift failed")?,
-        "pi" => mig::lift_functor_pi(compiled, &instance, 10_000)
-            .into_diagnostic()
-            .wrap_err("source-to-target functor `Pi_F` lift failed")?,
+        "pi" => mig::lift_functor_pi(
+            compiled,
+            src_schema,
+            &src_protocol,
+            tgt_schema,
+            &tgt_protocol,
+            &instance,
+            10_000,
+        )
+        .into_diagnostic()
+        .wrap_err("source-to-target functor `Pi_F` lift failed")?,
         other => {
             miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi");
         }
@@ -1531,18 +1557,16 @@ fn show_commit(
     );
     println!("\n    {}", c.message);
 
-    if stat {
-        if let Some(parent_id) = c.parents.first() {
-            let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
-            if let vcs::Object::Commit(parent_commit) = parent_obj {
-                let proto = vcs::tree::project_coproduct_protocol();
-                if let (Ok(old_s), Ok(new_s)) = (
-                    vcs::tree::assemble_schema_dyn(repo.store(), &parent_commit.schema_id, &proto),
-                    vcs::tree::assemble_schema_dyn(repo.store(), &c.schema_id, &proto),
-                ) {
-                    let d = panproto_core::check::diff::diff(&old_s, &new_s);
-                    println!("\n {}", format::format_diff_stat(&d));
-                }
+    if stat && let Some(parent_id) = c.parents.first() {
+        let parent_obj = repo.store().get(parent_id).into_diagnostic()?;
+        if let vcs::Object::Commit(parent_commit) = parent_obj {
+            let proto = vcs::tree::project_coproduct_protocol();
+            if let (Ok(old_s), Ok(new_s)) = (
+                vcs::tree::assemble_schema_dyn(repo.store(), &parent_commit.schema_id, &proto),
+                vcs::tree::assemble_schema_dyn(repo.store(), &c.schema_id, &proto),
+            ) {
+                let d = panproto_core::check::diff::diff(&old_s, &new_s);
+                println!("\n {}", format::format_diff_stat(&d));
             }
         }
     }
@@ -1741,7 +1765,7 @@ mod tests {
             theory_result("ThMulti", "passed", 0),
         ]);
         assert_eq!(run.status, "passed");
-        assert!(run.unchecked().is_empty());
+        assert_eq!(run.unchecked(), Vec::<&str>::new());
     }
 
     #[test]

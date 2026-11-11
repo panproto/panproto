@@ -1,0 +1,126 @@
+{
+  "description": "three parallel edges, one positioned, from segment 0 into one node of segment 1, and one edge back",
+  "schema": "7fd55141c5ffd88e170644619c143a052f595e024d65878cb6713783f711d076",
+  "partition": {
+    "shape": "graph",
+    "specs": [
+      {
+        "id": 0,
+        "nodes": [
+          {
+            "lo": 0,
+            "hi": 9
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      },
+      {
+        "id": 1,
+        "nodes": [
+          {
+            "lo": 10,
+            "hi": 19
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      }
+    ]
+  },
+  "instance": {
+    "nodes": {
+      "0": {
+        "id": 0,
+        "anchor": "a",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "1": {
+        "id": 1,
+        "anchor": "a",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "10": {
+        "id": 10,
+        "anchor": "a",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      }
+    },
+    "edges": {
+      "0": {
+        "src": 0,
+        "tgt": 10,
+        "edge": {
+          "src": "a",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "x"
+        },
+        "position": null
+      },
+      "1": {
+        "src": 0,
+        "tgt": 10,
+        "edge": {
+          "src": "a",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "x"
+        },
+        "position": null
+      },
+      "2": {
+        "src": 0,
+        "tgt": 10,
+        "edge": {
+          "src": "a",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "x"
+        },
+        "position": 0
+      },
+      "3": {
+        "src": 10,
+        "tgt": 1,
+        "edge": {
+          "src": "a",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "x"
+        },
+        "position": null
+      }
+    }
+  },
+  "expected": {
+    "instance_digest": "7698d02701cbc3b07c210083c34de6548f39c07ef182601c6fe3136a4b5fcedf",
+    "segments": [
+      "1e01aad5335dc3d051efc56306d99fc9af42178cf739940757c026125a8a030b",
+      "6c89005485a183b4af10c1565f79c8fac97aa00cbb10d436fcad253358191b90"
+    ],
+    "manifest_root": "4e5b391ffde1f8ac5d0da9601bb3ffd07b9c049efde40d1bfd227c114b2abc73",
+    "manifest_digest": "a39791805a37986d0686bd3e9388ab0e7aace08ab4ef9693c04fb525a7529b4b"
+  }
+}

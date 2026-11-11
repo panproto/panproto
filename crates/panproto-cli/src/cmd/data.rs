@@ -103,7 +103,7 @@ fn store_edit_log(
 
     for entry in entries {
         let json_val: serde_json::Value = load_json(&entry.path())?;
-        let instance = inst::parse_json(old_schema, root_vertex.as_str(), &json_val).ok();
+        let instance = inst::parse_json(old_schema, protocol, root_vertex.as_str(), &json_val).ok();
         if let Some(source_inst) = instance {
             edit_lens
                 .initialize(&source_inst)
@@ -117,10 +117,10 @@ fn store_edit_log(
                     field: panproto_core::gat::Name::from("__synced"),
                     value: inst::Value::Bool(true),
                 };
-                if let Ok(translated) = edit_lens.get_edit(edit) {
-                    if !translated.is_identity() {
-                        all_edits.push(translated);
-                    }
+                if let Ok(translated) = edit_lens.get_edit(edit)
+                    && !translated.is_identity()
+                {
+                    all_edits.push(translated);
                 }
             }
         }

@@ -689,8 +689,11 @@ class SchemaBackend back => VcsBackend back where
     -- introduced or last modified it.
     vcsBlameB :: RepoRep back -> Text -> IO BlameReport
 
-    -- | Release the repository handle. Idempotent at the slab level,
-    -- as with 'Panproto.Class.releaseSchema'.
+    -- | Release the repository handle. This consumes ownership of the
+    -- handle. A repeated release is harmless only before slot reuse;
+    -- afterward the stale numeric handle aliases and frees the new resource.
+    -- Prefer
+    -- 'Panproto.Rust.Vcs.withRepo'.
     releaseRepo :: RepoRep back -> IO ()
 
 -- ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ HTTP client for the `dev.panproto.node.*` XRPC endpoints.
 
 ## Installation
 
-Add the crate to a Rust 1.85 or newer project:
+Add the crate to a Rust 1.97 or newer project:
 
 ```sh
 cargo add panproto-xrpc

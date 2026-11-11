@@ -20,7 +20,11 @@ func bskyPostSchemaHandle() throws -> SchemaHandle {
 let bskyPostRootVertex = "app.bsky.feed.post"
 
 /// The committed post records, named without their extension.
-let bskyPostRecords = ["post-0", "post-1", "post-2", "post-3", "post-4"]
+let bskyPostRecords = [
+    "post-0", "post-1", "post-2", "post-3", "post-4",
+    "post-embed-images", "post-embed-external", "post-embed-record",
+    "post-embed-record-with-media", "post-embed-video", "post-embed-gallery",
+]
 
 // MARK: - Instances against a schema
 
@@ -40,7 +44,7 @@ struct InstanceAPITests {
         )
 
         #expect(parsed == captured)
-        #expect(parsed.schemaRoot == "app.bsky.feed.post")
+        #expect(parsed.schemaRoot == "app.bsky.feed.post:body")
         #expect(parsed.nodeCount == 5)
     }
 

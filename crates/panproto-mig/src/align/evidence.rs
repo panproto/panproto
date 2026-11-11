@@ -753,13 +753,13 @@ impl Selection {
 
     /// How many mappings were accepted.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.pairs.len()
     }
 
     /// Whether nothing was accepted.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.pairs.is_empty()
     }
 

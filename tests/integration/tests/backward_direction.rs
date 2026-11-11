@@ -1,14 +1,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The backward direction agrees with the round trip.
 //!
-//! Two things a `put` has to get right that the round-trip laws did not
-//! previously see. Array order: the children of a collection node are its
+//! Two things a `put` has to get right that a set-based round-trip law
+//! cannot see. Array order: the children of a collection node are its
 //! elements in sequence, so a reconstruction that permutes them returns a
 //! different record while every node and arc is still present. And an
 //! invertible computation whose result crossed the JSON boundary: the
 //! forward pass leaves it in `extra_fields` shadowing the child it read,
 //! but serializing and re-parsing moves it onto the child, where the
-//! backward pass used not to look.
+//! backward pass must also look.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -69,6 +69,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -105,8 +106,13 @@ fn an_overwriting_computation_is_undone() {
         name: Some("confidence".into()),
     };
     let schema = make_schema(&[("root", "object"), ("root.confidence", "number")], &[e]);
-    let instance: WInstance =
-        parse_json(&schema, "root", &serde_json::json!({"confidence": 0.8})).expect("parse");
+    let instance: WInstance = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({"confidence": 0.8}),
+    )
+    .expect("parse");
 
     let fwd = Expr::Builtin(
         BuiltinOp::Floor,
@@ -145,14 +151,14 @@ fn an_overwriting_computation_is_undone() {
 
     let (view, comp) = get(&lens, &instance).expect("get");
     assert_eq!(
-        to_json(&schema, &view)["confidence"],
+        to_json(&schema, &view).unwrap()["confidence"],
         800,
         "the forward pass scales and rounds"
     );
 
     let restored = put(&lens, &view, &comp).expect("put");
     assert_eq!(
-        to_json(&schema, &restored)["confidence"],
+        to_json(&schema, &restored).unwrap()["confidence"],
         0.8,
         "the backward pass undoes it"
     );
@@ -187,11 +193,23 @@ fn collection_order_survives_the_round_trip() {
             ("root.items", "array"),
             ("root.item", "object"),
             ("root.item.n", "integer"),
+            ("root.item.n2", "integer"),
         ],
-        &[e_items, e_item, e_n],
+        &[
+            e_items,
+            e_item,
+            e_n,
+            Edge {
+                src: "root.item".into(),
+                tgt: "root.item.n2".into(),
+                kind: "prop".into(),
+                name: Some("n2".into()),
+            },
+        ],
     );
     let instance: WInstance = parse_json(
         &schema,
+        &panproto_schema::Protocol::default(),
         "root",
         &serde_json::json!({"items": [{"n": 1}, {"n": 2}, {"n": 3}]}),
     )
@@ -215,7 +233,7 @@ fn collection_order_survives_the_round_trip() {
     let restored = put(&lens, &view, &comp).expect("put");
 
     assert_eq!(
-        to_json(&schema, &restored),
+        to_json(&schema, &restored).unwrap(),
         serde_json::json!({"items": [{"n": 1}, {"n": 2}, {"n": 3}]}),
         "elements come back in the order they went in"
     );
@@ -264,6 +282,7 @@ fn instance_equivalence_sees_a_permuted_collection() {
     );
     let instance: WInstance = parse_json(
         &schema,
+        &panproto_schema::Protocol::default(),
         "root",
         &serde_json::json!({"items": [{"n": 1}, {"n": 2}, {"n": 3}]}),
     )
@@ -288,8 +307,13 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
         name: Some("confidence".into()),
     };
     let schema = make_schema(&[("root", "object"), ("root.confidence", "number")], &[e]);
-    let instance: WInstance =
-        parse_json(&schema, "root", &serde_json::json!({"confidence": 0.8})).expect("parse");
+    let instance: WInstance = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &serde_json::json!({"confidence": 0.8}),
+    )
+    .expect("parse");
 
     let fwd = Expr::Builtin(
         BuiltinOp::Floor,
@@ -326,13 +350,19 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
     );
 
     let (view, comp) = get(&lens, &instance).expect("get");
-    let view_json = to_json(&schema, &view);
+    let view_json = to_json(&schema, &view).unwrap();
     assert_eq!(view_json["confidence"], 800);
 
     // The WASM `put_json` re-parses the view rather than using the
     // in-memory one, which moves the computed value from the parent's
     // extra_fields onto the child node.
-    let reparsed: WInstance = parse_json(&schema, "root", &view_json).expect("reparse");
+    let reparsed: WInstance = parse_json(
+        &schema,
+        &panproto_schema::Protocol::default(),
+        "root",
+        &view_json,
+    )
+    .expect("reparse");
     assert!(
         reparsed.nodes[&reparsed.root].extra_fields.is_empty(),
         "re-parsing puts the value on the child, not in extra_fields"
@@ -340,40 +370,43 @@ fn an_inverse_runs_when_the_value_crossed_the_json_boundary() {
 
     let restored = put(&lens, &reparsed, &comp).expect("put");
     assert_eq!(
-        to_json(&schema, &restored)["confidence"],
+        to_json(&schema, &restored).unwrap()["confidence"],
         0.8,
         "the inverse still has to run when the value arrives on the child"
     );
 }
 
-/// Merging arc order stays linear in the arc count.
+/// Merging complements stays linear in their size.
 ///
 /// `Complement::compose` is called repeatedly (the edit-lens associativity
-/// proptests compose in a loop), so a membership test that scans the
+/// proptests compose in a loop), so a membership test that scans an
 /// accumulated sequence makes the merge quadratic. That is not a
-/// theoretical concern: a `Vec::contains` here took
+/// theoretical concern: a `Vec::contains` in the arc-order merge took
 /// `edit_laws::action_laws::compose_associativity` from 0.05s to over 55
 /// minutes, and nothing failed, because an unbounded test reads as slow
 /// rather than broken.
 ///
-/// The gap between the two implementations is several orders of magnitude,
-/// so the wall-clock bound below is loose enough not to be flaky while
-/// still being unreachable if the scan comes back.
+/// Arc order is one global sequence: two nonempty records compose only when
+/// they state the same sequence, and differing ones conflict. The keyed
+/// parent map overlaps on half its entries, so the merge does real work on
+/// both its branches. The wall-clock bound is loose enough not to be flaky
+/// while still being unreachable if a quadratic scan comes back.
 #[test]
 fn composing_arc_order_is_not_quadratic() {
-    use panproto_lens::ComplementCompose;
+    use panproto_lens::{ComplementCompose, LensError};
     use std::time::Instant;
 
     const ARCS: u32 = 120_000;
 
     let build = |offset: u32| {
         let mut c = panproto_inst::Complement::empty();
-        c.arc_order = (0..ARCS).map(|i| (i + offset, i + offset + 1)).collect();
+        c.arc_order = (0..ARCS).map(|i| (i, i + 1)).collect();
         c.original_parent = (0..ARCS).map(|i| (i + offset + 1, i + offset)).collect();
+        // Complements that carry data compose only when bound to one lens;
+        // a shared legacy fingerprint binds these two.
+        c.source_fingerprint = 0x00C0_FFEE;
         c
     };
-    // Half the pairs overlap, so the merge does real work on both branches
-    // rather than short-circuiting on one.
     let left = build(0);
     let right = build(ARCS / 2);
 
@@ -382,15 +415,30 @@ fn composing_arc_order_is_not_quadratic() {
     let elapsed = start.elapsed();
 
     assert_eq!(
-        merged.arc_order.len(),
-        (ARCS + ARCS / 2) as usize,
-        "the union of the two sequences, deduplicated"
+        merged.arc_order, left.arc_order,
+        "equal arc-order records compose to that record"
     );
-    // Order is preserved: the left operand's sequence comes first.
-    assert_eq!(merged.arc_order[0], (0, 1));
+    assert_eq!(
+        merged.original_parent.len(),
+        (ARCS + ARCS / 2) as usize,
+        "the keyed union of the two parent maps"
+    );
     assert!(
         elapsed.as_secs() < 15,
         "merging {ARCS} arcs took {elapsed:?}; a linear merge is milliseconds, so this is \
-         the quadratic scan returning"
+         a quadratic scan returning"
+    );
+
+    let mut reordered = right;
+    reordered.arc_order.swap(0, 1);
+    assert!(
+        matches!(
+            left.compose(&reordered),
+            Err(LensError::ComplementConflict {
+                kind: "arc_order",
+                ..
+            })
+        ),
+        "two different nonempty arc orders conflict"
     );
 }

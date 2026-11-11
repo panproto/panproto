@@ -1,13 +1,14 @@
 //! Edit lens law verification.
 //!
-//! Checks the two Hofmann-Pierce-Wagner edit lens laws:
+//! Checks successful raw edit translation against its whole-state endpoint:
 //!
 //! - **Consistency**: translating a source edit and applying it to the
 //!   view gives the same result as applying the edit to the source and
 //!   then doing a whole-state `get`.
 //! - **Complement coherence**: the complement state after `get_edit` is
-//!   consistent with the complement that would result from a whole-state
-//!   `get` on the edited source.
+//!   equal to fresh whole-state get except for a retained historical floor,
+//!   which must not decrease. Both checkers require an initialized lens
+//!   whose tracked source is exactly the supplied source.
 
 use std::fmt;
 
@@ -60,7 +61,9 @@ impl std::error::Error for EditLawViolation {
 ///
 /// Verifies that translating `edit` through the lens and applying the
 /// result to the current view produces the same view as applying `edit`
-/// to the source and then doing a whole-state `get`.
+/// to the source and then doing a whole-state `get`. The lens must be
+/// initialized and its tracked source must exactly match `source`, including
+/// node metadata and arc/fan order. This checker leaves the lens unchanged.
 ///
 /// # Errors
 ///
@@ -70,6 +73,7 @@ pub fn check_edit_consistency(
     edit: &TreeEdit,
     source: &WInstance,
 ) -> Result<(), EditLawViolation> {
+    check_tracked_source(lens, source)?;
     // Path 1: translate edit, apply to view.
     let mut lens_clone = clone_edit_lens(lens);
     let view_edit = lens_clone
@@ -83,7 +87,7 @@ pub fn check_edit_consistency(
         tgt_schema: lens.tgt_schema.clone(),
     };
     let (mut view, _) = crate::get(&state_lens, source)
-        .map_err(|e| EditLawViolation::Error(EditLensError::TranslationFailed(e.to_string())))?;
+        .map_err(|e| EditLawViolation::Error(crate::edit_lens::whole_state_error(e)))?;
     view_edit
         .apply(&mut view)
         .map_err(|e| EditLawViolation::Error(EditLensError::EditApply(e)))?;
@@ -93,14 +97,10 @@ pub fn check_edit_consistency(
     edit.apply(&mut edited_source)
         .map_err(|e| EditLawViolation::Error(EditLensError::EditApply(e)))?;
     let (view2, _) = crate::get(&state_lens, &edited_source)
-        .map_err(|e| EditLawViolation::Error(EditLensError::TranslationFailed(e.to_string())))?;
+        .map_err(|e| EditLawViolation::Error(crate::edit_lens::whole_state_error(e)))?;
 
-    // Compare the two views by full instance structure — node values,
-    // `extra_fields`, arcs, parent map, and fans — not merely node counts
-    // and anchors. A value-corrupting edit translation preserves the
-    // count and anchors but changes a field, so the coarser comparison
-    // would pass a genuine consistency-law violation.
-    if !crate::laws::instances_equivalent(&view, &view2) {
+    // Compare full node payloads, roots, and ordered arcs and fans.
+    if !crate::laws::tree_identical(&view, &view2) {
         return Err(EditLawViolation::Consistency {
             detail: format!(
                 "translate-then-apply and apply-then-get views diverge \
@@ -119,8 +119,10 @@ pub fn check_edit_consistency(
 /// Check the Complement coherence law for an edit lens.
 ///
 /// Verifies that the complement state after `get_edit` matches the
-/// complement that would result from a whole-state `get` on the edited
-/// source.
+/// complement from whole-state get of the edited source, with every
+/// non-floor coordinate equal. The retained floor must be at least the
+/// incoming floor and fresh get's floor. The lens must be initialized with
+/// tracked source exactly matching `source`; this checker leaves it unchanged.
 ///
 /// # Errors
 ///
@@ -130,6 +132,7 @@ pub fn check_complement_coherence(
     edit: &TreeEdit,
     source: &WInstance,
 ) -> Result<(), EditLawViolation> {
+    check_tracked_source(lens, source)?;
     // Path 1: get_edit on the lens.
     let mut lens_clone = clone_edit_lens(lens);
     let _ = lens_clone
@@ -147,23 +150,66 @@ pub fn check_complement_coherence(
         tgt_schema: lens.tgt_schema.clone(),
     };
     let (_, complement2) = crate::get(&state_lens, &edited_source)
-        .map_err(|e| EditLawViolation::Error(EditLensError::TranslationFailed(e.to_string())))?;
+        .map_err(|e| EditLawViolation::Error(crate::edit_lens::whole_state_error(e)))?;
 
-    // Compare the two complements by full structure — dropped node
-    // contents, dropped arcs and fans, contraction choices, original
-    // parent map, arc-edge disambiguators, snapshot `extra_fields` and
-    // values, synthesized-node set, and source fingerprint — not merely
-    // the dropped-node count. Complements with the same count but
-    // different dropped contents or contraction choices are a genuine
-    // coherence-law violation the count comparison would pass.
-    let c1 = &lens_clone.complement;
-    if !crate::laws::complements_equivalent(c1, &complement2) {
-        let detail = crate::laws::complement_divergence(c1, &complement2)
-            .unwrap_or_else(|| "complement structure diverges".to_owned());
+    if let Some(detail) = retained_complement_divergence(
+        &lens_clone.complement,
+        &complement2,
+        lens.complement.id_floor,
+    ) {
         return Err(EditLawViolation::ComplementCoherence { detail });
     }
 
     Ok(())
+}
+
+fn check_tracked_source(lens: &EditLens, source: &WInstance) -> Result<(), EditLawViolation> {
+    if lens
+        .pipeline
+        .as_ref()
+        .is_some_and(|pipeline| crate::laws::tree_identical(pipeline.source(), source))
+    {
+        Ok(())
+    } else {
+        Err(EditLawViolation::Error(EditLensError::TranslationFailed(
+            "law checking requires an initialized lens with the supplied tracked source".to_owned(),
+        )))
+    }
+}
+
+// Extend the legacy residue comparator with each coordinate or ordering it
+// intentionally omits. Only the independently checked historical floor varies.
+fn retained_complement_divergence(
+    actual: &crate::Complement,
+    fresh: &crate::Complement,
+    incoming_floor: u32,
+) -> Option<String> {
+    if actual.id_floor < incoming_floor.max(fresh.id_floor) {
+        return Some("id_floor is below the incoming or whole-state floor".to_owned());
+    }
+    if actual.dropped_nodes.len() != fresh.dropped_nodes.len()
+        || actual.dropped_nodes.iter().any(|(id, node)| {
+            !fresh
+                .dropped_nodes
+                .get(id)
+                .is_some_and(|other| crate::asymmetric::node_equiv(node, other))
+        })
+    {
+        return Some("dropped_nodes differ in full payload".to_owned());
+    }
+    if actual.dropped_arcs != fresh.dropped_arcs {
+        return Some("dropped_arcs differ in payload or order".to_owned());
+    }
+    if actual.dropped_fans != fresh.dropped_fans {
+        return Some("dropped_fans differ in payload or order".to_owned());
+    }
+    if actual.synthesized_keys != fresh.synthesized_keys {
+        return Some("synthesized_keys differ".to_owned());
+    }
+    if actual.view_positions != fresh.view_positions {
+        return Some("view_positions differ".to_owned());
+    }
+    crate::laws::complement_divergence(actual, fresh)
 }
 
 /// Clone an `EditLens` for law checking (needs all fields).
@@ -192,6 +238,67 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn edit_law_checkers_require_the_matching_initialized_source() {
+        let schema = three_node_schema();
+        let source = three_node_instance();
+        let mut lens = EditLens::from_lens(identity_lens(&schema), test_protocol());
+        assert!(check_edit_consistency(&mut lens, &TreeEdit::Identity, &source).is_err());
+        assert!(check_complement_coherence(&mut lens, &TreeEdit::Identity, &source).is_err());
+        lens.initialize(&source).unwrap();
+        let mut different = source.clone();
+        different
+            .nodes
+            .get_mut(&1)
+            .unwrap()
+            .annotations
+            .insert("changed".into(), Value::Int(1));
+        assert!(check_edit_consistency(&mut lens, &TreeEdit::Identity, &different).is_err());
+        assert!(check_complement_coherence(&mut lens, &TreeEdit::Identity, &different).is_err());
+        lens.complement.id_floor = 100;
+        assert!(check_edit_consistency(&mut lens, &TreeEdit::Identity, &source).is_ok());
+        assert!(check_complement_coherence(&mut lens, &TreeEdit::Identity, &source).is_ok());
+    }
+
+    #[test]
+    fn retained_complement_comparison_checks_floor_metadata_and_bookkeeping() {
+        let schema = three_node_schema();
+        let source = three_node_instance();
+        let lens = crate::tests::projection_lens(&schema, "createdAt");
+        let (_, fresh) = crate::get(&lens, &source).unwrap();
+        let mut retained = fresh.clone();
+        retained.id_floor = 100;
+        assert!(retained_complement_divergence(&retained, &fresh, 99).is_none());
+        assert!(retained_complement_divergence(&retained, &fresh, 101).is_some());
+        let mut changed = retained.clone();
+        changed
+            .dropped_nodes
+            .get_mut(&2)
+            .unwrap()
+            .annotations
+            .insert("changed".into(), Value::Int(1));
+        assert!(
+            retained_complement_divergence(&changed, &fresh, 99)
+                .unwrap()
+                .contains("dropped_nodes")
+        );
+        let mut changed = retained.clone();
+        changed.view_positions.clear();
+        assert!(!fresh.view_positions.is_empty());
+        assert!(
+            retained_complement_divergence(&changed, &fresh, 99)
+                .unwrap()
+                .contains("view_positions")
+        );
+        let mut changed = retained;
+        changed.id_floor = 0;
+        assert!(
+            retained_complement_divergence(&changed, &fresh, 0)
+                .unwrap()
+                .contains("id_floor")
+        );
+    }
+
     fn test_protocol() -> Protocol {
         Protocol {
             name: "test".into(),
@@ -211,6 +318,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         }
     }
 
@@ -286,14 +394,8 @@ mod tests {
         assert_eq!(&*kept.anchor, "post:body.createdAt");
     }
 
-    /// Build an identity-shaped lens carrying a field transform keyed
-    /// under the vertex kind `post:body.text` that upper-cases a field
-    /// named `tag`. The whole-state `get` applies field transforms per
-    /// node anchor, whereas the edit translation applies any
-    /// name-matching transform regardless of anchor; a `SetField` of
-    /// `tag` on a *different-anchored* node is therefore upper-cased in
-    /// the translated view but left untouched by apply-then-get — a
-    /// value corruption with unchanged node count and anchors.
+    /// A field transform attached only to the text anchor. The regression
+    /// checks that an identically named field at another anchor is unchanged.
     fn value_corrupting_lens() -> crate::Lens {
         use panproto_expr::{BuiltinOp, Expr};
         use panproto_inst::{CompiledMigration, FieldTransform};
@@ -335,17 +437,56 @@ mod tests {
     }
 
     #[test]
-    fn consistency_detects_value_corruption() {
-        let lens = value_corrupting_lens();
+    fn consistency_preserves_anchor_scoped_field_transforms() {
+        let mut lens = value_corrupting_lens();
         let instance = three_node_instance();
+        assert!(matches!(
+            crate::get(&lens, &instance),
+            Err(crate::LensError::Restrict(
+                panproto_inst::RestrictError::UndeclaredTransformField {
+                    source_vertex,
+                    target_vertex,
+                    field,
+                }
+            )) if source_vertex == "post:body.text"
+                && target_vertex == "post:body.text"
+                && field == "tag"
+        ));
+
+        let edge = panproto_schema::Edge {
+            src: "post:body.text".into(),
+            tgt: "post:body.text.tag".into(),
+            kind: "prop".into(),
+            name: Some("tag".into()),
+        };
+        // The declared `tag` is a string leaf like `post:body.text` itself.
+        let mut tag_vertex = lens.tgt_schema.vertices[&edge.src].clone();
+        tag_vertex.id = edge.tgt.clone();
+        lens.tgt_schema
+            .vertices
+            .insert(edge.tgt.clone(), tag_vertex);
+        lens.tgt_schema
+            .edges
+            .insert(edge.clone(), edge.kind.clone());
+        lens.tgt_schema
+            .outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        lens.tgt_schema
+            .incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        lens.tgt_schema
+            .between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge);
         let mut edit_lens = EditLens::from_lens(lens, test_protocol());
         edit_lens.initialize(&instance).unwrap();
 
-        // `tag` set on node 2 (anchor `post:body.createdAt`). The
-        // transform is keyed under `post:body.text`, so apply-then-get
-        // leaves `tag` verbatim while the edit translation upper-cases
-        // it. Node count and anchors are unchanged, so only the
-        // structural value comparison catches the divergence.
+        // Node 2 has another anchor, so the text transform must not apply.
         let edit = TreeEdit::SetField {
             node_id: 2,
             field: Name::from("tag"),
@@ -354,15 +495,15 @@ mod tests {
 
         let result = check_edit_consistency(&mut edit_lens, &edit, &instance);
         assert!(
-            matches!(result, Err(EditLawViolation::Consistency { .. })),
-            "value corruption must be flagged as a consistency violation: {result:?}"
+            result.is_ok(),
+            "an unrelated anchor must retain its field value: {result:?}"
         );
     }
 
     #[test]
     fn coherence_detects_content_drift() {
         use crate::asymmetric::Complement;
-        use crate::laws::{complement_divergence, complements_equivalent};
+        use crate::laws::complement_divergence;
         use panproto_inst::Node;
 
         // Both complements drop exactly one node under id 5, so their
@@ -375,7 +516,7 @@ mod tests {
         c2.dropped_nodes.insert(5, Node::new(5, "beta"));
 
         assert!(
-            !complements_equivalent(&c1, &c2),
+            complement_divergence(&c1, &c2).is_some(),
             "complements differing only in dropped-node content must not compare equal"
         );
         let detail = complement_divergence(&c1, &c2).unwrap();
@@ -393,10 +534,8 @@ mod tests {
 /// laws `apply(compose(id, e), s) = apply(e, s) = apply(compose(e, id), s)`.
 /// This module exercises those laws — and the associativity of `compose`
 /// under the action — over *generated* edit words and instances, comparing
-/// results with the full structural comparator
-/// [`crate::laws::instances_equivalent`] (nodes with values and
-/// `extra_fields`, order-independent arcs, `parent_map`, and fans) rather
-/// than by node counts and anchors.
+/// results with strict tree identity, including full node metadata and
+/// complete arc and fan order.
 ///
 /// Because `apply` is a *partial* action, each property compares the
 /// success/failure outcome of the two evaluation paths, not only the
@@ -411,7 +550,7 @@ mod action_laws {
     use proptest::prelude::*;
     use std::collections::HashMap;
 
-    use crate::laws::instances_equivalent;
+    use crate::laws::tree_identical;
     use panproto_inst::EditError;
 
     /// Build a `prop`-kind edge with matching label.
@@ -569,7 +708,7 @@ mod action_laws {
             );
             if let (Ok(a), Ok(b)) = (&composed, &sequential) {
                 prop_assert!(
-                    instances_equivalent(a, b),
+                    tree_identical(a, b),
                     "compose and sequential application diverged structurally",
                 );
             }
@@ -588,10 +727,10 @@ mod action_laws {
             prop_assert_eq!(direct.is_ok(), left.is_ok(), "left-identity outcome");
             prop_assert_eq!(direct.is_ok(), right.is_ok(), "right-identity outcome");
             if let (Ok(d), Ok(l)) = (&direct, &left) {
-                prop_assert!(instances_equivalent(d, l), "left identity diverged");
+                prop_assert!(tree_identical(d, l), "left identity diverged");
             }
             if let (Ok(d), Ok(r)) = (&direct, &right) {
-                prop_assert!(instances_equivalent(d, r), "right identity diverged");
+                prop_assert!(tree_identical(d, r), "right identity diverged");
             }
         }
 
@@ -608,7 +747,7 @@ mod action_laws {
             prop_assert_eq!(rl.is_ok(), rr.is_ok(), "associativity outcome disagreement");
             if let (Ok(a), Ok(b)) = (&rl, &rr) {
                 prop_assert!(
-                    instances_equivalent(a, b),
+                    tree_identical(a, b),
                     "left- and right-associated composites diverged",
                 );
             }
@@ -616,23 +755,9 @@ mod action_laws {
     }
 }
 
-/// `get_edit` functoriality (Johnson-Rosebrugh delta-lens
-/// formulation).
-///
-/// In the delta-lens view, `get_edit` is the action of a functor between
-/// edit categories, so it must preserve identity and composition. Over a
-/// generated word of source edits `[e1, …, en]`:
-///
-/// - **Composition**: translating the composed word `e1 · … · en` in one
-///   call must act on the view exactly as translating each `eᵢ` in order
-///   and threading the complement, and must leave the *same* complement.
-/// - **Identity**: `get_edit(Identity)` yields an edit that leaves both
-///   the view and the complement unchanged.
-///
-/// Both properties compare the full instance structure via
-/// [`crate::laws::instances_equivalent`] and the full complement structure
-/// via [`crate::laws::complements_equivalent`], not counts, and are run
-/// over both an identity lens and a drop-last-child projection lens.
+/// Endpoint and threaded-complement checks for generated field-edit words
+/// under identity and static projection. These tests do not establish
+/// general strict composition of canonical deltas or prefix-closed admission.
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod functor_laws {
@@ -641,9 +766,10 @@ mod functor_laws {
     use panproto_schema::Protocol;
     use proptest::prelude::*;
 
+    use super::retained_complement_divergence;
     use crate::Lens;
     use crate::edit_lens::EditLens;
-    use crate::laws::{complements_equivalent, instances_equivalent};
+    use crate::laws::tree_identical;
     use crate::tests::{identity_lens, projection_lens, three_node_instance, three_node_schema};
 
     use super::clone_edit_lens;
@@ -667,6 +793,7 @@ mod functor_laws {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         }
     }
 
@@ -740,11 +867,17 @@ mod functor_laws {
         compose_all(translated_b).apply(&mut view_b).unwrap();
 
         prop_assert!(
-            instances_equivalent(&view_a, &view_b),
+            tree_identical(&view_a, &view_b),
             "functor composition: view edits diverged",
         );
         prop_assert!(
-            complements_equivalent(&copy_a.complement, &copy_b.complement),
+            copy_a.complement.id_floor == copy_b.complement.id_floor
+                && retained_complement_divergence(
+                    &copy_a.complement,
+                    &copy_b.complement,
+                    base.complement.id_floor,
+                )
+                .is_none(),
             "functor composition: threaded complements diverged",
         );
         Ok(())
@@ -762,11 +895,13 @@ mod functor_laws {
         translated.apply(&mut view).unwrap();
 
         prop_assert!(
-            instances_equivalent(&view0, &view),
+            tree_identical(&view0, &view),
             "identity edit changed the view",
         );
         prop_assert!(
-            complements_equivalent(&before, &copy.complement),
+            before.id_floor == copy.complement.id_floor
+                && retained_complement_divergence(&copy.complement, &before, before.id_floor)
+                    .is_none(),
             "identity edit changed the complement",
         );
         Ok(())

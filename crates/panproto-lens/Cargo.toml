@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 panproto-mig = { workspace = true }
@@ -20,6 +23,7 @@ thiserror = { workspace = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
+panproto-reference = { workspace = true }
 divan = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }
@@ -28,6 +32,10 @@ serde_json = { workspace = true }
 
 [[bench]]
 name = "lens_bench"
+harness = false
+
+[[bench]]
+name = "dispatch"
 harness = false
 
 [lints]

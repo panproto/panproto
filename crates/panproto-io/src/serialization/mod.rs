@@ -1,7 +1,7 @@
 //! Instance codecs for serialization protocols.
 //!
 //! Serialization protocols use JSON as their canonical instance representation.
-//! Binary wire formats (Avro, FlatBuffers, etc.) are represented as
+//! Binary wire formats (Avro, `FlatBuffers`, etc.) are represented as
 //! their JSON canonical encoding, matching the JSON pathway used by other
 //! protocols. Dedicated binary parsers (`apache-avro`, etc.) can
 //! be registered as drop-in replacements for higher throughput.

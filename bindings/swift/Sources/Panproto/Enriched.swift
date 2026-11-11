@@ -28,8 +28,10 @@ extension SchemaHandle {
     ///     value.
     /// - Returns: a handle on the enriched schema.
     /// - Throws: ``PanprotoError`` in the
-    ///   ``PanprotoError/schemaValidation(_:)`` domain when the handle
-    ///   is stale or names another slab variant.
+    ///   ``PanprotoError/schemaValidation(_:)`` domain when the index is
+    ///   unallocated or names another slab variant. Calling this method
+    ///   after `release()` is forbidden because a same-variant allocation
+    ///   may have reused the numeric index.
     @PanprotoEngine
     public func addingCoercion(
         from sourceKind: Name,
@@ -69,8 +71,10 @@ extension SchemaHandle {
     ///   - vertex: the vertex it belongs to.
     /// - Returns: a handle on the enriched schema.
     /// - Throws: ``PanprotoError`` in the
-    ///   ``PanprotoError/schemaValidation(_:)`` domain when the handle
-    ///   is stale or names another slab variant.
+    ///   ``PanprotoError/schemaValidation(_:)`` domain when the index is
+    ///   unallocated or names another slab variant. Calling this method
+    ///   after `release()` is forbidden because a same-variant allocation
+    ///   may have reused the numeric index.
     @PanprotoEngine
     public func addingDefault(
         _ value: Value,

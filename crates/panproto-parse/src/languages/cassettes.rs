@@ -47,8 +47,7 @@ pub trait GrammarCassette: Send + Sync {
     /// break instead of the literal token text. Used by indent-based
     /// grammars where `;` in `_simple_statements` should produce a
     /// newline rather than a semicolon.
-    fn separator_is_line_break(&self, separator_text: &str) -> bool {
-        let _ = separator_text;
+    fn separator_is_line_break(&self, _separator_text: &str) -> bool {
         false
     }
 
@@ -59,8 +58,7 @@ pub trait GrammarCassette: Send + Sync {
     /// inserts spaces that the re-parse folds back into the captured
     /// text, so the literal grows unboundedly across emit cycles; tight
     /// emission keeps it a fixed point.
-    fn kind_is_tight_content(&self, kind: &str) -> bool {
-        let _ = kind;
+    fn kind_is_tight_content(&self, _kind: &str) -> bool {
         false
     }
 
@@ -75,8 +73,7 @@ pub trait GrammarCassette: Send + Sync {
     /// this from the grammar, so the per-language cassette declares it;
     /// the layout pass then emits the token with the always-tight
     /// [`Connector`](crate::emit_pretty) role.
-    fn operator_is_tight(&self, rule: &str, token: &str) -> bool {
-        let _ = (rule, token);
+    fn operator_is_tight(&self, _rule: &str, _token: &str) -> bool {
         false
     }
 
@@ -86,8 +83,7 @@ pub trait GrammarCassette: Send + Sync {
     /// generic newline-classifier (which keys off the `_newline` /
     /// `line_ending` conventions) cannot recognise them; the per-grammar
     /// cassette declares them here.
-    fn external_is_newline(&self, token_name: &str) -> bool {
-        let _ = token_name;
+    fn external_is_newline(&self, _token_name: &str) -> bool {
         false
     }
 
@@ -105,8 +101,7 @@ pub trait GrammarCassette: Send + Sync {
     /// `interpolated_string_expression`. Keyed by the external's own name,
     /// so it never fires for a sibling C-family grammar that lacks the
     /// token.
-    fn external_leads_no_space(&self, token_name: &str) -> bool {
-        let _ = token_name;
+    fn external_leads_no_space(&self, _token_name: &str) -> bool {
         false
     }
 }
@@ -437,18 +432,6 @@ impl GrammarCassette for ShellFamilyCassette {
     }
 }
 
-/// Cassette for the C-family raw-string grammars (C++, CUDA, HLSL,
-/// Arduino). These share `raw_string_delimiter` and `raw_string_content`
-/// externals whose actual text is parse-time dependent; emit empty when
-/// there is no captured literal.
-struct CFamilyCassette;
-
-impl GrammarCassette for CFamilyCassette {
-    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
-        None // Common layer handles raw_string_* uniformly.
-    }
-}
-
 /// Cassette for C#. Its interpolated strings (`$"…{x}…"`) carry the whole
 /// string span — delimiters, captured content, and the `{`/`}`
 /// interpolation braces — as scanner-driven external tokens whose layout
@@ -499,17 +482,6 @@ impl GrammarCassette for CSharpCassette {
             kind,
             "string_content" | "interpolation_brace" | "interpolation_quote" | "raw_string_content"
         )
-    }
-}
-
-/// Cassette for JavaScript / TypeScript / TSX / QML, which share the
-/// `_ternary_qmark`, `_automatic_semicolon`, `regex_pattern`, and
-/// `jsx_text` externals.
-struct JsFamilyCassette;
-
-impl GrammarCassette for JsFamilyCassette {
-    fn external_token_default(&self, _token_name: &str) -> Option<&str> {
-        None // Common layer covers all the JS family externals.
     }
 }
 
@@ -592,8 +564,6 @@ pub fn cassette_for(protocol: &str) -> Arc<dyn GrammarCassette> {
         "bash" | "zsh" | "fish" => Arc::new(ShellFamilyCassette),
         "r" => Arc::new(RCassette),
         "csharp" => Arc::new(CSharpCassette),
-        "cpp" | "cuda" | "hlsl" | "arduino" | "c" => Arc::new(CFamilyCassette),
-        "javascript" | "typescript" | "tsx" | "qml" | "rescript" => Arc::new(JsFamilyCassette),
         "elm" => Arc::new(ElmCassette),
         "kotlin" => Arc::new(KotlinCassette),
         "agda" | "fsharp" | "fsharp_signature" | "earthfile" | "firrtl" | "cooklang" | "djot"

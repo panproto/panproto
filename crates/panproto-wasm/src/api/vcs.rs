@@ -14,7 +14,7 @@ use super::helpers::{
 };
 
 // ---------------------------------------------------------------------------
-// Phase 6: VCS operations
+// VCS operations
 // ---------------------------------------------------------------------------
 
 /// Initialize an in-memory VCS repository. Returns handle.

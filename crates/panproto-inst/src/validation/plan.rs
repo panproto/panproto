@@ -1,0 +1,1976 @@
+//! Validation plans: a schema and a protocol compiled into the checks an
+//! instance must pass.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use panproto_gat::Name;
+use panproto_schema::{
+    ConstraintSemantics, ConstraintValue, Edge, InstanceShapeKind, Key, LengthUnit, Protocol,
+    Reference, ScalarKind, Schema, ValueSpec,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::identity::{CanonicalSink, Digest, VALIDATION_PLAN_CONTEXT, schema_digest};
+use crate::locality::{Locality, SummaryKind};
+use crate::view_ref::ViewRef;
+
+use super::report::{
+    CheckClass, CheckKey, CheckKind, IncompleteCheck, Requirement, SchemaRef, SchemaSourceMap,
+    SourceLocation, write_requirement, write_schema_ref, write_source,
+};
+
+/// What a caller adds to a schema's own declarations when compiling a plan.
+///
+/// `requirements` overrides the requirement of every check of a declaration;
+/// `external` declares application checks; `sources` locates declarations
+/// for diagnostics. The default is empty.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationOptions {
+    /// The requirement of the checks of each declaration, overriding the
+    /// default.
+    #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+    pub requirements: BTreeMap<SchemaRef, Requirement>,
+    /// The application checks, by name.
+    pub external: BTreeMap<Name, ExternalCheckDecl>,
+    /// Where each declaration was written.
+    pub sources: SchemaSourceMap,
+}
+
+/// An application check: one instance per element anchored at one of
+/// `anchors`, decided by an external verdict.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalCheckDecl {
+    /// The check's name, the key of its verdicts.
+    pub name: Name,
+    /// The vertices whose elements the check is about.
+    pub anchors: BTreeSet<Name>,
+    /// Whether the check decides the status.
+    pub requirement: Requirement,
+}
+
+/// How many reads a validation may spend.
+///
+/// One unit is one element of a check instance's footprint; instances are
+/// charged in ascending [`CheckInstance`](super::CheckInstance) order, so the
+/// cut point is the same on every platform. The default, `None`, is
+/// unlimited.
+///
+/// This is a counted budget with a typed unknown on exhaustion, as SMT-LIB
+/// 2.6 specifies its reproducible resource limit (Barrett et al. 2021, Sec
+/// 4.1.7, stated: a check that cannot decide within the limit answers
+/// unknown, and its answer depends deterministically on the limit on the
+/// same machine). Here the cut is deterministic on every platform, not only
+/// on one machine, since the units are footprint elements charged in a
+/// fixed order (inferred). An instance the budget cannot pay for is
+/// reported `Incomplete` with the cut, never approximated, as CBMC reports a
+/// loop it did not unwind far enough by a failing unwinding assertion
+/// rather than a bounded answer (Kroening et al. 2023, Sec 3.1, stated). A
+/// limit at least the unlimited run's `spent` gives the unlimited report,
+/// the analogue of the clock-add lemma of Owens et al. 2016 (Sec 3.4,
+/// proved there for a functional big-step semantics; transfer inferred),
+/// and the verdicts of the evaluated prefix are kept under any limit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ValidationBudget {
+    /// The most reads allowed, or `None` for no limit.
+    pub max_reads: Option<u64>,
+}
+
+/// An external judgment of one element by one application check.
+///
+/// panproto records the witness digest and never evaluates the rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ExternalVerdict {
+    /// Whether the element passed.
+    pub passed: bool,
+    /// The digest of the evidence behind the verdict.
+    pub witness: Digest,
+}
+
+/// The external verdicts supplied to one validation, keyed by check name and
+/// element.
+///
+/// For an application check ([`ExternalCheckDecl`]) the name is the check's,
+/// and its elements are those anchored at one of its anchors. For a
+/// constraint sort whose semantics is `External` the name is the sort, and
+/// its elements are those holding a value site of a vertex the sort
+/// constrains. One verdict per sort and element answers for every site of
+/// that sort on the element: a row with two columns under one `External`
+/// sort has one verdict for both.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ExternalVerdicts(
+    /// The verdict for each check and element.
+    #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+    pub BTreeMap<(Name, ViewRef), ExternalVerdict>,
+);
+
+impl ExternalVerdicts {
+    /// The verdict of check `name` on `element`, if one was supplied.
+    #[must_use]
+    pub fn get(&self, name: &Name, element: &ViewRef) -> Option<&ExternalVerdict> {
+        self.0.get(&(name.clone(), element.clone()))
+    }
+
+    /// Record the verdict of check `name` on `element`.
+    pub fn insert(&mut self, name: Name, element: ViewRef, verdict: ExternalVerdict) {
+        self.0.insert((name, element), verdict);
+    }
+}
+
+/// The kinds of structural change an edit is made of, per shape.
+///
+/// Graph edits add and delete nodes and edges and change node and edge
+/// attributes; table edits add and delete rows and foreign-key pairs, change
+/// cells, and move rows between tables; tree edits are the steps of
+/// [`TreeEdit`](crate::TreeEdit).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeltaElementKind {
+    /// A graph node is added.
+    AddNode,
+    /// A graph node is deleted.
+    DelNode,
+    /// A graph edge is added.
+    AddEdge,
+    /// A graph edge is deleted.
+    DelEdge,
+    /// A node's value changes.
+    AttrValue,
+    /// A node's extra fields change.
+    AttrField,
+    /// A node's discriminator, shape, position or annotations change.
+    AttrMeta,
+    /// A node's anchor changes.
+    AttrAnchor,
+    /// An edge's label changes.
+    AttrEdgeLabel,
+    /// An edge's position changes.
+    AttrEdgePosition,
+    /// A table row is added.
+    AddRow,
+    /// A table row is deleted.
+    DelRow,
+    /// A foreign-key pair is added.
+    AddPair,
+    /// A foreign-key pair is deleted.
+    DelPair,
+    /// A cell changes.
+    Cell,
+    /// A row moves to another table.
+    Table,
+    /// [`TreeEdit::InsertNode`](crate::TreeEdit::InsertNode).
+    InsertNode,
+    /// [`TreeEdit::DeleteNode`](crate::TreeEdit::DeleteNode).
+    DeleteNode,
+    /// [`TreeEdit::ContractNode`](crate::TreeEdit::ContractNode).
+    ContractNode,
+    /// [`TreeEdit::RelabelNode`](crate::TreeEdit::RelabelNode).
+    RelabelNode,
+    /// [`TreeEdit::SetField`](crate::TreeEdit::SetField).
+    SetField,
+    /// [`TreeEdit::RemoveField`](crate::TreeEdit::RemoveField).
+    RemoveField,
+    /// [`TreeEdit::MoveSubtree`](crate::TreeEdit::MoveSubtree).
+    MoveSubtree,
+    /// [`TreeEdit::InsertFan`](crate::TreeEdit::InsertFan).
+    InsertFan,
+    /// [`TreeEdit::DeleteFan`](crate::TreeEdit::DeleteFan).
+    DeleteFan,
+    /// [`TreeEdit::JoinFeatures`](crate::TreeEdit::JoinFeatures).
+    JoinFeatures,
+}
+
+impl DeltaElementKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [Self; 26] = [
+        Self::AddNode,
+        Self::DelNode,
+        Self::AddEdge,
+        Self::DelEdge,
+        Self::AttrValue,
+        Self::AttrField,
+        Self::AttrMeta,
+        Self::AttrAnchor,
+        Self::AttrEdgeLabel,
+        Self::AttrEdgePosition,
+        Self::AddRow,
+        Self::DelRow,
+        Self::AddPair,
+        Self::DelPair,
+        Self::Cell,
+        Self::Table,
+        Self::InsertNode,
+        Self::DeleteNode,
+        Self::ContractNode,
+        Self::RelabelNode,
+        Self::SetField,
+        Self::RemoveField,
+        Self::MoveSubtree,
+        Self::InsertFan,
+        Self::DeleteFan,
+        Self::JoinFeatures,
+    ];
+
+    /// The check kinds a change of this kind can change the verdict of
+    /// (the fixed table of [`TriggerTable`]).
+    #[must_use]
+    pub const fn triggers(self) -> &'static [CheckKind] {
+        match self {
+            Self::AddNode => rows::ADD_NODE,
+            Self::DelNode | Self::DelRow => rows::DELETE_ELEMENT,
+            Self::AddEdge => rows::ADD_EDGE,
+            Self::DelEdge => rows::DEL_EDGE,
+            Self::AttrValue => rows::ATTR_VALUE,
+            Self::AttrField | Self::SetField | Self::RemoveField => rows::FIELD,
+            Self::AttrMeta => rows::ATTR_META,
+            Self::AttrAnchor => rows::ATTR_ANCHOR,
+            Self::AttrEdgeLabel => rows::ATTR_EDGE_LABEL,
+            Self::AttrEdgePosition => rows::ATTR_EDGE_POSITION,
+            Self::AddRow => rows::ADD_ROW,
+            Self::AddPair => rows::ADD_PAIR,
+            Self::DelPair => rows::DEL_PAIR,
+            Self::Cell => rows::CELL,
+            Self::Table => rows::TABLE,
+            Self::InsertNode => rows::INSERT_NODE,
+            Self::DeleteNode => rows::DELETE_NODE,
+            Self::ContractNode | Self::JoinFeatures => rows::CONTRACT_NODE,
+            Self::RelabelNode => rows::RELABEL_NODE,
+            Self::MoveSubtree => rows::MOVE_SUBTREE,
+            Self::InsertFan | Self::DeleteFan => rows::FAN,
+        }
+    }
+}
+
+/// The rows of the fixed trigger table.
+mod rows {
+    use super::CheckKind as K;
+
+    pub const ADD_NODE: &[K] = &[
+        K::NodeAnchor,
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const DELETE_ELEMENT: &[K] = &[K::KeyUnique, K::ReferenceResolves];
+    pub const ADD_EDGE: &[K] = &[
+        K::EdgeDeclared,
+        K::EndpointCoherence,
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::Acyclic,
+        K::External,
+    ];
+    pub const DEL_EDGE: &[K] = &[
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::Acyclic,
+        K::External,
+    ];
+    pub const ATTR_VALUE: &[K] = &[
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+    ];
+    pub const FIELD: &[K] = &[
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+    ];
+    pub const ATTR_META: &[K] = &[
+        K::NodeAnchor,
+        K::FanWellFormed,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const ATTR_ANCHOR: &[K] = &[
+        K::NodeAnchor,
+        K::EndpointCoherence,
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::Acyclic,
+        K::External,
+    ];
+    pub const ATTR_EDGE_LABEL: &[K] = &[
+        K::EdgeDeclared,
+        K::EndpointCoherence,
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::Acyclic,
+        K::External,
+    ];
+    pub const ATTR_EDGE_POSITION: &[K] = &[
+        K::PositionDistinct,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+    ];
+    pub const ADD_ROW: &[K] = &[
+        K::NodeAnchor,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const ADD_PAIR: &[K] = &[
+        K::EdgeDeclared,
+        K::EndpointCoherence,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const DEL_PAIR: &[K] = &[
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const CELL: &[K] = &[
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+    ];
+    pub const TABLE: &[K] = &[
+        K::NodeAnchor,
+        K::EndpointCoherence,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const INSERT_NODE: &[K] = &[
+        K::NodeAnchor,
+        K::ReservedVocabulary,
+        K::EdgeDeclared,
+        K::EndpointCoherence,
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::TreeRoot,
+        K::TreeParentMap,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::TreeReachable,
+        K::External,
+    ];
+    pub const DELETE_NODE: &[K] = &[
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::TreeRoot,
+        K::TreeParentMap,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::TreeReachable,
+        K::External,
+    ];
+    pub const CONTRACT_NODE: &[K] = &[
+        K::NodeAnchor,
+        K::ReservedVocabulary,
+        K::EdgeDeclared,
+        K::EndpointCoherence,
+        K::FanWellFormed,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::TreeRoot,
+        K::TreeParentMap,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::TreeReachable,
+        K::External,
+    ];
+    pub const RELABEL_NODE: &[K] = &[
+        K::NodeAnchor,
+        K::EndpointCoherence,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::External,
+    ];
+    pub const MOVE_SUBTREE: &[K] = &[
+        K::ReservedVocabulary,
+        K::EdgeDeclared,
+        K::EndpointCoherence,
+        K::RequiredEdge,
+        K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::TreeParentMap,
+        K::KeyUnique,
+        K::ReferenceResolves,
+        K::TreeReachable,
+        K::External,
+    ];
+    pub const FAN: &[K] = &[K::FanWellFormed];
+}
+
+/// Which compiled check kinds each kind of structural change can affect.
+///
+/// This is the precomputed half of incremental validation (Cabot and
+/// Teniente 2006, stated: per constraint, the structural events that can
+/// violate it). The fixed table, before restriction to the kinds a plan
+/// compiles, is [`DeltaElementKind::triggers`]:
+///
+/// | change | kinds |
+/// |---|---|
+/// | `AddNode` | `NodeAnchor`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `DelNode`, `DelRow` | `KeyUnique`, `ReferenceResolves` |
+/// | `AddEdge` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
+/// | `DelEdge` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
+/// | `AttrValue` | `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves` |
+/// | `AttrField`, `SetField`, `RemoveField` | `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves` |
+/// | `AttrMeta` | `NodeAnchor`, `FanWellFormed`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `AttrAnchor` | `NodeAnchor`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
+/// | `AttrEdgeLabel` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
+/// | `AttrEdgePosition` | `PositionDistinct`, `RequiredValue`, `KeyUnique`, `ReferenceResolves` |
+/// | `AddRow` | `NodeAnchor`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `AddPair` | `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `DelPair` | `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `Cell` | `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves` |
+/// | `Table` | `NodeAnchor`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `InsertNode` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `DeleteNode` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `ContractNode`, `JoinFeatures` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `RelabelNode` | `NodeAnchor`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `MoveSubtree` | `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `InsertFan`, `DeleteFan` | `FanWellFormed` |
+///
+/// A kind with no compiled check is dropped from its row, and a row left
+/// empty is dropped. The kinds whose subject an edit removes are not listed:
+/// their instances retire with the element.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TriggerTable(
+    /// The check kinds each change can affect.
+    #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+    pub BTreeMap<DeltaElementKind, BTreeSet<CheckKind>>,
+);
+
+impl TriggerTable {
+    /// The fixed table restricted to the kinds in `compiled`.
+    #[must_use]
+    pub fn restricted_to(compiled: &BTreeSet<CheckKind>) -> Self {
+        let mut rows = BTreeMap::new();
+        for change in DeltaElementKind::ALL {
+            let kinds: BTreeSet<CheckKind> = change
+                .triggers()
+                .iter()
+                .copied()
+                .filter(|k| compiled.contains(k))
+                .collect();
+            if !kinds.is_empty() {
+                rows.insert(change, kinds);
+            }
+        }
+        Self(rows)
+    }
+
+    /// The compiled kinds a change of kind `change` can affect.
+    #[must_use]
+    pub fn kinds(&self, change: DeltaElementKind) -> Option<&BTreeSet<CheckKind>> {
+        self.0.get(&change)
+    }
+}
+
+/// One compiled check.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckSpec {
+    /// The check.
+    pub key: CheckKey,
+    /// Its class.
+    pub class: CheckClass,
+    /// The shapes it applies to, with how much of a partitioned instance of
+    /// each shape one instance reads.
+    pub locality: BTreeMap<InstanceShapeKind, Locality>,
+    /// Whether it decides the status.
+    pub requirement: Requirement,
+    /// The meaning of the constraint it checks, for a constraint check.
+    pub semantics: Option<ConstraintSemantics>,
+    /// The vertices whose elements it is about; empty for a check about
+    /// every element or the whole instance.
+    pub anchors: BTreeSet<Name>,
+}
+
+impl CheckSpec {
+    /// Whether the check applies to instances of `shape`.
+    #[must_use]
+    pub fn applies_to(&self, shape: InstanceShapeKind) -> bool {
+        self.locality.contains_key(&shape)
+    }
+}
+
+/// A named value format: the fixed set a [`ConstraintSemantics::Format`]
+/// constraint is evaluated for.
+///
+/// The constraint's value names the format. The set is closed:
+///
+/// | Name | Format | A string value matches when |
+/// |---|---|---|
+/// | `date-time` (also `datetime`) | [`Self::DateTime`] | it parses as a date-time ([`Temporal::parse_date_time`](crate::value::Temporal::parse_date_time)) |
+/// | `date` | [`Self::Date`] | it parses as a date ([`Temporal::parse_date`](crate::value::Temporal::parse_date)) |
+/// | `time` | [`Self::Time`] | it parses as a time ([`Temporal::parse_time`](crate::value::Temporal::parse_time)) |
+/// | `uri` | [`Self::Uri`] | it is a scheme (a letter, then letters, digits, `+`, `-` or `.`), a colon and the rest, with no whitespace |
+/// | `uuid` | [`Self::Uuid`] | it is five groups of 8, 4, 4, 4 and 12 hexadecimal digits joined by `-` |
+/// | `ipv4` | [`Self::Ipv4`] | it parses as an IPv4 address |
+/// | `ipv6` | [`Self::Ipv6`] | it parses as an IPv6 address |
+/// | `did` | [`Self::Did`] | it is a DID in the W3C DID syntax: `did:` in any case, a nonempty method of lowercase letters and digits, `:`, and colon-separated runs of letters, digits, `.`, `-`, `_` and percent-encoded octets, the last run nonempty |
+/// | `at-identifier` | [`Self::AtIdentifier`] | it is an AT Protocol handle or DID (see `did` below the table) |
+/// | `at-uri` | [`Self::AtUri`] | it is an AT URI in the restricted Lexicon syntax: at most 8 KiB, `at://`, a handle or DID, then optionally `/` and an NSID, then optionally `/` and a record key |
+/// | `cid` | [`Self::Cid`] | it is `b` and lowercase unpadded RFC 4648 base32 of a blessed AT Protocol CID: version 1, codec raw or DRISL/dag-cbor, SHA-256, a 32-byte digest and nothing after it |
+/// | `handle` | [`Self::Handle`] | it is an ASCII hostname of at most 253 characters, two or more labels of 1 to 63 letters, digits and inner hyphens, the last not starting with a digit |
+/// | `nsid` | [`Self::Nsid`] | it is a reversed domain authority (at most 253 characters, two or more labels, the first not starting with a digit) and a name of 1 to 63 letters and digits not starting with a digit, at most 317 characters in all |
+/// | `tid` | [`Self::Tid`] | it is 13 characters of `234567abcdefghijklmnopqrstuvwxyz`, the first one of `234567abcdefghij` |
+/// | `record-key` | [`Self::RecordKey`] | it is 1 to 512 ASCII letters, digits and `.`, `-`, `_`, `:`, `~`, and is neither `.` nor `..` |
+/// | `language` | [`Self::Language`] | it is a well-formed language tag of RFC 5646 (BCP 47), section 2.1, in any case |
+///
+/// `did` is the syntax of W3C Decentralized Identifiers (DIDs) v1.0
+/// (<https://www.w3.org/TR/did-1.0/>, section 3.1).
+///
+/// The last eight are the string formats of the AT Protocol Lexicon
+/// (<https://atproto.com/specs/lexicon>, "String Formats"), each checked as
+/// the specification it points to defines its syntax: the handle, NSID,
+/// TID, record key and AT URI specifications, the data model's blessed CID
+/// form (aligned with DASL) for `cid`, and RFC 5646 for `language`. The DID
+/// inside `at-identifier` and `at-uri` is the Lexicon's `did`. The checks are
+/// syntactic only, as the Lexicon asks: an unsupported DID method, a
+/// reserved top-level domain or a well-formed but invalid language tag
+/// passes.
+///
+/// The constraint's format family can add rules to a format; the `atproto`
+/// family, for instance, applies the Lexicon's additional DID restrictions.
+///
+/// A temporal value matches `date-time`, `date` or `time` when it is of
+/// that kind; any other value leaves the instance undecided
+/// ([`IncompleteReason::IllFormedDeclaration`](super::IncompleteReason::IllFormedDeclaration)).
+/// A constraint naming any other format compiles to a static finding with
+/// [`IncompleteReason::UnsupportedDeclaration`](super::IncompleteReason::UnsupportedDeclaration),
+/// never to a pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ValueFormat {
+    /// `date-time` or `datetime`: a date-time lexeme.
+    DateTime,
+    /// `date`: a date lexeme.
+    Date,
+    /// `time`: a time lexeme.
+    Time,
+    /// `uri`: a scheme, a colon, and no whitespace.
+    Uri,
+    /// `uuid`: 8-4-4-4-12 hexadecimal digits.
+    Uuid,
+    /// `ipv4`: a dotted-quad address.
+    Ipv4,
+    /// `ipv6`: an IPv6 address.
+    Ipv6,
+    /// `did`: a DID in the W3C DID syntax.
+    Did,
+    /// `at-identifier`: an AT Protocol handle or DID.
+    AtIdentifier,
+    /// `at-uri`: an AT URI in the restricted Lexicon syntax.
+    AtUri,
+    /// `cid`: a blessed AT Protocol CID in canonical string form.
+    Cid,
+    /// `handle`: an AT Protocol handle.
+    Handle,
+    /// `nsid`: a namespaced identifier.
+    Nsid,
+    /// `tid`: a timestamp identifier.
+    Tid,
+    /// `record-key`: an AT Protocol record key.
+    RecordKey,
+    /// `language`: a well-formed BCP 47 language tag.
+    Language,
+}
+
+impl ValueFormat {
+    /// Every supported format, in declaration order.
+    pub const ALL: [Self; 16] = [
+        Self::DateTime,
+        Self::Date,
+        Self::Time,
+        Self::Uri,
+        Self::Uuid,
+        Self::Ipv4,
+        Self::Ipv6,
+        Self::Did,
+        Self::AtIdentifier,
+        Self::AtUri,
+        Self::Cid,
+        Self::Handle,
+        Self::Nsid,
+        Self::Tid,
+        Self::RecordKey,
+        Self::Language,
+    ];
+
+    /// The format's canonical name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::DateTime => "date-time",
+            Self::Date => "date",
+            Self::Time => "time",
+            Self::Uri => "uri",
+            Self::Uuid => "uuid",
+            Self::Ipv4 => "ipv4",
+            Self::Ipv6 => "ipv6",
+            Self::Did => "did",
+            Self::AtIdentifier => "at-identifier",
+            Self::AtUri => "at-uri",
+            Self::Cid => "cid",
+            Self::Handle => "handle",
+            Self::Nsid => "nsid",
+            Self::Tid => "tid",
+            Self::RecordKey => "record-key",
+            Self::Language => "language",
+        }
+    }
+
+    /// The format a name denotes, if it is one of the supported set; `datetime`
+    /// is accepted as a second name for `date-time`.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        if name == "datetime" {
+            return Some(Self::DateTime);
+        }
+        Self::ALL.into_iter().find(|f| f.name() == name)
+    }
+}
+
+/// The rules a format family adds to the shared formats of
+/// [`ValueFormat`].
+///
+/// A [`ConstraintSemantics::Format`] constraint names its family, and the
+/// family selects the rules: every family checks a format's shared syntax,
+/// and the AT Protocol Lexicon (the family `atproto`) also applies its own
+/// DID rules to `did`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) enum FormatRules {
+    /// The shared syntax of each format, for every family but `atproto`.
+    #[default]
+    Shared,
+    /// The AT Protocol Lexicon's rules (<https://atproto.com/specs/did>,
+    /// "DID Identifier Syntax"): a `did` is also lowercase `did:`, a method
+    /// of lowercase letters only, and at most 2048 characters, so
+    /// `did:m123:val` fails.
+    Atproto,
+}
+
+impl FormatRules {
+    /// The rules of the format family named `family`.
+    #[must_use]
+    pub(super) fn of_family(family: &str) -> Self {
+        if family == "atproto" {
+            Self::Atproto
+        } else {
+            Self::Shared
+        }
+    }
+
+    /// Whether `text` is a DID under these rules.
+    pub(super) fn did_matches(self, text: &str) -> bool {
+        match self {
+            Self::Shared => super::did::is_did(text),
+            Self::Atproto => super::lexicon_formats::is_lexicon_did(text),
+        }
+    }
+}
+
+/// A bound of a `Minimum` or `Maximum` constraint, read from its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Bound {
+    /// A number, compared numerically.
+    Number(crate::value::DecimalValue),
+    /// A date, time or date-time, compared on the instant.
+    Temporal(crate::value::Temporal),
+}
+
+/// What a value constraint tests.
+#[derive(Clone, Debug)]
+pub(super) enum ValueTest {
+    /// A length bound, upper when `upper`.
+    Length {
+        unit: LengthUnit,
+        limit: u64,
+        upper: bool,
+    },
+    /// An inclusive bound, upper when `upper`.
+    Bound { bound: Bound, upper: bool },
+    /// One of the listed members.
+    Members(Vec<String>),
+    /// A match of the regular expression.
+    Pattern(regex::Regex),
+    /// A lexeme of the format under the rules of the constraint's family.
+    Format {
+        format: ValueFormat,
+        rules: FormatRules,
+    },
+    /// Exact coercibility to the kind named by an advisory width format.
+    Coercible(ValueSpec),
+    /// Coercibility to the kind selected by the value at `tag`.
+    LexicalSpace {
+        tag: Edge,
+        kinds: BTreeMap<String, ScalarKind>,
+    },
+}
+
+/// What evaluating one compiled check needs, beyond its [`CheckSpec`].
+#[derive(Clone, Debug)]
+// The reference form owns the full declaration and resolving key so a plan
+// remains independent of its input schema's borrow lifetime. Boxing it would
+// add fallible allocation and indirection to every reference evaluation.
+#[allow(clippy::large_enum_variant)]
+pub(super) enum Compiled {
+    /// A structural check with no parameters.
+    Structural,
+    /// The elements of the check's anchor have an out-edge labelled like
+    /// `edge`.
+    Required { edge: Edge },
+    /// The out-degree of the elements of the check's anchor (along `edge`,
+    /// or every non-fan out-edge) lies in `[min, max]`.
+    Degree {
+        edge: Option<Edge>,
+        min: Option<u32>,
+        max: Option<u32>,
+    },
+    /// No two out-edges labelled `edge` of one element share a position.
+    Ordering { edge: Edge },
+    /// The values at `vertex` pass `test`.
+    Value {
+        vertex: Name,
+        sort: Name,
+        bound: String,
+        test: ValueTest,
+    },
+    /// The values at `vertex` are present (`parts` `None`), or each part of
+    /// a primary key of the elements of `vertex` is.
+    RequiredValue {
+        vertex: Name,
+        parts: Option<Vec<panproto_schema::KeyPart>>,
+    },
+    /// The values of `key` are unique among the elements of `vertex`.
+    KeyUnique { vertex: Name, key: Key },
+    /// Each holder's value names exactly one element through `target`.
+    Reference { reference: Reference, target: Key },
+    /// The edges labelled by any of `labels` form no cycle.
+    Acyclic { labels: BTreeSet<Edge> },
+    /// An external check whose verdicts are filed under `name`, about the
+    /// elements of the check's anchors.
+    External { name: Name },
+}
+
+/// A schema and a protocol compiled into the checks an instance must pass.
+///
+/// [`ValidationPlan::compile`] is infallible: every problem found while
+/// compiling is a static finding, an [`IncompleteCheck`] on the static check
+/// that found it and on every check that depends on the declaration, never an
+/// error, so a caller always reads a status. Every report the plan produces
+/// lists the static findings, and none has status `Passed` while a required
+/// one exists. A schema problem never makes a report `Failed`: the instance
+/// is not what failed.
+///
+/// Validation is STRICT: every element must be typed, so an element whose
+/// anchor the schema does not declare is a `NodeAnchor` failure, never an
+/// element validation skips.
+///
+/// A plan is keyed by the digest of its schema, so plans for different
+/// schemas (including schemas composed in different modes) are different
+/// plans. The plan reads only the instance it is given; trees, tables and
+/// graphs each have their own validator, and validation never routes an
+/// instance through a shape bridge.
+#[derive(Clone, Debug)]
+pub struct ValidationPlan {
+    schema_digest: Digest,
+    digest: Digest,
+    checks: BTreeMap<CheckKey, CheckSpec>,
+    static_findings: Vec<IncompleteCheck>,
+    triggers: TriggerTable,
+    pub(crate) schema: Schema,
+    /// The attribute discipline of the schema under the protocol, read once
+    /// at compilation by every `Attribute` check and its witness.
+    pub(crate) attributes: crate::attributes::AttributeSchema,
+    pub(super) compiled: BTreeMap<CheckKey, Compiled>,
+    pub(crate) options: ValidationOptions,
+}
+
+impl ValidationPlan {
+    /// The digest of the schema the plan was compiled from.
+    #[must_use]
+    pub const fn schema_digest(&self) -> &Digest {
+        &self.schema_digest
+    }
+
+    /// The plan's identity: [`VALIDATION_PLAN_CONTEXT`] over the schema
+    /// digest, the protocol's constraint semantics, the other protocol
+    /// fields compilation reads (the name, vertex kinds, constraint sorts,
+    /// edge rules and the two shapes, every list as stored, in order and
+    /// with repeats; then the value and non-value kinds, in key order) and
+    /// the options. Two plans with equal digests give
+    /// equal reports for every instance.
+    #[must_use]
+    pub const fn digest(&self) -> &Digest {
+        &self.digest
+    }
+
+    /// The compiled checks.
+    #[must_use]
+    pub const fn checks(&self) -> &BTreeMap<CheckKey, CheckSpec> {
+        &self.checks
+    }
+
+    /// The problems found while compiling, sorted by check.
+    #[must_use]
+    pub fn static_findings(&self) -> &[IncompleteCheck] {
+        &self.static_findings
+    }
+
+    /// The trigger table, restricted to the compiled kinds.
+    #[must_use]
+    pub const fn triggers(&self) -> &TriggerTable {
+        &self.triggers
+    }
+
+    /// Source location attached to one declaration, for crate-internal
+    /// diagnostics produced outside the ordinary instance evaluator.
+    pub(crate) fn source(&self, declaration: &SchemaRef) -> Option<SourceLocation> {
+        self.options.sources.0.get(declaration).cloned()
+    }
+
+    /// The schema the plan was compiled from.
+    #[must_use]
+    pub const fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
+    /// Whether `key` has a static finding, so that none of its instances is
+    /// evaluated.
+    pub(crate) fn is_statically_incomplete(&self, key: &CheckKey) -> bool {
+        self.static_findings.iter().any(|f| &f.check == key)
+    }
+
+    /// Compile `schema` under `protocol` and `options`.
+    #[must_use]
+    pub fn compile(schema: &Schema, protocol: &Protocol, options: &ValidationOptions) -> Self {
+        let mut builder = Builder::new(schema, protocol, options);
+        builder.structural();
+        builder.attributes();
+        builder.required_edges();
+        builder.orderings();
+        builder.constraints();
+        builder.keys();
+        builder.references();
+        builder.external();
+        builder.hyper_edges();
+        builder.schema_well_formed();
+        builder.finish()
+    }
+}
+
+/// The plan under construction.
+struct Builder<'a> {
+    schema: &'a Schema,
+    protocol: &'a Protocol,
+    options: &'a ValidationOptions,
+    checks: BTreeMap<CheckKey, CheckSpec>,
+    compiled: BTreeMap<CheckKey, Compiled>,
+    findings: Vec<IncompleteCheck>,
+    attributes: crate::attributes::AttributeSchema,
+}
+
+const ALL_SHAPES: [InstanceShapeKind; 3] = [
+    InstanceShapeKind::Tree,
+    InstanceShapeKind::Table,
+    InstanceShapeKind::Graph,
+];
+
+/// The locality of `kind` after applying shape-specific plan rules.
+///
+/// Equal native tree fans are one semantic fan and therefore one finding.
+/// Their reified fan nodes may occupy different segments, so eliminating
+/// duplicates by [`super::FanRecord`] is a sorted merge rather than a local
+/// bag homomorphism. Graph fan nodes remain independently owned subjects.
+fn locality_for(kind: CheckKind, shape: InstanceShapeKind) -> Locality {
+    if kind == CheckKind::FanWellFormed && shape == InstanceShapeKind::Tree {
+        Locality::Summary(SummaryKind::SortedMerge)
+    } else {
+        kind.locality()
+    }
+}
+
+impl<'a> Builder<'a> {
+    fn new(schema: &'a Schema, protocol: &'a Protocol, options: &'a ValidationOptions) -> Self {
+        Self {
+            schema,
+            protocol,
+            options,
+            checks: BTreeMap::new(),
+            compiled: BTreeMap::new(),
+            findings: Vec::new(),
+            attributes: crate::attributes::AttributeSchema::default(),
+        }
+    }
+
+    /// Add a check applying to every shape its kind applies to.
+    fn add(
+        &mut self,
+        key: CheckKey,
+        compiled: Compiled,
+        semantics: Option<ConstraintSemantics>,
+        anchors: BTreeSet<Name>,
+    ) {
+        let shapes: Vec<InstanceShapeKind> = ALL_SHAPES
+            .into_iter()
+            .filter(|s| key.kind.applies_to(*s))
+            .collect();
+        self.add_on(
+            key,
+            compiled,
+            semantics,
+            anchors,
+            &shapes,
+            Requirement::Required,
+        );
+    }
+
+    /// Add a check applying to `shapes`, with default requirement `default`.
+    fn add_on(
+        &mut self,
+        key: CheckKey,
+        compiled: Compiled,
+        semantics: Option<ConstraintSemantics>,
+        anchors: BTreeSet<Name>,
+        shapes: &[InstanceShapeKind],
+        default: Requirement,
+    ) {
+        let locality = shapes
+            .iter()
+            .filter(|s| key.kind.applies_to(**s))
+            .map(|s| (*s, locality_for(key.kind, *s)))
+            .collect();
+        let requirement = self
+            .options
+            .requirements
+            .get(&key.decl)
+            .copied()
+            .unwrap_or(default);
+        let spec = CheckSpec {
+            key: key.clone(),
+            class: key.kind.class(),
+            locality,
+            requirement,
+            semantics,
+            anchors,
+        };
+        self.checks.insert(key.clone(), spec);
+        self.compiled.insert(key, compiled);
+    }
+
+    /// Record a static finding of `found_by` (one of the two static checks),
+    /// and of every key in `dependents`.
+    fn finding(
+        &mut self,
+        found_by: CheckKind,
+        reason: &super::report::IncompleteReason,
+        dependents: &[CheckKey],
+    ) {
+        let static_key = CheckKey::new(found_by, SchemaRef::Schema);
+        let mut keys = vec![static_key];
+        keys.extend(dependents.iter().cloned());
+        for key in keys {
+            let spec = self.checks.get(&key);
+            let class = spec.map_or_else(|| key.kind.class(), |s| s.class);
+            let requirement = spec.map_or(Requirement::Required, |s| s.requirement);
+            self.findings.push(IncompleteCheck {
+                class,
+                check: key,
+                requirement,
+                subject: None,
+                reason: reason.clone(),
+            });
+        }
+    }
+
+    /// Record an incomplete dependent without also failing a static check.
+    fn dependent_finding(&mut self, key: &CheckKey, reason: &super::report::IncompleteReason) {
+        let spec = self.checks.get(key);
+        self.findings.push(IncompleteCheck {
+            class: spec.map_or_else(|| key.kind.class(), |s| s.class),
+            check: key.clone(),
+            requirement: spec.map_or(Requirement::Required, |s| s.requirement),
+            subject: None,
+            reason: reason.clone(),
+        });
+    }
+
+    fn ill_formed(&mut self, detail: String, dependents: &[CheckKey]) {
+        self.finding(
+            CheckKind::DeclarationInterpretable,
+            &super::report::IncompleteReason::IllFormedDeclaration { detail },
+            dependents,
+        );
+    }
+
+    fn structural(&mut self) {
+        for kind in [
+            CheckKind::SchemaWellFormed,
+            CheckKind::DeclarationInterpretable,
+            CheckKind::NodeAnchor,
+            CheckKind::ReservedVocabulary,
+            CheckKind::EdgeDeclared,
+            CheckKind::EndpointCoherence,
+            CheckKind::FanWellFormed,
+            CheckKind::TreeRoot,
+            CheckKind::TreeParentMap,
+            CheckKind::TreeReachable,
+        ] {
+            self.add(
+                CheckKey::new(kind, SchemaRef::Schema),
+                Compiled::Structural,
+                None,
+                BTreeSet::new(),
+            );
+        }
+    }
+
+    fn attributes(&mut self) {
+        self.attributes =
+            crate::attributes::AttributeSchema::from_schema(self.schema, self.protocol);
+        let mut vertices: Vec<Name> = self.attributes.attrs.keys().cloned().collect();
+        vertices.sort();
+        for vertex in vertices {
+            self.add(
+                CheckKey::new(CheckKind::Attribute, SchemaRef::Vertex(vertex.clone())),
+                Compiled::Structural,
+                None,
+                BTreeSet::from([vertex]),
+            );
+        }
+    }
+
+    fn required_edges(&mut self) {
+        let mut required: Vec<(&Name, &Edge)> = self
+            .schema
+            .required
+            .iter()
+            .flat_map(|(v, edges)| edges.iter().map(move |e| (v, e)))
+            .collect();
+        required.sort();
+        for (vertex, edge) in required {
+            let key = CheckKey::new(
+                CheckKind::RequiredEdge,
+                SchemaRef::Required {
+                    vertex: vertex.clone(),
+                    edge: edge.clone(),
+                },
+            );
+            self.add(
+                key.clone(),
+                Compiled::Required { edge: edge.clone() },
+                None,
+                BTreeSet::from([vertex.clone()]),
+            );
+            if !self.schema.edges.contains_key(edge) {
+                self.ill_formed(
+                    format!(
+                        "vertex {vertex} requires edge {} -> {} ({}), which the schema does not declare",
+                        edge.src, edge.tgt, edge.kind
+                    ),
+                    &[key],
+                );
+            }
+        }
+    }
+
+    fn orderings(&mut self) {
+        let mut ordered: Vec<&Edge> = self.schema.orderings.keys().collect();
+        ordered.sort();
+        for edge in ordered {
+            let key = CheckKey::new(
+                CheckKind::PositionDistinct,
+                SchemaRef::Ordering(edge.clone()),
+            );
+            self.add(
+                key.clone(),
+                Compiled::Ordering { edge: edge.clone() },
+                None,
+                BTreeSet::from([edge.src.clone()]),
+            );
+            if !self.schema.edges.contains_key(edge) {
+                self.ill_formed(
+                    format!(
+                        "ordered edge {} -> {} ({}) is not declared by the schema",
+                        edge.src, edge.tgt, edge.kind
+                    ),
+                    &[key],
+                );
+            }
+        }
+    }
+}
+
+/// The check kind a constraint with meaning `semantics` compiles to.
+const fn constraint_kind(semantics: &ConstraintSemantics) -> CheckKind {
+    match semantics {
+        ConstraintSemantics::MinOutDegree | ConstraintSemantics::MaxOutDegree => {
+            CheckKind::OutDegree
+        }
+        ConstraintSemantics::RequiredValue => CheckKind::RequiredValue,
+        ConstraintSemantics::Acyclic => CheckKind::Acyclic,
+        ConstraintSemantics::External => CheckKind::External,
+        _ => CheckKind::ValueConstraint,
+    }
+}
+
+/// Read the bound of a `Minimum` or `Maximum` constraint: a number, else a
+/// date, time or date-time.
+fn parse_bound(text: &str) -> Option<Bound> {
+    crate::value::DecimalValue::parse(text)
+        .map(Bound::Number)
+        .ok()
+        .or_else(|| {
+            crate::value::Temporal::parse(text)
+                .ok()
+                .map(Bound::Temporal)
+        })
+}
+
+/// Read the members of an `Enum` constraint: a JSON array (each string
+/// member as its contents, any other member as its JSON text), else the
+/// comma-separated list the protocol parsers write.
+fn parse_members(text: &str) -> Vec<String> {
+    if text.trim_start().starts_with('[')
+        && let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(text)
+    {
+        return items
+            .into_iter()
+            .map(|item| match item {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            })
+            .collect();
+    }
+    text.split(',').map(str::to_owned).collect()
+}
+
+impl Builder<'_> {
+    fn constraints(&mut self) {
+        let mut all: Vec<(&Name, &panproto_schema::Constraint)> = self
+            .schema
+            .constraints
+            .iter()
+            .flat_map(|(v, cs)| cs.iter().map(move |c| (v, c)))
+            .collect();
+        all.sort();
+        all.dedup();
+        for (vertex, constraint) in all {
+            self.constraint(vertex, constraint);
+        }
+    }
+
+    fn constraint(&mut self, vertex: &Name, constraint: &panproto_schema::Constraint) {
+        let decl = SchemaRef::Constraint {
+            vertex: vertex.clone(),
+            constraint: constraint.clone(),
+        };
+        let anchors = BTreeSet::from([vertex.clone()]);
+        let sort = constraint.sort.clone();
+        let Some(semantics) = self
+            .protocol
+            .constraint_semantics
+            .get(constraint.sort.as_ref())
+            .cloned()
+        else {
+            let key = CheckKey::new(CheckKind::ValueConstraint, decl);
+            self.add(key.clone(), Compiled::Structural, None, anchors);
+            self.finding(
+                CheckKind::DeclarationInterpretable,
+                &super::report::IncompleteReason::UnsupportedDeclaration { sort },
+                &[key],
+            );
+            return;
+        };
+        if !semantics.compiles_to_check() {
+            if let Err(e) = semantics.parse_value(&constraint.sort, &constraint.value) {
+                self.ill_formed(e.to_string(), &[]);
+            }
+            return;
+        }
+        let key = CheckKey::new(constraint_kind(&semantics), decl);
+        let default = if matches!(
+            &semantics,
+            ConstraintSemantics::LexicalSpace | ConstraintSemantics::AnnotatedFormat(_)
+        ) {
+            Requirement::Advisory
+        } else {
+            Requirement::Required
+        };
+        let value = match semantics.parse_value(&constraint.sort, &constraint.value) {
+            Ok(value) => value,
+            Err(e) => {
+                self.add_on(
+                    key.clone(),
+                    Compiled::Structural,
+                    Some(semantics),
+                    anchors,
+                    &ALL_SHAPES,
+                    default,
+                );
+                self.ill_formed(e.to_string(), &[key]);
+                return;
+            }
+        };
+        let compiled = self.compile_constraint(vertex, constraint, &semantics, value);
+        match compiled {
+            Ok(Some(compiled)) => self.add_on(
+                key,
+                compiled,
+                Some(semantics),
+                anchors,
+                &ALL_SHAPES,
+                default,
+            ),
+            Ok(None) => {}
+            Err(reason) => {
+                let absent_lexical_selector =
+                    matches!(&semantics, ConstraintSemantics::LexicalSpace)
+                        && matches!(
+                            &reason,
+                            super::report::IncompleteReason::UnsupportedDeclaration { .. }
+                        );
+                self.add_on(
+                    key.clone(),
+                    Compiled::Structural,
+                    Some(semantics),
+                    anchors,
+                    &ALL_SHAPES,
+                    default,
+                );
+                if absent_lexical_selector {
+                    self.dependent_finding(&key, &reason);
+                } else {
+                    self.finding(CheckKind::DeclarationInterpretable, &reason, &[key]);
+                }
+            }
+        }
+    }
+
+    /// The compiled form of one constraint whose value reads under its
+    /// meaning: `Ok(None)` when it compiles to no check, `Err` with the
+    /// incomplete reason when it cannot be evaluated.
+    #[allow(clippy::too_many_lines)]
+    fn compile_constraint(
+        &self,
+        vertex: &Name,
+        constraint: &panproto_schema::Constraint,
+        semantics: &ConstraintSemantics,
+        value: ConstraintValue,
+    ) -> Result<Option<Compiled>, super::report::IncompleteReason> {
+        use super::report::IncompleteReason as R;
+        let ill = |detail: String| R::IllFormedDeclaration { detail };
+        let sort = constraint.sort.clone();
+        let bound = constraint.value.clone();
+        let value_check = |test| {
+            Ok(Some(Compiled::Value {
+                vertex: vertex.clone(),
+                sort: sort.clone(),
+                bound: bound.clone(),
+                test,
+            }))
+        };
+        match (semantics, value) {
+            (
+                ConstraintSemantics::MaxLength(_) | ConstraintSemantics::MinLength(_),
+                ConstraintValue::Length { unit, limit },
+            ) => value_check(ValueTest::Length {
+                unit,
+                limit,
+                upper: matches!(semantics, ConstraintSemantics::MaxLength(_)),
+            }),
+            (
+                ConstraintSemantics::Minimum | ConstraintSemantics::Maximum,
+                ConstraintValue::Bound(text),
+            ) => parse_bound(&text).map_or_else(
+                || {
+                    Err(ill(format!(
+                        "{} = {text:?} is neither a number nor a date or time",
+                        constraint.sort
+                    )))
+                },
+                |b| {
+                    value_check(ValueTest::Bound {
+                        bound: b,
+                        upper: matches!(semantics, ConstraintSemantics::Maximum),
+                    })
+                },
+            ),
+            (ConstraintSemantics::Enum, ConstraintValue::Text(text)) => {
+                value_check(ValueTest::Members(parse_members(&text)))
+            }
+            (ConstraintSemantics::Const, ConstraintValue::Text(text)) => {
+                value_check(ValueTest::Members(vec![text]))
+            }
+            (ConstraintSemantics::Pattern, ConstraintValue::Text(text)) => {
+                match regex::Regex::new(&text) {
+                    Ok(re) => value_check(ValueTest::Pattern(re)),
+                    Err(e) => Err(ill(format!("pattern {text:?} does not compile: {e}"))),
+                }
+            }
+            (ConstraintSemantics::Format(_), ConstraintValue::Format { family, format }) => {
+                ValueFormat::named(&format).map_or_else(
+                    || Err(R::UnsupportedDeclaration { sort: sort.clone() }),
+                    |f| {
+                        value_check(ValueTest::Format {
+                            format: f,
+                            rules: FormatRules::of_family(&family),
+                        })
+                    },
+                )
+            }
+            (ConstraintSemantics::LexicalSpace, ConstraintValue::LexicalSpace(tag)) => {
+                let mut edges: Vec<Edge> = self
+                    .schema
+                    .edges
+                    .keys()
+                    .filter(|edge| edge.src == *vertex && edge.name.as_ref() == Some(&tag))
+                    .cloned()
+                    .collect();
+                edges.sort();
+                match edges.as_slice() {
+                    [edge] => value_check(ValueTest::LexicalSpace {
+                        tag: edge.clone(),
+                        kinds: self.protocol.value_kinds.clone(),
+                    }),
+                    [] => Err(R::UnsupportedDeclaration { sort: tag }),
+                    _ => Err(ill(format!(
+                        "{} = {:?} names more than one edge leaving {vertex}",
+                        constraint.sort,
+                        tag.as_str()
+                    ))),
+                }
+            }
+            (
+                ConstraintSemantics::AnnotatedFormat(_),
+                ConstraintValue::Format { family, format },
+            ) => ValueFormat::named(&format).map_or_else(
+                || {
+                    annotated_width_spec(&format)
+                        .map_or_else(|| Ok(None), |spec| value_check(ValueTest::Coercible(spec)))
+                },
+                |format| {
+                    value_check(ValueTest::Format {
+                        format,
+                        rules: FormatRules::of_family(&family),
+                    })
+                },
+            ),
+            (
+                ConstraintSemantics::MinOutDegree | ConstraintSemantics::MaxOutDegree,
+                ConstraintValue::Degree(n),
+            ) => {
+                let n = u32::try_from(n)
+                    .map_err(|_| ill(format!("{sort} = {n} exceeds the largest degree")))?;
+                let upper = matches!(semantics, ConstraintSemantics::MaxOutDegree);
+                Ok(Some(Compiled::Degree {
+                    edge: None,
+                    min: (!upper).then_some(n),
+                    max: upper.then_some(n),
+                }))
+            }
+            (ConstraintSemantics::RequiredValue, ConstraintValue::Required(required)) => {
+                Ok(required.then(|| Compiled::RequiredValue {
+                    vertex: vertex.clone(),
+                    parts: None,
+                }))
+            }
+            (ConstraintSemantics::Acyclic, ConstraintValue::Acyclic(name)) => {
+                let labels: BTreeSet<Edge> = self
+                    .schema
+                    .edges
+                    .keys()
+                    .filter(|e| {
+                        &e.src == vertex && &e.tgt == vertex && e.name.as_ref() == Some(&name)
+                    })
+                    .cloned()
+                    .collect();
+                if labels.is_empty() {
+                    Err(ill(format!(
+                        "acyclic constraint on {vertex} names {name}, which is no self-edge of {vertex}"
+                    )))
+                } else {
+                    Ok(Some(Compiled::Acyclic { labels }))
+                }
+            }
+            (ConstraintSemantics::External, _) => Ok(Some(Compiled::External { name: sort })),
+            (semantics, value) => Err(ill(format!(
+                "{} reads as {value:?}, which {semantics:?} does not take",
+                constraint.sort
+            ))),
+        }
+    }
+}
+
+/// The exact scalar kind selected by a recognized advisory width format.
+///
+/// The schema's `type` remains the value's kind. This spec is only the
+/// predicate used by the advisory format check.
+fn annotated_width_spec(format: &str) -> Option<ValueSpec> {
+    let kind = match format {
+        "int8" => ScalarKind::Int {
+            bits: 8,
+            signed: true,
+        },
+        "int16" => ScalarKind::Int {
+            bits: 16,
+            signed: true,
+        },
+        "int" | "int32" => ScalarKind::Int {
+            bits: 32,
+            signed: true,
+        },
+        "long" | "int64" => ScalarKind::Int {
+            bits: 64,
+            signed: true,
+        },
+        "float" => ScalarKind::Float { bits: 32 },
+        "double" => ScalarKind::Float { bits: 64 },
+        _ => return None,
+    };
+    Some(ValueSpec::new(kind))
+}
+
+impl Builder<'_> {
+    fn keys(&mut self) {
+        let declared: Vec<(Name, Key)> = self
+            .schema
+            .declarations
+            .keys
+            .iter()
+            .flat_map(|(v, keys)| keys.iter().map(move |k| (v.clone(), k.clone())))
+            .collect();
+        for (vertex, key) in declared {
+            let decl = SchemaRef::Key {
+                vertex: vertex.clone(),
+                key: key.id.clone(),
+            };
+            let anchors = BTreeSet::from([vertex.clone()]);
+            if key.role == panproto_schema::KeyRole::Primary {
+                let required = CheckKey::new(CheckKind::RequiredValue, decl.clone());
+                let needs_summary = key.parts.iter().any(|part| match part {
+                    panproto_schema::KeyPart::Path(path) => !path.is_empty(),
+                    panproto_schema::KeyPart::Position { .. } => true,
+                });
+                self.add(
+                    required.clone(),
+                    Compiled::RequiredValue {
+                        vertex: vertex.clone(),
+                        parts: Some(key.parts.clone()),
+                    },
+                    None,
+                    anchors.clone(),
+                );
+                if needs_summary && let Some(spec) = self.checks.get_mut(&required) {
+                    spec.class = CheckClass::MaintainedGlobal;
+                    for locality in spec.locality.values_mut() {
+                        *locality = Locality::Summary(SummaryKind::SortedMerge);
+                    }
+                }
+            }
+            self.add(
+                CheckKey::new(CheckKind::KeyUnique, decl),
+                Compiled::KeyUnique { vertex, key },
+                None,
+                anchors,
+            );
+        }
+    }
+
+    fn references(&mut self) {
+        let syntactic = self.protocol.syntactic_shape;
+        let semantic = self.protocol.semantic_shape;
+        let references: Vec<Reference> = self
+            .schema
+            .declarations
+            .references
+            .values()
+            .cloned()
+            .collect();
+        for reference in references {
+            let decl = SchemaRef::Reference(reference.id.clone());
+            let anchors = BTreeSet::from([reference.holder.clone()]);
+            let key = CheckKey::new(CheckKind::ReferenceResolves, decl.clone());
+            let default = if reference.on_unresolved == panproto_schema::OnUnresolved::Error {
+                Requirement::Required
+            } else {
+                Requirement::Advisory
+            };
+            let target = self.schema.declarations.resolving_key(&reference).cloned();
+            let supported = matches!(
+                reference.source,
+                panproto_schema::RefSource::KeyValue { .. }
+            );
+            let compiled = match (&target, supported) {
+                (Some(target), true) => Compiled::Reference {
+                    reference: reference.clone(),
+                    target: target.clone(),
+                },
+                _ => Compiled::Structural,
+            };
+            self.add_on(
+                key.clone(),
+                compiled,
+                None,
+                anchors.clone(),
+                &[syntactic],
+                default,
+            );
+            if !supported {
+                self.finding(
+                    CheckKind::DeclarationInterpretable,
+                    &super::report::IncompleteReason::Unsupported {
+                        detail: format!(
+                            "reference {} reads its value through a path, standoff or variable source, which validation does not resolve",
+                            reference.id
+                        ),
+                    },
+                    &[key],
+                );
+            } else if target.is_none() {
+                self.ill_formed(
+                    format!(
+                        "reference {} names no key of {} to resolve through",
+                        reference.id, reference.target_vertex
+                    ),
+                    &[key],
+                );
+            }
+            if let Some(edge) = &reference.edge {
+                if reference.cardinality == panproto_schema::Cardinality::One {
+                    self.add_on(
+                        CheckKey::new(CheckKind::OutDegree, decl.clone()),
+                        Compiled::Degree {
+                            edge: Some(edge.clone()),
+                            min: None,
+                            max: Some(1),
+                        },
+                        None,
+                        anchors.clone(),
+                        &[semantic],
+                        Requirement::Required,
+                    );
+                }
+                if !reference.nullable {
+                    self.add_on(
+                        CheckKey::new(CheckKind::RequiredEdge, decl.clone()),
+                        Compiled::Required { edge: edge.clone() },
+                        None,
+                        anchors.clone(),
+                        &[semantic],
+                        Requirement::Required,
+                    );
+                }
+            }
+        }
+    }
+
+    fn external(&mut self) {
+        let shapes: Vec<InstanceShapeKind> = ALL_SHAPES.to_vec();
+        for (name, decl) in &self.options.external {
+            self.add_on(
+                CheckKey::new(CheckKind::External, SchemaRef::External(name.clone())),
+                Compiled::External {
+                    name: decl.name.clone(),
+                },
+                None,
+                decl.anchors.clone(),
+                &shapes,
+                decl.requirement,
+            );
+        }
+    }
+
+    fn hyper_edges(&mut self) {
+        let fan_key = CheckKey::new(CheckKind::FanWellFormed, SchemaRef::Schema);
+        let mut hyper_edges: Vec<&panproto_schema::HyperEdge> =
+            self.schema.hyper_edges.values().collect();
+        hyper_edges.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut problems = Vec::new();
+        for h in hyper_edges {
+            let mut signature: Vec<(&Name, &Name)> = h.signature.iter().collect();
+            signature.sort();
+            for (label, vertex) in &signature {
+                if !self.schema.has_vertex(vertex) {
+                    problems.push(format!(
+                        "hyper-edge {} labels {label} with {vertex}, which is not a vertex",
+                        h.id
+                    ));
+                }
+            }
+            if self.protocol.name == "sql" && h.kind == "table" {
+                let table = &h.parent_label;
+                let columns: BTreeSet<(Name, Name)> = self
+                    .schema
+                    .outgoing_edges(table.as_ref())
+                    .iter()
+                    .filter(|e| e.kind == "prop")
+                    .filter_map(|e| e.name.clone().map(|n| (n, e.tgt.clone())))
+                    .collect();
+                let declared: BTreeSet<(Name, Name)> = signature
+                    .iter()
+                    .map(|(l, v)| ((*l).clone(), (*v).clone()))
+                    .collect();
+                if columns != declared {
+                    problems.push(format!(
+                        "table {table}: hyper-edge {} signature does not equal the table's columns",
+                        h.id
+                    ));
+                }
+            }
+        }
+        for detail in problems {
+            self.ill_formed(detail, std::slice::from_ref(&fan_key));
+        }
+    }
+
+    /// The compiled checks a schema well-formedness error makes
+    /// uninterpretable.
+    // Keeping this exhaustive match together makes the dependency assigned
+    // to each schema error auditable against `KeyRefError`.
+    #[allow(clippy::too_many_lines)]
+    fn dependents_of(&self, error: &panproto_schema::ValidationError) -> Vec<CheckKey> {
+        use panproto_schema::{KeyRefError as E, ValidationError as V};
+        let keys_where = |pred: &dyn Fn(&CheckKey) -> bool| -> Vec<CheckKey> {
+            self.checks.keys().filter(|k| pred(k)).cloned().collect()
+        };
+        let decls = &self.schema.declarations;
+        let key_decl = |k: &CheckKey, f: &dyn Fn(&Name, &Key) -> bool| match &k.decl {
+            SchemaRef::Key { vertex, key } => decls.key(vertex, key).is_some_and(|d| f(vertex, d)),
+            _ => false,
+        };
+        let ref_decl = |k: &CheckKey, f: &dyn Fn(&Reference) -> bool| match &k.decl {
+            SchemaRef::Reference(id) => decls.references.get(id).is_some_and(f),
+            _ => false,
+        };
+        let ref_named = |k: &CheckKey, reference: &Name| matches!(&k.decl, SchemaRef::Reference(id) if id == reference);
+        let ref_targets_set =
+            |k: &CheckKey, set: &Name| ref_decl(k, &|reference| &reference.target_vertex == set);
+        let ref_targets_key = |k: &CheckKey, vertex: &Name, key: &Name| {
+            ref_decl(k, &|reference| {
+                let directly = &reference.target_vertex == vertex
+                    && decls
+                        .resolving_key(reference)
+                        .is_some_and(|candidate| &candidate.id == key);
+                let through_set = decls
+                    .target_set(&reference.target_vertex)
+                    .is_some_and(|set| {
+                        set.members.iter().any(|(member_vertex, member_key)| {
+                            member_vertex == vertex && member_key == key
+                        })
+                    });
+                directly || through_set
+            })
+        };
+        match error {
+            V::DanglingRequiredEdge { vertex, .. } => keys_where(
+                &|k| matches!(&k.decl, SchemaRef::Required { vertex: v, .. } if v.as_ref() == vertex),
+            ),
+            V::InvalidConstraintSort { vertex, sort } => keys_where(&|k| {
+                matches!(&k.decl, SchemaRef::Constraint { vertex: v, constraint }
+                    if v.as_ref() == vertex && constraint.sort.as_ref() == sort)
+            }),
+            V::KeyRef(e) => match e {
+                E::UnknownVertex { vertex } => keys_where(&|k| {
+                    key_decl(k, &|v, _| v == vertex)
+                        || ref_decl(k, &|r| &r.holder == vertex || &r.target_vertex == vertex)
+                }),
+                E::DuplicateKeyId { vertex, key } => keys_where(
+                    &|k| matches!(&k.decl, SchemaRef::Key { vertex: v, key: id } if v == vertex && id == key),
+                ),
+                E::EqualityArity { vertex, key, .. } | E::SortKeyNotOrdered { vertex, key } => {
+                    keys_where(&|k| {
+                        key_decl(k, &|v, declaration| v == vertex && &declaration.id == key)
+                            || ref_targets_key(k, vertex, key)
+                    })
+                }
+                E::TargetSetNameClash { set } | E::EmptyTargetSet { set } => {
+                    keys_where(&|k| ref_targets_set(k, set))
+                }
+                E::TargetSetMemberMismatch { set, vertex, key } => keys_where(&|k| {
+                    ref_targets_set(k, set)
+                        || key_decl(k, &|v, declaration| v == vertex && &declaration.id == key)
+                }),
+                E::PathDoesNotResolve { owner, path } => keys_where(&|k| {
+                    key_decl(k, &|v, d| {
+                        v == owner
+                            && d.parts.iter().any(
+                                |p| matches!(p, panproto_schema::KeyPart::Path(p) if p == path),
+                            )
+                    }) || ref_decl(k, &|r| &r.holder == owner)
+                }),
+                E::PositionNotOrdered { key, edge } => keys_where(&|k| {
+                    key_decl(k, &|_, d| {
+                        &d.id == key
+                            && d.parts.iter().any(|p| {
+                                matches!(p, panproto_schema::KeyPart::Position { within } if within == edge)
+                            })
+                    })
+                }),
+                E::UnknownTargetKey { reference, .. }
+                | E::UnknownTarget { reference }
+                | E::KeyNotResolvable { reference, .. }
+                | E::ArityMismatch { reference, .. }
+                | E::BinderNotIdentifier { reference, .. }
+                | E::InlineRequiresRedirect { reference }
+                | E::InlineRequiresTargetSet { reference }
+                | E::LengthInclusive { reference }
+                | E::InvalidFragments { reference }
+                | E::TargetSetHasKey { reference }
+                | E::TextReferenceInvalid { reference, .. }
+                | E::ScopeViaInvalid { reference }
+                | E::EdgeMismatch { reference, .. }
+                | E::EdgeRequired { reference } => keys_where(&|k| ref_named(k, reference)),
+                E::DuplicateGuard { references } | E::BinderModeConflict { references, .. } => {
+                    keys_where(&|k| references.iter().any(|reference| ref_named(k, reference)))
+                }
+                E::WithinNotAncestor { key, vertex } => keys_where(&|k| {
+                    key_decl(k, &|_, d| {
+                        &d.id == key && d.scope == panproto_schema::KeyScope::Within(vertex.clone())
+                    })
+                }),
+            },
+            _ => Vec::new(),
+        }
+    }
+
+    fn schema_well_formed(&mut self) {
+        let errors = panproto_schema::validate(self.schema, self.protocol);
+        for error in errors {
+            let dependents = self.dependents_of(&error);
+            self.finding(
+                CheckKind::SchemaWellFormed,
+                &super::report::IncompleteReason::IllFormedDeclaration {
+                    detail: error.to_string(),
+                },
+                &dependents,
+            );
+        }
+    }
+}
+
+impl Builder<'_> {
+    fn finish(self) -> ValidationPlan {
+        let mut findings = self.findings;
+        super::report::sort_incomplete(&mut findings);
+        findings.dedup();
+        let kinds: BTreeSet<CheckKind> = self.checks.keys().map(|k| k.kind).collect();
+        let schema_digest = schema_digest(self.schema);
+        let digest = plan_digest(&schema_digest, self.protocol, self.options);
+        ValidationPlan {
+            schema_digest,
+            digest,
+            checks: self.checks,
+            static_findings: findings,
+            triggers: TriggerTable::restricted_to(&kinds),
+            schema: self.schema.clone(),
+            attributes: self.attributes,
+            compiled: self.compiled,
+            options: self.options.clone(),
+        }
+    }
+}
+
+/// [`VALIDATION_PLAN_CONTEXT`] over exactly the values compilation reads,
+/// in this order:
+///
+/// 1. the schema digest;
+/// 2. the protocol's constraint semantics: the count, then each sort and its
+///    meaning in map order;
+/// 3. the protocol's name;
+/// 4. its vertex kinds (`obj_kinds`);
+/// 5. its constraint sorts;
+/// 6. its edge rules: the count, then each rule in protocol order (the
+///    first rule for an edge kind governs it), as its edge kind, its source
+///    kinds and its target kinds;
+/// 7. its syntactic shape, then its semantic shape;
+/// 8. its value kinds (the keys of `value_kinds`) and then its non-value
+///    kinds, each behind its count and in key order, which classify the
+///    schema's tables and their columns for the `Attribute` checks;
+/// 9. the options: the requirement overrides, the external checks and the
+///    source map, each behind its count and in key order.
+///
+/// Every list is written as stored: its length, then each entry in protocol
+/// order with repeats kept. No list is read as a set, because the schema
+/// check echoes an edge rule's kinds, in order and with repeats, into the
+/// detail of an ill-formed-declaration finding. Thus two plans with equal
+/// digests give equal reports (equal canonical bytes) for every instance
+/// under equal budgets and cancellation. The protocol fields compilation
+/// does not read are not inputs; a change that makes compilation read
+/// another protocol field adds that field here.
+fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions) -> Digest {
+    let mut w = Digest::hasher(VALIDATION_PLAN_CONTEXT);
+    w.write(&schema.0);
+    w.len(protocol.constraint_semantics.len());
+    for (sort, semantics) in &protocol.constraint_semantics {
+        w.str(sort);
+        write_semantics(&mut w, semantics);
+    }
+    w.str(&protocol.name);
+    write_str_list(&mut w, &protocol.obj_kinds);
+    write_str_list(&mut w, &protocol.constraint_sorts);
+    w.len(protocol.edge_rules.len());
+    for rule in &protocol.edge_rules {
+        w.str(&rule.edge_kind);
+        write_str_list(&mut w, &rule.src_kinds);
+        write_str_list(&mut w, &rule.tgt_kinds);
+    }
+    write_shape(&mut w, protocol.syntactic_shape);
+    write_shape(&mut w, protocol.semantic_shape);
+    w.len(protocol.value_kinds.len());
+    for kind in protocol.value_kinds.keys() {
+        w.str(kind);
+    }
+    w.len(protocol.non_value_kinds.len());
+    for kind in &protocol.non_value_kinds {
+        w.str(kind);
+    }
+    w.len(options.requirements.len());
+    for (decl, requirement) in &options.requirements {
+        write_schema_ref(&mut w, decl);
+        write_requirement(&mut w, *requirement);
+    }
+    w.len(options.external.len());
+    for (name, decl) in &options.external {
+        w.name(name);
+        w.name(&decl.name);
+        w.len(decl.anchors.len());
+        for anchor in &decl.anchors {
+            w.name(anchor);
+        }
+        write_requirement(&mut w, decl.requirement);
+    }
+    w.len(options.sources.0.len());
+    for (decl, source) in &options.sources.0 {
+        write_schema_ref(&mut w, decl);
+        write_source(&mut w, source);
+    }
+    w.finalize()
+}
+
+/// A list written as stored: its length, then each entry in order, repeats
+/// kept.
+fn write_str_list<W: CanonicalSink + ?Sized>(w: &mut W, list: &[String]) {
+    w.len(list.len());
+    for entry in list {
+        w.str(entry);
+    }
+}
+
+fn write_shape<W: CanonicalSink + ?Sized>(w: &mut W, shape: InstanceShapeKind) {
+    w.tag(match shape {
+        InstanceShapeKind::Tree => 0,
+        InstanceShapeKind::Table => 1,
+        InstanceShapeKind::Graph => 2,
+    });
+}
+
+fn write_semantics<W: CanonicalSink + ?Sized>(w: &mut W, semantics: &ConstraintSemantics) {
+    let unit = |w: &mut W, unit: &LengthUnit| {
+        w.tag(match unit {
+            LengthUnit::Chars => 0,
+            LengthUnit::Utf8Bytes => 1,
+            LengthUnit::Graphemes => 2,
+        });
+    };
+    match semantics {
+        ConstraintSemantics::Annotation => w.tag(0),
+        ConstraintSemantics::MaxLength(u) => {
+            w.tag(1);
+            unit(w, u);
+        }
+        ConstraintSemantics::MinLength(u) => {
+            w.tag(2);
+            unit(w, u);
+        }
+        ConstraintSemantics::Minimum => w.tag(3),
+        ConstraintSemantics::Maximum => w.tag(4),
+        ConstraintSemantics::Enum => w.tag(5),
+        ConstraintSemantics::Const => w.tag(6),
+        ConstraintSemantics::Pattern => w.tag(7),
+        ConstraintSemantics::Format(family) => {
+            w.tag(8);
+            w.name(family);
+        }
+        ConstraintSemantics::MinOutDegree => w.tag(9),
+        ConstraintSemantics::MaxOutDegree => w.tag(10),
+        ConstraintSemantics::RequiredValue => w.tag(11),
+        ConstraintSemantics::Acyclic => w.tag(12),
+        ConstraintSemantics::External => w.tag(13),
+        ConstraintSemantics::ValueParameter => w.tag(14),
+        ConstraintSemantics::LexicalSpace => w.tag(15),
+        ConstraintSemantics::AnnotatedFormat(family) => {
+            w.tag(16);
+            w.name(family);
+        }
+    }
+}

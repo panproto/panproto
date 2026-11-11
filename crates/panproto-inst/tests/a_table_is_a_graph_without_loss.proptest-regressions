@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc aad667c80375b258b62276d990c8c084d00f69d9e1bf49ef3d0e0a360fbc9e03 # shrinks to f = FInstance { tables: {Name("user"): Table { rows: {RowId(0): {"n": Int(0), "s": Str("r0")}} }}, foreign_keys: {}, row_table: {RowId(0): Name("user")} }, elements = []

@@ -3,15 +3,16 @@
 //! rather than letting them suppress emission of every structural
 //! sibling.
 //!
-//! Pre-fix, extras like supercollider's `line_comment` were recorded
-//! as children of the surrounding vertex but were not referenced
-//! anywhere in the production grammar. Cursor-driven CHOICE dispatch
-//! found no alternative whose body could satisfy a `line_comment`
-//! child kind, returned `None`, and the surrounding `REPEAT` loop
-//! terminated after one iteration with `consumed == 0`. The result on
-//! supercollider was an empty byte output for any non-trivial source.
+//! Extras like supercollider's `line_comment` are recorded as children
+//! of the surrounding vertex but are not referenced anywhere in the
+//! production grammar. Treated as ordinary children, they leave
+//! cursor-driven CHOICE dispatch with no alternative whose body can
+//! satisfy a `line_comment` child kind, so it returns `None` and the
+//! surrounding `REPEAT` loop terminates after one iteration with
+//! `consumed == 0`: an empty byte output for any non-trivial
+//! supercollider source.
 //!
-//! `Grammar::extras` now records the set of named-symbol / aliased
+//! `Grammar::extras` therefore records the set of named-symbol / aliased
 //! kinds declared under the grammar's `extras` array. `emit_production`
 //! drains leading extras-kind edges from the cursor at every entry,
 //! and `emit_vertex` drains trailing extras after the rule walk
@@ -39,7 +40,7 @@ fn emit_pretty_supercollider_preserves_comment_and_structural_siblings() {
 
     assert!(
         !text.is_empty(),
-        "emit_pretty returned an empty byte string (pre-fix regression)"
+        "emit_pretty returned an empty byte string (extras regression)"
     );
     assert!(
         text.contains("Pdef") && text.contains("Pbind"),

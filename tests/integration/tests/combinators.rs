@@ -74,6 +74,7 @@ fn make_schema(protocol: &str, verts: &[(&str, &str)], edge_list: &[Edge]) -> Sc
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -281,7 +282,7 @@ fn rename_edge_name_elementary_is_iso() {
     let instance = make_instance("post", &[("title", "title", "My Post")]);
     let (_, complement) = get(&lens, &instance).unwrap();
     assert!(complement.dropped_nodes.is_empty());
-    assert!(complement.dropped_arcs.is_empty());
+    assert_eq!(complement.dropped_arcs, []);
 
     check_laws(&lens, &instance).unwrap();
 }

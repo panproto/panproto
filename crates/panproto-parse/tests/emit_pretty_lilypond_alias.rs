@@ -2,16 +2,15 @@
 //! `ALIAS { content: STRING, value: K, named: true }` productions when
 //! picking a CHOICE alternative.
 //!
-//! Pre-fix, `referenced_symbols` walked into an `ALIAS`'s content and
-//! ignored the alias `value`. Cursor-driven dispatch then matched
+//! A `referenced_symbols` that walked into an `ALIAS`'s content and
+//! ignored the alias `value` would leave cursor-driven dispatch matching
 //! alternatives only on inner SYMBOLs, so the lilypond `named_context`
 //! third CHOICE arm (`SEQ(ALIAS_punctuation, CHOICE(symbol, string))`,
-//! introducing `punctuation` and `string` children) was invisible: the
-//! emitter fell through to the BLANK alternative and dropped both
-//! children. `\new Voice = "kick"` rendered as `\new Voice`, losing the
-//! voice label entirely.
+//! introducing `punctuation` and `string` children) would be invisible:
+//! the emitter would fall through to the BLANK alternative and drop both
+//! children, rendering `\new Voice = "kick"` as `\new Voice`.
 //!
-//! The fix yields the alias `value` from `referenced_symbols` when the
+//! `referenced_symbols` therefore yields the alias `value` from `referenced_symbols` when the
 //! alias is named, so cursor-driven dispatch can recognise the alt that
 //! introduces a `punctuation` child.
 

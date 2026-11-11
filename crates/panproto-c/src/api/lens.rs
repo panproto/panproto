@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use ciborium::value::Value as CborValue;
 use panproto_core::{
-    inst::WInstance,
+    inst::{ViewPosition, WInstance},
     lens::{self, Stringency},
 };
 use safer_ffi::prelude::*;
@@ -53,6 +53,20 @@ fn parse_stringency(raw: &[u8]) -> Result<Option<Stringency>, FfiError> {
             "unknown stringency '{other}'; expected strict, balanced, lenient, or exploratory"
         ))),
     }
+}
+
+/// Allocate a directional compiled-document resource after ruling out the
+/// symmetric body shape, whose two legs cannot be represented by this handle.
+fn alloc_directional_compiled_lens(
+    compiled: panproto_core::lens_dsl::CompiledLens,
+) -> Result<u32, FfiError> {
+    if compiled.symmetric.is_some() {
+        return Err(FfiError::Operation(
+            "lens DSL compile: symmetric lens documents are not accepted by the directional lens-document compile boundary (pp_lens_compile_document or pp_lens_compile_document_with_refs); use pp_lens_symmetric_from_schemas and pp_lens_symmetric_sync"
+                .to_owned(),
+        ));
+    }
+    Ok(handle::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
 }
 
 /// Build the CBOR payload returned by [`pp_lens_get_record`]: a two-key
@@ -118,11 +132,16 @@ fn encode_complement_for_host(complement: &lens::Complement) -> Result<Vec<u8>, 
 ///
 /// Returns [`FfiError::Serialization`] if (de)serialization fails. Bytes
 /// that fail to decode in either shape report the failure against the
-/// bytes as they were given.
+/// bytes as they were given. A complement whose envelope names another
+/// format or layout is [`FfiError::Operation`], as
+/// [`canonical::decode_complement`] reports it.
 fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiError> {
-    match canonical::decode(bytes) {
+    match canonical::decode_complement(bytes) {
         Ok(complement) => Ok(complement),
-        Err(err) => {
+        // Only bytes that are not a complement as given can be an older
+        // encoding; a complement refused for its format or envelope is
+        // refused whatever its maps look like.
+        Err(err @ FfiError::Serialization(_)) => {
             let Ok(mut value) = canonical::decode::<CborValue>(bytes) else {
                 return Err(err);
             };
@@ -130,8 +149,13 @@ fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiErro
                 return Err(err);
             }
             let normalized = canonical::encode(&value)?;
-            canonical::decode(&normalized).map_err(|_| err)
+            match canonical::decode_complement(&normalized) {
+                Ok(complement) => Ok(complement),
+                Err(FfiError::Serialization(_)) => Err(err),
+                Err(refused) => Err(refused),
+            }
         }
+        Err(err) => Err(err),
     }
 }
 
@@ -328,11 +352,13 @@ fn law_result(outcome: Result<(), lens::LawViolation>) -> LawCheckResult {
     }
 }
 
-/// Check both `GetPut` and `PutGet` lens laws on a test instance.
+/// Run the five strict lens gates on a test instance.
 ///
 /// `migration` is a migration/lens handle; `instance` is a CBOR-encoded
 /// `WInstance`. On success, `out` receives a CBOR-encoded
-/// [`LawCheckResult`]. Calls `lens::check_laws`.
+/// [`LawCheckResult`]. The gates run in order: `GetPut`, `PutGet`, totality
+/// over the finite single-step basis, `PutTwice`, and congruence. Calls
+/// `lens::check_laws`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_lens_check_laws(
@@ -416,6 +442,12 @@ pub fn pp_lens_get_record(
 /// `migration` is a migration/lens handle; `view` and `complement` are
 /// CBOR-encoded `WInstance` and `Complement`. On success, `out`
 /// receives the CBOR-encoded restored `WInstance`. Calls `lens::put`.
+///
+/// `view` must carry the node ids `get` gave it, which the complement
+/// keys its residue by. A view read from JSON (`pp_inst_json_to_instance`)
+/// is numbered afresh, and putting it here can lose a dropped field while
+/// reporting success: put a JSON view with [`pp_lens_put_json`], or pass a
+/// view parsed some other way through [`pp_lens_align_view`] first.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_lens_put_record(
@@ -431,6 +463,124 @@ pub fn pp_lens_put_record(
         let restored = lens::put(&lens_obj, &view_inst, &comp)
             .map_err(|e| FfiError::Operation(format!("put: {e}")))?;
         *out = canonical::encode(&restored)?.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// The vertex the view `get` returned is rooted at, as `complement`
+/// records it.
+fn recorded_view_root(complement: &lens::Complement) -> Option<&panproto_core::gat::Name> {
+    complement
+        .view_positions
+        .values()
+        .find_map(|position| match position {
+            ViewPosition::Root { anchor } => Some(anchor),
+            ViewPosition::Child { .. } => None,
+        })
+}
+
+/// `view` aligned to `complement` and with its computed fields folded:
+/// the view a reader that keeps no node ids returns, made the view
+/// `lens::put` reads.
+fn align_and_fold(
+    lens_obj: &lens::Lens,
+    view: &WInstance,
+    complement: &lens::Complement,
+) -> Result<WInstance, FfiError> {
+    let aligned = lens::align_view_to_complement(lens_obj, view, complement)
+        .map_err(|e| FfiError::Operation(format!("align_view: {e}")))?;
+    Ok(lens::fold_computed_children_into_fields(
+        lens_obj, &aligned, complement,
+    ))
+}
+
+/// Bidirectional put from a JSON view: restore a record from a view
+/// that went through JSON and the complement `get` returned with it.
+///
+/// `migration` is a migration/lens handle; `view_json` is raw JSON bytes
+/// (not CBOR), as `pp_inst_to_json` writes the view; `complement` is the
+/// CBOR-encoded `Complement` from [`pp_lens_get_record`]. The view is read
+/// under the lens's target schema, rooted at the vertex the complement
+/// records for the root of the view `get` returned; aligned to the
+/// complement with `lens::align_view_to_complement`, so that each node at a
+/// position `get` produced takes back the id `get` gave it and a node the
+/// view adds takes a fresh one; its computed fields are folded back among
+/// their nodes' fields with `lens::fold_computed_children_into_fields`; and
+/// it is put with `lens::put`. On success, `out` receives the restored
+/// record as JSON bytes.
+///
+/// A complement that records no view positions, a view that does not
+/// parse under the target schema, and a put that refuses the view are
+/// [`FfiError::Operation`]; bytes that are not JSON are
+/// [`FfiError::Serialization`].
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_lens_put_json(
+    migration: u32,
+    view_json: c_slice::Ref<'_, u8>,
+    complement: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
+    guard(|| {
+        let json: serde_json::Value = serde_json::from_slice(view_json.as_slice())
+            .map_err(|e| FfiError::Serialization(e.to_string()))?;
+        let comp = decode_complement_from_host(complement.as_slice())?;
+        let lens_obj = lens_from_handle(migration)?;
+        let root = recorded_view_root(&comp).ok_or_else(|| {
+            FfiError::Operation(format!(
+                "put_json: {}",
+                lens::ViewAlignmentError::PositionsNotRecorded
+            ))
+        })?;
+        let parsed = panproto_core::inst::parse_json(
+            &lens_obj.tgt_schema,
+            &protocol_for_schema(&lens_obj.tgt_schema),
+            root,
+            &json,
+        )
+        .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))?;
+        let view = align_and_fold(&lens_obj, &parsed, &comp)?;
+        let restored = lens::put(&lens_obj, &view, &comp)
+            .map_err(|e| FfiError::Operation(format!("put: {e}")))?;
+        let restored_json = panproto_core::inst::to_json(&lens_obj.src_schema, &restored)
+            .map_err(|e| FfiError::Operation(format!("to_json: {e}")))?;
+        *out = serde_json::to_vec(&restored_json)
+            .map_err(|e| FfiError::Serialization(e.to_string()))?
+            .into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Align a view read from a serialization to its complement, ready for
+/// [`pp_lens_put_record`].
+///
+/// `migration` is a migration/lens handle; `view` is the CBOR-encoded
+/// `WInstance` a reader that keeps no node ids returned (such as
+/// `pp_inst_json_to_instance`); `complement` is the CBOR-encoded
+/// `Complement` from the `get` that produced the view. Each node at a
+/// position `get` produced takes the id `get` gave it and a node the view
+/// adds takes a fresh one (`lens::align_view_to_complement`), then each
+/// computed field the reader read as a child moves back among its node's
+/// fields (`lens::fold_computed_children_into_fields`). On success, `out`
+/// receives the CBOR-encoded aligned `WInstance`.
+///
+/// A complement that records no view positions, a view rooted at another
+/// vertex than the view `get` returned, and exhausted fresh ids are
+/// [`FfiError::Operation`].
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_lens_align_view(
+    migration: u32,
+    view: c_slice::Ref<'_, u8>,
+    complement: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
+    guard(|| {
+        let view_inst: WInstance = canonical::decode(view.as_slice())?;
+        let comp = decode_complement_from_host(complement.as_slice())?;
+        let lens_obj = lens_from_handle(migration)?;
+        let aligned = align_and_fold(&lens_obj, &view_inst, &comp)?;
+        *out = canonical::encode(&aligned)?.into();
         Ok(PpStatus::Ok)
     })
 }
@@ -463,7 +613,8 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
         })?;
 
         let composed = lens::compose(&lens1, &lens2)
-            .map_err(|e| FfiError::Operation(format!("compose: {e}")))?;
+            .and_then(lens::LensPath::into_single)
+            .map_err(|e| FfiError::from_single_lens_error("compose", &e))?;
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(composed.compiled),
@@ -482,7 +633,9 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 /// `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
 /// Plain chains call `ProtolensChain::instantiate`; compiled documents use
-/// their ordered-stage instantiation.
+/// their ordered-stage instantiation and retain value transforms at their
+/// stage positions. A compiled document is refused when its normalized path
+/// has more than one group because this ABI returns one concrete lens.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -> i32 {
@@ -500,7 +653,8 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
         let lens_obj = if let Some(compiled) = compiled_doc {
             compiled
                 .instantiate(&schema_val, &protocol)
-                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+                .and_then(lens::LensPath::into_single)
+                .map_err(|e| FfiError::from_single_lens_error("instantiate", &e))?
         } else {
             chain_val
                 .ok_or_else(|| FfiError::Operation("missing protolens chain".to_owned()))?
@@ -519,8 +673,10 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
 
 /// Get the complement spec for a protolens chain at a schema.
 ///
-/// `chain` is a protolens chain handle; `schema` is a schema handle. On
-/// success, `out` receives a CBOR-encoded
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle;
+/// `schema` is a schema handle. A compiled document is inspected through its
+/// compatibility-chain projection, which omits ordered stage boundaries and
+/// value transforms. On success, `out` receives a CBOR-encoded
 /// `panproto_core::lens::ComplementSpec`. Calls
 /// `lens::chain_complement_spec`.
 #[must_use = "FFI status codes should not be discarded"]
@@ -568,7 +724,10 @@ pub fn pp_protolens_from_diff(
 
 /// Compose two protolens chains.
 ///
-/// `chain1` and `chain2` are protolens chain handles. On success,
+/// `chain1` and `chain2` are `ProtolensChain` or chain-compatible
+/// `CompiledLensDoc` handles. Compiled documents contribute only their
+/// compatibility-chain projections, so the result does not retain ordered
+/// stage boundaries or value transforms. On success,
 /// `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
 /// the concatenated steps.
@@ -595,9 +754,13 @@ pub fn pp_protolens_compose(chain1: u32, chain2: u32, out_handle: &mut u32) -> i
 
 /// Serialize a protolens chain to JSON.
 ///
-/// `chain` is a protolens chain handle. On success, `out` receives JSON
-/// bytes describing each step (name, endofunctors, lossless flag) per
-/// [`ProtolensStepInfo`].
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+/// A compiled document is summarized through its compatibility-chain
+/// projection, so ordered stage boundaries and value transforms are absent.
+/// On success, `out` receives JSON bytes describing each projected step
+/// (name, endofunctors, lossless flag) per [`ProtolensStepInfo`]. This is a
+/// lossy inspection summary, not the serialized `ProtolensChain` shape
+/// accepted by [`pp_protolens_from_json`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_chain_to_json(chain: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -643,8 +806,10 @@ pub fn pp_protolens_from_json(json: c_slice::Ref<'_, u8>, out_handle: &mut u32) 
 
 /// Fuse a protolens chain into a single composite step.
 ///
-/// `chain` is a protolens chain handle. On success, `out_handle`
-/// receives a fresh
+/// `chain` is a `ProtolensChain` or chain-compatible `CompiledLensDoc` handle.
+/// A compiled document contributes only its compatibility-chain projection,
+/// so the result does not retain ordered stage boundaries or value transforms.
+/// On success, `out_handle` receives a fresh
 /// [`Resource::ProtolensChain`](crate::handle::Resource) handle holding
 /// the fused step. Calls `ProtolensChain::fuse`.
 #[must_use = "FFI status codes should not be discarded"]
@@ -727,13 +892,18 @@ pub fn pp_lens_symmetric_sync(
     })
 }
 
-/// Compile a lens DSL document into a protolens chain.
+/// Compile a lens DSL document into a chain-compatible document handle.
 ///
 /// `source` is UTF-8 DSL source; `format` is the UTF-8 format name
 /// (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
 /// field-level steps. On success, `out_handle` receives a fresh
-/// chain-compatible compiled-document handle. Calls
+/// [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
 /// `panproto_core::lens_dsl::{eval, compile}`.
+/// This directional entry point rejects a `symmetric` body; use
+/// [`pp_lens_symmetric_from_schemas`] and [`pp_lens_symmetric_sync`] for the
+/// symmetric boundary. An accepted handle retains the directional document's
+/// ordered structural and value-transform stages. [`pp_protolens_instantiate`]
+/// accepts it only when normalization yields one concrete lens group.
 ///
 /// Nickel (`ncl`) is intentionally unsupported here, matching the WASM
 /// boundary: Nickel evaluation requires a filesystem for its contract
@@ -768,7 +938,7 @@ pub fn pp_lens_compile_document(
         let compiled = panproto_core::lens_dsl::compile(&doc, body, &|_| None)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
+        *out_handle = alloc_directional_compiled_lens(compiled)?;
         Ok(PpStatus::Ok)
     })
 }
@@ -781,8 +951,12 @@ pub fn pp_lens_compile_document(
 /// `map<string, string>` from each referenced lens `id` to its document
 /// source (in the same `format`); a `compose` body's `ref` entries are
 /// resolved against this map. On success, `out_handle` receives a fresh
-/// chain-compatible compiled-document handle. Calls
+/// [`Resource::CompiledLensDoc`](crate::handle::Resource) handle. Calls
 /// `panproto_core::lens_dsl::compile_with_refs`.
+/// This is the same directional boundary as [`pp_lens_compile_document`]: a
+/// root document with a `symmetric` body is rejected before allocation. A
+/// directed `compose` body is also rejected if any referenced document is
+/// symmetric, because selecting one leg would discard the referenced span.
 ///
 /// Nickel (`ncl`) is intentionally unsupported, matching
 /// [`pp_lens_compile_document`].
@@ -828,7 +1002,7 @@ pub fn pp_lens_compile_document_with_refs(
         let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body, &docs_by_id)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
+        *out_handle = alloc_directional_compiled_lens(compiled)?;
         Ok(PpStatus::Ok)
     })
 }
@@ -910,6 +1084,8 @@ mod tests {
             .unwrap()
     }
 
+    /// A `post` record with a `text` field that also declares `derived`,
+    /// the attribute the ordered document's `compute_field` writes.
     fn ordered_value_schema() -> Schema {
         let proto = crate::api::helpers::default_protocol("test");
         SchemaBuilder::new(&proto)
@@ -918,7 +1094,11 @@ mod tests {
             .unwrap()
             .vertex("post.text", "string", None::<&str>)
             .unwrap()
+            .vertex("post.derived", "string", None::<&str>)
+            .unwrap()
             .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .edge("post", "post.derived", "prop", Some("derived"))
             .unwrap()
             .build()
             .unwrap()
@@ -1063,7 +1243,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_document_instantiates_ordered_value_stages() {
+    fn a_compiled_document_with_multiple_groups_is_not_a_single_lens() {
         let schema = ordered_value_schema();
         let schema_h = schema_handle(&schema);
         let doc = br#"{
@@ -1093,36 +1273,17 @@ mod tests {
         let mut lens_h = u32::MAX;
         assert_eq!(
             pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
-            PpStatus::Ok as i32,
+            PpStatus::NotSingleStage as i32,
         );
-
-        let source =
-            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
-                .unwrap();
-        let source_cbor = canonical::encode(&source).unwrap();
-        let mut get_out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(
-            pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), &mut get_out),
-            PpStatus::Ok as i32,
+        let error = crate::error::take_last_error().expect("instantiation error");
+        assert_eq!(error.tag, "not_single_stage");
+        assert!(
+            error.message.contains("lens path has 2 normal-form groups"),
+            "{}",
+            error.message
         );
-        let (view_cbor, _) = split_get_record(&get_out);
-        pp_buf_free(get_out);
-        let view: WInstance = canonical::decode(&view_cbor).unwrap();
-        let target = handle::with_resource(lens_h, |resource| match resource {
-            Resource::MigrationWithSchemas { tgt_schema, .. } => Ok((**tgt_schema).clone()),
-            other => Err(FfiError::TypeMismatch {
-                expected: "MigrationWithSchemas",
-                actual: other.type_name(),
-            }),
-        })
-        .unwrap();
-        let json = panproto_core::inst::to_json(&target, &view);
+        assert_eq!(lens_h, u32::MAX);
 
-        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
-        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
-        assert!(json.get("text").is_none());
-
-        assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
     }
@@ -1353,6 +1514,36 @@ mod tests {
     }
 
     #[test]
+    fn a_host_complement_naming_another_format_is_refused() {
+        use panproto_core::inst::ComplementShape;
+        let schema = SchemaBuilder::new(&crate::api::helpers::default_protocol("test"))
+            .vertex("post", "record", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let the_lens = lens::auto_generate(
+            &schema,
+            &schema,
+            &protocol_for_schema(&schema),
+            &lens::AutoLensConfig::default(),
+        )
+        .unwrap()
+        .lens;
+        let mut envelope = the_lens.identity(ComplementShape::WType);
+        envelope.complement_format = ComplementShape::Graph.current_format();
+        let mut comp = lens::Complement::empty();
+        comp.identity = Some(envelope);
+
+        let bytes = encode_complement_for_host(&comp).unwrap();
+        match decode_complement_from_host(&bytes) {
+            Err(FfiError::Operation(detail)) => {
+                assert!(detail.contains("graph/1"), "{detail}");
+            }
+            other => panic!("a graph-format complement decoded as a tree one: {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_stringency_accepts_tiers() {
         assert!(matches!(parse_stringency(b""), Ok(None)));
         assert!(matches!(
@@ -1403,5 +1594,217 @@ mod tests {
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    /// `post { text, obj { k, d } }`, or without `obj.d`, with the edges
+    /// out of `post` declared in the order given.
+    fn nested_schema(with_d: bool, post_edges: [&str; 2]) -> Schema {
+        let proto = crate::api::helpers::default_protocol("test");
+        let mut builder = SchemaBuilder::new(&proto)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .vertex("post.obj", "object", None::<&str>)
+            .unwrap()
+            .vertex("post.obj.k", "string", None::<&str>)
+            .unwrap();
+        if with_d {
+            builder = builder
+                .vertex("post.obj.d", "string", None::<&str>)
+                .unwrap();
+        }
+        for name in post_edges {
+            builder = builder
+                .edge("post", &format!("post.{name}"), "prop", Some(name))
+                .unwrap();
+        }
+        builder = builder
+            .edge("post.obj", "post.obj.k", "prop", Some("k"))
+            .unwrap();
+        if with_d {
+            builder = builder
+                .edge("post.obj", "post.obj.d", "prop", Some("d"))
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// Handles to the lens that drops `obj.d`, its source schema and its
+    /// target schema. The target declares `obj` before `text`, so
+    /// `pp_inst_json_to_instance` numbers a view differently from `get`.
+    fn nested_drop_lens() -> (u32, u32, u32) {
+        let src = nested_schema(true, ["text", "obj"]);
+        let tgt = nested_schema(false, ["obj", "text"]);
+        let compiled = panproto_core::inst::CompiledMigration {
+            surviving_verts: tgt.vertices.keys().cloned().collect(),
+            surviving_edges: tgt.edges.keys().cloned().collect(),
+            ..panproto_core::inst::CompiledMigration::default()
+        };
+        let src_h = schema_handle(&src);
+        let tgt_h = schema_handle(&tgt);
+        let lens_h = handle::alloc(Resource::MigrationWithSchemas {
+            compiled: Box::new(compiled),
+            src_schema: Arc::new(src),
+            tgt_schema: Arc::new(tgt),
+        });
+        (lens_h, src_h, tgt_h)
+    }
+
+    /// Run `call`, which writes into an out-buffer, and return the bytes,
+    /// or the status when it is not `Ok`.
+    fn out_bytes(call: impl FnOnce(&mut repr_c::Vec<u8>) -> i32) -> Result<Vec<u8>, i32> {
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = call(&mut out);
+        let bytes = out.to_vec();
+        pp_buf_free(out);
+        if status == PpStatus::Ok as i32 {
+            Ok(bytes)
+        } else {
+            Err(status)
+        }
+    }
+
+    /// Get `source` through the nested-drop lens, returning the view as
+    /// JSON and the complement as the host CBOR `get_record` frames it.
+    fn get_nested(
+        lens_h: u32,
+        src_h: u32,
+        tgt_h: u32,
+        source: &serde_json::Value,
+    ) -> (serde_json::Value, Vec<u8>) {
+        use crate::api::instance::{pp_inst_json_to_instance, pp_inst_to_json};
+        let json = source.to_string();
+        let source_cbor = out_bytes(|out| {
+            pp_inst_json_to_instance(
+                src_h,
+                slice(json.as_bytes()).as_ref(),
+                slice(b"post").as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let record =
+            out_bytes(|out| pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), out)).unwrap();
+        let (view_cbor, comp_cbor) = split_get_record(&record);
+        let view_json =
+            out_bytes(|out| pp_inst_to_json(tgt_h, slice(&view_cbor).as_ref(), out)).unwrap();
+        (serde_json::from_slice(&view_json).unwrap(), comp_cbor)
+    }
+
+    /// `pp_lens_put_json` reads a view that went through JSON, aligns it
+    /// to the complement and puts it, so the field the lens dropped from
+    /// `obj` comes back: unedited, with a kept field edited, and with a
+    /// sibling the view inserts.
+    #[test]
+    fn put_json_restores_a_nested_dropped_field() {
+        let (lens_h, src_h, tgt_h) = nested_drop_lens();
+        let source = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+        let (view, complement) = get_nested(lens_h, src_h, tgt_h, &source);
+        assert_eq!(
+            view,
+            serde_json::json!({ "text": "hello", "obj": { "k": "1" } })
+        );
+        let without_text = serde_json::json!({ "obj": { "k": "1", "d": "2" } });
+        let (bare_view, bare_complement) = get_nested(lens_h, src_h, tgt_h, &without_text);
+        assert_eq!(bare_view, serde_json::json!({ "obj": { "k": "1" } }));
+
+        for (shown, comp, expected) in [
+            (view, &complement, source),
+            (
+                serde_json::json!({ "text": "bye", "obj": { "k": "9" } }),
+                &complement,
+                serde_json::json!({ "text": "bye", "obj": { "k": "9", "d": "2" } }),
+            ),
+            (
+                serde_json::json!({ "text": "new", "obj": { "k": "1" } }),
+                &bare_complement,
+                serde_json::json!({ "text": "new", "obj": { "k": "1", "d": "2" } }),
+            ),
+        ] {
+            let shown_bytes = shown.to_string();
+            let restored = out_bytes(|out| {
+                pp_lens_put_json(
+                    lens_h,
+                    slice(shown_bytes.as_bytes()).as_ref(),
+                    slice(comp).as_ref(),
+                    out,
+                )
+            })
+            .unwrap_or_else(|status| panic!("put_json of {shown} failed with {status}"));
+            let restored: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+            assert_eq!(restored, expected, "put_json of {shown}");
+        }
+
+        for h in [lens_h, src_h, tgt_h] {
+            assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        }
+    }
+
+    /// A view parsed with `pp_inst_json_to_instance` and passed through
+    /// `pp_lens_align_view` puts back through `pp_lens_put_record` with
+    /// the dropped field restored; a view rooted at another vertex is
+    /// refused.
+    #[test]
+    fn align_view_readies_a_parsed_view_for_put_record() {
+        use crate::api::instance::{pp_inst_json_to_instance, pp_inst_to_json};
+        let (lens_h, src_h, tgt_h) = nested_drop_lens();
+        let source = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+        let (view, complement) = get_nested(lens_h, src_h, tgt_h, &source);
+        let view_bytes = view.to_string();
+        let parsed = out_bytes(|out| {
+            pp_inst_json_to_instance(
+                tgt_h,
+                slice(view_bytes.as_bytes()).as_ref(),
+                slice(b"post").as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let aligned = out_bytes(|out| {
+            pp_lens_align_view(
+                lens_h,
+                slice(&parsed).as_ref(),
+                slice(&complement).as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let restored = out_bytes(|out| {
+            pp_lens_put_record(
+                lens_h,
+                slice(&aligned).as_ref(),
+                slice(&complement).as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let restored_json =
+            out_bytes(|out| pp_inst_to_json(src_h, slice(&restored).as_ref(), out)).unwrap();
+        let restored_json: serde_json::Value = serde_json::from_slice(&restored_json).unwrap();
+        assert_eq!(restored_json, source);
+
+        let elsewhere = out_bytes(|out| {
+            pp_inst_json_to_instance(
+                tgt_h,
+                slice(br#"{"k":"1"}"#).as_ref(),
+                slice(b"post.obj").as_ref(),
+                out,
+            )
+        })
+        .unwrap();
+        let refused = out_bytes(|out| {
+            pp_lens_align_view(
+                lens_h,
+                slice(&elsewhere).as_ref(),
+                slice(&complement).as_ref(),
+                out,
+            )
+        });
+        assert_eq!(refused, Err(PpStatus::Operation as i32));
+
+        for h in [lens_h, src_h, tgt_h] {
+            assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
+        }
     }
 }

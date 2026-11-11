@@ -1,16 +1,16 @@
 //! Regression: `emit_pretty` renders newline-shaped PATTERN terminals
 //! as newlines rather than the bare `_` placeholder.
 //!
-//! csound's `_new_line` is `TOKEN(PATTERN "\r?\n")`. Pre-fix, the
-//! pattern fell through `placeholder_for_pattern`'s final `else` arm
-//! (no `[0-9]` / `[a-zA-Z_]` / `"` / `'` markers) and returned the bare
+//! csound's `_new_line` is `TOKEN(PATTERN "\r?\n")`. Left to
+//! `placeholder_for_pattern`'s final `else` arm (no `[0-9]` /
+//! `[a-zA-Z_]` / `"` / `'` markers), the pattern would return the bare
 //! `"_"` sentinel. csound's `instrument_definition` SEQ includes a
 //! REPEAT of `_statement`, each of which expects a `_new_line` between
-//! statements; the placeholder dropped `_` characters between every
-//! pair of structural siblings, producing unparseable output like
+//! statements, so the placeholder would drop `_` characters between
+//! every pair of structural siblings, producing unparseable output like
 //! `endin _ </CsInstruments> _ </CsoundSynthesizer>`.
 //!
-//! The PATTERN handler now recognises `\r?\n`-shaped patterns and
+//! The PATTERN handler therefore recognises `\r?\n`-shaped patterns and
 //! emits them through `Output::newline()` (`Token::LineBreak`), and
 //! recognises generic whitespace patterns (`\s+`, `[ \t]+`) and drops
 //! them so the layout pass's policy separator inserts the actual

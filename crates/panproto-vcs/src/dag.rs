@@ -249,10 +249,10 @@ pub fn log_walk_with_ids(
         }
         result.push((commit_id, commit));
 
-        if let Some(n) = limit {
-            if result.len() >= n {
-                break;
-            }
+        if let Some(n) = limit
+            && result.len() >= n
+        {
+            break;
         }
     }
 
@@ -880,6 +880,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -970,7 +971,7 @@ mod tests {
     fn coherence_short_path_no_warnings() -> Result<(), Box<dyn std::error::Error>> {
         let (store, ids) = build_migration_history()?;
         let result = compose_path_with_coherence(&store, &ids[0..1])?;
-        assert!(result.coherence_warnings.is_empty());
+        assert_eq!(result.coherence_warnings, Vec::<String>::new());
         Ok(())
     }
 
@@ -980,7 +981,7 @@ mod tests {
         let result = compose_path_with_coherence(&store, &ids[0..2])?;
         assert_eq!(result.migration.vertex_map.len(), 2);
         // Two-commit path: composed == direct, no drift check performed.
-        assert!(result.coherence_warnings.is_empty());
+        assert_eq!(result.coherence_warnings, Vec::<String>::new());
         Ok(())
     }
 
@@ -1372,7 +1373,7 @@ mod tests {
     fn composition_result_must_use() {
         // Verify CompositionResult default works and fields are accessible.
         let r = CompositionResult::default();
-        assert!(r.coherence_warnings.is_empty());
+        assert_eq!(r.coherence_warnings, Vec::<String>::new());
         assert!(r.migration.vertex_map.is_empty());
     }
 }

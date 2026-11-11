@@ -3,12 +3,23 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LensHandle, ProtolensChainHandle } from '../src/lens.js';
+import { LensHandle, ProtolensChainHandle, SymmetricLensHandle } from '../src/lens.js';
 import { SchemaBuilder, BuiltSchema } from '../src/schema.js';
 import { MigrationBuilder } from '../src/migration.js';
 import { WasmHandle } from '../src/wasm.js';
 import { packToWasm } from '../src/msgpack.js';
 import type { WasmModule, WasmExports } from '../src/types.js';
+
+/** The named-field wire shape emitted by `rmp_serde::to_vec_named(&WInstance)`. */
+const SYNCED_INSTANCE_WIRE = {
+  nodes: {},
+  arcs: [],
+  fans: [],
+  root: 0,
+  schema_root: 'body',
+  parent_map: {},
+  children_map: {},
+};
 
 /** Create a mock WASM module with lens entry points. */
 function createMockWasm(): WasmModule {
@@ -20,6 +31,7 @@ function createMockWasm(): WasmModule {
     check_existence: vi.fn(() => packToWasm({ valid: true, errors: [] })),
     compile_migration: vi.fn(() => ++handleCounter),
     lift_record: vi.fn(() => packToWasm({ text: 'hello' })),
+    check_migration_coverage: vi.fn(() => packToWasm({})),
     get_record: vi.fn(() => packToWasm({ view: { text: 'hello' }, complement: new Uint8Array([1, 2, 3]) })),
     put_record: vi.fn(() => packToWasm({ text: 'hello', extra: true })),
     compose_migrations: vi.fn(() => ++handleCounter),
@@ -47,7 +59,7 @@ function createMockWasm(): WasmModule {
     protolens_chain_to_json: vi.fn(() => new TextEncoder().encode('[]')),
     factorize_morphism: vi.fn(() => packToWasm([])),
     symmetric_lens_from_schemas: vi.fn(() => ++handleCounter),
-    symmetric_lens_sync: vi.fn(() => packToWasm({ view: {}, complement: new Uint8Array() })),
+    symmetric_lens_sync: vi.fn(() => packToWasm(SYNCED_INSTANCE_WIRE)),
     apply_protolens_step: vi.fn(() => ++handleCounter),
     protolens_from_json: vi.fn(() => ++handleCounter),
     protolens_fuse: vi.fn(() => ++handleCounter),
@@ -192,6 +204,48 @@ describe('ProtolensChainHandle', () => {
 
     lens[Symbol.dispose]();
     chain[Symbol.dispose]();
+  });
+});
+
+describe('SymmetricLensHandle', () => {
+  it('decodes a left-to-right sync as a WInstance LiftResult', () => {
+    const wasm = createMockWasm();
+    const handle = new SymmetricLensHandle(
+      new WasmHandle(42, (h) => wasm.exports.free_handle(h)),
+      wasm,
+    );
+    const view = packToWasm({ nodes: {}, root: 0 });
+    const complement = packToWasm({ dropped_nodes: {} });
+
+    const result = handle.syncLeftToRight(view, complement);
+
+    expect(result.data).toEqual(SYNCED_INSTANCE_WIRE);
+    expect(result._rawBytes).toEqual(packToWasm(SYNCED_INSTANCE_WIRE));
+    expect(result).not.toHaveProperty('view');
+    expect(result).not.toHaveProperty('complement');
+    expect(wasm.exports.symmetric_lens_sync).toHaveBeenCalledWith(42, view, complement, 0);
+
+    handle[Symbol.dispose]();
+  });
+
+  it('decodes a right-to-left sync as a WInstance LiftResult', () => {
+    const wasm = createMockWasm();
+    const handle = new SymmetricLensHandle(
+      new WasmHandle(42, (h) => wasm.exports.free_handle(h)),
+      wasm,
+    );
+    const view = packToWasm({ nodes: {}, root: 0 });
+    const complement = packToWasm({ dropped_nodes: {} });
+
+    const result = handle.syncRightToLeft(view, complement);
+
+    expect(result.data).toEqual(SYNCED_INSTANCE_WIRE);
+    expect(result._rawBytes).toEqual(packToWasm(SYNCED_INSTANCE_WIRE));
+    expect(result).not.toHaveProperty('view');
+    expect(result).not.toHaveProperty('complement');
+    expect(wasm.exports.symmetric_lens_sync).toHaveBeenCalledWith(42, view, complement, 1);
+
+    handle[Symbol.dispose]();
   });
 });
 

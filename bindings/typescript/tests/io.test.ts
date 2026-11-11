@@ -25,6 +25,7 @@ function createMockWasm(): WasmModule {
     check_existence: vi.fn(() => packToWasm({ valid: true, errors: [] })),
     compile_migration: vi.fn(() => ++handleCounter),
     lift_record: vi.fn(() => packToWasm({})),
+    check_migration_coverage: vi.fn(() => packToWasm({})),
     get_record: vi.fn(() => packToWasm({ view: {}, complement: new Uint8Array(0) })),
     put_record: vi.fn(() => packToWasm({})),
     compose_migrations: vi.fn(() => ++handleCounter),
@@ -37,7 +38,7 @@ function createMockWasm(): WasmModule {
     normalize_schema: vi.fn(() => ++handleCounter),
     validate_schema: vi.fn(() => packToWasm([])),
     register_io_protocols: vi.fn(() => ++handleCounter),
-    list_io_protocols: vi.fn(() => packToWasm(['graphql', 'protobuf', 'atproto'])),
+    list_io_protocols: vi.fn(() => packToWasm(['openapi', 'avro', 'atproto'])),
     parse_instance: vi.fn(() => packToWasm({ kind: 'wtype', data: {} })),
     emit_instance: vi.fn(() => new Uint8Array([1, 2, 3])),
     validate_instance: vi.fn(() => packToWasm([])),
@@ -83,7 +84,7 @@ describe('IoRegistry', () => {
     const registry = createTestRegistry(wasm);
 
     const protocols = registry.protocols;
-    expect(protocols).toEqual(['graphql', 'protobuf', 'atproto']);
+    expect(protocols).toEqual(['openapi', 'avro', 'atproto']);
     expect(wasm.exports.list_io_protocols).toHaveBeenCalledTimes(1);
 
     // Second access should be cached
@@ -98,8 +99,8 @@ describe('IoRegistry', () => {
     const wasm = createMockWasm();
     const registry = createTestRegistry(wasm);
 
-    expect(registry.hasProtocol('graphql')).toBe(true);
-    expect(registry.hasProtocol('protobuf')).toBe(true);
+    expect(registry.hasProtocol('openapi')).toBe(true);
+    expect(registry.hasProtocol('avro')).toBe(true);
     expect(registry.hasProtocol('atproto')).toBe(true);
 
     registry[Symbol.dispose]();
@@ -120,12 +121,12 @@ describe('IoRegistry', () => {
     const schema = createTestSchema(wasm);
     const input = new Uint8Array([10, 20, 30]);
 
-    const instance = registry.parse('graphql', schema, input);
+    const instance = registry.parse('openapi', schema, input);
 
     expect(instance).toBeInstanceOf(Instance);
     expect(wasm.exports.parse_instance).toHaveBeenCalledWith(
       registry._handle.id,
-      new TextEncoder().encode('graphql'),
+      new TextEncoder().encode('openapi'),
       schema._handle.id,
       input,
     );
@@ -141,12 +142,12 @@ describe('IoRegistry', () => {
     const instanceBytes = packToWasm({ kind: 'wtype', data: {} });
     const instance = new Instance(instanceBytes, schema, wasm);
 
-    const result = registry.emit('protobuf', schema, instance);
+    const result = registry.emit('avro', schema, instance);
 
     expect(result).toEqual(new Uint8Array([1, 2, 3]));
     expect(wasm.exports.emit_instance).toHaveBeenCalledWith(
       registry._handle.id,
-      new TextEncoder().encode('protobuf'),
+      new TextEncoder().encode('avro'),
       schema._handle.id,
       instanceBytes,
     );
@@ -187,15 +188,14 @@ describe('PROTOCOL_CATEGORIES', () => {
     expect(keys).toContain('database');
     expect(keys).toContain('domain');
     expect(keys).toContain('serialization');
-    expect(keys).toContain('type_system');
     expect(keys).toContain('web_document');
-    expect(keys).toHaveLength(10);
+    expect(keys).toHaveLength(9);
   });
 
-  it('has 76 total protocols across all categories', () => {
+  it('has 50 total protocols across all categories', () => {
     const total = Object.values(PROTOCOL_CATEGORIES)
       .reduce((sum, protos) => sum + protos.length, 0);
-    expect(total).toBe(76);
+    expect(total).toBe(50);
   });
 
   it('annotation has expected protocols', () => {
@@ -207,13 +207,13 @@ describe('PROTOCOL_CATEGORIES', () => {
 
   it('api has expected protocols', () => {
     expect(PROTOCOL_CATEGORIES.api).toEqual([
-      'graphql', 'openapi', 'asyncapi', 'jsonapi', 'raml',
+      'openapi', 'asyncapi', 'jsonapi', 'raml',
     ]);
   });
 
   it('serialization has expected protocols', () => {
-    expect(PROTOCOL_CATEGORIES.serialization).toContain('protobuf');
-    expect(PROTOCOL_CATEGORIES.serialization).toContain('avro');
-    expect(PROTOCOL_CATEGORIES.serialization).toContain('thrift');
+    expect(PROTOCOL_CATEGORIES.serialization).toEqual([
+      'avro', 'flatbuffers', 'asn1', 'bond', 'msgpack_schema',
+    ]);
   });
 });

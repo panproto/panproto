@@ -734,18 +734,17 @@ fn apply_single_resolution(
             vertex_id, sort, ..
         } => {
             // Copy the constraint from the chosen source.
-            if let Some(constraints) = source.constraints.get(vertex_id.as_str()) {
-                if let Some(c) = constraints
+            if let Some(constraints) = source.constraints.get(vertex_id.as_str())
+                && let Some(c) = constraints
                     .iter()
                     .find(|c| c.sort.as_ref() == sort.as_str())
-                {
-                    let entry = schema
-                        .constraints
-                        .entry(Name::from(vertex_id.as_str()))
-                        .or_default();
-                    entry.retain(|existing| existing.sort.as_ref() != sort.as_str());
-                    entry.push(c.clone());
-                }
+            {
+                let entry = schema
+                    .constraints
+                    .entry(Name::from(vertex_id.as_str()))
+                    .or_default();
+                entry.retain(|existing| existing.sort.as_ref() != sort.as_str());
+                entry.push(c.clone());
             }
         }
         MergeConflict::DeleteModifyConstraint {
@@ -758,18 +757,17 @@ fn apply_single_resolution(
                 .is_some()
             {
                 // Copy from source (constraint exists on the chosen side).
-                if let Some(constraints) = source.constraints.get(vertex_id.as_str()) {
-                    if let Some(c) = constraints
+                if let Some(constraints) = source.constraints.get(vertex_id.as_str())
+                    && let Some(c) = constraints
                         .iter()
                         .find(|c| c.sort.as_ref() == sort.as_str())
-                    {
-                        let entry = schema
-                            .constraints
-                            .entry(Name::from(vertex_id.as_str()))
-                            .or_default();
-                        entry.retain(|existing| existing.sort.as_ref() != sort.as_str());
-                        entry.push(c.clone());
-                    }
+                {
+                    let entry = schema
+                        .constraints
+                        .entry(Name::from(vertex_id.as_str()))
+                        .or_default();
+                    entry.retain(|existing| existing.sort.as_ref() != sort.as_str());
+                    entry.push(c.clone());
                 }
             } else {
                 // Chosen side deleted it.
@@ -995,14 +993,14 @@ pub fn verify_pushout(
     for base_edge in base.edges.keys() {
         let via_ours = resolved.migration_from_ours.edge_map.get(base_edge);
         let via_theirs = resolved.migration_from_theirs.edge_map.get(base_edge);
-        if let (Some(o), Some(t)) = (via_ours, via_theirs) {
-            if o != t {
-                return Err(PushoutError::EdgeCoconeViolation {
-                    edge: format!("{}->{}", base_edge.src, base_edge.tgt),
-                    via_ours: format!("{}->{}", o.src, o.tgt),
-                    via_theirs: format!("{}->{}", t.src, t.tgt),
-                });
-            }
+        if let (Some(o), Some(t)) = (via_ours, via_theirs)
+            && o != t
+        {
+            return Err(PushoutError::EdgeCoconeViolation {
+                edge: format!("{}->{}", base_edge.src, base_edge.tgt),
+                via_ours: format!("{}->{}", o.src, o.tgt),
+                via_theirs: format!("{}->{}", t.src, t.tgt),
+            });
         }
     }
 
@@ -1057,14 +1055,14 @@ where
     // 1. Validate the alternative cocone: agreement on every base vertex
     //    that both ours and theirs retain.
     for vid in base.vertices.keys() {
-        if let (Some(via_ours), Some(via_theirs)) = (k_ours.get(vid), k_theirs.get(vid)) {
-            if via_ours != via_theirs {
-                return Err(PushoutError::CoconeViolation {
-                    vertex: vid.to_string(),
-                    via_ours: via_ours.to_string(),
-                    via_theirs: via_theirs.to_string(),
-                });
-            }
+        if let (Some(via_ours), Some(via_theirs)) = (k_ours.get(vid), k_theirs.get(vid))
+            && via_ours != via_theirs
+        {
+            return Err(PushoutError::CoconeViolation {
+                vertex: vid.to_string(),
+                via_ours: via_ours.to_string(),
+                via_theirs: via_theirs.to_string(),
+            });
         }
     }
     // 2. Validate cocone codomain: every k_* image must live in q_schema.
@@ -1296,10 +1294,10 @@ fn overlap_from_pullback(
         // If proj1 and proj2 map to the same name, that vertex is shared.
         let v1 = proj1.sort_map.get(&sort.name);
         let v2 = proj2.sort_map.get(&sort.name);
-        if let (Some(v1_name), Some(v2_name)) = (v1, v2) {
-            if v1_name == v2_name {
-                shared_vertices.insert(v1_name.to_string());
-            }
+        if let (Some(v1_name), Some(v2_name)) = (v1, v2)
+            && v1_name == v2_name
+        {
+            shared_vertices.insert(v1_name.to_string());
         }
     }
 
@@ -1320,16 +1318,16 @@ fn overlap_from_pullback(
             // Look up the actual edges from the op names in the original theories.
             let ours_op = ours_theory.find_op(o1);
             let theirs_op = theirs_theory.find_op(o2);
-            if let (Some(ours_op), Some(theirs_op)) = (ours_op, theirs_op) {
-                if ours_op.output == theirs_op.output {
-                    // Find the source sort names.
-                    let ours_src = ours_op.inputs.first().map(|(_, s, _)| s);
-                    let theirs_src = theirs_op.inputs.first().map(|(_, s, _)| s);
-                    if let (Some(os), Some(ts)) = (ours_src, theirs_src) {
-                        if os == ts {
-                            shared_edges.insert((os.to_string(), ours_op.output.to_string()));
-                        }
-                    }
+            if let (Some(ours_op), Some(theirs_op)) = (ours_op, theirs_op)
+                && ours_op.output == theirs_op.output
+            {
+                // Find the source sort names.
+                let ours_src = ours_op.inputs.first().map(|(_, s, _)| s);
+                let theirs_src = theirs_op.inputs.first().map(|(_, s, _)| s);
+                if let (Some(os), Some(ts)) = (ours_src, theirs_src)
+                    && os == ts
+                {
+                    shared_edges.insert((os.to_string(), ours_op.output.to_string()));
                 }
             }
         }
@@ -1723,10 +1721,9 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     // and a reader that takes a slice position rather than a value then answers
     // differently run to run about one unchanged merge.
     //
-    // This is defence in depth rather than the fix. `edge_image` is the reader
-    // that made the divergence observable and it now chooses by value, so the
-    // span is a function of the pair whether or not this loop sorts. What the
-    // sort buys is that the next positional reader is not bitten.
+    // This is defence in depth. `edge_image` chooses by value, so the span is
+    // a function of the pair whether or not this loop sorts. What the sort
+    // buys is that a positional reader added later is not bitten.
     //
     // It does not make the stored bytes a function of the schema, and nothing
     // here could. `Schema` keeps `vertices`, `edges`, `outgoing`, `incoming` and
@@ -1803,6 +1800,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         mergers,
         defaults,
         policies,
+        ..Default::default()
     };
 
     // Derive migrations.
@@ -2545,10 +2543,10 @@ fn merge_required(
             }
         };
 
-        if let Some(v) = merged_val {
-            if !v.is_empty() {
-                result.insert(vid.clone(), v);
-            }
+        if let Some(v) = merged_val
+            && !v.is_empty()
+        {
+            result.insert(vid.clone(), v);
         }
     }
 
@@ -3271,6 +3269,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -4087,7 +4086,7 @@ mod tests {
         let theirs = schema_with_entries(&["A"]);
         let verts = HashMap::new();
         let merged = three_way_merge_entries(&base, &ours, &theirs, &verts);
-        assert!(merged.is_empty());
+        assert_eq!(merged, Vec::<Name>::new());
     }
 
     #[test]
@@ -4253,7 +4252,7 @@ mod tests {
     }
 
     // =======================================================================
-    // Exhaustive conflict resolution (COL-05)
+    // Exhaustive conflict resolution
     // =======================================================================
 
     #[test]
@@ -4526,7 +4525,7 @@ mod tests {
     }
 
     // =======================================================================
-    // Pullback failure surfacing (COL-11)
+    // Pullback failure surfacing
     // =======================================================================
 
     #[test]

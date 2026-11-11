@@ -331,26 +331,26 @@ pub fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>, migrate_dir: Option<&Path>) -> 
         println!("pullback overlap unavailable: {err}");
     }
 
-    if cmd_opts.verbose {
-        if let Some(ref overlap) = result.pullback_overlap {
-            println!("\nPullback overlap detection:");
-            if overlap.shared_vertices.is_empty() {
-                println!("  No shared vertices detected.");
-            } else {
-                println!("  {} shared vertex(es):", overlap.shared_vertices.len());
-                let mut sorted: Vec<_> = overlap.shared_vertices.iter().collect();
-                sorted.sort();
-                for v in sorted {
-                    println!("    {v}");
-                }
+    if cmd_opts.verbose
+        && let Some(ref overlap) = result.pullback_overlap
+    {
+        println!("\nPullback overlap detection:");
+        if overlap.shared_vertices.is_empty() {
+            println!("  No shared vertices detected.");
+        } else {
+            println!("  {} shared vertex(es):", overlap.shared_vertices.len());
+            let mut sorted: Vec<_> = overlap.shared_vertices.iter().collect();
+            sorted.sort();
+            for v in sorted {
+                println!("    {v}");
             }
-            if !overlap.shared_edges.is_empty() {
-                println!("  {} shared edge(s):", overlap.shared_edges.len());
-                let mut sorted: Vec<_> = overlap.shared_edges.iter().collect();
-                sorted.sort();
-                for (src, tgt) in sorted {
-                    println!("    {src} -> {tgt}");
-                }
+        }
+        if !overlap.shared_edges.is_empty() {
+            println!("  {} shared edge(s):", overlap.shared_edges.len());
+            let mut sorted: Vec<_> = overlap.shared_edges.iter().collect();
+            sorted.sort();
+            for (src, tgt) in sorted {
+                println!("    {src} -> {tgt}");
             }
         }
     }

@@ -431,10 +431,10 @@ fn apply_pullback(theory: &Theory, morphism: &TheoryMorphism) -> Theory {
     for (old, assignment) in &morphism.op_map {
         // A pullback along a morphism renames operations; a derived-term
         // assignment is not a rename and does not apply here.
-        if let Some(new) = assignment.as_op() {
-            if old != new {
-                result = apply_rename_op(&result, old, new);
-            }
+        if let Some(new) = assignment.as_op()
+            && old != new
+        {
+            result = apply_rename_op(&result, old, new);
         }
     }
     result
@@ -580,12 +580,11 @@ fn apply_scoped_transform(
     // Build a rename map for sorts modified by the inner transform.
     let mut sort_rename: FxHashMap<Arc<str>, Arc<str>> = FxHashMap::default();
     for orig_sort in &reachable {
-        if !transformed_sub.sorts.iter().any(|s| s.name == *orig_sort) {
-            if let Some(new_sort) =
+        if !transformed_sub.sorts.iter().any(|s| s.name == *orig_sort)
+            && let Some(new_sort) =
                 find_renamed_sort(orig_sort, &sub_theory.sorts, &transformed_sub.sorts)
-            {
-                sort_rename.insert(Arc::clone(orig_sort), new_sort);
-            }
+        {
+            sort_rename.insert(Arc::clone(orig_sort), new_sort);
         }
     }
 
@@ -977,12 +976,11 @@ fn find_renamed_sort(original_name: &str, before: &[Sort], after: &[Sort]) -> Op
     // name == original_name, and the after list has a sort at the
     // same position with a different name, the sort was renamed.
     for (i, s) in before.iter().enumerate() {
-        if s.name.as_ref() == original_name {
-            if let Some(after_sort) = after.get(i) {
-                if after_sort.name != s.name {
-                    return Some(Arc::clone(&after_sort.name));
-                }
-            }
+        if s.name.as_ref() == original_name
+            && let Some(after_sort) = after.get(i)
+            && after_sort.name != s.name
+        {
+            return Some(Arc::clone(&after_sort.name));
         }
     }
     None

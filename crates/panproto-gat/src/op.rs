@@ -117,7 +117,7 @@ impl Operation {
 
     /// Returns the total number of inputs (implicit + explicit).
     #[must_use]
-    pub fn arity(&self) -> usize {
+    pub const fn arity(&self) -> usize {
         self.inputs.len()
     }
 

@@ -1,0 +1,81 @@
+{
+  "arcs": [
+    [
+      0,
+      1,
+      {
+        "kind": "prop",
+        "name": "meta",
+        "src": "post",
+        "tgt": "post.meta"
+      }
+    ],
+    [
+      1,
+      2,
+      {
+        "kind": "prop",
+        "name": "lang",
+        "src": "post.meta",
+        "tgt": "post.meta.lang"
+      }
+    ]
+  ],
+  "children_map": {
+    "0": [
+      1
+    ],
+    "1": [
+      2
+    ]
+  },
+  "fans": [],
+  "nodes": {
+    "0": {
+      "anchor": "post",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    "1": {
+      "anchor": "post.meta",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    "2": {
+      "anchor": "post.meta.lang",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "en"
+        }
+      }
+    }
+  },
+  "parent_map": {
+    "1": 0,
+    "2": 1
+  },
+  "root": 0,
+  "schema_root": "post"
+}

@@ -70,7 +70,7 @@ pub fn open_protocol() -> Protocol {
         }],
         obj_kinds: vec!["object".into(), "string".into(), "ref".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -102,7 +102,7 @@ pub fn small_protocol() -> Protocol {
             .collect(),
         obj_kinds: SMALL_KINDS.iter().map(|k| (*k).to_owned()).collect(),
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -147,7 +147,7 @@ pub fn rich_protocol() -> Protocol {
         has_coercions: true,
         has_mergers: true,
         has_policies: true,
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

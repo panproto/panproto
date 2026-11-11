@@ -1,4 +1,4 @@
-//! Coverage (M2, web family): assert the emit fixed-point law
+//! Coverage (web family): assert the emit fixed-point law
 //! `emit(parse(emit(s))) == emit(s)` on idiomatic source for the
 //! web-frontend grammars. Passing protocols are promoted to
 //! `VERIFIED_EMIT_PROTOCOLS` in the registry.

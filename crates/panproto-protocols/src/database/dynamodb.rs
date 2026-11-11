@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the `DynamoDB` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "dynamodb".into(),
         schema_theory: "ThDynamoDBSchema".into(),
         instance_theory: "ThDynamoDBInstance".into(),
@@ -38,8 +38,10 @@ pub fn protocol() -> Protocol {
             "write-capacity".into(),
         ],
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `DynamoDB` with a theory registry.
@@ -53,6 +55,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the JSON is invalid.
 pub fn parse_dynamodb(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -178,13 +182,12 @@ fn parse_gsis(
             builder = builder.vertex(&gsi_id, "gsi", None)?;
             builder = builder.edge(table_name, &gsi_id, "prop", Some(index_name))?;
 
-            if let Some(proj) = gsi.get("Projection") {
-                if let Some(proj_type) = proj
+            if let Some(proj) = gsi.get("Projection")
+                && let Some(proj_type) = proj
                     .get("ProjectionType")
                     .and_then(serde_json::Value::as_str)
-                {
-                    builder = builder.constraint(&gsi_id, "projection-type", proj_type);
-                }
+            {
+                builder = builder.constraint(&gsi_id, "projection-type", proj_type);
             }
 
             if let Some(keys) = gsi.get("KeySchema").and_then(serde_json::Value::as_array) {
@@ -224,13 +227,12 @@ fn parse_lsis(
             builder = builder.vertex(&lsi_id, "lsi", None)?;
             builder = builder.edge(table_name, &lsi_id, "prop", Some(index_name))?;
 
-            if let Some(proj) = lsi.get("Projection") {
-                if let Some(proj_type) = proj
+            if let Some(proj) = lsi.get("Projection")
+                && let Some(proj_type) = proj
                     .get("ProjectionType")
                     .and_then(serde_json::Value::as_str)
-                {
-                    builder = builder.constraint(&lsi_id, "projection-type", proj_type);
-                }
+            {
+                builder = builder.constraint(&lsi_id, "projection-type", proj_type);
             }
         }
     }
@@ -295,13 +297,13 @@ pub fn emit_dynamodb(schema: &Schema) -> Result<serde_json::Value, ProtocolError
         "KeySchema": key_schema
     });
 
-    if let Some(rcu) = constraint_value(schema, &table.id, "read-capacity") {
-        if let Some(wcu) = constraint_value(schema, &table.id, "write-capacity") {
-            result["ProvisionedThroughput"] = serde_json::json!({
-                "ReadCapacityUnits": rcu.parse::<u64>().unwrap_or(5),
-                "WriteCapacityUnits": wcu.parse::<u64>().unwrap_or(5)
-            });
-        }
+    if let Some(rcu) = constraint_value(schema, &table.id, "read-capacity")
+        && let Some(wcu) = constraint_value(schema, &table.id, "write-capacity")
+    {
+        result["ProvisionedThroughput"] = serde_json::json!({
+            "ReadCapacityUnits": rcu.parse::<u64>().unwrap_or(5),
+            "WriteCapacityUnits": wcu.parse::<u64>().unwrap_or(5)
+        });
     }
 
     if !gsis.is_empty() {
@@ -428,11 +430,9 @@ mod tests {
         let schema = parse_dynamodb(&json).expect("parse");
         let emitted = emit_dynamodb(&schema).expect("emit");
         assert_eq!(emitted["TableName"], "items");
-        assert!(
-            !emitted["AttributeDefinitions"]
-                .as_array()
-                .unwrap()
-                .is_empty()
+        assert_ne!(
+            *emitted["AttributeDefinitions"].as_array().unwrap(),
+            Vec::<serde_json::Value>::new()
         );
     }
 

@@ -227,10 +227,8 @@ impl LoadedInput {
             SchemaInput::Project(project) => project.build_schema()?,
         };
         let bundled = matches!(kind, InputKind::ManifestBundle | InputKind::ProtocolBundle);
-        if bundled {
-            if let Some(ref name) = protocol {
-                schema.protocol.clone_from(name);
-            }
+        if bundled && let Some(ref name) = protocol {
+            schema.protocol.clone_from(name);
         }
         Ok(LoadedSchema {
             schema,
@@ -639,8 +637,8 @@ fn empty_globset() -> Result<globset::GlobSet> {
     globset::GlobSetBuilder::new().build().into_diagnostic()
 }
 
-/// Normalize an underscore-keyed protocol name to its canonical
-/// hyphenated form, matching the protocol registry's own dispatch.
+/// Normalize an underscore compatibility spelling to the registry's
+/// canonical hyphenated form.
 fn normalize_protocol(name: &str) -> String {
     name.replace('_', "-")
 }

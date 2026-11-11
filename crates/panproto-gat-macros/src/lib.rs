@@ -601,9 +601,8 @@ impl Parse for DeriveTheoryInput {
 /// the same expansion `class!` uses, so its signatures and axioms produce the
 /// same operations and equations either way.
 ///
-/// Supported derives: `Eq`, `Hash`. Passing `Ord` or `Show` emits a
-/// compile error directing callers to the follow-up work, which keeps
-/// the surface stable for those derives when support lands.
+/// Supported derives: `Eq`, `Hash`. Any other derive, such as `Ord` or
+/// `Show`, emits a compile error naming the supported set.
 #[proc_macro]
 pub fn derive_theory(input: TokenStream) -> TokenStream {
     let DeriveTheoryInput { derives, class } = parse_macro_input!(input as DeriveTheoryInput);

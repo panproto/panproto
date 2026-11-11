@@ -242,7 +242,7 @@ fn incremental_import_noop_when_head_is_known() {
 
     assert_eq!(second.commit_count, 0);
     assert_eq!(second.head_id, known[&commit_oids[1]]);
-    assert!(second.oid_map.is_empty());
+    assert_eq!(second.oid_map, []);
 }
 
 #[test]

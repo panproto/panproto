@@ -102,7 +102,7 @@ fn protocol() -> Protocol {
         }],
         obj_kinds: vec!["object".to_owned()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -271,7 +271,7 @@ fn find_best_morphism_reports_the_stop_rather_than_denying_the_morphism() {
 
 /// And a pair that genuinely has no total morphism still answers `Ok(None)`.
 ///
-/// This is the regression the fix could plausibly have introduced: reporting
+/// This is the regression reporting stopped searches could plausibly introduce: reporting
 /// every stopped search would be easy and would turn the corpus's common case,
 /// a pair with no total morphism, into a refusal. It does not, because that
 /// case routes to exact inference, which is priced against the budget in

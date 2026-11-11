@@ -348,11 +348,11 @@ final class FixtureGenerator {
     /// for the post record.
     ///
     /// The post to profile chain is tried first, since that is the chain
-    /// the rest of this directory is built around. Its restrict step
-    /// cannot carry the post record, so the capture falls back to the
-    /// chain the post schema generates against itself and records what
-    /// the engine said, which keeps the payload shape pinned and keeps
-    /// the reason for the fallback in the README.
+    /// the rest of this directory is built around. Should its get refuse
+    /// the post record, the capture falls back to the chain the post
+    /// schema generates against itself and records what the engine said,
+    /// which keeps the payload shape pinned and keeps the reason for the
+    /// fallback in the README.
     private func captureView(post: UInt32, chain: UInt32, instance: Data) {
         let migration = allocateHandle(
             step: "get-record.cbor",
@@ -840,9 +840,11 @@ final class FixtureGenerator {
             "`Raw` shim layer directly, so a fixture that stops matching is a change",
             "in the engine and not in a Swift wrapper.",
             "",
+            "## Regenerating the fixtures",
+            "",
             "Regenerate the whole directory with:",
             "",
-            "```",
+            "```sh",
             "cd bindings/swift",
             "swift run generate-fixtures Tests/PanprotoTests/Fixtures",
             "```",
@@ -850,6 +852,8 @@ final class FixtureGenerator {
             "The generator clears every `.cbor` and `.json` file here before it",
             "writes, so a payload the engine no longer produces disappears with it.",
             "Payloads are CBOR (`ciborium`) except where the file name says `.json`.",
+            "",
+            "## Fixture catalog",
             "",
             "| Fixture | Entry point | Bytes | Captured from |",
             "| --- | --- | --- | --- |",
@@ -872,6 +876,10 @@ final class FixtureGenerator {
             lines.append("")
             lines.append(finding)
         }
+        lines.append("")
+        lines.append("## License")
+        lines.append("")
+        lines.append("[MIT](../../../../../LICENSE)")
         lines.append("")
 
         let readme = outputDirectory.appendingPathComponent("README.md")

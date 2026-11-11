@@ -15,8 +15,8 @@
     "commonName": "api.panproto.io",
     "organizationName": "Panproto Project",
     "country": "US",
-    "stateOrProvince": "New York",
-    "locality": "Rochester"
+    "stateOrProvince": "Illinois",
+    "locality": "Springfield"
   },
   "subjectPublicKeyInfo": {
     "algorithm": "id-ecPublicKey",

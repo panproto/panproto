@@ -72,7 +72,7 @@ func put(view: Instance, complement: Complement) throws(PanprotoError) -> Instan
 
 For a compiled schema mapping \(S\to T\), `lift` accepts an \(S\)-instance and returns the surviving fragment as a \(T\)-instance. It wraps the restrict-based Rust `mig::lift_wtype`. It is neither the left Kan extension \(\Sigma_F\) nor precomposition \(\Delta_F\). `get` has the same source-to-target direction and captures the complement. `put` accepts the target view and complement and reconstructs a source instance.
 
-Law-checking methods return `LawCheckResult` rather than throwing when a law is false. They can still throw when the operation itself cannot be evaluated. `checkLaws` checks GetPut and a deterministic two-view PutGet smoke test at the supplied source instance. It is not a proof for all instances or edits.
+Law-checking methods return `LawCheckResult` rather than throwing when a gate is false. They can still throw when the operation itself cannot be evaluated. `checkLaws` runs GetPut, PutGet, finite-basis totality, PutTwice complement stability, and congruence at the supplied source instance. It is not a proof for all instances or edits.
 
 ## Morphism and span search
 

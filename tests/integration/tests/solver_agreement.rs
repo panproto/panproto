@@ -1040,16 +1040,16 @@ mod anytime_contract {
         ///
         /// The frontier's least bound is a global lower bound only while the
         /// frontier partitions the assignment space. A dive abandoned by a
-        /// budget used to return without recording the subtree it was giving
-        /// up, so the frontier stopped covering the space, and once it emptied
-        /// the bound was ratcheted to the incumbent's cost: on an instance
-        /// whose optimum was eleven the search certified fourteen, and with a
-        /// zero budget it certified `⊤`, which reads as "nothing is feasible"
-        /// for a network that has an answer.
+        /// budget must not return without recording the subtree it is giving
+        /// up, or the frontier stops covering the space, and once it empties
+        /// the bound is ratcheted to the incumbent's cost: on an instance
+        /// whose optimum is eleven the search would certify fourteen, and with
+        /// a zero budget it would certify `⊤`, which reads as "nothing is
+        /// feasible" for a network that has an answer.
         ///
         /// Every node count from none to well past the whole search is swept,
-        /// because the defect needed the budget to fire on the *last* frontier
-        /// node and so hid at almost every other count.
+        /// because such a defect needs the budget to fire on the *last*
+        /// frontier node and so hides at almost every other count.
         #[test]
         fn an_interrupted_search_never_certifies_too_much(
             (_, _, _, _, cfn) in arb_small_cfn_instance()
@@ -1180,9 +1180,10 @@ mod anytime_contract {
 
 /// Determinism across processes, which is guarantee 6 of the search contract.
 ///
-/// A regression. Descriptor identities used to be interned in the order a
-/// `std::collections::HashMap` handed its keys over, so the per-process hash
-/// seed reached the branching order and, where optima tie, the answer.
+/// A regression guard: descriptor identities must not be interned in the
+/// order a `std::collections::HashMap` hands its keys over, or the
+/// per-process hash seed reaches the branching order and, where optima tie,
+/// the answer.
 mod hash_seed {
     use panproto_mig::solve::build::{NoEvidence, build_cfn};
     use panproto_mig::solve::mcsplit::solve_iso;
@@ -1198,7 +1199,7 @@ mod hash_seed {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

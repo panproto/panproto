@@ -163,16 +163,7 @@ fn diff_to_protolens_with_defaults(
                 "diff adds vertex `{vertex_id}`, but the new schema does not contain it"
             ))
         })?;
-        let edge_defaults: Vec<_> = new_schema
-            .incoming_edges(vertex_id)
-            .iter()
-            .filter_map(|edge| edge.name.as_ref().and_then(|name| defaults.get(name)))
-            .collect();
-        let default = defaults
-            .get(vertex_id.as_str())
-            .or_else(|| (edge_defaults.len() == 1).then(|| edge_defaults[0]))
-            .or_else(|| defaults.get(&vertex.kind))
-            .cloned();
+        let default = crate::default_synthesis::added_vertex_default(new_schema, vertex, defaults);
         steps.push(elementary::add_schema_vertex(
             vertex,
             new_schema.entries.contains(&vertex.id),
@@ -377,7 +368,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "string".into(), "boolean".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -510,18 +501,29 @@ mod tests {
         let defaults = HashMap::from([(Name::from("boolean"), Value::Bool(true))]);
         let lens = diff_to_lens(&d, &old, &new, &protocol, &defaults).unwrap();
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"}))
+                .unwrap();
 
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "diff_to_lens must compile the default into executable get behavior"
         );
 
-        let lifted = panproto_mig::lift_wtype(&lens.compiled, &old, &new, &source).unwrap();
+        let lifted = panproto_mig::lift_wtype(
+            &lens.compiled,
+            &old,
+            &new,
+            &source,
+            panproto_inst::BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+        .unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &lifted),
+            panproto_inst::to_json(&new, &lifted).unwrap(),
             serde_json::json!({"active": true, "name": "Ada"}),
             "the public WInstance lift path must execute the same compiled default"
         );
@@ -544,10 +546,11 @@ mod tests {
             })
         }));
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"}))
+                .unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"name": "Ada"})
         );
     }
@@ -561,11 +564,12 @@ mod tests {
         let defaults = HashMap::from([(Name::from("root.active"), Value::Null)]);
         let lens = diff_to_lens(&diff, &old, &new, &protocol, &defaults).unwrap();
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"}))
+                .unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
 
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"active": null, "name": "Ada"})
         );
     }
@@ -643,10 +647,11 @@ mod tests {
         assert_schema_eq(&lens.tgt_schema, &new);
 
         let source =
-            panproto_inst::parse_json(&old, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+            panproto_inst::parse_json(&old, &protocol, "root", &serde_json::json!({"name": "Ada"}))
+                .unwrap();
         let (view, _) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"active": true, "archived": false, "name": "Ada"})
         );
     }
@@ -939,13 +944,14 @@ mod tests {
 
         let source = panproto_inst::parse_json(
             &old,
+            &protocol,
             "root",
             &serde_json::json!({"untouched": "same", "value": "yes"}),
         )
         .unwrap();
         let (view, complement) = crate::get(&lens, &source).unwrap();
         assert_eq!(
-            panproto_inst::to_json(&new, &view),
+            panproto_inst::to_json(&new, &view).unwrap(),
             serde_json::json!({"untouched": "same", "value": true})
         );
         let restored = crate::put(&lens, &view, &complement).unwrap();

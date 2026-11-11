@@ -12,8 +12,8 @@ create-missing = false
 [output.html]
 default-theme = "navy"
 preferred-dark-theme = "navy"
-git-repository-url = "https://github.com/aaronstevenwhite/panproto"
-edit-url-template = "https://github.com/aaronstevenwhite/panproto/edit/main/book/{path}"
+git-repository-url = "https://github.com/panproto/panproto"
+edit-url-template = "https://github.com/panproto/panproto/edit/main/book/{path}"
 site-url = "/book/"
 additional-css = ["./theme/cite.css"]
 additional-js = ["./theme/cite-group.js", "./theme/mermaid.min.js", "./theme/mermaid-init.js", "./theme/bib-links.js", "./theme/bib-linkify.js"]

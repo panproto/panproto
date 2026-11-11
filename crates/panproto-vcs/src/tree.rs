@@ -642,6 +642,7 @@ pub fn project_coproduct_protocol() -> Protocol {
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
+        ..Default::default()
     }
 }
 
@@ -1030,6 +1031,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

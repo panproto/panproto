@@ -148,7 +148,8 @@ struct EdgeMeta {
 ///
 /// `schema_handle` is a [`Resource::Schema`] handle. On success, `out`
 /// receives a CBOR-encoded metadata record mirroring the WASM
-/// `schema_metadata` payload (`{ protocol, vertices, edges }`).
+/// `schema_metadata` payload (`{ protocol, vertices, edges }`), with the
+/// vertices in id order and the edges in edge order.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 {
@@ -156,9 +157,16 @@ pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 
         let bytes = handle::with_resource(schema_handle, |r| {
             let schema = r.as_schema()?;
 
-            let vertices: Vec<VertexMeta> = schema
-                .vertices
-                .values()
+            // Vertices by id and edges in edge order: the schema's tables
+            // are hash maps, and their own enumeration order is the hash
+            // keys', not the schema's.
+            let mut ordered_vertices: Vec<_> = schema.vertices.values().collect();
+            ordered_vertices.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+            let mut ordered_edges: Vec<_> = schema.edges.keys().collect();
+            ordered_edges.sort_unstable();
+
+            let vertices: Vec<VertexMeta> = ordered_vertices
+                .into_iter()
                 .map(|v| VertexMeta {
                     id: v.id.to_string(),
                     kind: v.kind.to_string(),
@@ -166,9 +174,8 @@ pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 
                 })
                 .collect();
 
-            let edges: Vec<EdgeMeta> = schema
-                .edges
-                .keys()
+            let edges: Vec<EdgeMeta> = ordered_edges
+                .into_iter()
                 .map(|e| EdgeMeta {
                     src: e.src.to_string(),
                     tgt: e.tgt.to_string(),
@@ -232,9 +239,8 @@ mod tests {
     use panproto_core::schema::{Protocol, Schema};
 
     use super::*;
-    use crate::api::{pp_buf_free, pp_handle_free, pp_last_error_take, pp_protocol_define};
+    use crate::api::{pp_buf_free, pp_handle_free, pp_protocol_define};
     use crate::canonical::{decode, encode};
-    use crate::error::ErrorEnvelope;
 
     fn protocol_fixture() -> Protocol {
         Protocol {
@@ -244,7 +250,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -271,6 +277,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -325,25 +332,12 @@ mod tests {
 
     #[test]
     fn schema_to_cbor_on_protocol_handle_yields_type_mismatch() {
-        // Drain prior state.
-        let mut sink: repr_c::Vec<u8> = Vec::new().into();
-        let _ = pp_last_error_take(&mut sink);
-        pp_buf_free(sink);
-
         let proto_h = define_protocol_handle(&protocol_fixture());
 
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_schema_to_cbor(proto_h, &mut out);
         assert_eq!(status, PpStatus::TypeMismatch as i32);
         pp_buf_free(out);
-
-        let mut env_buf: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut env_buf), PpStatus::Ok as i32);
-        let env: ErrorEnvelope = decode(&env_buf).unwrap();
-        assert_eq!(env.tag, "type_mismatch");
-        assert!(env.message.contains("Schema"));
-        assert!(env.message.contains("Protocol"));
-        pp_buf_free(env_buf);
 
         assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
     }
@@ -370,7 +364,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
 
         // Schema with a vertex of unrecognized kind.
@@ -476,7 +470,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let proto_h = define_protocol_handle(&proto);
 

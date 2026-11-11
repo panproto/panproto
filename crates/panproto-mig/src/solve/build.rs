@@ -427,7 +427,7 @@ pub fn edge_match(
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 /// let schema = SchemaBuilder::new(&protocol)
 ///     .vertex("root", "object", None::<&str>)?
@@ -1142,7 +1142,7 @@ mod tests {
                 "union".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -1742,7 +1742,7 @@ mod tests {
         // the source alone; it just has nothing but `⊥` to take.
         assert_eq!(cfn.n_variables(), 2);
         let leaf = var_of(&cfn, "leaf");
-        assert!(cfn.variable(leaf).unwrap().values().is_empty());
+        assert_eq!(cfn.variable(leaf).unwrap().values(), Vec::<Name>::new());
         assert_eq!(cfn.domain(leaf).unwrap().only(), Some(ValId::BOTTOM));
 
         // Every feasible assignment drops it, so every cost carries one drop.

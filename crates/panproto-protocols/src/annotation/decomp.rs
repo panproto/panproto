@@ -115,7 +115,7 @@ const WORDSENSE_PROPERTIES: &[&str] = &[
 /// Returns the Decomp/UDS protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "decomp".into(),
         schema_theory: "ThDecompSchema".into(),
         instance_theory: "ThDecompInstance".into(),
@@ -156,8 +156,10 @@ pub fn protocol() -> Protocol {
             "property".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Decomp/UDS with a theory registry.
@@ -220,6 +222,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the JSON structure cannot be parsed.
 pub fn parse_decomp(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     // Track vertex IDs so helper functions can check token existence before linking.
@@ -698,10 +702,9 @@ fn emit_sem_node(schema: &Schema, node_vid: &str, sem_type: &str) -> serde_json:
         .outgoing_edges(node_vid)
         .iter()
         .find(|e| e.kind == "head")
+        && let Some(pos) = &head_edge.name
     {
-        if let Some(pos) = &head_edge.name {
-            obj.insert("head_token".into(), serde_json::json!(pos));
-        }
+        obj.insert("head_token".into(), serde_json::json!(pos));
     }
 
     // span_tokens
@@ -745,10 +748,10 @@ fn emit_sem_node(schema: &Schema, node_vid: &str, sem_type: &str) -> serde_json:
 fn emit_annotation(schema: &Schema, vertex_id: &str) -> serde_json::Value {
     let mut ann = serde_json::Map::new();
     for c in vertex_constraints(schema, vertex_id) {
-        if c.sort == "value" || c.sort == "confidence" {
-            if let Ok(f) = c.value.parse::<f64>() {
-                ann.insert(c.sort.to_string(), serde_json::json!(f));
-            }
+        if (c.sort == "value" || c.sort == "confidence")
+            && let Ok(f) = c.value.parse::<f64>()
+        {
+            ann.insert(c.sort.to_string(), serde_json::json!(f));
         }
     }
     serde_json::Value::Object(ann)

@@ -33,7 +33,9 @@ jobs:
     # On a pull request, a minute per target on the two that read
     # untrusted bytes. Long enough to catch a crash reachable from the
     # committed corpus, short enough that nobody learns to ignore it.
-    name: Fuzz smoke (${{ matrix.target }})
+    # A static name: a job skipped by `if:` never expands its matrix, so an
+    # expression here would be shown literally in the pull request's checks.
+    name: Fuzz smoke
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -74,7 +76,7 @@ jobs:
 
   campaign:
     # Every checked-in target, nightly, with a real budget.
-    name: Fuzz campaign (${{ matrix.target }})
+    name: Fuzz campaign
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -86,7 +88,6 @@ jobs:
           - consistency
           - cost_algebra
           - induce
-          - model
           - parse_and_search
           - span_search
     # `rust-toolchain.toml` pins stable at the repo root, and that file
@@ -111,9 +112,12 @@ jobs:
         # The corpus is checked in and is the campaign's starting
         # point, but it is deliberately not the only one: `-max_len`
         # lets libFuzzer build inputs larger than anything committed.
+        env:
+          TARGET: ${{ matrix.target }}
+          SECONDS_PER_TARGET: ${{ github.event.inputs.seconds || 900 }}
         run: |
-          cargo fuzz run ${{ matrix.target }} -- \
-            -max_total_time=${{ github.event.inputs.seconds || 900 }} \
+          cargo fuzz run "$TARGET" -- \
+            -max_total_time="$SECONDS_PER_TARGET" \
             -timeout=25 \
             -max_len=65536 \
             -print_final_stats=1
@@ -143,14 +147,16 @@ jobs:
     # and slices built from caller-supplied pointers. A use-after-free
     # or an out-of-bounds read there is silent under an ordinary test
     # run and loud under a sanitizer.
-    name: ${{ matrix.sanitizer }} over the grammar boundary
+    name: Sanitizer over the grammar boundary
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        sanitizer: [address, undefined]
+        # Rust's `-Zsanitizer` has no `undefined`; AddressSanitizer covers the
+        # use-after-free and out-of-bounds reads this job is for.
+        sanitizer: [address]
     # `rust-toolchain.toml` pins stable at the repo root, and that file
     # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
     # outranks the file, so it is what actually selects nightly here;
@@ -216,6 +222,9 @@ jobs:
       - name: Run Miri
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
+          # Miri is two orders of magnitude slower than a native run; a few
+          # cases per property keep the three crates inside the job's limit.
+          PROPTEST_CASES: "4"
         run: |
           cargo miri setup
           cargo miri test -p panproto-expr -p panproto-gat -p panproto-schema

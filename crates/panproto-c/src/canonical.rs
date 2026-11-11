@@ -10,9 +10,64 @@
 //! serialization policy (canonical mode, integer encoding, etc.) lives
 //! in one place.
 
+use panproto_core::inst::identity::{
+    AnyComplement, ComplementShape, Encoding, IdentityError, decode_complement as decode_any,
+    decode_complements as decode_any_seq,
+};
+use panproto_core::lens::Complement;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::FfiError;
+
+/// An identity failure met while decoding a complement: bytes that are
+/// not a complement at all are a serialization error, and a complement
+/// of another format or envelope layout is an operation error naming it.
+fn complement_error(err: IdentityError) -> FfiError {
+    match err {
+        IdentityError::Undecodable(detail) => FfiError::Serialization(detail),
+        other => FfiError::Operation(format!("complement: {other}")),
+    }
+}
+
+fn into_tree(decoded: AnyComplement) -> Result<Complement, FfiError> {
+    match decoded {
+        AnyComplement::WType(complement) => Ok(*complement),
+        AnyComplement::Functor(_) => Err(FfiError::Operation(
+            "complement: decoded a table complement where a tree complement was required"
+                .to_owned(),
+        )),
+        AnyComplement::Resolution(_) => Err(FfiError::Operation(
+            "complement: decoded a resolution complement where a tree complement was required"
+                .to_owned(),
+        )),
+    }
+}
+
+/// Decode one tree complement from CBOR, with the shape, format and
+/// trailing-byte checks every complement import makes.
+///
+/// # Errors
+///
+/// Returns [`FfiError::Serialization`] if `bytes` is not a CBOR
+/// complement, and [`FfiError::Operation`] if it is one of another
+/// format or envelope layout.
+pub fn decode_complement(bytes: &[u8]) -> Result<Complement, FfiError> {
+    let decoded =
+        decode_any(bytes, Encoding::Cbor, ComplementShape::WType).map_err(complement_error)?;
+    into_tree(decoded)
+}
+
+/// Decode a CBOR list of tree complements, one per record, with the
+/// checks [`decode_complement`] makes applied to every element.
+///
+/// # Errors
+///
+/// As [`decode_complement`].
+pub fn decode_complements(bytes: &[u8]) -> Result<Vec<Complement>, FfiError> {
+    let decoded =
+        decode_any_seq(bytes, Encoding::Cbor, ComplementShape::WType).map_err(complement_error)?;
+    decoded.into_iter().map(into_tree).collect()
+}
 
 /// Decode a value of type `T` from a CBOR byte slice.
 ///
@@ -67,7 +122,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

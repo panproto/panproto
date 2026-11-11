@@ -285,17 +285,17 @@ pub fn extract_theory_from_language(
         let Ok(id_u16) = u16::try_from(id) else {
             continue;
         };
-        if language.node_kind_is_named(id_u16) {
-            if let Some(name) = language.node_kind_for_id(id_u16) {
-                // Skip internal hidden nodes (prefixed with _).
-                if name.starts_with('_') {
-                    continue;
-                }
+        if language.node_kind_is_named(id_u16)
+            && let Some(name) = language.node_kind_for_id(id_u16)
+        {
+            // Skip internal hidden nodes (prefixed with _).
+            if name.starts_with('_') {
+                continue;
+            }
 
-                if seen_sorts.insert(name.to_owned()) {
-                    sorts.push(Sort::simple(name));
-                    vertex_kinds.push(name.to_owned());
-                }
+            if seen_sorts.insert(name.to_owned()) {
+                sorts.push(Sort::simple(name));
+                vertex_kinds.push(name.to_owned());
             }
         }
     }
@@ -306,10 +306,10 @@ pub fn extract_theory_from_language(
         let Ok(id_u16) = u16::try_from(id) else {
             continue;
         };
-        if let Some(name) = language.field_name_for_id(id_u16) {
-            if edge_kind_set.insert(name.to_owned()) {
-                ops.push(Operation::unary(name, "parent", "Vertex", "Vertex"));
-            }
+        if let Some(name) = language.field_name_for_id(id_u16)
+            && edge_kind_set.insert(name.to_owned())
+        {
+            ops.push(Operation::unary(name, "parent", "Vertex", "Vertex"));
         }
     }
 

@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use panproto_gat::{Name, SiteRename};
 use serde::{Deserialize, Serialize};
 
+use crate::error::SchemaError;
+use crate::keys::{DeclarationReport, SchemaDeclarations};
 use crate::schema::Edge;
 
 /// An explicit schema morphism (functor F: S → T).
@@ -38,6 +40,28 @@ pub struct SchemaMorphism {
 }
 
 impl SchemaMorphism {
+    /// Carry key and reference declarations along this morphism.
+    ///
+    /// Every vertex a declaration names goes through `vertex_map` and every
+    /// edge of its paths through `edge_map`; a declaration naming anything
+    /// either map leaves out is dropped and listed in the returned
+    /// [`DeclarationReport`] (see [`SchemaDeclarations::map_through`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError::KeyConflict`] or
+    /// [`SchemaError::ReferenceConflict`] when two declarations land on the
+    /// same id and differ, as they can when the morphism identifies vertices.
+    pub fn map_declarations(
+        &self,
+        declarations: &SchemaDeclarations,
+    ) -> Result<(SchemaDeclarations, DeclarationReport), SchemaError> {
+        declarations.map_through(
+            |vertex| self.vertex_map.get(vertex).cloned(),
+            |edge| self.edge_map.get(edge).cloned(),
+        )
+    }
+
     /// Compose two schema morphisms: `self ; other`.
     ///
     /// The result maps source vertex/edge IDs from `self.src_protocol`

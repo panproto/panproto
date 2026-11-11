@@ -11,7 +11,7 @@ Install `schema` with a release installer or Cargo:
 
 ```sh
 # Homebrew
-brew install panproto/tap/schema
+brew install panproto/tap/panproto-cli
 
 # Linux or macOS
 curl --proto '=https' -LsSf \
@@ -84,8 +84,10 @@ that supplies that context.
 `schema lift` offers `restrict`, `sigma`, and `pi` directions. In the current
 implementation, plain `restrict` calls the source-to-target W-type or functor pruning
 path. It is not the contravariant `Delta_F` operation. `sigma` uses the separate
-source-to-target extension path. Functor `pi` forms products over vertex fibers,
-whereas W-type `pi` accepts only vertex-injective mappings and relabels the tree.
+source-to-target extension path. Functor `pi` computes the right Kan extension as
+the natural join over the fiber of each target table, refuses a migration that leaves a
+target column outside the image of the source columns, and bounds the product it
+searches; W-type `pi` accepts only vertex-injective mappings and relabels the tree.
 
 ## License
 

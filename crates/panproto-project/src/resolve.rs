@@ -579,6 +579,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         };
 
         let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
@@ -678,6 +679,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         };
 
         let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
@@ -731,6 +733,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         };
 
         let mut builder = panproto_schema::SchemaBuilder::new(&protocol);

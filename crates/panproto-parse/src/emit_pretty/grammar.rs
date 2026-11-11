@@ -610,10 +610,8 @@ where
                         .get("named")
                         .and_then(serde_json::Value::as_bool)
                         .unwrap_or(false);
-                    if named {
-                        if let Some(serde_json::Value::String(value)) = map.get("value") {
-                            out.insert(value.clone());
-                        }
+                    if named && let Some(serde_json::Value::String(value)) = map.get("value") {
+                        out.insert(value.clone());
                     }
                 }
                 // PATTERN / STRING / TOKEN entries describe inter-token
@@ -744,10 +742,11 @@ pub(crate) fn compute_subtype_closure(
                 // Continue expansion through hidden / supertype rules
                 // so the closure traverses pass-through dispatch.
                 let expand = name.starts_with('_') || grammar.supertypes.contains(name.as_str());
-                if expand && visited.insert(name.as_str()) {
-                    if let Some(rule) = grammar.rules.get(name) {
-                        walk(grammar, rule, visited, out);
-                    }
+                if expand
+                    && visited.insert(name.as_str())
+                    && let Some(rule) = grammar.rules.get(name)
+                {
+                    walk(grammar, rule, visited, out);
                 }
             }
             Production::Choice { members } => {
@@ -895,10 +894,10 @@ pub(crate) fn compute_subtype_closure(
     for (i, name) in nodes.iter().enumerate() {
         if let Some(targets) = subtypes.get(name) {
             for t in targets {
-                if let Some(&j) = index_of.get(t.as_str()) {
-                    if i != j {
-                        edges[i].push(j);
-                    }
+                if let Some(&j) = index_of.get(t.as_str())
+                    && i != j
+                {
+                    edges[i].push(j);
                 }
             }
         }
@@ -957,10 +956,10 @@ pub(crate) fn compute_subtype_closure(
                     }
                     let lv = lowlink[v];
                     work.pop();
-                    if let Some(&(parent, _)) = work.last() {
-                        if lv < lowlink[parent] {
-                            lowlink[parent] = lv;
-                        }
+                    if let Some(&(parent, _)) = work.last()
+                        && lv < lowlink[parent]
+                    {
+                        lowlink[parent] = lv;
                     }
                 }
             }
@@ -1508,12 +1507,13 @@ pub(crate) fn build_external_alias_map(
                 named,
                 value,
             } => {
-                if !*named && !value.is_empty() {
-                    if let Production::Symbol { name } = content.as_ref() {
-                        if name.starts_with('_') && !grammar.rules.contains_key(name) {
-                            map.entry(name.clone()).or_insert_with(|| value.clone());
-                        }
-                    }
+                if !*named
+                    && !value.is_empty()
+                    && let Production::Symbol { name } = content.as_ref()
+                    && name.starts_with('_')
+                    && !grammar.rules.contains_key(name)
+                {
+                    map.entry(name.clone()).or_insert_with(|| value.clone());
                 }
                 walk(grammar, content, map);
             }
@@ -1558,10 +1558,11 @@ pub(crate) fn build_named_alias_map(
                 named,
                 value,
             } => {
-                if *named && !value.is_empty() {
-                    if let Production::Symbol { name } = content.as_ref() {
-                        map.entry(value.clone()).or_insert_with(|| name.clone());
-                    }
+                if *named
+                    && !value.is_empty()
+                    && let Production::Symbol { name } = content.as_ref()
+                {
+                    map.entry(value.clone()).or_insert_with(|| name.clone());
                 }
                 walk(content, map);
             }
@@ -1606,12 +1607,13 @@ pub(crate) fn build_named_alias_sources(
                 named,
                 value,
             } => {
-                if *named && !value.is_empty() {
-                    if let Production::Symbol { name } = content.as_ref() {
-                        let srcs = map.entry(value.clone()).or_default();
-                        if !srcs.contains(name) {
-                            srcs.push(name.clone());
-                        }
+                if *named
+                    && !value.is_empty()
+                    && let Production::Symbol { name } = content.as_ref()
+                {
+                    let srcs = map.entry(value.clone()).or_default();
+                    if !srcs.contains(name) {
+                        srcs.push(name.clone());
                     }
                 }
                 walk(content, map);
@@ -1768,13 +1770,13 @@ pub(crate) fn classify_seq(
     // on that operand: `signed_number = SEQ[CHOICE[- | BLANK], number]`
     // emits `-1.0`, not `- 1.0`. The sign lives inside a CHOICE, so the
     // per-position pass below never sees it; classify it here.
-    if members.len() >= 2 {
-        if let Some(first) = members.first() {
-            let has_following_content = members[1..].iter().any(|m| unwrap_to_string(m).is_none());
-            if has_following_content {
-                for sign in leading_optional_sign(first) {
-                    roles.entry(sign).or_insert(TokenRole::BracketOpen);
-                }
+    if members.len() >= 2
+        && let Some(first) = members.first()
+    {
+        let has_following_content = members[1..].iter().any(|m| unwrap_to_string(m).is_none());
+        if has_following_content {
+            for sign in leading_optional_sign(first) {
+                roles.entry(sign).or_insert(TokenRole::BracketOpen);
             }
         }
     }
@@ -1881,18 +1883,16 @@ pub(crate) fn classify_seq_positions(
             .iter()
             .rev()
             .find(|(_, v)| *v == close_text)
+            && oi < ci
+            && members[oi + 1..ci]
+                .iter()
+                .any(|m| unwrap_to_string(m).is_none())
         {
-            if oi < ci
-                && members[oi + 1..ci]
-                    .iter()
-                    .any(|m| unwrap_to_string(m).is_none())
-            {
-                roles[oi] = Some(TokenRole::BracketOpen);
-                roles[ci] = Some(TokenRole::BracketClose);
-                bracket_open_idx = Some(oi);
-                bracket_close_idx = Some(ci);
-                break;
-            }
+            roles[oi] = Some(TokenRole::BracketOpen);
+            roles[ci] = Some(TokenRole::BracketClose);
+            bracket_open_idx = Some(oi);
+            bracket_close_idx = Some(ci);
+            break;
         }
     }
 
@@ -1980,10 +1980,10 @@ pub(crate) fn classify_seq_positions(
 pub(crate) fn extract_line_comment_prefixes(grammar: &Grammar) -> Vec<String> {
     let mut prefixes = Vec::new();
     for extra_name in &grammar.extras {
-        if let Some(rule) = grammar.rules.get(extra_name) {
-            if let Some(prefix) = extract_line_comment_prefix(rule) {
-                prefixes.push(prefix);
-            }
+        if let Some(rule) = grammar.rules.get(extra_name)
+            && let Some(prefix) = extract_line_comment_prefix(rule)
+        {
+            prefixes.push(prefix);
         }
     }
     prefixes
@@ -2080,10 +2080,11 @@ pub(crate) fn classify_trailing_break_markers(grammar: &Grammar) -> (Vec<String>
                 // (the `\` of a hard line break). Multi-character / word-like
                 // literals are substantive line content, not break markers.
                 let mut chars = value.chars();
-                if let (Some(c), None) = (chars.next(), chars.clone().next()) {
-                    if !c.is_alphanumeric() && !c.is_whitespace() {
-                        lits.push(value.clone());
-                    }
+                if let (Some(c), None) = (chars.next(), chars.clone().next())
+                    && !c.is_alphanumeric()
+                    && !c.is_whitespace()
+                {
+                    lits.push(value.clone());
                 }
             }
             Production::Pattern { value } => {
@@ -2103,22 +2104,21 @@ pub(crate) fn classify_trailing_break_markers(grammar: &Grammar) -> (Vec<String>
     let mut lits: Vec<String> = Vec::new();
     let mut ws = false;
     for rule in grammar.rules.values() {
-        if let Production::Seq { members } = rule {
-            if members.len() >= 2
-                && production_is_newline_leading(
-                    grammar,
-                    members.last().expect("len >= 2"),
-                    &mut std::collections::HashSet::new(),
-                )
-            {
-                collect_marker_alts(
-                    grammar,
-                    &members[0],
-                    &mut lits,
-                    &mut ws,
-                    &mut std::collections::HashSet::new(),
-                );
-            }
+        if let Production::Seq { members } = rule
+            && members.len() >= 2
+            && production_is_newline_leading(
+                grammar,
+                members.last().expect("len >= 2"),
+                &mut std::collections::HashSet::new(),
+            )
+        {
+            collect_marker_alts(
+                grammar,
+                &members[0],
+                &mut lits,
+                &mut ws,
+                &mut std::collections::HashSet::new(),
+            );
         }
     }
     lits.sort();
@@ -2177,14 +2177,14 @@ fn extract_start_symbol(bytes: &[u8]) -> String {
 fn pattern_admits_newline(value: &str) -> bool {
     for branch in super::split_top_level_alternation(value) {
         let b = branch.trim();
-        if let Some(rest) = b.strip_prefix("[^") {
-            if let Some(idx) = rest.find(']') {
-                let inner = &rest[..idx];
-                // A negated class admits newline unless it explicitly lists
-                // a newline atom (`\n` / `\r`).
-                if !inner.contains("\\n") && !inner.contains("\\r") {
-                    return true;
-                }
+        if let Some(rest) = b.strip_prefix("[^")
+            && let Some(idx) = rest.find(']')
+        {
+            let inner = &rest[..idx];
+            // A negated class admits newline unless it explicitly lists
+            // a newline atom (`\n` / `\r`).
+            if !inner.contains("\\n") && !inner.contains("\\r") {
+                return true;
             }
         }
     }
@@ -2233,10 +2233,10 @@ pub(crate) fn classify_top_level_text_admits_newline(grammar: &Grammar) -> bool 
             Production::Symbol { name } => {
                 if name.starts_with('_') {
                     // Hidden rule: descend through it (inlined by tree-sitter).
-                    if seen.insert(name.clone()) {
-                        if let Some(r) = grammar.rules.get(name) {
-                            collect_content_kinds(grammar, r, out, seen);
-                        }
+                    if seen.insert(name.clone())
+                        && let Some(r) = grammar.rules.get(name)
+                    {
+                        collect_content_kinds(grammar, r, out, seen);
                     }
                 } else {
                     // Concrete document node: record, do not descend.
@@ -2753,10 +2753,10 @@ pub(crate) fn classify_leading_space_terminals(
 
     // Named rules that are themselves a bare terminal pattern.
     for (name, rule) in &grammar.rules {
-        if let Some(p) = terminal_pattern_of(rule) {
-            if pattern_absorbs_leading_space(p) {
-                out.insert(name.clone());
-            }
+        if let Some(p) = terminal_pattern_of(rule)
+            && pattern_absorbs_leading_space(p)
+        {
+            out.insert(name.clone());
         }
     }
 
@@ -2768,10 +2768,10 @@ pub(crate) fn classify_leading_space_terminals(
                 named: true,
                 value,
             } => {
-                if let Some(p) = terminal_pattern_of(content) {
-                    if pattern_absorbs_leading_space(p) {
-                        out.insert(value.clone());
-                    }
+                if let Some(p) = terminal_pattern_of(content)
+                    && pattern_absorbs_leading_space(p)
+                {
+                    out.insert(value.clone());
                 }
                 walk(content, out);
             }
@@ -2927,10 +2927,10 @@ pub(crate) fn classify_line_rest_kinds(grammar: &Grammar) -> std::collections::H
 
     // Named rules that are themselves a bare rest-of-line pattern.
     for (name, rule) in &grammar.rules {
-        if let Some(p) = terminal_pattern_of(rule) {
-            if is_rest_of_line_pattern(p) {
-                out.insert(name.clone());
-            }
+        if let Some(p) = terminal_pattern_of(rule)
+            && is_rest_of_line_pattern(p)
+        {
+            out.insert(name.clone());
         }
     }
 
@@ -2942,10 +2942,10 @@ pub(crate) fn classify_line_rest_kinds(grammar: &Grammar) -> std::collections::H
                 named: true,
                 value,
             } => {
-                if let Some(p) = terminal_pattern_of(content) {
-                    if is_rest_of_line_pattern(p) {
-                        out.insert(value.clone());
-                    }
+                if let Some(p) = terminal_pattern_of(content)
+                    && is_rest_of_line_pattern(p)
+                {
+                    out.insert(value.clone());
                 }
                 walk(content, out);
             }

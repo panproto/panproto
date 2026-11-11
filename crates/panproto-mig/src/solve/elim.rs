@@ -677,7 +677,7 @@ impl Buckets {
     /// How many buckets there are, which is how many variables there are.
     #[inline]
     #[must_use]
-    pub fn n_buckets(&self) -> usize {
+    pub const fn n_buckets(&self) -> usize {
         self.terms.len()
     }
 
@@ -1248,7 +1248,7 @@ pub fn detect_product(cfn: &Cfn) -> ProductVerdict {
 
     let mut effective = cfn.domains().clone();
     for var in cfn.variable_ids() {
-        let start: SmallVec<u64, 2> = SmallVec::from_slice_copy(effective.block(var));
+        let start: SmallVec<u64, 2> = SmallVec::from(effective.block(var));
         for value in Domain::new(&start) {
             if cfn.unary_cost(var, value) == Some(Cost::TOP_SENTINEL) {
                 effective.remove(var, value);
@@ -1623,7 +1623,7 @@ mod tests {
         // value; what makes the network infeasible is the constant the first
         // bucket contributed, which decode never revisits.
         assert_eq!(trace.dead_ends, 1);
-        assert!(all_optima(&cfn, &buckets, 16).is_empty());
+        assert_eq!(all_optima(&cfn, &buckets, 16), []);
     }
 
     // -- The width ---------------------------------------------------------
@@ -1742,7 +1742,7 @@ mod tests {
         assert_eq!(capped.len(), 2);
         assert_eq!(capped, all[..2].to_vec());
         assert!(trace.truncated);
-        assert!(all_optima(&cfn, &buckets, 0).is_empty());
+        assert_eq!(all_optima(&cfn, &buckets, 0), []);
     }
 
     // -- Counting ----------------------------------------------------------
@@ -1925,7 +1925,7 @@ mod tests {
 
             assert_eq!(buckets.optimum(), optimum);
             if optimum == Cost::TOP_SENTINEL {
-                assert!(argmins.is_empty());
+                assert_eq!(argmins, []);
                 continue;
             }
             let best = decode(&cfn, &buckets, &order);

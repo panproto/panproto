@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 panproto-schema = { workspace = true }
@@ -15,6 +18,7 @@ panproto-lens = { workspace = true }
 panproto-gat = { workspace = true }
 panproto-inst = { workspace = true }
 panproto-expr = { workspace = true }
+panproto-protocols = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
@@ -27,7 +31,6 @@ thiserror = { workspace = true }
 proptest = { workspace = true }
 tempfile = "3"
 divan = { workspace = true }
-panproto-protocols = { workspace = true }
 
 [[bench]]
 name = "vcs_bench"

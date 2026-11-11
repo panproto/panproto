@@ -109,7 +109,7 @@ fn lilypond_abstract_edge_order_preserved_through_pretty() {
             name: "lilypond".into(),
             schema_theory: "ThLilypond".into(),
             instance_theory: "ThLilypondInstance".into(),
-            ..Protocol::default()
+            ..Default::default()
         };
         let abstract_schema = SchemaBuilder::new(&protocol)
             .vertex("r", "lilypond_program", None)

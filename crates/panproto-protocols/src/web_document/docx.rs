@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the DOCX protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "docx".into(),
         schema_theory: "ThDocxSchema".into(),
         instance_theory: "ThDocxInstance".into(),
@@ -45,8 +45,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for DOCX.
@@ -60,6 +62,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_docx_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 

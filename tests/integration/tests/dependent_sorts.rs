@@ -211,8 +211,8 @@ fn category_free_model_is_well_typed() -> Result<(), Box<dyn std::error::Error>>
     let mut th = category_theory_full();
     th.ops.push(Operation::nullary("star", "Ob"));
     let result = free_model(&th, &FreeModelConfig::default())?;
-    assert!(!result.model.sort_interp["Ob"].is_empty());
+    assert_ne!(result.model.sort_interp["Ob"], []);
     // There should be at least id(star) in the Hom carrier.
-    assert!(!result.model.sort_interp["Hom"].is_empty());
+    assert_ne!(result.model.sort_interp["Hom"], []);
     Ok(())
 }

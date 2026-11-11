@@ -415,6 +415,32 @@ int32_t pp_lens_put_record_at(
     return pp_lens_put_record(migration, view, complement, out);
 }
 
+int32_t pp_lens_put_json_at(
+    uint32_t migration,
+    const uint8_t *view_json_ptr,
+    size_t view_json_len,
+    const uint8_t *complement_ptr,
+    size_t complement_len,
+    Vec_uint8_t *out
+) {
+    slice_ref_uint8_t view_json = { .ptr = view_json_ptr, .len = view_json_len };
+    slice_ref_uint8_t complement = { .ptr = complement_ptr, .len = complement_len };
+    return pp_lens_put_json(migration, view_json, complement, out);
+}
+
+int32_t pp_lens_align_view_at(
+    uint32_t migration,
+    const uint8_t *view_ptr,
+    size_t view_len,
+    const uint8_t *complement_ptr,
+    size_t complement_len,
+    Vec_uint8_t *out
+) {
+    slice_ref_uint8_t view = { .ptr = view_ptr, .len = view_len };
+    slice_ref_uint8_t complement = { .ptr = complement_ptr, .len = complement_len };
+    return pp_lens_align_view(migration, view, complement, out);
+}
+
 int32_t pp_protolens_complement_spec_at(
     uint32_t chain,
     uint32_t schema,

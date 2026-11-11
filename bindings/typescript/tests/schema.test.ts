@@ -18,6 +18,7 @@ function createMockWasm(): WasmModule {
     check_existence: vi.fn(() => new Uint8Array(0)),
     compile_migration: vi.fn(() => ++handleCounter),
     lift_record: vi.fn(() => new Uint8Array(0)),
+    check_migration_coverage: vi.fn(() => new Uint8Array(0)),
     get_record: vi.fn(() => new Uint8Array(0)),
     put_record: vi.fn(() => new Uint8Array(0)),
     compose_migrations: vi.fn(() => ++handleCounter),

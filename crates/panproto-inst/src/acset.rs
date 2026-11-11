@@ -9,6 +9,7 @@ use panproto_schema::Schema;
 use crate::error::RestrictError;
 use crate::functor::FInstance;
 use crate::ginstance::GInstance;
+use crate::restrict_boundary::BoundaryProtocols;
 use crate::wtype::{CompiledMigration, WInstance};
 
 /// Trait for attributed C-set operations shared across all instance shapes.
@@ -17,27 +18,37 @@ pub trait AcsetOps: Clone + std::fmt::Debug {
     /// fragment that survives.
     ///
     /// Structure the migration drops does not travel. For the extension that
-    /// keeps everything, see [`Self::extend`].
+    /// keeps everything, see [`Self::extend`]. The input is validated against
+    /// `src_schema` under `protocols.src` and the output against
+    /// `tgt_schema` under `protocols.tgt`, as the shape's schema-taking
+    /// restrict does.
     ///
     /// # Errors
     ///
-    /// Returns [`RestrictError`] if the restrict pipeline fails.
+    /// Returns [`RestrictError`] if the restrict pipeline fails, and
+    /// [`RestrictError::Validation`] for a boundary that does not validate.
     fn restrict(
         &self,
         src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError>;
 
-    /// Extend (left Kan extension, `Sigma_F`) this instance along a migration.
+    /// Extend (left Kan extension, `Sigma_F`) this instance along a
+    /// migration, validating the output against `tgt_schema` under
+    /// `tgt_protocol`.
     ///
     /// # Errors
     ///
-    /// Returns [`RestrictError`] if the extend pipeline fails.
+    /// Returns [`RestrictError`] if the extend pipeline fails, and
+    /// [`RestrictError::Validation`] when the output does not validate.
     fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError>;
 
     /// Returns the number of top-level elements (nodes, rows, or vertices).
@@ -53,16 +64,19 @@ impl AcsetOps for WInstance {
         src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::wtype::wtype_restrict(self, src_schema, tgt_schema, migration)
+        crate::wtype::wtype_restrict(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::wtype::wtype_extend(self, tgt_schema, migration)
+        crate::wtype::wtype_extend(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn element_count(&self) -> usize {
@@ -77,19 +91,22 @@ impl AcsetOps for WInstance {
 impl AcsetOps for FInstance {
     fn restrict(
         &self,
-        _src_schema: &Schema,
-        _tgt_schema: &Schema,
+        src_schema: &Schema,
+        tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::functor::functor_restrict(self, migration)
+        crate::table_restrict::functor_restrict(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn extend(
         &self,
-        _tgt_schema: &Schema,
+        src_schema: &Schema,
+        tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::functor::functor_extend(self, migration)
+        crate::table_restrict::functor_extend(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn element_count(&self) -> usize {
@@ -104,19 +121,22 @@ impl AcsetOps for FInstance {
 impl AcsetOps for GInstance {
     fn restrict(
         &self,
-        _src_schema: &Schema,
-        _tgt_schema: &Schema,
+        src_schema: &Schema,
+        tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::ginstance::graph_restrict(self, migration)
+        crate::graph_restrict::graph_restrict(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn extend(
         &self,
-        _tgt_schema: &Schema,
+        src_schema: &Schema,
+        tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::ginstance::graph_extend(self, migration)
+        crate::graph_restrict::graph_extend(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn element_count(&self) -> usize {
@@ -130,10 +150,10 @@ impl AcsetOps for GInstance {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use panproto_gat::Name;
-    use panproto_schema::Edge;
+    use panproto_schema::{Edge, Protocol, ScalarKind, SchemaBuilder};
 
     use super::*;
     use crate::metadata::Node;
@@ -143,90 +163,59 @@ mod tests {
     // Helpers
     // -----------------------------------------------------------------------
 
-    fn make_empty_schema() -> Schema {
-        Schema {
-            protocol: "test".into(),
-            vertices: HashMap::new(),
-            edges: HashMap::new(),
-            hyper_edges: HashMap::new(),
-            constraints: HashMap::new(),
-            required: HashMap::new(),
-            nsids: HashMap::new(),
-            entries: Vec::new(),
-            variants: HashMap::new(),
-            orderings: HashMap::new(),
-            recursion_points: HashMap::new(),
-            spans: HashMap::new(),
-            usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
-            coercions: HashMap::new(),
-            mergers: HashMap::new(),
-            defaults: HashMap::new(),
-            policies: HashMap::new(),
-            outgoing: HashMap::new(),
-            incoming: HashMap::new(),
-            between: HashMap::new(),
+    /// A protocol that declares `record` a table kind and `string` a value
+    /// kind.
+    fn protocol() -> Protocol {
+        Protocol {
+            value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+            non_value_kinds: BTreeSet::from(["record".to_owned()]),
+            ..Protocol::default()
         }
     }
 
-    fn make_test_schema(vertices: &[&str], edges: &[Edge]) -> Schema {
-        use smallvec::smallvec;
-        let mut between = HashMap::new();
+    fn object_protocol() -> Protocol {
+        Protocol {
+            non_value_kinds: BTreeSet::from(["object".to_owned()]),
+            ..Protocol::default()
+        }
+    }
+
+    type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
+
+    fn schema(vertices: &[(&str, &str)], edges: &[&Edge]) -> TestResult<Schema> {
+        let protocol = Protocol::default();
+        let mut builder = SchemaBuilder::new(&protocol);
+        for (id, kind) in vertices {
+            builder = builder.vertex(id, kind, None)?;
+        }
         for edge in edges {
-            between
-                .entry((Name::from(&*edge.src), Name::from(&*edge.tgt)))
-                .or_insert_with(|| smallvec![])
-                .push(edge.clone());
+            builder = builder.edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())?;
         }
-        Schema {
-            protocol: "test".into(),
-            vertices: vertices
-                .iter()
-                .map(|&v| {
-                    (
-                        Name::from(v),
-                        panproto_schema::Vertex {
-                            id: Name::from(v),
-                            kind: Name::from("object"),
-                            nsid: None,
-                        },
-                    )
-                })
-                .collect(),
-            edges: HashMap::new(),
-            hyper_edges: HashMap::new(),
-            constraints: HashMap::new(),
-            required: HashMap::new(),
-            nsids: HashMap::new(),
-            entries: Vec::new(),
-            variants: HashMap::new(),
-            orderings: HashMap::new(),
-            recursion_points: HashMap::new(),
-            spans: HashMap::new(),
-            usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
-            coercions: HashMap::new(),
-            mergers: HashMap::new(),
-            defaults: HashMap::new(),
-            policies: HashMap::new(),
-            outgoing: HashMap::new(),
-            incoming: HashMap::new(),
-            between,
+        Ok(builder.build()?)
+    }
+
+    fn prop(src: &str, tgt: &str, name: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "prop".into(),
+            name: Some(name.into()),
         }
     }
 
-    fn identity_migration(verts: &[&str], edges: &[Edge]) -> CompiledMigration {
+    fn knows(vertex: &str) -> Edge {
+        Edge {
+            src: vertex.into(),
+            tgt: vertex.into(),
+            kind: "knows".into(),
+            name: None,
+        }
+    }
+
+    fn keep(verts: &[&str]) -> CompiledMigration {
         CompiledMigration {
             surviving_verts: verts.iter().map(|&v| Name::from(v)).collect(),
-            surviving_edges: edges.iter().cloned().collect(),
-            vertex_remap: HashMap::new(),
-            edge_remap: HashMap::new(),
-            resolver: HashMap::new(),
-            hyper_resolver: HashMap::new(),
-            field_transforms: HashMap::new(),
-            conditional_survival: HashMap::new(),
-            op_term_assignments: HashMap::new(),
-            expansion_path: HashMap::new(),
+            ..CompiledMigration::default()
         }
     }
 
@@ -244,26 +233,8 @@ mod tests {
                 .with_value(FieldPresence::Present(Value::Str("2024-01-01".into()))),
         );
         let arcs = vec![
-            (
-                0,
-                1,
-                Edge {
-                    src: "post:body".into(),
-                    tgt: "post:body.text".into(),
-                    kind: "prop".into(),
-                    name: Some("text".into()),
-                },
-            ),
-            (
-                0,
-                2,
-                Edge {
-                    src: "post:body".into(),
-                    tgt: "post:body.createdAt".into(),
-                    kind: "prop".into(),
-                    name: Some("createdAt".into()),
-                },
-            ),
+            (0, 1, prop("post:body", "post:body.text", "text")),
+            (0, 2, prop("post:body", "post:body.createdAt", "createdAt")),
         ];
         WInstance::new(nodes, arcs, vec![], 0, Name::from("post:body"))
     }
@@ -271,23 +242,26 @@ mod tests {
     fn two_node_finstance() -> FInstance {
         let mut row = HashMap::new();
         row.insert("name".to_string(), Value::Str("Alice".into()));
-        FInstance::new().with_table("users", vec![row])
+        let mut f = FInstance::new();
+        f.place_row(Name::from("users"), crate::RowId(0), row);
+        f
     }
 
-    fn two_node_ginstance() -> (GInstance, Edge) {
-        let edge = Edge {
-            src: "person".into(),
-            tgt: "person".into(),
-            kind: "knows".into(),
-            name: None,
-        };
-        let g = GInstance::new()
+    fn alice() -> FieldPresence {
+        FieldPresence::Present(Value::Str("Alice".into()))
+    }
+
+    fn bob() -> FieldPresence {
+        FieldPresence::Present(Value::Str("Bob".into()))
+    }
+
+    fn two_node_ginstance() -> GInstance {
+        GInstance::new()
             .with_node(Node::new(0, "person"))
             .with_node(Node::new(1, "person"))
-            .with_edge(0, 1, edge.clone())
+            .with_edge(0, 1, knows("person"))
             .with_value(0, Value::Str("Alice".into()))
-            .with_value(1, Value::Str("Bob".into()));
-        (g, edge)
+            .with_value(1, Value::Str("Bob".into()))
     }
 
     // -----------------------------------------------------------------------
@@ -308,7 +282,7 @@ mod tests {
 
     #[test]
     fn ginstance_shape_name() {
-        let (g, _) = two_node_ginstance();
+        let g = two_node_ginstance();
         assert_eq!(AcsetOps::shape_name(&g), "graph");
     }
 
@@ -330,78 +304,97 @@ mod tests {
 
     #[test]
     fn ginstance_element_count() {
-        let (g, _) = two_node_ginstance();
+        let g = two_node_ginstance();
         assert_eq!(AcsetOps::element_count(&g), 2);
     }
 
     // -----------------------------------------------------------------------
-    // restrict through trait matches direct function call
+    // restrict and extend through the trait match the direct functions
     // -----------------------------------------------------------------------
 
     #[test]
-    fn winstance_restrict_via_trait() -> Result<(), Box<dyn std::error::Error>> {
+    fn winstance_restrict_via_trait() -> TestResult {
         let w = three_node_winstance();
-        let edge_text = Edge {
-            src: "post:body".into(),
-            tgt: "post:body.text".into(),
-            kind: "prop".into(),
-            name: Some("text".into()),
-        };
-        let tgt_schema = make_test_schema(&["post:body", "post:body.text"], &[edge_text]);
-        let src_schema = make_empty_schema();
-        let migration = CompiledMigration {
-            surviving_verts: HashSet::from([Name::from("post:body"), Name::from("post:body.text")]),
-            surviving_edges: HashSet::new(),
-            vertex_remap: HashMap::new(),
-            edge_remap: HashMap::new(),
-            resolver: HashMap::new(),
-            hyper_resolver: HashMap::new(),
-            field_transforms: HashMap::new(),
-            conditional_survival: HashMap::new(),
-            op_term_assignments: HashMap::new(),
-            expansion_path: HashMap::new(),
+        let text = prop("post:body", "post:body.text", "text");
+        let created = prop("post:body", "post:body.createdAt", "createdAt");
+        let src_schema = schema(
+            &[
+                ("post:body", "object"),
+                ("post:body.text", "string"),
+                ("post:body.createdAt", "string"),
+            ],
+            &[&text, &created],
+        )?;
+        let tgt_schema = schema(
+            &[("post:body", "object"), ("post:body.text", "string")],
+            &[&text],
+        )?;
+        let migration = keep(&["post:body", "post:body.text"]);
+        let protocol = Protocol::default();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
         };
 
-        let via_trait = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &migration)?;
-        let via_fn = crate::wtype::wtype_restrict(&w, &src_schema, &tgt_schema, &migration)?;
+        let via_trait = AcsetOps::restrict(&w, &src_schema, &tgt_schema, &migration, protocols)?;
+        let via_fn =
+            crate::wtype::wtype_restrict(&w, &src_schema, &tgt_schema, &migration, protocols)?;
+        assert_eq!(via_trait.node_count(), 2);
         assert_eq!(via_trait.node_count(), via_fn.node_count());
-        assert_eq!(via_trait.arc_count(), via_fn.arc_count());
+        assert_eq!(via_trait.arcs, via_fn.arcs);
         Ok(())
     }
 
     #[test]
-    fn finstance_restrict_via_trait() -> Result<(), Box<dyn std::error::Error>> {
+    fn finstance_restrict_via_trait() -> TestResult {
         let f = two_node_finstance();
-        let schema = make_empty_schema();
-        let migration = identity_migration(&["users"], &[]);
+        let name = prop("users", "users.name", "name");
+        let schema = schema(&[("users", "record"), ("users.name", "string")], &[&name])?;
+        let mut migration = keep(&["users", "users.name"]);
+        migration.surviving_edges.insert(name);
+        let protocol = protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
 
-        let via_trait = AcsetOps::restrict(&f, &schema, &schema, &migration)?;
-        let via_fn = crate::functor::functor_restrict(&f, &migration)?;
-        assert_eq!(via_trait.table_count(), via_fn.table_count());
+        let via_trait = AcsetOps::restrict(&f, &schema, &schema, &migration, protocols)?;
+        let via_fn =
+            crate::table_restrict::functor_restrict(&f, &schema, &schema, &migration, protocols)?;
+        assert_eq!(via_trait, via_fn);
+        assert_eq!(via_trait, f, "the identity keeps the table");
+        let extended = AcsetOps::extend(&f, &schema, &schema, &migration, protocols)?;
+        assert_eq!(
+            extended,
+            crate::table_restrict::functor_extend(&f, &schema, &schema, &migration, protocols,)?
+        );
         Ok(())
     }
 
     #[test]
-    fn ginstance_restrict_via_trait() -> Result<(), Box<dyn std::error::Error>> {
-        let (g, _edge) = two_node_ginstance();
-        let schema = make_empty_schema();
-        let migration = CompiledMigration {
-            surviving_verts: HashSet::from([Name::from("person_new")]),
-            surviving_edges: HashSet::new(),
-            vertex_remap: HashMap::from([("person".into(), "person_new".into())]),
-            edge_remap: HashMap::new(),
-            resolver: HashMap::new(),
-            hyper_resolver: HashMap::new(),
-            field_transforms: HashMap::new(),
-            conditional_survival: HashMap::new(),
-            op_term_assignments: HashMap::new(),
-            expansion_path: HashMap::new(),
+    fn ginstance_restrict_via_trait() -> TestResult {
+        let g = two_node_ginstance();
+        let src = schema(&[("person", "object")], &[&knows("person")])?;
+        let tgt = schema(&[("person_new", "object")], &[&knows("person_new")])?;
+        let mut migration = keep(&["person_new"]);
+        migration
+            .vertex_remap
+            .insert("person".into(), "person_new".into());
+        let protocol = Protocol::default();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
         };
 
-        let via_trait = AcsetOps::restrict(&g, &schema, &schema, &migration)?;
-        let via_fn = crate::ginstance::graph_restrict(&g, &migration)?;
-        assert_eq!(via_trait.node_count(), via_fn.node_count());
-        assert_eq!(via_trait.edge_count(), via_fn.edge_count());
+        let via_trait = AcsetOps::restrict(&g, &src, &tgt, &migration, protocols)?;
+        let via_fn = crate::graph_restrict::graph_restrict(&g, &src, &tgt, &migration, protocols)?;
+        assert!(GInstance::identical(&via_trait, &via_fn));
+        assert_eq!(via_trait.node_count(), 2);
+        assert_eq!(
+            via_trait.edge_count(),
+            1,
+            "the knows edge carries its own label"
+        );
         Ok(())
     }
 
@@ -410,51 +403,58 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn graph_extend_identity_preserves_instance() -> Result<(), Box<dyn std::error::Error>> {
-        let (g, edge) = two_node_ginstance();
-        let schema = make_empty_schema();
-        let migration = identity_migration(&["person"], &[edge]);
+    fn graph_extend_identity_preserves_instance() -> TestResult {
+        let g = two_node_ginstance();
+        let schema = schema(&[("person", "object")], &[&knows("person")])?;
+        let mut migration = keep(&["person"]);
+        migration.surviving_edges.insert(knows("person"));
 
-        let result = AcsetOps::extend(&g, &schema, &migration)?;
+        let protocol = object_protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let result = AcsetOps::extend(&g, &schema, &schema, &migration, protocols)?;
         assert_eq!(result.node_count(), 2);
         assert_eq!(result.edge_count(), 1);
-        assert_eq!(result.values.len(), 2);
-        assert_eq!(result.values[&0], Value::Str("Alice".into()));
-        assert_eq!(result.values[&1], Value::Str("Bob".into()));
+        assert_eq!(result.node(0).and_then(|n| n.value.clone()), Some(alice()));
+        assert_eq!(result.node(1).and_then(|n| n.value.clone()), Some(bob()));
         Ok(())
     }
 
     #[test]
-    fn graph_extend_vertex_remap_updates_anchors() -> Result<(), Box<dyn std::error::Error>> {
-        let (g, edge) = two_node_ginstance();
-        let schema = make_empty_schema();
-        let new_edge = Edge {
-            src: "human".into(),
-            tgt: "human".into(),
-            kind: "knows".into(),
-            name: None,
-        };
-        let migration = CompiledMigration {
-            surviving_verts: HashSet::from([Name::from("human")]),
-            surviving_edges: HashSet::new(),
-            vertex_remap: HashMap::from([("person".into(), "human".into())]),
-            edge_remap: HashMap::from([(edge, new_edge.clone())]),
-            resolver: HashMap::new(),
-            hyper_resolver: HashMap::new(),
-            field_transforms: HashMap::new(),
-            conditional_survival: HashMap::new(),
-            op_term_assignments: HashMap::new(),
-            expansion_path: HashMap::new(),
-        };
+    fn graph_extend_vertex_remap_updates_anchors() -> TestResult {
+        let g = two_node_ginstance();
+        let target = schema(&[("human", "object")], &[&knows("human")])?;
+        let mut migration = keep(&["human"]);
+        migration
+            .vertex_remap
+            .insert("person".into(), "human".into());
+        migration.edge_remap.insert(knows("person"), knows("human"));
 
-        let result = AcsetOps::extend(&g, &schema, &migration)?;
+        let src = schema(&[("person", "object")], &[&knows("person")])?;
+        let protocol = object_protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let result = AcsetOps::extend(&g, &src, &target, &migration, protocols)?;
         assert_eq!(result.node_count(), 2);
-        assert_eq!(result.nodes[&0].anchor, Name::from("human"));
-        assert_eq!(result.nodes[&1].anchor, Name::from("human"));
+        assert_eq!(
+            result.node(0).map(|n| &n.anchor),
+            Some(&Name::from("human"))
+        );
+        assert_eq!(
+            result.node(1).map(|n| &n.anchor),
+            Some(&Name::from("human"))
+        );
         assert_eq!(result.edge_count(), 1);
-        assert_eq!(result.edges[0].2, new_edge);
+        assert_eq!(
+            result.edge(crate::ginstance::EdgeId(0)).map(|e| &e.edge),
+            Some(&knows("human"))
+        );
         // Values preserved
-        assert_eq!(result.values[&0], Value::Str("Alice".into()));
+        assert_eq!(result.node(0).and_then(|n| n.value.clone()), Some(alice()));
         Ok(())
     }
 }

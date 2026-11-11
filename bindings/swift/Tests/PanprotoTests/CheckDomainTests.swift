@@ -68,8 +68,8 @@ struct CheckDomainTests {
             return (try post.structuralDiff(to: profile), try post.diff(to: profile))
         }
 
-        #expect(structural.addedVertices.count == 13)
-        #expect(structural.removedVertices.count == 37)
+        #expect(structural.addedVertices.count == 14)
+        #expect(structural.removedVertices.count == 39)
         #expect(structural.addedEdges.count == 15)
         #expect(structural.removedEdges.count == 39)
         #expect(structural.kindChanges.isEmpty)
@@ -174,8 +174,8 @@ struct CheckDomainTests {
 
         #expect(text.hasPrefix("INCOMPATIBLE: Breaking changes detected.\n"))
         #expect(text.contains("Classification: breaking"))
-        #expect(text.contains("Breaking changes (77):"))
-        #expect(text.contains("Non-breaking changes (29):"))
+        #expect(text.contains("Breaking changes (90):"))
+        #expect(text.contains("Non-breaking changes (30):"))
         #expect(text.contains("Removed vertex: app.bsky.feed.post"))
     }
 
@@ -217,19 +217,19 @@ struct CheckDomainTests {
     // MARK: - Failures
 
     @Test("a handle the slab does not know is reported in the check domain")
-    func aStaleHandleFailsInTheCheckDomain() async throws {
+    func aForgedHandleFailsInTheCheckDomain() async throws {
         let failure: PanprotoError? = try await PanprotoEngine.run { () -> PanprotoError? in
             let live = try schemaHandle(fromFixture: "schema-bsky-post")
-            let stale = SchemaHandle(adopting: .max - 1)
+            let forged = SchemaHandle(adopting: .max - 1)
             do throws(PanprotoError) {
-                _ = try live.diff(to: stale)
+                _ = try live.diff(to: forged)
                 return nil
             } catch {
                 return error
             }
         }
 
-        let error = try #require(failure, "diffing against a stale handle must fail")
+        let error = try #require(failure, "diffing against a forged handle must fail")
         #expect(error.domain == .check)
         #expect(error.detail.operation == "SchemaHandle.diff")
         #expect(error.detail.status == .invalidHandle)

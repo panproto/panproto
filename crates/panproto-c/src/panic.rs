@@ -107,31 +107,26 @@ fn panic_message(panic: &Box<dyn std::any::Any + Send + 'static>) -> String {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::error::take_last_error;
+
+    // What `guard` stashes in the last-error slot is checked in
+    // `tests/error_envelopes.rs`, against the slot as released.
 
     #[test]
     fn ok_path_returns_ok() {
         let status = guard(|| Ok(PpStatus::Ok));
         assert_eq!(status, PpStatus::Ok as i32);
-        assert!(take_last_error().is_none());
     }
 
     #[test]
-    fn err_path_returns_status_and_stashes() {
+    fn err_path_returns_its_status() {
         let status = guard(|| Err(FfiError::InvalidHandle { handle: 42 }));
         assert_eq!(status, PpStatus::InvalidHandle as i32);
-        let env = take_last_error().expect("error stashed");
-        assert_eq!(env.tag, "invalid_handle");
-        assert!(env.message.contains("42"));
     }
 
     #[test]
     fn panic_with_str_is_caught() {
         let status = guard(|| -> Result<PpStatus, FfiError> { panic!("boom") });
         assert_eq!(status, PpStatus::Panic as i32);
-        let env = take_last_error().expect("panic stashed");
-        assert_eq!(env.tag, "panic");
-        assert!(env.message.contains("boom"));
     }
 
     #[test]
@@ -140,7 +135,5 @@ mod tests {
             panic!("formatted {}", 7);
         });
         assert_eq!(status, PpStatus::Panic as i32);
-        let env = take_last_error().expect("panic stashed");
-        assert!(env.message.contains("formatted 7"));
     }
 }

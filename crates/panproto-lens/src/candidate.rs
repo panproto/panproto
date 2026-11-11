@@ -349,7 +349,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
+            ..Default::default()
         };
         let s = panproto_schema::SchemaBuilder::new(&proto)
             .vertex("a", "object", None::<&str>)
@@ -375,7 +375,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
+            ..Default::default()
         };
         let small = panproto_schema::SchemaBuilder::new(&proto)
             .vertex("a", "object", None::<&str>)
@@ -413,7 +413,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
+            ..Default::default()
         };
         let s = panproto_schema::SchemaBuilder::new(&proto)
             .vertex("a", "object", None::<&str>)
@@ -483,7 +483,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
+            ..Default::default()
         };
         let s = panproto_schema::SchemaBuilder::new(&proto)
             .vertex("a", "object", None::<&str>)
@@ -640,7 +640,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
+            ..Default::default()
         };
         let s = panproto_schema::SchemaBuilder::new(&proto)
             .vertex("a", "object", None::<&str>)

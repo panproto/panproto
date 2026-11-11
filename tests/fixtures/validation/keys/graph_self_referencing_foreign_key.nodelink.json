@@ -1,0 +1,160 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "fk",
+        "name": "staff_reports_to",
+        "src": "staff",
+        "tgt": "staff"
+      },
+      "id": 0,
+      "position": null,
+      "src": 6,
+      "tgt": 5
+    },
+    {
+      "edge": {
+        "kind": "fk",
+        "name": "staff_reports_to",
+        "src": "staff",
+        "tgt": "staff"
+      },
+      "id": 1,
+      "position": null,
+      "src": 7,
+      "tgt": 6
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "actor",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "actor_id": {
+          "Int": 1
+        },
+        "name": {
+          "Str": "Ann"
+        }
+      },
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "actor",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "actor_id": {
+          "Int": 2
+        },
+        "name": {
+          "Str": "Bo"
+        }
+      },
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "film",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "film_id": {
+          "Int": 10
+        },
+        "title": {
+          "Str": "Alien"
+        }
+      },
+      "id": 3,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "film",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "film_id": {
+          "Int": 11
+        },
+        "title": {
+          "Str": "Heat"
+        }
+      },
+      "id": 4,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "staff",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "staff_id": {
+          "Int": 1
+        }
+      },
+      "id": 5,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "staff",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "reports_to": {
+          "Int": 1
+        },
+        "staff_id": {
+          "Int": 2
+        }
+      },
+      "id": 6,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "staff",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "reports_to": {
+          "Int": 2
+        },
+        "staff_id": {
+          "Int": 3
+        }
+      },
+      "id": 7,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    }
+  ]
+}

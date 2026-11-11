@@ -1,0 +1,52 @@
+# cargo-mutants configuration for the workspace, read by local runs and by
+# `.github/workflows/mutants.yml` alike.
+#
+# Mutants build under the `ci-test` cargo profile and their tests run under
+# nextest's `ci` profile, the same build and selection ordinary CI tests. The
+# first failing test ends a mutant's run and terminates the tests still
+# running, so a mutant that one test kills counts as caught even when it also
+# makes another test hang.
+#
+# An equivalent mutant gains one anchored `exclude_re` entry below, with a
+# comment explaining why no test can tell it from the original.
+
+test_tool = "nextest"
+profile = "ci-test"
+cap_lints = true
+
+# Used when the baseline runs (local runs); CI skips the baseline and passes
+# explicit bounds.
+timeout_multiplier = 3.0
+build_timeout_multiplier = 3.0
+minimum_test_timeout = 120
+
+additional_cargo_test_args = [
+    "--profile=ci",
+    "--max-fail=1:immediate",
+    # Intersected with the `ci` profile's default filter, which already leaves
+    # out the whole-corpus and exhaustive gates. These tests are left out of
+    # mutation runs as well: the bounded-family and table-lens acceptance sweeps
+    # take tens of minutes each, and the scaling, timing and cross-process
+    # tests measure time or process behaviour rather than results.
+    "--filterset=not (test(=sigma_layout_uses_the_whole_global_value_class_and_records_every_origin) | test(=complete_bounded_family_has_typed_kan_results_and_refusals) | test(=check_laws_agrees_with_the_gate_evaluator_on_small_table_lenses) | test(/_not_charged_per_|takes_time|in_time_linear|in_every_process|the_same_in_every_process/))",
+]
+
+exclude_globs = [
+    "crates/panproto-grammars*/**",
+    "crates/*/build.rs",
+    "crates/panproto-gat-macros/**",
+    "crates/book-doctest-stub/**",
+    "xtask/**",
+    "crates/*/tests/**",
+    "crates/*/benches/**",
+    "tests/**",
+    "fuzz/**",
+    "crates/panproto-py/**",
+    "crates/panproto-c/**",
+    "crates/panproto-wasm/**",
+    "crates/panproto-cli/**",
+]
+
+exclude_re = [
+    "<impl (std::fmt::|core::fmt::|fmt::)?Debug for ",
+]

@@ -18,6 +18,7 @@
 module Spec.EngineRoundtrip (tests) where
 
 import Control.Exception (bracket)
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BS8
 import Data.HashMap.Strict (HashMap)
@@ -26,6 +27,7 @@ import Data.List (isInfixOf)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import System.Directory
     ( createDirectoryIfMissing
     , doesPathExist
@@ -123,6 +125,7 @@ tests =
         , testCase "instance: json -> validate -> json" instanceValidateJson
         , testCase "io: registry parse + emit round-trip" ioParseEmit
         , testCase "lens: auto-generate + get/put law" lensGetPut
+        , testCase "lens: a JSON view puts back a nested dropped field" lensPutJsonNestedDrop
         , testCase "gat: ingest + reify + check_morphism" gatIngestCheck
         , testCase "gat: typecheck a well-formed term" gatTypecheck
         , testCase "gat: eval a nullary constant term" gatEval
@@ -144,12 +147,14 @@ tests =
 -- registered, W-type-native JSON codec, so instances parse and emit
 -- through the I/O registry.
 geoProtocol :: CanonicalProtocol
-geoProtocol = defaultProtocol {name = "geojson"}
+geoProtocol = defaultProtocol {Panproto.Canonical.name = "geojson"}
 
 -- | A @post@ record with a string @text@ property: the shared fixture.
+-- Under @geojson@ a vertex with properties is a @feature-type@, the one
+-- kind its @prop@ edges may leave.
 postSchema :: Schema
 postSchema = S.buildSchema "geojson" $ do
-    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "post", S.kind = "feature-type", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
 
@@ -157,18 +162,28 @@ postSchema = S.buildSchema "geojson" $ do
 -- change relative to 'postSchema'.
 postSchemaPlus :: Schema
 postSchemaPlus = S.buildSchema "geojson" $ do
-    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "post", S.kind = "feature-type", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "title", S.kind = "string", S.nsid = Nothing}
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
     S.edge S.Edge {S.src = "post", S.tgt = "title", S.kind = "prop", S.name = Just "title"}
     S.constraint "title" S.Constraint {S.sort = "maxLength", S.value = "120"}
 
--- | The shared fixture with its edge kind renamed. This distinguishes the
+-- | The source of the theory-to-data cascade: a @post@ record with a
+-- @text@ property, under a protocol name no built-in declares, so the
+-- engine reads it under its default protocol, which admits any edge kind.
+-- @geojson@ admits only @prop@ edges, and the cascade renames @prop@.
+homSourceSchema :: Schema
+homSourceSchema = S.buildSchema "hom-fixture" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
+
+-- | 'homSourceSchema' with its edge kind renamed. This distinguishes the
 -- target schema from the source when the theory-to-data cascade returns a
 -- compiled migration.
 postSchemaRenamedEdge :: Schema
-postSchemaRenamedEdge = S.buildSchema "geojson" $ do
+postSchemaRenamedEdge = S.buildSchema "hom-fixture" $ do
     S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
     S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "field", S.name = Just "text"}
@@ -326,6 +341,49 @@ lensGetPut =
             releaseInstance view
             releaseInstance rebuilt
             releaseLens lensRep
+
+-- | A lens that drops the nested field @obj.d@ puts a view that went
+-- through JSON back with @d@ restored: unedited, and with a kept field
+-- edited. JSON keeps no node ids, so 'lensPutJson' aligns the view it
+-- reads to the complement before it puts.
+lensPutJsonNestedDrop :: IO ()
+lensPutJsonNestedDrop =
+    withSchema nestedSchema $ \schema ->
+        bracket (compileDocument rust dropD "json" "root.obj") releaseChain $ \chain ->
+            bracket (instantiateChain chain schema) releaseLens $ \lensRep ->
+                bracket (jsonToInstance schema "root" source) releaseInstance $ \inst -> do
+                    (view, complement) <- lensGet lensRep inst
+                    releaseInstance view
+                    let check shown expected = do
+                            restored <- lensPutJson lensRep shown complement
+                            assertEqual
+                                ("lensPutJson of " <> T.unpack shown)
+                                (decodeJson expected)
+                                (decodeJson restored)
+                    check "{\"text\":\"hello\",\"obj\":{\"k\":\"1\"}}" source
+                    check
+                        "{\"text\":\"bye\",\"obj\":{\"k\":\"9\"}}"
+                        "{\"text\":\"bye\",\"obj\":{\"k\":\"9\",\"d\":\"2\"}}"
+  where
+    source :: Text
+    source = "{\"text\":\"hello\",\"obj\":{\"k\":\"1\",\"d\":\"2\"}}"
+    dropD :: Text
+    dropD =
+        "{\"id\":\"dev.test.nested_drop\",\"source\":\"s\",\"target\":\"t\","
+            <> "\"steps\":[{\"remove_field\":\"d\"}]}"
+    decodeJson :: Text -> Maybe Aeson.Value
+    decodeJson = Aeson.decodeStrict . TE.encodeUtf8
+    nestedSchema :: Schema
+    nestedSchema = S.buildSchema "atproto" $ do
+        S.vertex S.Vertex {S.id = "root", S.kind = "object", S.nsid = Nothing}
+        S.vertex S.Vertex {S.id = "root.text", S.kind = "string", S.nsid = Nothing}
+        S.vertex S.Vertex {S.id = "root.obj", S.kind = "object", S.nsid = Nothing}
+        S.vertex S.Vertex {S.id = "root.obj.k", S.kind = "string", S.nsid = Nothing}
+        S.vertex S.Vertex {S.id = "root.obj.d", S.kind = "string", S.nsid = Nothing}
+        S.edge S.Edge {S.src = "root", S.tgt = "root.text", S.kind = "prop", S.name = Just "text"}
+        S.edge S.Edge {S.src = "root", S.tgt = "root.obj", S.kind = "prop", S.name = Just "obj"}
+        S.edge S.Edge {S.src = "root.obj", S.tgt = "root.obj.k", S.kind = "prop", S.name = Just "k"}
+        S.edge S.Edge {S.src = "root.obj", S.tgt = "root.obj.d", S.kind = "prop", S.name = Just "d"}
 
 -- ---------------------------------------------------------------------------
 -- GAT
@@ -526,7 +584,7 @@ homSpanToOverlap =
 -- distinction and fails before the record can be carried forward.
 homInducedMigration :: IO ()
 homInducedMigration =
-    withSchema postSchema $ \src ->
+    withSchema homSourceSchema $ \src ->
         withSchema postSchemaRenamedEdge $ \tgt -> do
             let theoryMorph =
                     (emptyMorphism "rename-prop" "Source" "Target")

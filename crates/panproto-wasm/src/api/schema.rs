@@ -5,7 +5,7 @@
 use panproto_core::{
     check,
     inst::{self, WInstance},
-    lens::{self, Complement},
+    lens::{self},
     mig::{self, Migration},
     protocols,
     schema::{self, SchemaBuilder},
@@ -57,6 +57,7 @@ pub fn build_schema(proto: u32, ops: &[u8]) -> Result<u32, JsError> {
         })?;
 
     let mut builder = SchemaBuilder::new(&protocol);
+    super::helpers::record_built_protocol(&protocol);
 
     for op in operations {
         match op {
@@ -313,8 +314,8 @@ struct EdgeMeta {
 /// Extract schema metadata from a schema handle.
 ///
 /// Returns `MessagePack`-encoded schema data including protocol name,
-/// vertex IDs and kinds, edge sources/targets/kinds/names, and
-/// constraint information. Used by the TypeScript SDK to populate
+/// vertex IDs and kinds (in id order), edge sources/targets/kinds/names
+/// (in edge order), and constraint information. Used by the TypeScript SDK to populate
 /// `SchemaData` for schemas built on the Rust side (e.g., via
 /// [`parse_atproto_lexicon`]).
 ///
@@ -326,9 +327,16 @@ pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
     slab::with_resource(schema_handle, |r| {
         let schema = slab::as_schema(r)?;
 
-        let vertices: Vec<VertexMeta> = schema
-            .vertices
-            .values()
+        // Vertices by id and edges in edge order: the schema's tables are
+        // hash maps, and their own enumeration order is the hash keys', not
+        // the schema's.
+        let mut ordered_vertices: Vec<_> = schema.vertices.values().collect();
+        ordered_vertices.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+        let mut ordered_edges: Vec<_> = schema.edges.keys().collect();
+        ordered_edges.sort_unstable();
+
+        let vertices: Vec<VertexMeta> = ordered_vertices
+            .into_iter()
             .map(|v| VertexMeta {
                 id: v.id.to_string(),
                 kind: v.kind.to_string(),
@@ -336,9 +344,8 @@ pub fn schema_metadata(schema_handle: u32) -> Result<Vec<u8>, JsError> {
             })
             .collect();
 
-        let edges: Vec<EdgeMeta> = schema
-            .edges
-            .keys()
+        let edges: Vec<EdgeMeta> = ordered_edges
+            .into_iter()
             .map(|e| EdgeMeta {
                 src: e.src.to_string(),
                 tgt: e.tgt.to_string(),
@@ -467,7 +474,15 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
-        mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(&src_schema),
+            super::helpers::protocol_of(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols).map_err(|e| {
             WasmError::LiftFailed {
                 reason: e.to_string(),
             }
@@ -486,7 +501,7 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 ///
 /// The `record` bytes are a `MessagePack`-encoded [`WInstance`].
 /// Returns `MessagePack`-encoded `{ view: WInstance, complement: Vec<u8> }`
-/// where `complement` is the serialized [`Complement`] needed by `put_record`.
+/// where `complement` is the serialized [`Complement`](lens::Complement) needed by `put_record`.
 ///
 /// # Errors
 ///
@@ -542,7 +557,7 @@ pub fn get_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 /// Restore a record from a view and complement (lens put direction).
 ///
 /// The `view` and `complement` bytes are `MessagePack`-encoded
-/// [`WInstance`] and [`Complement`] respectively.
+/// [`WInstance`] and [`Complement`](lens::Complement) respectively.
 ///
 /// # Errors
 ///
@@ -555,10 +570,7 @@ pub fn put_record(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<
             reason: format!("view: {e}"),
         })?;
 
-    let comp: Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
@@ -601,21 +613,32 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
 
         let src_root = find_root(root_vertex, &src_schema)?;
-        let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
-            WasmError::ParseFailed {
-                reason: e.to_string(),
-            }
+        let instance = inst::parse_json(
+            &src_schema,
+            &super::helpers::protocol_of(&src_schema),
+            &src_root,
+            &json_value,
+        )
+        .map_err(|e| WasmError::ParseFailed {
+            reason: e.to_string(),
         })?;
 
-        let lifted =
-            mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
-                WasmError::LiftFailed {
-                    reason: e.to_string(),
-                }
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(&src_schema),
+            super::helpers::protocol_of(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        let lifted = mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols)
+            .map_err(|e| WasmError::LiftFailed {
+                reason: e.to_string(),
             })?;
 
-        let out_json = inst::to_json(&tgt_schema, &lifted);
-        Ok(out_json)
+        inst::to_json(&tgt_schema, &lifted).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
     })?;
 
     serde_json::to_vec(&result).map_err(|e| -> JsError {
@@ -633,6 +656,15 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
 /// Returns `JsError` if parsing, get, or serialization fails.
 #[wasm_bindgen]
 pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<Vec<u8>, JsError> {
+    get_json_engine(migration, json_bytes, root_vertex).map_err(Into::into)
+}
+
+/// Host-testable implementation of [`get_json`].
+pub(super) fn get_json_engine(
+    migration: u32,
+    json_bytes: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, WasmError> {
     #[derive(Serialize)]
     struct GetJsonResult {
         view: serde_json::Value,
@@ -644,14 +676,17 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
             reason: e.to_string(),
         })?;
 
-    let (compiled, src_schema, tgt_schema) =
-        slab::with_resource(migration, extract_migration_owned)?;
+    let (compiled, src_schema, tgt_schema) = slab::try_get(migration, extract_migration_owned)?;
 
     let src_root = find_root(root_vertex, &src_schema)?;
-    let instance = inst::parse_json(&src_schema, &src_root, &json_value).map_err(|e| {
-        WasmError::ParseFailed {
-            reason: e.to_string(),
-        }
+    let instance = inst::parse_json(
+        &src_schema,
+        &super::helpers::protocol_of(&src_schema),
+        &src_root,
+        &json_value,
+    )
+    .map_err(|e| WasmError::ParseFailed {
+        reason: e.to_string(),
     })?;
 
     let lens_obj = lens::Lens {
@@ -665,7 +700,10 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
             reason: e.to_string(),
         })?;
 
-    let view_json = inst::to_json(&tgt_schema, &view);
+    let view_json =
+        inst::to_json(&tgt_schema, &view).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })?;
     let complement_bytes =
         rmp_serde::to_vec_named(&complement).map_err(|e| WasmError::SerializationFailed {
             reason: format!("complement: {e}"),
@@ -676,15 +714,21 @@ pub fn get_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result<
         complement: complement_bytes,
     };
 
-    rmp_serde::to_vec_named(&result).map_err(|e| -> JsError {
-        WasmError::SerializationFailed {
-            reason: e.to_string(),
-        }
-        .into()
+    rmp_serde::to_vec_named(&result).map_err(|e| WasmError::SerializationFailed {
+        reason: e.to_string(),
     })
 }
 
 /// Bidirectional put: restore from a JSON view + complement.
+///
+/// The view is read under the target schema, which numbers its nodes
+/// afresh. It is then aligned to the complement with
+/// [`align_view_to_complement`](lens::align_view_to_complement), so that
+/// every node at a position [`get_json`] produced takes the id `get` gave
+/// it and a node the view adds takes a fresh one, and passed through
+/// [`fold_computed_children_into_fields`](lens::fold_computed_children_into_fields),
+/// so that a computed field [`get_json`] wrote is read back as that field,
+/// before `put`. A view that cannot be aligned is refused.
 ///
 /// # Errors
 ///
@@ -696,24 +740,35 @@ pub fn put_json(
     complement: &[u8],
     root_vertex: &str,
 ) -> Result<Vec<u8>, JsError> {
+    put_json_engine(migration, view_json_bytes, complement, root_vertex).map_err(Into::into)
+}
+
+/// Host-testable implementation of [`put_json`].
+pub(super) fn put_json_engine(
+    migration: u32,
+    view_json_bytes: &[u8],
+    complement: &[u8],
+    root_vertex: &str,
+) -> Result<Vec<u8>, WasmError> {
     let view_json: serde_json::Value =
         serde_json::from_slice(view_json_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: e.to_string(),
         })?;
 
-    let comp: Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
-    let result = slab::with_resource(migration, |r| {
+    let result = slab::try_get(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
-            WasmError::ParseFailed {
-                reason: e.to_string(),
-            }
+        let view_instance = inst::parse_json(
+            &tgt_schema,
+            &super::helpers::protocol_of(&tgt_schema),
+            &tgt_root,
+            &view_json,
+        )
+        .map_err(|e| WasmError::ParseFailed {
+            reason: e.to_string(),
         })?;
 
         let lens_obj = lens::Lens {
@@ -722,20 +777,30 @@ pub fn put_json(
             tgt_schema,
         };
 
+        // `parse_json` numbers the view's nodes afresh; give each the id
+        // `get` gave the node at its position, which the complement's
+        // residue is keyed by.
+        let view_instance = lens::align_view_to_complement(&lens_obj, &view_instance, &comp)
+            .map_err(|e| WasmError::PutFailed {
+                reason: e.to_string(),
+            })?;
+        // `parse_json` reads a computed field `to_json` wrote as a child on
+        // the edge it names; move it back among its node's fields, where
+        // `get` wrote it and where `put` reads it.
+        let view_instance =
+            lens::fold_computed_children_into_fields(&lens_obj, &view_instance, &comp);
         let restored =
             lens::put(&lens_obj, &view_instance, &comp).map_err(|e| WasmError::PutFailed {
                 reason: e.to_string(),
             })?;
 
-        let out_json = inst::to_json(&src_schema, &restored);
-        Ok(out_json)
+        inst::to_json(&src_schema, &restored).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
     })?;
 
-    serde_json::to_vec(&result).map_err(|e| -> JsError {
-        WasmError::SerializationFailed {
-            reason: e.to_string(),
-        }
-        .into()
+    serde_json::to_vec(&result).map_err(|e| WasmError::SerializationFailed {
+        reason: e.to_string(),
     })
 }
 
@@ -771,10 +836,14 @@ pub fn put_json_without_complement(
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
 
         let tgt_root = find_root(root_vertex, &tgt_schema)?;
-        let view_instance = inst::parse_json(&tgt_schema, &tgt_root, &view_json).map_err(|e| {
-            WasmError::ParseFailed {
-                reason: e.to_string(),
-            }
+        let view_instance = inst::parse_json(
+            &tgt_schema,
+            &super::helpers::protocol_of(&tgt_schema),
+            &tgt_root,
+            &view_json,
+        )
+        .map_err(|e| WasmError::ParseFailed {
+            reason: e.to_string(),
         })?;
 
         let lens_obj = lens::Lens {
@@ -789,8 +858,9 @@ pub fn put_json_without_complement(
             }
         })?;
 
-        let out_json = inst::to_json(&src_schema, &restored);
-        Ok(out_json)
+        inst::to_json(&src_schema, &restored).map_err(|e| WasmError::SerializationFailed {
+            reason: e.to_string(),
+        })
     })?;
 
     serde_json::to_vec(&result).map_err(|e| -> JsError {
@@ -1146,6 +1216,200 @@ mod tests {
         let _normalized = normalize_schema(s1).unwrap();
         let proto_h = test_support::protocol_handle();
         let report = validate_schema(s1, proto_h).unwrap();
-        assert!(!report.is_empty());
+        assert_ne!(report, Vec::<u8>::new());
+    }
+
+    /// The payloads built from two freshly parsed lexicons, so from schemas
+    /// whose tables have hash keys of their own: the post schema's metadata,
+    /// the lightweight and the full diff of post against profile, and the
+    /// full diff's classification under `ATProto`.
+    fn freshly_hashed_payloads() -> Vec<Vec<u8>> {
+        let read = |name: &str| {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/atproto/lexicons")
+                .join(name);
+            std::fs::read(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+        };
+        let post = parse_atproto_lexicon(&read("app.bsky.feed.post.json")).unwrap();
+        let profile = parse_atproto_lexicon(&read("app.bsky.actor.profile.json")).unwrap();
+        let spec = rmp_serde::to_vec_named(&panproto_core::protocols::atproto::protocol()).unwrap();
+        let proto = define_protocol(&spec).unwrap();
+        let full = diff_schemas_full(post, profile);
+        let payloads = vec![
+            schema_metadata(post).unwrap(),
+            diff_schemas(post, profile),
+            classify_diff(proto, &full),
+            full,
+        ];
+        for handle in [post, profile, proto] {
+            slab::free(handle);
+        }
+        payloads
+    }
+
+    /// The child half of the cross-process test below: one process's
+    /// payloads, printed.
+    #[test]
+    fn one_process_payloads() {
+        if std::env::var_os("PP_WASM_PAYLOAD_DUMP").is_none() {
+            return;
+        }
+        print!("<<<{:?}>>>", freshly_hashed_payloads());
+    }
+
+    /// Every payload is byte-identical however the schemas' hash keys fall:
+    /// on every rebuild in this process, on other threads and in other
+    /// processes.
+    #[test]
+    fn payloads_do_not_depend_on_the_hash_keys() {
+        if std::env::var_os("PP_WASM_PAYLOAD_DUMP").is_some() {
+            return;
+        }
+        let expected = freshly_hashed_payloads();
+        for _ in 0..16 {
+            assert_eq!(
+                freshly_hashed_payloads(),
+                expected,
+                "a rebuild in this process"
+            );
+        }
+        std::thread::scope(|scope| {
+            let mut workers = Vec::new();
+            for _ in 0..4 {
+                workers.push(scope.spawn(freshly_hashed_payloads));
+            }
+            for worker in workers {
+                assert_eq!(
+                    worker.join().unwrap(),
+                    expected,
+                    "a rebuild on another thread"
+                );
+            }
+        });
+        let exe = std::env::current_exe().unwrap();
+        let printed = format!("<<<{expected:?}>>>");
+        for _ in 0..8 {
+            let output = std::process::Command::new(&exe)
+                .args([
+                    "api::schema::tests::one_process_payloads",
+                    "--exact",
+                    "--nocapture",
+                ])
+                .env("PP_WASM_PAYLOAD_DUMP", "1")
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                text.contains(&printed),
+                "another process wrote different payloads: {text}"
+            );
+        }
+    }
+
+    /// `rec:body { text, obj { k, d } }`, or without `obj.d`, built under
+    /// `protocol` with the edges out of `rec:body` in the order given.
+    fn nested_schema(protocol: u32, with_d: bool, body_edges: [&str; 2]) -> u32 {
+        let mut ops = vec![
+            serde_json::json!({ "op": "vertex", "id": "rec", "kind": "rec", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body", "kind": "rec:body", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body.text", "kind": "string", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body.obj", "kind": "object", "nsid": null }),
+            serde_json::json!({ "op": "vertex", "id": "rec:body.obj.k", "kind": "string", "nsid": null }),
+            serde_json::json!({ "op": "edge", "src": "rec", "tgt": "rec:body", "kind": "record-schema", "name": null }),
+        ];
+        if with_d {
+            ops.push(serde_json::json!({ "op": "vertex", "id": "rec:body.obj.d", "kind": "string", "nsid": null }));
+        }
+        for name in body_edges {
+            ops.push(serde_json::json!({
+                "op": "edge", "src": "rec:body", "tgt": format!("rec:body.{name}"), "kind": "prop", "name": name
+            }));
+        }
+        ops.push(serde_json::json!({ "op": "edge", "src": "rec:body.obj", "tgt": "rec:body.obj.k", "kind": "prop", "name": "k" }));
+        if with_d {
+            ops.push(serde_json::json!({ "op": "edge", "src": "rec:body.obj", "tgt": "rec:body.obj.d", "kind": "prop", "name": "d" }));
+        }
+        build_schema(protocol, &rmp_serde::to_vec_named(&ops).unwrap()).unwrap()
+    }
+
+    /// `put_json` aligns the view it parses to the complement before `put`:
+    /// a lens that drops `obj.d` and whose target schema declares `obj`
+    /// before `text` gets the view back with ids `parse_json` numbers
+    /// differently from `get`, and putting it back, unedited or edited,
+    /// restores `d`.
+    #[test]
+    fn json_round_trip_restores_a_nested_dropped_field() {
+        let protocol = panproto_core::schema::Protocol {
+            name: "demo-nested-drop".into(),
+            schema_theory: "ThConstrainedGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: ["record-schema", "prop"]
+                .into_iter()
+                .map(|kind| panproto_core::schema::EdgeRule {
+                    edge_kind: kind.into(),
+                    src_kinds: vec![],
+                    tgt_kinds: vec![],
+                })
+                .collect(),
+            obj_kinds: ["rec", "rec:body", "object", "string"]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            ..Default::default()
+        };
+        let protocol_handle =
+            define_protocol(&rmp_serde::to_vec_named(&protocol).unwrap()).unwrap();
+        let src_handle = nested_schema(protocol_handle, true, ["text", "obj"]);
+        let tgt_handle = nested_schema(protocol_handle, false, ["obj", "text"]);
+        let (src_schema, tgt_schema) = slab::try_get_two(src_handle, tgt_handle, |r1, r2| {
+            Ok((slab::as_schema(r1)?.clone(), slab::as_schema(r2)?.clone()))
+        })
+        .unwrap();
+        let compiled = panproto_core::inst::CompiledMigration {
+            surviving_verts: tgt_schema.vertices.keys().cloned().collect(),
+            surviving_edges: tgt_schema.edges.keys().cloned().collect(),
+            ..Default::default()
+        };
+        let migration = slab::alloc(Resource::MigrationWithSchemas {
+            compiled,
+            src_schema: std::sync::Arc::new(src_schema),
+            tgt_schema: std::sync::Arc::new(tgt_schema),
+        });
+
+        let source = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+        let got = get_json_engine(migration, source.to_string().as_bytes(), "rec:body").unwrap();
+        let got: serde_json::Value = rmp_serde::from_slice(&got).unwrap();
+        assert_eq!(
+            got["view"],
+            serde_json::json!({ "text": "hello", "obj": { "k": "1" } })
+        );
+        let complement: Vec<u8> = got["complement"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|byte| u8::try_from(byte.as_u64().unwrap()).unwrap())
+            .collect();
+
+        for (shown, expected) in [
+            (got["view"].clone(), source),
+            (
+                serde_json::json!({ "text": "bye", "obj": { "k": "9" } }),
+                serde_json::json!({ "text": "bye", "obj": { "k": "9", "d": "2" } }),
+            ),
+        ] {
+            let restored = put_json_engine(
+                migration,
+                shown.to_string().as_bytes(),
+                &complement,
+                "rec:body",
+            )
+            .unwrap();
+            let restored: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+            assert_eq!(restored, expected, "put of {shown}");
+        }
+
+        for handle in [migration, tgt_handle, src_handle, protocol_handle] {
+            slab::free(handle);
+        }
     }
 }

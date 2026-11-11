@@ -107,7 +107,8 @@ const TIERS: [Stringency; 4] = [
 
 /// What the optimal span for a case at a tier must look like.
 ///
-/// There is no failure variant. §4.3's corollary is that a span always exists,
+/// There is no failure variant. A span always exists (the assignment leaving
+/// every vertex out is feasible; see `panproto_mig::span`),
 /// so the question is never whether one was found but how much of the source it
 /// covers and how well the covered part matches.
 #[derive(Clone, Copy, Debug)]
@@ -154,7 +155,7 @@ fn generic_protocol() -> Protocol {
             "array".into(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -734,12 +735,15 @@ fn assert_tier_expectations(tier: Stringency) {
 // Monotonicity: a higher tier never returns a worse span, exactly.
 // -----------------------------------------------------------------------
 
-/// Quality and apex size are non-decreasing in the tier, with no tolerance.
+/// Quality is non-decreasing in the tier, with no tolerance.
 ///
-/// There used to be four per-case tolerances here, three of them non-zero, and
-/// they existed because ranking was done by enumerating the hom-set under a
-/// node budget: a tier with more anchors could exhaust the budget sooner and
-/// return the best found rather than the best there is. The search is now an
+/// Apex size is only the objective's tie-break, so it is non-decreasing only
+/// across tiers whose optimal quality cost is equal; here every comparison is
+/// such a tier pair (see below), so the apex check holds without exception.
+///
+/// No per-case tolerance applies. A budgeted enumeration of the hom-set would
+/// need one, since a tier with more anchors could exhaust the budget sooner and
+/// return the best found rather than the best there is. The search is an
 /// exact optimiser over a cost function network, and the anchor pool reaches it
 /// only through a reward-only unary term, so the optimum cannot fall as the
 /// pool grows. A tolerance would be a place for that guarantee to quietly stop
@@ -1025,9 +1029,11 @@ fn lenient_orphan_source_sort_emits_drop_sort() {
 }
 
 #[test]
-fn lenient_orphan_target_sort_emits_add_sort() {
-    // Mirror: target has a kind the source lacks; factorize must emit
-    // `AddSort(boolean)`.
+fn lenient_orphan_target_kind_adds_its_vertex_and_edge() {
+    // Mirror: the target has a kind the source lacks. The kind-level
+    // factorization only knows that `boolean` is new; the chain must add the
+    // concrete vertex `r.flag` of that kind and the `flag` edge placing it,
+    // not a vertex named after the kind.
     let src = build(
         &[("r", "record"), ("r.keep", "string")],
         &[("r", "r.keep", "prop", "keep")],
@@ -1050,24 +1056,33 @@ fn lenient_orphan_target_sort_emits_add_sort() {
         },
     )
     .expect("Lenient should find a span");
-    let has_add_sort_boolean = result
+    let step_names: Vec<String> = result
         .chain
         .steps
         .iter()
-        .any(|step| match &step.target.transform {
-            TheoryTransform::AddSort { sort, .. }
-            | TheoryTransform::AddSortWithDefault { sort, .. } => &*sort.name == "boolean",
-            _ => false,
-        });
+        .map(|s| s.name.to_string())
+        .collect();
+    let adds_flag = result.chain.steps.iter().any(|step| {
+        matches!(
+            &step.target.transform,
+            TheoryTransform::AddSchemaVertex { vertex_id, vertex_kind, .. }
+                if &**vertex_id == "r.flag" && &**vertex_kind == "boolean"
+        )
+    });
+    let adds_flag_edge = result.chain.steps.iter().any(|step| {
+        matches!(
+            &step.target.transform,
+            TheoryTransform::AddEdge { src_sort, tgt_sort, edge_name: Some(name), .. }
+                if &**src_sort == "r" && &**tgt_sort == "r.flag" && &**name == "flag"
+        )
+    });
     assert!(
-        has_add_sort_boolean,
-        "Lenient span must emit AddSort(boolean); chain: {:?}",
-        result
-            .chain
-            .steps
-            .iter()
-            .map(|s| s.name.to_string())
-            .collect::<Vec<_>>()
+        adds_flag && adds_flag_edge,
+        "Lenient span must add `r.flag` and `r --flag--> r.flag`; chain: {step_names:?}"
+    );
+    assert!(
+        !result.lens.tgt_schema.vertices.contains_key("boolean"),
+        "no vertex may be named after the new kind; chain: {step_names:?}"
     );
 }
 

@@ -61,6 +61,7 @@ export interface WasmGlueModule {
   check_existence: WasmExports['check_existence'];
   compile_migration: WasmExports['compile_migration'];
   lift_record: WasmExports['lift_record'];
+  check_migration_coverage: WasmExports['check_migration_coverage'];
   get_record: WasmExports['get_record'];
   put_record: WasmExports['put_record'];
   compose_migrations: WasmExports['compose_migrations'];
@@ -113,16 +114,16 @@ export interface WasmGlueModule {
   check_put_get: WasmExports['check_put_get'];
   invert_migration: WasmExports['invert_migration'];
   compose_lenses: WasmExports['compose_lenses'];
-  // Phase 4: Protocol registry
+  // Protocol registry
   list_builtin_protocols: WasmExports['list_builtin_protocols'];
   list_bundle_parser_protocols: WasmExports['list_bundle_parser_protocols'];
   get_builtin_protocol: WasmExports['get_builtin_protocol'];
-  // Phase 5: GAT operations
+  // GAT operations
   create_theory: WasmExports['create_theory'];
   colimit_theories: WasmExports['colimit_theories'];
   check_morphism: WasmExports['check_morphism'];
   migrate_model: WasmExports['migrate_model'];
-  // Phase 6: VCS operations
+  // VCS operations
   vcs_init: WasmExports['vcs_init'];
   vcs_add: WasmExports['vcs_add'];
   vcs_commit: WasmExports['vcs_commit'];
@@ -135,7 +136,7 @@ export interface WasmGlueModule {
   vcs_stash: WasmExports['vcs_stash'];
   vcs_stash_pop: WasmExports['vcs_stash_pop'];
   vcs_blame: WasmExports['vcs_blame'];
-  // Phase 7: Data versioning operations
+  // Data versioning operations
   store_dataset: WasmExports['store_dataset'];
   get_dataset: WasmExports['get_dataset'];
   migrate_dataset_forward: WasmExports['migrate_dataset_forward'];
@@ -148,7 +149,7 @@ export interface WasmGlueModule {
   eval_func_expr: WasmExports['eval_func_expr'];
   execute_query: WasmExports['execute_query'];
   execute_query_with_schema_handle: WasmExports['execute_query_with_schema_handle'];
-  // Phase 12: Fiber, hom, and graph operations
+  // Fiber, hom, and graph operations
   fiber_at: WasmExports['fiber_at'];
   fiber_decomposition_wasm: WasmExports['fiber_decomposition_wasm'];
   poly_hom: WasmExports['poly_hom'];
@@ -209,6 +210,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       check_existence: glue.check_existence,
       compile_migration: glue.compile_migration,
       lift_record: glue.lift_record,
+      check_migration_coverage: glue.check_migration_coverage,
       get_record: glue.get_record,
       put_record: glue.put_record,
       compose_migrations: glue.compose_migrations,
@@ -261,16 +263,16 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       check_put_get: glue.check_put_get,
       invert_migration: glue.invert_migration,
       compose_lenses: glue.compose_lenses,
-      // Phase 4
+      // Protocol registry
       list_builtin_protocols: glue.list_builtin_protocols,
       list_bundle_parser_protocols: glue.list_bundle_parser_protocols,
       get_builtin_protocol: glue.get_builtin_protocol,
-      // Phase 5
+      // GAT operations
       create_theory: glue.create_theory,
       colimit_theories: glue.colimit_theories,
       check_morphism: glue.check_morphism,
       migrate_model: glue.migrate_model,
-      // Phase 6
+      // VCS operations
       vcs_init: glue.vcs_init,
       vcs_add: glue.vcs_add,
       vcs_commit: glue.vcs_commit,
@@ -283,7 +285,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       vcs_stash: glue.vcs_stash,
       vcs_stash_pop: glue.vcs_stash_pop,
       vcs_blame: glue.vcs_blame,
-      // Phase 7: Data versioning
+      // Data versioning
       store_dataset: glue.store_dataset,
       get_dataset: glue.get_dataset,
       migrate_dataset_forward: glue.migrate_dataset_forward,
@@ -296,7 +298,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       eval_func_expr: glue.eval_func_expr,
       execute_query: glue.execute_query,
       execute_query_with_schema_handle: glue.execute_query_with_schema_handle,
-      // Phase 12: Fiber, hom, and graph
+      // Fiber, hom, and graph
       fiber_at: glue.fiber_at,
       fiber_decomposition_wasm: glue.fiber_decomposition_wasm,
       poly_hom: glue.poly_hom,

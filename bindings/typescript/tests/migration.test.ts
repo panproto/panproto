@@ -19,6 +19,7 @@ function createMockWasm(): WasmModule {
     check_existence: vi.fn(() => packToWasm({ valid: true, errors: [] })),
     compile_migration: vi.fn(() => ++handleCounter),
     lift_record: vi.fn(() => packToWasm({ text: 'hello', createdAt: '2025-01-01' })),
+    check_migration_coverage: vi.fn(() => packToWasm({})),
     get_record: vi.fn(() => packToWasm({ view: { text: 'hello' }, complement: new Uint8Array([1, 2, 3]) })),
     put_record: vi.fn(() => packToWasm({ text: 'hello', createdAt: '2025-01-01', extra: true })),
     compose_migrations: vi.fn(() => ++handleCounter),

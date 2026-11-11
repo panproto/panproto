@@ -1,0 +1,1 @@
+{"dropped_nodes":{},"dropped_arcs":[],"dropped_fans":[],"contraction_choices":[],"original_parent":{"1":0},"source_fingerprint":5545373909098406705,"original_extra_fields":{},"arc_edges":[[[0,1],{"src":"post","tgt":"post.text","kind":"prop","name":"text"}]],"arc_order":[[0,1]],"original_values":{},"synthesized_nodes":[],"contracted_into":{}}

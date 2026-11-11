@@ -11,7 +11,7 @@ struct InstanceFixtureTests {
         let instance = try replayed(Instance.self, from: "instance-post-0")
 
         #expect(instance.root == 0)
-        #expect(instance.schemaRoot == "app.bsky.feed.post")
+        #expect(instance.schemaRoot == "app.bsky.feed.post:body")
         #expect(instance.nodeCount == 5)
         #expect(instance.arcs.count == 4)
         #expect(instance.fans.isEmpty)
@@ -88,9 +88,11 @@ struct GetRecordFixtureTests {
         let envelope = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes)
         let view = try envelope.view()
 
-        #expect(view.schemaRoot == "app.bsky.feed.post")
-        #expect(view.nodeCount == 5)
-        #expect(view.arcs.count == 4)
+        #expect(view.schemaRoot == "app.bsky.feed.post:body")
+        // The post to profile chain keeps the body and its `createdAt`,
+        // the one field the profile shares.
+        #expect(view.nodeCount == 2)
+        #expect(view.arcs.count == 1)
         #expect(
             try CBORDecoder().decode(Instance.self, from: try CBOREncoder().encode(view))
                 == view)
@@ -102,20 +104,24 @@ struct GetRecordFixtureTests {
         let envelope = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes)
         let complement = try envelope.complement()
 
-        #expect(complement.sourceFingerprint == 17_951_849_436_321_526_888)
-        #expect(complement.droppedNodes.isEmpty)
-        #expect(complement.droppedArcs.isEmpty)
+        #expect(complement.sourceFingerprint == 3_962_274_085_966_312_888)
+        // `langs`, its item, and `text` leave the view, with the arcs
+        // reaching them.
+        #expect(complement.droppedNodes.keys.sorted() == [2, 3, 4])
+        #expect(complement.droppedArcs.count == 3)
         #expect(complement.droppedFans.isEmpty)
         #expect(complement.contractionChoices.isEmpty)
-        #expect(complement.originalParent == [1: 0, 2: 0, 3: 2, 4: 0])
-        #expect(complement.arcEdges.count == 4)
+        #expect(complement.originalParent == [1: 0])
+        // The post schema determines the edge behind every arc, so the
+        // complement records none of them.
+        #expect(complement.arcEdges.isEmpty)
         #expect(complement.originalExtraFields.isEmpty)
         #expect(complement.originalValues.isEmpty)
         #expect(complement.synthesizedNodes.isEmpty)
         #expect(complement.contractedInto.isEmpty)
     }
 
-    @Test("the complement records arc order and the edge behind each arc")
+    @Test("the complement records arc order and no edge the schema determines")
     func complementArcs() throws {
         let bytes = try fixtureBytes("get-record")
         let complement = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes).complement()
@@ -128,16 +134,25 @@ struct GetRecordFixtureTests {
                 NodePair(parent: 0, child: 4),
             ]
         )
-        let items = try #require(complement.arcEdges[NodePair(parent: 2, child: 3)])
-        #expect(items.kind == "items")
-        #expect(items.src == "app.bsky.feed.post:body.langs")
-        #expect(items.name == nil)
+        // Each arc's edge, the `items` arc under `langs` included, is the
+        // one schema edge between its endpoints' anchors, so put recovers
+        // it without a recorded entry.
+        #expect(complement.arcEdges[NodePair(parent: 2, child: 3)] == nil)
+        #expect(complement.arcEdges.isEmpty)
     }
 
     @Test("the complement replays through the array-of-pairs shape")
     func complementReplays() throws {
         let bytes = try fixtureBytes("get-record")
-        let complement = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes).complement()
+        var complement = try CBORDecoder().decode(GetRecordEnvelope.self, from: bytes)
+            .complement()
+        // The record's arcs are all determined by the schema, so the
+        // engine records no arc edge; one is added to exercise the shape.
+        complement.arcEdges[NodePair(parent: 2, child: 3)] = Edge(
+            src: "app.bsky.feed.post:body.langs",
+            tgt: "app.bsky.feed.post:body.langs:items",
+            kind: "items"
+        )
         let reencoded = try CBOREncoder().encode(complement)
 
         #expect(try CBORDecoder().decode(Complement.self, from: reencoded) == complement)
@@ -145,7 +160,7 @@ struct GetRecordFixtureTests {
         // What the engine writes for a pair-keyed field is an array,
         // and what this type writes has to be one too.
         let item = try CBORValue(decoding: reencoded)
-        #expect(item["arc_edges"]?.arrayValue?.count == 4)
+        #expect(item["arc_edges"]?.arrayValue?.count == 1)
         #expect(item["contraction_choices"]?.arrayValue?.isEmpty == true)
     }
 }
@@ -159,9 +174,9 @@ struct ComplementSpecFixtureTests {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
 
         #expect(spec.kind == .mixed)
-        #expect(spec.forwardDefaults.count == 1)
-        #expect(spec.capturedData.count == 3)
-        #expect(spec.summary == "1 default(s) required, 3 field(s) captured in complement.")
+        #expect(spec.forwardDefaults.count == 16)
+        #expect(spec.capturedData.count == 52)
+        #expect(spec.summary == "16 default(s) required, 52 field(s) captured in complement.")
     }
 
     @Test("an unavailable suggested default is absent")
@@ -169,7 +184,7 @@ struct ComplementSpecFixtureTests {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
         let requirement = try #require(spec.forwardDefaults.first)
 
-        #expect(requirement.elementName == "blob")
+        #expect(requirement.elementName == "app.bsky.actor.profile:body.avatar")
         #expect(requirement.elementKind == "blob")
         #expect(requirement.suggestedDefault == nil)
     }
@@ -178,7 +193,12 @@ struct ComplementSpecFixtureTests {
     func capturedFieldKinds() throws {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
 
-        #expect(spec.capturedData.map(\.elementName) == ["items", "integer", "array"])
-        #expect(spec.capturedData.map(\.elementKind) == ["op", "sort", "sort"])
+        // The kind-level drops come first, then the 25 edges and 24
+        // vertices the chain drops by exact id.
+        #expect(spec.capturedData.prefix(3).map(\.elementName) == ["items", "integer", "array"])
+        let kinds = spec.capturedData.map(\.elementKind)
+        #expect(Array(kinds.prefix(3)) == ["op", "sort", "sort"])
+        #expect(Array(kinds.dropFirst(3).prefix(25)) == Array(repeating: "edge", count: 25))
+        #expect(Array(kinds.dropFirst(28)) == Array(repeating: "sort", count: 24))
     }
 }

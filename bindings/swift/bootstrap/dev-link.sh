@@ -23,6 +23,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SWIFT_DIR="$(pwd)"
 REPO_ROOT="$(cd ../.. && pwd)"
+BUILD_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
+case "$BUILD_TARGET_DIR" in
+    /*) ;;
+    *) BUILD_TARGET_DIR="$REPO_ROOT/$BUILD_TARGET_DIR" ;;
+esac
+BUILD_RELEASE_DIR="$BUILD_TARGET_DIR/release"
+if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    BUILD_RELEASE_DIR="$BUILD_TARGET_DIR/$CARGO_BUILD_TARGET/release"
+fi
 STAGE="$SWIFT_DIR/.panproto-c"
 
 FEATURES="${PANPROTO_C_FEATURES:-}"
@@ -34,7 +43,7 @@ fi
 echo "building panproto-c (release${FEATURES:+, features: $FEATURES})..."
 (
     cd "$REPO_ROOT" &&
-        cargo build -p panproto-c --release "${CARGO_FEATURE_ARGS[@]+"${CARGO_FEATURE_ARGS[@]}"}"
+        cargo build --locked -p panproto-c --release --target-dir "$BUILD_TARGET_DIR" "${CARGO_FEATURE_ARGS[@]+"${CARGO_FEATURE_ARGS[@]}"}"
 )
 
 mkdir -p "$STAGE/lib" "$STAGE/include"
@@ -43,15 +52,21 @@ mkdir -p "$STAGE/lib" "$STAGE/include"
 # dylib is what a `swift build` links against by default; the static
 # archive is kept alongside it for consumers that prefer to link
 # statically with `-Xlinker -force_load`.
+rm -f \
+    "$STAGE/lib/libpanproto_c.dylib" \
+    "$STAGE/lib/libpanproto_c.so" \
+    "$STAGE/lib/libpanproto_c.a" \
+    "$STAGE/lib/panproto_c.dll" \
+    "$STAGE/lib/panproto_c.lib"
 staged=0
 for artifact in libpanproto_c.dylib libpanproto_c.so libpanproto_c.a panproto_c.dll panproto_c.lib; do
-    if [ -f "$REPO_ROOT/target/release/$artifact" ]; then
-        cp -f "$REPO_ROOT/target/release/$artifact" "$STAGE/lib/"
+    if [ -f "$BUILD_RELEASE_DIR/$artifact" ]; then
+        cp -f "$BUILD_RELEASE_DIR/$artifact" "$STAGE/lib/"
         staged=$((staged + 1))
     fi
 done
 if [ "$staged" -eq 0 ]; then
-    echo "error: cargo produced no library artifact in $REPO_ROOT/target/release" >&2
+    echo "error: cargo produced no library artifact in $BUILD_RELEASE_DIR" >&2
     exit 1
 fi
 

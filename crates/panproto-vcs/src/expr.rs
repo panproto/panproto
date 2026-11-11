@@ -104,6 +104,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         let id = crate::tree::store_schema_as_tree(&mut store, schema)?;
         let result = load_expr(&store, &id);

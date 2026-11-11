@@ -215,10 +215,10 @@ fn compile_grammar(name: &str, spec: &GrammarSpec, src_dir: &Path) -> bool {
         // silently drop the grammar. Defensively add the active SDK's
         // libc++ include directory; this is a no-op when the default path
         // already resolves the standard library.
-        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-            if let Some(dir) = macos_libcxx_include_dir() {
-                cpp_build.include(dir);
-            }
+        if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
+            && let Some(dir) = macos_libcxx_include_dir()
+        {
+            cpp_build.include(dir);
         }
 
         if let Err(e) = cpp_build.try_compile(&scanner_lib_name) {

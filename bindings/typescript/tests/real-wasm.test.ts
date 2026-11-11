@@ -519,6 +519,20 @@ describe('compileLensDocument', () => {
       .edge('rec:body', 'rec:body.text', 'prop', { name: 'text' })
       .build();
 
+  // A value transform writes only an attribute its vertex declares, so a
+  // lens computing `g` runs over a schema that declares `g` on `rec:body`.
+  const buildComputedSchema = (proto: ReturnType<typeof buildCustomProto>) =>
+    proto
+      .schema()
+      .vertex('rec', 'rec')
+      .vertex('rec:body', 'rec:body')
+      .vertex('rec:body.text', 'rec:body.text')
+      .vertex('rec:body.g', 'object')
+      .edge('rec', 'rec:body', 'record-schema')
+      .edge('rec:body', 'rec:body.text', 'prop', { name: 'text' })
+      .edge('rec:body', 'rec:body.g', 'prop', { name: 'g' })
+      .build();
+
   it('compiles a JSON DSL object and produces an applicable chain', () => {
     const proto = buildCustomProto();
     const schema = buildCustomSchema(proto);
@@ -599,13 +613,13 @@ describe('compileLensDocument', () => {
     ).toThrow(/compile_lens_document|yaml|parse/i);
   });
 
-  // A chain-instantiated lens used to have no JSON emit path: `get` left
-  // its output materialized inside the instance graph, and reading it back
-  // meant walking nodes and arcs by hand. `getJson` hands it back as a
+  // A chain-instantiated lens needs a JSON emit path: `get` leaves its
+  // output materialized inside the instance graph, and reading it back
+  // would mean walking nodes and arcs by hand. `getJson` hands it back as a
   // record, so the lens can be the mapper and not only a verified spec.
   it('getJson returns the transformed view as a record', () => {
     const proto = buildCustomProto();
-    const schema = buildCustomSchema(proto);
+    const schema = buildComputedSchema(proto);
 
     const chain = pp.compileLensDocument(
       {
@@ -667,7 +681,7 @@ describe('compileLensDocument', () => {
 
   it('putJsonWithoutComplement refuses a lens that is not an isomorphism', () => {
     const proto = buildCustomProto();
-    const schema = buildCustomSchema(proto);
+    const schema = buildComputedSchema(proto);
 
     // A computed field with no inverse is not injective, so distinct
     // sources share a view and no reconstruction exists.
@@ -719,7 +733,7 @@ describe('compileLensDocument', () => {
 
   it('putJson restores the source record from a view and complement', () => {
     const proto = buildCustomProto();
-    const schema = buildCustomSchema(proto);
+    const schema = buildComputedSchema(proto);
 
     const chain = pp.compileLensDocument(
       {
@@ -733,9 +747,61 @@ describe('compileLensDocument', () => {
     const lens = chain.instantiate(schema);
 
     const { view, complement } = lens.getJson({ text: 'hello' }, 'rec:body');
+    expect(view).toEqual({ text: 'hello', g: { a: 'hello' } });
     const restored = lens.putJson(view, complement, 'rec:body') as Record<string, unknown>;
 
-    expect(restored.text).toBe('hello');
+    expect(restored).toEqual({ text: 'hello' });
+    expect(() =>
+      lens.putJson({ text: 'hello', g: { a: 'bye' } }, complement, 'rec:body'),
+    ).toThrow(/derived field g/);
+
+    lens[Symbol.dispose]();
+    chain[Symbol.dispose]();
+    schema[Symbol.dispose]();
+    proto[Symbol.dispose]();
+  });
+
+  // JSON carries no node ids, so `putJson` aligns the view it parses to the
+  // positions the complement records before it puts. A lens that drops the
+  // nested field `obj.d` rebuilds the target schema with `obj` before
+  // `text`, so the parsed view is numbered differently from the view
+  // `getJson` returned; the dropped field still comes back.
+  it('putJson restores a nested dropped field, unedited and edited', () => {
+    const proto = buildCustomProto();
+    const schema = proto
+      .schema()
+      .vertex('rec', 'rec')
+      .vertex('rec:body', 'rec:body')
+      .vertex('rec:body.text', 'string')
+      .vertex('rec:body.obj', 'object')
+      .vertex('rec:body.obj.k', 'string')
+      .vertex('rec:body.obj.d', 'string')
+      .edge('rec', 'rec:body', 'record-schema')
+      .edge('rec:body', 'rec:body.text', 'prop', { name: 'text' })
+      .edge('rec:body', 'rec:body.obj', 'prop', { name: 'obj' })
+      .edge('rec:body.obj', 'rec:body.obj.k', 'prop', { name: 'k' })
+      .edge('rec:body.obj', 'rec:body.obj.d', 'prop', { name: 'd' })
+      .build();
+
+    const chain = pp.compileLensDocument(
+      {
+        id: 'demo.nested-drop',
+        source: 'v1',
+        target: 'v2',
+        steps: [{ remove_field: 'd' }],
+      },
+      'rec:body.obj',
+    );
+    const lens = chain.instantiate(schema);
+
+    const source = { text: 'hello', obj: { k: '1', d: '2' } };
+    const { view, complement } = lens.getJson(source, 'rec:body');
+    expect(view).toEqual({ text: 'hello', obj: { k: '1' } });
+    expect(lens.putJson(view, complement, 'rec:body')).toEqual(source);
+    expect(lens.putJson({ text: 'bye', obj: { k: '9' } }, complement, 'rec:body')).toEqual({
+      text: 'bye',
+      obj: { k: '9', d: '2' },
+    });
 
     lens[Symbol.dispose]();
     chain[Symbol.dispose]();
@@ -748,7 +814,7 @@ describe('compileLensDocument', () => {
 // parseSchemaBundle — cross-document reference resolution.
 //
 // A single-document parse leaves a reference into a sibling document an
-// opaque `"ref"` placeholder carrying no fields, so a lens has nothing
+// opaque `"unknown"` placeholder carrying no fields, so a lens has nothing
 // typed to bind to. The bundle entry point resolves it.
 // ---------------------------------------------------------------------------
 
@@ -783,7 +849,7 @@ describe('parseSchemaBundle', () => {
 
   it('leaves a cross-document ref opaque when only one document is parsed', () => {
     const schema = pp.parseLexicon(annotationLayer);
-    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('ref');
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('unknown');
     // The placeholder carries none of the target's own fields.
     expect(schema.vertices['local.bundle.defs#boundingBox.x']).toBeUndefined();
     schema[Symbol.dispose]();
@@ -800,7 +866,7 @@ describe('parseSchemaBundle', () => {
 
   it('keeps a placeholder for a target outside the bundle', () => {
     const schema = pp.parseSchemaBundle('atproto', [annotationLayer]);
-    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('ref');
+    expect(schema.vertices['local.bundle.defs#boundingBox']?.kind).toBe('unknown');
     schema[Symbol.dispose]();
   });
 
@@ -1032,8 +1098,8 @@ describe('bundle validation against the resolved protocol', () => {
 //
 // A lens document's value-level steps (compute_field, apply_expr,
 // hoist_field, nest_field) compile to field transforms rather than to
-// structural chain steps. They used to be dropped at the boundary, which
-// left a value-transform lens unreachable from JS.
+// structural chain steps. They must not be dropped at the boundary, or a
+// value-transform lens is unreachable from JS.
 // ---------------------------------------------------------------------------
 
 describe('ProtolensChainHandle.fieldTransforms', () => {

@@ -188,11 +188,11 @@ fn write_record_expr(buf: &mut String, fields: &[(Arc<str>, Expr)]) {
             buf.push_str(", ");
         }
         // Record punning: `{ x }` when field name equals variable name.
-        if let Expr::Var(v) = val {
-            if v == name {
-                buf.push_str(name);
-                continue;
-            }
+        if let Expr::Var(v) = val
+            && v == name
+        {
+            buf.push_str(name);
+            continue;
         }
         buf.push_str(name);
         buf.push_str(" = ");
@@ -207,25 +207,24 @@ fn write_record_expr(buf: &mut String, fields: &[(Arc<str>, Expr)]) {
 /// and emits those in the shorter form.
 fn write_match(buf: &mut String, scrutinee: &Expr, arms: &[(Pattern, Expr)], ctx: Prec) {
     // Detect if/then/else: Match with [Lit(Bool(true)) -> then, Wildcard -> else]
-    if arms.len() == 2 {
-        if let (Pattern::Lit(Literal::Bool(true)), then_branch) = &arms[0] {
-            if let (Pattern::Wildcard, else_branch) = &arms[1] {
-                let needs_parens = ctx > Prec::Top;
-                if needs_parens {
-                    buf.push('(');
-                }
-                buf.push_str("if ");
-                write_expr(buf, scrutinee, Prec::Top);
-                buf.push_str(" then ");
-                write_expr(buf, then_branch, Prec::Top);
-                buf.push_str(" else ");
-                write_expr(buf, else_branch, Prec::Top);
-                if needs_parens {
-                    buf.push(')');
-                }
-                return;
-            }
+    if arms.len() == 2
+        && let (Pattern::Lit(Literal::Bool(true)), then_branch) = &arms[0]
+        && let (Pattern::Wildcard, else_branch) = &arms[1]
+    {
+        let needs_parens = ctx > Prec::Top;
+        if needs_parens {
+            buf.push('(');
         }
+        buf.push_str("if ");
+        write_expr(buf, scrutinee, Prec::Top);
+        buf.push_str(" then ");
+        write_expr(buf, then_branch, Prec::Top);
+        buf.push_str(" else ");
+        write_expr(buf, else_branch, Prec::Top);
+        if needs_parens {
+            buf.push(')');
+        }
+        return;
     }
 
     let needs_parens = ctx > Prec::Top;
@@ -296,46 +295,47 @@ fn write_let(buf: &mut String, name: &Arc<str>, value: &Expr, body: &Expr, ctx: 
 /// Write a builtin operation, using infix/prefix syntax where possible.
 fn write_builtin(buf: &mut String, op: BuiltinOp, args: &[Expr], ctx: Prec) {
     // Try infix binary operators.
-    if let Some((sym, prec, assoc)) = infix_info(op) {
-        if args.len() == 2 {
-            let needs_parens = ctx > prec;
-            if needs_parens {
-                buf.push('(');
-            }
-            // For left-associative operators, the left child is fine at the
-            // same precedence but the right child needs to be tighter (to
-            // avoid ambiguity). Vice versa for right-associative.
-            let (left_ctx, right_ctx) = match assoc {
-                Assoc::Left => (prec, next_prec(prec)),
-                Assoc::Right => (next_prec(prec), prec),
-            };
-            write_expr(buf, &args[0], left_ctx);
-            buf.push(' ');
-            buf.push_str(sym);
-            buf.push(' ');
-            write_expr(buf, &args[1], right_ctx);
-            if needs_parens {
-                buf.push(')');
-            }
-            return;
+    if let Some((sym, prec, assoc)) = infix_info(op)
+        && args.len() == 2
+    {
+        let needs_parens = ctx > prec;
+        if needs_parens {
+            buf.push('(');
         }
+        // For left-associative operators, the left child is fine at the
+        // same precedence but the right child needs to be tighter (to
+        // avoid ambiguity). Vice versa for right-associative.
+        let (left_ctx, right_ctx) = match assoc {
+            Assoc::Left => (prec, next_prec(prec)),
+            Assoc::Right => (next_prec(prec), prec),
+        };
+        write_expr(buf, &args[0], left_ctx);
+        buf.push(' ');
+        buf.push_str(sym);
+        buf.push(' ');
+        write_expr(buf, &args[1], right_ctx);
+        if needs_parens {
+            buf.push(')');
+        }
+        return;
     }
 
     // Edge traversal: `expr -> edge`
-    if op == BuiltinOp::Edge && args.len() == 2 {
-        if let Expr::Lit(Literal::Str(edge_name)) = &args[1] {
-            let needs_parens = ctx > Prec::Atom;
-            if needs_parens {
-                buf.push('(');
-            }
-            write_expr(buf, &args[0], Prec::Atom);
-            buf.push_str(" -> ");
-            buf.push_str(edge_name);
-            if needs_parens {
-                buf.push(')');
-            }
-            return;
+    if op == BuiltinOp::Edge
+        && args.len() == 2
+        && let Expr::Lit(Literal::Str(edge_name)) = &args[1]
+    {
+        let needs_parens = ctx > Prec::Atom;
+        if needs_parens {
+            buf.push('(');
         }
+        write_expr(buf, &args[0], Prec::Atom);
+        buf.push_str(" -> ");
+        buf.push_str(edge_name);
+        if needs_parens {
+            buf.push(')');
+        }
+        return;
     }
 
     // Unary prefix: negation and logical not.
@@ -503,6 +503,10 @@ const fn builtin_name(op: BuiltinOp) -> &'static str {
         BuiltinOp::HasEdge => "has_edge",
         BuiltinOp::EdgeCount => "edge_count",
         BuiltinOp::Anchor => "anchor",
+        BuiltinOp::Edges => "edges",
+        BuiltinOp::ToString => "to_string",
+        BuiltinOp::ParseDecimal => "parse_decimal",
+        BuiltinOp::DecimalToFloat => "decimal_to_float",
     }
 }
 
@@ -581,6 +585,20 @@ fn write_literal(buf: &mut String, lit: &Literal) {
             buf.push_str(" -> ");
             write_expr(buf, body, Prec::Top);
         }
+        // The surface syntax has no literal for the exact values. A
+        // decimal is written as the call that reads it back exactly; an
+        // integer outside `i64` as its numeral, which the lexer rejects
+        // rather than reading as another type; a date or time as its
+        // RFC 3339 text in a string.
+        Literal::Decimal(d) => {
+            let _ = write!(buf, "(parse_decimal \"{d}\")");
+        }
+        Literal::BigInt(b) => {
+            let _ = write!(buf, "{b}");
+        }
+        Literal::Temporal(t) => {
+            let _ = write!(buf, "\"{t}\"");
+        }
     }
 }
 
@@ -597,11 +615,11 @@ fn write_pattern(buf: &mut String, pat: &Pattern) {
                     buf.push_str(", ");
                 }
                 // Record pattern punning: `{ x }` when field pattern is Var(x).
-                if let Pattern::Var(v) = p {
-                    if v == name {
-                        buf.push_str(name);
-                        continue;
-                    }
+                if let Pattern::Var(v) = p
+                    && v == name
+                {
+                    buf.push_str(name);
+                    continue;
                 }
                 buf.push_str(name);
                 buf.push_str(" = ");

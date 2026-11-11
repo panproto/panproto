@@ -47,12 +47,12 @@ fn emit_pretty_preserves_every_step_in_field_repeat() {
         .expect("emit_pretty");
     let text = String::from_utf8(rendered).expect("utf8");
 
-    // Every step's terminal tokens must survive. The bug being
-    // closed here is the FIELD(REPEAT) drop: pre-fix output was
+    // Every step's terminal tokens must survive. The failure guarded
+    // here is the FIELD(REPEAT) drop, which renders
     // `program p: X -> X:\nsample a <- f()\nreturn a\n` (one sample,
     // not two). Token-order assertions for any one step body are out
-    // of scope — that's the cursor-dispatch problem from #104 surfaced
-    // at a deeper rule than expression_block. Here we only assert the
+    // of scope: that is cursor dispatch at a deeper rule than
+    // expression_block. Here we only assert the
     // step *count* is preserved across `FIELD(REPEAT(...))`.
     let f_calls = text.matches("f(").count();
     let g_calls = text.matches("g(").count();
@@ -63,16 +63,16 @@ fn emit_pretty_preserves_every_step_in_field_repeat() {
     assert_eq!(
         g_calls, 1,
         "second step's function call g() missing from {text:?} \
-         (FIELD(REPEAT) regression: second step was dropped before this fix)"
+         (FIELD(REPEAT) regression: the second step was dropped)"
     );
     assert!(text.contains("return"), "return step missing from {text:?}");
 }
 
 /// Multiple args in a `commaSep1`-shaped field must all survive
 /// `emit_pretty`. `field('args', commaSep1($._draw_arg))` expands to
-/// `FIELD(SEQ(SYMBOL X, REPEAT(SEQ(',', SYMBOL X))))`. Pre-fix, the
-/// inner REPEAT searched the first consumed child's cursor for more
-/// args, found none, and broke after one iteration. With the
+/// `FIELD(SEQ(SYMBOL X, REPEAT(SEQ(',', SYMBOL X))))`. An inner REPEAT
+/// that searched the first consumed child's cursor for more args would
+/// find none and break after one iteration. With the
 /// field-context override, the SYMBOLs under the FIELD body pull
 /// successive `take_field("args")` edges from the outer cursor.
 const QVR_MULTI_ARG: &[u8] = b"\

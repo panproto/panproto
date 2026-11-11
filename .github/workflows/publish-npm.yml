@@ -163,6 +163,13 @@ jobs:
 
       - name: Publish
         working-directory: bindings/typescript
+        # npm refuses to publish over an existing version, so a re-run after
+        # a successful publish skips the step instead of failing.
         run: |
+          version=$(node -p "require('./package.json').version")
+          if node "$RUNNER_TEMP/npm-bin/bin/npm-cli.js" view "@panproto/core@${version}" version >/dev/null 2>&1; then
+            echo "@panproto/core@${version} is already published; nothing to do"
+            exit 0
+          fi
           node "$RUNNER_TEMP/npm-bin/bin/npm-cli.js" \
             publish --provenance --access public

@@ -477,7 +477,7 @@ struct ExprWireTests {
         for op in Self.everyBuiltin {
             try expectRoundTrip(op)
         }
-        #expect(Self.everyBuiltin.count == 60)
+        #expect(Self.everyBuiltin.count == 64)
     }
 
     @Test("a builtin application is an array holding the op and its arguments")
@@ -600,6 +600,33 @@ struct ExprWireTests {
                 env: [WirePair("base", .int(1))]
             )
         )
+        try expectRoundTrip(Literal.decimal(DecimalValue(digits: "100", exponent: "-2")))
+        try expectRoundTrip(Literal.bigInt(BigIntValue(significand: "9223372036854775808")))
+        try expectRoundTrip(
+            Literal.temporal(
+                try TemporalValue(
+                    representation: .textMap([
+                        (
+                            "date",
+                            .textMap([
+                                ("year", .unsigned(2026)),
+                                ("month", .unsigned(10)),
+                                ("day", .unsigned(27)),
+                            ])
+                        )
+                    ]))
+            )
+        )
+    }
+
+    @Test("an unknown appended literal tag is refused")
+    func unknownLiteralTagIsRefused() throws {
+        #expect(throws: (any Error).self) {
+            try CBORDecoder().decode(
+                Literal.self,
+                from: try CBOREncoder().encode(CBORValue.textMap([("Exactish", .null)]))
+            )
+        }
     }
 
     @Test("the flat pair-list payloads are arrays of two-element arrays")
@@ -645,7 +672,8 @@ struct ExprWireTests {
         .defaultVal, .clamp, .truncateStr,
         .intToFloat, .floatToInt, .intToStr, .floatToStr, .strToInt, .strToFloat,
         .typeOf, .isNull, .isList,
-        .edge, .children, .hasEdge, .edgeCount, .anchor,
+        .edge, .children, .hasEdge, .edgeCount, .anchor, .edges,
+        .toString, .parseDecimal, .decimalToFloat,
     ]
 }
 

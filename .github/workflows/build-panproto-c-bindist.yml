@@ -16,8 +16,8 @@ on:
         description: >-
           An existing release tag to build from and attach to. Leave it
           empty on a tag push. Set it to recover a release whose run
-          failed: dispatching from a branch runs this file, so the fix
-          is in effect, while the source built is the tag's.
+          failed: dispatching from a branch runs this file as the branch
+          has it, while the source built is the tag's.
         required: false
         type: string
 
@@ -494,8 +494,8 @@ jobs:
         # `gh release upload --clobber` (idempotent on retry).
         #
         # The window is two hours because this job races cargo-dist by
-        # construction, and the old 30-minute one was not a margin, it
-        # was a near-miss. cargo-dist creates the Release only in its
+        # construction, and a 30-minute window is not a margin but a
+        # near-miss. cargo-dist creates the Release only in its
         # final `announce` job, so the wait this job needs is
         # (cargo-dist's whole run) minus (this workflow's own build
         # matrix). On v0.72.1 that was 67 minutes minus 35, so it needed

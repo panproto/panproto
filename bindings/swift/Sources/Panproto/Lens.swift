@@ -84,12 +84,22 @@ extension CompiledMigrationHandle {
     /// original view, unedited: it records what the projection dropped
     /// and how the source was shaped, so a complement from some other
     /// projection reconstructs some other source. The engine checks the
-    /// source-schema fingerprint the complement carries and refuses a
-    /// mismatch.
+    /// identity envelope the complement carries, which names the source
+    /// schema, the target schema, and the lens by digest, and refuses a
+    /// mismatch. The legacy source-schema fingerprint is consulted only for
+    /// a complement that carries no envelope.
+    ///
+    /// `view` must carry the node ids ``get(_:)`` gave it, since the
+    /// complement keys what the projection dropped by those ids. A view
+    /// read back from JSON with ``SchemaHandle/instance(fromJSON:rootVertex:)``
+    /// is numbered afresh, and putting it here can lose a dropped field
+    /// while reporting success. Put a JSON view with
+    /// ``put(json:complement:)``, or pass a view you parsed yourself
+    /// through ``alignedView(_:to:)`` first.
     ///
     /// - Parameters:
     ///   - view: An instance of this lens's target schema, edited or
-    ///     not.
+    ///     not, with the node ids ``get(_:)`` gave it.
     ///   - complement: The complement ``get(_:)`` returned for the
     ///     source being reconstructed.
     /// - Returns: The reconstructed instance of the source schema.
@@ -107,6 +117,73 @@ extension CompiledMigrationHandle {
         let encodedView = try Payload.encode(view, .lens, operation)
         let encodedComplement = try Payload.encode(complement, .lens, operation)
         let answer = Raw.lensPutRecord(
+            migration: rawValue,
+            view: encodedView,
+            complement: encodedComplement
+        )
+        try answer.status.orThrow(.lens, operation)
+        return try Payload.decode(Instance.self, from: answer.bytes, .lens, operation)
+    }
+
+    /// Reconstruct a source from a view that went through JSON and the
+    /// complement the projection captured.
+    ///
+    /// JSON keeps no node ids, so the engine reads the view under this
+    /// lens's target schema, rooted where the view ``get(_:)`` returned
+    /// was rooted, and aligns it to the complement: each node at a
+    /// position the projection produced takes back the id ``get(_:)``
+    /// gave it, and a node the edit added takes a fresh one. It then
+    /// folds each computed field back among its node's fields and puts.
+    /// This is the backward direction to use for a view that was written
+    /// out as JSON and read back in.
+    ///
+    /// - Parameters:
+    ///   - json: The view as JSON, edited or not, as
+    ///     ``SchemaHandle/json(for:)`` renders it.
+    ///   - complement: The complement ``get(_:)`` returned with the view.
+    /// - Returns: The reconstructed source instance as JSON bytes.
+    /// - Throws: ``PanprotoError/lens(_:)`` when the bytes are not JSON
+    ///   of the target schema, when the complement records no view
+    ///   positions, or when the edited view cannot be lifted.
+    @PanprotoEngine
+    public func put(json: Data, complement: Complement) throws(PanprotoError) -> Data {
+        let operation = "CompiledMigrationHandle.put(json:complement:)"
+        let encodedComplement = try Payload.encode(complement, .lens, operation)
+        let answer = Raw.lensPutJson(
+            migration: rawValue,
+            viewJSON: json,
+            complement: encodedComplement
+        )
+        try answer.status.orThrow(.lens, operation)
+        return answer.bytes
+    }
+
+    /// `view`, read by a reader that keeps no node ids, aligned to
+    /// `complement` so that ``put(view:complement:)`` reads it.
+    ///
+    /// Each node at a position the projection produced takes the id
+    /// ``get(_:)`` gave it, a node the edit added takes a fresh one, and
+    /// each computed field the reader read as a child moves back among
+    /// its node's fields. ``put(json:complement:)`` does this for a JSON
+    /// view in one call.
+    ///
+    /// - Parameters:
+    ///   - view: The view as a reader returned it, an instance of this
+    ///     lens's target schema.
+    ///   - complement: The complement ``get(_:)`` returned with the view.
+    /// - Returns: The view with the node ids the complement is keyed by.
+    /// - Throws: ``PanprotoError/lens(_:)`` when the complement records no
+    ///   view positions, or when `view` is rooted at another vertex than
+    ///   the view ``get(_:)`` returned.
+    @PanprotoEngine
+    public func alignedView(
+        _ view: Instance,
+        to complement: Complement
+    ) throws(PanprotoError) -> Instance {
+        let operation = "CompiledMigrationHandle.alignedView(_:to:)"
+        let encodedView = try Payload.encode(view, .lens, operation)
+        let encodedComplement = try Payload.encode(complement, .lens, operation)
+        let answer = Raw.lensAlignView(
             migration: rawValue,
             view: encodedView,
             complement: encodedComplement
@@ -133,7 +210,9 @@ extension CompiledMigrationHandle {
     /// - Returns: The composite lens, carrying this lens's source schema
     ///   and `other`'s target schema.
     /// - Throws: ``PanprotoError/lens(_:)`` when the two lenses do not
-    ///   meet at a shared schema.
+    ///   meet at a shared schema, or when the engine's tree fusion rule
+    ///   keeps the pair as two stages, since this call answers with one
+    ///   concrete lens.
     @PanprotoEngine
     public func composedLens(
         with other: CompiledMigrationHandle
@@ -143,7 +222,7 @@ extension CompiledMigrationHandle {
         return CompiledMigrationHandle(adopting: composed.handle)
     }
 
-    /// Check both lens laws on `instance`.
+    /// Run the five strict lens gates on `instance`.
     ///
     /// A violated law is a verdict rather than a failure: the call
     /// succeeds and the answer says which law broke and how, so a
@@ -153,8 +232,11 @@ extension CompiledMigrationHandle {
     ///
     /// - Parameter instance: An instance of this lens's source schema to
     ///   test the laws at.
-    /// - Returns: Whether `GetPut` and `PutGet` both hold at this
-    ///   instance, with the violation when one does not.
+    /// The gates run in order: `GetPut`, `PutGet`, totality over the finite
+    /// single-step basis, `PutTwice`, and congruence.
+    ///
+    /// - Returns: Whether all five gates hold at this instance, with the
+    ///   first violation when one does not.
     /// - Throws: ``PanprotoError/lens(_:)`` when the instance declines to
     ///   code or the handle names no lens.
     @PanprotoEngine

@@ -1,0 +1,607 @@
+{
+  "diagram": {
+    "nodes": [
+      {
+        "label": "Schema",
+        "theory": {
+          "name": "Schema",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Constraint",
+              "params": [
+                {
+                  "name": "v",
+                  "sort": "Vertex"
+                }
+              ],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [
+                {
+                  "name": "s",
+                  "sort": "Vertex"
+                },
+                {
+                  "name": "t",
+                  "sort": "Vertex"
+                }
+              ],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "target",
+              "inputs": [
+                [
+                  "c",
+                  "Constraint",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThFlat",
+        "theory": {
+          "name": "ThFlat",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Node",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Field",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Value",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "field_node",
+              "inputs": [
+                [
+                  "f",
+                  "Field",
+                  "No"
+                ]
+              ],
+              "output": "Node"
+            },
+            {
+              "name": "field_value",
+              "inputs": [
+                [
+                  "f",
+                  "Field",
+                  "No"
+                ]
+              ],
+              "output": "Value"
+            },
+            {
+              "name": "node_anchor",
+              "inputs": [
+                [
+                  "n",
+                  "Node",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "Interface",
+        "theory": {
+          "name": "Interface",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "src": "Interface",
+        "tgt": "Schema",
+        "morphism": {
+          "name": "Interface_to_Schema",
+          "domain": "Interface",
+          "codomain": "Schema",
+          "sort_map": {
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      },
+      {
+        "src": "Interface",
+        "tgt": "ThFlat",
+        "morphism": {
+          "name": "Interface_to_ThFlat",
+          "domain": "Interface",
+          "codomain": "ThFlat",
+          "sort_map": {
+            "Vertex": "Vertex"
+          },
+          "op_map": {}
+        }
+      }
+    ]
+  },
+  "options": {
+    "mode": "explicit_identity",
+    "result_name": "flat_schema_and_instance",
+    "clash": "reject",
+    "rewrite_budget": 512
+  },
+  "composition": {
+    "theory": {
+      "name": "flat_schema_and_instance",
+      "extends": [],
+      "sorts": [
+        {
+          "name": "Constraint",
+          "params": [
+            {
+              "name": "v",
+              "sort": "Vertex"
+            }
+          ],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Edge",
+          "params": [
+            {
+              "name": "s",
+              "sort": "Vertex"
+            },
+            {
+              "name": "t",
+              "sort": "Vertex"
+            }
+          ],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Field",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Node",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Value",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Vertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        }
+      ],
+      "ops": [
+        {
+          "name": "field_node",
+          "inputs": [
+            [
+              "f",
+              "Field",
+              "No"
+            ]
+          ],
+          "output": "Node"
+        },
+        {
+          "name": "field_value",
+          "inputs": [
+            [
+              "f",
+              "Field",
+              "No"
+            ]
+          ],
+          "output": "Value"
+        },
+        {
+          "name": "node_anchor",
+          "inputs": [
+            [
+              "n",
+              "Node",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "src",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "target",
+          "inputs": [
+            [
+              "c",
+              "Constraint",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "tgt",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        }
+      ],
+      "eqs": [],
+      "directed_eqs": [],
+      "policies": []
+    },
+    "inclusions": [
+      {
+        "name": "incl_Schema_flat_schema_and_instance",
+        "domain": "Schema",
+        "codomain": "flat_schema_and_instance",
+        "sort_map": {
+          "Constraint": "Constraint",
+          "Edge": "Edge",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "src": "src",
+          "target": "target",
+          "tgt": "tgt"
+        }
+      },
+      {
+        "name": "incl_ThFlat_flat_schema_and_instance",
+        "domain": "ThFlat",
+        "codomain": "flat_schema_and_instance",
+        "sort_map": {
+          "Field": "Field",
+          "Node": "Node",
+          "Value": "Value",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "field_node": "field_node",
+          "field_value": "field_value",
+          "node_anchor": "node_anchor"
+        }
+      },
+      {
+        "name": "incl_Interface_flat_schema_and_instance",
+        "domain": "Interface",
+        "codomain": "flat_schema_and_instance",
+        "sort_map": {
+          "Vertex": "Vertex"
+        },
+        "op_map": {}
+      }
+    ],
+    "provenance": {
+      "sorts": [
+        [
+          {
+            "node": "Interface",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Constraint"
+          },
+          "Constraint"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "Field"
+          },
+          "Field"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "Node"
+          },
+          "Node"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "Value"
+          },
+          "Value"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ]
+      ],
+      "ops": [
+        [
+          {
+            "node": "Schema",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "target"
+          },
+          "target"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "tgt"
+          },
+          "tgt"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "field_node"
+          },
+          "field_node"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "field_value"
+          },
+          "field_value"
+        ],
+        [
+          {
+            "node": "ThFlat",
+            "name": "node_anchor"
+          },
+          "node_anchor"
+        ]
+      ],
+      "eqs": [],
+      "directed_eqs": [],
+      "policies": [],
+      "added_eqs": {}
+    },
+    "report": {
+      "mode": "explicit_identity",
+      "status": "passed",
+      "name_clash_free": true,
+      "checks": [
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThFlat"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "class_signatures_agree",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThFlat"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThFlat"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "universal_identity",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "result_well_typed",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "name_clash_free",
+          "subject": "diagram",
+          "outcome": "passed"
+        }
+      ],
+      "freshened": []
+    }
+  }
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "id": "post",
+    "kind": "record",
+    "nsid": "app.test.post",
+    "op": "vertex"
+  },
+  {
+    "id": "post.meta",
+    "kind": "object",
+    "nsid": null,
+    "op": "vertex"
+  },
+  {
+    "id": "post.meta.lang",
+    "kind": "string",
+    "nsid": null,
+    "op": "vertex"
+  },
+  {
+    "kind": "prop",
+    "name": "meta",
+    "op": "edge",
+    "src": "post",
+    "tgt": "post.meta"
+  },
+  {
+    "kind": "prop",
+    "name": "lang",
+    "op": "edge",
+    "src": "post.meta",
+    "tgt": "post.meta.lang"
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "column_drop",
+  "source_protocol": "table_test_v1",
+  "target_protocol": "table_test_v1",
+  "class": "column_drop",
+  "expected_error": null,
+  "runner": "column_drop"
+}

@@ -1,0 +1,167 @@
+{
+  "arcs": [
+    [
+      0,
+      1,
+      {
+        "kind": "prop",
+        "name": "tags",
+        "src": "post",
+        "tgt": "post.tag"
+      }
+    ],
+    [
+      0,
+      2,
+      {
+        "kind": "prop",
+        "name": "notes",
+        "src": "post",
+        "tgt": "post.note"
+      }
+    ],
+    [
+      0,
+      3,
+      {
+        "kind": "prop",
+        "name": "tags",
+        "src": "post",
+        "tgt": "post.tag"
+      }
+    ],
+    [
+      0,
+      4,
+      {
+        "kind": "prop",
+        "name": "notes",
+        "src": "post",
+        "tgt": "post.note"
+      }
+    ],
+    [
+      0,
+      5,
+      {
+        "kind": "prop",
+        "name": "tags",
+        "src": "post",
+        "tgt": "post.tag"
+      }
+    ]
+  ],
+  "children_map": {
+    "0": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "fans": [],
+  "nodes": {
+    "0": {
+      "anchor": "post",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    "1": {
+      "anchor": "post.tag",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "a"
+        }
+      }
+    },
+    "2": {
+      "anchor": "post.note",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "x"
+        }
+      }
+    },
+    "3": {
+      "anchor": "post.tag",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 3,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "b"
+        }
+      }
+    },
+    "4": {
+      "anchor": "post.note",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 4,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "y"
+        }
+      }
+    },
+    "5": {
+      "anchor": "post.tag",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 5,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "c"
+        }
+      }
+    }
+  },
+  "parent_map": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0
+  },
+  "root": 0,
+  "schema_root": "post"
+}

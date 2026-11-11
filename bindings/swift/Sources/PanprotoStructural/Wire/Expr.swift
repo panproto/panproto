@@ -138,6 +138,14 @@ public enum BuiltinOp: String, Codable, Hashable, Sendable {
     case hasEdge = "HasEdge"
     /// `edge_count(node, label: string) → int`
     case edgeCount = "EdgeCount"
+    /// `edges(node, label: string) → [node]`
+    case edges = "Edges"
+    /// Render an exact scalar in its lexical form.
+    case toString = "ToString"
+    /// Parse a decimal without binary floating-point rounding.
+    case parseDecimal = "ParseDecimal"
+    /// Convert an exact decimal or big integer to the nearest float.
+    case decimalToFloat = "DecimalToFloat"
     /// `anchor(node) → string`
     case anchor = "Anchor"
 }
@@ -176,6 +184,12 @@ public indirect enum Literal: Codable, Hashable, Sendable {
     /// parameter it binds, the body it will evaluate, and the bindings
     /// it captured.
     case closure(param: String, body: Expr, env: [WirePair<String, Literal>])
+    /// An exact decimal, including its written scale.
+    case decimal(DecimalValue)
+    /// An integer outside the range of `Int64`.
+    case bigInt(BigIntValue)
+    /// A date, time, or date-time with its written form.
+    case temporal(TemporalValue)
 
     /// The variant tags.
     private enum CodingKeys: String, CodingKey {
@@ -187,6 +201,9 @@ public indirect enum Literal: Codable, Hashable, Sendable {
         case record = "Record"
         case list = "List"
         case closure = "Closure"
+        case decimal = "Decimal"
+        case bigInt = "BigInt"
+        case temporal = "Temporal"
     }
 
     /// The keys of the closure payload, in declaration order.
@@ -249,6 +266,12 @@ public indirect enum Literal: Codable, Hashable, Sendable {
                 body: try nested.decode(Expr.self, forKey: .body),
                 env: try nested.decode([WirePair<String, Literal>].self, forKey: .env)
             )
+        case .decimal:
+            self = .decimal(try container.decode(DecimalValue.self, forKey: .decimal))
+        case .bigInt:
+            self = .bigInt(try container.decode(BigIntValue.self, forKey: .bigInt))
+        case .temporal:
+            self = .temporal(try container.decode(TemporalValue.self, forKey: .temporal))
         }
     }
 
@@ -282,6 +305,12 @@ public indirect enum Literal: Codable, Hashable, Sendable {
                 try nested.encode(param, forKey: .param)
                 try nested.encode(body, forKey: .body)
                 try nested.encode(env, forKey: .env)
+            case .decimal(let value):
+                try container.encode(value, forKey: .decimal)
+            case .bigInt(let value):
+                try container.encode(value, forKey: .bigInt)
+            case .temporal(let value):
+                try container.encode(value, forKey: .temporal)
             }
             return
         }

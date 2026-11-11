@@ -127,7 +127,7 @@ impl VerificationReport {
     /// stopped is still a genuine violation and is still reported, but
     /// the run as a whole did not establish the model's status.
     #[must_use]
-    pub fn status(&self) -> VerificationStatus {
+    pub const fn status(&self) -> VerificationStatus {
         if self.incomplete.is_some() {
             VerificationStatus::Incomplete
         } else if self.violations.is_empty() {

@@ -23,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # OIDC token for crates.io Trusted Publishing
 
 jobs:
   package:
@@ -36,7 +35,9 @@ jobs:
     # repo and cannot reach from `.crate`, all pass a workspace build
     # and break on `cargo install`.
     #
-    # So the packaged form is built here, before anything publishes.
+    # So the packaged form is assembled and inspected here, before anything
+    # publishes: every crate must package, declare a licence and ship the
+    # README it names.
     name: Packaged crates build
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -107,6 +108,9 @@ jobs:
     name: Publish workspace crates
     needs: package
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for crates.io Trusted Publishing
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

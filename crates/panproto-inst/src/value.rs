@@ -2,11 +2,26 @@
 //!
 //! [`Value`] represents the leaf data in an instance tree, while
 //! [`FieldPresence`] distinguishes between present, null, and absent
-//! fields in the W-type model.
+//! fields in the W-type model. The exact scalar types a [`Value`] can hold
+//! (decimals, integers outside `i64`, dates and times) are defined in
+//! [`panproto_expr::exact`] and re-exported here, and [`coerce`](crate::value::coerce::coerce) reads a
+//! lexeme into a [`Value`] under the scalar kind a schema declares for it,
+//! reporting a [`ValueFidelityError`] whenever the kind cannot hold the
+//! lexeme exactly.
 
-use std::collections::HashMap;
+pub mod coerce;
 
+use panproto_gat::Name;
+use panproto_schema::ScalarKind;
 use serde::{Deserialize, Serialize};
+
+pub use panproto_expr::exact::{
+    BigIntValue, CANONICAL_NAN, CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalClass,
+    DecimalValue, ExactInteger, ExtendedTemporal, Fraction, NEGATIVE_CANONICAL_NAN, Offset,
+    OffsetForm, Temporal, TemporalForm, TemporalInfinity, TemporalLexicalForm, TemporalParseError,
+    TemporalYear, TimeFields, WideInt, ZuluCase, binary32_bits,
+};
+pub use panproto_expr::{ExactKind, ExactParseError, FidelityReason, Value};
 
 /// Field presence in a W-type instance node.
 ///
@@ -21,7 +36,6 @@ pub enum FieldPresence {
     /// The field is absent (not provided).
     Absent,
 }
-
 impl FieldPresence {
     /// Returns `true` if the field is present (not null or absent).
     #[must_use]
@@ -51,122 +65,107 @@ impl FieldPresence {
     }
 }
 
-/// A concrete data value in an instance.
-///
-/// This is the ADT of *leaf-or-opaque* data carried by a W-type node.
-/// It mirrors the free term algebra of JSON-like values and forms a
-/// faithful round-trip target for any schema-unanchored data that
-/// parses into the instance (e.g. values landing in `extra_fields`).
-///
-/// Category-theoretically, the variants partition into:
-///
-/// - **Primitive atoms** ([`Self::Bool`], [`Self::Int`], [`Self::Float`],
-///   [`Self::Str`], [`Self::Bytes`], [`Self::CidLink`], [`Self::Blob`],
-///   [`Self::Token`], [`Self::Null`]) — generators of the ADT.
-/// - **Records** ([`Self::Opaque`], [`Self::Unknown`]) — finite products
-///   indexed by string field names (heterogeneous, unordered).
-/// - **Lists** ([`Self::List`]) — the free monoid / list object, an
-///   ordered collection with anonymous positions. This is the list
-///   constructor needed to faithfully embed JSON arrays and, more
-///   generally, any ordered-collection leaf value.
-///
-/// The `Unknown` and `List` variants together give the enum closure
-/// under the two fundamental JSON constructors (object and array) so
-/// that values with no schema anchor still round-trip losslessly.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum Value {
-    /// Boolean value.
-    Bool(bool),
-    /// 64-bit signed integer.
-    Int(i64),
-    /// 64-bit floating-point number.
-    Float(f64),
-    /// UTF-8 string.
-    Str(String),
-    /// Raw bytes.
-    Bytes(Vec<u8>),
-    /// A content-identifier link (CID).
-    CidLink(String),
-    /// A blob reference.
-    Blob {
-        /// Reference identifier.
-        ref_: String,
-        /// MIME type.
-        mime: String,
-        /// Size in bytes.
-        size: u64,
-    },
-    /// A token (enum variant name).
-    Token(String),
-    /// Explicit null.
-    Null,
-    /// An opaque typed value (protocol-specific extension).
-    Opaque {
-        /// The type identifier.
-        type_: String,
-        /// Opaque fields.
-        #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
-        fields: HashMap<String, Self>,
-    },
-    /// An unknown record value: a finite product of name/value pairs.
-    /// Used for schema-unanchored objects that must round-trip.
-    Unknown(#[serde(with = "panproto_schema::serde_helpers::sorted_map")] HashMap<String, Self>),
-    /// An ordered list of values: the free-monoid list object over
-    /// `Value`. Used for schema-unanchored arrays and for transforms
-    /// that operate on ordered collections carried in `extra_fields`.
-    List(Vec<Self>),
-    /// A labeled null: an existential placeholder carrying a distinct
-    /// identity.
-    ///
-    /// Labeled nulls are introduced by the term-level chase in
-    /// `panproto-mig` when a tuple-generating dependency fires: the
-    /// existentially-quantified positions of its head are filled with
-    /// fresh labeled nulls. Two labeled nulls with the same identity are
-    /// the same unknown value; equality-generating dependencies may merge
-    /// a labeled null with another value (a constant or another null).
-    /// Distinct from [`Self::Null`], which is a concrete (SQL-style) null.
-    LabeledNull(u64),
+/// Where in a document a value was read.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ValueSite {
+    /// The schema vertex the value belongs to.
+    pub vertex: Name,
+    /// The byte offset of the lexeme in the source, when the codec knows
+    /// it.
+    pub byte_offset: Option<u64>,
 }
 
-impl Value {
-    /// Returns a human-readable type name for this value.
+impl ValueSite {
+    /// The site of a value at `vertex`, at `byte_offset` when known.
     #[must_use]
-    pub const fn type_name(&self) -> &'static str {
-        match self {
-            Self::Bool(_) => "bool",
-            Self::Int(_) => "int",
-            Self::Float(_) => "float",
-            Self::Str(_) => "str",
-            Self::Bytes(_) => "bytes",
-            Self::CidLink(_) => "cid-link",
-            Self::Blob { .. } => "blob",
-            Self::Token(_) => "token",
-            Self::Null => "null",
-            Self::Opaque { .. } => "opaque",
-            Self::Unknown(_) => "unknown",
-            Self::List(_) => "list",
-            Self::LabeledNull(_) => "labeled-null",
+    pub fn new(vertex: impl Into<Name>, byte_offset: Option<u64>) -> Self {
+        Self {
+            vertex: vertex.into(),
+            byte_offset,
         }
     }
 
-    /// Returns the identity of this value if it is a labeled null.
+    /// A site not yet known: an empty vertex name and no offset. A codec
+    /// replaces it with [`ValueFidelityError::at`].
     #[must_use]
-    pub const fn as_labeled_null(&self) -> Option<u64> {
-        match self {
-            Self::LabeledNull(id) => Some(*id),
-            _ => None,
+    pub fn unknown() -> Self {
+        Self::new("", None)
+    }
+}
+
+impl std::fmt::Display for ValueSite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "vertex {:?}", self.vertex.as_ref())?;
+        if let Some(offset) = self.byte_offset {
+            write!(f, " (byte {offset})")?;
         }
+        Ok(())
+    }
+}
+
+/// A lexeme the declared scalar kind of its vertex cannot hold exactly.
+///
+/// Built by [`coerce`](coerce::coerce), or from an [`ExactParseError`] by
+/// `From`, which leaves the site unknown, the lexeme empty and the target
+/// the kind the parser was reading; the codec then fills them in with
+/// [`at`](Self::at), [`with_lexeme`](Self::with_lexeme) and
+/// [`with_target`](Self::with_target).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[error("{lexeme:?} at {site} cannot be held exactly as {target:?}: {reason}")]
+pub struct ValueFidelityError {
+    /// Where the lexeme was read.
+    pub site: ValueSite,
+    /// The lexeme as the source wrote it.
+    pub lexeme: String,
+    /// The scalar kind it was read as.
+    pub target: ScalarKind,
+    /// Why the kind cannot hold it.
+    pub reason: FidelityReason,
+}
+
+impl ValueFidelityError {
+    /// The error with its site set to `site`.
+    #[must_use]
+    pub fn at(mut self, site: ValueSite) -> Self {
+        self.site = site;
+        self
     }
 
-    /// Returns `true` if this value is a labeled null.
+    /// The error with its lexeme set to `lexeme`.
     #[must_use]
-    pub const fn is_labeled_null(&self) -> bool {
-        matches!(self, Self::LabeledNull(_))
+    pub fn with_lexeme(mut self, lexeme: impl Into<String>) -> Self {
+        self.lexeme = lexeme.into();
+        self
+    }
+
+    /// The error with its target kind set to `target`.
+    #[must_use]
+    pub const fn with_target(mut self, target: ScalarKind) -> Self {
+        self.target = target;
+        self
+    }
+}
+
+impl From<ExactParseError> for ValueFidelityError {
+    fn from(error: ExactParseError) -> Self {
+        let target = match error.kind {
+            ExactKind::Decimal => ScalarKind::Decimal,
+            ExactKind::BigInt => ScalarKind::BigInt,
+            ExactKind::Temporal => ScalarKind::DateTime,
+        };
+        Self {
+            site: ValueSite::unknown(),
+            lexeme: String::new(),
+            target,
+            reason: error.reason,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]

@@ -1,13 +1,13 @@
 //! Walking and replaying a node with a large fan-out costs time proportional
 //! to the number of children, not to its square.
 //!
-//! Two scans used to sit inside the per-child loops. The walk resolved a
-//! child's tree-sitter field name by asking the parent for its children one
-//! at a time until it found the one it already held, and replay resolved each
+//! Two scans could sit inside the per-child loops: resolving a child's
+//! tree-sitter field name by asking the parent for its children one at a
+//! time until it finds the one it already holds, and resolving each
 //! interstitial run's recorded span by scanning the whole constraint list of
-//! the vertex that carries it. Both are linear in the fan-out and both run
-//! once per child, so a wide node — a long array literal, a spreadsheet row
-//! with thousands of columns — costs quadratic time.
+//! the vertex that carries it. Both are linear in the fan-out and both would
+//! run once per child, so a wide node (a long array literal, a spreadsheet
+//! row with thousands of columns) would cost quadratic time.
 //!
 //! A wide node is ordinary data, so the bound below is what keeps this path
 //! usable at all.

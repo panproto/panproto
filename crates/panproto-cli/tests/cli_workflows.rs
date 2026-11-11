@@ -27,6 +27,13 @@ fn init_repo(dir: &Path) {
 }
 
 fn write_schema(dir: &Path, name: &str, vertices: &[(&str, &str)]) {
+    write_schema_under(dir, name, "test", vertices);
+}
+
+/// Write a schema naming `protocol`. Staged data is validated under the
+/// protocol its schema names, so a test that stages data names one the
+/// protocol registry declares.
+fn write_schema_under(dir: &Path, name: &str, protocol: &str, vertices: &[(&str, &str)]) {
     let mut verts = serde_json::Map::new();
     for (id, kind) in vertices {
         verts.insert(
@@ -37,7 +44,7 @@ fn write_schema(dir: &Path, name: &str, vertices: &[(&str, &str)]) {
         );
     }
     let schema = serde_json::json!({
-        "protocol": "test",
+        "protocol": protocol,
         "vertices": verts,
         "edges": [],
         "hyper_edges": {},
@@ -56,6 +63,27 @@ fn write_schema(dir: &Path, name: &str, vertices: &[(&str, &str)]) {
     });
     let path = dir.join(name);
     std::fs::write(&path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
+}
+
+/// Write a `json-schema` schema whose entry object `a` declares one
+/// integer property `a`, so the record `{"a": N}` conforms to it.
+fn write_record_schema(dir: &Path, name: &str) {
+    let protocol = panproto_core::protocols::data_schema::json_schema::protocol();
+    let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
+        .vertex("a", "object", None)
+        .unwrap()
+        .vertex("a.a", "integer", None)
+        .unwrap()
+        .edge("a", "a.a", "prop", Some("a"))
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    std::fs::write(
+        dir.join(name),
+        serde_json::to_string_pretty(&schema).unwrap(),
+    )
+    .unwrap();
 }
 
 fn write_atproto_project(dir: &Path, target_required: bool) {
@@ -352,7 +380,7 @@ fn cli_add_data_stages_one_index_entry_per_file() {
 
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
-    write_schema(tmp.path(), "v1.json", &[("a", "object")]);
+    write_record_schema(tmp.path(), "v1.json");
 
     let data_dir = tmp.path().join("records");
     std::fs::create_dir(&data_dir).unwrap();
@@ -411,14 +439,14 @@ fn cli_add_data_stages_one_index_entry_per_file() {
         .collect();
     keys.sort();
     assert_eq!(keys, vec!["records/one.json", "records/two.json"]);
-    assert!(staged_data_entries(tmp.path()).is_empty());
+    assert_eq!(staged_data_entries(tmp.path()), []);
 }
 
 #[test]
 fn cli_add_data_failure_stages_nothing_and_reports_it() {
     let tmp = tempfile::tempdir().unwrap();
     init_repo(tmp.path());
-    write_schema(tmp.path(), "v1.json", &[("a", "object")]);
+    write_record_schema(tmp.path(), "v1.json");
 
     let data_dir = tmp.path().join("records");
     std::fs::create_dir(&data_dir).unwrap();
@@ -2142,7 +2170,7 @@ fn cli_lift_bad_migration_fails() {
 use panproto_core::gat::Name;
 use panproto_core::inst;
 use panproto_core::mig;
-use panproto_core::schema::{Edge, Schema, Vertex};
+use panproto_core::schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use smallvec::SmallVec;
 
 /// Build a schema with named prop edges and all required adjacency indices.
@@ -2211,6 +2239,27 @@ fn make_lift_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
+    }
+}
+
+fn lift_protocol() -> Protocol {
+    Protocol {
+        name: "test".to_owned(),
+        non_value_kinds: ["object".to_owned()].into(),
+        value_kinds: [
+            ("string".to_owned(), ScalarKind::Str),
+            ("boolean".to_owned(), ScalarKind::Bool),
+            (
+                "integer".to_owned(),
+                ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                },
+            ),
+        ]
+        .into(),
+        ..Protocol::default()
     }
 }
 
@@ -2271,9 +2320,20 @@ fn lift_api_add_field() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Alice"});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Alice", "name should be preserved");
     assert!(
@@ -2317,9 +2377,20 @@ fn lift_api_drop_field() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Bob", "age": 30});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Bob", "name should be preserved");
     assert!(
@@ -2371,9 +2442,20 @@ fn lift_api_identity_all_fields_survive() {
 
     let compiled = mig::compile(&schema, &schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Eve", "email": "eve@example.com"});
-    let instance = inst::parse_json(&schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &schema, &schema, &instance).unwrap();
-    let output = inst::to_json(&schema, &lifted);
+    let instance = inst::parse_json(&schema, &lift_protocol(), "root", &record).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &schema,
+        &schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let output = inst::to_json(&schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Eve");
     assert_eq!(output["email"], "eve@example.com");
@@ -2433,9 +2515,20 @@ fn lift_api_multi_field_projection() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Dana", "email": "dana@example.com", "age": 25});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["name"], "Dana");
     assert_eq!(output["email"], "dana@example.com");
@@ -2477,9 +2570,20 @@ fn lift_api_preserves_value_types() {
 
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"active": true, "name": "test"});
-    let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
-    let output = inst::to_json(&tgt_schema, &lifted);
+    let instance = inst::parse_json(&src_schema, &lift_protocol(), "root", &record).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let output = inst::to_json(&tgt_schema, &lifted).unwrap();
 
     assert_eq!(output["active"], true, "boolean value should be preserved");
     assert!(
@@ -3039,16 +3143,29 @@ fn cli_lens_compile_retains_value_transforms_and_stage_order() {
     );
 }
 
+/// A compiled artifact whose ordered stages form two tree normal-form
+/// groups is a lens path, not one lens. Until the CLI applies lens paths
+/// stage by stage, `lens apply` refuses it with the typed single-stage
+/// error rather than fusing stages the tree composition rule keeps apart.
 #[test]
-fn cli_lens_apply_accepts_compiled_artifact_with_ordered_stages() {
+fn cli_lens_apply_refuses_a_compiled_artifact_of_two_normal_form_groups() {
     let tmp = tempfile::tempdir().unwrap();
     write_ordered_lens_document(tmp.path(), "ordered.json");
+    // The schema declares `derived`, the attribute the document's
+    // `compute_field` writes, so the apply reaches the group refusal.
     write_schema_with_edges(
         tmp.path(),
         "source.json",
         "atproto",
-        &[("root", "object"), ("root.text", "string")],
-        &[("root", "root.text", "prop", "text")],
+        &[
+            ("root", "object"),
+            ("root.text", "string"),
+            ("root.derived", "string"),
+        ],
+        &[
+            ("root", "root.text", "prop", "text"),
+            ("root", "root.derived", "prop", "derived"),
+        ],
     );
     std::fs::write(tmp.path().join("data.json"), r#"{"text":"hello"}"#).unwrap();
 
@@ -3079,14 +3196,368 @@ fn cli_lens_apply_accepts_compiled_artifact_with_ordered_stages() {
         ])
         .current_dir(tmp.path())
         .assert()
-        .success()
+        .failure()
         .get_output()
         .clone();
 
-    let view: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(view["amount"], "hello");
-    assert_eq!(view["derived"], "hello!");
-    assert!(view.get("text").is_none());
+    assert!(output.stdout.is_empty(), "a refused apply prints no view");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("lens path has 2 normal-form groups; one is required"),
+        "the refusal names the number of groups: {stderr}"
+    );
+}
+
+/// Write to `complement.json` in `dir` the complement `get` records for
+/// `source_json` under the one-stage compiled lens `lens.json` and the
+/// schema `source.json`. `lens apply` prints only the view, so the
+/// complement comes from the same lens run in process: the artifact's one
+/// stage instantiated at the source schema, carrying the stage's field
+/// transforms.
+fn write_complement_of_one_stage_lens(dir: &Path, source_json: &serde_json::Value) {
+    let protocol = (panproto_core::protocols::registry::descriptor("atproto")
+        .unwrap()
+        .protocol)();
+    let schema: panproto_core::schema::Schema =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("source.json")).unwrap()).unwrap();
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("lens.json")).unwrap()).unwrap();
+    let stages = artifact["stages"].as_array().unwrap();
+    assert_eq!(stages.len(), 1, "a one-step document compiles to one stage");
+    let chain: panproto_core::lens::ProtolensChain =
+        serde_json::from_value(stages[0]["chain"].clone()).unwrap();
+    let mut the_lens = chain.instantiate(&schema, &protocol).unwrap();
+    if let Some(transforms) = stages[0].get("field_transforms") {
+        let transforms: HashMap<
+            panproto_core::gat::Name,
+            Vec<panproto_core::inst::FieldTransform>,
+        > = serde_json::from_value(transforms.clone()).unwrap();
+        the_lens.compiled.field_transforms.extend(transforms);
+    }
+    let source = panproto_core::inst::parse_json(&schema, &protocol, "root", source_json).unwrap();
+    let (_, complement) = panproto_core::lens::get(&the_lens, &source).unwrap();
+    std::fs::write(
+        dir.join("complement.json"),
+        serde_json::to_string(&complement).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Compile the lens document of `steps` over the record schema
+/// `root { text, shout }` as one stage, run `lens apply` forward on
+/// `{"text": "hello"}` and check the view is `expected_view`, then run it
+/// backward on that view with the complement `get` recorded and return what
+/// it restores.
+///
+/// The compiler puts a structural step and a value step in separate stages;
+/// their chains and field transforms are merged into the one stage that
+/// `lens apply` instantiates as a single lens.
+fn lens_apply_forward_then_backward(
+    steps: &[serde_json::Value],
+    expected_view: &serde_json::Value,
+) -> serde_json::Value {
+    let tmp = tempfile::tempdir().unwrap();
+    let document = serde_json::json!({
+        "id": "dev.test.round_trip",
+        "source": "s",
+        "target": "t",
+        "steps": steps,
+    });
+    std::fs::write(tmp.path().join("document.json"), document.to_string()).unwrap();
+    schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            "document.json",
+            "--body-vertex",
+            "root",
+            "--out",
+            "lens.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    let mut artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join("lens.json")).unwrap())
+            .unwrap();
+    let merged = serde_json::json!([{
+        "chain": artifact["chain"].clone(),
+        "field_transforms": artifact["field_transforms"].clone(),
+    }]);
+    artifact["stages"] = merged;
+    std::fs::write(tmp.path().join("lens.json"), artifact.to_string()).unwrap();
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[
+            ("root", "object"),
+            ("root.text", "string"),
+            ("root.shout", "string"),
+        ],
+        &[
+            ("root", "root.text", "prop", "text"),
+            ("root", "root.shout", "prop", "shout"),
+        ],
+    );
+    let source_json = serde_json::json!({ "text": "hello" });
+    std::fs::write(tmp.path().join("data.json"), source_json.to_string()).unwrap();
+
+    let forward = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "lens.json",
+            "data.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let view: serde_json::Value = serde_json::from_slice(&forward.stdout).unwrap();
+    assert_eq!(&view, expected_view);
+    std::fs::write(tmp.path().join("view.json"), view.to_string()).unwrap();
+
+    write_complement_of_one_stage_lens(tmp.path(), &source_json);
+
+    let backward = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "lens.json",
+            "view.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+            "--direction",
+            "backward",
+            "--complement",
+            "complement.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    serde_json::from_slice(&backward.stdout).unwrap()
+}
+
+/// `lens apply --direction backward` reads its data as a view under the
+/// lens's target schema: the renamed field `amount` is the source field
+/// `text`, so forward then backward restores the source.
+#[test]
+fn cli_lens_apply_backward_reads_a_renamed_field_under_the_target_schema() {
+    let restored = lens_apply_forward_then_backward(
+        &[serde_json::json!({ "rename_field": { "old": "text", "new": "amount" } })],
+        &serde_json::json!({ "amount": "hello" }),
+    );
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
+/// `lens apply --direction backward` folds the computed field `to_json`
+/// wrote as a child back into its node's fields before `put`, so forward
+/// then backward restores the source.
+#[test]
+fn cli_lens_apply_backward_folds_a_computed_field_before_put() {
+    let restored = lens_apply_forward_then_backward(
+        &[serde_json::json!({ "compute_field": { "target": "shout", "expr": "text ++ \"!\"" } })],
+        &serde_json::json!({ "text": "hello", "shout": "hello!" }),
+    );
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
+/// `lens apply --direction backward` folds a computed field back into its
+/// node even when a rename in the same lens moves the renamed edge after it,
+/// so that `parse_json` gives the computed child the id of the renamed
+/// source child: forward then backward restores the source.
+#[test]
+fn cli_lens_apply_backward_restores_the_source_of_a_rename_and_computed_field() {
+    let restored = lens_apply_forward_then_backward(
+        &[
+            serde_json::json!({ "rename_field": { "old": "text", "new": "amount" } }),
+            serde_json::json!({ "compute_field": { "target": "shout", "expr": "text ++ \"!\"" } }),
+        ],
+        &serde_json::json!({ "amount": "hello", "shout": "hello!" }),
+    );
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
+}
+
+/// `lens apply --direction backward` aligns the view it parses to the
+/// complement before `put`. A lens that drops the nested field `obj.d`
+/// returns a view whose nodes `parse_json` may number differently from
+/// `get`; forward then backward, unedited or with a kept field edited,
+/// restores `d`.
+#[test]
+fn cli_lens_apply_backward_restores_a_nested_dropped_field() {
+    let tmp = tempfile::tempdir().unwrap();
+    let document = serde_json::json!({
+        "id": "dev.test.nested_drop",
+        "source": "s",
+        "target": "t",
+        "steps": [{ "remove_field": "d" }],
+    });
+    std::fs::write(tmp.path().join("document.json"), document.to_string()).unwrap();
+    schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            "document.json",
+            "--body-vertex",
+            "root.obj",
+            "--out",
+            "lens.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[
+            ("root", "object"),
+            ("root.text", "string"),
+            ("root.obj", "object"),
+            ("root.obj.k", "string"),
+            ("root.obj.d", "string"),
+        ],
+        &[
+            ("root", "root.text", "prop", "text"),
+            ("root", "root.obj", "prop", "obj"),
+            ("root.obj", "root.obj.k", "prop", "k"),
+            ("root.obj", "root.obj.d", "prop", "d"),
+        ],
+    );
+    let source_json = serde_json::json!({ "text": "hello", "obj": { "k": "1", "d": "2" } });
+    std::fs::write(tmp.path().join("data.json"), source_json.to_string()).unwrap();
+    let forward = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "lens.json",
+            "data.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let view: serde_json::Value = serde_json::from_slice(&forward.stdout).unwrap();
+    assert_eq!(
+        view,
+        serde_json::json!({ "text": "hello", "obj": { "k": "1" } })
+    );
+    write_complement_of_one_stage_lens(tmp.path(), &source_json);
+
+    for (shown, expected) in [
+        (view, source_json),
+        (
+            serde_json::json!({ "text": "bye", "obj": { "k": "9" } }),
+            serde_json::json!({ "text": "bye", "obj": { "k": "9", "d": "2" } }),
+        ),
+    ] {
+        std::fs::write(tmp.path().join("view.json"), shown.to_string()).unwrap();
+        let backward = schema_cmd()
+            .args([
+                "lens",
+                "apply",
+                "lens.json",
+                "view.json",
+                "--protocol",
+                "atproto",
+                "--schema",
+                "source.json",
+                "--direction",
+                "backward",
+                "--complement",
+                "complement.json",
+            ])
+            .current_dir(tmp.path())
+            .assert()
+            .success()
+            .get_output()
+            .clone();
+        let restored: serde_json::Value = serde_json::from_slice(&backward.stdout).unwrap();
+        assert_eq!(restored, expected, "backward apply of {shown}");
+    }
+}
+
+/// `data convert --direction backward` has no complement, so it puts the
+/// view through `put_without_complement`: a renaming chain is an
+/// isomorphism, and the view under the target schema converts back to the
+/// source record.
+#[test]
+fn cli_data_convert_backward_puts_an_isomorphism_without_a_complement() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("document.json"),
+        serde_json::json!({
+            "id": "dev.test.rename",
+            "source": "s",
+            "target": "t",
+            "steps": [{ "rename_field": { "old": "text", "new": "amount" } }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let compiled = schema_cmd()
+        .args(["lens", "compile", "document.json", "--body-vertex", "root"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let artifact: serde_json::Value = serde_json::from_slice(&compiled.stdout).unwrap();
+    std::fs::write(tmp.path().join("chain.json"), artifact["chain"].to_string()).unwrap();
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[("root", "object"), ("root.text", "string")],
+        &[("root", "root.text", "prop", "text")],
+    );
+    write_schema_with_edges(
+        tmp.path(),
+        "target.json",
+        "atproto",
+        &[("root", "object"), ("root.text", "string")],
+        &[("root", "root.text", "prop", "amount")],
+    );
+    std::fs::write(tmp.path().join("view.json"), r#"{"amount":"hello"}"#).unwrap();
+
+    let output = schema_cmd()
+        .args([
+            "data",
+            "convert",
+            "view.json",
+            "--from",
+            "source.json",
+            "--to",
+            "target.json",
+            "--protocol",
+            "atproto",
+            "--chain",
+            "chain.json",
+            "--direction",
+            "backward",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let restored: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(restored, serde_json::json!({ "text": "hello" }));
 }
 
 /// `schema lens compile` on an `auto` body without schema context must

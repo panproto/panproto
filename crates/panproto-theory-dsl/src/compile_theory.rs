@@ -1101,7 +1101,7 @@ mod tests {
         };
         let sort = compile_sort(&spec, "Th")?;
         assert_eq!(&*sort.name, "Vertex");
-        assert!(sort.params.is_empty());
+        assert_eq!(sort.params, []);
         assert!(matches!(sort.kind, SortKind::Structural));
         Ok(())
     }

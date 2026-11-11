@@ -243,7 +243,7 @@ const fn hint_stringency_to_engine(s: HintStringency) -> Stringency {
 
 use super::helpers::{
     auto_lens_result_to_json, chain_to_json, infer_root_vertex, load_json, open_repo,
-    parse_defaults, resolve_protocol,
+    parse_defaults, put_json_view, resolve_protocol,
 };
 
 /// Generate a lens between two schemas.
@@ -299,10 +299,10 @@ pub fn cmd_lens_generate(
 
         // Hint-file stringency overrides the CLI flag only when the
         // CLI did not pin one explicitly.
-        if stringency_arg.is_none() {
-            if let Some(s) = hint_spec.stringency {
-                config.stringency = hint_stringency_to_engine(s);
-            }
+        if stringency_arg.is_none()
+            && let Some(s) = hint_spec.stringency
+        {
+            config.stringency = hint_stringency_to_engine(s);
         }
         // Merge user-supplied alias clusters into the engine's dictionary.
         for cluster in &hint_spec.alias_clusters {
@@ -687,6 +687,7 @@ pub fn cmd_lens_apply(
         }
         compiled
             .instantiate(&schema, &protocol)
+            .and_then(lens::LensPath::into_single)
             .into_diagnostic()
             .wrap_err("failed to instantiate compiled lens artifact at schema")?
     } else if let Ok(chain) = serde_json::from_value::<lens::ProtolensChain>(lens_value.clone()) {
@@ -718,36 +719,41 @@ pub fn cmd_lens_apply(
     };
 
     let data_json: serde_json::Value = load_json(data_path)?;
-    let root_vertex = infer_root_vertex(&schema)?;
-    let instance = inst::parse_json(&schema, root_vertex.as_str(), &data_json)
-        .into_diagnostic()
-        .wrap_err("failed to parse data as W-type instance")?;
 
     match direction {
         "forward" => {
+            let root_vertex = infer_root_vertex(&schema)?;
+            let instance = inst::parse_json(&schema, &protocol, root_vertex.as_str(), &data_json)
+                .into_diagnostic()
+                .wrap_err("failed to parse data as W-type instance")?;
             let (view, _complement) = lens::get(&the_lens, &instance)
                 .into_diagnostic()
                 .wrap_err("lens get (forward) failed")?;
-            let output = inst::to_json(&the_lens.tgt_schema, &view);
+            let output = inst::to_json(&the_lens.tgt_schema, &view)
+                .into_diagnostic()
+                .wrap_err("failed to write the instance as JSON")?;
             let pretty = serde_json::to_string_pretty(&output)
                 .into_diagnostic()
                 .wrap_err("failed to serialize output")?;
             println!("{pretty}");
         }
         "backward" => {
-            let complement = if let Some(cp) = complement_path {
-                let comp_json: serde_json::Value = load_json(cp)?;
-                serde_json::from_value(comp_json)
-                    .into_diagnostic()
-                    .wrap_err("failed to parse complement data")?
-            } else {
-                lens::Complement::empty()
+            let complement: Option<lens::Complement> = match complement_path {
+                Some(cp) => {
+                    let comp_json: serde_json::Value = load_json(cp)?;
+                    Some(
+                        serde_json::from_value(comp_json)
+                            .into_diagnostic()
+                            .wrap_err("failed to parse complement data")?,
+                    )
+                }
+                None => None,
             };
 
-            let restored = lens::put(&the_lens, &instance, &complement)
+            let restored = put_json_view(&the_lens, &protocol, &data_json, complement.as_ref())?;
+            let output = inst::to_json(&the_lens.src_schema, &restored)
                 .into_diagnostic()
-                .wrap_err("lens put (backward) failed")?;
-            let output = inst::to_json(&the_lens.src_schema, &restored);
+                .wrap_err("failed to write the instance as JSON")?;
             let pretty = serde_json::to_string_pretty(&output)
                 .into_diagnostic()
                 .wrap_err("failed to serialize output")?;
@@ -807,12 +813,14 @@ pub fn cmd_lens_verify(
     if let Some(dp) = data_path {
         let data_json: serde_json::Value = load_json(dp)?;
         let root_vertex = infer_root_vertex(&src_schema)?;
-        let instance = inst::parse_json(&src_schema, root_vertex.as_str(), &data_json)
+        let instance = inst::parse_json(&src_schema, &protocol, root_vertex.as_str(), &data_json)
             .into_diagnostic()
             .wrap_err("failed to parse test data")?;
 
         match lens::check_laws(&result.lens, &instance) {
-            Ok(()) => println!("GetPut: OK\nPutGet: OK"),
+            Ok(()) => {
+                println!("GetPut: OK\nPutGet: OK\nTotality: OK\nPutTwice: OK\nCongruence: OK");
+            }
             Err(violation) => {
                 println!("Lens law violation: {violation:?}");
                 miette::bail!("lens law verification failed");
@@ -820,7 +828,7 @@ pub fn cmd_lens_verify(
         }
     } else {
         println!("No test data provided; skipping concrete law checks.");
-        println!("Hint: pass --data <file> to verify GetPut and PutGet with real data.");
+        println!("Hint: pass --data <file> to run all five strict lens gates with real data.");
     }
 
     // Naturality check: verify that each protolens step is applicable at
@@ -917,6 +925,7 @@ pub fn cmd_lens_compose(
             .wrap_err("failed to generate second lens")?;
 
         let composed = lens::compose(&result_a.lens, &result_b.lens)
+            .and_then(lens::LensPath::into_single)
             .into_diagnostic()
             .wrap_err("failed to compose lenses")?;
 

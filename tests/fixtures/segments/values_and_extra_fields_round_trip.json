@@ -1,0 +1,132 @@
+{
+  "description": "present, null and absent values, extra fields, annotations, a discriminator and positions on nodes split across two segments",
+  "schema": "7fd55141c5ffd88e170644619c143a052f595e024d65878cb6713783f711d076",
+  "partition": {
+    "shape": "graph",
+    "specs": [
+      {
+        "id": 0,
+        "nodes": [
+          {
+            "lo": 0,
+            "hi": 9
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      },
+      {
+        "id": 1,
+        "nodes": [
+          {
+            "lo": 10,
+            "hi": 19
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      }
+    ]
+  },
+  "instance": {
+    "nodes": {
+      "0": {
+        "id": 0,
+        "anchor": "a",
+        "value": {
+          "Present": {
+            "Str": "héllo"
+          }
+        },
+        "discriminator": null,
+        "extra_fields": {
+          "count": {
+            "Int": -3
+          },
+          "ratio": {
+            "Float": 0.25
+          }
+        },
+        "position": 2,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {
+          "note": {
+            "List": [
+              {
+                "Bool": true
+              },
+              "Null"
+            ]
+          }
+        }
+      },
+      "10": {
+        "id": 10,
+        "anchor": "a",
+        "value": "Absent",
+        "discriminator": "kind",
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "11": {
+        "id": 11,
+        "anchor": "a",
+        "value": "Null",
+        "discriminator": null,
+        "extra_fields": {
+          "bytes": {
+            "Bytes": [
+              0,
+              255,
+              7
+            ]
+          }
+        },
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      }
+    },
+    "edges": {
+      "0": {
+        "src": 0,
+        "tgt": 10,
+        "edge": {
+          "src": "a",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "x"
+        },
+        "position": 1
+      },
+      "1": {
+        "src": 11,
+        "tgt": 0,
+        "edge": {
+          "src": "a",
+          "tgt": "a",
+          "kind": "prop",
+          "name": "x"
+        },
+        "position": null
+      }
+    }
+  },
+  "expected": {
+    "instance_digest": "d442bffe6314d4071b42ef56b6450ae3c3395bc081718bc12e79790b39d645a8",
+    "segments": [
+      "aae0160050d9c8a575e83e51c906c478449ccfb7ff8aa36a7ad404383bf2c3ea",
+      "045cceb37bd0b0e9b3bc0d3fb8849f94db6d8dc3f8a7e0501f43411676ec54d1"
+    ],
+    "manifest_root": "b70a0fab28d9b4781a491c2b5ef2e02582e2af1b087cce4d3a9dd31a90749154",
+    "manifest_digest": "9cd5f99210b5a3a81564d430396f77b3d4db1195e627bdf6fb29608d52bdf8d7"
+  }
+}

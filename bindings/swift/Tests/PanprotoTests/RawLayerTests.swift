@@ -162,9 +162,9 @@ struct RawLayerTests {
 
     @Test("Freeing an out-of-range handle is the documented no-op")
     func freeingOutOfRangeHandleIsTotal() async {
-        // `pp_handle_free` answers ok for any index, live, already freed,
-        // or never allocated. The failure a bad index produces surfaces
-        // at the point of use instead, which the next case covers.
+        // `pp_handle_free` answers ok for any numeric index. That total
+        // status does not make a stale value safe after slot reuse, so this
+        // case uses an out-of-range number and cannot free a live resource.
         let outcome = await PanprotoEngine.run { () -> (RawStatus, Data) in
             _ = Raw.lastErrorTake()
             let freed = Raw.handleFree(0xFFFF_FF00)

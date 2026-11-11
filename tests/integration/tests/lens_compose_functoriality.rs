@@ -18,7 +18,7 @@ use panproto_inst::value::Value;
 use panproto_inst::{CompiledMigration, FieldTransform, WInstance, parse_json};
 use panproto_lens::asymmetric::get;
 use panproto_lens::protolens::{ProtolensChain, combinators};
-use panproto_lens::{Lens, compose};
+use panproto_lens::{Lens, LensPath, compose};
 use panproto_schema::{Edge, Protocol, Schema, Vertex};
 use smallvec::SmallVec;
 
@@ -71,17 +71,42 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
 fn user_schema(field: &str) -> Schema {
-    let edge = Edge {
+    user_schema_declaring(field, &[])
+}
+
+/// [`user_schema`] that also declares each of `attributes` as a string
+/// attribute of `user`, a leaf edge labelled with the attribute's name. A
+/// field transform may write only a declared attribute of its vertex.
+fn user_schema_declaring(field: &str, attributes: &[&str]) -> Schema {
+    let mut verts = vec![
+        ("user".to_owned(), "object"),
+        ("user.name".to_owned(), "string"),
+    ];
+    let mut edges = vec![Edge {
         src: "user".into(),
         tgt: "user.name".into(),
         kind: "prop".into(),
         name: Some(field.into()),
-    };
-    make_schema(&[("user", "object"), ("user.name", "string")], &[edge])
+    }];
+    for attribute in attributes {
+        verts.push((format!("user.{attribute}"), "string"));
+        edges.push(Edge {
+            src: "user".into(),
+            tgt: Name::from(format!("user.{attribute}")),
+            kind: "prop".into(),
+            name: Some(Name::from(*attribute)),
+        });
+    }
+    let verts: Vec<(&str, &str)> = verts
+        .iter()
+        .map(|(id, kind)| (id.as_str(), *kind))
+        .collect();
+    make_schema(&verts, &edges)
 }
 
 fn identity_migration(schema: &Schema) -> CompiledMigration {
@@ -107,7 +132,7 @@ fn test_protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -116,10 +141,10 @@ fn test_protocol() -> Protocol {
 ///
 /// This goes through `combinators::rename_field(..).instantiate(..)` rather
 /// than assembling a `CompiledMigration` by hand. The distinction is the
-/// whole of #251: hand-assembling one lets a test set `edge_remap` directly,
-/// while instantiation has to derive it, and for a long time did not. A
-/// hand-built fixture exercises the conjugation but not the path any caller
-/// reaches it by, so it passed while the combinator path stayed broken.
+/// whole point: hand-assembling one lets a test set `edge_remap` directly,
+/// while instantiation has to derive it. A hand-built fixture exercises the
+/// conjugation but not the path any caller reaches it by, so it can pass
+/// while the combinator path is broken.
 fn rename_edge_lens(src: &Schema, parent: &str, field: &str, old: &str, new: &str) -> Lens {
     combinators::rename_field(
         Name::from(parent),
@@ -187,11 +212,16 @@ fn slug_of(view: &WInstance) -> Option<Value> {
 /// composite failed with `UnboundVariable`.
 #[test]
 fn composite_agrees_with_sequential_across_an_edge_rename() {
-    let src = user_schema("name");
-    let mid = user_schema("displayName");
+    let src = user_schema_declaring("name", &["slug"]);
+    let mid = user_schema_declaring("displayName", &["slug"]);
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
 
     let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
     let l2 = compute_slug_lens(&mid, "displayName");
@@ -208,9 +238,9 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
 
     // Composite: get(m2 ∘ m1)(x).
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect(
-        "the composite must evaluate: m2's `displayName` conjugates to m1's source name `name`",
-    );
+    let (vc, _) = composed
+        .get(&instance)
+        .expect("the composed path evaluates");
 
     assert_eq!(
         slug_of(&vc),
@@ -220,17 +250,21 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
 }
 
 /// The unsound direction: an expression naming a field that does *not*
-/// exist in `m2`'s input schema was the one the composite used to accept,
-/// because the un-conjugated name happened to match `m1`'s source frame.
-/// It has to be rejected, and composition time is where the cause is still
-/// legible.
+/// exist in `m2`'s input schema is one a composite could wrongly accept,
+/// because the un-conjugated name happens to match `m1`'s source frame.
+/// It has to be rejected when the composed path executes its second stage.
 #[test]
 fn composite_rejects_an_expression_written_against_the_wrong_frame() {
-    let src = user_schema("name");
-    let mid = user_schema("displayName");
+    let src = user_schema_declaring("name", &["slug"]);
+    let mid = user_schema_declaring("displayName", &["slug"]);
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
 
     let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
     // `name` is not a field of m2's input schema, which presents `displayName`.
@@ -241,33 +275,26 @@ fn composite_rejects_an_expression_written_against_the_wrong_frame() {
         "reading `name` fails against m2's own input, as it must"
     );
 
-    match compose(&l1, &l2) {
-        Err(panproto_lens::LensError::ComposeUnboundField { anchor, field }) => {
-            assert_eq!(anchor, "user");
-            assert_eq!(
-                field, "name",
-                "the diagnostic names the field that the rename took away"
-            );
-        }
-        Err(other) => panic!("expected ComposeUnboundField, got {other:?}"),
-        Ok(composed) => assert!(
-            get(&composed, &instance).is_err(),
-            "a composite that accepts this rejects nothing sequential application rejects"
-        ),
-    }
+    let composed = compose(&l1, &l2).expect("path composition checks only the boundary");
+    assert_eq!(composed.tree_normal_form().len(), 2);
+    assert!(
+        composed.get(&instance).is_err(),
+        "the composed path rejects exactly where sequential application rejects"
+    );
 }
 
 /// An `extra_fields` rename reaches the value layer by a different route
 /// than an edge rename: `RenameField` rewrites the key in place, and
 /// `m1`'s entries run ahead of `m2`'s in the merged batch, so `m2`'s
-/// expression already sees the new name. Composition was correct here
-/// before the fix and must stay correct after it, since conjugating this route
-/// as well would rewrite a sound reference into a dangling one.
+/// expression already sees the new name. Composition must stay correct
+/// here, since conjugating this route as well would rewrite a sound
+/// reference into a dangling one.
 #[test]
 fn composite_agrees_with_sequential_across_an_extra_field_rename() {
-    let schema = user_schema("name");
+    let schema = user_schema_declaring("name", &["userHandle", "slug"]);
     let instance: WInstance = parse_json(
         &schema,
+        &test_protocol(),
         "user",
         &serde_json::json!({"name": "Alice", "handle": "ALICE"}),
     )
@@ -291,7 +318,7 @@ fn composite_agrees_with_sequential_across_an_extra_field_rename() {
     let (v1, _) = get(&l1, &instance).expect("get m1");
     let (v2, _) = get(&l2, &v1).expect("get m2");
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect("get composite");
+    let (vc, _) = composed.get(&instance).expect("get composed path");
 
     assert_eq!(
         slug_of(&vc),
@@ -307,21 +334,28 @@ fn composite_agrees_with_sequential_across_an_extra_field_rename() {
 /// `(l_ab ∘ l_bc) ∘ l2` and reads the far end of the chain.
 #[test]
 fn rename_chain_resolves_transitively() {
-    let s_a = user_schema("a");
-    let s_b = user_schema("b");
-    let s_c = user_schema("c");
+    let s_a = user_schema_declaring("a", &["slug"]);
+    let s_b = user_schema_declaring("b", &["slug"]);
+    let s_c = user_schema_declaring("c", &["slug"]);
 
-    let instance: WInstance =
-        parse_json(&s_a, "user", &serde_json::json!({"a": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &s_a,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"a": "Alice"}),
+    )
+    .expect("parse");
 
     let l_ab = rename_edge_lens(&s_a, "user", "user.name", "a", "b");
     let l_bc = rename_edge_lens(&s_b, "user", "user.name", "b", "c");
     let l2 = compute_slug_lens(&s_c, "c");
 
     let chained = compose(&l_ab, &l_bc).expect("compose the two renames");
-    let composed = compose(&chained, &l2).expect("compose with the reader");
+    let composed = chained
+        .then(&LensPath::single(l2))
+        .expect("compose with the reader");
 
-    let (view, _) = get(&composed, &instance).expect("composite evaluates");
+    let (view, _) = composed.get(&instance).expect("composed path evaluates");
     assert_eq!(
         slug_of(&view),
         Some(Value::Str("alice".into())),
@@ -329,7 +363,8 @@ fn rename_chain_resolves_transitively() {
     );
 }
 
-/// Two-edge schema whose edges carry the given field names.
+/// Two-edge schema whose edges carry the given field names, declaring as
+/// well the `joined` attribute a transform over both writes.
 fn pair_schema(first: &str, second: &str) -> Schema {
     let e1 = Edge {
         src: "user".into(),
@@ -343,13 +378,20 @@ fn pair_schema(first: &str, second: &str) -> Schema {
         kind: "prop".into(),
         name: Some(second.into()),
     };
+    let joined = Edge {
+        src: "user".into(),
+        tgt: "user.joined".into(),
+        kind: "prop".into(),
+        name: Some("joined".into()),
+    };
     make_schema(
         &[
             ("user", "object"),
             ("user.x", "string"),
             ("user.y", "string"),
+            ("user.joined", "string"),
         ],
-        &[e1, e2],
+        &[e1, e2, joined],
     )
 }
 
@@ -362,8 +404,13 @@ fn rename_swap_conjugates_simultaneously() {
     // The same two edges, with their field names exchanged.
     let mid = pair_schema("b", "a");
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"a": "AAA", "b": "BBB"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"a": "AAA", "b": "BBB"}),
+    )
+    .expect("parse");
 
     // Built through the combinators: a swap is three renames via a
     // temporary, and instantiation collapses them into the simultaneous
@@ -425,7 +472,7 @@ fn rename_swap_conjugates_simultaneously() {
     let (v1, _) = get(&l1, &instance).expect("get m1");
     let (v2, _) = get(&l2, &v1).expect("get m2");
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect("get composite");
+    let (vc, _) = composed.get(&instance).expect("get composed path");
 
     assert_eq!(
         joined(&v2),
@@ -441,16 +488,22 @@ fn rename_swap_conjugates_simultaneously() {
 
 /// `ApplyExpr` reads and writes one key, so an edge rename splits its two
 /// coordinates: it must read the source name and write the output name.
-/// The composite has to land the transformed value on the renamed edge,
-/// not emit the original under the new name beside the transformed value
-/// under the old one.
+/// Over a child scalar the result is written back to that child. The
+/// composite has to land the transformed value on the renamed edge's
+/// child, not emit the original under the new name beside the transformed
+/// value under the old one.
 #[test]
 fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let src = user_schema("name");
     let mid = user_schema("displayName");
 
-    let instance: WInstance =
-        parse_json(&src, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
+    let instance: WInstance = parse_json(
+        &src,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
 
     let l1 = rename_edge_lens(&src, "user", "user.name", "name", "displayName");
 
@@ -473,37 +526,52 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let (v1, _) = get(&l1, &instance).expect("get m1");
     let (v2, _) = get(&l2, &v1).expect("get m2");
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect("get composite");
+    let (vc, _) = composed.get(&instance).expect("get composed path");
 
-    let field = |view: &WInstance, key: &str| {
-        view.nodes
+    // Every value the view holds under `key` at the root: a field of the
+    // root, then the scalar of each child under an edge labelled `key`.
+    let values = |view: &WInstance, key: &str| {
+        let mut out: Vec<Value> = view
+            .nodes
             .get(&view.root)
             .and_then(|n| n.extra_fields.get(key))
             .cloned()
+            .into_iter()
+            .collect();
+        for (parent, child, edge) in &view.arcs {
+            if *parent == view.root
+                && edge.name.as_deref() == Some(key)
+                && let Some(panproto_inst::value::FieldPresence::Present(value)) =
+                    view.nodes.get(child).and_then(|n| n.value.clone())
+            {
+                out.push(value);
+            }
+        }
+        out
     };
 
     assert_eq!(
-        field(&v2, "displayName"),
-        Some(Value::Str("alice".into())),
+        values(&v2, "displayName"),
+        vec![Value::Str("alice".into())],
         "sequentially, the transform writes the lowered value under the new edge name"
     );
     assert_eq!(
-        field(&vc, "displayName"),
-        field(&v2, "displayName"),
+        values(&vc, "displayName"),
+        values(&v2, "displayName"),
         "the composite must write to the output name, not the source name"
     );
     assert_eq!(
-        field(&vc, "name"),
-        None,
+        values(&vc, "name"),
+        Vec::<Value>::new(),
         "no value may be left behind under the pre-rename name"
     );
 }
 
 /// An `m2` expression reading a field `m1` drops is reported when the
-/// lenses are composed, not as an `UnboundVariable` when the composite runs.
+/// lenses are executed, at the stage that reads the absent field.
 #[test]
-fn reading_a_dropped_field_fails_at_composition_time() {
-    let schema = user_schema("name");
+fn reading_a_dropped_field_refuses_at_the_reading_stage() {
+    let schema = user_schema_declaring("name", &["slug"]);
 
     let mut m1 = identity_migration(&schema);
     m1.field_transforms.insert(
@@ -519,13 +587,17 @@ fn reading_a_dropped_field_fails_at_composition_time() {
     };
     let l2 = compute_slug_lens(&schema, "handle");
 
-    let result = compose(&l1, &l2);
+    let composed = compose(&l1, &l2).expect("path composition checks only the boundary");
+    let instance: WInstance = parse_json(
+        &schema,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice", "handle": "ALICE"}),
+    )
+    .expect("parse");
     assert!(
-        matches!(
-            result,
-            Err(panproto_lens::LensError::ComposeUnboundField { ref field, .. }) if field == "handle"
-        ),
-        "composition must name the dropped field it cannot bind: {result:?}"
+        composed.get(&instance).is_err(),
+        "the second stage cannot read the field dropped by the first"
     );
 }
 
@@ -534,7 +606,7 @@ fn reading_a_dropped_field_fails_at_composition_time() {
 /// still bound at evaluation time.
 #[test]
 fn dropping_an_extra_field_shadowing_a_child_edge_still_composes() {
-    let schema = user_schema("name");
+    let schema = user_schema_declaring("name", &["slug"]);
 
     let mut m1 = identity_migration(&schema);
     m1.field_transforms.insert(
@@ -550,8 +622,13 @@ fn dropping_an_extra_field_shadowing_a_child_edge_still_composes() {
 
     let composed = compose(&l1, &l2)
         .expect("`name` survives as a child edge, so reading it after DropField is sound");
-    let instance: WInstance =
-        parse_json(&schema, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
-    let (view, _) = get(&composed, &instance).expect("composite evaluates");
+    let instance: WInstance = parse_json(
+        &schema,
+        &test_protocol(),
+        "user",
+        &serde_json::json!({"name": "Alice"}),
+    )
+    .expect("parse");
+    let (view, _) = composed.get(&instance).expect("composed path evaluates");
     assert_eq!(slug_of(&view), Some(Value::Str("alice".into())));
 }

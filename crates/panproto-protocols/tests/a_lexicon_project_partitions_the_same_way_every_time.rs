@@ -4,10 +4,10 @@
 //! A `ref` whose target is outside the parsed set has no owning document, so
 //! `parse_lexicon_project` keeps it in the file that references it. When two
 //! documents reference the same external target, the target can only live in
-//! one of them, and the choice used to be made by whichever edge the
-//! monolith's edge table happened to hand over first. Identical input then
-//! yields different per-file schemas run to run, which shows up downstream as
-//! spurious version-control diffs.
+//! one of them. Made by whichever edge the monolith's edge table happens to
+//! hand over first, the choice would yield different per-file schemas for
+//! identical input run to run, which shows up downstream as spurious
+//! version-control diffs.
 //!
 //! This parses one such set in many separate processes and compares the whole
 //! partition.

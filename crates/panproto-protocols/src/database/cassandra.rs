@@ -19,7 +19,7 @@ use crate::theories;
 /// Returns the Cassandra CQL protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "cassandra".into(),
         schema_theory: "ThCassandraSchema".into(),
         instance_theory: "ThCassandraInstance".into(),
@@ -63,8 +63,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Cassandra with a theory registry.

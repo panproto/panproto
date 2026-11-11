@@ -82,6 +82,21 @@ pub enum ExprError {
     #[error("float not representable as integer: {0}")]
     FloatNotRepresentable(String),
 
+    /// An arithmetic builtin was applied to an exact value (a decimal, an
+    /// integer outside `i64`, or a date or time).
+    ///
+    /// Arithmetic is defined on `int` and `float` only; an exact value is
+    /// converted explicitly first (`decimal_to_float`, which is lossy by
+    /// name), so no exact value is rounded without the expression saying
+    /// so.
+    #[error("{op} is not defined on {operand} values; convert them explicitly first")]
+    ExactArithmetic {
+        /// The arithmetic builtin.
+        op: String,
+        /// The type name of the exact operand.
+        operand: String,
+    },
+
     /// A builtin that reads an instance graph was evaluated without one.
     ///
     /// The graph traversal builtins (`edge`, `children`, `has_edge`,

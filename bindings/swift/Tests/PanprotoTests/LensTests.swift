@@ -55,13 +55,14 @@ private struct LensFixtures {
         try ProtolensChainHandle.autoGenerate(from: post, to: profile, stringency: .lenient)
     }
 
+    /// The post to profile chain, instantiated at the post schema.
+    func postToProfileLens() throws(PanprotoError) -> CompiledMigrationHandle {
+        try postToProfileChain().instantiate(at: post)
+    }
+
     /// The lens the post schema generates against itself, instantiated
-    /// at the post schema.
-    ///
-    /// This is the widest lens the engine runs a whole post record
-    /// through: the post to profile chain instantiates but its `get`
-    /// cannot carry a record that has `langs`, which every committed
-    /// record does.
+    /// at the post schema, which carries a whole post record into a view
+    /// of the same shape.
     func selfLens() throws(PanprotoError) -> CompiledMigrationHandle {
         let chain = try ProtolensChainHandle.autoGenerate(
             from: post,
@@ -89,6 +90,32 @@ private func smallSchema(fields: [String]) throws -> SchemaHandle {
     for field in fields {
         schema.addVertex(id: "post.\(field)", kind: "string")
         schema.addEdge(src: "post", tgt: "post.\(field)", kind: "prop", name: field)
+    }
+    let created = Raw.schemaFromCbor(spec: try CBOREncoder().encode(schema))
+    #expect(created.status.isOK)
+    return SchemaHandle(adopting: created.handle)
+}
+
+/// `post { text, obj { k, d } }`, or without `obj.d`, with the edges
+/// out of `post` declared in the order `postEdges` gives.
+///
+/// - Throws: ``CBORError`` when the schema declines to encode.
+@PanprotoEngine
+private func nestedSchema(withD: Bool, postEdges: [String]) throws -> SchemaHandle {
+    var schema = Schema(protocol: "test")
+    schema.addVertex(id: "post", kind: "record")
+    schema.addVertex(id: "post.text", kind: "string")
+    schema.addVertex(id: "post.obj", kind: "object")
+    schema.addVertex(id: "post.obj.k", kind: "string")
+    if withD {
+        schema.addVertex(id: "post.obj.d", kind: "string")
+    }
+    for name in postEdges {
+        schema.addEdge(src: "post", tgt: "post.\(name)", kind: "prop", name: name)
+    }
+    schema.addEdge(src: "post.obj", tgt: "post.obj.k", kind: "prop", name: "k")
+    if withD {
+        schema.addEdge(src: "post.obj", tgt: "post.obj.d", kind: "prop", name: "d")
     }
     let created = Raw.schemaFromCbor(spec: try CBOREncoder().encode(schema))
     #expect(created.status.isOK)
@@ -302,7 +329,7 @@ struct LensTests {
             return (try chain.stepSummaries().count, try composed.stepSummaries().count)
         }
 
-        #expect(counts.0 == 4)
+        #expect(counts.0 == 68)
         #expect(counts.1 == counts.0 * 2)
     }
 
@@ -356,7 +383,7 @@ struct LensTests {
 
         let projection = try await PanprotoEngine.run { () throws -> LensProjection in
             let fixtures = try LensFixtures()
-            let lens = try fixtures.selfLens()
+            let lens = try fixtures.postToProfileLens()
             return try lens.get(fixtures.record)
         }
 
@@ -384,16 +411,68 @@ struct LensTests {
         #expect(restored.root == original.root)
     }
 
+    @Test("a view put back through JSON restores the nested field the lens dropped")
+    func putJsonRestoresANestedDroppedField() async throws {
+        let (restored, realigned) = try await PanprotoEngine.run {
+            () throws -> ([Data], Data) in
+            // The target declares `obj` before `text`, so a reader numbers
+            // a view differently from `get`; the complement keys the
+            // dropped `obj.d` by the ids `get` gave the view.
+            let source = try nestedSchema(withD: true, postEdges: ["text", "obj"])
+            let target = try nestedSchema(withD: false, postEdges: ["obj", "text"])
+            let migration = Migration(
+                vertexMap: Dictionary(
+                    uniqueKeysWithValues: ["post", "post.text", "post.obj", "post.obj.k"].map {
+                        ($0, $0)
+                    }
+                )
+            )
+            let lens = try migration.compile(from: source, to: target)
+            let record = try smallInstance(
+                source,
+                json: #"{"text":"hello","obj":{"k":"1","d":"2"}}"#
+            )
+            let projection = try lens.get(record)
+            let viewJSON = try target.json(for: projection.view)
+            let edited = Data(#"{"text":"bye","obj":{"k":"9"}}"#.utf8)
+            var restored: [Data] = []
+            for shown in [viewJSON, edited] {
+                restored.append(try lens.put(json: shown, complement: projection.complement))
+            }
+            let parsed = try target.instance(fromJSON: viewJSON, rootVertex: "post")
+            let aligned = try lens.alignedView(parsed, to: projection.complement)
+            let realigned = try source.json(
+                for: try lens.put(view: aligned, complement: projection.complement)
+            )
+            return (restored, realigned)
+        }
+
+        let decode = { (bytes: Data) throws -> NSDictionary in
+            try #require(try JSONSerialization.jsonObject(with: bytes) as? NSDictionary)
+        }
+        let expected: [NSDictionary] = [
+            ["text": "hello", "obj": ["k": "1", "d": "2"]],
+            ["text": "bye", "obj": ["k": "9", "d": "2"]],
+        ]
+        #expect(try restored.map(decode) == expected)
+        #expect(try decode(realigned) == expected[0])
+    }
+
     @Test("a complement from another projection is refused")
     func putRefusesAForeignComplement() async throws {
         let error = try await PanprotoEngine.run { () throws -> PanprotoError? in
             let fixtures = try LensFixtures()
             let lens = try fixtures.selfLens()
             let projection = try lens.get(fixtures.record)
-            // A complement whose fingerprint names no schema this lens
-            // was built against is the failure `put` exists to catch.
+            // A complement whose identity envelope names a source schema
+            // this lens was not built against is the failure `put` exists
+            // to catch. The envelope is the binding the engine checks; the
+            // legacy fingerprint beside it is read only when no envelope
+            // is present.
             var foreign = projection.complement
-            foreign.sourceFingerprint = 0xDEAD_BEEF
+            var envelope = try #require(foreign.identity)
+            envelope.sourceSchema = Data(repeating: 0xAB, count: 32)
+            foreign.identity = envelope
             do {
                 _ = try lens.put(view: projection.view, complement: foreign)
                 return nil
@@ -442,12 +521,21 @@ struct LensTests {
     func lensCompositionProjectsThroughBoth() async throws {
         let (single, composed) = try await PanprotoEngine.run {
             () throws -> (Instance, Instance) in
-            let fixtures = try LensFixtures()
-            let lens = try fixtures.selfLens()
+            // The engine hands back one lens only when the pair fuses
+            // into a single stage, which the tree fusion rule refuses for
+            // the atproto post lens. The self lens of a small schema of
+            // optional strings is one the rule admits.
+            let schema = try smallSchema(fields: ["text", "subtitle"])
+            let record = try smallInstance(
+                schema,
+                json: #"{"text":"hello","subtitle":"world"}"#
+            )
+            let lens = try ProtolensChainHandle.autoGenerate(from: schema, to: schema)
+                .instantiate(at: schema)
             let twice = try lens.composedLens(with: lens)
             return (
-                try lens.get(fixtures.record).view,
-                try twice.get(fixtures.record).view
+                try lens.get(record).view,
+                try twice.get(record).view
             )
         }
 
@@ -533,11 +621,10 @@ struct LensTests {
         }
 
         // The builder gives a diff-derived step a stable name that identifies
-        // the removed schema vertex rather than one of the hand-written DSL
-        // step names.
+        // the removed schema vertex by its exact id.
         #expect(summary.count == 1)
         #expect(summary[0].name == "drop_schema_vertex_post.subtitle")
-        #expect(ElementaryStep(stepName: summary[0].name) == nil)
+        #expect(ElementaryStep(stepName: summary[0].name) == .dropSchemaVertex)
         #expect(summary[0].lossless == false)
     }
 
@@ -679,8 +766,8 @@ struct LensTests {
         // The middle schema is the apex of a span, and the span search
         // minimises a cost function rather than matching names: pairing two
         // kind-compatible vertices beats dropping both, so a pair sharing no
-        // vertex name still spans. Post against profile is that pair, and it
-        // used to be refused here because the overlap was discovered by name.
+        // vertex name still spans. Post against profile is that pair; an
+        // overlap discovered by name would refuse it.
         //
         // Refusal survives, but it takes two schemas sharing no *kind*, which
         // no committed lexicon fixture pair does. `panproto-lens`'s
@@ -756,11 +843,11 @@ struct LensTests {
 
         // The two halves of a symmetric lens run from the middle schema
         // the span was discovered at, so a complement captured against
-        // either end names the wrong source.
+        // either end names the wrong source in its identity envelope.
         let raised = try #require(error)
         #expect(raised.domain == .lens)
         #expect(raised.detail.operation == "SymmetricLensHandle.sync")
-        #expect(raised.detail.message.contains("fingerprint"))
+        #expect(raised.detail.message.contains("identity mismatch on source_schema"))
     }
 
     @Test("the two sync directions are the bytes the ABI reads")

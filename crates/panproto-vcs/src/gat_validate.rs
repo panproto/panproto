@@ -40,7 +40,7 @@ pub struct GatDiagnostics {
 impl GatDiagnostics {
     /// Returns `true` if there are no blocking errors.
     #[must_use]
-    pub fn is_clean(&self) -> bool {
+    pub const fn is_clean(&self) -> bool {
         self.type_errors.is_empty()
             && self.equation_errors.is_empty()
             && self.migration_errors.is_empty()
@@ -48,7 +48,7 @@ impl GatDiagnostics {
 
     /// Returns `true` if there are any blocking errors.
     #[must_use]
-    pub fn has_errors(&self) -> bool {
+    pub const fn has_errors(&self) -> bool {
         !self.is_clean()
     }
 
@@ -321,6 +321,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -344,7 +345,7 @@ mod tests {
         };
         let diag = validate_migration(&schema, &schema, &migration);
         assert!(diag.is_clean());
-        assert!(diag.migration_warnings.is_empty());
+        assert_eq!(diag.migration_warnings, Vec::<String>::new());
     }
 
     #[test]
@@ -363,7 +364,7 @@ mod tests {
             codomain: None,
         };
         let diag = validate_migration(&schema, &schema, &migration);
-        assert!(!diag.migration_warnings.is_empty());
+        assert_ne!(diag.migration_warnings, Vec::<String>::new());
     }
 
     #[test]

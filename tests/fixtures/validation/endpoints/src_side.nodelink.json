@@ -1,0 +1,42 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "ab",
+        "src": "a",
+        "tgt": "b"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 1
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "b",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "b",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    }
+  ]
+}

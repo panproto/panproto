@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use divan::Bencher;
 use panproto_core::gat::Name;
-use panproto_core::inst::{CompiledMigration, wtype_restrict};
+use panproto_core::inst::{BoundaryProtocols, CompiledMigration, wtype_restrict};
 use panproto_core::protocols::web_document::atproto;
 use panproto_core::schema::{Edge, Schema};
 
@@ -48,7 +48,7 @@ fn parse_real_bsky_post_with_reply_to_winstance(bencher: Bencher) {
 }
 
 /// Restrict a real Bluesky post `WInstance` along the identity migration of
-/// its schema. Identity is chosen because building a non-trivial migration
+/// its schema, validating both boundaries under the atproto protocol. Identity is chosen because building a non-trivial migration
 /// requires bespoke setup; the identity path still exercises the
 /// reachability/contraction pipeline on a real record.
 #[divan::bench]
@@ -74,5 +74,10 @@ fn wtype_restrict_identity_real_post(bencher: Bencher) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let protocol = atproto::protocol();
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled, protocols));
 }

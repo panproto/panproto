@@ -32,7 +32,7 @@ use crate::theories;
 /// Returns the FOVEA protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "fovea".into(),
         schema_theory: "ThFoveaSchema".into(),
         instance_theory: "ThFoveaInstance".into(),
@@ -86,8 +86,10 @@ pub fn protocol() -> Protocol {
             "source".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for FOVEA with a theory registry.
@@ -118,6 +120,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the input cannot be parsed.
 pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     // Track registered vertex IDs so pass-2 edge code can guard forward refs.
@@ -353,29 +357,27 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
             }
 
             // Bounding boxes nested inside the annotation's bounding-box sequence
-            if let Some(bbseq) = ann.get("boundingBoxSequence") {
-                if let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array) {
-                    for (bi, bb) in boxes.iter().enumerate() {
-                        let bb_id = format!("{ann_id}.bbox_{bi}");
-                        add_vertex!(&bb_id, "bounding-box");
-                        if let Some(fn_val) =
-                            bb.get("frameNumber").and_then(serde_json::Value::as_i64)
-                        {
-                            builder =
-                                builder.constraint(&bb_id, "frame-number", &fn_val.to_string());
-                        }
-                        if let Some(x) = bb.get("x").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "x", &x.to_string());
-                        }
-                        if let Some(y) = bb.get("y").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "y", &y.to_string());
-                        }
-                        if let Some(w) = bb.get("width").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "width", &w.to_string());
-                        }
-                        if let Some(h) = bb.get("height").and_then(serde_json::Value::as_f64) {
-                            builder = builder.constraint(&bb_id, "height", &h.to_string());
-                        }
+            if let Some(bbseq) = ann.get("boundingBoxSequence")
+                && let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array)
+            {
+                for (bi, bb) in boxes.iter().enumerate() {
+                    let bb_id = format!("{ann_id}.bbox_{bi}");
+                    add_vertex!(&bb_id, "bounding-box");
+                    if let Some(fn_val) = bb.get("frameNumber").and_then(serde_json::Value::as_i64)
+                    {
+                        builder = builder.constraint(&bb_id, "frame-number", &fn_val.to_string());
+                    }
+                    if let Some(x) = bb.get("x").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "x", &x.to_string());
+                    }
+                    if let Some(y) = bb.get("y").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "y", &y.to_string());
+                    }
+                    if let Some(w) = bb.get("width").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "width", &w.to_string());
+                    }
+                    if let Some(h) = bb.get("height").and_then(serde_json::Value::as_f64) {
+                        builder = builder.constraint(&bb_id, "height", &h.to_string());
                     }
                 }
             }
@@ -622,13 +624,13 @@ pub fn parse_fovea(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
                 }
             }
 
-            if let Some(bbseq) = ann.get("boundingBoxSequence") {
-                if let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array) {
-                    for (bi, _bb) in boxes.iter().enumerate() {
-                        let bb_id = format!("{ann_id}.bbox_{bi}");
-                        let bi_str = bi.to_string();
-                        add_edge!(ann_id, &bb_id, "has-bbox", Some(bi_str.as_str()));
-                    }
+            if let Some(bbseq) = ann.get("boundingBoxSequence")
+                && let Some(boxes) = bbseq.get("boxes").and_then(serde_json::Value::as_array)
+            {
+                for (bi, _bb) in boxes.iter().enumerate() {
+                    let bb_id = format!("{ann_id}.bbox_{bi}");
+                    let bi_str = bi.to_string();
+                    add_edge!(ann_id, &bb_id, "has-bbox", Some(bi_str.as_str()));
                 }
             }
         }

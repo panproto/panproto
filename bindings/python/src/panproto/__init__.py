@@ -2,7 +2,7 @@
 
 Native Python bindings via PyO3. Provides protocol-aware schema construction,
 bidirectional migrations with lens laws, breaking change detection, instance
-I/O across 76 protocols, GAT operations, and schematic version control.
+I/O across 50 protocol codecs, GAT operations, and schematic version control.
 """
 
 from panproto._native import AstParserRegistry as _AstParserRegistryNative
@@ -65,6 +65,7 @@ from panproto._native import (
     Theory,
     TheoryBuilder,
     TheoryMorphism,
+    ValidationReport,
     VcsError,
     VcsRepository,
     Vertex,
@@ -96,11 +97,11 @@ from panproto._native import (
     induce_schema_morphism,
     invert_migration,
     list_builtin_protocols,
+    list_bundle_parser_protocols,
     migrate_model,
     parse_atproto_lexicon,
     parse_expr,
     parse_project,
-    list_bundle_parser_protocols,
     parse_schema_bundle,
     parse_schema_bundle_project,
     parse_schema_document,
@@ -243,6 +244,7 @@ __all__ = [
     "Theory",
     "TheoryBuilder",
     "TheoryMorphism",
+    "ValidationReport",
     "VcsError",
     "VcsRepository",
     "Vertex",
@@ -277,11 +279,11 @@ __all__ = [
     "induce_schema_morphism",
     "invert_migration",
     "list_builtin_protocols",
+    "list_bundle_parser_protocols",
     "migrate_model",
     "parse_atproto_lexicon",
     "parse_expr",
     "parse_project",
-    "list_bundle_parser_protocols",
     "parse_schema_bundle",
     "parse_schema_bundle_project",
     "parse_schema_document",

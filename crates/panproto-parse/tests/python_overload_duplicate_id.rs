@@ -1,16 +1,16 @@
 //! Regression: parsing a Python file with `@typing.overload`'s
-//! repeated `def foo(...)` shape no longer raises
+//! repeated `def foo(...)` shape does not raise
 //! `SchemaError::DuplicateVertex`.
 //!
-//! Pre-fix (issue #134), Python's `tags.scm` tagged every
-//! `function_definition` as `@definition.function` and the walker
-//! generated the vertex ID as `{scope}::{name}`. Three same-named
-//! `def foo` declarations therefore collided on
-//! `repro.py::foo` and `SchemaBuilder::vertex` rejected the second
-//! and third with `duplicate vertex id: repro.py::foo`. Any Python
-//! source using `@typing.overload` was unparseable.
+//! Python's `tags.scm` tags every `function_definition` as
+//! `@definition.function`, so a vertex ID of the bare form
+//! `{scope}::{name}` would make three same-named `def foo`
+//! declarations collide on `repro.py::foo`, and
+//! `SchemaBuilder::vertex` would reject the second and third with
+//! `duplicate vertex id: repro.py::foo`. Any Python source using
+//! `@typing.overload` would be unparseable.
 //!
-//! The fix lives in `IdGenerator`: the parent frame records
+//! Disambiguation lives in `IdGenerator`: the parent frame records
 //! per-name occurrences and suffixes repeats `#1`, `#2`, …. The
 //! disambiguated leaf is also propagated to the scope stack, so
 //! descendants of the second `foo` are prefixed `foo#1::…`, never
@@ -62,7 +62,7 @@ fn python_overload_does_not_collide_on_vertex_id() {
     assert_eq!(
         sorted.len(),
         foo_ids.len(),
-        "function_definition IDs collided after the fix: {foo_ids:?}"
+        "function_definition IDs collided: {foo_ids:?}"
     );
 
     // The first should be the bare name; subsequent ones get `#N`.

@@ -46,7 +46,7 @@ use crate::theories;
 /// Returns the UIMA/CAS protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "uima-cas".into(),
         schema_theory: "ThUimaSchema".into(),
         instance_theory: "ThUimaInstance".into(),
@@ -81,8 +81,10 @@ pub fn protocol() -> Protocol {
             "end".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for UIMA/CAS.
@@ -127,6 +129,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if parsing fails.
 pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
 
@@ -193,10 +197,10 @@ pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
     // Second pass: create edges now that all vertices exist.
     for (name, def) in types {
         // Type inheritance: child → parent.
-        if let Some(parent) = def.get("extends").and_then(serde_json::Value::as_str) {
-            if types.contains_key(parent) {
-                builder = builder.edge(name, parent, "extends", None)?;
-            }
+        if let Some(parent) = def.get("extends").and_then(serde_json::Value::as_str)
+            && types.contains_key(parent)
+        {
+            builder = builder.edge(name, parent, "extends", None)?;
         }
 
         // Feature edges: type → feature-description.
@@ -209,26 +213,26 @@ pub fn parse_uima_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
 
         // sofa-of: sofa → annotation-base (sofa contains its annotations).
         // The "sofa-of" key is on the *sofa* vertex and names the annotation-base it covers.
-        if let Some(ann) = def.get("sofa-of").and_then(serde_json::Value::as_str) {
-            if types.contains_key(ann) {
-                builder = builder.edge(name, ann, "sofa-of", None)?;
-            }
+        if let Some(ann) = def.get("sofa-of").and_then(serde_json::Value::as_str)
+            && types.contains_key(ann)
+        {
+            builder = builder.edge(name, ann, "sofa-of", None)?;
         }
 
         // index-of: fs-index → type-description.
-        if let Some(idx_type) = def.get("index-of").and_then(serde_json::Value::as_str) {
-            if types.contains_key(idx_type) {
-                builder = builder.edge(name, idx_type, "index-of", None)?;
-            }
+        if let Some(idx_type) = def.get("index-of").and_then(serde_json::Value::as_str)
+            && types.contains_key(idx_type)
+        {
+            builder = builder.edge(name, idx_type, "index-of", None)?;
         }
 
         // contains: cas → sofa | fs-index (CAS owns its sofas and indices).
         if let Some(children) = def.get("contains").and_then(serde_json::Value::as_array) {
             for child_val in children {
-                if let Some(child_id) = child_val.as_str() {
-                    if types.contains_key(child_id) {
-                        builder = builder.edge(name, child_id, "contains", None)?;
-                    }
+                if let Some(child_id) = child_val.as_str()
+                    && types.contains_key(child_id)
+                {
+                    builder = builder.edge(name, child_id, "contains", None)?;
                 }
             }
         }

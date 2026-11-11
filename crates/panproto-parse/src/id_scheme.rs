@@ -180,9 +180,10 @@ impl IdGenerator {
             self.frames.len() > 1,
             "IdGenerator::pop_scope called at root; walker push/pop is unbalanced"
         );
-        if self.frames.len() > 1 {
-            self.frames.pop();
+        if self.frames.len() == 1 {
+            return;
         }
+        self.frames.pop();
     }
 
     /// Generate an ID for a named node at the current scope level.
@@ -193,11 +194,7 @@ impl IdGenerator {
     /// [`Self::push_named_scope`] call returns the same suffix.
     pub fn named_id(&mut self, name: &str) -> String {
         let leaf = self.record_name(name);
-        if self.frames.len() == 1 {
-            format!("{}::{leaf}", self.frames[0].name)
-        } else {
-            format!("{}::{leaf}", self.current_prefix())
-        }
+        format!("{}::{leaf}", self.current_prefix())
     }
 
     /// Generate an ID for an anonymous (positional) node at the
@@ -257,7 +254,7 @@ impl IdGenerator {
 
     /// Get the current scope depth.
     #[must_use]
-    pub fn depth(&self) -> usize {
+    pub const fn depth(&self) -> usize {
         self.frames.len()
     }
 

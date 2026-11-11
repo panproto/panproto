@@ -144,9 +144,25 @@ def bump_cabal(old: str, new: str, changed: list[str]) -> None:
     if not path.exists():
         return
     text = path.read_text(encoding="utf-8")
-    text2, n = re.subn(rf"^(version:\s*){re.escape(old)}\s*$", rf"\g<1>{new}", text, flags=re.MULTILINE)
-    if n != 1:
+    text2, version_count = re.subn(
+        rf"^(version:\s*){re.escape(old)}\s*$",
+        rf"\g<1>{new}",
+        text,
+        flags=re.MULTILINE,
+    )
+    text2, tag_count = re.subn(
+        rf"(^source-repository this\n(?:^[ \t].*\n)*?^[ \t]+tag:\s*)v{re.escape(old)}\s*$",
+        rf"\g<1>v{new}",
+        text2,
+        flags=re.MULTILINE,
+    )
+    if version_count != 1:
         sys.exit(f"bump aborted: {path.relative_to(ROOT)} version: line not found or ambiguous")
+    if tag_count != 1:
+        sys.exit(
+            f"bump aborted: {path.relative_to(ROOT)} source-repository this tag "
+            "not found or ambiguous"
+        )
     path.write_text(text2, encoding="utf-8")
     changed.append(str(path.relative_to(ROOT)))
 

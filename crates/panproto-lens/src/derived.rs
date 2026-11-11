@@ -242,9 +242,10 @@ fn collect_into(
                 inverse,
                 coercion_class,
             } => {
-                if !replaces_its_source(expr, inverse.as_ref(), *coercion_class, &removed)
-                    || children.contains(target_key)
-                {
+                // A computed output is declared as an attribute of its
+                // vertex, so its name is always a child edge's; that says
+                // nothing about whether it carries an independent coordinate.
+                if !replaces_its_source(expr, inverse.as_ref(), *coercion_class, &removed) {
                     fiber.locations.insert((path.to_vec(), target_key.clone()));
                 }
             }
@@ -329,15 +330,15 @@ pub(crate) fn extra_fields_equiv_modulo(
         };
         // Recurse into a nested map only when a derived location sits
         // below it; otherwise the whole subtree compares structurally.
-        if fiber.has_nested_below(path, key) {
-            if let (Value::Unknown(ma), Value::Unknown(mb)) = (va, vb) {
-                let mut nested = path.to_vec();
-                nested.push(key.clone());
-                if let Some(detail) = extra_fields_equiv_modulo(ma, mb, fiber, &nested) {
-                    return Some(detail);
-                }
-                continue;
+        if fiber.has_nested_below(path, key)
+            && let (Value::Unknown(ma), Value::Unknown(mb)) = (va, vb)
+        {
+            let mut nested = path.to_vec();
+            nested.push(key.clone());
+            if let Some(detail) = extra_fields_equiv_modulo(ma, mb, fiber, &nested) {
+                return Some(detail);
             }
+            continue;
         }
         if !crate::asymmetric::value_equiv(va, vb) {
             return Some(format!(

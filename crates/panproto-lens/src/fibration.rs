@@ -119,8 +119,9 @@ impl Fibration for WTypeFibration {
 /// Verify the cartesian universal property for a lens.
 ///
 /// Checks both section/retraction conditions (`GetPut` and `PutGet`), and the
-/// complement records exact arc edges so that `put` is deterministic,
-/// ensuring the cartesian lift is unique up to structural equivalence:
+/// complement records exact arc edges when the view does not determine them,
+/// so `put` remains deterministic and the cartesian lift is unique up to
+/// structural equivalence:
 /// - Opcartesian then cartesian (get then put) satisfies `PutGet`.
 /// - Cartesian then opcartesian (put then get) satisfies `GetPut`.
 ///
@@ -215,29 +216,29 @@ pub fn verify_cartesian_universal(
 /// Returns [`CartesianViolation`] on disagreement, or operational
 /// failures (lens composition, get/put failures).
 pub fn verify_cartesian_factorization(
-    f: &Lens,
-    h: &Lens,
+    f: &crate::LensPath,
+    h: &crate::LensPath,
     source_instance: &WInstance,
 ) -> Result<(), CartesianViolation> {
-    use crate::compose::compose;
-
-    let composite = compose(h, f).map_err(|e| CartesianViolation {
+    let composite = h.then(f).map_err(|e| CartesianViolation {
         law: "compose(h, f)",
         detail: format!("{e}"),
     })?;
 
     // Projection functoriality: get(f∘h, x) = get(f, get(h, x)).
     let (view_via_composite, c_composite) =
-        get(&composite, source_instance).map_err(|e| CartesianViolation {
-            law: "get(f∘h, source)",
-            detail: format!("{e}"),
-        })?;
+        composite
+            .get(source_instance)
+            .map_err(|e| CartesianViolation {
+                law: "get(f∘h, source)",
+                detail: format!("{e}"),
+            })?;
 
-    let (intermediate, c_h) = get(h, source_instance).map_err(|e| CartesianViolation {
+    let (intermediate, c_h) = h.get(source_instance).map_err(|e| CartesianViolation {
         law: "get(h, source)",
         detail: format!("{e}"),
     })?;
-    let (view_via_chain, c_f) = get(f, &intermediate).map_err(|e| CartesianViolation {
+    let (view_via_chain, c_f) = f.get(&intermediate).map_err(|e| CartesianViolation {
         law: "get(f, get(h, source))",
         detail: format!("{e}"),
     })?;
@@ -262,20 +263,24 @@ pub fn verify_cartesian_factorization(
     // is GetPut, which is checked elsewhere; here we are checking
     // that the *two* paths land at the same instance, which is the
     // put-side functoriality the universal property requires.)
-    let restored_via_composite =
-        put(&composite, &view_via_composite, &c_composite).map_err(|e| CartesianViolation {
+    let restored_via_composite = composite
+        .put(&view_via_composite, &c_composite)
+        .map_err(|e| CartesianViolation {
             law: "put(f∘h, view, c_composite)",
             detail: format!("{e}"),
         })?;
-    let restored_intermediate = put(f, &view_via_chain, &c_f).map_err(|e| CartesianViolation {
-        law: "put(f, view, c_f)",
-        detail: format!("{e}"),
-    })?;
-    let restored_via_chain =
-        put(h, &restored_intermediate, &c_h).map_err(|e| CartesianViolation {
-            law: "put(h, put(f, view, c_f), c_h)",
+    let restored_intermediate = f
+        .put(&view_via_chain, &c_f)
+        .map_err(|e| CartesianViolation {
+            law: "put(f, view, c_f)",
             detail: format!("{e}"),
         })?;
+    let restored_via_chain =
+        h.put(&restored_intermediate, &c_h)
+            .map_err(|e| CartesianViolation {
+                law: "put(h, put(f, view, c_f), c_h)",
+                detail: format!("{e}"),
+            })?;
 
     if !crate::laws::instances_equivalent(&restored_via_composite, &restored_via_chain) {
         return Err(CartesianViolation {
@@ -352,8 +357,8 @@ mod tests {
     #[test]
     fn cartesian_factorization_holds_for_identity_chain() {
         let schema = three_node_schema();
-        let h = identity_lens(&schema);
-        let f = identity_lens(&schema);
+        let h = crate::LensPath::single(identity_lens(&schema));
+        let f = crate::LensPath::single(identity_lens(&schema));
         let instance = three_node_instance();
         verify_cartesian_factorization(&f, &h, &instance).expect("identity chain must factor");
     }
@@ -361,8 +366,8 @@ mod tests {
     #[test]
     fn cartesian_factorization_holds_for_projection_chain() {
         let schema = three_node_schema();
-        let h = identity_lens(&schema);
-        let f = projection_lens(&schema, "text");
+        let h = crate::LensPath::single(identity_lens(&schema));
+        let f = crate::LensPath::single(projection_lens(&schema, "text"));
         let instance = three_node_instance();
         verify_cartesian_factorization(&f, &h, &instance)
             .expect("identity-then-projection must factor");

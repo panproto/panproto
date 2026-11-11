@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the EDI X12 protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "edi-x12".into(),
         schema_theory: "ThEdiX12Schema".into(),
         instance_theory: "ThEdiX12Instance".into(),
@@ -44,8 +44,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for EDI X12 with a theory registry.
@@ -62,6 +64,8 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 ///
 /// Returns [`ProtocolError`] if the JSON is invalid.
 pub fn parse_edi_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    let ordered = crate::key_order::in_key_order(json);
+    let json = ordered.as_ref();
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut he_counter: usize = 0;
@@ -137,10 +141,10 @@ pub fn parse_edi_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErro
                     builder =
                         builder.constraint(&elem_id, "max-length", &json_val_to_string(max_len));
                 }
-                if let Some(req) = element.get("required").and_then(serde_json::Value::as_bool) {
-                    if req {
-                        builder = builder.constraint(&elem_id, "required", "true");
-                    }
+                if let Some(req) = element.get("required").and_then(serde_json::Value::as_bool)
+                    && req
+                {
+                    builder = builder.constraint(&elem_id, "required", "true");
                 }
                 if let Some(usage) = element.get("usage").and_then(|v| v.as_str()) {
                     builder = builder.constraint(&elem_id, "usage", usage);

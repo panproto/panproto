@@ -11,8 +11,8 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 
 use panproto_core::gat::Name;
-use panproto_core::inst::FieldTransform;
-use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, Stringency};
+use panproto_core::inst::{BoundaryProtocols, FieldTransform, RestrictPlan};
+use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, LensPath, Stringency};
 
 /// Parse a Python-side stringency string into the engine [`Stringency`].
 ///
@@ -39,6 +39,101 @@ fn parse_stringency(s: Option<&str>) -> PyResult<Option<Stringency>> {
 use crate::convert;
 use crate::inst::PyInstance;
 use crate::schema::{PyProtocol, PySchema};
+
+/// Why a put from a serialized view failed: the view could not be read,
+/// or the lens refused it.
+pub enum SerializedPutError {
+    /// The view is not JSON, or does not parse under the target schema.
+    Read(String),
+    /// The view could not be aligned to the complement, or `put` refused it.
+    Lens(String),
+}
+
+/// The vertex the view `get` returned is rooted at, as `complement`
+/// records it.
+fn recorded_view_root(complement: &Complement) -> Option<&Name> {
+    complement
+        .view_positions
+        .values()
+        .find_map(|position| match position {
+            panproto_core::inst::ViewPosition::Root { anchor } => Some(anchor),
+            panproto_core::inst::ViewPosition::Child { .. } => None,
+        })
+}
+
+/// `view` with each node given the id `get` gave the node at its position,
+/// then with every computed field `to_json` wrote as a child moved back
+/// among its node's fields: the view a serialized reader returns, made the
+/// view `put` reads.
+fn align_and_fold(
+    the_lens: &Lens,
+    view: &panproto_core::inst::WInstance,
+    complement: &Complement,
+) -> Result<panproto_core::inst::WInstance, SerializedPutError> {
+    let aligned = lens::align_view_to_complement(the_lens, view, complement)
+        .map_err(|e| SerializedPutError::Lens(format!("align_view failed: {e}")))?;
+    Ok(lens::fold_computed_children_into_fields(
+        the_lens, &aligned, complement,
+    ))
+}
+
+/// Put a JSON view back through `the_lens`, returning the restored source
+/// as JSON.
+///
+/// The view is read under the lens's target schema, rooted at the vertex
+/// `complement` records for the root of the view `get` returned; aligned
+/// to `complement`; its computed fields folded; and put.
+pub fn put_json_view(
+    the_lens: &Lens,
+    view_json: &str,
+    complement: &Complement,
+) -> Result<String, SerializedPutError> {
+    let json: serde_json::Value = serde_json::from_str(view_json)
+        .map_err(|e| SerializedPutError::Read(format!("invalid JSON: {e}")))?;
+    let root = recorded_view_root(complement).ok_or_else(|| {
+        SerializedPutError::Lens(format!(
+            "put_json failed: {}",
+            lens::ViewAlignmentError::PositionsNotRecorded
+        ))
+    })?;
+    let parsed = panproto_core::inst::parse_json(
+        &the_lens.tgt_schema,
+        &crate::protocols::protocol_for_schema(&the_lens.tgt_schema),
+        root,
+        &json,
+    )
+    .map_err(|e| SerializedPutError::Read(format!("parse failed: {e}")))?;
+    let view = align_and_fold(the_lens, &parsed, complement)?;
+    let restored = lens::put(the_lens, &view, complement)
+        .map_err(|e| SerializedPutError::Lens(format!("put failed: {e}")))?;
+    let restored_json = panproto_core::inst::to_json(&the_lens.src_schema, &restored)
+        .map_err(|e| SerializedPutError::Read(format!("to_json failed: {e}")))?;
+    serde_json::to_string(&restored_json)
+        .map_err(|e| SerializedPutError::Read(format!("to_json failed: {e}")))
+}
+
+/// [`align_and_fold`] for a Python view instance.
+pub fn align_view(
+    the_lens: &Lens,
+    view: &PyInstance,
+    complement: &Complement,
+) -> Result<PyInstance, SerializedPutError> {
+    Ok(PyInstance {
+        inner: align_and_fold(the_lens, &view.inner, complement)?,
+        schema: Arc::clone(&view.schema),
+    })
+}
+
+impl SerializedPutError {
+    /// The Python exception for this failure, a lens failure raised as
+    /// `lens_error`.
+    pub fn into_py(self, lens_error: fn(String) -> PyErr) -> PyErr {
+        match self {
+            Self::Read(message) => crate::error::IoError::new_err(message),
+            Self::Lens(message) => lens_error(message),
+        }
+    }
+}
 
 /// An asymmetric lens with compiled migration and schema references.
 ///
@@ -71,7 +166,7 @@ impl PyComplement {
 
     /// Number of dropped arcs.
     #[getter]
-    fn dropped_arc_count(&self) -> usize {
+    const fn dropped_arc_count(&self) -> usize {
         self.inner.dropped_arcs.len()
     }
 
@@ -111,12 +206,25 @@ impl PyLens {
 
     /// Reconstruct an instance from a view and complement.
     ///
+    /// ``view`` must carry the node ids ``get`` gave it, since the
+    /// complement keys what the view dropped by those ids. A view read
+    /// back from JSON (``Instance.from_json``) is numbered afresh, and
+    /// putting it directly can lose a dropped field while reporting
+    /// success. Put a JSON view with ``put_json``, or pass a view you
+    /// parsed yourself through ``align_view`` first.
+    ///
     /// Parameters
     /// ----------
     /// view : Instance
-    ///     The (possibly modified) view.
+    ///     The (possibly modified) view, with the node ids ``get`` gave
+    ///     it.
     /// complement : Complement
     ///     The complement from a prior ``get`` call.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The reconstructed instance of the source schema.
     fn put(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
         let restored = lens::put(&self.inner, &view.inner, &complement.inner)
             .map_err(|e| crate::error::LensError::new_err(format!("put failed: {e}")))?;
@@ -126,12 +234,85 @@ impl PyLens {
         })
     }
 
-    /// Check both `GetPut` and `PutGet` lens laws on a test instance.
+    /// Reconstruct the source from a JSON view and the complement.
+    ///
+    /// The view is read under the lens's target schema, rooted where the
+    /// view ``get`` returned was rooted; aligned to the complement, so
+    /// that each node at a position ``get`` produced takes back the id
+    /// ``get`` gave it and a node the view adds takes a fresh one; its
+    /// computed fields are folded back among their nodes' fields; and it
+    /// is put. Use this, not ``put``, for a view that went through JSON.
+    ///
+    /// Parameters
+    /// ----------
+    /// `view_json` : str
+    ///     The (possibly edited) view as JSON, as ``Instance.to_json``
+    ///     writes it.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///     The reconstructed source instance as JSON.
+    ///
+    /// Raises
+    /// ------
+    /// `IoError`
+    ///     If ``view_json`` is not JSON or does not parse under the target
+    ///     schema.
+    /// `LensError`
+    ///     If the view cannot be aligned to the complement (one that
+    ///     records no view positions, or a view rooted elsewhere), or
+    ///     ``put`` refuses it.
+    fn put_json(&self, view_json: &str, complement: &PyComplement) -> PyResult<String> {
+        put_json_view(&self.inner, view_json, &complement.inner)
+            .map_err(|e| e.into_py(crate::error::LensError::new_err))
+    }
+
+    /// Align a view read from a serialization to the complement, ready
+    /// for ``put``.
+    ///
+    /// A reader that keeps no node ids, such as ``Instance.from_json``,
+    /// numbers a view's nodes afresh. This gives each node at a position
+    /// ``get`` produced the id ``get`` gave it, and a node the view adds a
+    /// fresh id, then moves each computed field the reader read as a
+    /// child back among its node's fields. ``put_json`` does this for a
+    /// JSON view in one call.
+    ///
+    /// Parameters
+    /// ----------
+    /// view : Instance
+    ///     The view as a reader returned it, under the lens's target
+    ///     schema.
+    /// complement : Complement
+    ///     The complement from the ``get`` that produced the view.
+    ///
+    /// Returns
+    /// -------
+    /// Instance
+    ///     The view with the ids ``put`` reads ``complement`` by.
     ///
     /// Raises
     /// ------
     /// `LensError`
-    ///     If either law is violated, with details in the message.
+    ///     If the complement records no view positions, the view is rooted
+    ///     at another vertex than the view ``get`` returned, or no fresh id
+    ///     is left.
+    fn align_view(&self, view: &PyInstance, complement: &PyComplement) -> PyResult<PyInstance> {
+        align_view(&self.inner, view, &complement.inner)
+            .map_err(|e| e.into_py(crate::error::LensError::new_err))
+    }
+
+    /// Run the five strict lens gates on a test instance.
+    ///
+    /// The gates are `GetPut`, `PutGet`, totality over the finite single-step
+    /// basis, `PutTwice`, and congruence.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If any gate is violated, with details in the message.
     fn check_laws(&self, instance: &PyInstance) -> PyResult<()> {
         lens::check_laws(&self.inner, &instance.inner)
             .map_err(|e| crate::error::LensError::new_err(format!("law violation: {e}")))
@@ -150,8 +331,15 @@ impl PyLens {
     }
 
     /// Compose this lens with another: ``self ; other``.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If the boundary schemas differ, or the composite has more than
+    ///     one normal-form group, which no single ``Lens`` can hold.
     fn compose(&self, other: &Self) -> PyResult<Self> {
         let composed = lens::compose(&self.inner, &other.inner)
+            .and_then(LensPath::into_single)
             .map_err(|e| crate::error::LensError::new_err(format!("compose failed: {e}")))?;
         Ok(Self {
             inner: Arc::new(composed),
@@ -464,12 +652,22 @@ impl PyProtolensChain {
     }
 
     /// Instantiate against a concrete schema to produce a ``Lens``.
+    ///
+    /// The stages are instantiated in order, each against the target
+    /// schema of the one before, and the resulting path is returned as one
+    /// lens.
+    ///
+    /// Raises
+    /// ------
+    /// `LensError`
+    ///     If a stage does not instantiate, or the path has more than one
+    ///     normal-form group, which no single ``Lens`` can hold.
     fn instantiate(&self, schema: &PySchema, protocol: &PyProtocol) -> PyResult<PyLens> {
-        let mut lens_obj: Option<Lens> = None;
+        let mut lens_path: Option<LensPath> = None;
         for stage in self.stages.iter() {
-            let running_schema = lens_obj
+            let running_schema = lens_path
                 .as_ref()
-                .map_or_else(|| schema.inner.as_ref(), |lens| &lens.tgt_schema);
+                .map_or_else(|| schema.inner.as_ref(), LensPath::tgt_schema);
             let mut stage_lens = stage
                 .chain
                 .instantiate(running_schema, &protocol.inner)
@@ -480,21 +678,30 @@ impl PyProtolensChain {
                 &mut stage_lens.compiled.field_transforms,
                 &stage.field_transforms,
             );
-            lens_obj = Some(match lens_obj {
-                Some(accumulated) => lens::compose(&accumulated, &stage_lens).map_err(|e| {
+            RestrictPlan::compile_with_protocols(
+                &stage_lens.src_schema,
+                &stage_lens.tgt_schema,
+                &stage_lens.compiled,
+                BoundaryProtocols {
+                    src: &protocol.inner,
+                    tgt: &protocol.inner,
+                },
+            )
+            .map_err(|error| {
+                crate::error::LensError::new_err(format!("instantiate failed: {error}"))
+            })?;
+            let stage_path = LensPath::single(stage_lens);
+            lens_path = Some(match lens_path {
+                Some(accumulated) => accumulated.then(&stage_path).map_err(|e| {
                     crate::error::LensError::new_err(format!("instantiate failed: {e}"))
                 })?,
-                None => stage_lens,
+                None => stage_path,
             });
         }
-        let lens_obj = match lens_obj {
-            Some(lens) => lens,
-            None => lens::ProtolensChain::new(Vec::new())
-                .instantiate(&schema.inner, &protocol.inner)
-                .map_err(|e| {
-                    crate::error::LensError::new_err(format!("instantiate failed: {e}"))
-                })?,
-        };
+        let lens_obj = lens_path
+            .unwrap_or_else(|| LensPath::identity(&schema.inner))
+            .into_single()
+            .map_err(|e| crate::error::LensError::new_err(format!("instantiate failed: {e}")))?;
         Ok(PyLens {
             inner: Arc::new(lens_obj),
         })
@@ -867,6 +1074,49 @@ mod tests {
             }
         }]
     }"#;
+
+    #[test]
+    fn dsl_instantiation_checks_the_computed_output_declaration() -> PyResult<()> {
+        let protocol = PyProtocol {
+            inner: panproto_core::schema::Protocol::default(),
+        };
+        let source = panproto_core::schema::SchemaBuilder::new(&protocol.inner)
+            .vertex("r:body", "record", None)
+            .and_then(|builder| builder.vertex("count", "integer", None))
+            .and_then(|builder| builder.edge("r:body", "count", "prop", Some("count")))
+            .and_then(panproto_core::schema::SchemaBuilder::build)
+            .map_err(|error| crate::error::SchemaValidationError::new_err(error.to_string()))?;
+        let chain = PyProtolensChain::from_dsl_json(COMPUTE_FIELD_JSON, "r:body")?;
+        assert!(
+            chain
+                .instantiate(
+                    &PySchema {
+                        inner: Arc::new(source)
+                    },
+                    &protocol
+                )
+                .is_err()
+        );
+        let declared = panproto_core::schema::SchemaBuilder::new(&protocol.inner)
+            .vertex("r:body", "record", None)
+            .and_then(|builder| builder.vertex("count", "integer", None))
+            .and_then(|builder| builder.vertex("derived", "integer", None))
+            .and_then(|builder| builder.edge("r:body", "count", "prop", Some("count")))
+            .and_then(|builder| builder.edge("r:body", "derived", "prop", Some("derived")))
+            .and_then(panproto_core::schema::SchemaBuilder::build)
+            .map_err(|error| crate::error::SchemaValidationError::new_err(error.to_string()))?;
+        assert!(
+            chain
+                .instantiate(
+                    &PySchema {
+                        inner: Arc::new(declared)
+                    },
+                    &protocol
+                )
+                .is_ok()
+        );
+        Ok(())
+    }
 
     #[test]
     fn dsl_field_transform_survives_json_round_trip() -> PyResult<()> {

@@ -102,7 +102,7 @@ pub struct ComposeReport {
 impl ComposeReport {
     /// Returns `true` when no entry was dropped during composition.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.dropped_vertices.is_empty()
             && self.dropped_edges.is_empty()
             && self.dropped_hyper_edges.is_empty()
@@ -171,11 +171,7 @@ fn compose_hyper_resolvers(
     for ((he, l_src), l_tgt) in &m1.label_map {
         label_inverse
             .entry((he.as_str(), l_tgt.as_str()))
-            .and_modify(|chosen| {
-                if l_src < *chosen {
-                    *chosen = l_src;
-                }
-            })
+            .and_modify(|chosen| *chosen = (*chosen).min(l_src))
             .or_insert(l_src);
     }
 
@@ -307,13 +303,13 @@ pub fn compose_with_report(
     m1: &Migration,
     m2: &Migration,
 ) -> Result<(Migration, ComposeReport), ComposeError> {
-    if let (Some(first_codomain), Some(second_domain)) = (&m1.codomain, &m2.domain) {
-        if first_codomain != second_domain {
-            return Err(ComposeError::DomainMismatch {
-                first_codomain: first_codomain.to_string(),
-                second_domain: second_domain.to_string(),
-            });
-        }
+    if let (Some(first_codomain), Some(second_domain)) = (&m1.codomain, &m2.domain)
+        && first_codomain != second_domain
+    {
+        return Err(ComposeError::DomainMismatch {
+            first_codomain: first_codomain.to_string(),
+            second_domain: second_domain.to_string(),
+        });
     }
 
     let mut report = ComposeReport::default();
@@ -363,7 +359,8 @@ pub fn compose_with_report(
     }
 
     // Compose resolvers. Resolver keys are in the TARGET vertex space
-    // (used by wtype_restrict after anchor remapping). So m1's resolver
+    // (read by the restrict plan, `RestrictPlan`, after anchor remapping,
+    // on which every restrict engine runs). So m1's resolver
     // keys are G2 vertices; remap to G3 via m2.vertex_map. Edges are
     // also in target space and need remapping via m2.edge_map.
     let mut resolver = HashMap::new();
@@ -464,7 +461,7 @@ mod tests {
         let keep = compose_relabeling(&first, &second, OnMissing::KeepIntermediate);
         assert_eq!(keep.map.get("a"), Some(&Name::from("B")));
         assert_eq!(keep.map.get("c"), Some(&Name::from("d")));
-        assert!(keep.dropped.is_empty());
+        assert_eq!(keep.dropped, Vec::<Name>::new());
     }
 
     #[test]

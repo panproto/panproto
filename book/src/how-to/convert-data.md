@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-The `schema` CLI, two files in panproto's internal schema JSON format, and input records rooted at a vertex the CLI can infer from the source schema. The current command resolves only the `atproto` protocol.
+The prerequisites are the `schema` CLI, two files in panproto's internal schema JSON format, a registered protocol selected by `--protocol`, and input records rooted at a vertex the CLI can infer from the source schema. The command uses that one protocol for both schemas.
 
 ## Convert one file
 
@@ -72,9 +72,9 @@ if (!result.holds) {
 }
 ```
 
-`schema lens verify <DATA> <SCHEMA> --protocol <PROTOCOL>` parses the data with the supplied schema and runs the concrete GetPut and PutGet checks. A passing result applies to that record. It is not a proof over every instance of the schema.
+`schema lens verify <DATA> <SCHEMA> --protocol <PROTOCOL>` parses the data with the supplied schema and runs five strict gates: GetPut, PutGet, finite-basis totality, PutTwice complement stability, and congruence. A passing result applies to that record and its finite single-step mutation basis. It is not a proof over every instance of the schema.
 
-Backward CLI conversion uses an empty complement. It can reconstruct only lenses that need no captured source data or for which defaults suffice. Use an SDK `get`/`put` pair when backward conversion depends on the complement produced from a specific source record.
+Backward CLI conversion has no complement, so it reconstructs the source only through a lens that is an isomorphism and refuses every other lens with `NotAnIsomorphism`. Use `schema lens apply --direction backward --complement`, or an SDK `get`/`put` pair, when backward conversion depends on the complement produced from a specific source record.
 
 `--chain` selects a saved chain instead of automatic lens generation. It still requires `--from` and `--to`, since a serialized `ProtolensChain` does not contain the concrete schemas needed for instantiation. `schema lens generate --save` writes this round-trippable chain format. The compiled artifact produced by `schema lens compile --out` also carries ordered value-transform stages and is intended for `schema lens apply`, not `schema convert --chain`.
 

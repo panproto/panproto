@@ -17,11 +17,11 @@
 //! integer form still works, because ten companion packages are already
 //! published using it, but it is the explicitly unsafe path and says so.
 //!
-//! Every payload is **copied** on the way in rather than aliased. The
-//! registry used to hold `&'static` slices pointing into a companion's
-//! static memory, produced by `Box::leak` and by widening raw pointers,
-//! which made the registry's soundness depend on a library staying
-//! loaded for the process's life. Copying costs a few hundred kilobytes
+//! Every payload is **copied** on the way in rather than aliased. Holding
+//! `&'static` slices pointing into a companion's static memory, produced
+//! by `Box::leak` and by widening raw pointers, would make the registry's
+//! soundness depend on a library staying loaded for the process's life.
+//! Copying costs a few hundred kilobytes
 //! once per grammar and makes the lifetime question disappear: the
 //! registry owns what it holds.
 

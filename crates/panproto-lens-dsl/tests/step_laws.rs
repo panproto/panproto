@@ -51,7 +51,7 @@ fn step_protocol() -> Protocol {
             "integer".into(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -73,7 +73,14 @@ fn edge(src: &str, tgt: &str, kind: &str, label: &str) -> Edge {
 /// Fixture schema: `doc` object with a `title` string child and a nested
 /// `meta` object carrying an `author` string grandchild.
 fn nested_schema() -> Schema {
-    SchemaBuilder::new(&step_protocol())
+    nested_schema_declaring(&[], &[])
+}
+
+/// [`nested_schema`] with extra `(name, kind)` attributes declared on `doc`
+/// and on `doc.meta`. A value transform may write only a declared attribute
+/// of its vertex, a leaf edge labelled with the field name.
+fn nested_schema_declaring(doc_fields: &[(&str, &str)], meta_fields: &[(&str, &str)]) -> Schema {
+    let mut builder = SchemaBuilder::new(&step_protocol())
         .entry("doc")
         .vertex("doc", "object", None)
         .unwrap()
@@ -88,9 +95,18 @@ fn nested_schema() -> Schema {
         .edge("doc", "doc.meta", "prop", Some("meta"))
         .unwrap()
         .edge("doc.meta", "doc.meta.author", "prop", Some("author"))
-        .unwrap()
-        .build()
-        .unwrap()
+        .unwrap();
+    for (parent, fields) in [("doc", doc_fields), ("doc.meta", meta_fields)] {
+        for (name, kind) in fields {
+            let vertex = format!("{parent}.{name}");
+            builder = builder
+                .vertex(&vertex, kind, None)
+                .unwrap()
+                .edge(parent, &vertex, "prop", Some(name))
+                .unwrap();
+        }
+    }
+    builder.build().unwrap()
 }
 
 /// Instance matching [`nested_schema`].
@@ -173,8 +189,14 @@ fn assert_chain_getput(json: &str, schema: &Schema, instance: &WInstance) {
     let lens = compiled
         .instantiate(schema, &proto)
         .expect("compiled document instantiates on the fixture");
-    let result = check_get_put(&lens, instance);
-    assert!(result.is_ok(), "GetPut should hold: {result:?}");
+    let (view, complement) = lens.get(instance).expect("path get succeeds");
+    let restored = lens
+        .put(&view, &complement)
+        .expect("path put after get succeeds");
+    assert!(
+        panproto_lens::instances_equivalent(&restored, instance),
+        "GetPut should hold"
+    );
 }
 
 /// Fold a compiled document's value-level field transforms into an identity
@@ -209,13 +231,21 @@ fn ordered_stages_compute_in_the_post_rename_field_frame() {
         .unwrap()
         .vertex("doc.count", "integer", None)
         .unwrap()
+        .vertex("doc.derived", "integer", None)
+        .unwrap()
         .edge("doc", "doc.count", "prop", Some("count"))
+        .unwrap()
+        .edge("doc", "doc.derived", "prop", Some("derived"))
         .unwrap()
         .build()
         .unwrap();
-    let instance =
-        panproto_inst::parse::parse_json(&schema, "doc", &serde_json::json!({"count": 2}))
-            .expect("source parses");
+    let instance = panproto_inst::parse::parse_json(
+        &schema,
+        &step_protocol(),
+        "doc",
+        &serde_json::json!({"count": 2}),
+    )
+    .expect("source parses");
     let compiled = compile_doc(
         r#"{ "id": "l", "source": "s", "target": "t", "steps": [
             { "rename_field": { "old": "count", "new": "amount" } },
@@ -227,8 +257,8 @@ fn ordered_stages_compute_in_the_post_rename_field_frame() {
     let lens = compiled
         .instantiate(&schema, &step_protocol())
         .expect("ordered stages instantiate");
-    let (view, _) = panproto_lens::get(&lens, &instance).expect("ordered get succeeds");
-    let json = panproto_inst::to_json(&lens.tgt_schema, &view);
+    let (view, _) = lens.get(&instance).expect("ordered get succeeds");
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(json.get("amount"), Some(&serde_json::json!(2)));
     assert_eq!(json.get("derived"), Some(&serde_json::json!(3)));
@@ -246,6 +276,44 @@ fn step_law_remove_field() {
         &nested_schema(),
         &nested_instance(),
     );
+}
+
+#[test]
+fn remove_field_drops_the_named_vertex_whose_id_differs_from_its_kind() {
+    // `doc.title` has kind `string`, so its vertex id is not a vertex kind.
+    // The compiled step names the vertex by id and must still instantiate,
+    // drop exactly that vertex, and leave the other `string` vertex alone.
+    let schema = nested_schema();
+    assert!(
+        schema
+            .vertices
+            .values()
+            .all(|vertex| vertex.kind != "doc.title"),
+        "the fixture's field id must not double as a vertex kind"
+    );
+    let compiled = compile_doc(
+        r#"{ "id": "l", "source": "s", "target": "t",
+             "steps": [{ "remove_field": "title" }] }"#,
+    );
+    let lens = compiled
+        .instantiate(&schema, &step_protocol())
+        .expect("a field named by vertex id instantiates");
+    let target = lens.tgt_schema();
+    assert!(!target.vertices.contains_key("doc.title"));
+    assert!(target.vertices.contains_key("doc.meta.author"));
+    let (view, complement) = lens.get(&nested_instance()).expect("path get succeeds");
+    assert!(!view.nodes.contains_key(&1), "the named field is dropped");
+    assert!(
+        view.nodes.contains_key(&3),
+        "a sibling of the same kind stays"
+    );
+    let dropped: Vec<u32> = complement
+        .entries()
+        .iter()
+        .flat_map(|entry| entry.complement.complements().to_vec())
+        .flat_map(|complement| complement.dropped_nodes.into_keys())
+        .collect();
+    assert_eq!(dropped, vec![1], "the complement holds the dropped field");
 }
 
 #[test]
@@ -285,18 +353,18 @@ fn ordered_stage_keeps_default_synthesized_by_add_field() {
         .instantiate(&schema, &step_protocol())
         .expect("add-field document instantiates");
     assert!(
-        lens.tgt_schema
+        lens.tgt_schema()
             .vertices
             .contains_key(&Name::from("doc.note"))
     );
-    assert!(lens.tgt_schema.edges.keys().any(|edge| {
+    assert!(lens.tgt_schema().edges.keys().any(|edge| {
         edge.src == "doc"
             && edge.tgt == "doc.note"
             && edge.kind == "prop"
             && edge.name.as_ref() == Some(&Name::from("note"))
     }));
-    let (view, _) = panproto_lens::get(&lens, &nested_instance()).expect("get succeeds");
-    let json = panproto_inst::to_json(&lens.tgt_schema, &view);
+    let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(json.get("note"), Some(&serde_json::json!("d")));
     assert!(json.get("doc.note").is_none());
@@ -320,7 +388,7 @@ fn step_law_apply_expr() {
                  "field": "count", "expr": "add count 1",
                  "inverse": "sub count 1", "coercion": "iso" } }] }"#,
     );
-    let schema = nested_schema();
+    let schema = nested_schema_declaring(&[("count", "integer")], &[]);
     let lens = value_lens(&compiled, &schema);
     let instance = valued_instance("count", Value::Int(5));
     let result = check_get_put(&lens, &instance);
@@ -337,7 +405,7 @@ fn step_law_compute_field() {
              "steps": [{ "compute_field": {
                  "target": "derived", "expr": "count", "coercion": "projection" } }] }"#,
     );
-    let schema = nested_schema();
+    let schema = nested_schema_declaring(&[("derived", "integer")], &[]);
     let lens = value_lens(&compiled, &schema);
     let instance = valued_instance("count", Value::Int(7));
     let result = check_get_put(&lens, &instance);
@@ -401,10 +469,13 @@ fn scoped_transform_only_pipeline_does_not_require_a_structural_chain() {
     assert_eq!(compiled.stages.len(), 1);
     assert!(compiled.stages[0].chain.steps.is_empty());
     let lens = compiled
-        .instantiate(&nested_schema(), &step_protocol())
+        .instantiate(
+            &nested_schema_declaring(&[], &[("derived", "string")]),
+            &step_protocol(),
+        )
         .expect("transform-only scoped document instantiates");
-    let (view, _) = panproto_lens::get(&lens, &nested_instance()).expect("get succeeds");
-    let json = panproto_inst::to_json(&lens.tgt_schema, &view);
+    let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(
         json.pointer("/meta/derived"),
@@ -429,10 +500,13 @@ fn scoped_pipeline_preserves_inner_rename_then_compute_order() {
 
     assert_eq!(compiled.stages.len(), 2);
     let lens = compiled
-        .instantiate(&nested_schema(), &step_protocol())
+        .instantiate(
+            &nested_schema_declaring(&[], &[("derived", "string")]),
+            &step_protocol(),
+        )
         .expect("ordered scoped document instantiates");
-    let (view, _) = panproto_lens::get(&lens, &nested_instance()).expect("get succeeds");
-    let json = panproto_inst::to_json(&lens.tgt_schema, &view);
+    let (view, _) = lens.get(&nested_instance()).expect("get succeeds");
+    let json = panproto_inst::to_json(lens.tgt_schema(), &view).unwrap();
 
     assert_eq!(json.pointer("/meta/writer"), Some(&serde_json::json!("A")));
     assert_eq!(

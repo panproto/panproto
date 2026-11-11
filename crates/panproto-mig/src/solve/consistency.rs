@@ -365,14 +365,14 @@ impl Network {
     /// How many variables the network has.
     #[inline]
     #[must_use]
-    pub fn n_variables(&self) -> usize {
+    pub const fn n_variables(&self) -> usize {
         self.slots.len()
     }
 
     /// How many cost functions of arity two or more the network has.
     #[inline]
     #[must_use]
-    pub fn n_functions(&self) -> usize {
+    pub const fn n_functions(&self) -> usize {
         self.scopes.len()
     }
 
@@ -532,7 +532,7 @@ impl Network {
     #[inline]
     #[must_use]
     fn domain_words(&self, var: VarId) -> SmallVec<u64, 2> {
-        SmallVec::from_slice_copy(self.domains.block(var))
+        SmallVec::from(self.domains.block(var))
     }
 
     /// Whether a variable has exactly one value left.
@@ -556,7 +556,7 @@ impl Network {
     /// Where the trail stands, to restore back to.
     #[inline]
     #[must_use]
-    pub fn mark(&self) -> TrailMark {
+    pub const fn mark(&self) -> TrailMark {
         TrailMark(self.trail.len())
     }
 
@@ -608,7 +608,7 @@ impl Network {
     /// per variable for its unary table.
     #[inline]
     #[must_use]
-    pub fn weight_slots(&self) -> usize {
+    pub const fn weight_slots(&self) -> usize {
         self.contributions.len()
     }
 
@@ -622,7 +622,7 @@ impl Network {
     /// The weight slot of one variable's unary table.
     #[inline]
     #[must_use]
-    pub fn unary_slot(&self, var: VarId) -> usize {
+    pub const fn unary_slot(&self, var: VarId) -> usize {
         self.scopes.len() + var.index()
     }
 
@@ -1066,11 +1066,11 @@ impl Network {
     /// length an honest measure of whether a sweep moved anything.
     #[inline]
     fn write(&mut self, index: usize, value: Cost) {
-        if let Some(cell) = self.cells.get_mut(index) {
-            if *cell != value {
-                self.trail.push((index, *cell));
-                *cell = value;
-            }
+        if let Some(cell) = self.cells.get_mut(index)
+            && *cell != value
+        {
+            self.trail.push((index, *cell));
+            *cell = value;
         }
     }
 
@@ -1593,10 +1593,10 @@ impl Network {
             }
             let var = VarId::new(u32::try_from(index).unwrap_or(u32::MAX));
             for &(other, _) in self.binary_neighbours(var) {
-                if other > var {
-                    if let Some(slot) = pending.get_mut(other.index()) {
-                        *slot = true;
-                    }
+                if other > var
+                    && let Some(slot) = pending.get_mut(other.index())
+                {
+                    *slot = true;
                 }
             }
         }
@@ -1616,10 +1616,10 @@ impl Network {
                 *flag = true;
             }
             for &(other, _) in self.binary_neighbours(var) {
-                if other > var {
-                    if let Some(flag) = pending.get_mut(other.index()) {
-                        *flag = true;
-                    }
+                if other > var
+                    && let Some(flag) = pending.get_mut(other.index())
+                {
+                    *flag = true;
                 }
             }
         }
@@ -2683,8 +2683,8 @@ mod tests {
             let mut draw = Draw::new(script);
 
             // Every draw offers a site for each of the three.
-            assert!(!project_sites(&network).is_empty());
-            assert!(!extend_sites(&network).is_empty());
+            assert_ne!(project_sites(&network), []);
+            assert_ne!(extend_sites(&network), []);
             assert!(network.n_variables() >= 2);
 
             // And a transformation applied at one of those sites does move

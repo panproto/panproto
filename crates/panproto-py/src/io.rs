@@ -1,4 +1,4 @@
-//! Python bindings for panproto I/O (instance parse/emit across 77 protocols).
+//! Python bindings for panproto I/O (instance parse/emit across 50 codecs).
 
 use std::sync::Arc;
 
@@ -11,9 +11,9 @@ use crate::schema::PySchema;
 
 /// Protocol-aware instance parser and emitter.
 ///
-/// Wraps the full protocol registry with 77 codecs for parsing and emitting
+/// Wraps the full protocol registry with 50 codecs for parsing and emitting
 /// instances across annotation, API, config, data schema, data science,
-/// database, domain, serialization, type system, and web document protocols.
+/// database, domain, serialization, and web document protocols.
 #[pyclass(name = "IoRegistry", module = "panproto._native")]
 pub struct PyIoRegistry {
     inner: Box<ProtocolRegistry>,

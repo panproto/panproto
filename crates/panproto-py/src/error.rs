@@ -127,7 +127,12 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
         "SchemaValidationError",
         parent.py().get_type::<SchemaValidationError>(),
     )?;
-    parent.add("MigrationError", parent.py().get_type::<MigrationError>())?;
+    let migration_error = parent.py().get_type::<MigrationError>();
+    // A lift whose boundary does not validate sets both on the raised
+    // instance; every other `MigrationError` reads these class defaults.
+    migration_error.setattr("side", parent.py().None())?;
+    migration_error.setattr("report", parent.py().None())?;
+    parent.add("MigrationError", migration_error)?;
     parent.add(
         "ExistenceCheckError",
         parent.py().get_type::<ExistenceCheckError>(),

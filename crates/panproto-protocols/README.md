@@ -8,7 +8,7 @@ Protocol definitions and schema parsers for semantic data formats.
 
 ## Installation
 
-Add the crate to a Rust 1.85 or newer project:
+Add the crate to a Rust 1.97 or newer project:
 
 ```sh
 cargo add panproto-protocols

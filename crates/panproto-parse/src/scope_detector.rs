@@ -84,7 +84,7 @@ impl ScopeKind {
 
     /// The canonical capture suffix for this kind.
     #[must_use]
-    pub fn as_suffix(&self) -> &str {
+    pub const fn as_suffix(&self) -> &str {
         match self {
             Self::Function => "function",
             Self::Method => "method",

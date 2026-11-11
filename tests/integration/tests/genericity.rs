@@ -143,10 +143,11 @@ pub fn walk_files(path: &Path, visitor: &mut impl FnMut(&Path, String)) {
         };
         if file_type.is_dir() {
             walk_files(&p, visitor);
-        } else if file_type.is_file() && p.extension().is_some_and(|e| e == "rs") {
-            if let Ok(contents) = std::fs::read_to_string(&p) {
-                visitor(&p, contents);
-            }
+        } else if file_type.is_file()
+            && p.extension().is_some_and(|e| e == "rs")
+            && let Ok(contents) = std::fs::read_to_string(&p)
+        {
+            visitor(&p, contents);
         }
     }
 }

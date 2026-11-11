@@ -38,7 +38,7 @@ struct SchemaFixtureTests {
         let schema = try replayed(Schema.self, from: "schema-bsky-post")
 
         #expect(schema.protocolName == "atproto")
-        #expect(schema.vertexCount == 39)
+        #expect(schema.vertexCount == 41)
         #expect(schema.edgeCount == 39)
         #expect(schema.entries == ["app.bsky.feed.post"])
         #expect(schema.primaryEntry == "app.bsky.feed.post")
@@ -47,12 +47,16 @@ struct SchemaFixtureTests {
         #expect(schema.required.count == 4)
     }
 
-    @Test("the post schema uses none of the enrichment fields")
+    @Test("the post schema records its unions' variants and no other enrichment")
     func postSchemaCarriesNoEnrichments() throws {
         let schema = try replayed(Schema.self, from: "schema-bsky-post")
 
         #expect(schema.hyperEdges.isEmpty)
-        #expect(schema.variants.isEmpty)
+        // Each open union carries one tagged arm per ref and an untagged
+        // open arm: five embeds and one self-label set.
+        #expect(schema.variants["app.bsky.feed.post:body.embed"]?.count == 6)
+        #expect(schema.variants["app.bsky.feed.post:body.labels"]?.count == 2)
+        #expect(schema.variants.count == 2)
         #expect(schema.orderings.isEmpty)
         #expect(schema.recursionPoints.isEmpty)
         #expect(schema.spans.isEmpty)
@@ -127,7 +131,7 @@ struct SchemaFixtureTests {
         let schema = try replayed(Schema.self, from: "schema-bsky-profile")
 
         #expect(schema.protocolName == "atproto")
-        #expect(schema.vertexCount == 15)
+        #expect(schema.vertexCount == 16)
         #expect(schema.edgeCount == 15)
         #expect(schema.entries == ["app.bsky.actor.profile"])
         #expect(schema.primaryEntry == "app.bsky.actor.profile")
@@ -157,8 +161,33 @@ struct ProtocolFixtureTests {
         #expect(spec.name == "atproto")
         #expect(spec.schemaTheory == "ThATProtoSchema")
         #expect(spec.instanceTheory == "ThATProtoInstance")
-        #expect(spec.schemaComposition == nil)
-        #expect(spec.instanceComposition == nil)
+        // Each theory carries the recipe that composed it: one diagram
+        // step, identifying exactly what its morphisms relate.
+        let schemaRecipe = try #require(spec.schemaComposition)
+        #expect(schemaRecipe.resultName == "ThATProtoSchema")
+        #expect(schemaRecipe.version == 1)
+        guard
+            case .diagram(let nodes, _, let mode, let clash, _, _) = try #require(
+                schemaRecipe.steps.first
+            )
+        else {
+            Issue.record("the schema recipe does not start with a diagram step")
+            return
+        }
+        #expect(nodes == ["ThGraph", "ThConstraint", "ThMulti", "ThVertex", "ThVertexEdge"])
+        #expect(mode == .explicitIdentity)
+        #expect(clash == .reject)
+        let instanceRecipe = try #require(spec.instanceComposition)
+        #expect(instanceRecipe.resultName == "ThATProtoInstance")
+        guard
+            case .diagram(let instanceNodes, _, _, _, _, _) = try #require(
+                instanceRecipe.steps.first
+            )
+        else {
+            Issue.record("the instance recipe does not start with a diagram step")
+            return
+        }
+        #expect(instanceNodes == ["ThWType", "ThMeta", "ThNode"])
         #expect(spec.edgeRules.count == 6)
         #expect(spec.constraintSorts.count == 12)
         #expect(spec.objKinds.contains("record"))

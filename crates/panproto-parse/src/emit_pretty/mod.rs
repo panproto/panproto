@@ -171,10 +171,11 @@ pub fn emit_pretty(
         emit_vertex(protocol, schema, grammar, root, &mut out)?;
     }
     let mut body = out.finish();
-    if let Some(span_end) = root_span_end {
-        if body.len() == span_end + 1 && body.last() == Some(&b'\n') {
-            body.pop();
-        }
+    if let Some(span_end) = root_span_end
+        && body.len() == span_end + 1
+        && body.last() == Some(&b'\n')
+    {
+        body.pop();
     }
     if doc_prefix.is_empty() {
         Ok(body)
@@ -340,7 +341,7 @@ mod tests {
             }
         }"#;
         let g2 = Grammar::from_bytes("t2", bytes2).expect("valid grammar");
-        assert!(g2.trailing_break_markers.is_empty());
+        assert_eq!(g2.trailing_break_markers, Vec::<String>::new());
         assert!(!g2.trailing_break_on_whitespace);
     }
 

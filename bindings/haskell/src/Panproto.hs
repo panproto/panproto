@@ -61,6 +61,7 @@ module Panproto
     , module Panproto.Graph
     , module Panproto.Data
     , module Panproto.Vcs
+    , module Panproto.Wire
 
       -- * Effect adaptors
     , module Panproto.Effect
@@ -111,7 +112,11 @@ import Panproto.Expr
 import Panproto.Gat hiding (App, Iso, Let, Null, SortName, Var)
 import Panproto.Graph
 import Panproto.Hom
-import Panproto.Instance
+-- Both the schema hyper-edge record and the node-shape enum use
+-- @HyperEdge@.  Keep the schema record unqualified at the umbrella; the
+-- shape constructor remains available from a direct "Panproto.Instance"
+-- import.
+import Panproto.Instance hiding (HyperEdge)
 import Panproto.Io
 import Panproto.Lens
 import Panproto.Migration
@@ -119,6 +124,7 @@ import Panproto.Migration.Combinators
 import Panproto.Protocol
 import Panproto.Schema
 import Panproto.Vcs
+import Panproto.Wire
 
 -- The native backend instances arrive transitively through these two
 -- modules (each defines an orphan @*Backend Native@ instance); they have

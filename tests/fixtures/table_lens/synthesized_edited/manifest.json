@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "synthesized_edited",
+  "source_protocol": "table_test_v1",
+  "target_protocol": "table_test_v1",
+  "class": null,
+  "expected_error": "synthesized_edited",
+  "runner": "synthesized_edited"
+}

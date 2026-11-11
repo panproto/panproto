@@ -72,9 +72,9 @@ findSpan
 
 ## Handle ownership
 
-Rust-backed representations that own slab entries have matching `release*` methods on their capability classes. Examples include `releaseProtocol`, `releaseSchema`, `releaseChain`, `releaseLens`, `releaseTheory`, `releaseModel`, `releaseRegistry`, `releaseRepo`, and `releaseDataSet`. Release is idempotent at the C slab boundary.
+Rust-backed representations that own slab entries have matching `release*` methods on their capability classes. Examples include `releaseProtocol`, `releaseSchema`, `releaseChain`, `releaseLens`, `releaseTheory`, `releaseModel`, `releaseRegistry`, `releaseRepo`, and `releaseDataSet`. Each release is a one-shot ownership action. `pp_handle_free` ignores a numeric handle while its slot remains free, but a later allocation may reuse that slot. After reuse, the stale number aliases the new resource, and passing it to `pp_handle_free` frees that resource. A caller must thus discard a Rust-backed representation after releasing it once.
 
-Use a bracket helper where the binding provides one. Public helpers include `withRustProtocol`, `withRustSchema`, `withCompiled`, `withRustTheory`, `withRepo`, and `withDataSet`. Some exchange representations, including the Rust `InstanceRep`, carry no slab entry and have a no-op release method. The class method remains the ownership authority.
+Use a bracket helper where the binding provides one. Public helpers include `withRustProtocol`, `withRustSchema`, `withCompiled`, `withRustTheory`, `withRepo`, and `withDataSet`; `Control.Exception.bracket` supplies the same discipline for other raw-backed representations. Some exchange representations, including the Rust `InstanceRep`, carry no slab entry and have a no-op release method. Native protocol and schema representations are pure values, so their release methods are also no-ops.
 
 ## Errors
 

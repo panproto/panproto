@@ -428,11 +428,7 @@ pub struct DirectedEquation {
 /// so α-equivalence is the correct notion of equality for equation terms.
 #[must_use]
 pub fn alpha_equivalent(t1: &Term, t2: &Term) -> bool {
-    let mut checker = AlphaChecker {
-        forward: rustc_hash::FxHashMap::default(),
-        backward: rustc_hash::FxHashMap::default(),
-    };
-    checker.check(t1, t2)
+    AlphaChecker::default().check(t1, t2)
 }
 
 /// Check if two equations are α-equivalent.
@@ -443,16 +439,23 @@ pub fn alpha_equivalent(t1: &Term, t2: &Term) -> bool {
 /// but NOT to `∀a,b. f(a,b) = g(a)`.
 #[must_use]
 pub fn alpha_equivalent_equation(lhs1: &Term, rhs1: &Term, lhs2: &Term, rhs2: &Term) -> bool {
-    let mut checker = AlphaChecker {
-        forward: rustc_hash::FxHashMap::default(),
-        backward: rustc_hash::FxHashMap::default(),
-    };
+    let mut checker = AlphaChecker::default();
     checker.check(lhs1, lhs2) && checker.check(rhs1, rhs2)
 }
 
+/// The state of an alpha-equivalence check: one bijection between the free
+/// variables of the two sides, kept for the whole comparison, and the two
+/// stacks of local binders in scope, innermost last. A variable is bound
+/// when its name occurs in its side's stack (its last occurrence binds it)
+/// and free otherwise; two bound variables agree when they are bound at the
+/// same stack position, and two free variables when the bijection pairs
+/// them.
+#[derive(Default)]
 struct AlphaChecker {
     forward: rustc_hash::FxHashMap<Arc<str>, Arc<str>>,
     backward: rustc_hash::FxHashMap<Arc<str>, Arc<str>>,
+    left: Vec<Arc<str>>,
+    right: Vec<Arc<str>>,
 }
 
 impl AlphaChecker {
@@ -497,20 +500,13 @@ impl AlphaChecker {
                     {
                         return false;
                     }
-                    // Extend bijection with branch binders, check body,
-                    // then roll back.
-                    let saved_forward = self.forward.clone();
-                    let saved_backward = self.backward.clone();
-                    let mut ok = true;
-                    for (a, b) in br1.binders.iter().zip(br2.binders.iter()) {
-                        self.forward.insert(Arc::clone(a), Arc::clone(b));
-                        self.backward.insert(Arc::clone(b), Arc::clone(a));
-                    }
-                    if !self.check(&br1.body, &br2.body) {
-                        ok = false;
-                    }
-                    self.forward = saved_forward;
-                    self.backward = saved_backward;
+                    // Bring the branch binders into scope for the body only.
+                    let depth = self.left.len();
+                    self.left.extend(br1.binders.iter().cloned());
+                    self.right.extend(br2.binders.iter().cloned());
+                    let ok = self.check(&br1.body, &br2.body);
+                    self.left.truncate(depth);
+                    self.right.truncate(depth);
                     if !ok {
                         return false;
                     }
@@ -542,6 +538,14 @@ impl AlphaChecker {
     }
 
     fn check_vars(&mut self, a: &Arc<str>, b: &Arc<str>) -> bool {
+        match (
+            self.left.iter().rposition(|n| n == a),
+            self.right.iter().rposition(|n| n == b),
+        ) {
+            (Some(i), Some(j)) => return i == j,
+            (None, None) => {}
+            _ => return false,
+        }
         if let Some(mapped) = self.forward.get(a) {
             if mapped != b {
                 return false;
@@ -569,13 +573,11 @@ impl AlphaChecker {
         if !self.check(b1, b2) {
             return false;
         }
-        let saved_forward = self.forward.clone();
-        let saved_backward = self.backward.clone();
-        self.forward.insert(Arc::clone(n1), Arc::clone(n2));
-        self.backward.insert(Arc::clone(n2), Arc::clone(n1));
+        self.left.push(Arc::clone(n1));
+        self.right.push(Arc::clone(n2));
         let ok = self.check(body1, body2);
-        self.forward = saved_forward;
-        self.backward = saved_backward;
+        self.left.pop();
+        self.right.pop();
         ok
     }
 }
@@ -921,19 +923,18 @@ fn norm_once_witness(
             branches,
         } => {
             let (new_scrut, _) = norm_once_witness(scrutinee, directed_eqs, steps, max_steps);
-            if let Term::App { op, args } = &new_scrut {
-                if let Some(branch) = branches.iter().find(|b| &b.constructor == op) {
-                    if branch.binders.len() == args.len() {
-                        let mut subst = rustc_hash::FxHashMap::default();
-                        for (binder, arg) in branch.binders.iter().zip(args.iter()) {
-                            subst.insert(Arc::clone(binder), arg.clone());
-                        }
-                        let body = branch.body.substitute(&subst);
-                        let (result, _) = norm_once_witness(&body, directed_eqs, steps, max_steps);
-                        let witness = runtime_witness(term.clone(), result.clone());
-                        return (result, witness);
-                    }
+            if let Term::App { op, args } = &new_scrut
+                && let Some(branch) = branches.iter().find(|b| &b.constructor == op)
+                && branch.binders.len() == args.len()
+            {
+                let mut subst = rustc_hash::FxHashMap::default();
+                for (binder, arg) in branch.binders.iter().zip(args.iter()) {
+                    subst.insert(Arc::clone(binder), arg.clone());
                 }
+                let body = branch.body.substitute(&subst);
+                let (result, _) = norm_once_witness(&body, directed_eqs, steps, max_steps);
+                let witness = runtime_witness(term.clone(), result.clone());
+                return (result, witness);
             }
             let new_branches = branches
                 .iter()
@@ -1167,6 +1168,43 @@ mod tests {
         let lhs2 = Term::app("f", vec![Term::var("a"), Term::var("b")]);
         let rhs2 = Term::app("g", vec![Term::var("b"), Term::var("a")]);
         assert!(alpha_equivalent_equation(&lhs1, &rhs1, &lhs2, &rhs2));
+    }
+
+    #[test]
+    fn alpha_eq_equation_keeps_free_correspondences_found_under_binders() {
+        // `x` is first met inside the `Let` body; its correspondence with
+        // the other side's `x` must survive the binder, so `y` cannot be
+        // matched to `x` afterwards.
+        let under = |v: &str| Term::Let {
+            name: Arc::from("n"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::app("f", vec![Term::var(v)])),
+        };
+        let f = |v: &str| Term::app("f", vec![Term::var(v)]);
+        assert!(!alpha_equivalent_equation(
+            &under("x"),
+            &f("y"),
+            &under("x"),
+            &f("x")
+        ));
+        assert!(alpha_equivalent_equation(
+            &under("x"),
+            &f("y"),
+            &under("u"),
+            &f("v")
+        ));
+        // A local binder never stands for a free variable of the other side.
+        let bound = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::var("x")),
+        };
+        let free = Term::Let {
+            name: Arc::from("n"),
+            bound: Box::new(Term::constant("c")),
+            body: Box::new(Term::var("x")),
+        };
+        assert!(!alpha_equivalent(&bound, &free));
     }
 
     #[test]
@@ -1733,5 +1771,210 @@ mod tests {
             alpha_equivalent(&nf_shadowing, &nf_distinct),
             "normalization must respect alpha-equivalence: {nf_shadowing:?} vs {nf_distinct:?}"
         );
+    }
+
+    #[test]
+    fn case_contraction_requires_matching_constructor_and_exact_arity() {
+        for constructor_matches in [false, true] {
+            for argument_count in 0..=2 {
+                for binder_count in 0..=2 {
+                    let term = Term::Case {
+                        scrutinee: Box::new(Term::app(
+                            "constructor",
+                            (0..argument_count)
+                                .map(|_| Term::constant("argument"))
+                                .collect(),
+                        )),
+                        branches: vec![CaseBranch {
+                            constructor: Arc::from(if constructor_matches {
+                                "constructor"
+                            } else {
+                                "other"
+                            }),
+                            binders: (0..binder_count)
+                                .map(|index| Arc::from(format!("x{index}")))
+                                .collect(),
+                            body: Term::constant("selected"),
+                        }],
+                    };
+                    let expected = if constructor_matches && argument_count == binder_count {
+                        Term::constant("selected")
+                    } else {
+                        term.clone()
+                    };
+                    assert_eq!(
+                        normalize_with_status(&term, &[], 100),
+                        (expected, false),
+                        "constructor_matches={constructor_matches}, arguments={argument_count}, binders={binder_count}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod dependency_contract_tests {
+    use std::sync::Arc;
+
+    use rustc_hash::FxHashMap;
+
+    use super::{
+        CaseBranch, DirectedEquation, Term, alpha_equivalent, match_pattern, normalize,
+        normalize_with_witness,
+    };
+    use crate::theory::Theory;
+    use crate::witness::WitnessJustification;
+
+    fn case(scrutinee: Term, constructor: &str, binders: &[&str], body: Term) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![CaseBranch {
+                constructor: Arc::from(constructor),
+                binders: binders.iter().map(|name| Arc::from(*name)).collect(),
+                body,
+            }],
+        }
+    }
+
+    #[test]
+    fn case_matching_distinguishes_each_structural_boundary() {
+        let pattern = case(Term::constant("s"), "c", &["x"], Term::var("x"));
+        let renamed = case(Term::constant("s"), "c", &["y"], Term::var("y"));
+        assert!(alpha_equivalent(&pattern, &renamed));
+        assert_eq!(
+            match_pattern(&pattern, &renamed),
+            Some(FxHashMap::default())
+        );
+        let mismatches = [
+            case(Term::constant("other"), "c", &["y"], Term::var("y")),
+            case(Term::constant("s"), "other", &["y"], Term::var("y")),
+            case(Term::constant("s"), "c", &["y", "z"], Term::var("y")),
+            case(Term::constant("s"), "c", &["y"], Term::constant("body")),
+            Term::Case {
+                scrutinee: Box::new(Term::constant("s")),
+                branches: vec![],
+            },
+        ];
+        for target in mismatches {
+            assert!(!alpha_equivalent(&pattern, &target), "{target:?}");
+            assert_eq!(match_pattern(&pattern, &target), None, "{target:?}");
+        }
+        // A branch-local renaming must restore an outer binding of the same name.
+        let pattern = Term::app("pair", vec![Term::var("x"), pattern, Term::var("x")]);
+        let target = Term::app(
+            "pair",
+            vec![Term::constant("outer"), renamed, Term::constant("outer")],
+        );
+        assert_eq!(
+            match_pattern(&pattern, &target),
+            Some(rustc_hash::FxHashMap::from_iter([(
+                Arc::from("x"),
+                Term::constant("outer")
+            )]))
+        );
+    }
+
+    #[test]
+    fn hole_names_and_let_scope_are_exact_in_matching() {
+        let holes = [None, Some(Arc::from("a")), Some(Arc::from("b"))];
+        for left in &holes {
+            for right in &holes {
+                let lhs = Term::Hole { name: left.clone() };
+                let rhs = Term::Hole {
+                    name: right.clone(),
+                };
+                assert_eq!(alpha_equivalent(&lhs, &rhs), left == right);
+                assert_eq!(
+                    match_pattern(&lhs, &rhs),
+                    (left == right).then(Default::default)
+                );
+            }
+        }
+        let make = |name, bound, body| Term::Let {
+            name: Arc::from(name),
+            bound: Box::new(bound),
+            body: Box::new(body),
+        };
+        let pattern = make("x", Term::constant("bound"), Term::var("x"));
+        for (target, matches) in [
+            (make("y", Term::constant("bound"), Term::var("y")), true),
+            (make("y", Term::constant("other"), Term::var("y")), false),
+            (
+                make("y", Term::constant("bound"), Term::constant("body")),
+                false,
+            ),
+        ] {
+            assert_eq!(alpha_equivalent(&pattern, &target), matches);
+            assert_eq!(
+                match_pattern(&pattern, &target),
+                matches.then(Default::default)
+            );
+        }
+    }
+
+    #[test]
+    fn witnessed_case_contraction_preserves_endpoints_and_refusals() {
+        let theory = Theory::full("T", vec![], vec![], vec![], vec![], vec![], vec![]);
+        for constructor in ["c", "other"] {
+            for arity in 0..=2 {
+                let args = (0..arity).map(|_| Term::constant("value")).collect();
+                let original = case(Term::app(constructor, args), "c", &["x"], Term::var("x"));
+                let contracts = constructor == "c" && arity == 1;
+                let expected = if contracts {
+                    Term::constant("value")
+                } else {
+                    original.clone()
+                };
+                let (actual, witness) = normalize_with_witness(&original, &[], 8);
+                assert_eq!(actual, expected);
+                assert_eq!(normalize(&original, &[], 8), expected);
+                assert_eq!(witness.lhs, original);
+                assert_eq!(witness.rhs, expected);
+                assert_eq!(
+                    matches!(witness.justification, WitnessJustification::Reflexivity),
+                    !contracts
+                );
+                assert!(witness.verify(&theory).is_ok());
+            }
+        }
+        let original = Term::Let {
+            name: Arc::from("x"),
+            bound: Box::new(Term::constant("value")),
+            body: Box::new(Term::var("x")),
+        };
+        let (actual, witness) = normalize_with_witness(&original, &[], 8);
+        assert_eq!(actual, Term::constant("value"));
+        assert_eq!(witness.lhs, original);
+        assert_eq!(witness.rhs, actual);
+        assert!(witness.verify(&theory).is_ok());
+    }
+
+    #[test]
+    fn witnessed_finite_chain_obeys_each_rewrite_budget() {
+        let rules = vec![
+            DirectedEquation::new(
+                "ab",
+                Term::constant("a"),
+                Term::constant("b"),
+                panproto_expr::Expr::Var("_".into()),
+            ),
+            DirectedEquation::new(
+                "bc",
+                Term::constant("b"),
+                Term::constant("c"),
+                panproto_expr::Expr::Var("_".into()),
+            ),
+        ];
+        let theory = Theory::full("T", vec![], vec![], vec![], vec![], rules.clone(), vec![]);
+        for (budget, name) in [(0, "a"), (1, "b"), (2, "c"), (3, "c")] {
+            let original = Term::constant("a");
+            let (actual, witness) = normalize_with_witness(&original, &rules, budget);
+            assert_eq!(actual, Term::constant(name), "budget {budget}");
+            assert_eq!(actual, normalize(&original, &rules, budget));
+            assert_eq!(witness.lhs, original);
+            assert_eq!(witness.rhs, actual);
+            assert!(witness.verify(&theory).is_ok());
+        }
     }
 }
