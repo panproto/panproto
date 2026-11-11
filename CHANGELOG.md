@@ -2,7 +2,7 @@
 
 All notable changes to panproto will be documented in this file.
 
-## [0.77.0] - 2026-11-04
+## [0.77.0] - 2026-11-11
 
 ### Added
 
