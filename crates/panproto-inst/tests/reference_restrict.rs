@@ -3694,8 +3694,9 @@ mod segmented_witnesses {
     use panproto_inst::identity::Digest;
     use panproto_inst::locality::{GlobalReason, SegmentOp};
     use panproto_inst::segment::{
-        ArtifactKey, Budget, MemoryStore, RunIncompleteReason, RunJournal, RunSpec, RunStatus,
-        SegmentStore, TaskRecord, graph_restrict_run,
+        AnySegment, ArtifactKey, Budget, MemoryStore, RunIncompleteReason, RunJournal, RunSpec,
+        RunStatus, SegmentStore, TaskRecord, graph_restrict_run, read_emitted, verify_manifest,
+        verify_segment,
     };
     use panproto_inst::segment::{
         IdKind, Residual, SegmentError, SegmentId, SegmentedRestrictError,
@@ -3991,9 +3992,83 @@ mod segmented_witnesses {
         assert_eq!((counts.residual, counts.complete), (4, 1), "{counts:?}");
     }
 
-    /// The migration keeping every vertex and edge of `schema`: its view
-    /// synthesizes nothing, so the view segments seal under the source's
-    /// partition.
+    /// Run a plan whose view synthesizes edges through the checkpointed
+    /// runner, check it against the reference runner at every cancellation
+    /// point and after resuming, and check that its manifest verifies and
+    /// seals view segments holding a synthesized edge inside an edge
+    /// allocation range.
+    fn check_synthesizing_run(case: &segmented_runner::Case<'_>) {
+        let mut counts = segmented_runner::Counts::default();
+        segmented_runner::check_case(case, Budget::unlimited(), &mut counts);
+        assert_eq!(counts.complete, 1, "the run completes: {counts:?}");
+        let input = segmented_runner::input(case.graph, case.partition);
+        let mut store = MemoryStore::default();
+        let run = segmented_runner::production_run(
+            case.plan,
+            &input,
+            Budget::unlimited(),
+            None,
+            &mut store,
+        );
+        let manifest = run.manifest.expect("a complete run's manifest");
+        assert_eq!(verify_manifest(&manifest, manifest.digest()), Ok(()));
+        let run = run.run.expect("a run identity");
+        let mut synthesized = 0;
+        for spec in input.partition.specs() {
+            let emitted =
+                read_emitted(&store, run, &input.partition, spec.id).expect("emitted segment");
+            synthesized += emitted
+                .view
+                .edges
+                .keys()
+                .filter(|id| spec.alloc_edges.is_some_and(|range| range.contains(id.0)))
+                .count();
+            assert_eq!(
+                verify_segment(&manifest, &AnySegment::Graph(emitted.view)),
+                Ok(())
+            );
+        }
+        assert!(
+            synthesized > 0,
+            "the view holds an edge id inside its holder's edge range"
+        );
+    }
+
+    #[test]
+    fn contracting_and_expanding_restrict_runs_seal_verify_and_resume_from_every_cancellation_point()
+     {
+        // A hidden path contracted across three segments.
+        let (schema, migration, graph) = hidden_path_fixture();
+        let plan = compile(&schema, &schema, &migration);
+        let split = partition(&[&[0, 3], &[1, 4], &[2]], Some(10), Some(10));
+        check_synthesizing_run(&segmented_runner::Case {
+            source: &schema,
+            target: &schema,
+            migration: &migration,
+            plan: &plan,
+            graph: &graph,
+            partition: &split,
+        });
+        // A fan expanded into a relation node and its edges, with the fan's
+        // nodes split between two segments.
+        let (source, target, expanding, tree) = fan_floor_fixture();
+        let (fan_graph, _) =
+            panproto_reference::encode::tree_to_graph(&tree, Some(&source)).expect("graph form");
+        let fan_plan = compile(&source, &target, &expanding);
+        let nodes: Vec<u32> = fan_graph.nodes.keys().copied().collect();
+        let (even, odd): (Vec<u32>, Vec<u32>) = nodes.iter().partition(|id| *id % 2 == 0);
+        let fan_split = partition(&[&even, &odd], Some(10), Some(10));
+        check_synthesizing_run(&segmented_runner::Case {
+            source: &source,
+            target: &target,
+            migration: &expanding,
+            plan: &fan_plan,
+            graph: &fan_graph,
+            partition: &fan_split,
+        });
+    }
+
+    /// The migration keeping every vertex and edge of `schema`.
     fn keep_everything(schema: &RefSchema) -> RefMigration {
         RefMigration {
             surviving_verts: schema.vertices.keys().cloned().collect(),

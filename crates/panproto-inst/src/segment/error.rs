@@ -366,7 +366,7 @@ pub enum SegmentError {
     },
 
     /// `segment`'s allocation range for `kind` does not lie above every id of
-    /// that kind in the input.
+    /// that kind in the input of an operation that requires it to.
     #[error("the {kind} allocation range of {segment} does not lie above every {kind} id in use")]
     AllocationBelowFloor {
         /// The segment.
@@ -375,8 +375,9 @@ pub enum SegmentError {
         kind: IdKind,
     },
 
-    /// A fresh edge of `segment` carries an id outside its edge allocation
-    /// range.
+    /// A fresh edge of `segment`, one whose id lies at or above the least
+    /// edge allocation range of the family, carries an id outside the edge
+    /// allocation range of `segment`.
     #[error("edge id {edge} lies outside the edge allocation range of {segment}")]
     EdgeIdOutsideAllocation {
         /// The edge id.

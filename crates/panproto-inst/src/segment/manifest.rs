@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use super::body::{AnySegment, SegmentStats};
 use super::check::check_segment_with;
 use super::error::{PartitionDefect, SegmentError};
-use super::ids::{IdRange, SegmentId, check_edge_range_above};
+use super::ids::{EdgeFloor, IdRange, SegmentId};
 use super::partition::{Partition, SegmentSpec, shape_tag, write_opt_range, write_ranges};
 use super::stream::{RecordSource, instance_digest};
 use crate::ginstance::EdgeId;
@@ -428,18 +428,6 @@ fn check_cross_pairs(records: &[SegmentRecord]) -> Result<(), SegmentError> {
     Ok(())
 }
 
-/// Check that every edge allocation range lies above the largest edge id
-/// any record holds.
-fn check_edge_floors(records: &[SegmentRecord]) -> Result<(), SegmentError> {
-    let max_edge = records.iter().filter_map(|r| r.max_edge).max();
-    for rec in records {
-        if let Some(range) = rec.alloc_edges {
-            check_edge_range_above(rec.id, range, max_edge)?;
-        }
-    }
-    Ok(())
-}
-
 /// A sorted run of one segment's owned edge ids.
 pub type EdgeIdRun<'a> = (SegmentId, Box<dyn Iterator<Item = EdgeId> + 'a>);
 
@@ -451,12 +439,13 @@ struct RunSeen {
 }
 
 /// What merging the runs found: what each run held, each run's edge id
-/// digest, and the least edge id two runs hold with every segment holding
-/// it.
+/// digest, the least edge id two runs hold with every segment holding it,
+/// and the refusal of the least edge id the seal floor rule refuses.
 struct MergedRuns {
     seen: Vec<RunSeen>,
     digests: Vec<Digest>,
     duplicate: Option<SegmentError>,
+    below_floor: Option<SegmentError>,
 }
 
 /// The decode error of an edge id run.
@@ -468,9 +457,10 @@ const fn run_error(message: String) -> SegmentError {
 }
 
 /// Merge the runs, holding one id per run at a time, to their end: what
-/// each run held, the edge id digest of each run, and the least edge id two
-/// runs hold with every segment holding it.
-fn merge_runs(runs: &mut [EdgeIdRun<'_>]) -> Result<MergedRuns, SegmentError> {
+/// each run held, the edge id digest of each run, the least edge id two
+/// runs hold with every segment holding it, and the refusal of the least id
+/// `floor` refuses for the segment holding it.
+fn merge_runs(runs: &mut [EdgeIdRun<'_>], floor: &EdgeFloor) -> Result<MergedRuns, SegmentError> {
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
 
@@ -485,6 +475,7 @@ fn merge_runs(runs: &mut [EdgeIdRun<'_>]) -> Result<MergedRuns, SegmentError> {
         }
     }
     let mut duplicate: Option<SegmentError> = None;
+    let mut below_floor: Option<SegmentError> = None;
     let mut group: Option<(EdgeId, Vec<SegmentId>)> = None;
     let mut close = |group: Option<(EdgeId, Vec<SegmentId>)>| {
         if let Some((edge, mut segments)) = group
@@ -500,6 +491,9 @@ fn merge_runs(runs: &mut [EdgeIdRun<'_>]) -> Result<MergedRuns, SegmentError> {
         seen[i].count += 1;
         seen[i].last = Some(id);
         hashers[i].u32(id.0);
+        if below_floor.is_none() {
+            below_floor = floor.check(segment, id.0).err();
+        }
         match &mut group {
             Some((held, segments)) if *held == id => segments.push(segment),
             _ => close(group.replace((id, vec![segment]))),
@@ -518,6 +512,7 @@ fn merge_runs(runs: &mut [EdgeIdRun<'_>]) -> Result<MergedRuns, SegmentError> {
         seen,
         digests: hashers.iter().map(DigestHasher::finalize).collect(),
         duplicate,
+        below_floor,
     })
 }
 
@@ -531,7 +526,9 @@ fn merge_runs(runs: &mut [EdgeIdRun<'_>]) -> Result<MergedRuns, SegmentError> {
 /// strictly ascending.
 pub fn check_edge_id_runs(runs: Vec<EdgeIdRun<'_>>) -> Result<(), SegmentError> {
     let mut runs = runs;
-    merge_runs(&mut runs)?.duplicate.map_or(Ok(()), Err)
+    merge_runs(&mut runs, &EdgeFloor::default())?
+        .duplicate
+        .map_or(Ok(()), Err)
 }
 
 /// Check the runs against the records they belong to, then merge them: one
@@ -540,7 +537,8 @@ pub fn check_edge_id_runs(runs: Vec<EdgeIdRun<'_>>) -> Result<(), SegmentError> 
 /// edge per fan for a tree, whose record does not count fan child edges;
 /// none for a table); each run ending at its record's `max_edge`; each
 /// run's edge id digest equal to its record's `edge_ids`, which fixes every
-/// id of the run; and no edge id in two runs.
+/// id of the run; no edge id in two runs; and every edge id admitted by the
+/// seal floor rule of the records' edge allocation ranges ([`EdgeFloor`]).
 fn check_runs_against_records(
     records: &[SegmentRecord],
     shape: InstanceShapeKind,
@@ -562,11 +560,13 @@ fn check_runs_against_records(
             records[missing].id
         )));
     }
+    let floor = EdgeFloor::new(records.iter().map(|r| (r.id, r.alloc_edges)));
     let MergedRuns {
         seen,
         digests,
         duplicate,
-    } = merge_runs(&mut runs)?;
+        below_floor,
+    } = merge_runs(&mut runs, &floor)?;
     for (record, at) in records.iter().zip(&position) {
         let got = at.and_then(|i| seen.get(i)).copied().unwrap_or_default();
         let digest = at.and_then(|i| digests.get(i));
@@ -588,7 +588,7 @@ fn check_runs_against_records(
             )));
         }
     }
-    duplicate.map_or(Ok(()), Err)
+    duplicate.or(below_floor).map_or(Ok(()), Err)
 }
 
 /// Write a manifest role: a one-byte tag (`0` source, `1` view, `2`
@@ -670,8 +670,7 @@ impl SegmentManifest {
             .filter(|r| r.id == id)
     }
 
-    /// The largest edge id any record holds, the floor every edge
-    /// allocation range of a run over this manifest lies above.
+    /// The largest edge id any record holds.
     #[must_use]
     pub fn max_edge(&self) -> Option<u32> {
         self.segments.iter().filter_map(|r| r.max_edge).max()
@@ -688,14 +687,15 @@ impl SegmentManifest {
 ///
 /// The records must be dense from segment 0 with valid, disjoint ranges;
 /// every cross digest must have its counterpart (`cross_out[j]` of `i`
-/// equal to `cross_in[i]` of `j`, both ways); every edge allocation range
-/// must lie above the largest edge id any record holds; and the segments'
-/// sorted edge id runs, one per record in `runs`, each as long as its
-/// record's owned edges, ending at its record's `max_edge` and with the
-/// record's edge id digest, must hold no edge id twice. The merge holds
-/// one id per run at a time. The runs are the only evidence of the
-/// segments' edge ids `seal` sees, so a run that its record contradicts is
-/// refused rather than merged.
+/// equal to `cross_in[i]` of `j`, both ways); and the segments' sorted edge
+/// id runs, one per record in `runs`, each as long as its record's owned
+/// edges, ending at its record's `max_edge` and with the record's edge id
+/// digest, must hold no edge id twice, and every id they hold must satisfy
+/// the seal floor rule ([`EdgeFloor`]): an edge id at or above the least
+/// edge allocation range lies in the edge allocation range of the segment
+/// holding it. The merge holds one id per run at a time. The runs are the
+/// only evidence of the segments' edge ids `seal` sees, so a run that its
+/// record contradicts is refused rather than merged.
 ///
 /// # Errors
 ///
@@ -703,12 +703,13 @@ impl SegmentManifest {
 /// [`SegmentError::CrossMismatch`] for the first self-cross or unpaired
 /// digest in record order, outgoing entries before incoming entries and
 /// ascending peer identifiers within each map,
-/// [`SegmentError::AllocationBelowFloor`] for the first segment whose edge
-/// allocation range does not lie above every edge id,
 /// [`SegmentError::Decode`] of the runs when a record has no run or two, a
 /// run names no record, or a run is not strictly ascending or does not match
-/// its record, and [`SegmentError::DuplicateEdgeId`] for the least edge id
-/// two runs hold.
+/// its record, [`SegmentError::DuplicateEdgeId`] for the least edge id two
+/// runs hold, and for the least edge id the seal floor rule refuses,
+/// [`SegmentError::EdgeIdOutsideAllocation`] naming it and its segment, or
+/// [`SegmentError::NoAllocationRange`] for edges when that segment declares
+/// no edge allocation range.
 pub fn seal(
     records: Vec<SegmentRecord>,
     header: ManifestHeader,
@@ -716,7 +717,6 @@ pub fn seal(
 ) -> Result<SegmentManifest, SegmentError> {
     records_partition(&records, header.shape)?;
     check_cross_pairs(&records)?;
-    check_edge_floors(&records)?;
     check_runs_against_records(&records, header.shape, runs)?;
     let root = merkle_root(&records);
     Ok(SegmentManifest {

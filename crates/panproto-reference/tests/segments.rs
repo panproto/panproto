@@ -1422,24 +1422,41 @@ fn whole_tree_complement_distinguishes_order_bookkeeping_from_residue() {
 }
 
 #[test]
-fn seal_refuses_an_edge_allocation_range_below_the_global_floor() {
+fn seal_refuses_an_edge_id_at_or_above_the_floor_outside_its_holders_range() {
+    // Edge 7 leaves node 0, so segment 0 holds it.
     let whole = AnyInstance::Graph(crossing_graph());
-    let mut partition = graph_partition();
-    partition.specs[1].alloc_edges = Some(IdRange { lo: 7, hi: 9 });
-    let segments = segment::partition(&whole, &partition).test_unwrap("fixture partitions");
-    assert_eq!(
+    let seal_with = |ranges: [Option<IdRange>; 2]| {
+        let mut partition = graph_partition();
+        for (spec, range) in partition.specs.iter_mut().zip(ranges) {
+            spec.alloc_edges = range;
+        }
+        let segments = segment::partition(&whole, &partition).test_unwrap("fixture partitions");
         segment::seal_manifest(
             &segments,
             &partition,
             Digest::default(),
             ManifestRole::Source,
             None,
-        ),
-        Err(SegmentError::AllocationBelowFloor {
-            segment: SegmentId(1),
+        )
+    };
+    let range = IdRange { lo: 7, hi: 9 };
+    assert_eq!(
+        seal_with([Some(IdRange { lo: 10, hi: 12 }), Some(range)]),
+        Err(SegmentError::EdgeIdOutsideAllocation {
+            edge: 7,
+            segment: SegmentId(0),
+        })
+    );
+    assert_eq!(
+        seal_with([None, Some(IdRange { lo: 3, hi: 6 })]),
+        Err(SegmentError::NoAllocationRange {
+            segment: SegmentId(0),
             kind: IdKind::Edge,
         })
     );
+    // Inside its holder's own range, or below every range, the id seals.
+    assert!(seal_with([Some(range), Some(IdRange { lo: 10, hi: 12 })]).is_ok());
+    assert!(seal_with([None, Some(IdRange { lo: 8, hi: 9 })]).is_ok());
 }
 
 const fn run_spec(cancel_after_tasks: Option<u32>) -> RunSpec {

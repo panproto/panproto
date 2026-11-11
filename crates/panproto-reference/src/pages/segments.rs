@@ -5154,8 +5154,11 @@ pub mod segment {
     ///
     /// # Errors
     ///
-    /// Returns a segment or partition defect, an allocation-floor refusal, or
-    /// an unencodable whole instance.
+    /// Returns a segment or partition defect, the seal-floor refusal of
+    /// [`check_new_edge_id`] for the least edge id at or above the lower
+    /// bound of an edge allocation range that lies outside the edge
+    /// allocation range of the segment holding it, or an unencodable whole
+    /// instance.
     pub fn seal_manifest(
         segments: &[AnySegment],
         p: &Partition,
@@ -5165,19 +5168,28 @@ pub mod segment {
     ) -> Result<SegmentManifest, SegmentError> {
         let ordered: Vec<_> = arrange(segments, p)?.into_iter().cloned().collect();
         let whole = glue(&ordered, p)?;
-        let global_max_edge = ordered
+        // The seal floor: an edge id at or above the lower bound of any edge
+        // allocation range is a new id, and a new id must lie in the edge
+        // allocation range of the segment holding it. The least such id
+        // that does not is refused.
+        let mut held: Vec<(u32, SegmentId)> = ordered
             .iter()
-            .flat_map(owned_edges)
-            .filter_map(|edge| edge.id)
-            .max();
-        if let Some(maximum) = global_max_edge {
-            for spec in &p.specs {
-                if spec.alloc_edges.is_some_and(|range| range.lo <= maximum) {
-                    return Err(SegmentError::AllocationBelowFloor {
-                        segment: spec.id,
-                        kind: IdKind::Edge,
-                    });
-                }
+            .flat_map(|segment| {
+                owned_edges(segment)
+                    .into_iter()
+                    .filter_map(|edge| edge.id)
+                    .map(|id| (id, segment.segment()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        held.sort_unstable();
+        for (id, segment) in held {
+            let new = p
+                .specs
+                .iter()
+                .any(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= id));
+            if new {
+                check_new_edge_id(p, segment, id, false)?;
             }
         }
         let (cross_out, cross_in) = cross_maps(&ordered);

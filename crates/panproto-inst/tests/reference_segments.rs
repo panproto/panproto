@@ -362,9 +362,13 @@ fn error_to_production(error: &reference::SegmentError) -> SegmentError {
             expected: shape_to_production(*expected),
             found: shape_to_production(*found),
         },
-        R::AllocationBelowFloor { segment: id, kind } => SegmentError::AllocationBelowFloor {
+        R::NoAllocationRange { segment: id, kind } => SegmentError::NoAllocationRange {
             segment: segment(*id),
             kind: id_kind_to_production(*kind),
+        },
+        R::EdgeIdOutsideAllocation { edge, segment: id } => SegmentError::EdgeIdOutsideAllocation {
+            edge: EdgeId(*edge),
+            segment: segment(*id),
         },
         R::Invalid { violations } => SegmentError::Invalid {
             violations: violations.iter().map(error_to_production).collect(),
@@ -885,6 +889,42 @@ fn append_floor_and_exhaustion_agree_on_an_independently_counted_carrier() {
     }
 }
 
+/// The seal floor rule, read off the graph: the refusal of the least edge
+/// id at or above the least edge allocation range that lies outside the
+/// edge allocation range of the segment owning its source.
+fn seal_floor_refusal(
+    graph: &reference_model::Graph,
+    partition: &reference::Partition,
+) -> Option<reference::SegmentError> {
+    let floor = partition
+        .specs
+        .iter()
+        .filter_map(|spec| spec.alloc_edges.map(|range| range.lo))
+        .min()?;
+    graph
+        .edges
+        .iter()
+        .filter(|(id, _)| **id >= floor)
+        .find_map(|(id, edge)| {
+            let holder = partition
+                .specs
+                .iter()
+                .find(|spec| spec.nodes.iter().any(|range| range.contains(edge.src)))
+                .expect("every node is owned");
+            match holder.alloc_edges {
+                Some(range) if range.contains(*id) => None,
+                Some(_) => Some(reference::SegmentError::EdgeIdOutsideAllocation {
+                    edge: *id,
+                    segment: holder.id,
+                }),
+                None => Some(reference::SegmentError::NoAllocationRange {
+                    segment: holder.id,
+                    kind: reference::IdKind::Edge,
+                }),
+            }
+        })
+}
+
 #[test]
 fn segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal() {
     let (reference_schema, production_schema) = schema_digest();
@@ -910,23 +950,8 @@ fn segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal() {
             reference::glue(&reference_segments, &reference_partition),
             Ok(whole.clone())
         );
-        let max_edge = case.graph.edges.keys().next_back().copied();
-        let expected = max_edge
-            .and_then(|max| {
-                reference_partition
-                    .specs
-                    .iter()
-                    .find(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= max))
-            })
-            .map_or_else(
-                || Ok(whole.clone()),
-                |spec| {
-                    Err(reference::SegmentError::AllocationBelowFloor {
-                        segment: spec.id,
-                        kind: reference::IdKind::Edge,
-                    })
-                },
-            );
+        let expected = seal_floor_refusal(&case.graph, &reference_partition)
+            .map_or_else(|| Ok(whole.clone()), Err);
         assert_eq!(
             reference::segmented(
                 &reference_segments,
@@ -973,12 +998,15 @@ fn segmented_observation_is_the_glued_observation_or_the_seal_floor_refusal() {
             ),
         }
     }
-    // Only the graphs holding edge id 1 (two edges) refuse, and only under
-    // the ranges starting at 1: one 1-node and sixteen 2-node graphs, under
-    // 2 + 3 and 4 + 9 ownership splits.
-    let two_edge_cases = 5 + 16 * 13;
-    assert_eq!(refused, two_edge_cases);
-    assert_eq!(observed, ALLOCATED_GRAPH_PARTITION_CASES - two_edge_cases);
+    // Only the graphs holding edge id 1 (two edges) can refuse, and only
+    // under the ranges starting at 1, where segment 0's range [1, 10] holds
+    // id 1: they refuse exactly when segment 0 does not own the source of
+    // edge 1. A 1-node graph's source is given elsewhere by 1 of 2 and 2 of 3
+    // ownership functions; each of the sixteen 2-node graphs by 2 of 4 and 6
+    // of 9.
+    let refusing = (1 + 2) + 16 * (2 + 6);
+    assert_eq!(refused, refusing);
+    assert_eq!(observed, ALLOCATED_GRAPH_PARTITION_CASES - refusing);
 }
 
 fn reference_refusal(input: &carrier::RefusalInput) -> reference::SegmentError {
