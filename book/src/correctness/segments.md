@@ -1,10 +1,10 @@
 # Segments
 
-A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The first ten laws below cover the segment foundation; the eleventh runs graph restriction segment by segment, the twelfth runs it as a checkpointed sequence of tasks that resumes after any interruption, and the thirteenth fixes the record frames through which that run seals its output without holding a view segment. Storage backends and segmented edits belong to later components.
+A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The first ten laws below cover the segment foundation; the eleventh runs graph restriction segment by segment, the twelfth runs it as a checkpointed sequence of tasks that resumes after any interruption, the thirteenth fixes the record frames through which that run seals its output without holding a view segment, and the fourteenth reads a complement segment back from the bytes that run writes. Storage backends and segmented edits belong to later components.
 
 Let $I$ be a finite tree, table, or graph instance, and let $P$ be a partition for the same shape. We write $P(n)$ for the segment that owns node or row identifier $n$, $\operatorname{split}_P(I)$ for partitioning, and $\operatorname{glue}_P$ for checked assembly. An edge is owned by the owner of its source endpoint. The finite differential carrier contains 25 labelled graphs and all 290 assignments of their nodes to two or three labelled segments, together with two fan-bearing trees and all 40 assignments of their tree and fan nodes to two segments; one crossing-boundary witness for each instance shape, and one for each fan-bearing tree, checks the shape-specific representation.
 
-First, the page establishes ownership, boundary, and assembly laws. Second, it fixes canonical artifacts, the storage vocabulary, and typed refusals. Third, it states the validation and allocation boundaries that the segment core must preserve. Fourth, it shows that graph restriction run segment by segment, with one boundary exchange and a reachability summary, assembles to whole-state restriction, that the checkpointed run of it reports and resumes as its reference runner does, and that the record frames its Seal reads decode to the records they encode.
+First, the page establishes ownership, boundary, and assembly laws. Second, it fixes canonical artifacts, the storage vocabulary, and typed refusals. Third, it states the validation and allocation boundaries that the segment core must preserve. Fourth, it shows that graph restriction run segment by segment, with one boundary exchange and a reachability summary, assembles to whole-state restriction, that the checkpointed run of it reports and resumes as its reference runner does, that the record frames its Seal reads decode to the records they encode, and that the complement segments it writes decode to the complements they encode.
 
 ## Ownership is a total partial function on declared ranges {#L-segments-1}
 
@@ -518,4 +518,41 @@ The canonical record layouts are those the instance digests read (L-segments-4):
 - File: `crates/panproto-inst/src/segment/manifest.rs`
 - File: `crates/panproto-inst/src/segment/reader.rs`
 - File: `crates/panproto-inst/tests/reference_segments.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Complement segments decode to what they encode {#L-segments-14}
+
+### Statement
+
+Let $C$ be a graph complement segment of segment $i$ that graph restriction can produce: its synthesized keys are contracted pairs, expanded edges or expanded contractions, and each dropped node is stored under its identifier. Write $\operatorname{bytes}(C)$ for `GraphComplementSegment::canonical_bytes`. Then `GraphComplementSegment::from_canonical_bytes` of $\operatorname{bytes}(C)$ under $i$ returns a complement segment of $i$ whose canonical bytes are $\operatorname{bytes}(C)$, and its fields are those the reference `decode_complement_segment_bytes` reads from the same bytes. Both decoders refuse every proper prefix of $\operatorname{bytes}(C)$ and $\operatorname{bytes}(C)$ followed by any byte.
+
+### Outside the domain
+
+Both decoders refuse a version other than the segment format version, a shape tag other than $2$ (a tree or table complement is no graph complement), a value presence tag above $3$, a synthesized-key tag above $2$, a count larger than the bytes left can hold, map keys that do not strictly ascend, and a value outside the canonical value layout. Production returns `SegmentError::Decode` for the complement segment artifact. The bytes do not name their segment, so the decoder takes the identifier the manifest files them under and does not check it. A resolution key has no complement encoding, so a complement holding one has no bytes to decode ([L-segments-12](#L-segments-12) writes none).
+
+### Definitions used
+
+The layout is the one `canonical_bytes` documents: the version and shape tag, then the dropped nodes and edges and the original edges as counted node and edge records, the original anchors, fields and values as counted maps from node identifiers, the synthesized nodes and edges as counted maps from identifiers to tagged keys, and the two floors.
+
+### Proof
+
+1. Totality. Each section is written by a counted writer whose entries are node records, edge records, an identifier with a name, a field map, a value presence or a tagged key. The decoder reads the sections in the order they are written, each entry with the inverse reader of its writer: the node and edge readers of [L-segments-13](#L-segments-13), the name reader, the value-map reader, the presence reader the node reader uses for a node's value, and a key reader that reads the tag and then the fields the writer wrote for that tag. Each reader returns the value its writer wrote and consumes exactly its bytes, and the writer visits each map in ascending key order, so every ascending-key check passes and the decoder returns $C$'s fields with $i$; re-encoding writes the same fields in the same order, which is $\operatorname{bytes}(C)$.
+2. Refusals. A proper prefix ends inside a field or before a counted section ends, and every reader refuses input that ends early or a count the bytes left cannot hold. After the floors the decoder requires the end of input, so a trailing byte is refused. The version, shape, presence and key readers accept only the tags their writers write.
+3. Agreement. The reference decoder reads the same sections with its own readers and order checks, so on accepted input both return the same fields, and each refusal above is a refusal of the reference as well: it reads the version and shape first, refuses a truncated field or noncanonical order, and requires the end of input.
+4. The finite certificate decodes the complement segment of every segment of every case of the carrier of [L-segments-11](#L-segments-11) whose segmented restriction completes, compares it with the encoded complement and with the reference decoding, and refuses every proper prefix and four one-byte extensions of each distinct encoding in both decoders. A witness with an entry of every kind (a dropped node with a value and fields, dropped and original edges, an original anchor, original fields, each of the four value presences and each of the three key kinds) does the same and refuses another version, each of the $255$ other shape tags, each of the $252$ unknown presence tags, each of the $253$ unknown key tags, and synthesized identifiers out of order.
+
+### Executable counterpart
+
+- Law ID: `segments.complement-decode`
+- Reference: `panproto_reference::segment::canonical_complement_segment_bytes`
+- Reference: `panproto_reference::segment::decode_complement_segment_bytes`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_restrict_cases; bound: graphs=458, migrations=8, partitions=35, cases=128240`
+- Exhaustive differential test: `segmented::a_complement_segment_decodes_from_its_canonical_bytes_as_the_reference_decodes_them; command: cargo nextest run -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=segmented::a_complement_segment_decodes_from_its_canonical_bytes_as_the_reference_decodes_them)'`
+- Property differential test: `segmented_randomized::complement_segments_decode_as_the_reference_decodes_them_on_generated_partitions; command: cargo nextest run -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=segmented_randomized::complement_segments_decode_as_the_reference_decodes_them_on_generated_partitions)'`
+- Property scope: `graphs of 2 to 8 nodes over a three-vertex schema with every edge and loop, up to 14 edges, every survival choice, owners from 2 to 4 segments; every complement segment of a completing run decoded against the reference, with every proper prefix and four one-byte extensions refused; 256 cases`
+- Production certificate: `segmented::a_complement_segment_with_every_entry_kind_decodes_and_malformed_tags_are_refused; command: cargo nextest run -p panproto-inst --test reference_restrict --no-tests=fail -E 'test(=segmented::a_complement_segment_with_every_entry_kind_decodes_and_malformed_tags_are_refused)'`
+- File: `crates/panproto-inst/src/segment/restrict.rs`
+- File: `crates/panproto-inst/src/segment/reader.rs`
+- File: `crates/panproto-inst/src/segment/bytes.rs`
+- File: `crates/panproto-inst/tests/reference_restrict.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`

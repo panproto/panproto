@@ -5103,6 +5103,34 @@
               "test": "randomized::boundary_cut_matches_the_reference_on_generated_shape_choices"
             }
           ]
+        },
+        {
+          "id": "segments.complement-decode",
+          "anchor": "L-segments-14",
+          "references": [
+            "panproto_reference::segment::canonical_complement_segment_bytes",
+            "panproto_reference::segment::decode_complement_segment_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::a_complement_segment_decodes_from_its_canonical_bytes_as_the_reference_decodes_them"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::complement_segments_decode_as_the_reference_decodes_them_on_generated_partitions"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::a_complement_segment_with_every_entry_kind_decodes_and_malformed_tags_are_refused"
+            }
+          ]
         }
       ]
     },
