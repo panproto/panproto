@@ -2068,18 +2068,33 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
     }
 
     #[test]
-    fn toml_dotted_keys_and_headers_are_refused_instead_of_flattened() {
+    fn toml_dotted_keys_and_headers_nest_instead_of_flattening() {
         let schema = open_yaml_schema();
         let codec = UnifiedCodec::toml("fidelity-cst").expect("TOML CST codec");
-        for input in [b"a.b = 1\n".as_slice(), b"[a.b]\nc = 1\n".as_slice()] {
-            let error = codec
+        for (input, anchor) in [
+            (b"a.b = 1\n".as_slice(), "root:a:b"),
+            (b"[a.b]\nb = 1\n".as_slice(), "root:a:b:b"),
+        ] {
+            let (instance, complement) = codec
                 .parse_wtype_preserving(&schema, input)
-                .expect_err("dotted TOML structure must not become a flat key");
-            assert!(matches!(
-                error,
-                ParseInstanceError::Parse { message, .. }
-                    if message.contains("dotted keys")
-            ));
+                .expect("dotted TOML structure nests");
+            assert_eq!(
+                value_at(&instance, anchor),
+                &FieldPresence::Present(Value::Int(1))
+            );
+            assert!(
+                instance
+                    .nodes
+                    .values()
+                    .all(|node| !node.anchor.contains('.')),
+                "a dotted key became a flat key: {instance:?}"
+            );
+            assert_eq!(
+                codec
+                    .emit_wtype_preserving(&schema, &instance, &complement)
+                    .expect("unedited emission"),
+                input
+            );
         }
     }
 

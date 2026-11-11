@@ -2006,11 +2006,6 @@ fn set_xml_text_run(cst: &mut Schema, run: &[Name], new_text: &str) {
 
 // ── TOML extraction ───────────────────────────────────────────────────
 
-/// The CST kinds that hold key/value entries: the document itself, a
-/// `[table]` header's body, a `[[table array]]` element's body, and an inline
-/// `{ ... }` table.
-const TOML_TABLE_KINDS: [&str; 4] = ["document", "table", "table_array_element", "inline_table"];
-
 /// The CST kinds that spell a key.
 const TOML_KEY_KINDS: [&str; 3] = ["bare_key", "quoted_key", "dotted_key"];
 
@@ -2085,11 +2080,16 @@ pub fn extract_toml_cst(
 
 /// Extract a TOML CST using the selected protocol's value constraints.
 ///
-/// TOML's tree differs from JSON's in three ways that matter here. The
-/// document *is* the top-level table rather than wrapping a single value; a
-/// `[table]` header and its pairs are one CST node whose first child is the
-/// key; and repeated `[[table array]]` headers with the same key are the
-/// elements of one list.
+/// TOML's tree differs from JSON's in ways that matter here. The document
+/// *is* the top-level table rather than wrapping a single value; a `[table]`
+/// header and its pairs are one CST node that sits beside the other headers
+/// whatever its depth; a dotted key `a.b.c` names a path of tables; and
+/// repeated `[[table array]]` headers with the same key are the elements of
+/// one list. Extraction first resolves every key into the table it defines,
+/// under the TOML 1.0.0 rules that a key and a table are defined once, and
+/// then reads the resolved tables. A table that a header or a dotted key
+/// creates is recorded in the complement against the CST vertex of its
+/// header or key.
 ///
 /// # Errors
 ///
@@ -2103,15 +2103,6 @@ pub fn extract_toml_cst_with_protocol(
 ) -> Result<(WInstance, CstComplement), CstCodecError> {
     validate_cst_has_no_recovery_markers(cst, "TOML")?;
     validate_toml_cst_string_tokens(cst)?;
-    if cst
-        .vertices
-        .values()
-        .any(|vertex| *vertex.kind == *"dotted_key")
-    {
-        return Err(CstCodecError::Structure(
-            "TOML dotted keys require nested-table semantics and are not supported".into(),
-        ));
-    }
     if !domain_schema.has_vertex(root_vertex) {
         return Err(CstCodecError::SchemaMismatch(format!(
             "root vertex '{root_vertex}' not found in domain schema"
@@ -2120,13 +2111,14 @@ pub fn extract_toml_cst_with_protocol(
 
     let mut state = ExtractState::new();
     let doc_vertex = Name::from(find_cst_root(cst)?.as_str());
+    let document = toml_document(cst, &doc_vertex)?;
 
     let root_id = state.alloc_id();
     extract_toml_table(
         cst,
         domain_schema,
         protocol,
-        &doc_vertex,
+        &document,
         root_vertex,
         root_id,
         &mut state,
@@ -2154,23 +2146,146 @@ pub fn extract_toml_cst_with_protocol(
     Ok((instance, complement))
 }
 
-/// One key/value entry of a TOML table.
-struct TomlEntry<'a> {
-    /// The entry's key, as written.
-    key: String,
-    /// The CST vertex carrying the entry's value: a scalar, an `array`, an
-    /// `inline_table`, or a `table` / `table_array_element` body.
-    value: &'a Name,
+/// How a TOML table came to be defined, which decides what may extend it.
+///
+/// TOML 1.0.0 lets each table be defined once. A `[header]` defines its
+/// table and creates every undefined table above it as an implicit table,
+/// which a later header may still define. A dotted key `a.b = 1` defines
+/// `a` within the table holding the pair, and only further dotted keys of
+/// that table extend it; a header may name a sub-table of it but not
+/// define it again. A `[[header]]` appends a table of its own to an array
+/// of tables. An inline table is complete where it is written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TomlTableOrigin {
+    /// The document's top-level table.
+    Root,
+    /// Defined by a `[header]`.
+    Header,
+    /// Created by a longer header and not yet defined.
+    Implicit,
+    /// Defined by a dotted key.
+    Dotted,
+    /// Written as an inline table.
+    Inline,
+    /// One element of an array of tables.
+    ArrayElement,
 }
 
-/// The key text of a `pair`, `table`, or `table_array_element` node.
-fn toml_entry_key(cst: &Schema, vertex: &Name) -> Option<String> {
+/// A TOML table as the document defines it, with its keys resolved.
+struct TomlTable<'a> {
+    /// The CST vertex the table's instance node is recorded against: the
+    /// document, its header, its inline table, or the key that created it.
+    vertex: &'a Name,
+    /// How the table was defined.
+    origin: TomlTableOrigin,
+    /// The table's keys and their items, in the order each key is first
+    /// defined.
+    entries: Vec<(String, TomlItem<'a>)>,
+}
+
+impl<'a> TomlTable<'a> {
+    const fn new(vertex: &'a Name, origin: TomlTableOrigin) -> Self {
+        Self {
+            vertex,
+            origin,
+            entries: Vec::new(),
+        }
+    }
+
+    fn position(&self, key: &str) -> Option<usize> {
+        self.entries.iter().position(|(existing, _)| existing == key)
+    }
+}
+
+/// What one key of a TOML table holds.
+enum TomlItem<'a> {
+    /// A scalar, an array or an inline table, read from its CST vertex.
+    Value(&'a Name),
+    /// A table defined by a header or by dotted keys.
+    Table(TomlTable<'a>),
+    /// The elements of an array of tables, in source order.
+    TableArray(Vec<TomlTable<'a>>),
+}
+
+/// One segment of a TOML key: its text, unquoted, and its CST vertex.
+type TomlKeySegment<'a> = (String, &'a Name);
+
+/// The key vertex of a `pair`, `table` or `table_array_element` node.
+fn toml_entry_key_vertex<'a>(cst: &'a Schema, vertex: &Name) -> Option<&'a Name> {
     cst_children_by_edge_kind(cst, vertex, "child_of")
         .into_iter()
         .find(|child| {
             cst_vertex_kind(cst, child).is_some_and(|k| TOML_KEY_KINDS.contains(&k.as_str()))
         })
-        .map(|key_vertex| toml_key_text(cst, key_vertex))
+}
+
+/// The segments of the key of a `pair`, `table` or `table_array_element`
+/// node, outermost first.
+///
+/// The grammar nests a dotted key to the left, `a.b.c` as `(a.b).c`, so the
+/// walk descends the left spine iteratively and a key of any length takes
+/// constant stack.
+fn toml_key_path<'a>(
+    cst: &'a Schema,
+    entry: &Name,
+) -> Result<Vec<TomlKeySegment<'a>>, CstCodecError> {
+    let malformed = || {
+        CstCodecError::Structure(format!(
+            "TOML key at {} has no key segments",
+            toml_offset_text(cst, entry)
+        ))
+    };
+    let mut current = toml_entry_key_vertex(cst, entry).ok_or_else(malformed)?;
+    let mut reversed = Vec::new();
+    while cst_vertex_kind(cst, current).as_deref() == Some("dotted_key") {
+        let mut parts: Vec<&Name> = cst_children_by_edge_kind(cst, current, "child_of")
+            .into_iter()
+            .filter(|child| {
+                cst_vertex_kind(cst, child).is_some_and(|k| TOML_KEY_KINDS.contains(&k.as_str()))
+            })
+            .collect();
+        parts.sort_by_key(|part| cst_byte_offset(cst, part));
+        let [left, right] = parts.as_slice() else {
+            return Err(malformed());
+        };
+        reversed.push((toml_key_text(cst, right), *right));
+        current = *left;
+    }
+    reversed.push((toml_key_text(cst, current), current));
+    reversed.reverse();
+    Ok(reversed)
+}
+
+/// `byte N` for a CST vertex with a recorded start, for refusal messages.
+fn toml_offset_text(cst: &Schema, vertex: &Name) -> String {
+    cst_byte_offset(cst, vertex).map_or_else(
+        || "an unrecorded byte".to_owned(),
+        |byte| format!("byte {byte}"),
+    )
+}
+
+/// The dotted spelling of a key path, for refusal messages.
+fn toml_path_text(path: &[TomlKeySegment<'_>]) -> String {
+    path.iter()
+        .map(|(key, _)| key.as_str())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// Refuse a key path that would nest tables deeper than extraction
+/// descends, before building it.
+///
+/// `depth` is how deep the table receiving the path already sits. Checking
+/// here keeps the resolved table tree, which is built and dropped
+/// recursively, no deeper than [`MAX_EXTRACT_DEPTH`].
+const fn toml_check_depth(depth: usize, path_len: usize) -> Result<usize, CstCodecError> {
+    let reached = depth + path_len;
+    if reached > MAX_EXTRACT_DEPTH {
+        return Err(CstCodecError::NestingTooDeep {
+            limit: MAX_EXTRACT_DEPTH,
+        });
+    }
+    Ok(reached)
 }
 
 /// The text a key node denotes, with a quoted key's quotes removed.
@@ -2376,39 +2491,6 @@ fn toml_encode_string_content(s: &str) -> String {
     out
 }
 
-/// The entries of a TOML table-like node, in source order.
-///
-/// A `pair` contributes its key and value directly. A nested `table` or
-/// `table_array_element` contributes its own key and itself as the value, so
-/// the recursion descends into it exactly as it does into an inline table.
-fn toml_entries<'a>(cst: &'a Schema, container: &Name) -> Vec<TomlEntry<'a>> {
-    let mut entries = Vec::new();
-    for child in cst_children_by_edge_kind(cst, container, "child_of") {
-        let Some(kind) = cst_vertex_kind(cst, child) else {
-            continue;
-        };
-        match kind.as_str() {
-            "pair" => {
-                let Some(key) = toml_entry_key(cst, child) else {
-                    continue;
-                };
-                let Some(value) = toml_pair_value(cst, child) else {
-                    continue;
-                };
-                entries.push(TomlEntry { key, value });
-            }
-            "table" | "table_array_element" => {
-                let Some(key) = toml_entry_key(cst, child) else {
-                    continue;
-                };
-                entries.push(TomlEntry { key, value: child });
-            }
-            _ => {}
-        }
-    }
-    entries
-}
-
 /// The value vertex of a `pair`: its first child that is not the key.
 fn toml_pair_value<'a>(cst: &'a Schema, pair: &Name) -> Option<&'a Name> {
     cst_children_by_edge_kind(cst, pair, "child_of")
@@ -2418,44 +2500,201 @@ fn toml_pair_value<'a>(cst: &'a Schema, pair: &Name) -> Option<&'a Name> {
         })
 }
 
-/// Group the entries of a table by key, preserving first-appearance order.
+/// Resolve a TOML document's keys into the tables they define.
 ///
-/// Repeated `[[table array]]` headers share a key and are the elements of one
-/// list; every other key appears once.
-fn toml_grouped_entries<'a>(
+/// The document's top-level pairs fill the root table. Each `[header]` and
+/// `[[header]]` names a table by its full key path from the root, and the
+/// pairs under it fill that table; a dotted key in any pair names a path of
+/// tables below the one holding it. The resolution follows the definition
+/// rules of TOML 1.0.0 that [`TomlTableOrigin`] records, and refuses a key
+/// defined twice, a table defined twice, a dotted key that extends a table
+/// it did not define, and a header that extends a value, an inline table or
+/// a static array, naming the key and the byte offset of the entry.
+fn toml_document<'a>(cst: &'a Schema, document: &'a Name) -> Result<TomlTable<'a>, CstCodecError> {
+    let mut root = TomlTable::new(document, TomlTableOrigin::Root);
+    for child in cst_children_by_edge_kind(cst, document, "child_of") {
+        let kind = cst_vertex_kind(cst, child);
+        match kind.as_deref() {
+            Some("pair") => toml_define_pair(cst, &mut root, 0, child)?,
+            Some(header @ ("table" | "table_array_element")) => {
+                let (table, depth) =
+                    toml_open_header(cst, &mut root, child, header == "table_array_element")?;
+                for pair in cst_children_by_edge_kind(cst, child, "child_of") {
+                    if cst_vertex_kind(cst, pair).as_deref() == Some("pair") {
+                        toml_define_pair(cst, table, depth, pair)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(root)
+}
+
+/// The keys of one inline table, resolved.
+///
+/// An inline table's pairs may use dotted keys, which define tables inside
+/// it exactly as they do in a header's table. Nested inline tables stay
+/// values here and are resolved when they are read, so the resolution of
+/// one inline table never recurses.
+fn toml_inline_table<'a>(
     cst: &'a Schema,
-    container: &Name,
-) -> Result<Vec<(String, Vec<&'a Name>)>, CstCodecError> {
-    let mut grouped: Vec<(String, Vec<&Name>)> = Vec::new();
-    for entry in toml_entries(cst, container) {
-        if let Some(slot) = grouped.iter_mut().find(|(key, _)| *key == entry.key) {
-            slot.1.push(entry.value);
+    inline: &'a Name,
+) -> Result<TomlTable<'a>, CstCodecError> {
+    let mut table = TomlTable::new(inline, TomlTableOrigin::Inline);
+    for pair in cst_children_by_edge_kind(cst, inline, "child_of") {
+        if cst_vertex_kind(cst, pair).as_deref() == Some("pair") {
+            toml_define_pair(cst, &mut table, 0, pair)?;
+        }
+    }
+    Ok(table)
+}
+
+/// Define the key of one `pair` in `table`, which sits `depth` tables below
+/// the root of its resolution.
+fn toml_define_pair<'a>(
+    cst: &'a Schema,
+    table: &mut TomlTable<'a>,
+    depth: usize,
+    pair: &'a Name,
+) -> Result<(), CstCodecError> {
+    let path = toml_key_path(cst, pair)?;
+    toml_check_depth(depth, path.len())?;
+    let value = toml_pair_value(cst, pair).ok_or_else(|| {
+        CstCodecError::Structure(format!(
+            "TOML pair {} at {} has no value",
+            toml_path_text(&path),
+            toml_offset_text(cst, pair)
+        ))
+    })?;
+    let Some(((last, _), prefix)) = path.split_last() else {
+        return Ok(());
+    };
+    let mut current = table;
+    for (key, key_vertex) in prefix {
+        let index = if let Some(index) = current.position(key) {
+            index
         } else {
-            grouped.push((entry.key, vec![entry.value]));
+            current.entries.push((
+                key.clone(),
+                TomlItem::Table(TomlTable::new(key_vertex, TomlTableOrigin::Dotted)),
+            ));
+            current.entries.len() - 1
+        };
+        match &mut current.entries[index].1 {
+            TomlItem::Table(next) if next.origin == TomlTableOrigin::Dotted => current = next,
+            _ => {
+                return Err(CstCodecError::Structure(format!(
+                    "TOML dotted key {} at {} extends key {key} of a table its dotted keys \
+                     did not define",
+                    toml_path_text(&path),
+                    toml_offset_text(cst, pair)
+                )));
+            }
         }
     }
-    for (_, values) in &grouped {
-        if values.len() > 1
-            && !values
-                .iter()
-                .all(|value| is_toml_table_array_element(cst, value))
-        {
-            let offset = cst_byte_offset(cst, values[1])
-                .map_or_else(|| "unknown".to_owned(), |value| value.to_string());
-            return Err(CstCodecError::Structure(format!(
-                "duplicate TOML key at byte {offset}"
-            )));
-        }
+    if current.position(last).is_some() {
+        return Err(CstCodecError::Structure(format!(
+            "duplicate TOML key {} at {}",
+            toml_path_text(&path),
+            toml_offset_text(cst, pair)
+        )));
     }
-    Ok(grouped)
+    current
+        .entries
+        .push((last.clone(), TomlItem::Value(value)));
+    Ok(())
 }
 
-/// Whether a CST vertex is a `[[table array]]` element.
-fn is_toml_table_array_element(cst: &Schema, vertex: &Name) -> bool {
-    cst_vertex_kind(cst, vertex).as_deref() == Some("table_array_element")
+/// Open the table a `[header]` or `[[header]]` names, returning it with its
+/// depth below the root.
+fn toml_open_header<'a, 'b>(
+    cst: &'a Schema,
+    root: &'b mut TomlTable<'a>,
+    header: &'a Name,
+    array: bool,
+) -> Result<(&'b mut TomlTable<'a>, usize), CstCodecError> {
+    let path = toml_key_path(cst, header)?;
+    let depth = toml_check_depth(0, path.len())?;
+    let spelled = if array {
+        format!("[[{}]]", toml_path_text(&path))
+    } else {
+        format!("[{}]", toml_path_text(&path))
+    };
+    let refuse = |reason: &str| {
+        CstCodecError::Structure(format!(
+            "TOML header {spelled} at {} {reason}",
+            toml_offset_text(cst, header)
+        ))
+    };
+    let Some(((last, _), prefix)) = path.split_last() else {
+        return Err(refuse("names no key"));
+    };
+    let mut current = root;
+    for (key, key_vertex) in prefix {
+        let index = if let Some(index) = current.position(key) {
+            index
+        } else {
+            current.entries.push((
+                key.clone(),
+                TomlItem::Table(TomlTable::new(key_vertex, TomlTableOrigin::Implicit)),
+            ));
+            current.entries.len() - 1
+        };
+        current = match &mut current.entries[index].1 {
+            TomlItem::Table(next) => next,
+            TomlItem::TableArray(elements) => elements
+                .last_mut()
+                .ok_or_else(|| refuse("extends an empty array of tables"))?,
+            TomlItem::Value(_) => {
+                return Err(refuse(&format!(
+                    "extends key {key}, which holds a value rather than a table"
+                )));
+            }
+        };
+    }
+
+    let existing = current.position(last);
+    if array {
+        let index = if let Some(index) = existing {
+            index
+        } else {
+            current
+                .entries
+                .push((last.clone(), TomlItem::TableArray(Vec::new())));
+            current.entries.len() - 1
+        };
+        let TomlItem::TableArray(elements) = &mut current.entries[index].1 else {
+            return Err(refuse("appends to a key that is not an array of tables"));
+        };
+        elements.push(TomlTable::new(header, TomlTableOrigin::ArrayElement));
+        let element = elements
+            .last_mut()
+            .ok_or_else(|| refuse("appended no table"))?;
+        return Ok((element, depth));
+    }
+
+    let Some(index) = existing else {
+        current.entries.push((
+            last.clone(),
+            TomlItem::Table(TomlTable::new(header, TomlTableOrigin::Header)),
+        ));
+        let Some((_, TomlItem::Table(table))) = current.entries.last_mut() else {
+            return Err(refuse("defined no table"));
+        };
+        return Ok((table, depth));
+    };
+    match &mut current.entries[index].1 {
+        TomlItem::Table(table) if table.origin == TomlTableOrigin::Implicit => {
+            table.origin = TomlTableOrigin::Header;
+            table.vertex = header;
+            Ok((table, depth))
+        }
+        _ => Err(refuse("defines a table that is already defined")),
+    }
 }
 
-/// Extract a TOML table-like node, matching keys to domain schema edges.
+/// Extract a resolved TOML table, matching keys to domain schema edges.
 ///
 /// With no outgoing edges on the domain vertex (the open-schema case) every
 /// entry becomes a child node under a synthesised `prop` edge, exactly as the
@@ -2464,24 +2703,25 @@ fn extract_toml_table(
     cst: &Schema,
     domain_schema: &Schema,
     protocol: &Protocol,
-    cst_vertex: &Name,
+    table: &TomlTable<'_>,
     domain_vertex: &str,
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
     state.enter()?;
     let mut node = Node::new(node_id, domain_vertex);
-    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
+    state
+        .node_to_cst_struct
+        .insert(node_id, table.vertex.clone());
 
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
-    let grouped = toml_grouped_entries(cst, cst_vertex)?;
 
     if domain_edges.is_empty() {
         state.nodes.insert(node_id, node);
-        for (key, values) in grouped {
+        for (key, item) in &table.entries {
             let child_anchor = format!("{domain_vertex}:{key}");
             let child_id = state.alloc_id();
-            extract_toml_entry_open(cst, &values, &child_anchor, child_id, state)?;
+            extract_toml_item_open(cst, item, &child_anchor, child_id, state)?;
             let synth_edge = Edge {
                 src: Name::from(domain_vertex),
                 tgt: Name::from(child_anchor.as_str()),
@@ -2498,15 +2738,15 @@ fn extract_toml_table(
     for domain_edge in &domain_edges {
         let field_name = domain_edge.name.as_deref().unwrap_or(&domain_edge.tgt);
         handled_keys.insert(field_name.to_owned());
-        let Some((_, values)) = grouped.iter().find(|(key, _)| key == field_name) else {
+        let Some((_, item)) = table.entries.iter().find(|(key, _)| key == field_name) else {
             continue;
         };
         let child_id = state.alloc_id();
-        extract_toml_entry(
+        extract_toml_item(
             cst,
             domain_schema,
             protocol,
-            values,
+            item,
             &domain_edge.tgt,
             child_id,
             state,
@@ -2516,26 +2756,14 @@ fn extract_toml_table(
 
     // Keys the domain schema does not declare survive as extra fields, the
     // same way unhandled JSON pairs do.
-    for (key, values) in &grouped {
+    for (key, item) in &table.entries {
         if handled_keys.contains(key) {
             continue;
         }
-        if let [single] = values.as_slice() {
-            node.extra_fields.insert(
-                key.clone(),
-                toml_generic_value(cst, single, domain_vertex, state)?,
-            );
-        } else {
-            node.extra_fields.insert(
-                key.clone(),
-                Value::List(
-                    values
-                        .iter()
-                        .map(|value| toml_generic_value(cst, value, domain_vertex, state))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-            );
-        }
+        node.extra_fields.insert(
+            key.clone(),
+            toml_generic_item(cst, item, domain_vertex, state)?,
+        );
     }
 
     state.nodes.insert(node_id, node);
@@ -2543,32 +2771,44 @@ fn extract_toml_table(
     Ok(())
 }
 
-/// Extract the value(s) a single key carries, schema-guided.
+/// Extract what one key holds, schema-guided.
 ///
-/// Several `[[table array]]` elements under one key form a list; a single
-/// value is extracted directly.
-fn extract_toml_entry(
+/// An array of tables is a list whose elements are its tables, whatever
+/// the number of elements.
+fn extract_toml_item(
     cst: &Schema,
     domain_schema: &Schema,
     protocol: &Protocol,
-    values: &[&Name],
+    item: &TomlItem<'_>,
     domain_vertex: &str,
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
-    if let [single] = values
-        && !is_toml_table_array_element(cst, single)
-    {
-        return extract_toml_value(
-            cst,
-            domain_schema,
-            protocol,
-            single,
-            domain_vertex,
-            node_id,
-            state,
-        );
-    }
+    let elements = match item {
+        TomlItem::Value(vertex) => {
+            return extract_toml_value(
+                cst,
+                domain_schema,
+                protocol,
+                vertex,
+                domain_vertex,
+                node_id,
+                state,
+            );
+        }
+        TomlItem::Table(table) => {
+            return extract_toml_table(
+                cst,
+                domain_schema,
+                protocol,
+                table,
+                domain_vertex,
+                node_id,
+                state,
+            );
+        }
+        TomlItem::TableArray(elements) => elements,
+    };
 
     state.enter()?;
     let mut node = Node::new(node_id, domain_vertex);
@@ -2578,10 +2818,10 @@ fn extract_toml_entry(
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
     let item_edge = domain_edges.iter().find(|edge| edge.name.is_none());
 
-    for element in values {
+    for element in elements {
         let child_id = state.alloc_id();
         if let Some(edge) = item_edge {
-            extract_toml_value(
+            extract_toml_table(
                 cst,
                 domain_schema,
                 protocol,
@@ -2593,7 +2833,7 @@ fn extract_toml_entry(
             state.arcs.push((node_id, child_id, edge.clone()));
         } else {
             let child_anchor = format!("{domain_vertex}:items");
-            extract_toml_value_open(cst, element, &child_anchor, child_id, state)?;
+            extract_toml_table_open(cst, element, &child_anchor, child_id, state)?;
             state.arcs.push((
                 node_id,
                 child_id,
@@ -2611,29 +2851,36 @@ fn extract_toml_entry(
     Ok(())
 }
 
-/// The open-schema twin of [`extract_toml_entry`].
-fn extract_toml_entry_open(
+/// The open-schema twin of [`extract_toml_item`].
+fn extract_toml_item_open(
     cst: &Schema,
-    values: &[&Name],
+    item: &TomlItem<'_>,
     anchor: &str,
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
-    if let [single] = values
-        && !is_toml_table_array_element(cst, single)
-    {
-        return extract_toml_value_open(cst, single, anchor, node_id, state);
-    }
+    let elements = match item {
+        TomlItem::Value(vertex) => {
+            return extract_toml_value_open(cst, vertex, anchor, node_id, state);
+        }
+        TomlItem::Table(table) => {
+            state.enter()?;
+            extract_toml_table_open(cst, table, anchor, node_id, state)?;
+            state.leave();
+            return Ok(());
+        }
+        TomlItem::TableArray(elements) => elements,
+    };
 
     state.enter()?;
     let mut node = Node::new(node_id, anchor);
     node.shape = NodeShape::List;
     state.nodes.insert(node_id, node);
 
-    for element in values {
+    for element in elements {
         let child_anchor = format!("{anchor}:items");
         let child_id = state.alloc_id();
-        extract_toml_value_open(cst, element, &child_anchor, child_id, state)?;
+        extract_toml_table_open(cst, element, &child_anchor, child_id, state)?;
         state.arcs.push((
             node_id,
             child_id,
@@ -2665,16 +2912,18 @@ fn extract_toml_value(
         .ok_or_else(|| CstCodecError::VertexNotFound(cst_vertex.to_string()))?;
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    let extracted = if TOML_TABLE_KINDS.contains(&kind.as_str()) {
-        extract_toml_table(
-            cst,
-            domain_schema,
-            protocol,
-            cst_vertex,
-            domain_vertex,
-            node_id,
-            state,
-        )
+    let extracted = if kind == "inline_table" {
+        toml_inline_table(cst, cst_vertex).and_then(|table| {
+            extract_toml_table(
+                cst,
+                domain_schema,
+                protocol,
+                &table,
+                domain_vertex,
+                node_id,
+                state,
+            )
+        })
     } else if kind == "array" {
         extract_toml_array(
             cst,
@@ -2721,13 +2970,15 @@ fn extract_toml_value_open(
 ) -> Result<(), CstCodecError> {
     state.enter()?;
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
-    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    let extracted = if TOML_TABLE_KINDS.contains(&kind.as_str()) {
-        extract_toml_table_open(cst, cst_vertex, anchor, node_id, state)
+    let extracted = if kind == "inline_table" {
+        toml_inline_table(cst, cst_vertex)
+            .and_then(|table| extract_toml_table_open(cst, &table, anchor, node_id, state))
     } else if kind == "array" {
+        state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
         extract_toml_array_open(cst, cst_vertex, anchor, node_id, state)
     } else {
+        state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
         let value = match toml_scalar_value(cst, cst_vertex) {
             Ok(value) => value,
             Err(error) => {
@@ -2750,22 +3001,25 @@ fn extract_toml_value_open(
     extracted
 }
 
-/// Extract a TOML table without schema guidance, synthesising one `prop`
-/// edge per key.
+/// Extract a resolved TOML table without schema guidance, synthesising one
+/// `prop` edge per key.
 fn extract_toml_table_open(
     cst: &Schema,
-    cst_vertex: &Name,
+    table: &TomlTable<'_>,
     anchor: &str,
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstCodecError> {
+    state
+        .node_to_cst_struct
+        .insert(node_id, table.vertex.clone());
     let node = Node::new(node_id, anchor);
     state.nodes.insert(node_id, node);
 
-    for (key, values) in toml_grouped_entries(cst, cst_vertex)? {
+    for (key, item) in &table.entries {
         let child_anchor = format!("{anchor}:{key}");
         let child_id = state.alloc_id();
-        extract_toml_entry_open(cst, &values, &child_anchor, child_id, state)?;
+        extract_toml_item_open(cst, item, &child_anchor, child_id, state)?;
         state.arcs.push((
             node_id,
             child_id,
@@ -2780,7 +3034,6 @@ fn extract_toml_table_open(
 
     Ok(())
 }
-
 /// Extract a TOML `[…]` array, schema-guided.
 fn extract_toml_array(
     cst: &Schema,
@@ -2943,8 +3196,53 @@ fn toml_scalar_value(cst: &Schema, cst_vertex: &Name) -> Result<Value, ValueFide
     )
 }
 
-/// The `Value` a TOML node denotes, for the extra-fields path that carries
-/// undeclared keys without giving them instance nodes.
+/// The `Value` one key of a TOML table holds, for the extra-fields path
+/// that carries undeclared keys without giving them instance nodes.
+///
+/// A table is a map of its keys' values and an array of tables is a list of
+/// its tables' maps, whatever the number of elements.
+fn toml_generic_item(
+    cst: &Schema,
+    item: &TomlItem<'_>,
+    domain_vertex: &str,
+    state: &mut ExtractState,
+) -> Result<Value, CstCodecError> {
+    match item {
+        TomlItem::Value(vertex) => toml_generic_value(cst, vertex, domain_vertex, state),
+        TomlItem::Table(table) => toml_generic_table(cst, table, domain_vertex, state),
+        TomlItem::TableArray(elements) => {
+            state.enter()?;
+            let values = elements
+                .iter()
+                .map(|element| toml_generic_table(cst, element, domain_vertex, state))
+                .collect::<Result<Vec<_>, _>>()?;
+            state.leave();
+            Ok(Value::List(values))
+        }
+    }
+}
+
+/// The map of a resolved TOML table's keys to their generic values.
+fn toml_generic_table(
+    cst: &Schema,
+    table: &TomlTable<'_>,
+    domain_vertex: &str,
+    state: &mut ExtractState,
+) -> Result<Value, CstCodecError> {
+    state.enter()?;
+    let mut fields = HashMap::new();
+    for (key, item) in &table.entries {
+        fields.insert(
+            key.clone(),
+            toml_generic_item(cst, item, domain_vertex, state)?,
+        );
+    }
+    state.leave();
+    Ok(Value::Unknown(fields))
+}
+
+/// The `Value` a TOML value vertex denotes: a scalar, an array or an inline
+/// table.
 fn toml_generic_value(
     cst: &Schema,
     cst_vertex: &Name,
@@ -2953,22 +3251,9 @@ fn toml_generic_value(
 ) -> Result<Value, CstCodecError> {
     state.enter()?;
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
-    let value = if TOML_TABLE_KINDS.contains(&kind.as_str()) {
-        let mut fields = HashMap::new();
-        for (key, values) in toml_grouped_entries(cst, cst_vertex)? {
-            let value = if let [single] = values.as_slice() {
-                toml_generic_value(cst, single, domain_vertex, state)?
-            } else {
-                Value::List(
-                    values
-                        .iter()
-                        .map(|value| toml_generic_value(cst, value, domain_vertex, state))
-                        .collect::<Result<Vec<_>, _>>()?,
-                )
-            };
-            fields.insert(key, value);
-        }
-        Value::Unknown(fields)
+    let value = if kind == "inline_table" {
+        let table = toml_inline_table(cst, cst_vertex)?;
+        toml_generic_table(cst, &table, domain_vertex, state)?
     } else if kind == "array" {
         Value::List(
             toml_array_elements(cst, cst_vertex)
@@ -4542,6 +4827,7 @@ pub fn extract_yaml_cst_with_protocol(
 
     let mut state = ExtractState::new();
     let doc_vertex = find_unique_yaml_document(cst)?;
+    check_yaml_directives(cst, &doc_vertex)?;
 
     let top_value = find_yaml_top_value(cst, &doc_vertex)
         .ok_or_else(|| CstCodecError::Structure("no value node in YAML document".into()))?;
@@ -4579,10 +4865,72 @@ pub fn extract_yaml_cst_with_protocol(
     Ok((instance, complement))
 }
 
+/// Check the directives that open a YAML document against the domain this
+/// route reads.
+///
+/// The route reads YAML 1.2 under the core schema. A document with no
+/// `%YAML` directive, or with `%YAML 1.2`, is read. YAML 1.2.2 Sec 6.8.1
+/// makes a second `%YAML` directive an error and requires a higher major
+/// version to be rejected; it asks for a `%YAML 1.1` document and a higher
+/// minor version to be read with warnings at the points where their
+/// interpretation differs, and this route has no warning channel, so it
+/// refuses every version other than 1.2 rather than read a scalar such as
+/// `yes` or `0777` under a schema its author did not intend. A `%TAG`
+/// directive redefines how tag shorthands expand (Sec 6.8.2), which the
+/// route does not model, so it is refused. A reserved directive carries no
+/// meaning (Sec 6.8) and is kept in the source bytes without being read.
+fn check_yaml_directives(cst: &Schema, document: &str) -> Result<(), CstCodecError> {
+    let mut version_directive: Option<&Name> = None;
+    for child in cst_children_by_edge_kind(cst, document, "child_of") {
+        let offset = cst_byte_offset(cst, child)
+            .map_or_else(|| "an unrecorded byte".to_owned(), |byte| format!("byte {byte}"));
+        match cst_vertex_kind(cst, child).as_deref() {
+            Some("yaml_directive") => {
+                if version_directive.replace(child).is_some() {
+                    return Err(CstCodecError::Structure(format!(
+                        "YAML document repeats the %YAML directive at {offset}"
+                    )));
+                }
+                let version = cst_children_by_edge_kind(cst, child, "child_of")
+                    .into_iter()
+                    .find(|part| cst_vertex_kind(cst, part).as_deref() == Some("yaml_version"))
+                    .map(|part| literal_text_deep(cst, part))
+                    .unwrap_or_default();
+                if version != "1.2" {
+                    return Err(CstCodecError::Structure(format!(
+                        "YAML %YAML {version} directive at {offset}: this route reads YAML 1.2 only"
+                    )));
+                }
+            }
+            Some("tag_directive") => {
+                return Err(CstCodecError::Structure(format!(
+                    "YAML %TAG directive at {offset}: tag handle definitions are not supported"
+                )));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn find_yaml_top_value(cst: &Schema, root: &str) -> Option<Name> {
     let mut current = Name::from(root);
     for _ in 0..5 {
         let kind = cst_vertex_kind(cst, &current)?;
+        if kind == "document" {
+            // A document's content is its one node child; its directives
+            // and comments are children beside it.
+            current = cst_children_by_edge_kind(cst, &current, "child_of")
+                .into_iter()
+                .find(|child| {
+                    matches!(
+                        cst_vertex_kind(cst, child).as_deref(),
+                        Some("block_node" | "flow_node")
+                    )
+                })?
+                .clone();
+            continue;
+        }
         match kind.as_str() {
             "flow_node"
             | "block_node"
