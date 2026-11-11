@@ -25,7 +25,7 @@ The protocol crate currently dispatches 43 JSON-document schema parsers and 11 t
 
 Instances come in three shapes: trees, tables, and graphs. The three share one engine for exact values, validation, restriction, edits, lenses, and reference resolution. The laws this engine satisfies are stated, with proofs, in the [Correctness part of the book](book/src/correctness/index.md).
 
-The tree-sitter layer can compile as many as 261 vendored grammars. The grammars available in a particular binary depend on its Cargo features or installed companion packs.
+The tree-sitter layer can compile as many as 262 vendored grammars. The grammars available in a particular binary depend on its Cargo features or installed companion packs.
 
 Schema search either finds a map covering every source element (a total morphism) or a partial overlap (a span). It may return no total map or an empty overlap; bounded results include a certificate stating whether optimality was proved. A generated lens saves discarded source information in a complement for reconstruction. Law checks cover only the supplied or generated cases. See [The vocabulary in plain terms](book/src/explanation/decoder-ring.md).
 

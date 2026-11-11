@@ -1,0 +1,450 @@
+================================================================================
+INSERT
+================================================================================
+
+INSERT INTO foo VALUES (1, 'hello');
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (InsertStmt
+        (kw_insert)
+        (kw_into)
+        (insert_target
+          (qualified_name
+            (ColId
+              (identifier))))
+        (insert_rest
+          (SelectStmt
+            (select_no_parens
+              (simple_select
+                (values_clause
+                  (kw_values)
+                  (expr_list
+                    (expr_list
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal)))))))
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Sconst
+                              (string_literal))))))))))))))))
+
+================================================================================
+UPDATE
+================================================================================
+
+UPDATE foo SET x = 1 WHERE id = 2;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (UpdateStmt
+        (kw_update)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_set)
+        (set_clause_list
+          (set_clause
+            (set_target
+              (ColId
+                (identifier)))
+            (a_expr
+              (a_expr
+                (c_expr
+                  (AexprConst
+                    (Iconst
+                      (integer_literal))))))))
+        (where_or_current_clause
+          (kw_where)
+          (a_expr
+            (a_expr
+              (a_expr_prec
+                (c_expr
+                  (columnref
+                    (ColId
+                      (identifier)))))
+              (a_expr_prec
+                (c_expr
+                  (AexprConst
+                    (Iconst
+                      (integer_literal))))))))))))
+
+================================================================================
+DELETE
+================================================================================
+
+DELETE FROM foo WHERE id = 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (DeleteStmt
+        (kw_delete)
+        (kw_from)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (where_or_current_clause
+          (kw_where)
+          (a_expr
+            (a_expr
+              (a_expr_prec
+                (c_expr
+                  (columnref
+                    (ColId
+                      (identifier)))))
+              (a_expr_prec
+                (c_expr
+                  (AexprConst
+                    (Iconst
+                      (integer_literal))))))))))))
+
+================================================================================
+MERGE with WHEN MATCHED THEN UPDATE
+================================================================================
+
+MERGE INTO t USING u ON a = b WHEN MATCHED THEN UPDATE SET c = 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (MergeStmt
+        (kw_merge)
+        (kw_into)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_using)
+        (table_ref
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_on)
+        (a_expr
+          (a_expr
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))))
+        (merge_when_list
+          (merge_when_clause
+            (merge_when_tgt_matched
+              (kw_when)
+              (kw_matched))
+            (kw_then)
+            (merge_update
+              (kw_update)
+              (kw_set)
+              (set_clause_list
+                (set_clause
+                  (set_target
+                    (ColId
+                      (identifier)))
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal)))))))))))))))
+
+================================================================================
+MERGE with WHEN MATCHED THEN DELETE
+================================================================================
+
+MERGE INTO t USING u ON a = b WHEN MATCHED THEN DELETE;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (MergeStmt
+        (kw_merge)
+        (kw_into)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_using)
+        (table_ref
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_on)
+        (a_expr
+          (a_expr
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))))
+        (merge_when_list
+          (merge_when_clause
+            (merge_when_tgt_matched
+              (kw_when)
+              (kw_matched))
+            (kw_then)
+            (merge_delete
+              (kw_delete))))))))
+
+================================================================================
+MERGE with WHEN MATCHED THEN DO NOTHING
+================================================================================
+
+MERGE INTO t USING u ON a = b WHEN MATCHED THEN DO NOTHING;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (MergeStmt
+        (kw_merge)
+        (kw_into)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_using)
+        (table_ref
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_on)
+        (a_expr
+          (a_expr
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))))
+        (merge_when_list
+          (merge_when_clause
+            (merge_when_tgt_matched
+              (kw_when)
+              (kw_matched))
+            (kw_then)
+            (kw_do)
+            (kw_nothing)))))))
+
+================================================================================
+MERGE with WHEN NOT MATCHED THEN INSERT
+================================================================================
+
+MERGE INTO t USING u ON a = b WHEN NOT MATCHED THEN INSERT VALUES (1);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (MergeStmt
+        (kw_merge)
+        (kw_into)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_using)
+        (table_ref
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_on)
+        (a_expr
+          (a_expr
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))))
+        (merge_when_list
+          (merge_when_clause
+            (merge_when_tgt_not_matched
+              (kw_when)
+              (kw_not)
+              (kw_matched))
+            (kw_then)
+            (merge_insert
+              (kw_insert)
+              (merge_values_clause
+                (kw_values)
+                (expr_list
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal)))))))))))))))
+
+================================================================================
+MERGE with WHEN NOT MATCHED BY SOURCE THEN DELETE
+================================================================================
+
+MERGE INTO t USING u ON a = b WHEN NOT MATCHED BY SOURCE THEN DELETE;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (MergeStmt
+        (kw_merge)
+        (kw_into)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_using)
+        (table_ref
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_on)
+        (a_expr
+          (a_expr
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))))
+        (merge_when_list
+          (merge_when_clause
+            (merge_when_tgt_matched
+              (kw_when)
+              (kw_not)
+              (kw_matched)
+              (kw_by)
+              (kw_source))
+            (kw_then)
+            (merge_delete
+              (kw_delete))))))))
+
+================================================================================
+MERGE with an AND condition on the WHEN clause
+================================================================================
+
+MERGE INTO t USING u ON a = b WHEN MATCHED AND c > 0 THEN UPDATE SET c = 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (MergeStmt
+        (kw_merge)
+        (kw_into)
+        (relation_expr_opt_alias
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_using)
+        (table_ref
+          (relation_expr
+            (qualified_name
+              (ColId
+                (identifier)))))
+        (kw_on)
+        (a_expr
+          (a_expr
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))
+            (a_expr_prec
+              (c_expr
+                (columnref
+                  (ColId
+                    (identifier)))))))
+        (merge_when_list
+          (merge_when_clause
+            (merge_when_tgt_matched
+              (kw_when)
+              (kw_matched))
+            (opt_merge_when_condition
+              (kw_and)
+              (a_expr
+                (a_expr
+                  (a_expr_prec
+                    (c_expr
+                      (columnref
+                        (ColId
+                          (identifier)))))
+                  (a_expr_prec
+                    (c_expr
+                      (AexprConst
+                        (Iconst
+                          (integer_literal))))))))
+            (kw_then)
+            (merge_update
+              (kw_update)
+              (kw_set)
+              (set_clause_list
+                (set_clause
+                  (set_target
+                    (ColId
+                      (identifier)))
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal)))))))))))))))

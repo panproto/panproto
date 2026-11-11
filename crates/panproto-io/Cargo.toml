@@ -51,7 +51,7 @@ tree-sitter = { workspace = true, optional = true }
 
 [features]
 default = []
-tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter", "panproto-parse/group-data", "panproto-parse/lang-tsv", "panproto-grammars/lang-tsv", "panproto-parse/lang-turtle", "panproto-grammars/lang-turtle"]
+tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter", "panproto-parse/group-data", "panproto-parse/lang-tsv", "panproto-grammars/lang-tsv", "panproto-parse/lang-turtle", "panproto-grammars/lang-turtle", "panproto-parse/lang-postgresql", "panproto-grammars/lang-postgresql"]
 
 [dev-dependencies]
 divan = { workspace = true }

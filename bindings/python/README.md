@@ -108,7 +108,7 @@ The default source build enables the 11 `group-core` grammars: Python,
 JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust. Optional
 companion wheels register other grammar groups through the
 `panproto.grammars` Python entry-point group. `panproto-grammars-all` contains
-all 261 grammars currently declared by `panproto-grammars`.
+all 262 grammars currently declared by `panproto-grammars`.
 
 ```sh
 pip install panproto-grammars-functional

@@ -1,0 +1,335 @@
+================================================================================
+Simple select
+================================================================================
+
+SELECT 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal)))))))))))))))
+
+================================================================================
+Column reference
+================================================================================
+
+SELECT foo;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))))))))
+
+================================================================================
+Multiple columns
+================================================================================
+
+SELECT a, b, c;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_list
+                  (target_list
+                    (target_el
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (columnref
+                              (ColId
+                                (identifier))))))))
+                  (target_el
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier))))))))
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))))))))
+
+================================================================================
+Star
+================================================================================
+
+SELECT * FROM foo;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el)))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))))))))
+
+================================================================================
+WHERE
+================================================================================
+
+SELECT a FROM foo WHERE a > 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))
+            (where_clause
+              (kw_where)
+              (a_expr
+                (a_expr
+                  (a_expr_prec
+                    (c_expr
+                      (columnref
+                        (ColId
+                          (identifier)))))
+                  (a_expr_prec
+                    (c_expr
+                      (AexprConst
+                        (Iconst
+                          (integer_literal))))))))))))))
+
+================================================================================
+ALL
+================================================================================
+
+SELECT ALL 1, 2, 3;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_all_clause
+              (kw_all))
+            (opt_target_list
+              (target_list
+                (target_list
+                  (target_list
+                    (target_el
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal))))))))
+                  (target_el
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Iconst
+                              (integer_literal))))))))
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal)))))))))))))))
+
+================================================================================
+TABLE
+================================================================================
+
+TABLE foo;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_table)
+            (relation_expr
+              (qualified_name
+                (ColId
+                  (identifier))))))))))
+
+================================================================================
+VALUES
+================================================================================
+
+VALUES (1), (2);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (values_clause
+              (values_clause
+                (kw_values)
+                (expr_list
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal))))))))
+              (expr_list
+                (a_expr
+                  (a_expr
+                    (c_expr
+                      (AexprConst
+                        (Iconst
+                          (integer_literal))))))))))))))
+
+================================================================================
+SELECT quoted identifiers and qualified names
+================================================================================
+
+SELECT "a""b" FROM "Sch ema"."T";
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (quoted_identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (quoted_identifier))
+                      (indirection
+                        (indirection_el
+                          (attr_name
+                            (ColLabel
+                              (quoted_identifier))))))))))))))))
+
+================================================================================
+SELECT quoted schema with unquoted table
+================================================================================
+
+SELECT x FROM "Quoted".unquoted;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (quoted_identifier))
+                      (indirection
+                        (indirection_el
+                          (attr_name
+                            (ColLabel
+                              (identifier))))))))))))))))

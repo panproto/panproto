@@ -121,7 +121,7 @@ JavaScript reaches `panproto-core` through `wasm-bindgen` in `panproto-wasm`. St
 
 ### Python boundary
 
-Python uses native PyO3 bindings in `panproto-py`. Its default Rust feature is `group-core`, and the wheel workflow builds with that default, which includes eleven core tree-sitter grammars. Companion `panproto-grammars-*` packs expose category-specific selections and a `group-all` selection containing all 261 declared grammars.
+Python uses native PyO3 bindings in `panproto-py`. Its default Rust feature is `group-core`, and the wheel workflow builds with that default, which includes eleven core tree-sitter grammars. Companion `panproto-grammars-*` packs expose category-specific selections and a `group-all` selection containing all 262 declared grammars.
 
 ### C boundary
 
