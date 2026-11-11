@@ -7100,7 +7100,9 @@ pub mod segmented_restrict {
     /// glued graph; run whole-state [`get`] and return its refusal in the
     /// segment owning the element it is about. Otherwise give each
     /// synthesized element to the segment owning its chain and number it
-    /// ([`present`]); then split the renumbered view with
+    /// there, segment by segment in id order, nodes before edges, each kind
+    /// in ascending key order by the append-floor rule over that segment's
+    /// range and source ids; then split the renumbered view with
     /// [`partition_graph`] and the complement by owner (a node's entries to
     /// its owner, an edge's to the owner of its source, a synthesized
     /// element's to its chain's owner), each segment's floors being the

@@ -18,8 +18,10 @@
 //!   in-stub enters, the survivors it reaches locally and the dropped ghosts
 //!   it leaves through; the coordinator closes these summaries over the
 //!   boundary, as the partial evaluation and assembly of distributed
-//!   reachability queries does [@fanwangwu2012performance], and returns to
-//!   each segment the survivors each of its dropped ghosts reaches;
+//!   reachability queries does (fanwangwu2012performance, Sec 3, stated:
+//!   ghosts are its virtual nodes, in-stub targets its in-nodes), and
+//!   returns to each segment the survivors each of its dropped ghosts
+//!   reaches;
 //! - stage 3 reads whether the targets of an owned fan's edges survive, and
 //!   their anchors, from the same exchange as stage 1.
 //!

@@ -5026,6 +5026,27 @@
               "test": "randomized::append_floor_matches_the_reference_on_generated_small_carriers"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-restrict",
+          "anchor": "L-segments-11",
+          "references": [
+            "panproto_reference::segment::restrict_graph_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::segmented_restrict_agrees_with_the_reference_and_assembles_to_whole_state_restrict"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::segmented_restrict_matches_the_reference_on_generated_partitions"
+            }
+          ]
         }
       ]
     },
