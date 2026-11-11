@@ -41,10 +41,13 @@ use panproto_schema::CanonicalWriter;
 use serde::{Deserialize, Serialize};
 
 use super::body::{Boundary, Ghost, GraphSegment, InStub};
+use super::bytes::{ascending, read_edges, read_nodes};
 use super::error::{Residual, SegmentError};
 use super::ids::{EdgeFloor, IdAllocator, IdKind, SegmentId};
 use super::partition::{OwnerIndex, Partition};
+use super::reader::Reader;
 use super::split::assemble_graph;
+use super::store::ArtifactKind;
 use crate::error::RestrictError;
 use crate::ginstance::{
     EdgeId, FanDomain, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, write_edge_record,
@@ -202,6 +205,61 @@ impl GraphComplementSegment {
         Ok(sink.into_bytes())
     }
 
+    /// The complement segment of `segment` whose canonical bytes are
+    /// `bytes`: the inverse of [`GraphComplementSegment::canonical_bytes`].
+    ///
+    /// The bytes do not name their segment, so the caller supplies the id
+    /// the manifest files them under.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] for the complement segment artifact when the
+    /// version or shape tag is not the graph's, an input ends inside a
+    /// field, a count exceeds the bytes left, a map's keys do not strictly
+    /// ascend, a value presence or synthesized-key tag is unknown, a value
+    /// is outside the canonical value layout, or bytes follow the floors.
+    pub fn from_canonical_bytes(bytes: &[u8], segment: SegmentId) -> Result<Self, SegmentError> {
+        let mut r = Reader::new(bytes, ArtifactKind::ComplementSegment);
+        let version = r.u16()?;
+        if version != SEGMENT_FORMAT_VERSION {
+            return Err(r.error(format!("complement format version {version}")));
+        }
+        let shape = r.u8()?;
+        if shape != 2 {
+            return Err(r.error(format!("complement shape tag {shape}")));
+        }
+        let dropped_nodes = read_nodes(&mut r)?;
+        let dropped_edges = read_edges(&mut r)?;
+        let original_edges = read_edges(&mut r)?;
+        let original_anchors = read_keyed(&mut r, 12, Reader::name)?;
+        let original_extra_fields = read_keyed(&mut r, 12, |r| {
+            Ok(r.value_entries(0)?.into_iter().collect::<BTreeMap<_, _>>())
+        })?;
+        let original_values = read_keyed(&mut r, 5, Reader::presence)?;
+        let synthesized_nodes = read_keyed(&mut r, 11, read_synth_key)?;
+        let synthesized_edges = read_keyed(&mut r, 11, read_synth_key)?
+            .into_iter()
+            .map(|(id, key)| (EdgeId(id), key))
+            .collect();
+        let floors = IdFloor {
+            node: r.u32()?,
+            edge: r.u32()?,
+        };
+        r.finish()?;
+        Ok(Self {
+            segment,
+            dropped_nodes,
+            dropped_edges,
+            original_edges,
+            original_anchors,
+            original_extra_fields,
+            original_values,
+            synthesized_nodes,
+            synthesized_edges,
+            floors,
+        })
+    }
+
     /// The complement segment's digest: its canonical bytes under
     /// [`SEGMENT_COMPLEMENT_CONTEXT`].
     ///
@@ -244,6 +302,46 @@ fn write_synth_key(sink: &mut CanonicalWriter, key: &SynthKey) -> Result<(), Seg
         }
     }
     Ok(())
+}
+
+/// Read a graph restrict's synthesized key, as [`write_synth_key`] writes
+/// it.
+fn read_synth_key(r: &mut Reader<'_>) -> Result<SynthKey, SegmentError> {
+    match r.u8()? {
+        0 => Ok(SynthKey::Contract {
+            src: r.u32()?,
+            tgt: r.u32()?,
+            edge: r.edge()?,
+        }),
+        1 => Ok(SynthKey::Expand {
+            source_edge: EdgeId(r.u32()?),
+            hop: r.u16()?,
+        }),
+        2 => Ok(SynthKey::ContractExpand {
+            src: r.u32()?,
+            tgt: r.u32()?,
+            hop: r.u16()?,
+        }),
+        other => Err(r.error(format!("synthesized key tag {other}"))),
+    }
+}
+
+/// Read a counted map from `u32` keys, each entry at least `min_entry`
+/// bytes long, refused unless the keys strictly ascend.
+fn read_keyed<'a, V>(
+    r: &mut Reader<'a>,
+    min_entry: usize,
+    mut value: impl FnMut(&mut Reader<'a>) -> Result<V, SegmentError>,
+) -> Result<BTreeMap<u32, V>, SegmentError> {
+    let n = r.count(min_entry)?;
+    let mut map = BTreeMap::new();
+    let mut last = None;
+    for _ in 0..n {
+        let key = r.u32()?;
+        ascending(r, &mut last, &key)?;
+        map.insert(key, value(r)?);
+    }
+    Ok(map)
 }
 
 /// The output of a segmented graph restrict: one view segment and one

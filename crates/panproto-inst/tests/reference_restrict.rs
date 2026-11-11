@@ -2898,9 +2898,10 @@ proptest::proptest! {
 /// Segmented graph restriction against its reference (L-segments-11).
 mod segmented {
     use super::{
-        NoValueLayer, RefGEdge, RefGraph, RefMigration, RefSchema, RestrictPlan,
-        graph_restrict_with_plan, prod_graph, prod_migration, prod_schema, production_error,
-        ref_complement, ref_edge, ref_graph, ref_node, ref_synth_key, reference_error,
+        BTreeMap, BTreeSet, Edge, FieldPresence, HashMap, IdFloor, NoValueLayer, Node, RefGEdge,
+        RefGraph, RefMigration, RefSchema, RestrictPlan, SynthKey, Value, graph_restrict_with_plan,
+        prod_graph, prod_migration, prod_schema, production_error, ref_complement, ref_edge,
+        ref_graph, ref_node, ref_synth_key, reference_error,
     };
     use panproto_inst::InstanceShapeKind;
     use panproto_inst::segment::{
@@ -3269,6 +3270,263 @@ mod segmented {
             first > 0 && allocated > 0 && agreed > 0,
             "first runs {first}, with an allocated edge id {allocated}, second runs agreed {agreed}, refused {refused}"
         );
+    }
+
+    /// Decode `bytes` in production and in the reference: both accept, the
+    /// production complement re-encodes to `bytes` under `segment`, and the
+    /// two decoded complements are equal.
+    pub fn decodes_as_the_reference(bytes: &[u8], segment: SegmentId) -> GraphComplementSegment {
+        let decoded = GraphComplementSegment::from_canonical_bytes(bytes, segment)
+            .unwrap_or_else(|error| panic!("production decodes {bytes:?}: {error}"));
+        assert_eq!(decoded.segment, segment);
+        assert_eq!(
+            decoded.canonical_bytes().expect("decoded bytes"),
+            bytes,
+            "round trip"
+        );
+        let reference::AnyComplementSegment::Graph(expected) =
+            reference::decode_complement_segment_bytes(bytes).expect("reference decodes")
+        else {
+            panic!("the reference decodes a graph complement")
+        };
+        assert_eq!(ref_complement_segment(&decoded), expected);
+        decoded
+    }
+
+    /// Both decoders refuse `bytes`, and the production refusal is a decode
+    /// error of the complement segment artifact.
+    pub fn both_refuse(bytes: &[u8], what: &str) {
+        match GraphComplementSegment::from_canonical_bytes(bytes, SegmentId(0)) {
+            Err(SegmentError::Decode {
+                artifact: panproto_inst::segment::ArtifactKind::ComplementSegment,
+                ..
+            }) => {}
+            other => panic!("production accepts {what}: {other:?}"),
+        }
+        assert!(
+            reference::decode_complement_segment_bytes(bytes).is_err(),
+            "the reference accepts {what}"
+        );
+    }
+
+    /// Every proper prefix of `bytes`, and `bytes` followed by each byte
+    /// value, is refused by both decoders.
+    pub fn prefixes_and_trailing_bytes_are_refused(bytes: &[u8]) {
+        for end in 0..bytes.len() {
+            both_refuse(&bytes[..end], "a proper prefix");
+        }
+        for extra in [0_u8, 1, 2, 255] {
+            let mut longer = bytes.to_vec();
+            longer.push(extra);
+            both_refuse(&longer, "a trailing byte");
+        }
+    }
+
+    /// The index of the first byte at which `a` and `b` differ.
+    fn first_difference(a: &[u8], b: &[u8]) -> usize {
+        a.iter()
+            .zip(b)
+            .position(|(x, y)| x != y)
+            .expect("the encodings differ")
+    }
+
+    /// A complement segment holding an entry of every kind: a dropped node
+    /// with a value and fields, a dropped and an original edge, an original
+    /// anchor, original fields, every value presence, and a synthesized key
+    /// of each of the three kinds graph restrict synthesizes.
+    fn every_entry_kind() -> GraphComplementSegment {
+        let label = |name: Option<&str>| Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "prop".into(),
+            name: name.map(Into::into),
+        };
+        let mut dropped = Node::new(3, "a");
+        dropped.value = Some(FieldPresence::Present(Value::Int(-7)));
+        dropped.extra_fields = HashMap::from([
+            ("x".to_owned(), Value::Str("é".to_owned())),
+            ("y".to_owned(), Value::Bool(true)),
+        ]);
+        dropped.position = Some(2);
+        GraphComplementSegment {
+            segment: SegmentId(1),
+            dropped_nodes: BTreeMap::from([(3, dropped)]),
+            dropped_edges: BTreeMap::from([(
+                EdgeId(4),
+                GEdge {
+                    src: 3,
+                    tgt: 9,
+                    edge: label(Some("f")),
+                    position: Some(0),
+                },
+            )]),
+            original_edges: BTreeMap::from([(
+                EdgeId(5),
+                GEdge {
+                    src: 7,
+                    tgt: 8,
+                    edge: label(None),
+                    position: None,
+                },
+            )]),
+            original_anchors: BTreeMap::from([(7, "b".into())]),
+            original_extra_fields: BTreeMap::from([
+                (7, BTreeMap::new()),
+                (8, BTreeMap::from([("z".to_owned(), Value::Float(0.5))])),
+            ]),
+            original_values: BTreeMap::from([
+                (7, None),
+                (8, Some(FieldPresence::Present(Value::Str("v".to_owned())))),
+                (10, Some(FieldPresence::Null)),
+                (11, Some(FieldPresence::Absent)),
+            ]),
+            synthesized_nodes: BTreeMap::from([(
+                20,
+                SynthKey::ContractExpand {
+                    src: 7,
+                    tgt: 8,
+                    hop: 1,
+                },
+            )]),
+            synthesized_edges: BTreeMap::from([
+                (
+                    EdgeId(30),
+                    SynthKey::Contract {
+                        src: 7,
+                        tgt: 8,
+                        edge: label(Some("g")),
+                    },
+                ),
+                (
+                    EdgeId(31),
+                    SynthKey::Expand {
+                        source_edge: EdgeId(5),
+                        hop: 258,
+                    },
+                ),
+            ]),
+            floors: IdFloor { node: 21, edge: 32 },
+        }
+    }
+
+    /// The complement segment of every segment of every case of the carrier
+    /// whose segmented restrict completes decodes from its canonical bytes
+    /// to itself, as the reference decodes the same bytes; every proper
+    /// prefix and every extension by one byte of each distinct encoding is
+    /// refused by both decoders.
+    #[test]
+    fn a_complement_segment_decodes_from_its_canonical_bytes_as_the_reference_decodes_them() {
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        let mut distinct = BTreeSet::new();
+        let (mut decoded, mut expected, mut synthesized) = (0_u64, 0_u64, 0_u64);
+        for case in segmented_restrict_cases() {
+            if !matches!(&plan, Some((s, m, _)) if *s == case.schema && *m == case.migration) {
+                let schema = prod_schema(&case.schema);
+                let compiled =
+                    RestrictPlan::compile(&schema, &schema, &prod_migration(&case.migration))
+                        .expect("release plans compile");
+                plan = Some((case.schema.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            let partition = prod_partition(&case.partition);
+            let segments =
+                partition_graph(&prod_graph(&case.graph), &partition).expect("production split");
+            let Ok(output) = graph_restrict_segmented(compiled, &segments, &partition) else {
+                continue;
+            };
+            expected += u64::try_from(output.complements.len()).expect("segment count");
+            for complement in &output.complements {
+                let bytes = complement.canonical_bytes().expect("complement bytes");
+                let back = decodes_as_the_reference(&bytes, complement.segment);
+                assert_eq!(
+                    ref_complement_segment(&back),
+                    ref_complement_segment(complement)
+                );
+                if !complement.synthesized_edges.is_empty() {
+                    synthesized += 1;
+                }
+                decoded += 1;
+                distinct.insert(bytes);
+            }
+        }
+        assert_eq!(decoded, expected);
+        assert!(
+            synthesized > 0 && distinct.len() > 1,
+            "decoded {decoded}, synthesizing {synthesized}, distinct {}",
+            distinct.len()
+        );
+        for bytes in &distinct {
+            prefixes_and_trailing_bytes_are_refused(bytes);
+        }
+    }
+
+    /// A complement segment with an entry of every kind round-trips through
+    /// both decoders, and both refuse its proper prefixes, its extensions,
+    /// another version, every shape tag but the graph's, every unknown value
+    /// presence tag, every unknown synthesized-key tag, and a map whose keys
+    /// do not strictly ascend.
+    #[test]
+    fn a_complement_segment_with_every_entry_kind_decodes_and_malformed_tags_are_refused() {
+        let witness = every_entry_kind();
+        let bytes = witness.canonical_bytes().expect("witness bytes");
+        let back = decodes_as_the_reference(&bytes, witness.segment);
+        assert_eq!(
+            ref_complement_segment(&back),
+            ref_complement_segment(&witness)
+        );
+        prefixes_and_trailing_bytes_are_refused(&bytes);
+
+        let with = |edit: &dyn Fn(&mut GraphComplementSegment)| {
+            let mut value = witness.clone();
+            edit(&mut value);
+            value.canonical_bytes().expect("edited bytes")
+        };
+        let mut other_version = bytes.clone();
+        other_version[0] ^= 1;
+        both_refuse(&other_version, "another format version");
+        for shape in (0_u8..=255).filter(|shape| *shape != 2) {
+            let mut other = bytes.clone();
+            other[2] = shape;
+            both_refuse(&other, "another shape tag");
+        }
+        let null = with(&|value| {
+            value.original_values.insert(7, Some(FieldPresence::Null));
+        });
+        let presence = first_difference(&bytes, &null);
+        assert_eq!((bytes[presence], null[presence]), (0, 2));
+        for tag in 4_u8..=255 {
+            let mut other = bytes.clone();
+            other[presence] = tag;
+            both_refuse(&other, "an unknown value presence tag");
+        }
+        let expand = with(&|value| {
+            value.synthesized_nodes.insert(
+                20,
+                SynthKey::Expand {
+                    source_edge: EdgeId(7),
+                    hop: 1,
+                },
+            );
+        });
+        let key = first_difference(&bytes, &expand);
+        assert_eq!((bytes[key], expand[key]), (2, 1));
+        for tag in 3_u8..=255 {
+            let mut other = bytes.clone();
+            other[key] = tag;
+            both_refuse(&other, "an unknown synthesized-key tag");
+        }
+        // The two synthesized edges are written as `30` and then `31`;
+        // swapping their ids leaves the keys descending.
+        let thirty = 30_u32.to_le_bytes();
+        let at = bytes
+            .windows(4)
+            .rposition(|window| window == thirty)
+            .expect("the first synthesized edge id");
+        let mut descending = bytes;
+        descending[at] = 32;
+        both_refuse(&descending, "synthesized edge ids that do not ascend");
     }
 }
 
@@ -4623,9 +4881,13 @@ mod segmented_witnesses {
 /// eight nodes over a schema with a dropped loop, every survival choice,
 /// and owners drawn from up to four segments.
 mod segmented_randomized {
-    use super::segmented::{Outcome, check_case};
+    use super::segmented::{
+        Outcome, check_case, decodes_as_the_reference, prefixes_and_trailing_bytes_are_refused,
+        prod_partition, ref_complement_segment,
+    };
     use super::{RefEdge, RefGEdge, RefGraph, RefMigration, RefNode, RefSchema, RestrictPlan};
     use super::{prod_migration, prod_schema};
+    use panproto_inst::segment::{graph_restrict_segmented, partition_graph};
     use panproto_reference::enumerate::segments::SEGMENTED_RESTRICT_ALLOCATION_BASE;
     use panproto_reference::segment as reference;
     use proptest::prelude::*;
@@ -4781,6 +5043,40 @@ mod segmented_randomized {
                 &mut counts,
             );
             prop_assert_eq!(counts.complete + counts.refused + counts.residual, 1);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn complement_segments_decode_as_the_reference_decodes_them_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let Some((_, _, plan, graph, partition)) =
+                generated(&anchors, &edges, &owners, segments, surviving)
+            else {
+                return Err(TestCaseError::reject("plan outside the compile domain"));
+            };
+            let partition = prod_partition(&partition);
+            let segments = partition_graph(&super::prod_graph(&graph), &partition)
+                .expect("production split");
+            let Ok(output) = graph_restrict_segmented(&plan, &segments, &partition) else {
+                return Err(TestCaseError::reject("segmented restrict refuses"));
+            };
+            for complement in &output.complements {
+                let bytes = complement.canonical_bytes().expect("complement bytes");
+                let back = decodes_as_the_reference(&bytes, complement.segment);
+                prop_assert_eq!(
+                    ref_complement_segment(&back),
+                    ref_complement_segment(complement)
+                );
+                prefixes_and_trailing_bytes_are_refused(&bytes);
+            }
         }
     }
 }

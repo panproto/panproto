@@ -43,7 +43,7 @@ use super::partition::{
 use super::reader::Reader;
 use super::store::ArtifactKind;
 use crate::functor::{write_pair_record, write_row_record};
-use crate::ginstance::{EdgeId, FanEmbedding, write_edge_record, write_node_record};
+use crate::ginstance::{EdgeId, FanEmbedding, GEdge, write_edge_record, write_node_record};
 use crate::identity::{
     CanonicalSink, Digest, SEGMENT_CONTEXT, SEGMENT_CROSS_CONTEXT, SEGMENT_FORMAT_VERSION,
     write_value_map,
@@ -231,7 +231,7 @@ fn spec_of<'p>(
 }
 
 /// Fail unless `key` is strictly above the previous key.
-fn ascending<K: Ord + Clone>(
+pub(super) fn ascending<K: Ord + Clone>(
     reader: &Reader<'_>,
     last: &mut Option<K>,
     key: &K,
@@ -243,8 +243,8 @@ fn ascending<K: Ord + Clone>(
     Ok(())
 }
 
-/// Read the node records of a graph or tree body.
-fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
+/// Read counted node records, refused unless their ids strictly ascend.
+pub(super) fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
     let n = r.count(20)?;
     let mut nodes = BTreeMap::new();
     let mut last = None;
@@ -254,6 +254,19 @@ fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
         nodes.insert(node.id, node);
     }
     Ok(nodes)
+}
+
+/// Read counted edge records, refused unless their ids strictly ascend.
+pub(super) fn read_edges(r: &mut Reader<'_>) -> Result<BTreeMap<EdgeId, GEdge>, SegmentError> {
+    let n = r.count(32)?;
+    let mut edges = BTreeMap::new();
+    let mut last = None;
+    for _ in 0..n {
+        let (id, edge) = r.edge_record()?;
+        ascending(r, &mut last, &id)?;
+        edges.insert(id, edge);
+    }
+    Ok(edges)
 }
 
 /// Read a boundary.
@@ -352,14 +365,7 @@ fn read_body(
     match shape_tag {
         2 => {
             let nodes = read_nodes(r)?;
-            let n = r.count(32)?;
-            let mut edges = BTreeMap::new();
-            let mut last = None;
-            for _ in 0..n {
-                let (id, edge) = r.edge_record()?;
-                ascending(r, &mut last, &id)?;
-                edges.insert(id, edge);
-            }
+            let edges = read_edges(r)?;
             let boundary = read_boundary(r)?;
             Ok(AnySegment::Graph(GraphSegment {
                 segment,

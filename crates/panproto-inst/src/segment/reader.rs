@@ -214,19 +214,36 @@ impl<'a> Reader<'a> {
     }
 
     pub fn value_map(&mut self, depth: usize) -> Result<HashMap<String, Value>, SegmentError> {
+        Ok(self.value_entries(depth)?.into_iter().collect())
+    }
+
+    /// The entries of a value map, as [`CanonicalSink::value`] writes a
+    /// record's fields: a count, then each key and its value, refused unless
+    /// the keys strictly ascend.
+    pub fn value_entries(&mut self, depth: usize) -> Result<Vec<(String, Value)>, SegmentError> {
         let n = self.count(9)?;
-        let mut map = HashMap::with_capacity(n);
-        let mut last: Option<String> = None;
+        let mut entries: Vec<(String, Value)> = Vec::with_capacity(n);
         for _ in 0..n {
             let key = self.string()?;
-            if last.as_ref().is_some_and(|l| *l >= key) {
+            if entries.last().is_some_and(|(last, _)| *last >= key) {
                 return Err(self.error("map keys are not strictly ascending"));
             }
             let value = self.value(depth + 1)?;
-            last = Some(key.clone());
-            map.insert(key, value);
+            entries.push((key, value));
         }
-        Ok(map)
+        Ok(entries)
+    }
+
+    /// An optional value presence: a tag (`0` none, `1` present and the
+    /// value, `2` null, `3` absent).
+    pub fn presence(&mut self) -> Result<Option<FieldPresence>, SegmentError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => Ok(Some(FieldPresence::Present(self.value(0)?))),
+            2 => Ok(Some(FieldPresence::Null)),
+            3 => Ok(Some(FieldPresence::Absent)),
+            other => Err(self.error(format!("value presence tag {other}"))),
+        }
     }
 
     /// An instance value, as [`CanonicalSink::value`]
@@ -541,13 +558,7 @@ impl<'a> Reader<'a> {
     pub fn node(&mut self) -> Result<Node, SegmentError> {
         let id = self.u32()?;
         let anchor = self.name()?;
-        let value = match self.u8()? {
-            0 => None,
-            1 => Some(FieldPresence::Present(self.value(0)?)),
-            2 => Some(FieldPresence::Null),
-            3 => Some(FieldPresence::Absent),
-            other => return Err(self.error(format!("node value tag {other}"))),
-        };
+        let value = self.presence()?;
         let discriminator = self.opt_name()?;
         let extra_fields = self.value_map(0)?;
         let position = self.opt_u32()?;
