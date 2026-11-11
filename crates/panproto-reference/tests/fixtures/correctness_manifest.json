@@ -4021,6 +4021,12 @@
             {
               "role": "production",
               "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_edit_lens_letter_census_is_the_closed_form_over_the_carrier"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
               "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
               "test": "an_unrelated_contracted_edge_keeps_its_id_when_whole_state_get_would_renumber_it"
             },

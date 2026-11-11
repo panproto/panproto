@@ -1276,6 +1276,47 @@ pub fn graph_edit_lens_letters(
     out
 }
 
+/// The number of letters [`graph_edit_lens_letters`] gives at `graph`.
+///
+/// It is counted from the structure of `schema` and `graph` without
+/// building a letter: one addition per vertex; per node three structural letters, and
+/// per plain node one anchor change per other vertex and one field toggle;
+/// per schema edge one addition per joined ordered pair of plain nodes; per
+/// edge one deletion and, for a schema edge, one reconnection per joined
+/// pair other than its own; and the two refused letters when the graph has
+/// a node and the schema an edge.
+///
+/// Book anchors: `L-edits-9`.
+#[must_use]
+pub fn graph_edit_lens_letter_count(schema: &crate::schema::Schema, graph: &Graph) -> usize {
+    let plain: Vec<&Node> = graph
+        .nodes
+        .values()
+        .filter(|node| node.shape != NodeShape::HyperEdge)
+        .collect();
+    let anchored = |vertex: &str| plain.iter().filter(|node| node.anchor == vertex).count();
+    let joined = |label: &SEdge| anchored(&label.src) * anchored(&label.tgt);
+    let mut count = schema.vertices.len() + 3 * graph.nodes.len();
+    for node in &plain {
+        let others =
+            schema.vertices.len() - usize::from(schema.vertices.contains_key(&node.anchor));
+        count += others + 1;
+    }
+    count += schema.edges.iter().map(joined).sum::<usize>();
+    for edge in graph.edges.values() {
+        count += 1;
+        if schema.edges.contains(&edge.label) {
+            let own = [edge.src, edge.tgt]
+                .iter()
+                .all(|id| plain.iter().any(|node| node.id == *id))
+                && graph.nodes[&edge.src].anchor == edge.label.src
+                && graph.nodes[&edge.tgt].anchor == edge.label.tgt;
+            count += joined(&edge.label) - usize::from(own);
+        }
+    }
+    count + usize::from(!graph.nodes.is_empty()) + usize::from(!schema.edges.is_empty())
+}
+
 /// The letters of [`graph_edit_lens_letters`] that name the node `node`:
 /// its cascading deletion, its bare deletion, its replacement, and for a
 /// plain node its anchor changes and the toggle of `field`.

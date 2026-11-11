@@ -17390,7 +17390,9 @@ mod graph_edit_lens_differential {
     use panproto_reference::edit::{
         self as ref_edit, GraphDelta as RefGraphDelta, GraphEditError, GraphEditState,
     };
-    use panproto_reference::enumerate::edits::graph_edit_lens_letters;
+    use panproto_reference::enumerate::edits::{
+        graph_edit_lens_letter_count, graph_edit_lens_letters,
+    };
     use panproto_reference::enumerate::lenses::bounded_lens_stages;
 
     use super::*;
@@ -17703,25 +17705,71 @@ mod graph_edit_lens_differential {
         Some((production, state))
     }
 
-    /// Every one-letter get and put edit of one carrier base, and the
-    /// inverse of each admitted get edit after it; returns the number of
-    /// edits compared.
-    fn unit(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> usize {
+    /// The edits one sweep compared.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct Counts {
+        /// Bound bases: those whose reference get succeeds.
+        bound: usize,
+        /// Get letters, one per letter of every bound base's source.
+        get_letters: usize,
+        /// Put letters, one per letter of every bound base's view.
+        put_letters: usize,
+        /// Inverses translated after an admitted get letter.
+        inverses: usize,
+    }
+
+    impl std::ops::AddAssign for Counts {
+        fn add_assign(&mut self, other: Self) {
+            self.bound += other.bound;
+            self.get_letters += other.get_letters;
+            self.put_letters += other.put_letters;
+            self.inverses += other.inverses;
+        }
+    }
+
+    /// The closed-form letter counts of one carrier base: the get letters
+    /// of its source and the put letters of its reference view, without
+    /// building a letter or running a production lens.
+    fn closed_form(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> Counts {
         pair.with_reference(|lens| {
-            let Ok(lens) = lens else { return 0 };
-            let Some((edit_lens, held)) = bind(pair, lens, source) else {
-                return 0;
+            let Ok(lens) = lens else {
+                return Counts::default();
             };
-            let mut compared = 0;
+            let Ok((view, _)) = panproto_reference::lens::get(lens, source) else {
+                return Counts::default();
+            };
+            Counts {
+                bound: 1,
+                get_letters: graph_edit_lens_letter_count(&stage.source, source),
+                put_letters: graph_edit_lens_letter_count(&stage.target, &view),
+                inverses: 0,
+            }
+        })
+    }
+
+    /// Every one-letter get and put edit of one carrier base, and the
+    /// inverse of each admitted get edit after it.
+    fn unit(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> Counts {
+        pair.with_reference(|lens| {
+            let Ok(lens) = lens else {
+                return Counts::default();
+            };
+            let Some((edit_lens, held)) = bind(pair, lens, source) else {
+                return Counts::default();
+            };
+            let mut counts = Counts {
+                bound: 1,
+                ..Counts::default()
+            };
             for letter in graph_edit_lens_letters(
                 &stage.source,
                 source,
                 BOUNDED_LENS_FIELD,
                 &BOUNDED_LENS_VALUE,
             ) {
-                compared += 1;
+                counts.get_letters += 1;
                 if let Some((advanced, next)) = step(lens, &edit_lens, &held, false, &letter) {
-                    compared += 1;
+                    counts.inverses += 1;
                     step(lens, &advanced, &next, false, &letter.invert());
                 }
             }
@@ -17731,51 +17779,88 @@ mod graph_edit_lens_differential {
                 BOUNDED_LENS_FIELD,
                 &BOUNDED_LENS_VALUE,
             ) {
-                compared += 1;
+                counts.put_letters += 1;
                 step(lens, &edit_lens, &held, true, &letter);
             }
-            compared
+            counts
         })
     }
 
-    /// Run [`unit`] on every graph base of the bounded lens carrier that
-    /// `select` admits, by position; returns the bases and edits compared.
-    fn sweep(select: impl Fn(usize, &RefGraph) -> bool) -> (usize, usize, usize) {
+    /// Run `per_base` on every graph base of the bounded lens carrier that
+    /// `select` admits, by position; returns the bases, the selected bases
+    /// and the summed counts.
+    fn sweep(
+        select: impl Fn(usize, &RefGraph) -> bool,
+        per_base: impl Fn(&Pair, &BoundedLensStage, &RefGraph) -> Counts,
+    ) -> (usize, usize, Counts) {
         let stages = bounded_lens_stages();
         let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
-        let (mut bases, mut selected, mut edits) = (0, 0, 0);
+        let (mut bases, mut selected, mut counts) = (0, 0, Counts::default());
         for_each_lens_equivalence_case(|case| {
             if let LensEquivalenceCase::Graph { stage, source } = case {
                 if select(bases, &source) {
                     selected += 1;
-                    edits += unit(&pairs[stage], &stages[stage], &source);
+                    let observed = per_base(&pairs[stage], &stages[stage], &source);
+                    if observed.bound == 1 {
+                        let expected = closed_form(&pairs[stage], &stages[stage], &source);
+                        assert_eq!(
+                            (observed.get_letters, observed.put_letters),
+                            (expected.get_letters, expected.put_letters),
+                            "letters of stage {stage} at {source:?}"
+                        );
+                    }
+                    counts += observed;
                 }
                 bases += 1;
             }
         });
-        (bases, selected, edits)
+        (bases, selected, counts)
+    }
+
+    /// The closed-form census of the whole carrier: bound bases, get
+    /// letters and put letters, summed from [`graph_edit_lens_letter_count`]
+    /// over every base whose reference get succeeds.
+    const GRAPH_EDIT_LENS_CENSUS: (usize, usize, usize) = (124_009, 5_300_310, 5_221_561);
+
+    #[test]
+    fn graph_edit_lens_letter_census_is_the_closed_form_over_the_carrier() {
+        let (bases, selected, counts) = sweep(|_, _| true, closed_form);
+        println!("graph edit lens census: bases={bases}, counts={counts:?}");
+        assert_eq!((bases, selected), (144_397, 144_397));
+        assert_eq!(
+            (counts.bound, counts.get_letters, counts.put_letters),
+            GRAPH_EDIT_LENS_CENSUS
+        );
     }
 
     #[test]
     fn graph_edit_lens_agrees_with_the_reference_on_every_two_node_base() {
-        let (bases, selected, edits) = sweep(|_, source| source.nodes.len() <= 2);
+        let (bases, selected, counts) = sweep(|_, source| source.nodes.len() <= 2, unit);
         println!(
-            "graph edit lens two-node scope: bases={bases}, selected={selected}, edits={edits}"
+            "graph edit lens two-node scope: bases={bases}, selected={selected}, counts={counts:?}"
         );
         assert_eq!(bases, 144_397);
-        assert!(selected > 0 && edits > selected);
+        assert!(counts.bound > 0 && counts.get_letters > counts.bound);
     }
 
     #[test]
     fn graph_edit_lens_law_certificate() {
         let shard = LawShard::from_environment();
-        let (bases, selected, edits) =
-            sweep(|position, _| shard.is_none_or(|shard| shard.contains(position)));
+        let (bases, selected, counts) = sweep(
+            |position, _| shard.is_none_or(|shard| shard.contains(position)),
+            unit,
+        );
         println!(
-            "graph edit lens carrier: bases={bases}, shard={shard:?}, selected={selected}, edits={edits}"
+            "graph edit lens carrier: bases={bases}, shard={shard:?}, selected={selected}, counts={counts:?}"
         );
         assert_eq!(bases, 144_397);
         assert_eq!(selected, shard.map_or(bases, |shard| shard.share(bases)));
+        if shard.is_none() {
+            assert_eq!(
+                (counts.bound, counts.get_letters, counts.put_letters),
+                GRAPH_EDIT_LENS_CENSUS
+            );
+        }
     }
 
     /// A graph over the plain vertices of `stage` built from generated
