@@ -20,6 +20,27 @@ Each route is run against a corpus drawn from its standard, vendored under `crat
 
 The TOML route passes 714 of the 717 cases of the toml-test TOML 1.0.0 list (`conformance_toml_test.rs`). The three others carry one limit, `line-ending-backslash-before-whitespace`: TOML 1.0.0 lets a backslash end a line of a multi-line basic string with spaces or tabs after it, and the tree-sitter TOML grammar admits the backslash only directly before the line break, so the route refuses such a string with a parse error rather than read it.
 
+The YAML route passes 296 of the 402 cases of the yaml-test-suite data release (`conformance_yaml_test_suite.rs`). It reads scalars through a whole-document decoder, libyaml as `yaml_serde` packages it, walked beside the CST so that each scalar takes its meaning in place: a block scalar its indentation and final line break, a scalar its anchor and tag. A document whose structure the decoder and the CST read differently is refused, never read with either structure. The 106 other cases fall under these limits.
+
+| Limit | Cases | What the route does |
+|---|---|---|
+| `no-json-form` | 29 | The case is valid YAML with no JSON form, so the suite gives no expected data. The route refuses 28 of them under the limits below and reads one, a lone `!`. |
+| `multiple-documents` | 20 | Refuses a stream of more than one document: one document is one instance. |
+| `alias` | 14 | Refuses an alias, which would make the tree a graph. |
+| `container-tag` | 9 | Refuses a tag on a mapping or sequence with `UnsupportedTaggedContainer`. |
+| `decoder-refuses` | 7 | Refuses a document libyaml does not decode and whose scalars do not all read the same alone (no block scalar, anchor, tag or multi-line flow scalar); when they do, it reads the document scalar by scalar. |
+| `decoder-disagrees` | 6 | Refuses a scalar where libyaml departs from YAML 1.2.2: an anchor name outside `[A-Za-z0-9_-]`, a `?` inside a flow collection, a single-line scalar decoded differently in place and alone, and a block scalar ending the stream on a line of spaces. |
+| `tag-directive` | 5 | Refuses a `%TAG` directive ([L-text-formats-2](#L-text-formats-2)). |
+| `no-document` | 5 | Refuses a stream with no document. |
+| `version-directive` | 4 | Refuses `%YAML 1.1` ([L-text-formats-2](#L-text-formats-2)). |
+| `local-tag-kept` | 2 | Reads a scalar with a local tag such as `!foo` as an opaque value that keeps the tag, which the suite's JSON drops. |
+| `accepts-invalid` | 2 | Reads two invalid streams that both the tree-sitter grammar and libyaml accept: a block scalar whose leading empty lines hold more spaces than its indentation allows, and a directive inside a document, after `---` with no `...` before it. |
+| `binary-tag-read-as-bytes` | 1 | Reads a `!!binary` scalar as the bytes it encodes, where the suite's JSON keeps the base64 text. |
+| `structure-not-read` | 1 | Refuses `[?x]`, which the tree-sitter grammar reads as an explicit key. |
+| `complex-key` | 1 | Refuses a mapping key that is a collection. |
+
+The CSV route reads every one of the 12 csv-spectrum cases (`conformance_csv_spectrum.rs`) as its records, each field as text, and writes each back byte for byte. The case `location_coordinates` gives in its JSON a contact number its CSV file does not hold; the test expects the file's number. The TSV route is checked on the same records written tab-separated, for the 9 cases whose fields hold no tab or line break. The TSV route reads its lines and tabs from the source rather than from the grammar's nodes, since the tree-sitter TSV grammar counts a tab among its extras and so gives an empty field no node.
+
 ## TOML keys define each table once {#L-text-formats-1}
 
 ### Statement

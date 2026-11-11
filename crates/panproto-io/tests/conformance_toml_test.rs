@@ -238,8 +238,15 @@ fn toml_test_cases_pass_or_are_declared_limits() {
     for case in &cases {
         if let Some(outcome) = run_case(&codec, &schema, case) {
             failing.insert((*case).to_owned());
-            if !limits.contains_key(*case) {
-                undeclared.push(format!("{case}: {outcome}"));
+            // The grammar's one limit shows as parser recovery: the
+            // tree-sitter TOML grammar cannot lex the string.
+            let observed = if outcome.contains("parser recovery marker") {
+                "line-ending-backslash-before-whitespace"
+            } else {
+                "unclassified"
+            };
+            if limits.get(*case).map(String::as_str) != Some(observed) {
+                undeclared.push(format!("{case} ({observed}): {outcome}"));
             }
         }
     }
