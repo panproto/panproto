@@ -115,13 +115,13 @@
       "name": "sql-tests/users",
       "protocol": "sql",
       "source": "tests/fixtures/sql/users.sql",
-      "digest": "29c4c2dd13c8a0568aee97cac34b73938bbf194b92182935e537903c065b1f7e"
+      "digest": "cfc83aabb2a1db04e1a44d770d3efcfb03cc6fd4fe07282e63d925691f086825"
     },
     {
       "name": "sql-tests/users_posts",
       "protocol": "sql",
       "source": "tests/fixtures/sql/users_posts.sql",
-      "digest": "5704342411e7722fd488bfb542a1992978efac9cb13167a090b0c576f7092338"
+      "digest": "99c36672e82d2538b1b8d49e0434b58be2d735390ceceaca986f80c6a4b2e985"
     }
   ],
   "lenses": [
@@ -270,9 +270,9 @@
       "shape": "wtype",
       "envelope": {
         "version": 2,
-        "source_schema": "5704342411e7722fd488bfb542a1992978efac9cb13167a090b0c576f7092338",
-        "target_schema": "5f476adc5bdcb42ae5af6d425604999273b7b204d2882e77277a207b9923ad6b",
-        "lens": "b088d2cbe8559c22a9129e50ecd59e04d4eb7b93d1a087a6c593d54189954015",
+        "source_schema": "99c36672e82d2538b1b8d49e0434b58be2d735390ceceaca986f80c6a4b2e985",
+        "target_schema": "0a37a3a1b74b37b8ceab0b6083410b622612e7f546d7d5571b3a82b9be03d0c4",
+        "lens": "b64a920020e5d6218dd7c95868d4949dcb1e7b0ec2e0c3f3133dcee489a33c3f",
         "complement_format": {
           "shape": "wtype",
           "version": 1
