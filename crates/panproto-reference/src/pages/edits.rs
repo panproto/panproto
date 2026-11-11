@@ -3420,9 +3420,6 @@ pub mod edit {
         PutGetMismatch,
     }
 
-    /// Whole-state put oracle of the reference graph edit lens.
-    pub type StatePut<P> = dyn Fn(&Graph, &crate::restrict::Complement) -> Result<Graph, P>;
-
     /// Ids for the keys of `keys` (key, whole-state id), ascending by key:
     /// the id `held` records for a key when `in_source` does not hold it,
     /// else the least id at or above `floor` that no earlier key took,
@@ -3535,7 +3532,7 @@ pub mod edit {
     ///
     /// Book anchors: `L-edits-9`.
     pub fn graph_edit_get<G, P>(
-        get: &EditGet<crate::restrict::Complement, G>,
+        get: &dyn Fn(&Graph) -> Result<(Graph, crate::restrict::Complement), G>,
         state: &GraphEditState,
         d: &GraphDelta,
     ) -> Result<(GraphDelta, GraphEditState), GraphEditError<G, P>> {
@@ -3570,8 +3567,8 @@ pub mod edit {
     ///
     /// Book anchors: `L-edits-9`.
     pub fn graph_edit_put<G, P>(
-        get: &EditGet<crate::restrict::Complement, G>,
-        put: &StatePut<P>,
+        get: &dyn Fn(&Graph) -> Result<(Graph, crate::restrict::Complement), G>,
+        put: &dyn Fn(&Graph, &crate::restrict::Complement) -> Result<Graph, P>,
         state: &GraphEditState,
         e: &GraphDelta,
     ) -> Result<(GraphDelta, GraphEditState), GraphEditError<G, P>> {
