@@ -186,3 +186,87 @@ fn yaml_directives_are_refused_in_source_order() {
         Err((1, DirectiveRefusal::Tag))
     );
 }
+
+#[test]
+fn whole_document_scopes_have_their_closed_form_counts() {
+    use panproto_reference::enumerate::text_formats::{
+        toml_token_documents, toml_token_documents_count, yaml_block_documents,
+        yaml_block_documents_count,
+    };
+    assert_eq!(
+        toml_token_documents().len() as u64,
+        toml_token_documents_count()
+    );
+    assert_eq!(toml_token_documents_count(), 1 + 48 + 48 * 48);
+    assert_eq!(
+        yaml_block_documents().len() as u64,
+        yaml_block_documents_count()
+    );
+    assert_eq!(yaml_block_documents_count(), 13_271);
+}
+
+#[test]
+fn toml_documents_read_their_tables_and_scalars() {
+    use panproto_reference::pages::text_formats::toml::{DocumentRefusal, Read, read_document};
+    use panproto_reference::value::Value;
+    let statements = [pair("a.b"), header("c"), pair("d")];
+    let tokens: [&[u8]; 3] = [b"1", b"", b"'x'"];
+    assert_eq!(
+        read_document(&statements, &tokens),
+        Some(Ok(vec![
+            (
+                "a".to_owned(),
+                Read::Table(vec![("b".to_owned(), Read::Value(Value::Int(1)))])
+            ),
+            (
+                "c".to_owned(),
+                Read::Table(vec![("d".to_owned(), Read::Value(Value::Str("x".into())))])
+            ),
+        ]))
+    );
+    assert!(matches!(
+        read_document(&[pair("a"), pair("b")], &[b"01", b"1"]),
+        Some(Err(DocumentRefusal::Scalar(0, _)))
+    ));
+    assert_eq!(
+        read_document(&[pair("a"), pair("a")], &[b"01", b"1"]),
+        Some(Err(DocumentRefusal::Key(1, KeyRefusal::DuplicateKey)))
+    );
+}
+
+#[test]
+fn yaml_block_documents_render_and_read_as_written() {
+    use panproto_reference::pages::text_formats::yaml::{
+        Node, Read, read_block_document, render_block,
+    };
+    use panproto_reference::value::Value;
+    let document = Node::Mapping(vec![
+        ("a".to_owned(), Node::Scalar("yes".to_owned())),
+        (
+            "b".to_owned(),
+            Node::Sequence(vec![
+                Node::Scalar(String::new()),
+                Node::Mapping(vec![("a".to_owned(), Node::Scalar("-1".to_owned()))]),
+                Node::Sequence(Vec::new()),
+            ]),
+        ),
+    ]);
+    assert_eq!(
+        render_block(&document),
+        "a: yes\nb:\n  -\n  -\n    a: -1\n  - []\n"
+    );
+    assert_eq!(
+        read_block_document(&document),
+        Ok(Read::Mapping(vec![
+            ("a".to_owned(), Read::Value(Value::Str("yes".into()))),
+            (
+                "b".to_owned(),
+                Read::Sequence(vec![
+                    Read::Value(Value::Null),
+                    Read::Mapping(vec![("a".to_owned(), Read::Value(Value::Int(-1)))]),
+                    Read::Sequence(Vec::new()),
+                ])
+            ),
+        ]))
+    );
+}

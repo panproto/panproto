@@ -6300,6 +6300,49 @@
               "test": "yaml_directives_are_refused_in_source_order"
             }
           ]
+        },
+        {
+          "id": "text-formats.toml-document-reading",
+          "anchor": "L-text-formats-3",
+          "references": [
+            "panproto_reference::pages::text_formats::toml::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "toml_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "toml_documents_read_their_tables_and_scalars"
+            }
+          ]
+        },
+        {
+          "id": "text-formats.yaml-block-document-reading",
+          "anchor": "L-text-formats-4",
+          "references": [
+            "panproto_reference::pages::text_formats::yaml::render_block",
+            "panproto_reference::pages::text_formats::yaml::read_block_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "yaml_block_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "yaml_block_documents_render_and_read_as_written"
+            }
+          ]
         }
       ]
     }

@@ -12,7 +12,7 @@ The text formats carry most configuration and tabular data, and each one fixes, 
 
 The shapes in the table are the ones each protocol declares in `panproto_protocols::semantics`; a YAML document is a tree as written and a graph once its anchors and aliases are resolved, and the route refuses an alias today. The CSV and TSV dialects are stated in full in the documentation of [`UnifiedCodec`](https://docs.rs/panproto-io/latest/panproto_io/unified_codec/struct.UnifiedCodec.html).
 
-The executable reference for both laws is [`panproto_reference::pages::text_formats`](https://docs.rs/panproto-reference/latest/panproto_reference/pages/text_formats/). It models a document as the sequence of statements or directives that decides its structure, with scalars abstracted away, and the production differentials render each modelled document as text and read it through the preserving route.
+The executable reference for the page's four laws is [`panproto_reference::pages::text_formats`](https://docs.rs/panproto-reference/latest/panproto_reference/pages/text_formats/). It models a document as the statements, directives or block tree that decide its structure, reads scalars with the route scalar functions of the [Value I/O](value-io.md) page, and the production differentials render each modelled document as text and read it through the preserving route.
 
 ## Conformance corpora
 
@@ -100,3 +100,60 @@ Production walks the document's children in source order and, for each directive
 - File: `crates/panproto-reference/src/pages/text_formats.rs`
 - File: `crates/panproto-io/tests/reference_text_formats.rs`
 - File: `crates/panproto-io/tests/yaml_directives_select_the_version_read.rs`
+
+## A TOML document reads as its tables and scalars {#L-text-formats-3}
+
+### Statement
+
+For a TOML statement sequence $s$ with value tokens $t$, write $D(s,t)$ for `read_document(s, t)`. When $D(s,t)$ reads, the preserving TOML route reads the rendered document as exactly the tables $D$ gives, keys in first-definition order and each value the TOML scalar function's reading of its token, and an unedited emission reproduces the document's bytes. When $D(s,t)$ refuses a key, the route refuses the document naming the same statement and class. When $D(s,t)$ refuses only a scalar, the route refuses the document.
+
+### Outside the domain
+
+When a document holds both a refused key and a refused scalar, the law states only that the route refuses it; which of the two refusals each side names first is not compared. Values other than integers, strings and booleans lie outside the bounded scope, and their reading is the subject of [L-value-io-4](value-io.md#L-value-io-4).
+
+### Definitions used
+
+$D$ composes [L-text-formats-1](#L-text-formats-1) with the TOML scalar function $P_{\mathrm{toml}}$ of [L-value-io-4](value-io.md#L-value-io-4): it resolves the statements with `resolve_keys`, and reads each pair's token with $P_{\mathrm{toml}}$.
+
+### Proof
+
+Production resolves the keys of the whole document before reading any value, and reads each value from its own token, so its tables are those of [L-text-formats-1](#L-text-formats-1) and its values those of the scalar route; the composition is therefore $D$ wherever both laws hold. Neither law covers the interaction of the two (a scalar read under a dotted key, in a sub-table, or as an element of an array of tables), so the differential checks the composition directly: on every document of at most two statements over the key paths of length one or two on `a` and `b`, each pair carrying one of six tokens (an integer, a basic and a literal string, a boolean, a hexadecimal integer and the refused `01`), it compares the tables read, the refusal and its class, and the bytes of an unedited emission.
+
+### Executable counterpart
+
+- Law ID: `text-formats.toml-document-reading`
+- Reference: `panproto_reference::pages::text_formats::toml::read_document`
+- Enumerator: `panproto_reference::enumerate::text_formats::toml_token_documents; bound: statements=2, keys=2, path length=2, tokens=6`
+- Production differential test: `toml_documents_read_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_text_formats --no-tests=fail -E 'test(=toml_documents_read_as_the_reference_on_every_bounded_document)'`
+- Reference test: `toml_documents_read_their_tables_and_scalars; command: cargo nextest run -p panproto-reference --test text_formats --no-tests=fail -E 'test(=toml_documents_read_their_tables_and_scalars)'`
+- File: `crates/panproto-reference/src/pages/text_formats.rs`
+- File: `crates/panproto-io/tests/reference_text_formats.rs`
+
+## A block YAML document reads as written {#L-text-formats-4}
+
+### Statement
+
+For a document tree $n$ of scalar tokens, mappings and sequences, write $R(n)$ for `render_block(n)` and $Y(n)$ for `read_block_document(n)`. When $Y(n)$ reads, the YAML route reads $R(n)$ as exactly $Y(n)$: each mapping its entries in order, each sequence its items in order, and each scalar the YAML scalar function's reading of its token. An unedited emission reproduces $R(n)$.
+
+### Outside the domain
+
+The top-level empty scalar renders as an empty stream, which has no document, and lies outside the scope. Flow collections, multi-line scalars, tags, anchors and aliases are not rendered by $R$; the conformance corpus above covers them.
+
+### Definitions used
+
+$R$ writes block style: a `key:` line per mapping entry and a `-` line per sequence item, a scalar after one space on its indicator's line, an empty collection as `{}` or `[]`, and any other collection on the following lines two columns further in. $Y$ reads scalars with $P_{\mathrm{yaml}}$ of [L-value-io-4](value-io.md#L-value-io-4).
+
+### Proof
+
+The YAML route walks the CST of $R(n)$, whose block mappings and sequences are those $R$ wrote, and reads each scalar from the whole document's decoding, which for a one-line scalar of the scope is the YAML 1.2 core reading that $P_{\mathrm{yaml}}$ defines. The differential compares the two readings and the unedited emission on every document of depth at most two over the tokens `-1`, `yes`, `'q'` and the empty scalar, with mappings of one or two of the keys `a` and `b` and sequences of at most two items: 13,271 documents.
+
+### Executable counterpart
+
+- Law ID: `text-formats.yaml-block-document-reading`
+- Reference: `panproto_reference::pages::text_formats::yaml::render_block`
+- Reference: `panproto_reference::pages::text_formats::yaml::read_block_document`
+- Enumerator: `panproto_reference::enumerate::text_formats::yaml_block_documents; bound: depth=2, keys=2, items=2, tokens=4`
+- Production differential test: `yaml_block_documents_read_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_text_formats --no-tests=fail -E 'test(=yaml_block_documents_read_as_the_reference_on_every_bounded_document)'`
+- Reference test: `yaml_block_documents_render_and_read_as_written; command: cargo nextest run -p panproto-reference --test text_formats --no-tests=fail -E 'test(=yaml_block_documents_render_and_read_as_written)'`
+- File: `crates/panproto-reference/src/pages/text_formats.rs`
+- File: `crates/panproto-io/tests/reference_text_formats.rs`

@@ -113,6 +113,7 @@
 //! | TOML, TSV, tabular and XML edge observables | [`toml::decimal_bigint_cst`], [`value_io::toml_scalar`], [`value_io::tsv_comment`], [`value_io::tsv_quote`], [`value_io::tabular_empty_row`], [`value_io::tabular_missing`], [`value_io::xml_entity`], [`value_io::xml_expanded_name`] | `value-io.md` |
 //! | XML CST laws | [`xml::bounded_expansion_cst`], [`xml::expanded_name_cst`], [`xml::round_trip_cst`] | `value-io.md` |
 //! | TOML key resolution and YAML directive acceptance | [`pages::text_formats::toml::resolve_keys`], [`pages::text_formats::yaml::read_directives`] | `text-formats.md` |
+//! | Whole TOML and block YAML document reading | [`pages::text_formats::toml::read_document`], [`pages::text_formats::yaml::render_block`], [`pages::text_formats::yaml::read_block_document`] | `text-formats.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),
