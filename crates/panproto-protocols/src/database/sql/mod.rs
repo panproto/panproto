@@ -5,13 +5,13 @@
 //! instance theory (`ThFunctor`): its syntax and its data are both read as
 //! tables.
 //!
-//! [`read_ddl`] reads a script of `PostgreSQL` 17 DDL statements into a
-//! [`Schema`]. Each table is a `table` vertex and a hyper-edge over its
+//! [`read_ddl`](crate::database::sql::read_ddl) reads a script of `PostgreSQL` 17 DDL statements into a
+//! [`Schema`](panproto_schema::Schema). Each table is a `table` vertex and a hyper-edge over its
 //! columns; each column is a vertex `<table>.<column>`, joined to its table
 //! by a `prop` edge whose position is the column's, and an array column is
 //! an `array` vertex with an `items` edge per dimension to its element.
-//! Primary keys and unique constraints are schema [`Key`]s and foreign keys
-//! are schema [`Reference`]s, which reference resolution reads. The
+//! Primary keys and unique constraints are schema [`Key`](panproto_schema::Key)s and foreign keys
+//! are schema [`Reference`](panproto_schema::Reference)s, which reference resolution reads. The
 //! dialect, the statements read and every feature refused are stated in
 //! the book's chapter on SQL DDL.
 
