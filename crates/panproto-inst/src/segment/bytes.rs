@@ -118,7 +118,7 @@ pub fn payload_bytes(segment: &AnySegment) -> u64 {
 
 /// Write the boundary: ghosts ascending by node, then in-stubs ascending by
 /// element.
-fn write_boundary<S: CanonicalSink + ?Sized>(sink: &mut S, boundary: &Boundary) {
+pub(super) fn write_boundary<S: CanonicalSink + ?Sized>(sink: &mut S, boundary: &Boundary) {
     sink.len(boundary.ghosts.len());
     for ghost in boundary.ghosts.values() {
         sink.u32(ghost.node);
@@ -257,7 +257,7 @@ fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
 }
 
 /// Read a boundary.
-fn read_boundary(r: &mut Reader<'_>) -> Result<Boundary, SegmentError> {
+pub(super) fn read_boundary(r: &mut Reader<'_>) -> Result<Boundary, SegmentError> {
     let mut boundary = Boundary::default();
     let n = r.count(16)?;
     let mut last = None;

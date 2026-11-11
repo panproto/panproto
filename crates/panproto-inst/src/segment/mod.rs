@@ -21,7 +21,8 @@
 //!   ([`TaskKey`], [`RunJournal`], [`SegmentStore`]);
 //! - segmented graph restriction ([`graph_restrict_segmented`]), which runs
 //!   the graph restrict engine segment by segment and lays its view and
-//!   complement out under the source's partition;
+//!   complement out under the source's partition, and its checkpointed run
+//!   ([`graph_restrict_run`]) as resumable tasks in a caller's store;
 //! - the typed failure [`SegmentError`] and the [`Residual`] of an operation
 //!   declined within a budget.
 
@@ -35,6 +36,7 @@ mod manifest;
 mod partition;
 mod reader;
 mod restrict;
+mod runner;
 mod split;
 mod store;
 mod stream;
@@ -61,6 +63,11 @@ pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_ta
 pub use restrict::{
     GraphComplementSegment, SegmentedRestrict, SegmentedRestrictError, graph_restrict_locality,
     graph_restrict_segmented,
+};
+pub use runner::{
+    Budget, ComplementSize, EmittedSegment, GRAPH_RESTRICT_OP, GraphRestrictRun, MemoryModel,
+    MemoryStore, MissingSegment, PhaseReport, Progress, RunIncompleteReason, RunSpec, RunStatus,
+    SegmentRunReport, SegmentSource, graph_restrict_run, read_emitted,
 };
 pub use split::{
     assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,

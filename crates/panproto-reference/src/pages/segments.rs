@@ -5972,7 +5972,7 @@ pub mod segment {
     }
     /// Run outcome.
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum RunStatus {
+    pub enum RunStatus<E = SegmentError> {
         /// Every task committed successfully.
         Complete {
             /// Digest of the committed manifest bytes.
@@ -5986,13 +5986,13 @@ pub mod segment {
         /// A valid input could not run within the declared contract.
         Residual(Residual),
         /// The input or segmented representation was invalid.
-        Failed(SegmentError),
+        Failed(E),
     }
     /// Deterministic run report.
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct SegmentRunReport {
+    pub struct SegmentRunReport<E = SegmentError> {
         /// Run outcome.
-        pub status: RunStatus,
+        pub status: RunStatus<E>,
         /// Declared operation locality.
         pub locality: LocalityReport,
         /// Applied resource budget.
@@ -6394,6 +6394,7 @@ pub mod segment {
         peak: u64,
         segment_inputs: Vec<Vec<u8>>,
         preflight_summaries: Vec<SegmentSummary>,
+        restrict_source_schema: Digest,
         report: SegmentRunReport,
     }
 
@@ -6792,6 +6793,7 @@ pub mod segment {
                     peak: 0,
                     segment_inputs: Vec::new(),
                     preflight_summaries: Vec::new(),
+                    restrict_source_schema: spec.schema,
                     report,
                 };
                 return stop_run(state, stop);
@@ -6807,6 +6809,7 @@ pub mod segment {
             peak: prepared.peak,
             segment_inputs: prepared.segment_inputs,
             preflight_summaries: prepared.summaries,
+            restrict_source_schema: spec.schema,
             report,
         };
         let summaries = match state.local_phases(&ordered) {
@@ -6850,6 +6853,735 @@ pub mod segment {
             manifest: Some(manifest),
             report: state.report,
         }
+    }
+
+    /// Inputs naming a reference run of segmented graph restriction.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct RestrictRunSpec {
+        /// Lens identity.
+        pub lens: Digest,
+        /// Schema digest of the input segments.
+        pub source_schema: Digest,
+        /// Schema digest of the view segments.
+        pub view_schema: Digest,
+        /// Binding digest of the input and output manifests.
+        pub binding: Option<Digest>,
+        /// Optional cancellation boundary measured in committed or reused tasks.
+        pub cancel_after_tasks: Option<u32>,
+    }
+
+    /// The lens a reference restrict run applies: its schemas, migration
+    /// and value layer.
+    #[derive(Clone, Copy)]
+    pub struct RestrictLens<'a> {
+        /// Source schema.
+        pub src: &'a crate::schema::Schema,
+        /// Target schema.
+        pub tgt: &'a crate::schema::Schema,
+        /// Migration.
+        pub m: &'a crate::migration::Migration,
+        /// Value layer.
+        pub vl: &'a dyn crate::restrict::ValueLayer,
+    }
+
+    /// A reference run of segmented graph restriction.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct RestrictRun {
+        /// Run identity naming the artifacts in the store.
+        pub run: Digest,
+        /// Each segment's view and complement when complete.
+        pub output: Option<Vec<super::segmented_restrict::SegmentOutput>>,
+        /// Output manifest when complete.
+        pub manifest: Option<SegmentManifest>,
+        /// Deterministic execution report.
+        pub report: SegmentRunReport<super::segmented_restrict::SegmentedRestrictRefusal>,
+    }
+
+    /// Operation bytes of graph restriction in a run identity.
+    pub const GRAPH_RESTRICT_OP: &[u8] = b"graph restrict";
+
+    fn write_fate(w: &mut Canonical, fate: &crate::restrict::NodeFate) {
+        match fate {
+            crate::restrict::NodeFate::Fan => w.tag(0),
+            crate::restrict::NodeFate::Dropped => w.tag(1),
+            crate::restrict::NodeFate::Kept {
+                source,
+                view,
+                recorded,
+            } => {
+                w.tag(2);
+                w.string(source);
+                w.string(view);
+                w.bool(recorded.is_some());
+                if let Some(recorded) = recorded {
+                    w.string(recorded);
+                }
+            }
+        }
+    }
+
+    fn write_ids(w: &mut Canonical, ids: &BTreeSet<u32>) {
+        w.len(ids.len());
+        for id in ids {
+            w.u32(*id);
+        }
+    }
+
+    fn write_fates(w: &mut Canonical, fates: &BTreeMap<u32, crate::restrict::NodeFate>) {
+        w.len(fates.len());
+        for (id, fate) in fates {
+            w.u32(*id);
+            write_fate(w, fate);
+        }
+    }
+
+    /// Reach entries of one segment: each dropped plain node it owns that a
+    /// non-fan in-stub enters, with the survivors a search from it reaches
+    /// through its own dropped plain nodes along non-fan edges and the
+    /// dropped nodes owned elsewhere it leaves through.
+    type ReachEntries = BTreeMap<u32, (BTreeSet<u32>, BTreeSet<u32>)>;
+
+    /// Definition: one segment's reach summary on the glued graph.
+    fn reach_summary(
+        segment: &GraphSegment,
+        g: &Graph,
+        fates: &BTreeMap<u32, crate::restrict::NodeFate>,
+        p: &Partition,
+    ) -> (ReachEntries, BTreeMap<u32, crate::restrict::NodeFate>) {
+        use crate::restrict::NodeFate;
+        let mut entries = ReachEntries::new();
+        let mut kept_fates = BTreeMap::new();
+        for stub in segment.boundary.in_stubs.values() {
+            if is_fan_kind(&stub.label.kind)
+                || fates.get(&stub.tgt) != Some(&NodeFate::Dropped)
+                || entries.contains_key(&stub.tgt)
+            {
+                continue;
+            }
+            let (mut kept, mut exits) = (BTreeSet::new(), BTreeSet::new());
+            let mut visited = BTreeSet::from([stub.tgt]);
+            let mut queue = vec![stub.tgt];
+            while let Some(at) = queue.pop() {
+                for edge in g.edges.values() {
+                    if edge.src != at || is_fan_kind(&edge.label.kind) {
+                        continue;
+                    }
+                    match fates.get(&edge.tgt) {
+                        Some(NodeFate::Kept { .. }) => {
+                            kept.insert(edge.tgt);
+                        }
+                        Some(NodeFate::Dropped)
+                            if p.owner_of_node(edge.tgt) != Some(segment.segment) =>
+                        {
+                            exits.insert(edge.tgt);
+                        }
+                        Some(NodeFate::Dropped) => {
+                            if visited.insert(edge.tgt) {
+                                queue.push(edge.tgt);
+                            }
+                        }
+                        Some(NodeFate::Fan) | None => {}
+                    }
+                }
+            }
+            for id in &kept {
+                kept_fates.insert(*id, fates[id].clone());
+            }
+            entries.insert(stub.tgt, (kept, exits));
+        }
+        (entries, kept_fates)
+    }
+
+    fn reach_summary_bytes(
+        entries: &ReachEntries,
+        fates: &BTreeMap<u32, crate::restrict::NodeFate>,
+    ) -> Vec<u8> {
+        let mut w = Canonical::default();
+        w.len(entries.len());
+        for (node, (kept, exits)) in entries {
+            w.u32(*node);
+            write_ids(&mut w, kept);
+            write_ids(&mut w, exits);
+        }
+        write_fates(&mut w, fates);
+        w.0
+    }
+
+    /// Definition: the coordinator's artifact. Each entry of every segment
+    /// with every survivor a search from it reaches through dropped plain
+    /// nodes of any segment along non-fan edges, the fates of the
+    /// survivors the summaries name, then each view segment's boundary.
+    fn restrict_assembly_bytes(
+        entries: &BTreeSet<u32>,
+        kept: &BTreeMap<u32, crate::restrict::NodeFate>,
+        g: &Graph,
+        fates: &BTreeMap<u32, crate::restrict::NodeFate>,
+        views: &[GraphSegment],
+    ) -> Vec<u8> {
+        use crate::restrict::NodeFate;
+        let mut w = Canonical::default();
+        w.len(entries.len());
+        for entry in entries {
+            let mut reached = BTreeSet::new();
+            let mut visited = BTreeSet::from([*entry]);
+            let mut queue = vec![*entry];
+            while let Some(at) = queue.pop() {
+                for edge in g.edges.values() {
+                    if edge.src != at || is_fan_kind(&edge.label.kind) {
+                        continue;
+                    }
+                    match fates.get(&edge.tgt) {
+                        Some(NodeFate::Kept { .. }) => {
+                            reached.insert(edge.tgt);
+                        }
+                        Some(NodeFate::Dropped) => {
+                            if visited.insert(edge.tgt) {
+                                queue.push(edge.tgt);
+                            }
+                        }
+                        Some(NodeFate::Fan) | None => {}
+                    }
+                }
+            }
+            w.u32(*entry);
+            write_ids(&mut w, &reached);
+        }
+        write_fates(&mut w, kept);
+        w.len(views.len());
+        for view in views {
+            write_boundary(&mut w, &view.boundary);
+        }
+        w.0
+    }
+
+    fn restrict_emit_bytes(
+        view: &GraphSegment,
+        complement: &GraphComplementSegment,
+        schema: Digest,
+        p: &Partition,
+    ) -> Result<(u64, u64, Vec<u8>), SegmentError> {
+        let complement = AnyComplementSegment::Graph(complement.clone());
+        let elements = complement.element_count();
+        let complement_bytes = complement.canonical_bytes()?;
+        let view_bytes = canonical_segment_bytes(&AnySegment::Graph(view.clone()), schema, p)?;
+        let mut w = Canonical::default();
+        w.u64(elements);
+        w.bytes(&view_bytes);
+        w.bytes(&complement_bytes);
+        Ok((
+            elements,
+            u64::try_from(complement_bytes.len()).unwrap_or(u64::MAX),
+            w.0,
+        ))
+    }
+
+    fn restrict_report(
+        report: SegmentRunReport,
+    ) -> SegmentRunReport<super::segmented_restrict::SegmentedRestrictRefusal> {
+        use super::segmented_restrict::SegmentedRestrictRefusal;
+        let status = match report.status {
+            RunStatus::Complete { manifest } => RunStatus::Complete { manifest },
+            RunStatus::Incomplete { reason } => RunStatus::Incomplete { reason },
+            RunStatus::Residual(residual) => RunStatus::Residual(residual),
+            RunStatus::Failed(error) => RunStatus::Failed(SegmentedRestrictRefusal::Segment(error)),
+        };
+        SegmentRunReport {
+            status,
+            locality: report.locality,
+            budget: report.budget,
+            progress: report.progress,
+            peak_estimated_bytes: report.peak_estimated_bytes,
+            observed_peak_bytes: report.observed_peak_bytes,
+            complement: report.complement,
+            tasks_run: report.tasks_run,
+            tasks_reused: report.tasks_reused,
+            orphans: report.orphans,
+            phases: report.phases,
+        }
+    }
+
+    enum RestrictStop {
+        Pipeline(PipelineStop),
+        Refused(super::segmented_restrict::SegmentedRestrictRefusal),
+    }
+
+    impl From<PipelineStop> for RestrictStop {
+        fn from(stop: PipelineStop) -> Self {
+            Self::Pipeline(stop)
+        }
+    }
+
+    /// The whole-state facts a reference restrict run reads.
+    struct RestrictFacts<'a> {
+        segments: &'a [GraphSegment],
+        g: Graph,
+        fates: Option<BTreeMap<u32, crate::restrict::NodeFate>>,
+        whole: Result<
+            Vec<super::segmented_restrict::SegmentOutput>,
+            super::segmented_restrict::SegmentedRestrictRefusal,
+        >,
+    }
+
+    /// One segment's Export artifact: the stage 0 fate of every in-stub
+    /// target by the owner of the in-stub's source, or a refusal marker.
+    fn restrict_export_bytes(
+        segment: &GraphSegment,
+        fates: Option<&BTreeMap<u32, crate::restrict::NodeFate>>,
+    ) -> Vec<u8> {
+        let Some(fates) = fates else {
+            return vec![1];
+        };
+        let exported: BTreeMap<(u32, u32), &crate::restrict::NodeFate> = segment
+            .boundary
+            .in_stubs
+            .values()
+            .filter_map(|stub| Some(((stub.src_owner.0, stub.tgt), fates.get(&stub.tgt)?)))
+            .collect();
+        let mut w = Canonical::default();
+        w.tag(2);
+        w.len(exported.len());
+        for ((owner, node), fate) in exported {
+            w.u32(owner);
+            w.u32(node);
+            write_fate(&mut w, fate);
+        }
+        w.0
+    }
+
+    impl<S: SegmentStore> RunnerState<'_, '_, S> {
+        /// Validate, Export and Summarize; the summary bytes in task order and
+        /// their total length.
+        fn restrict_local_phases(
+            &mut self,
+            facts: &RestrictFacts<'_>,
+        ) -> Result<(Vec<u8>, u64), RestrictStop> {
+            let mut summary_total: u64 = 0;
+            let mut summaries = Canonical::default();
+            for phase in [Phase::Validate, Phase::Export, Phase::Summarize] {
+                let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+                for (position, segment) in facts.segments.iter().enumerate() {
+                    if self.cancelled() {
+                        return Err(PipelineStop::Cancelled.into());
+                    }
+                    let input_bytes = self.segment_inputs[position].clone();
+                    let (kind, output) = match phase {
+                        Phase::Validate => (ArtifactKind::Segment, input_bytes.clone()),
+                        Phase::Export => (
+                            ArtifactKind::Export,
+                            restrict_export_bytes(segment, facts.fates.as_ref()),
+                        ),
+                        _ => {
+                            let (entries, kept) = facts.fates.as_ref().map_or_else(
+                                || (ReachEntries::new(), BTreeMap::new()),
+                                |fates| reach_summary(segment, &facts.g, fates, self.p),
+                            );
+                            (ArtifactKind::Summary, reach_summary_bytes(&entries, &kept))
+                        }
+                    };
+                    let stored =
+                        self.task(phase, Some(segment.segment), kind, &input_bytes, || {
+                            Ok(output.clone())
+                        })?;
+                    if stored != output {
+                        return Err(PipelineStop::Failed(decode_error(
+                            kind,
+                            "a committed artifact changed its input",
+                        ))
+                        .into());
+                    }
+                    if phase == Phase::Summarize {
+                        summaries.bytes(&output);
+                        summary_total = summary_total
+                            .saturating_add(u64::try_from(output.len()).unwrap_or(u64::MAX));
+                    }
+                }
+                finish_phase(&mut self.report, phase, run_before, reuse_before, self.peak);
+            }
+            Ok((summaries.0, summary_total))
+        }
+
+        /// Assemble: the refusal, the summary budget, then the closure and
+        /// view boundaries as the coordinator's artifact.
+        fn restrict_assemble(
+            &mut self,
+            facts: &RestrictFacts<'_>,
+            summaries: &[u8],
+            summary_total: u64,
+        ) -> Result<Vec<u8>, RestrictStop> {
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let outputs = facts
+                .whole
+                .as_ref()
+                .map_err(|refusal| RestrictStop::Refused(refusal.clone()))?;
+            let fates = facts.fates.as_ref().ok_or_else(|| {
+                PipelineStop::Failed(decode_error(ArtifactKind::Assembly, "stage 0 refused"))
+            })?;
+            let mut entries = BTreeSet::new();
+            let mut kept = BTreeMap::new();
+            for segment in facts.segments {
+                let (local, local_kept) = reach_summary(segment, &facts.g, fates, self.p);
+                entries.extend(local.into_keys());
+                kept.extend(local_kept);
+            }
+            let views: Vec<GraphSegment> = outputs.iter().map(|(view, _)| view.clone()).collect();
+            let assembly = restrict_assembly_bytes(&entries, &kept, &facts.g, fates, &views);
+            let needed =
+                summary_total.saturating_add(u64::try_from(assembly.len()).unwrap_or(u64::MAX));
+            if needed > self.budget.summary {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::Summary,
+                    phase: Phase::Assemble,
+                    segment: None,
+                    needed,
+                    budget: self.budget.summary,
+                })
+                .into());
+            }
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(
+                Phase::Assemble,
+                None,
+                ArtifactKind::Assembly,
+                summaries,
+                || Ok(assembly.clone()),
+            )?;
+            finish_phase(
+                &mut self.report,
+                Phase::Assemble,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            Ok(assembly)
+        }
+
+        /// Emit, each task preceded by the running complement budget; the
+        /// emitted artifacts in task order.
+        fn restrict_emit(
+            &mut self,
+            outputs: &[super::segmented_restrict::SegmentOutput],
+            assembly: &[u8],
+        ) -> Result<Vec<u8>, RestrictStop> {
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            let mut emitted = Canonical::default();
+            for (view, complement) in outputs {
+                if self.cancelled() {
+                    return Err(PipelineStop::Cancelled.into());
+                }
+                let (elements, bytes, artifact) =
+                    restrict_emit_bytes(view, complement, self.spec.schema, self.p)
+                        .map_err(PipelineStop::Failed)?;
+                let needed = self.report.complement.bytes.saturating_add(bytes);
+                if self.budget.complement.is_some_and(|limit| needed > limit) {
+                    return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                        resource: Resource::Complement,
+                        phase: Phase::Emit,
+                        segment: Some(view.segment),
+                        needed,
+                        budget: self.budget.complement.unwrap_or(u64::MAX),
+                    })
+                    .into());
+                }
+                self.task(
+                    Phase::Emit,
+                    Some(view.segment),
+                    ArtifactKind::ComplementSegment,
+                    assembly,
+                    || Ok(artifact.clone()),
+                )?;
+                emitted.bytes(&artifact);
+                self.report.complement.elements =
+                    self.report.complement.elements.saturating_add(elements);
+                self.report.complement.bytes = needed;
+                self.report
+                    .complement
+                    .per_segment
+                    .insert(view.segment, (elements, bytes));
+            }
+            finish_phase(
+                &mut self.report,
+                Phase::Emit,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            Ok(emitted.0)
+        }
+
+        /// Seal the view segments as a view of the input manifest `input`.
+        fn restrict_seal(
+            &mut self,
+            outputs: &[super::segmented_restrict::SegmentOutput],
+            emitted: &[u8],
+            input: Digest,
+        ) -> Result<(Vec<u8>, SegmentManifest), RestrictStop> {
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let any: Vec<AnySegment> = outputs
+                .iter()
+                .map(|(view, _)| AnySegment::Graph(view.clone()))
+                .collect();
+            let role = ManifestRole::View {
+                source: input,
+                envelope: IdentityEnvelope {
+                    source_schema: self.restrict_source_schema.0,
+                    target_schema: self.spec.schema.0,
+                    lens: self.spec.operation.0,
+                    shape: ComplementShape::Graph,
+                    format_version: 1,
+                },
+            };
+            let manifest = seal_manifest(&any, self.p, self.spec.schema, role, self.spec.binding)
+                .map_err(PipelineStop::Failed)?;
+            let bytes = canonical_manifest_bytes(&manifest);
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(Phase::Seal, None, ArtifactKind::Manifest, emitted, || {
+                Ok(bytes.clone())
+            })?;
+            finish_phase(
+                &mut self.report,
+                Phase::Seal,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            Ok((bytes, manifest))
+        }
+
+        fn restrict_phases(
+            &mut self,
+            facts: &RestrictFacts<'_>,
+            input: Digest,
+        ) -> Result<(Vec<u8>, SegmentManifest), RestrictStop> {
+            let (summaries, summary_total) = self.restrict_local_phases(facts)?;
+            let assembly = self.restrict_assemble(facts, &summaries, summary_total)?;
+            let outputs = facts
+                .whole
+                .as_ref()
+                .map_err(|refusal| RestrictStop::Refused(refusal.clone()))?;
+            let emitted = self.restrict_emit(outputs, &assembly)?;
+            self.restrict_seal(outputs, &emitted, input)
+        }
+    }
+
+    /// The run identity: the lens, the input manifest digest, the partition
+    /// bytes and [`GRAPH_RESTRICT_OP`] under [`RUN_JOURNAL_CONTEXT`].
+    fn restrict_run_identity(lens: Digest, input: Digest, p: &Partition) -> Digest {
+        let mut identity = Canonical::default();
+        identity.digest(lens);
+        identity.digest(input);
+        let mut partition = Canonical::default();
+        partition.tag(shape_tag(p.shape));
+        partition.len(p.specs.len());
+        for item in &p.specs {
+            write_spec(&mut partition, item);
+        }
+        identity.bytes(&partition.0);
+        identity.bytes(GRAPH_RESTRICT_OP);
+        Digest::derive(RUN_JOURNAL_CONTEXT, &identity.0)
+    }
+
+    /// The checks before the first task: the number of segments, then each
+    /// segment's working-set estimate; the peak estimate and each segment's
+    /// canonical bytes.
+    fn restrict_preflight(
+        segments: &[AnySegment],
+        p: &Partition,
+        schema: Digest,
+        budget: Budget,
+    ) -> Result<(u64, Vec<Vec<u8>>), PipelineStop> {
+        let affected = u64::try_from(segments.len()).unwrap_or(u64::MAX);
+        if affected > u64::from(budget.affected_segments) {
+            return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                resource: Resource::AffectedSegments,
+                phase: Phase::Validate,
+                segment: None,
+                needed: affected,
+                budget: u64::from(budget.affected_segments),
+            }));
+        }
+        let mut peak = 0;
+        let mut inputs = Vec::with_capacity(segments.len());
+        for segment in segments {
+            let estimate = MemoryModel::estimate(
+                &segment_summary(segment, p)
+                    .map_err(PipelineStop::Failed)?
+                    .stats,
+            );
+            let bytes =
+                canonical_segment_bytes(segment, schema, p).map_err(PipelineStop::Failed)?;
+            if estimate > budget.working_set {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::WorkingSet,
+                    phase: Phase::Validate,
+                    segment: Some(segment.segment()),
+                    needed: estimate,
+                    budget: budget.working_set,
+                }));
+            }
+            peak = peak.max(estimate);
+            inputs.push(bytes);
+        }
+        Ok((peak, inputs))
+    }
+
+    /// The outcome of the phases of a reference restrict run.
+    fn finish_restrict<S: SegmentStore>(
+        mut state: RunnerState<'_, '_, S>,
+        facts: RestrictFacts<'_>,
+        outcome: Result<(Vec<u8>, SegmentManifest), RestrictStop>,
+    ) -> RestrictRun {
+        let run = state.run;
+        let stopped = |report| RestrictRun {
+            run,
+            output: None,
+            manifest: None,
+            report,
+        };
+        state.report.peak_estimated_bytes = state.peak;
+        match outcome {
+            Ok((bytes, manifest)) => match state.store.staged_uncommitted(&state.run) {
+                Ok(orphans) => {
+                    state.report.orphans = orphans;
+                    state.report.status = RunStatus::Complete {
+                        manifest: Digest::derive(MANIFEST_CONTEXT, &bytes),
+                    };
+                    RestrictRun {
+                        run,
+                        output: facts.whole.ok(),
+                        manifest: Some(manifest),
+                        report: restrict_report(state.report),
+                    }
+                }
+                Err(error) => {
+                    state.report.status = RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store {
+                            message: error.to_string(),
+                        },
+                    };
+                    stopped(restrict_report(state.report))
+                }
+            },
+            Err(RestrictStop::Pipeline(stop)) => {
+                stopped(restrict_report(stop_run::<(), S>(state, stop).report))
+            }
+            Err(RestrictStop::Refused(refusal)) => {
+                let mut report = restrict_report(state.report);
+                report.status = RunStatus::Failed(refusal);
+                stopped(report)
+            }
+        }
+    }
+
+    /// Definition: the checkpointed run of segmented graph restriction.
+    ///
+    /// The run glues `segments` under `p` and seals them into the input
+    /// manifest (refusing an invalid family with that refusal), names
+    /// itself by the lens, the input manifest digest, the partition bytes and
+    /// [`GRAPH_RESTRICT_OP`], and declines a family with more segments than
+    /// the budget or a segment whose [`MemoryModel`] estimate exceeds the
+    /// working set. It then commits `4n + 2` tasks: per segment Validate
+    /// (the canonical segment bytes), Export (the stage 0 fates of the
+    /// in-stub targets) and Summarize (the reach summary); the coordinator's
+    /// Assemble, which refuses with the [`super::segmented_restrict::restrict_graph_segmented`]
+    /// refusal and otherwise declines when the summary bytes and its own
+    /// artifact exceed the summary budget; per segment Emit, each preceded by
+    /// the running complement budget check; and Seal, which seals the view
+    /// segments as a view of the input manifest. It stops before any task
+    /// once `cancel_after_tasks` tasks are done, and reuses every committed
+    /// task whose inputs and artifact are unchanged.
+    pub fn segmented_restrict_with_progress<S: SegmentStore>(
+        lens: RestrictLens<'_>,
+        segments: &[GraphSegment],
+        p: &Partition,
+        spec: RestrictRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> RestrictRun {
+        let RestrictLens { src, tgt, m, vl } = lens;
+        let per = u32::try_from(segments.len()).unwrap_or(u32::MAX);
+        let total = per.saturating_mul(4).saturating_add(2);
+        let mut report = base_report(InstanceShapeKind::Graph, budget, total);
+        report.locality.get = if src.vertices.keys().any(|vertex| !m.survives(vertex)) {
+            Locality::Summary(SummaryKind::Reach)
+        } else {
+            Locality::Exchange
+        };
+        let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+        let refused = |report, error| RestrictRun {
+            run: Digest::default(),
+            output: None,
+            manifest: None,
+            report: restrict_report(failed::<()>(report, error).report),
+        };
+        let g = match glue(&any, p) {
+            Ok(AnyInstance::Graph(g)) => g,
+            Ok(_) => {
+                return refused(
+                    report,
+                    decode_error(ArtifactKind::Segment, "not a graph family"),
+                );
+            }
+            Err(error) => return refused(report, error),
+        };
+        let input = match seal_manifest(
+            &any,
+            p,
+            spec.source_schema,
+            ManifestRole::Source,
+            spec.binding,
+        ) {
+            Ok(manifest) => Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(&manifest)),
+            Err(error) => return refused(report, error),
+        };
+        let run = restrict_run_identity(spec.lens, input, p);
+        let mut state = RunnerState {
+            p,
+            spec: RunSpec {
+                operation: spec.lens,
+                schema: spec.view_schema,
+                binding: spec.binding,
+                cancel_after_tasks: spec.cancel_after_tasks,
+            },
+            budget,
+            store,
+            progress,
+            run,
+            peak: 0,
+            segment_inputs: Vec::new(),
+            preflight_summaries: Vec::new(),
+            restrict_source_schema: spec.source_schema,
+            report,
+        };
+        match restrict_preflight(&any, p, spec.source_schema, budget) {
+            Ok((peak, inputs)) => {
+                state.peak = peak;
+                state.segment_inputs = inputs;
+            }
+            Err(stop) => {
+                return RestrictRun {
+                    run,
+                    output: None,
+                    manifest: None,
+                    report: restrict_report(stop_run::<(), S>(state, stop).report),
+                };
+            }
+        }
+        let fates = crate::restrict::node_fates(src, tgt, m, vl, &g).ok();
+        let facts = RestrictFacts {
+            segments,
+            whole: super::segmented_restrict::restrict_graph_segmented(
+                src, tgt, m, vl, segments, p,
+            ),
+            g,
+            fates,
+        };
+        let outcome = state.restrict_phases(&facts, input);
+        finish_restrict(state, facts, outcome)
     }
 
     /// Run validate/export/summarize/assemble/emit/seal, with deterministic

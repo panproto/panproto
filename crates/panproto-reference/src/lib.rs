@@ -71,6 +71,7 @@
 //! | Segment execution as whole-state execution on the glued state | [`segment::segmented`] | `segments.md` |
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |
 //! | Segmented graph restriction, by whole-state restriction of the glued graph | [`segment::restrict_graph_segmented`] | `segments.md` |
+//! | The checkpointed run of segmented graph restriction | [`segment::segmented_restrict_with_progress`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |
 //! | `L_b`: round to nearest, ties to even, at widths 16, 32 and 64 | [`float::round_to`] | `values.md` |

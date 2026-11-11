@@ -37,6 +37,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use panproto_gat::Name;
+use panproto_schema::CanonicalWriter;
 use serde::{Deserialize, Serialize};
 
 use super::body::{Boundary, Ghost, GraphSegment, InStub};
@@ -45,9 +46,13 @@ use super::ids::{IdAllocator, IdKind, SegmentId};
 use super::partition::{OwnerIndex, Partition};
 use super::split::assemble_graph;
 use crate::error::RestrictError;
-use crate::ginstance::{EdgeId, FanDomain, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::ginstance::{
+    EdgeId, FanDomain, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, write_edge_record,
+    write_node_record,
+};
 use crate::graph_complement::GraphComplement;
 use crate::graph_restrict::{Outside, RemoteFate, RunParts, decide_nodes, run_scoped};
+use crate::identity::{CanonicalSink, Digest, SEGMENT_COMPLEMENT_CONTEXT, SEGMENT_FORMAT_VERSION};
 use crate::locality::{GlobalReason, Locality, SegmentOp, SummaryKind};
 use crate::metadata::Node;
 use crate::restrict_plan::RestrictPlan;
@@ -89,6 +94,156 @@ pub struct GraphComplementSegment {
     pub synthesized_edges: BTreeMap<EdgeId, SynthKey>,
     /// The floors of its allocation ranges after the run.
     pub floors: IdFloor,
+}
+
+impl GraphComplementSegment {
+    /// The number of entries the complement segment retains: its dropped
+    /// nodes and edges, its recorded original edges, anchors, fields and
+    /// values, and its synthesized nodes and edges.
+    #[must_use]
+    pub fn element_count(&self) -> u64 {
+        let count = self.dropped_nodes.len()
+            + self.dropped_edges.len()
+            + self.original_edges.len()
+            + self.original_anchors.len()
+            + self.original_extra_fields.len()
+            + self.original_values.len()
+            + self.synthesized_nodes.len()
+            + self.synthesized_edges.len();
+        u64::try_from(count).unwrap_or(u64::MAX)
+    }
+
+    /// The complement segment's canonical bytes.
+    ///
+    /// ```text
+    /// version: u16 (SEGMENT_FORMAT_VERSION), shape: u8 (2, graph)
+    /// dropped nodes:    count, node records            (ascending id)
+    /// dropped edges:    count, edge records            (ascending id)
+    /// original edges:   count, edge records            (ascending id)
+    /// original anchors: count, (node, anchor)          (ascending node)
+    /// original fields:  count, (node, field map)       (ascending node)
+    /// original values:  count, (node, value presence)  (ascending node)
+    /// synthesized nodes and then edges: count, (id, key) (ascending id)
+    /// floors:           node floor: u32, edge floor: u32
+    /// ```
+    ///
+    /// A node or edge record is the one the segment bytes use. A value
+    /// presence is a tag (`0` none, `1` present and the value, `2` null,
+    /// `3` absent). A key is a tag and its fields: `0` a contracted pair
+    /// (source, target, edge label), `1` an expanded edge (edge id, hop as
+    /// `u16`), `2` an expanded contraction (source, target, hop). The segment
+    /// id is not written: the manifest the complement is filed under names
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::NodeIdMismatch`] for a dropped node stored under a
+    /// key other than its id, and [`SegmentError::Decode`] for a key of a
+    /// resolution, which graph restrict never synthesizes.
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, SegmentError> {
+        let mut sink = CanonicalWriter::new();
+        sink.write(&SEGMENT_FORMAT_VERSION.to_le_bytes());
+        sink.tag(2);
+        sink.len(self.dropped_nodes.len());
+        for (key, node) in &self.dropped_nodes {
+            if *key != node.id {
+                return Err(SegmentError::NodeIdMismatch {
+                    key: *key,
+                    found: node.id,
+                });
+            }
+            write_node_record(&mut sink, node);
+        }
+        for edges in [&self.dropped_edges, &self.original_edges] {
+            sink.len(edges.len());
+            for (id, edge) in edges {
+                write_edge_record(&mut sink, *id, edge);
+            }
+        }
+        sink.len(self.original_anchors.len());
+        for (id, anchor) in &self.original_anchors {
+            sink.u32(*id);
+            sink.name(anchor);
+        }
+        sink.len(self.original_extra_fields.len());
+        for (id, fields) in &self.original_extra_fields {
+            sink.u32(*id);
+            sink.len(fields.len());
+            for (key, value) in fields {
+                sink.str(key);
+                sink.value(value);
+            }
+        }
+        sink.len(self.original_values.len());
+        for (id, value) in &self.original_values {
+            sink.u32(*id);
+            match value {
+                None => sink.tag(0),
+                Some(FieldPresence::Present(value)) => {
+                    sink.tag(1);
+                    sink.value(value);
+                }
+                Some(FieldPresence::Null) => sink.tag(2),
+                Some(FieldPresence::Absent) => sink.tag(3),
+            }
+        }
+        sink.len(self.synthesized_nodes.len());
+        for (id, key) in &self.synthesized_nodes {
+            sink.u32(*id);
+            write_synth_key(&mut sink, key)?;
+        }
+        sink.len(self.synthesized_edges.len());
+        for (id, key) in &self.synthesized_edges {
+            sink.u32(id.0);
+            write_synth_key(&mut sink, key)?;
+        }
+        sink.u32(self.floors.node);
+        sink.u32(self.floors.edge);
+        Ok(sink.into_bytes())
+    }
+
+    /// The complement segment's digest: its canonical bytes under
+    /// [`SEGMENT_COMPLEMENT_CONTEXT`].
+    ///
+    /// # Errors
+    ///
+    /// As [`GraphComplementSegment::canonical_bytes`].
+    pub fn digest(&self) -> Result<Digest, SegmentError> {
+        Ok(Digest::derive(
+            SEGMENT_COMPLEMENT_CONTEXT,
+            &self.canonical_bytes()?,
+        ))
+    }
+}
+
+/// Write a graph restrict's synthesized key: a tag and its fields.
+fn write_synth_key(sink: &mut CanonicalWriter, key: &SynthKey) -> Result<(), SegmentError> {
+    match key {
+        SynthKey::Contract { src, tgt, edge } => {
+            sink.tag(0);
+            sink.u32(*src);
+            sink.u32(*tgt);
+            sink.edge(edge);
+        }
+        SynthKey::Expand { source_edge, hop } => {
+            sink.tag(1);
+            sink.u32(source_edge.0);
+            sink.write(&hop.to_le_bytes());
+        }
+        SynthKey::ContractExpand { src, tgt, hop } => {
+            sink.tag(2);
+            sink.u32(*src);
+            sink.u32(*tgt);
+            sink.write(&hop.to_le_bytes());
+        }
+        SynthKey::ResolutionReference { .. } | SynthKey::ResolutionSpan { .. } => {
+            return Err(SegmentError::Decode {
+                artifact: super::store::ArtifactKind::ComplementSegment,
+                message: "a resolution key has no graph complement segment encoding".to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The output of a segmented graph restrict: one view segment and one
@@ -177,13 +332,13 @@ pub fn graph_restrict_locality(plan: &RestrictPlan) -> Locality {
 /// One segment's graph as its run holds it: the owned nodes and edges, a
 /// placeholder for each ghost and each in-stub source, and each in-stub as
 /// an edge from its source's placeholder.
-struct Local {
-    graph: GInstance,
-    foreign: BTreeSet<u32>,
+pub(super) struct Local {
+    pub(super) graph: GInstance,
+    pub(super) foreign: BTreeSet<u32>,
 }
 
 impl Local {
-    fn of(segment: &GraphSegment) -> Result<Self, SegmentError> {
+    pub(super) fn of(segment: &GraphSegment) -> Result<Self, SegmentError> {
         let mut graph = GInstance::new();
         let mut foreign = BTreeSet::new();
         for node in segment.nodes.values() {
@@ -218,7 +373,7 @@ impl Local {
     }
 
     /// The first fan-domain violation among the owned nodes, ascending.
-    fn fan_violation(&self) -> Option<(u32, crate::FanViolation)> {
+    pub(super) fn fan_violation(&self) -> Option<(u32, crate::FanViolation)> {
         let mut ids: Vec<u32> = self
             .graph
             .nodes()
@@ -264,11 +419,12 @@ fn is_fan_edge(edge: &GEdge) -> bool {
 /// that a non-fan in-stub enters, the surviving nodes a search from it
 /// reaches without leaving the segment, and the dropped ghosts it leaves
 /// through.
-#[derive(Default)]
-struct ReachSummary {
-    entries: BTreeMap<u32, (BTreeSet<u32>, BTreeSet<u32>)>,
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct ReachSummary {
+    /// Each entry's survivors reached and dropped ghosts left through.
+    pub(super) entries: BTreeMap<u32, (BTreeSet<u32>, BTreeSet<u32>)>,
     /// The fate of every surviving node the summary names.
-    kept: BTreeMap<u32, RemoteFate>,
+    pub(super) kept: BTreeMap<u32, RemoteFate>,
 }
 
 /// The fate of `id` as `segment` sees it: its own decision or its import.
@@ -327,7 +483,7 @@ fn slot(id: SegmentId) -> usize {
 
 /// The precedence key of a located restrict refusal; a refusal the engine
 /// does not locate sorts first.
-const fn refusal_key(error: &RestrictError) -> Option<super::error::ErrorKey> {
+pub(super) const fn refusal_key(error: &RestrictError) -> Option<super::error::ErrorKey> {
     match error {
         RestrictError::At { key, .. } => Some(*key),
         _ => None,
@@ -335,7 +491,7 @@ const fn refusal_key(error: &RestrictError) -> Option<super::error::ErrorKey> {
 }
 
 /// Keep the refusal with the least key, the earlier segment on a tie.
-fn keep_least(
+pub(super) fn keep_least(
     first: &mut Option<(SegmentId, RestrictError)>,
     segment: SegmentId,
     error: RestrictError,
@@ -497,7 +653,7 @@ fn check_family(
 }
 
 /// One segment's reach summary.
-fn summarize(
+pub(super) fn summarize(
     segment: &GraphSegment,
     local: &Local,
     own: &BTreeMap<u32, RemoteFate>,
@@ -525,9 +681,11 @@ fn summarize(
 /// The closure of the reach summaries: for every entry of every segment,
 /// every surviving node reached from it through dropped nodes of any
 /// segment, with the fates of all the survivors named.
-struct ClosedReach {
-    reach: HashMap<u32, BTreeSet<u32>>,
-    kept: BTreeMap<u32, RemoteFate>,
+pub(super) struct ClosedReach {
+    /// Every survivor each entry reaches.
+    pub(super) reach: HashMap<u32, BTreeSet<u32>>,
+    /// The fate of every survivor reached.
+    pub(super) kept: BTreeMap<u32, RemoteFate>,
 }
 
 /// Close the reach summaries over the boundary: an entry reaches what it
@@ -535,7 +693,9 @@ struct ClosedReach {
 ///
 /// The work is a search of the boundary graph (entries and their exits)
 /// from each entry, so it is bounded by the summaries, not by the graph.
-fn close_reach(summaries: &[ReachSummary]) -> ClosedReach {
+pub(super) fn close_reach<'s>(
+    summaries: impl IntoIterator<Item = &'s ReachSummary>,
+) -> ClosedReach {
     let mut entries: HashMap<u32, &(BTreeSet<u32>, BTreeSet<u32>)> = HashMap::new();
     let mut kept = BTreeMap::new();
     for summary in summaries {
@@ -566,7 +726,11 @@ fn close_reach(summaries: &[ReachSummary]) -> ClosedReach {
 /// What a segment's stages 1 to 3 know of the nodes it does not own: the
 /// fates of its ghosts, and the closed reach of its dropped ghosts with the
 /// fates of the survivors they reach.
-fn outside_of(local: &Local, imports: &BTreeMap<u32, RemoteFate>, closed: &ClosedReach) -> Outside {
+pub(super) fn outside_of(
+    local: &Local,
+    imports: &BTreeMap<u32, RemoteFate>,
+    closed: &ClosedReach,
+) -> Outside {
     let mut outside = Outside {
         foreign: local.foreign.clone(),
         fates: imports.clone(),
@@ -634,94 +798,140 @@ fn emit(
     let mut views: Vec<GraphSegment> = Vec::with_capacity(segments.len());
     let mut complements = Vec::with_capacity(segments.len());
     for (segment, run) in segments.iter().zip(parts) {
-        let id = segment.segment;
-        let spec = partition.spec(id).ok_or(SegmentError::MalformedPartition {
-            segment: id,
-            defect: super::error::PartitionDefect::UnknownSegment,
-        })?;
-        let mut nodes_alloc = allocator_for(
-            id,
-            IdKind::Node,
-            spec.alloc_nodes,
-            segment.nodes.keys().copied(),
-            run.synth_nodes.len(),
-        )?;
-        let node_ids = allocate_keys(
-            nodes_alloc.as_mut(),
-            run.synth_nodes.keys(),
-            id,
-            IdKind::Node,
-        )?;
-        let arcs = run.arcs(&node_ids);
-        let mut edges_alloc = allocator_for(
-            id,
-            IdKind::Edge,
-            spec.alloc_edges,
-            segment.edges.keys().map(|edge| edge.0),
-            arcs.len(),
-        )?;
-        let edge_keys: BTreeSet<&SynthKey> = arcs.iter().map(|(key, ..)| key).collect();
-        let edge_ids = allocate_keys(edges_alloc.as_mut(), edge_keys, id, IdKind::Edge)?;
-
-        let RunParts {
-            nodes: mut view_nodes,
-            edges: mut view_edges,
-            synth_nodes,
-            complement,
-            ..
-        } = run;
-        let mut synthesized_nodes = BTreeMap::new();
-        for (key, anchor) in synth_nodes {
-            let node = node_ids[&key];
-            view_nodes.insert(node, Node::new(node, anchor));
-            synthesized_nodes.insert(node, key);
-        }
-        let mut synthesized_edges = BTreeMap::new();
-        for (key, src, tgt, label) in arcs {
-            let edge = EdgeId(edge_ids[&key]);
-            view_edges.insert(edge, GEdge::new(src, tgt, label));
-            synthesized_edges.insert(edge, key);
-        }
-        complements.push(GraphComplementSegment {
-            segment: id,
-            dropped_nodes: complement.dropped_nodes,
-            dropped_edges: complement.dropped_edges,
-            original_edges: complement.original_edges,
-            original_anchors: complement.original_anchors,
-            original_extra_fields: complement.original_extra_fields,
-            original_values: complement.original_values,
-            synthesized_nodes,
-            synthesized_edges,
-            floors: IdFloor {
-                node: nodes_alloc.map_or(0, |a| a.floor()),
-                edge: edges_alloc.map_or(0, |a| a.floor()),
-            },
-        });
-        views.push(GraphSegment {
-            segment: id,
-            nodes: view_nodes,
-            edges: view_edges,
-            boundary: Boundary::default(),
-        });
+        let (view, complement) = emit_segment(segment, partition, run)?;
+        views.push(view);
+        complements.push(complement);
     }
-    bound_views(&mut views, index)?;
+    let mut boundaries = ViewBoundaries::default();
+    for view in &views {
+        boundaries.add(view, index, |_| true)?;
+    }
+    for (view, boundary) in views.iter_mut().zip(boundaries.finish(segments.len())?) {
+        view.boundary = boundary;
+    }
     Ok(SegmentedRestrict { views, complements })
 }
 
-/// Fill the boundaries of the view segments: a ghost for every remote
-/// target of an owned view edge and an in-stub in the target's segment.
-fn bound_views(views: &mut [GraphSegment], index: &OwnerIndex) -> Result<(), SegmentError> {
-    let mut stubs: Vec<(SegmentId, ViewRef, InStub)> = Vec::new();
-    let mut ghosts: Vec<(usize, Ghost)> = Vec::new();
-    let anchors: BTreeMap<u32, Name> = views
-        .iter()
-        .flat_map(|view| {
-            view.nodes
-                .iter()
-                .map(|(id, node)| (*id, node.anchor.clone()))
-        })
-        .collect();
-    for (position, view) in views.iter().enumerate() {
+/// Allocate one segment's synthesized ids from its ranges and lay its view
+/// and complement out, the view with an empty boundary.
+///
+/// Node ids come from the segment's node allocation range and edge ids from
+/// its edge allocation range, each in ascending key order, above every id
+/// the segment holds.
+pub(super) fn emit_segment(
+    segment: &GraphSegment,
+    partition: &Partition,
+    run: RunParts,
+) -> Result<(GraphSegment, GraphComplementSegment), SegmentError> {
+    let id = segment.segment;
+    let spec = partition.spec(id).ok_or(SegmentError::MalformedPartition {
+        segment: id,
+        defect: super::error::PartitionDefect::UnknownSegment,
+    })?;
+    let mut nodes_alloc = allocator_for(
+        id,
+        IdKind::Node,
+        spec.alloc_nodes,
+        segment.nodes.keys().copied(),
+        run.synth_nodes.len(),
+    )?;
+    let node_ids = allocate_keys(
+        nodes_alloc.as_mut(),
+        run.synth_nodes.keys(),
+        id,
+        IdKind::Node,
+    )?;
+    let arcs = run.arcs(&node_ids);
+    let mut edges_alloc = allocator_for(
+        id,
+        IdKind::Edge,
+        spec.alloc_edges,
+        segment.edges.keys().map(|edge| edge.0),
+        arcs.len(),
+    )?;
+    let edge_keys: BTreeSet<&SynthKey> = arcs.iter().map(|(key, ..)| key).collect();
+    let edge_ids = allocate_keys(edges_alloc.as_mut(), edge_keys, id, IdKind::Edge)?;
+
+    let RunParts {
+        nodes: mut view_nodes,
+        edges: mut view_edges,
+        synth_nodes,
+        complement,
+        ..
+    } = run;
+    let mut synthesized_nodes = BTreeMap::new();
+    for (key, anchor) in synth_nodes {
+        let node = node_ids[&key];
+        view_nodes.insert(node, Node::new(node, anchor));
+        synthesized_nodes.insert(node, key);
+    }
+    let mut synthesized_edges = BTreeMap::new();
+    for (key, src, tgt, label) in arcs {
+        let edge = EdgeId(edge_ids[&key]);
+        view_edges.insert(edge, GEdge::new(src, tgt, label));
+        synthesized_edges.insert(edge, key);
+    }
+    let complement = GraphComplementSegment {
+        segment: id,
+        dropped_nodes: complement.dropped_nodes,
+        dropped_edges: complement.dropped_edges,
+        original_edges: complement.original_edges,
+        original_anchors: complement.original_anchors,
+        original_extra_fields: complement.original_extra_fields,
+        original_values: complement.original_values,
+        synthesized_nodes,
+        synthesized_edges,
+        floors: IdFloor {
+            node: nodes_alloc.map_or(0, |a| a.floor()),
+            edge: edges_alloc.map_or(0, |a| a.floor()),
+        },
+    };
+    let view = GraphSegment {
+        segment: id,
+        nodes: view_nodes,
+        edges: view_edges,
+        boundary: Boundary::default(),
+    };
+    Ok((view, complement))
+}
+
+/// The boundaries of a family of view segments, gathered one view at a
+/// time: a ghost for every remote target of an owned view edge, and an
+/// in-stub for it in the target's segment.
+///
+/// A ghost carries its node's anchor in the owner's view, so each view
+/// added offers the anchors of the nodes a remote view edge may target
+/// (`candidates`); a view edge whose target's owner offered no anchor for it
+/// is dangling.
+#[derive(Default)]
+pub(super) struct ViewBoundaries {
+    /// Each crossing view edge: the segment holding it, its element, and its
+    /// in-stub.
+    crossings: Vec<(SegmentId, ViewRef, InStub, SegmentId)>,
+    /// The view anchors the views offered.
+    anchors: BTreeMap<u32, Name>,
+}
+
+impl ViewBoundaries {
+    /// Add one view: record each owned view edge whose target the view does
+    /// not hold, and offer the anchor of each view node `candidates` admits.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Unowned`] for a crossing edge whose target no segment
+    /// owns, and [`SegmentError::DanglingEndpoint`] for one whose source the
+    /// view does not hold.
+    pub(super) fn add(
+        &mut self,
+        view: &GraphSegment,
+        index: &OwnerIndex,
+        candidates: impl Fn(u32) -> bool,
+    ) -> Result<(), SegmentError> {
+        for (id, node) in &view.nodes {
+            if candidates(*id) {
+                self.anchors.insert(*id, node.anchor.clone());
+            }
+        }
         for (id, edge) in &view.edges {
             if view.nodes.contains_key(&edge.tgt) {
                 continue;
@@ -730,25 +940,13 @@ fn bound_views(views: &mut [GraphSegment], index: &OwnerIndex) -> Result<(), Seg
             let owner = index
                 .owner_of_node(edge.tgt)
                 .ok_or_else(|| SegmentError::Unowned { elem: elem.clone() })?;
-            let anchor = anchors
-                .get(&edge.tgt)
-                .cloned()
-                .ok_or_else(|| dangling(elem.clone(), edge.tgt))?;
             let src_anchor = view
                 .nodes
                 .get(&edge.src)
                 .map(|node| node.anchor.clone())
                 .ok_or_else(|| dangling(elem.clone(), edge.src))?;
-            ghosts.push((
-                position,
-                Ghost {
-                    node: edge.tgt,
-                    owner,
-                    anchor,
-                },
-            ));
-            stubs.push((
-                owner,
+            self.crossings.push((
+                view.segment,
                 elem,
                 InStub {
                     src: edge.src,
@@ -757,20 +955,39 @@ fn bound_views(views: &mut [GraphSegment], index: &OwnerIndex) -> Result<(), Seg
                     tgt: edge.tgt,
                     label: edge.edge.clone(),
                 },
+                owner,
             ));
         }
+        Ok(())
     }
-    for (position, ghost) in ghosts {
-        if let Some(view) = views.get_mut(position) {
-            view.boundary.ghosts.entry(ghost.node).or_insert(ghost);
+
+    /// The boundary of each of the `count` segments, in id order.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::DanglingEndpoint`] for the first crossing edge whose
+    /// target's anchor no view offered.
+    pub(super) fn finish(self, count: usize) -> Result<Vec<Boundary>, SegmentError> {
+        let mut boundaries = vec![Boundary::default(); count];
+        for (holder, elem, stub, owner) in self.crossings {
+            let anchor = self
+                .anchors
+                .get(&stub.tgt)
+                .cloned()
+                .ok_or_else(|| dangling(elem.clone(), stub.tgt))?;
+            if let Some(boundary) = boundaries.get_mut(slot(holder)) {
+                boundary.ghosts.entry(stub.tgt).or_insert(Ghost {
+                    node: stub.tgt,
+                    owner,
+                    anchor,
+                });
+            }
+            if let Some(boundary) = boundaries.get_mut(slot(owner)) {
+                boundary.in_stubs.insert(elem, stub);
+            }
         }
+        Ok(boundaries)
     }
-    for (owner, elem, stub) in stubs {
-        if let Some(view) = views.get_mut(slot(owner)) {
-            view.boundary.in_stubs.insert(elem, stub);
-        }
-    }
-    Ok(())
 }
 
 impl SegmentedRestrict {
