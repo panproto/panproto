@@ -6246,6 +6246,62 @@
           ]
         }
       ]
+    },
+    "text-formats": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/text_formats.rs",
+        "crates/panproto-reference/src/enumerate/text_formats.rs"
+      ],
+      "laws": [
+        {
+          "id": "text-formats.toml-key-resolution",
+          "anchor": "L-text-formats-1",
+          "references": [
+            "panproto_reference::pages::text_formats::toml::resolve_keys"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "toml_key_resolution_matches_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "randomized_toml_key_resolution_matches_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "toml_key_resolution_follows_the_toml_examples"
+            }
+          ]
+        },
+        {
+          "id": "text-formats.yaml-directive-acceptance",
+          "anchor": "L-text-formats-2",
+          "references": [
+            "panproto_reference::pages::text_formats::yaml::read_directives"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "yaml_directive_acceptance_matches_the_reference_on_every_bounded_sequence"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "yaml_directives_are_refused_in_source_order"
+            }
+          ]
+        }
+      ]
     }
   }
 }
