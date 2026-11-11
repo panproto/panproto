@@ -38,8 +38,8 @@ fn codec() -> UnifiedCodec {
 #[derive(Debug, PartialEq)]
 enum Shape {
     Scalar(String),
-    List(Vec<Shape>),
-    Map(BTreeMap<String, Shape>),
+    List(Vec<Self>),
+    Map(BTreeMap<String, Self>),
 }
 
 fn scalar_text(value: &Value) -> String {

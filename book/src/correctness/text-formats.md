@@ -14,6 +14,12 @@ The shapes in the table are the ones each protocol declares in `panproto_protoco
 
 The executable reference for both laws is [`panproto_reference::pages::text_formats`](https://docs.rs/panproto-reference/latest/panproto_reference/pages/text_formats/). It models a document as the sequence of statements or directives that decides its structure, with scalars abstracted away, and the production differentials render each modelled document as text and read it through the preserving route.
 
+## Conformance corpora
+
+Each route is run against a corpus drawn from its standard, vendored under `crates/panproto-io/tests/fixtures/conformance` with its licence and the upstream commit it was taken from. A valid case passes when the route reads it, the tree it reads equals the corpus's expected data, and an unedited emission reproduces its bytes; an invalid case passes when the route refuses it. A case that does not pass is a declared limit: it is listed, with the limit's name, in a file beside the corpus, the test fails if the list and the set of failing cases differ in either direction, and the limit is stated below with a test of its refusal.
+
+The TOML route passes 714 of the 717 cases of the toml-test TOML 1.0.0 list (`conformance_toml_test.rs`). The three others carry one limit, `line-ending-backslash-before-whitespace`: TOML 1.0.0 lets a backslash end a line of a multi-line basic string with spaces or tabs after it, and the tree-sitter TOML grammar admits the backslash only directly before the line break, so the route refuses such a string with a parse error rather than read it.
+
 ## TOML keys define each table once {#L-text-formats-1}
 
 ### Statement

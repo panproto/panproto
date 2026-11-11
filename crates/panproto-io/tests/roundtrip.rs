@@ -518,12 +518,12 @@ tabular_functor_roundtrip!(
 fn all_protocols_have_roundtrip_tests() {
     // This test ensures we haven't missed any protocol.
     // The count of tests in this file must match the registry.
-    // The generic text-format protocols (yaml, toml, csv) are added
+    // The generic text-format protocols (yaml, toml, csv, tsv) are added
     // only under the tree-sitter feature; their round-trip tests below
     // are gated the same way.
     let reg = registry();
     let expected = if cfg!(feature = "tree-sitter") {
-        53
+        54
     } else {
         50
     };
@@ -536,7 +536,7 @@ fn all_protocols_have_roundtrip_tests() {
 
 // ── Generic text-format protocols (tree-sitter only) ───────────────────
 //
-// The `yaml`, `toml`, and `csv` protocols wire the format-preserving
+// The `yaml`, `toml`, `csv` and `tsv` protocols wire the format-preserving
 // `UnifiedCodec` into `default_registry`. These round-trips go through
 // the registry's canonical `parse_wtype`/`parse_functor` path (matching
 // the other protocol tests here); the byte-preserving path is covered in
@@ -612,6 +612,28 @@ fn roundtrip_csv() {
         instance.table_count(),
         reparsed.table_count(),
         "csv: table count mismatch after round-trip"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_tsv() {
+    let reg = registry();
+    let schema = tabular_schema("tsv", "table");
+    let input = b"name\tage\nAlice\t30\nBob\t25\n";
+
+    let instance = reg.parse_functor("tsv", &schema, input).expect("parse tsv");
+    let emitted = reg
+        .emit_functor("tsv", &schema, &instance)
+        .expect("emit tsv");
+    let reparsed = reg
+        .parse_functor("tsv", &schema, &emitted)
+        .expect("re-parse tsv");
+    assert_eq!(instance.row_count("table"), 2);
+    assert_eq!(
+        instance.row_count("table"),
+        reparsed.row_count("table"),
+        "tsv: row count mismatch after round-trip"
     );
 }
 

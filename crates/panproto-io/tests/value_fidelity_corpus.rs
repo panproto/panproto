@@ -1773,7 +1773,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             assert!(matches!(
                 toml.parse_wtype_preserving(&schema, input),
                 Err(ParseInstanceError::Parse { ref message, .. })
-                    if message.contains("invalid TOML basic string token")
+                    if message.contains("invalid TOML string token")
             ));
         }
         toml.parse_wtype_preserving(&schema, br#"value = "\U0001F600""#)
