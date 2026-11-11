@@ -3996,6 +3996,59 @@
               "test": "randomized_whole_state_edit_translation_differential"
             }
           ]
+        },
+        {
+          "id": "edits.graph-edit-lens",
+          "anchor": "L-edits-9",
+          "references": [
+            "panproto_reference::edit::stable_presentation",
+            "panproto_reference::edit::graph_edit_get",
+            "panproto_reference::edit::graph_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_edit_lens_law_certificate"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_edit_lens_agrees_with_the_reference_on_every_two_node_base"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "an_unrelated_contracted_edge_keeps_its_id_when_whole_state_get_would_renumber_it"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "an_edit_outside_the_get_domain_is_refused_like_whole_state_get"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "a_batch_is_admitted_whole_or_not_at_all"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "a_lens_with_a_survival_predicate_translates_over_the_whole_source"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_graph_edit_lens_differential"
+            }
+          ]
         }
       ]
     },

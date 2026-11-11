@@ -4,6 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Graph edit lenses** (`panproto-lens`): `GraphEditLens` binds a graph lens to a source graph and holds its view and complement. `get_edit` translates a source `GraphDelta` to the view delta, and `put_edit` translates a view delta to the source delta through put; `get_batch` and `put_batch` translate a sequence of deltas as one edit. Each admitted edit returns a `GraphEditStep` with its sequence number, direction, input digest and both deltas, and every refusal (`Apply`, `Get`, `Put`, `Compose`, `IdsExhausted`, `PutGetMismatch`) leaves the lens unchanged. The held view and complement are whole-state graph get of the held source, except that a synthesized element whose key persists keeps its id. For a lens without expressions, a translation runs the graph restrict engine on the part of the source the edit reaches rather than on the whole graph. The law is [L-edits-9](https://panproto.dev/book/correctness/edits.html#L-edits-9), checked against an independent reference over the bounded lens carrier.
+
 ### Fixed
 
 - **Node-link JSON keeps the sign and payload of every NaN** (`panproto-inst`): `to_node_link_json` and the human-readable `GInstance` encoding wrote every NaN as `{"Float": "NaN"}` and read it back as the positive canonical NaN, so the negative canonical NaN and every NaN with a payload changed its bits on a round trip. Nodes are now written through the `Value` float form, which spells those NaNs `"-NaN"` and `"NaN:0x"` followed by sixteen lowercase hexadecimal digits, and every float reads back bit for bit. Documents written before this change still read.

@@ -6,10 +6,11 @@
 //! source [`GraphDelta`], applies it, and returns the view delta that takes
 //! the held view to the view of the edited source;
 //! [`GraphEditLens::put_edit`] takes a view delta, puts the edited view and
-//! returns the source delta. Both are edit lenses in the sense of
-//! `hofmannpiercewagner2012edit` (Def 4.1, stated), with the held source,
-//! view and complement as the complement state, and both are atomic: a
-//! refusal leaves the lens as it was.
+//! returns the source delta. Like the edit lenses of `hofmann2012edit`, it
+//! translates edits rather than states and keeps a complement that each
+//! translated edit updates; here the held source, view and complement are
+//! that complement, and edits are partial, so a translation may refuse. Both
+//! directions are atomic: a refusal leaves the lens as it was.
 //!
 //! # The translation
 //!
