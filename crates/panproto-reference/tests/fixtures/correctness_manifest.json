@@ -5047,6 +5047,27 @@
               "test": "segmented_randomized::segmented_restrict_matches_the_reference_on_generated_partitions"
             }
           ]
+        },
+        {
+          "id": "segments.checkpointed-restrict",
+          "anchor": "L-segments-12",
+          "references": [
+            "panproto_reference::segment::segmented_restrict_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_runner::a_checkpointed_restrict_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::a_checkpointed_restrict_run_matches_the_reference_runner_on_generated_partitions"
+            }
+          ]
         }
       ]
     },
