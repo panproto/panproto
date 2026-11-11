@@ -635,3 +635,94 @@ pub fn allocation_cases() -> Vec<(IdRange, BTreeSet<u32>, BTreeSet<u32>)> {
 pub const fn allocation_case_count() -> u64 {
     15 * 2_u64.pow(6) * 2_u64.pow(6)
 }
+
+/// The first id of the allocation ranges of the segmented restrict carrier:
+/// segment `i` allocates node and edge ids from
+/// `[SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 i, SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 i + 9]`,
+/// above every node and edge id of the release graphs.
+pub const SEGMENTED_RESTRICT_ALLOCATION_BASE: u32 = 100;
+
+/// One case of the segmented restrict carrier: a release schema, a
+/// migration of it without survival predicates, a release graph of it, and
+/// an ownership split of the graph's nodes with allocation ranges.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentedRestrictCase {
+    /// The source and target schema.
+    pub schema: crate::schema::Schema,
+    /// The migration.
+    pub migration: crate::migration::Migration,
+    /// The graph.
+    pub graph: Graph,
+    /// The partition of the graph's nodes, with allocation ranges.
+    pub partition: Partition,
+}
+
+/// The partition of `split` with allocation ranges: segment `i` owns and
+/// allocates node ids from, and allocates edge ids from, the range of width
+/// 10 starting at [`SEGMENTED_RESTRICT_ALLOCATION_BASE`]` + 10 i`.
+fn with_allocation(mut split: Partition) -> Partition {
+    for (spec, index) in split.specs.iter_mut().zip(0_u32..) {
+        let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * index;
+        let range = IdRange { lo, hi: lo + 9 };
+        spec.nodes.push(range);
+        spec.alloc_nodes = Some(range);
+        spec.alloc_edges = Some(range);
+    }
+    split
+}
+
+/// Every case of the segmented restrict carrier: each release schema
+/// ([`release_schemas`](crate::enumerate::restrict_and_contraction::release_schemas)),
+/// each of its survival classifications without a conditional vertex, each
+/// release graph of the schema, and each labelled two- and three-segment
+/// ownership split of the graph's three nodes, with the allocation ranges of
+/// [`SEGMENTED_RESTRICT_ALLOCATION_BASE`].
+pub fn segmented_restrict_cases() -> impl Iterator<Item = SegmentedRestrictCase> {
+    use crate::enumerate::restrict_and_contraction::{
+        release_graphs, release_schemas, survival_classifications,
+    };
+    release_schemas().into_iter().flat_map(|schema| {
+        let migrations: Vec<_> = survival_classifications(&schema)
+            .into_iter()
+            .filter(|migration| migration.conditional.is_empty())
+            .collect();
+        let graphs = release_graphs(&schema);
+        migrations.into_iter().flat_map(move |migration| {
+            let schema = schema.clone();
+            graphs.clone().into_iter().flat_map(move |graph| {
+                let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+                let splits: Vec<Partition> = [2, 3]
+                    .into_iter()
+                    .flat_map(|k| ownership_splits(&nodes, k, InstanceShapeKind::Graph))
+                    .map(with_allocation)
+                    .collect();
+                let (schema, migration) = (schema.clone(), migration.clone());
+                splits
+                    .into_iter()
+                    .map(move |partition| SegmentedRestrictCase {
+                        schema: schema.clone(),
+                        migration: migration.clone(),
+                        graph: graph.clone(),
+                        partition,
+                    })
+            })
+        })
+    })
+}
+
+/// Independent count of [`segmented_restrict_cases`].
+///
+/// A release schema with `e` of the six possible edges (`e <= 4`, so
+/// `C(6, e)` schemas) has `sum(j <= min(3, e), C(e, j))` release graphs and
+/// `2^3 = 8` classifications without a conditional vertex; each graph has
+/// three nodes, so `2^3 + 3^3 = 35` splits. The graphs number
+/// `1 + 6 * 2 + 15 * 4 + 20 * 8 + 15 * 15 = 458`, giving
+/// `458 * 8 * 35 = 128_240` cases.
+#[must_use]
+pub fn segmented_restrict_case_count() -> u64 {
+    let choose = |n: u64, k: u64| -> u64 { (0..k).fold(1, |acc, i| acc * (n - i) / (i + 1)) };
+    let graphs: u64 = (0..=4)
+        .map(|edges| choose(6, edges) * (0..=edges.min(3)).map(|j| choose(edges, j)).sum::<u64>())
+        .sum();
+    graphs * 8 * (2_u64.pow(3) + 3_u64.pow(3))
+}

@@ -156,12 +156,141 @@ pub fn graph_restrict_with_plan(
     if let Some((node, reason)) = FanDomain::first_violation(instance) {
         return Err(RestrictError::MalformedFan { node, reason });
     }
-    let mut run = GraphRun::new(instance, plan);
+    let mut run = GraphRun::new(instance, plan, Outside::default());
     run.nodes()?;
     run.edges()?;
     run.contraction()?;
     run.fans()?;
     run.finish()
+}
+
+/// What a graph run knows of the nodes it holds but does not decide.
+///
+/// A whole-state run decides every node it holds and this is empty. A
+/// segment's run holds, besides the nodes it owns, a placeholder for every
+/// node owned elsewhere that one of its edges or in-stubs names; it decides
+/// only its own nodes and reads the fate of the others from here.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Outside {
+    /// The nodes held but owned elsewhere.
+    pub(crate) foreign: BTreeSet<u32>,
+    /// The stage 0 fate of every node owned elsewhere that the run reads:
+    /// the targets of its edges and the survivors its searches reach.
+    pub(crate) fates: BTreeMap<u32, RemoteFate>,
+    /// For each dropped plain node owned elsewhere that an edge of the run
+    /// enters, every surviving plain node a search continuing from it
+    /// reaches: through dropped plain nodes, then one more edge.
+    pub(crate) reach: BTreeMap<u32, BTreeSet<u32>>,
+}
+
+/// The stage 0 fate of a node, as its owner decided it.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum RemoteFate {
+    /// A fan node: neither a surviving nor a dropped plain node in stages 1
+    /// and 2.
+    Fan,
+    /// A plain node that does not survive.
+    Dropped,
+    /// A plain node that survives.
+    Kept {
+        /// Its source anchor.
+        source: Name,
+        /// Its view anchor.
+        view: Name,
+        /// Its `original_anchors` entry, when its owner records one.
+        recorded: Option<Name>,
+    },
+}
+
+/// The parts of a finished graph run before synthesized ids are chosen.
+pub(crate) struct RunParts {
+    /// The surviving plain and fan nodes it decided, as the view holds them.
+    pub(crate) nodes: BTreeMap<u32, Node>,
+    /// The kept edges it decided, as the view holds them.
+    pub(crate) edges: BTreeMap<EdgeId, GEdge>,
+    /// The anchor of every synthesized node, by key.
+    pub(crate) synth_nodes: BTreeMap<SynthKey, Name>,
+    /// The chains whose arcs are numbered once node ids are chosen.
+    chains: Vec<SynthChain>,
+    /// The complement entries of the decided elements, without synthesized
+    /// entries.
+    pub(crate) complement: GraphComplement,
+}
+
+impl RunParts {
+    /// The synthesized arcs of the chains, with node ids chosen: key,
+    /// source, target and label.
+    pub(crate) fn arcs(
+        &self,
+        node_ids: &BTreeMap<SynthKey, u32>,
+    ) -> Vec<(SynthKey, u32, u32, Edge)> {
+        self.chains
+            .iter()
+            .flat_map(|chain| chain.arcs(node_ids))
+            .collect()
+    }
+}
+
+/// The stage 0 fate of every node of `local` outside `foreign`, or the
+/// first stage 0 refusal among them.
+///
+/// # Errors
+///
+/// The first stage 0 refusal, located as [`graph_restrict_with_plan`]
+/// locates it.
+pub(crate) fn decide_nodes(
+    local: &GInstance,
+    plan: &RestrictPlan,
+    foreign: BTreeSet<u32>,
+) -> Result<BTreeMap<u32, RemoteFate>, RestrictError> {
+    let mut run = GraphRun::new(
+        local,
+        plan,
+        Outside {
+            foreign,
+            ..Outside::default()
+        },
+    );
+    run.nodes()?;
+    let mut fates = BTreeMap::new();
+    for (id, node) in local.nodes() {
+        if run.outside.foreign.contains(id) {
+            continue;
+        }
+        let fate = if is_fan_node(node) {
+            RemoteFate::Fan
+        } else if let Some(view) = run.nodes.get(id) {
+            RemoteFate::Kept {
+                source: node.anchor.clone(),
+                view: view.anchor.clone(),
+                recorded: run.complement.original_anchors.get(id).cloned(),
+            }
+        } else {
+            RemoteFate::Dropped
+        };
+        fates.insert(*id, fate);
+    }
+    Ok(fates)
+}
+
+/// Stages 0 to 3 of a run over `local` that decides every node outside
+/// `outside.foreign`, or the first refusal among them.
+///
+/// # Errors
+///
+/// The first refusal in stage and element order, located as
+/// [`graph_restrict_with_plan`] locates it.
+pub(crate) fn run_scoped(
+    local: &GInstance,
+    plan: &RestrictPlan,
+    outside: Outside,
+) -> Result<RunParts, RestrictError> {
+    let mut run = GraphRun::new(local, plan, outside);
+    run.nodes()?;
+    run.edges()?;
+    run.contraction()?;
+    run.fans()?;
+    Ok(run.into_parts())
 }
 
 /// The name a fan's named parent edge, named `name`, takes on a hyper-edge
@@ -189,10 +318,12 @@ struct GraphRun<'a> {
     edges: BTreeMap<EdgeId, GEdge>,
     /// The synthesized paths.
     chains: Vec<SynthChain>,
+    /// What the run knows of the nodes it does not decide.
+    outside: Outside,
 }
 
 impl<'a> GraphRun<'a> {
-    fn new(instance: &'a GInstance, plan: &'a RestrictPlan) -> Self {
+    fn new(instance: &'a GInstance, plan: &'a RestrictPlan, outside: Outside) -> Self {
         let mut complement = GraphComplement::empty();
         complement.id_floor = IdFloor {
             node: floor_above(instance.max_node_id()),
@@ -208,14 +339,69 @@ impl<'a> GraphRun<'a> {
             fan_nodes: BTreeMap::new(),
             edges: BTreeMap::new(),
             chains: Vec::new(),
+            outside,
         }
     }
 
-    /// The node ids of the source, ascending.
+    /// The ids of the nodes the run decides, ascending.
     fn node_ids(&self) -> Vec<u32> {
-        let mut ids: Vec<u32> = self.instance.nodes().keys().copied().collect();
+        let mut ids: Vec<u32> = self
+            .instance
+            .nodes()
+            .keys()
+            .copied()
+            .filter(|id| !self.outside.foreign.contains(id))
+            .collect();
         ids.sort_unstable();
         ids
+    }
+
+    /// The view anchor of a surviving plain node, decided here or by its
+    /// owner, or `None` when the node does not survive or is a fan node.
+    fn kept_anchor(&self, id: u32) -> Option<&Name> {
+        if let Some(node) = self.nodes.get(&id) {
+            return Some(&node.anchor);
+        }
+        match self.outside.fates.get(&id) {
+            Some(RemoteFate::Kept { view, .. }) => Some(view),
+            _ => None,
+        }
+    }
+
+    /// The source anchor of a surviving plain node, decided here or by its
+    /// owner.
+    fn kept_source_anchor(&self, id: u32) -> Option<&Name> {
+        if self.nodes.contains_key(&id) {
+            return self.instance.node(id).map(|node| &node.anchor);
+        }
+        match self.outside.fates.get(&id) {
+            Some(RemoteFate::Kept { source, .. }) => Some(source),
+            _ => None,
+        }
+    }
+
+    /// Whether a node the run decides is a dropped plain node.
+    fn dropped_here(&self, id: u32) -> bool {
+        !self.outside.foreign.contains(&id)
+            && !self.nodes.contains_key(&id)
+            && self.instance.node(id).is_some_and(|n| !is_fan_node(n))
+    }
+
+    /// The parts of a run whose stages 0 to 3 have finished.
+    fn into_parts(self) -> RunParts {
+        let mut nodes = self.nodes;
+        nodes.extend(self.fan_nodes);
+        let mut synth_nodes = BTreeMap::new();
+        for chain in &self.chains {
+            synth_nodes.extend(chain.node_keys());
+        }
+        RunParts {
+            nodes,
+            edges: self.edges,
+            synth_nodes,
+            chains: self.chains,
+            complement: self.complement,
+        }
     }
 
     /// Stage 0: survival and transforms, node by node.
@@ -299,10 +485,10 @@ impl<'a> GraphRun<'a> {
     fn edges(&mut self) -> Result<(), RestrictError> {
         let instance = self.instance;
         for (id, edge) in instance.edges_sorted() {
-            if Self::is_fan_edge(edge) {
+            if Self::is_fan_edge(edge) || self.outside.foreign.contains(&edge.src) {
                 continue;
             }
-            if !self.nodes.contains_key(&edge.src) || !self.nodes.contains_key(&edge.tgt) {
+            if !self.nodes.contains_key(&edge.src) || self.kept_anchor(edge.tgt).is_none() {
                 self.complement.dropped_edges.insert(id, edge.clone());
                 continue;
             }
@@ -320,7 +506,7 @@ impl<'a> GraphRun<'a> {
             }),
             Some(EdgeFate::Keep(image)) => {
                 let source_anchor = &self.nodes[&edge.src].anchor;
-                let target_anchor = &self.nodes[&edge.tgt].anchor;
+                let target_anchor = self.kept_anchor(edge.tgt).unwrap_or(source_anchor);
                 let preimages: Vec<&Edge> = self
                     .plan
                     .edge_image
@@ -349,11 +535,7 @@ impl<'a> GraphRun<'a> {
                 intermediates,
                 labels,
             }) => {
-                let anchor = |node: u32| {
-                    self.nodes
-                        .get(&node)
-                        .map_or_else(Name::default, |n| n.anchor.clone())
-                };
+                let anchor = |node: u32| self.kept_anchor(node).cloned().unwrap_or_default();
                 self.chains.push(SynthChain::expand(
                     id,
                     (edge.src, edge.tgt),
@@ -370,7 +552,8 @@ impl<'a> GraphRun<'a> {
             }
             Some(EdgeFate::Unresolved(reason)) => Err(self.plan.unresolved(
                 &self.nodes[&edge.src].anchor,
-                &self.nodes[&edge.tgt].anchor,
+                self.kept_anchor(edge.tgt)
+                    .unwrap_or(&self.nodes[&edge.src].anchor),
                 *reason,
             )),
         }
@@ -380,9 +563,6 @@ impl<'a> GraphRun<'a> {
     /// nodes: the realized contraction pairs, ascending.
     fn realized_pairs(&self) -> BTreeSet<(u32, u32)> {
         let instance = self.instance;
-        let dropped = |id: u32| {
-            !self.nodes.contains_key(&id) && instance.node(id).is_some_and(|n| !is_fan_node(n))
-        };
         let mut pairs = BTreeSet::new();
         for &source in self.nodes.keys() {
             let mut visited: HashSet<u32> = HashSet::new();
@@ -395,11 +575,13 @@ impl<'a> GraphRun<'a> {
                     if Self::is_fan_edge(edge) {
                         continue;
                     }
-                    if dropped(edge.tgt) {
+                    if self.dropped_here(edge.tgt) {
                         if visited.insert(edge.tgt) {
                             queue.push_back(edge.tgt);
                         }
-                    } else if !first && self.nodes.contains_key(&edge.tgt) {
+                    } else if let Some(reached) = self.outside.reach.get(&edge.tgt) {
+                        pairs.extend(reached.iter().map(|target| (source, *target)));
+                    } else if !first && self.kept_anchor(edge.tgt).is_some() {
                         pairs.insert((source, edge.tgt));
                     }
                 }
@@ -425,18 +607,17 @@ impl<'a> GraphRun<'a> {
 
     /// The path joining one realized pair.
     fn contracted(&self, source: u32, target: u32) -> Result<SynthChain, RestrictError> {
-        let source_anchor = &self
-            .instance
-            .node(source)
-            .map_or_else(Name::default, |n| n.anchor.clone());
-        let target_anchor = &self
-            .instance
-            .node(target)
-            .map_or_else(Name::default, |n| n.anchor.clone());
+        let source_anchor = &self.kept_source_anchor(source).cloned().unwrap_or_default();
+        let target_anchor = &self.kept_source_anchor(target).cloned().unwrap_or_default();
         let Some(pair) = self.plan.contraction.pair(source_anchor, target_anchor) else {
+            let view = |id: u32| {
+                self.kept_anchor(id)
+                    .map(ToString::to_string)
+                    .unwrap_or_default()
+            };
             return Err(RestrictError::NoEdgeFound {
-                src: self.nodes[&source].anchor.to_string(),
-                tgt: self.nodes[&target].anchor.to_string(),
+                src: view(source),
+                tgt: view(target),
             });
         };
         match &pair.resolution {
@@ -499,10 +680,10 @@ impl<'a> GraphRun<'a> {
             .filter(|(_, e)| e.edge.kind == HYPER_LABEL_KIND)
             .filter_map(|(i, e)| e.edge.name.as_deref().map(|label| (label, *i, *e)))
             .collect();
-        let survives = parent.is_some_and(|p| self.nodes.contains_key(&p))
+        let survives = parent.is_some_and(|p| self.kept_anchor(p).is_some())
             && children
                 .iter()
-                .any(|(_, _, e)| self.nodes.contains_key(&e.tgt));
+                .any(|(_, _, e)| self.kept_anchor(e.tgt).is_some());
         if !survives {
             self.complement.dropped_nodes.insert(id, node.clone());
             for (edge_id, edge) in out {
@@ -513,7 +694,7 @@ impl<'a> GraphRun<'a> {
         let shape = canonical_label_shape(
             children
                 .iter()
-                .filter(|(_, _, e)| self.nodes.contains_key(&e.tgt))
+                .filter(|(_, _, e)| self.kept_anchor(e.tgt).is_some())
                 .map(|(label, _, _)| *label),
         );
         let full_shape = canonical_label_shape(children.iter().map(|(label, _, _)| *label));
@@ -546,8 +727,8 @@ impl<'a> GraphRun<'a> {
             .map(|h| h.parent_label.clone());
         let mut seen: BTreeSet<String> = BTreeSet::new();
         for (edge_id, edge) in out {
-            let target_view = self.nodes.get(&edge.tgt);
-            let Some(target_view) = target_view.filter(|_| {
+            let target_view = self.kept_anchor(edge.tgt).cloned();
+            let Some(target_anchor) = target_view.filter(|_| {
                 edge.edge.kind == HYPER_PARENT_KIND || edge.edge.kind == HYPER_LABEL_KIND
             }) else {
                 self.complement.dropped_edges.insert(edge_id, edge.clone());
@@ -570,11 +751,10 @@ impl<'a> GraphRun<'a> {
             };
             let label = Edge {
                 src: hyper_edge.clone(),
-                tgt: target_view.anchor.clone(),
+                tgt: target_anchor.clone(),
                 kind: edge.edge.kind.clone(),
                 name,
             };
-            let target_anchor = target_view.anchor.clone();
             self.keep_fan_edge(id, &view.anchor, edge_id, edge, &target_anchor, label);
         }
         self.fan_nodes.insert(id, view);
@@ -619,10 +799,11 @@ impl<'a> GraphRun<'a> {
     /// leaves, since it records the anchor of every node the reverse map
     /// does not recover.
     fn source_anchor<'s>(&'s self, id: u32, view_anchor: &'s Name) -> Option<&'s Name> {
-        self.complement
-            .original_anchors
-            .get(&id)
-            .or_else(|| self.reverse.source_of(view_anchor))
+        let recorded = match self.outside.fates.get(&id) {
+            Some(RemoteFate::Kept { recorded, .. }) => recorded.as_ref(),
+            _ => self.complement.original_anchors.get(&id),
+        };
+        recorded.or_else(|| self.reverse.source_of(view_anchor))
     }
 
     /// The label a view fan edge `label` from the fan node `fan` (view
@@ -672,43 +853,45 @@ impl<'a> GraphRun<'a> {
     }
 
     /// Stage 5 and the view: allocate synthesized ids and assemble.
-    fn finish(mut self) -> Result<(GInstance, GraphComplement), RestrictError> {
-        let floor = self.complement.id_floor;
-        let mut node_anchors: BTreeMap<SynthKey, Name> = BTreeMap::new();
-        for chain in &self.chains {
-            node_anchors.extend(chain.node_keys());
-        }
-        let node_ids = allocate_synthesized(node_anchors.keys().cloned(), floor.node, IdKind::Node)
-            .map_err(|e| locate_exhaustion(e, IdKind::Node))?;
-        let mut arcs = Vec::new();
-        for chain in &self.chains {
-            arcs.extend(chain.arcs(&node_ids));
-        }
+    fn finish(self) -> Result<(GInstance, GraphComplement), RestrictError> {
+        let parts = self.into_parts();
+        let floor = parts.complement.id_floor;
+        let node_ids =
+            allocate_synthesized(parts.synth_nodes.keys().cloned(), floor.node, IdKind::Node)
+                .map_err(|e| locate_exhaustion(e, IdKind::Node))?;
+        let arcs = parts.arcs(&node_ids);
         let edge_ids = allocate_synthesized(
             arcs.iter().map(|(key, ..)| key.clone()),
             floor.edge,
             IdKind::Edge,
         )
         .map_err(|e| locate_exhaustion(e, IdKind::Edge))?;
+        let RunParts {
+            nodes,
+            edges,
+            synth_nodes,
+            mut complement,
+            ..
+        } = parts;
 
         let mut view = GInstance::new();
-        for node in self.nodes.into_values().chain(self.fan_nodes.into_values()) {
+        for node in nodes.into_values() {
             view = view.with_node(node);
         }
-        for (key, anchor) in node_anchors {
+        for (key, anchor) in synth_nodes {
             let id = node_ids[&key];
             view = view.with_node(Node::new(id, anchor));
-            self.complement.synthesized_nodes.insert(id, key);
+            complement.synthesized_nodes.insert(id, key);
         }
-        for (id, edge) in self.edges {
+        for (id, edge) in edges {
             view.place_edge(id, edge);
         }
         for (key, src, tgt, label) in arcs {
             let id = EdgeId(edge_ids[&key]);
             view.place_edge(id, GEdge::new(src, tgt, label));
-            self.complement.synthesized_edges.insert(id, key);
+            complement.synthesized_edges.insert(id, key);
         }
-        Ok((view, self.complement))
+        Ok((view, complement))
     }
 }
 

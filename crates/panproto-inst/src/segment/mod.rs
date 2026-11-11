@@ -19,6 +19,9 @@
 //!   under a Merkle root and is verified without the segments;
 //! - the task, journal and storage vocabulary of a checkpointed run
 //!   ([`TaskKey`], [`RunJournal`], [`SegmentStore`]);
+//! - segmented graph restriction ([`graph_restrict_segmented`]), which runs
+//!   the graph restrict engine segment by segment and lays its view and
+//!   complement out under the source's partition;
 //! - the typed failure [`SegmentError`] and the [`Residual`] of an operation
 //!   declined within a budget.
 
@@ -31,6 +34,7 @@ mod ids;
 mod manifest;
 mod partition;
 mod reader;
+mod restrict;
 mod split;
 mod store;
 mod stream;
@@ -54,6 +58,10 @@ pub use manifest::{
     verify_manifest, verify_segment, verify_segment_bytes,
 };
 pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_tag};
+pub use restrict::{
+    GraphComplementSegment, SegmentedRestrict, SegmentedRestrictError, graph_restrict_locality,
+    graph_restrict_segmented,
+};
 pub use split::{
     assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,
 };

@@ -5571,6 +5571,11 @@ pub mod segment {
         Query,
         /// Sequential composition has no local exchange plan.
         SequentialComposite,
+        /// An expression is evaluated with the whole instance in scope.
+        ExpressionDemand {
+            /// Theory vertex the expression is attached to.
+            vertex: Name,
+        },
     }
     /// Locality class.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -6907,6 +6912,322 @@ pub mod segment {
                 &format!("unlimited run did not complete: {status:?}"),
             )),
         }
+    }
+}
+
+pub mod segmented_restrict {
+    //! Segmented graph restriction, defined by restricting the glued graph
+    //! and laying the result out again.
+    //!
+    //! This is the executable definition of L-segments-11. It never runs
+    //! segment by segment: it glues the segments, runs whole-state
+    //! [`crate::restrict::get`], gives each synthesized element to the
+    //! segment owning its chain, renumbers it from that segment's
+    //! allocation ranges, and splits the view and the complement by owner.
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::segment::{
+        GraphComplementSegment, GraphSegment, IdKind, IdRange, Partition, SegmentError,
+        SegmentFloors, SegmentId, assemble_graph, fresh, partition_graph,
+    };
+    use crate::migration::Migration;
+    use crate::model::{GEdge, Graph, Node};
+    use crate::restrict::{Complement, RestrictError, SynthKey, ValueLayer, get};
+    use crate::schema::Schema;
+
+    /// Why a segmented graph restrict returns no output.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedRestrictRefusal {
+        /// The family is invalid, an edge allocation range lies at or below
+        /// an edge id in use, or a segment cannot allocate a synthesized id.
+        Segment(SegmentError),
+        /// Whole-state restrict refuses the glued graph; `segment` owns the
+        /// element the refusal is about.
+        Restrict {
+            /// The owning segment.
+            segment: SegmentId,
+            /// The whole-state refusal.
+            error: RestrictError,
+        },
+        /// Whole-state restrict refuses with an error about no single
+        /// element: the exhaustion of synthesized ids, which segmented
+        /// restrict replaces by per-segment allocation and never returns.
+        Unlocated(RestrictError),
+    }
+
+    /// One segment's view and complement.
+    pub type SegmentOutput = (GraphSegment, GraphComplementSegment);
+
+    /// The segment owning the chain a synthesized key names: the owner of a
+    /// contracted pair's first node, or of an expanded edge's source.
+    fn chain_owner(key: &SynthKey, g: &Graph, p: &Partition) -> Option<SegmentId> {
+        let node = match key {
+            SynthKey::Contract { src, .. } | SynthKey::ContractExpand { src, .. } => *src,
+            SynthKey::Expand { source_edge, .. } => g.edges.get(source_edge)?.src,
+        };
+        p.owner_of_node(node)
+    }
+
+    /// The segment owning the element a located refusal is about.
+    fn refusal_owner(error: &RestrictError, g: &Graph, p: &Partition) -> Option<SegmentId> {
+        match error {
+            RestrictError::At { key, .. } if key.stage == 1 => {
+                p.owner_of_node(g.edges.get(&key.id)?.src)
+            }
+            RestrictError::At { key, .. } if key.stage < 5 => p.owner_of_node(key.id),
+            RestrictError::MalformedFan { node, .. } => p.owner_of_node(*node),
+            _ => None,
+        }
+    }
+
+    /// One above every member of `ids` inside `range`, and at least the
+    /// range's lower bound, saturating: the floor of the range.
+    fn floor_in(range: IdRange, ids: &BTreeSet<u32>) -> u32 {
+        ids.iter()
+            .copied()
+            .filter(|id| range.contains(*id))
+            .map(|id| id.saturating_add(1))
+            .fold(range.lo, u32::max)
+    }
+
+    /// Allocate one id per key, in ascending key order, from `range` by the
+    /// append-floor rule over `source`.
+    fn allocate(
+        range: Option<IdRange>,
+        keys: &BTreeSet<SynthKey>,
+        source: &BTreeSet<u32>,
+        segment: SegmentId,
+        kind: IdKind,
+    ) -> Result<(BTreeMap<SynthKey, u32>, u32), SegmentError> {
+        let Some(range) = range else {
+            return if keys.is_empty() {
+                Ok((BTreeMap::new(), 0))
+            } else {
+                Err(SegmentError::NoAllocationRange { segment, kind })
+            };
+        };
+        let mut used = BTreeSet::new();
+        let mut ids = BTreeMap::new();
+        for key in keys {
+            let id = fresh(range, source, &used)
+                .ok_or(SegmentError::AllocationExhausted { segment, kind })?;
+            used.insert(id);
+            ids.insert(key.clone(), id);
+        }
+        let mut held = source.clone();
+        held.extend(used);
+        Ok((ids, floor_in(range, &held)))
+    }
+
+    /// Definition: segmented graph restrict. Glue `segments` under `p` and
+    /// refuse an invalid family with the glue refusal; refuse with
+    /// `AllocationBelowFloor` the least segment whose edge allocation range
+    /// starts at or below the greatest edge id of the glued graph; run
+    /// whole-state [`get`] and return its refusal in the segment owning the
+    /// element it is about. Otherwise give each synthesized element to the
+    /// segment owning its chain and, segment by segment in id order, nodes
+    /// before edges, number that segment's synthesized nodes and then edges
+    /// in ascending key order by the append-floor rule over its allocation
+    /// range and its own source ids; then split the renumbered view with
+    /// [`partition_graph`] and the complement by owner (a node's entries to
+    /// its owner, an edge's to the owner of its source, a synthesized
+    /// element's to its chain's owner), each segment's floors being the
+    /// floors of its ranges after allocation, 0 for an absent range.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn restrict_graph_segmented(
+        src: &Schema,
+        tgt: &Schema,
+        m: &Migration,
+        vl: &dyn ValueLayer,
+        segments: &[GraphSegment],
+        p: &Partition,
+    ) -> Result<Vec<SegmentOutput>, SegmentedRestrictRefusal> {
+        let g = assemble_graph(segments, p).map_err(SegmentedRestrictRefusal::Segment)?;
+        if let Some(max_edge) = g.edges.keys().copied().max()
+            && let Some(spec) = p
+                .specs
+                .iter()
+                .find(|spec| spec.alloc_edges.is_some_and(|range| range.lo <= max_edge))
+        {
+            return Err(SegmentedRestrictRefusal::Segment(
+                SegmentError::AllocationBelowFloor {
+                    segment: spec.id,
+                    kind: IdKind::Edge,
+                },
+            ));
+        }
+        let (view, c) =
+            get(src, tgt, m, vl, &g).map_err(|error| match refusal_owner(&error, &g, p) {
+                Some(segment) => SegmentedRestrictRefusal::Restrict { segment, error },
+                None => SegmentedRestrictRefusal::Unlocated(error),
+            })?;
+        let owner_of = |node: u32| p.owner_of_node(node);
+        let edge_owner = |edge: &GEdge| p.owner_of_node(edge.src);
+
+        let mut node_ids: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut edge_ids: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut floors: BTreeMap<SegmentId, SegmentFloors> = BTreeMap::new();
+        for spec in &p.specs {
+            let owned = |key: &&SynthKey| chain_owner(key, &g, p) == Some(spec.id);
+            let node_keys: BTreeSet<SynthKey> = c
+                .synthesized_nodes
+                .values()
+                .filter(owned)
+                .cloned()
+                .collect();
+            let edge_keys: BTreeSet<SynthKey> = c
+                .synthesized_edges
+                .values()
+                .filter(owned)
+                .cloned()
+                .collect();
+            let source_nodes: BTreeSet<u32> = g
+                .nodes
+                .keys()
+                .copied()
+                .filter(|id| owner_of(*id) == Some(spec.id))
+                .collect();
+            let source_edges: BTreeSet<u32> = g
+                .edges
+                .iter()
+                .filter(|(_, e)| edge_owner(e) == Some(spec.id))
+                .map(|(id, _)| *id)
+                .collect();
+            let (nodes, node_floor) = allocate(
+                spec.alloc_nodes,
+                &node_keys,
+                &source_nodes,
+                spec.id,
+                IdKind::Node,
+            )
+            .map_err(SegmentedRestrictRefusal::Segment)?;
+            let (edges, edge_floor) = allocate(
+                spec.alloc_edges,
+                &edge_keys,
+                &source_edges,
+                spec.id,
+                IdKind::Edge,
+            )
+            .map_err(SegmentedRestrictRefusal::Segment)?;
+            for (id, key) in &c.synthesized_nodes {
+                if let Some(new) = nodes.get(key) {
+                    node_ids.insert(*id, *new);
+                }
+            }
+            for (id, key) in &c.synthesized_edges {
+                if let Some(new) = edges.get(key) {
+                    edge_ids.insert(*id, *new);
+                }
+            }
+            floors.insert(
+                spec.id,
+                SegmentFloors {
+                    node: node_floor,
+                    edge: edge_floor,
+                },
+            );
+        }
+        let node = |id: u32| node_ids.get(&id).copied().unwrap_or(id);
+        let mut presented = Graph::default();
+        for (id, held) in &view.nodes {
+            presented.nodes.insert(
+                node(*id),
+                Node {
+                    id: node(*id),
+                    ..held.clone()
+                },
+            );
+        }
+        for (id, edge) in &view.edges {
+            presented.edges.insert(
+                edge_ids.get(id).copied().unwrap_or(*id),
+                GEdge {
+                    src: node(edge.src),
+                    tgt: node(edge.tgt),
+                    ..edge.clone()
+                },
+            );
+        }
+        let views = partition_graph(&presented, p).map_err(SegmentedRestrictRefusal::Segment)?;
+        let complements = split_complement(&c, &g, p, &node_ids, &edge_ids, &floors);
+        Ok(views.into_iter().zip(complements).collect())
+    }
+
+    /// The complement split by owner, with synthesized ids renumbered.
+    fn split_complement(
+        c: &Complement,
+        g: &Graph,
+        p: &Partition,
+        node_ids: &BTreeMap<u32, u32>,
+        edge_ids: &BTreeMap<u32, u32>,
+        floors: &BTreeMap<SegmentId, SegmentFloors>,
+    ) -> Vec<GraphComplementSegment> {
+        p.specs
+            .iter()
+            .map(|spec| {
+                let mine = |node: u32| p.owner_of_node(node) == Some(spec.id);
+                let edge_mine = |edge: &GEdge| mine(edge.src);
+                GraphComplementSegment {
+                    dropped_nodes: c
+                        .dropped_nodes
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, n)| (*id, n.clone()))
+                        .collect(),
+                    dropped_edges: c
+                        .dropped_edges
+                        .iter()
+                        .filter(|(_, e)| edge_mine(e))
+                        .map(|(id, e)| (*id, e.clone()))
+                        .collect(),
+                    original_edges: c
+                        .original_edges
+                        .iter()
+                        .filter(|(id, _)| g.edges.get(id).is_some_and(edge_mine))
+                        .map(|(id, e)| (*id, e.clone()))
+                        .collect(),
+                    original_anchors: c
+                        .original_anchors
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, a)| (*id, a.clone()))
+                        .collect(),
+                    original_fields: c
+                        .original_fields
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, f)| (*id, f.clone()))
+                        .collect(),
+                    original_values: c
+                        .original_values
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, v)| (*id, v.clone()))
+                        .collect(),
+                    synthesized_nodes: c
+                        .synthesized_nodes
+                        .iter()
+                        .filter_map(|(id, key)| {
+                            let new = node_ids.get(id)?;
+                            (chain_owner(key, g, p) == Some(spec.id)).then(|| (*new, key.clone()))
+                        })
+                        .collect(),
+                    synthesized_edges: c
+                        .synthesized_edges
+                        .iter()
+                        .filter_map(|(id, key)| {
+                            let new = edge_ids.get(id)?;
+                            (chain_owner(key, g, p) == Some(spec.id)).then(|| (*new, key.clone()))
+                        })
+                        .collect(),
+                    floors: floors.get(&spec.id).copied().unwrap_or_default(),
+                }
+            })
+            .collect()
     }
 }
 

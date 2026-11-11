@@ -122,6 +122,14 @@ pub enum GlobalReason {
     Query,
     /// A composite whose steps cannot be fused into one segment-wise pass.
     SequentialComposite,
+    /// An expression attached to `vertex` (a survival predicate, a term
+    /// assignment, or a field transform that evaluates an expression) is
+    /// evaluated with the whole instance in scope, so what it reads is not
+    /// bounded by a segment and its boundary.
+    ExpressionDemand {
+        /// The schema vertex the expression is attached to.
+        vertex: Name,
+    },
 }
 
 /// An operation a segmented run can be asked to perform.
@@ -247,6 +255,9 @@ mod tests {
             GlobalReason::ClosureWitnessOrder,
             GlobalReason::Query,
             GlobalReason::SequentialComposite,
+            GlobalReason::ExpressionDemand {
+                vertex: "post".into(),
+            },
         ]
     }
 

@@ -1666,6 +1666,10 @@ pub fn write_locality<W: CanonicalSink + ?Sized>(w: &mut W, l: &Locality) {
                 GlobalReason::ClosureWitnessOrder => w.tag(3),
                 GlobalReason::Query => w.tag(4),
                 GlobalReason::SequentialComposite => w.tag(5),
+                GlobalReason::ExpressionDemand { vertex } => {
+                    w.tag(6);
+                    w.name(vertex);
+                }
             }
         }
     }

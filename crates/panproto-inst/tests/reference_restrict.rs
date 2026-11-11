@@ -2894,3 +2894,292 @@ proptest::proptest! {
         generated_tree_restriction_agrees(&case);
     }
 }
+
+/// Segmented graph restriction against its reference (L-segments-11).
+mod segmented {
+    use super::{
+        NoValueLayer, RefGEdge, RefGraph, RefMigration, RefSchema, RestrictPlan,
+        graph_restrict_with_plan, prod_graph, prod_migration, prod_schema, production_error,
+        ref_complement, ref_edge, ref_graph, ref_node, ref_synth_key, reference_error,
+    };
+    use panproto_inst::InstanceShapeKind;
+    use panproto_inst::segment::{
+        GraphComplementSegment, GraphSegment, IdRange, Partition, SegmentId, SegmentSpec,
+        SegmentedRestrictError, graph_restrict_segmented, partition_graph,
+    };
+    use panproto_inst::{EdgeId, GEdge};
+    use panproto_reference::enumerate::segments::{
+        segmented_restrict_case_count, segmented_restrict_cases,
+    };
+    use panproto_reference::segment as reference;
+
+    /// The production partition of a reference graph partition.
+    pub fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Graph,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    fn ref_gedge(edge: &GEdge) -> RefGEdge {
+        RefGEdge {
+            src: edge.src,
+            tgt: edge.tgt,
+            label: ref_edge(&edge.edge),
+            position: edge.position,
+        }
+    }
+
+    fn ref_edges(
+        edges: &std::collections::BTreeMap<EdgeId, GEdge>,
+    ) -> std::collections::BTreeMap<u32, RefGEdge> {
+        edges
+            .iter()
+            .map(|(id, edge)| (id.0, ref_gedge(edge)))
+            .collect()
+    }
+
+    /// The reference form of a production view segment.
+    pub fn ref_view(segment: &GraphSegment) -> reference::GraphSegment {
+        let boundary = &segment.boundary;
+        reference::GraphSegment {
+            segment: reference::SegmentId(segment.segment.0),
+            nodes: segment
+                .nodes
+                .iter()
+                .map(|(id, node)| (*id, ref_node(node)))
+                .collect(),
+            edges: ref_edges(&segment.edges),
+            boundary: reference::Boundary {
+                ghosts: boundary
+                    .ghosts
+                    .iter()
+                    .map(|(id, ghost)| {
+                        (
+                            *id,
+                            reference::Ghost {
+                                node: ghost.node,
+                                owner: reference::SegmentId(ghost.owner.0),
+                                anchor: ghost.anchor.to_string(),
+                            },
+                        )
+                    })
+                    .collect(),
+                in_stubs: boundary
+                    .in_stubs
+                    .iter()
+                    .map(|(elem, stub)| {
+                        let panproto_inst::ViewRef::Edge(id) = elem else {
+                            panic!("a graph in-stub is keyed by its edge: {elem:?}")
+                        };
+                        (
+                            reference::ViewRef::Edge(id.0),
+                            reference::InStub {
+                                src: stub.src,
+                                src_owner: reference::SegmentId(stub.src_owner.0),
+                                src_anchor: stub.src_anchor.to_string(),
+                                tgt: stub.tgt,
+                                label: ref_edge(&stub.label),
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// The reference form of a production complement segment.
+    pub fn ref_complement_segment(
+        segment: &GraphComplementSegment,
+    ) -> reference::GraphComplementSegment {
+        let mut whole = panproto_inst::GraphComplement::empty();
+        whole.dropped_nodes.clone_from(&segment.dropped_nodes);
+        whole.dropped_edges.clone_from(&segment.dropped_edges);
+        whole.original_edges.clone_from(&segment.original_edges);
+        whole.original_anchors.clone_from(&segment.original_anchors);
+        whole
+            .original_extra_fields
+            .clone_from(&segment.original_extra_fields);
+        whole.original_values.clone_from(&segment.original_values);
+        let as_ref = ref_complement(&whole);
+        reference::GraphComplementSegment {
+            dropped_nodes: as_ref.dropped_nodes,
+            dropped_edges: as_ref.dropped_edges,
+            original_edges: as_ref.original_edges,
+            original_anchors: as_ref.original_anchors,
+            original_fields: as_ref.original_fields,
+            original_values: as_ref.original_values,
+            synthesized_nodes: segment
+                .synthesized_nodes
+                .iter()
+                .map(|(id, key)| (*id, ref_synth_key(key)))
+                .collect(),
+            synthesized_edges: segment
+                .synthesized_edges
+                .iter()
+                .map(|(id, key)| (id.0, ref_synth_key(key)))
+                .collect(),
+            floors: reference::SegmentFloors {
+                node: segment.floors.node,
+                edge: segment.floors.edge,
+            },
+        }
+    }
+
+    /// The outcome of one segmented case.
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum Outcome {
+        /// Both sides gave segments, equal, assembling to whole-state restrict.
+        Agreed,
+        /// Both refused alike.
+        Refused,
+    }
+
+    /// Run one case through production and reference and check the law:
+    /// the outputs agree segment by segment, and the production output
+    /// assembles to production whole-state restrict.
+    pub fn check_case(
+        source: &RefSchema,
+        target: &RefSchema,
+        migration: &RefMigration,
+        plan: &RestrictPlan,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> Outcome {
+        let production_partition = prod_partition(partition);
+        let whole = prod_graph(graph);
+        let segments = partition_graph(&whole, &production_partition).expect("production split");
+        let reference_segments =
+            reference::partition_graph(graph, partition).expect("reference split");
+        let production = graph_restrict_segmented(plan, &segments, &production_partition);
+        let expected = reference::restrict_graph_segmented(
+            source,
+            target,
+            migration,
+            &NoValueLayer,
+            &reference_segments,
+            partition,
+        );
+        match (production, expected) {
+            (Ok(output), Ok(expected)) => {
+                assert_eq!(
+                    output.views.len(),
+                    expected.len(),
+                    "{graph:?} {partition:?}"
+                );
+                for ((view, complement), (expected_view, expected_complement)) in
+                    output.views.iter().zip(&output.complements).zip(&expected)
+                {
+                    assert_eq!(
+                        &ref_view(view),
+                        expected_view,
+                        "view of {graph:?} under {partition:?}"
+                    );
+                    assert_eq!(
+                        &ref_complement_segment(complement),
+                        expected_complement,
+                        "complement of {graph:?} under {partition:?}"
+                    );
+                }
+                let (view, complement) = output
+                    .assemble(&production_partition)
+                    .expect("the view segments assemble");
+                let (whole_view, whole_complement) =
+                    graph_restrict_with_plan(&whole, plan).expect("whole-state restrict accepts");
+                assert_eq!(
+                    ref_graph(&view),
+                    ref_graph(&whole_view),
+                    "assembled view of {graph:?}"
+                );
+                assert_eq!(
+                    ref_complement(&complement),
+                    ref_complement(&whole_complement),
+                    "assembled complement of {graph:?}"
+                );
+                Outcome::Agreed
+            }
+            (
+                Err(SegmentedRestrictError::Restrict { segment, error }),
+                Err(reference::SegmentedRestrictRefusal::Restrict {
+                    segment: expected_segment,
+                    error: expected,
+                }),
+            ) => {
+                assert_eq!(
+                    segment.0, expected_segment.0,
+                    "refusing segment of {graph:?}"
+                );
+                assert_eq!(
+                    production_error(&error),
+                    reference_error(&expected),
+                    "refusal of {graph:?}"
+                );
+                let whole_error =
+                    graph_restrict_with_plan(&whole, plan).expect_err("whole-state refuses");
+                assert_eq!(production_error(&error), production_error(&whole_error));
+                Outcome::Refused
+            }
+            (
+                Err(SegmentedRestrictError::Segment(error)),
+                Err(reference::SegmentedRestrictRefusal::Segment(expected)),
+            ) => {
+                assert_eq!(
+                    format!("{error:?}"),
+                    format!("{expected:?}"),
+                    "segment refusal of {graph:?}"
+                );
+                Outcome::Refused
+            }
+            (production, expected) => panic!(
+                "segmented restrict disagrees on {graph:?} under {partition:?}: {production:?} / {expected:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn segmented_restrict_agrees_with_the_reference_and_assembles_to_whole_state_restrict() {
+        let mut counts = (0_u64, 0_u64);
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        for case in segmented_restrict_cases() {
+            let fresh =
+                !matches!(&plan, Some((s, m, _)) if *s == case.schema && *m == case.migration);
+            if fresh {
+                let schema = prod_schema(&case.schema);
+                let compiled =
+                    RestrictPlan::compile(&schema, &schema, &prod_migration(&case.migration))
+                        .expect("release plans compile");
+                plan = Some((case.schema.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            match check_case(
+                &case.schema,
+                &case.schema,
+                &case.migration,
+                compiled,
+                &case.graph,
+                &case.partition,
+            ) {
+                Outcome::Agreed => counts.0 += 1,
+                Outcome::Refused => counts.1 += 1,
+            }
+        }
+        assert_eq!(counts.0 + counts.1, segmented_restrict_case_count());
+        assert_eq!(counts.0 + counts.1, 128_240);
+        assert!(
+            counts.0 > 0 && counts.1 > 0,
+            "both outcomes occur: {counts:?}"
+        );
+    }
+}
