@@ -3420,6 +3420,17 @@ pub mod edit {
         PutGetMismatch,
     }
 
+    /// Whole-state get oracle of the reference graph edit lens.
+    pub type StateGet<'a, G> =
+        dyn Fn(&Graph) -> Result<(Graph, crate::restrict::Complement), G> + 'a;
+
+    /// Whole-state put oracle of the reference graph edit lens.
+    pub type StatePut<'a, P> =
+        dyn Fn(&Graph, &crate::restrict::Complement) -> Result<Graph, P> + 'a;
+
+    /// A translated delta with the next state, or the refusal.
+    pub type GraphEditOutcome<G, P> = Result<(GraphDelta, GraphEditState), GraphEditError<G, P>>;
+
     /// Ids for the keys of `keys` (key, whole-state id), ascending by key:
     /// the id `held` records for a key when `in_source` does not hold it,
     /// else the least id at or above `floor` that no earlier key took,
@@ -3532,10 +3543,10 @@ pub mod edit {
     ///
     /// Book anchors: `L-edits-9`.
     pub fn graph_edit_get<G, P>(
-        get: &dyn Fn(&Graph) -> Result<(Graph, crate::restrict::Complement), G>,
+        get: &StateGet<'_, G>,
         state: &GraphEditState,
         d: &GraphDelta,
-    ) -> Result<(GraphDelta, GraphEditState), GraphEditError<G, P>> {
+    ) -> GraphEditOutcome<G, P> {
         let source = apply(d, &state.source).map_err(GraphEditError::Apply)?;
         let (view, complement) = get(&source).map_err(GraphEditError::Get)?;
         let (view, complement) =
@@ -3567,11 +3578,11 @@ pub mod edit {
     ///
     /// Book anchors: `L-edits-9`.
     pub fn graph_edit_put<G, P>(
-        get: &dyn Fn(&Graph) -> Result<(Graph, crate::restrict::Complement), G>,
-        put: &dyn Fn(&Graph, &crate::restrict::Complement) -> Result<Graph, P>,
+        get: &StateGet<'_, G>,
+        put: &StatePut<'_, P>,
         state: &GraphEditState,
         e: &GraphDelta,
-    ) -> Result<(GraphDelta, GraphEditState), GraphEditError<G, P>> {
+    ) -> GraphEditOutcome<G, P> {
         let view = apply(e, &state.view).map_err(GraphEditError::Apply)?;
         let source = put(&view, &state.complement).map_err(GraphEditError::Put)?;
         let d = diff_keeping_replacements(&state.source, &source, e);

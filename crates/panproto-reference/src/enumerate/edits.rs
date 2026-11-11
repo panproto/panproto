@@ -1237,13 +1237,6 @@ pub fn graph_edit_lens_letters(
 ) -> Vec<GraphDelta> {
     let fresh = graph.nodes.keys().next_back().map_or(0, |id| id + 1);
     let fresh_edge = graph.edges.keys().next_back().map_or(0, |id| id + 1);
-    let plain = |node: &Node| node.shape != NodeShape::HyperEdge;
-    let incident = |id: u32| {
-        graph
-            .edges
-            .iter()
-            .filter(move |(_, edge)| edge.src == id || edge.tgt == id)
-    };
     let mut out = Vec::new();
     for vertex in schema.vertices.keys() {
         let mut delta = GraphDelta::identity();
@@ -1252,68 +1245,124 @@ pub fn graph_edit_lens_letters(
             .insert(GElem::Node(fresh), GPayload::Node(Node::new(fresh, vertex)));
         out.push(delta);
     }
-    for (id, node) in &graph.nodes {
-        let mut cascade = GraphDelta::identity();
-        cascade
-            .del
-            .insert(GElem::Node(*id), GPayload::Node(node.clone()));
-        for (edge_id, edge) in incident(*id) {
-            cascade
-                .del
-                .insert(GElem::Edge(*edge_id), GPayload::Edge(edge.clone()));
-        }
-        let mut replacement = cascade.clone();
-        replacement.add = replacement.del.clone();
-        out.push(cascade);
-        let mut bare = GraphDelta::identity();
-        bare.del
-            .insert(GElem::Node(*id), GPayload::Node(node.clone()));
-        out.push(bare);
-        out.push(replacement);
-        if !plain(node) {
-            continue;
-        }
-        for vertex in schema.vertices.keys().filter(|v| **v != node.anchor) {
-            let mut delta = GraphDelta::identity();
-            delta.attrs.insert(
-                AttrKey::Anchor(*id),
-                (
-                    AttrVal::Anchor(node.anchor.clone()),
-                    AttrVal::Anchor(vertex.clone()),
-                ),
-            );
-            out.push(delta);
-        }
-        let old = node.fields.get(field).cloned();
-        let new = if old.is_some() {
-            None
-        } else {
-            Some(value.clone())
-        };
+    for node in graph.nodes.values() {
+        out.extend(graph_edit_lens_node_letters(
+            schema, graph, node, field, value,
+        ));
+    }
+    out.extend(graph_edit_lens_edge_letters(schema, graph, fresh_edge));
+    if let Some(node) = graph.nodes.values().next() {
+        let mut stale = node.clone();
+        stale.anchor = format!("{}~", node.anchor);
         let mut delta = GraphDelta::identity();
-        delta.attrs.insert(
-            AttrKey::Field(*id, field.to_owned()),
-            (AttrVal::Field(old), AttrVal::Field(new)),
+        delta
+            .del
+            .insert(GElem::Node(node.id), GPayload::Node(stale));
+        out.push(delta);
+    }
+    if let Some(label) = schema.edges.iter().next() {
+        let mut delta = GraphDelta::identity();
+        delta.add.insert(
+            GElem::Edge(fresh_edge),
+            GPayload::Edge(GEdge {
+                src: fresh,
+                tgt: fresh,
+                label: label.clone(),
+                position: None,
+            }),
         );
         out.push(delta);
     }
+    out
+}
+
+/// The letters of [`graph_edit_lens_letters`] that name the node `node`:
+/// its cascading deletion, its bare deletion, its replacement, and for a
+/// plain node its anchor changes and the toggle of `field`.
+fn graph_edit_lens_node_letters(
+    schema: &crate::schema::Schema,
+    graph: &Graph,
+    node: &Node,
+    field: &str,
+    value: &Value,
+) -> Vec<GraphDelta> {
+    let id = node.id;
+    let mut cascade = GraphDelta::identity();
+    cascade
+        .del
+        .insert(GElem::Node(id), GPayload::Node(node.clone()));
+    for (edge_id, edge) in graph
+        .edges
+        .iter()
+        .filter(|(_, edge)| edge.src == id || edge.tgt == id)
+    {
+        cascade
+            .del
+            .insert(GElem::Edge(*edge_id), GPayload::Edge(edge.clone()));
+    }
+    let mut replacement = cascade.clone();
+    replacement.add = replacement.del.clone();
+    let mut bare = GraphDelta::identity();
+    bare.del
+        .insert(GElem::Node(id), GPayload::Node(node.clone()));
+    let mut out = vec![cascade, bare, replacement];
+    if node.shape == NodeShape::HyperEdge {
+        return out;
+    }
+    for vertex in schema.vertices.keys().filter(|v| **v != node.anchor) {
+        let mut delta = GraphDelta::identity();
+        delta.attrs.insert(
+            AttrKey::Anchor(id),
+            (
+                AttrVal::Anchor(node.anchor.clone()),
+                AttrVal::Anchor(vertex.clone()),
+            ),
+        );
+        out.push(delta);
+    }
+    let old = node.fields.get(field).cloned();
+    let new = if old.is_some() {
+        None
+    } else {
+        Some(value.clone())
+    };
+    let mut delta = GraphDelta::identity();
+    delta.attrs.insert(
+        AttrKey::Field(id, field.to_owned()),
+        (AttrVal::Field(old), AttrVal::Field(new)),
+    );
+    out.push(delta);
+    out
+}
+
+/// The letters of [`graph_edit_lens_letters`] that add an ordinary edge at
+/// `fresh_edge`, delete an edge, or reconnect an ordinary edge.
+fn graph_edit_lens_edge_letters(
+    schema: &crate::schema::Schema,
+    graph: &Graph,
+    fresh_edge: u32,
+) -> Vec<GraphDelta> {
+    let plain = |node: &&Node| node.shape != NodeShape::HyperEdge;
     let joins = |label: &SEdge| {
         let mut pairs = Vec::new();
         for src in graph
             .nodes
             .values()
-            .filter(|n| plain(n) && n.anchor == label.src)
+            .filter(plain)
+            .filter(|n| n.anchor == label.src)
         {
             for tgt in graph
                 .nodes
                 .values()
-                .filter(|n| plain(n) && n.anchor == label.tgt)
+                .filter(plain)
+                .filter(|n| n.anchor == label.tgt)
             {
                 pairs.push((src.id, tgt.id));
             }
         }
         pairs
     };
+    let mut out = Vec::new();
     for label in &schema.edges {
         for (src, tgt) in joins(label) {
             let mut delta = GraphDelta::identity();
@@ -1356,28 +1405,6 @@ pub fn graph_edit_lens_letters(
             );
             out.push(delta);
         }
-    }
-    if let Some(node) = graph.nodes.values().next() {
-        let mut stale = node.clone();
-        stale.anchor = format!("{}~", node.anchor);
-        let mut delta = GraphDelta::identity();
-        delta
-            .del
-            .insert(GElem::Node(node.id), GPayload::Node(stale));
-        out.push(delta);
-    }
-    if let Some(label) = schema.edges.iter().next() {
-        let mut delta = GraphDelta::identity();
-        delta.add.insert(
-            GElem::Edge(fresh_edge),
-            GPayload::Edge(GEdge {
-                src: fresh,
-                tgt: fresh,
-                label: label.clone(),
-                position: None,
-            }),
-        );
-        out.push(delta);
     }
     out
 }

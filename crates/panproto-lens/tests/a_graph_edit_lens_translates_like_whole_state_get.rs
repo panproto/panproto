@@ -277,7 +277,7 @@ fn reinserting_a_hidden_edge_restores_the_contracted_edge_at_the_least_free_id()
         .map(|id| id.0)
         .filter(|id| *id != added[0].0)
         .collect();
-    let least = (floor..)
+    let least = (floor..u32::MAX)
         .find(|id| !occupied.contains(id))
         .ok_or("no free id")?;
     assert_eq!(added[0].0, least);
@@ -322,7 +322,7 @@ fn a_source_edge_that_takes_a_synthesized_id_moves_the_synthesized_edge() -> Tes
             .collect::<Vec<_>>(),
         vec![moved]
     );
-    assert!(lens.complement().synthesized_edges.get(&taken).is_none());
+    assert!(!lens.complement().synthesized_edges.contains_key(&taken));
     assert_matches_whole_state(&lens)?;
     Ok(())
 }

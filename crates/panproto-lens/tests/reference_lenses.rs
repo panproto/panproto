@@ -17560,13 +17560,16 @@ mod graph_edit_lens_differential {
     /// next source, view and complement, or a refusal by class and reason.
     #[derive(Debug, PartialEq)]
     enum Outcome {
-        Admitted {
-            delta: RefGraphDelta,
-            source: RefGraph,
-            view: RefGraph,
-            complement: RefComplement,
-        },
+        Admitted(Box<Admitted>),
         Refused(String),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Admitted {
+        delta: RefGraphDelta,
+        source: RefGraph,
+        view: RefGraph,
+        complement: RefComplement,
     }
 
     fn production_refusal(error: &GraphEditLensError) -> String {
@@ -17633,12 +17636,12 @@ mod graph_edit_lens_differential {
                     &step.view_delta
                 };
                 (
-                    Outcome::Admitted {
+                    Outcome::Admitted(Box::new(Admitted {
                         delta: ref_delta(delta),
                         source,
                         view,
                         complement,
-                    },
+                    })),
                     true,
                 )
             }
@@ -17652,12 +17655,12 @@ mod graph_edit_lens_differential {
             }
         };
         let reference_outcome = match &reference {
-            Ok((delta, next)) => Outcome::Admitted {
+            Ok((delta, next)) => Outcome::Admitted(Box::new(Admitted {
                 delta: delta.clone(),
                 source: next.source.clone(),
                 view: next.view.clone(),
                 complement: without_identity(&next.complement),
-            },
+            })),
             Err(error) => Outcome::Refused(reference_refusal(error)),
         };
         assert_eq!(
@@ -17706,7 +17709,7 @@ mod graph_edit_lens_differential {
     fn unit(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> usize {
         pair.with_reference(|lens| {
             let Ok(lens) = lens else { return 0 };
-            let Some((production, state)) = bind(pair, lens, source) else {
+            let Some((edit_lens, held)) = bind(pair, lens, source) else {
                 return 0;
             };
             let mut compared = 0;
@@ -17717,19 +17720,19 @@ mod graph_edit_lens_differential {
                 &BOUNDED_LENS_VALUE,
             ) {
                 compared += 1;
-                if let Some((advanced, next)) = step(lens, &production, &state, false, &letter) {
+                if let Some((advanced, next)) = step(lens, &edit_lens, &held, false, &letter) {
                     compared += 1;
                     step(lens, &advanced, &next, false, &letter.invert());
                 }
             }
             for letter in graph_edit_lens_letters(
                 &stage.target,
-                &state.view,
+                &held.view,
                 BOUNDED_LENS_FIELD,
                 &BOUNDED_LENS_VALUE,
             ) {
                 compared += 1;
-                step(lens, &production, &state, true, &letter);
+                step(lens, &edit_lens, &held, true, &letter);
             }
             compared
         })
