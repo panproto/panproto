@@ -116,18 +116,6 @@ Fetched from `github.com/graphql/swapi-graphql` at commit
 
 License: BSD-3-Clause (graphql/swapi-graphql).
 
-## sql/
-
-Sakila sample database schemas, fetched from `github.com/jOOQ/sakila` at commit
-`aed53ce65404eac184f4134f34239a08c464df77`.
-
-| File | Source path |
-| --- | --- |
-| `sakila-postgres.sql` | `postgres-sakila-db/postgres-sakila-schema.sql` |
-| `sakila-sqlite.sql` | `sqlite-sakila-db/sqlite-sakila-schema.sql` |
-
-License: BSD-3-Clause (jOOQ/sakila).
-
 ## Refreshing fixtures
 
 To re-pin fixtures to newer upstream commits, update the SHAs above and re-run

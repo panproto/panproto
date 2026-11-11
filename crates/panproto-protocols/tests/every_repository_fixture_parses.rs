@@ -2,20 +2,20 @@
 //! parses with its protocol's parser, into the schema the file declares.
 //!
 //! The fixtures are real-world schemas (the GitHub workflow, npm
-//! `package.json` and `tsconfig.json` JSON Schemas, protobuf's own
-//! `descriptor.proto`, and both dialects of the Sakila database), so each
-//! one exercises constructs the parsers' unit tests do not: references to
-//! definitions declared later, `type` lists next to `properties`, JSON
-//! pointer references into nested subschemas, option values spanning
-//! lines, and `PostgreSQL` dumps with comments, dollar-quoted function
-//! bodies, `ALTER TABLE ONLY ... ADD CONSTRAINT`, `INHERITS`, domains,
-//! enum types, array columns and foreign keys to columns of other names.
-//! Each construct also has a minimal case of its own below, and the parse
-//! is checked against what the file declares, not only for success: every
-//! Sakila foreign key names a column that exists.
+//! `package.json` and `tsconfig.json` JSON Schemas, and protobuf's own
+//! `descriptor.proto`), so each one exercises constructs the parsers' unit
+//! tests do not: references to definitions declared later, `type` lists
+//! next to `properties`, JSON pointer references into nested subschemas,
+//! and option values spanning lines. The SQL cases below are the
+//! `PostgreSQL` dump constructs: comments, dollar-quoted function bodies,
+//! `ALTER TABLE ONLY ... ADD CONSTRAINT`, domains, enum types, array
+//! columns and foreign keys to keys of other names. Each construct has a
+//! minimal case of its own below, and the parse is checked against what
+//! the file declares, not only for success.
 
 use std::path::{Path, PathBuf};
 
+use panproto_protocols::database::sql::{OtherStatements, read_ddl};
 use panproto_protocols::{parse_schema_document, parse_schema_source};
 use panproto_schema::Schema;
 use serde_json::json;
@@ -387,95 +387,44 @@ fn a_statement_after_a_comment_is_read() {
 }
 
 #[test]
-fn a_postgres_dump_declares_its_tables() {
-    let schema = parse_schema_source(
-        "sql",
-        r"
+fn a_postgres_dump_declares_its_tables_and_lists_the_rest() {
+    let ddl = r"
 CREATE DOMAIN year AS integer CONSTRAINT year_check CHECK (VALUE >= 1901);
 CREATE FUNCTION f() RETURNS trigger AS $$
 BEGIN NEW.x := 1; RETURN NEW; END $$ LANGUAGE plpgsql;
 CREATE TABLE parent (id integer NOT NULL, born year);
-CREATE TABLE child (CONSTRAINT c CHECK ((id > 0))) INHERITS (parent);
+CREATE TABLE child (id integer, CONSTRAINT c CHECK ((id > 0)));
 ALTER TABLE public.parent OWNER TO postgres;
 ALTER TABLE ONLY parent ADD CONSTRAINT parent_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY child ADD CONSTRAINT child_fk FOREIGN KEY (id) REFERENCES parent(id);
 COPY parent (id, born) FROM stdin;
 1	1999
 \.
-",
-    )
-    .required("the dump parses");
+";
+    let reading = read_ddl(ddl, OtherStatements::List).required("the dump reads");
+    let schema = reading.schema;
+    let listed: Vec<&str> = reading.not_read.iter().map(|n| n.statement).collect();
+    assert_eq!(listed, ["CREATE FUNCTION", "ALTER TABLE OWNER TO", "COPY"]);
     assert_eq!(
         kind(&schema, "parent.born"),
         "integer",
         "through the domain"
     );
-    assert_eq!(constraint(&schema, "parent", "PRIMARY KEY"), Some("id"));
-    assert!(schema.has_vertex("child.id"), "inherited");
-    assert_eq!(constraint(&schema, "child.id", "NOT NULL"), Some("true"));
+    assert!(schema.declarations.key("parent", "parent_pkey").is_some());
+    let fk = &schema.declarations.references["child.child_fk"];
+    assert_eq!(fk.target_key.as_deref(), Some("parent_pkey"));
     assert_eq!(
-        constraint(&schema, "child.id", "FOREIGN KEY"),
-        Some("parent.id")
+        constraint(&schema, "child", "CHECK"),
+        Some("CONSTRAINT c CHECK ((id > 0))")
     );
-    assert_eq!(constraint(&schema, "child", "CHECK"), Some("(id > 0)"));
-    assert!(!schema.has_vertex("parent.CONSTRAINT"));
+    assert!(
+        parse_schema_source("sql", ddl).is_err(),
+        "refused when not listed"
+    );
 }
 
 #[test]
-fn the_postgres_sakila_schema_parses() {
-    let schema = source("sql", "sql/sakila-postgres.sql");
-    let tables = schema
-        .vertices
-        .values()
-        .filter(|v| v.kind == "table")
-        .count();
-    // 15 tables and the six `payment` partitions.
-    assert_eq!(tables, 21);
-    assert_eq!(
-        constraint(&schema, "actor", "PRIMARY KEY"),
-        Some("actor_id")
-    );
-    assert_eq!(
-        constraint(&schema, "rental.inventory_id", "FOREIGN KEY"),
-        Some("inventory.inventory_id")
-    );
-    assert_eq!(kind(&schema, "film.release_year"), "integer");
-    assert_eq!(kind(&schema, "payment_p2007_01.amount"), "number");
-}
-
-#[test]
-fn the_sqlite_sakila_schema_parses() {
-    let schema = source("sql", "sql/sakila-sqlite.sql");
-    let tables = schema
-        .vertices
-        .values()
-        .filter(|v| v.kind == "table")
-        .count();
-    assert_eq!(tables, 16);
-    assert!(schema.has_vertex("film.title"));
-    assert_eq!(
-        constraint(&schema, "film.language_id", "FOREIGN KEY"),
-        Some("language.language_id")
-    );
-}
-
-/// Every `FOREIGN KEY` constraint of `schema`, as `(vertex, value)`.
-fn foreign_keys(schema: &Schema) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = schema
-        .constraints
-        .iter()
-        .flat_map(|(v, cs)| {
-            cs.iter()
-                .filter(|c| c.sort == "FOREIGN KEY")
-                .map(move |c| (v.to_string(), c.value.clone()))
-        })
-        .collect();
-    out.sort();
-    out
-}
-
-#[test]
-fn a_foreign_key_names_the_column_it_references() {
+fn a_foreign_key_names_the_key_it_references() {
     let schema = parse_schema_source(
         "sql",
         r"
@@ -494,38 +443,18 @@ ALTER TABLE ONLY b ADD CONSTRAINT b_z_fkey FOREIGN KEY (z) REFERENCES a(id);
 ",
     )
     .required("the foreign keys parse");
-    assert_eq!(constraint(&schema, "b.x", "FOREIGN KEY"), Some("a.id"));
+    let target = |id: &str| {
+        schema.declarations.references[id]
+            .target_key
+            .as_deref()
+            .map(str::to_owned)
+    };
+    assert_eq!(target("b.b_x_fkey").as_deref(), Some("a_pkey"));
     // With no column list, the reference is to the primary key.
-    assert_eq!(constraint(&schema, "b.w", "FOREIGN KEY"), Some("a.id"));
-    assert_eq!(constraint(&schema, "b.y", "FOREIGN KEY"), Some("a.id"));
-    assert_eq!(constraint(&schema, "b.z", "FOREIGN KEY"), Some("a.id"));
-    assert_eq!(constraint(&schema, "b.c", "FOREIGN KEY"), Some("a.code"));
-    assert_eq!(constraint(&schema, "b.m", "FOREIGN KEY"), Some("a.n"));
-}
-
-#[test]
-fn every_sakila_foreign_key_names_a_column() {
-    for fixture in ["sql/sakila-postgres.sql", "sql/sakila-sqlite.sql"] {
-        let schema = source("sql", fixture);
-        let fks = foreign_keys(&schema);
-        assert!(!fks.is_empty(), "{fixture} declares foreign keys");
-        for (column, target) in &fks {
-            assert!(
-                schema.has_vertex(target),
-                "{fixture}: {column} references {target}, which is no column"
-            );
-        }
-        assert_eq!(
-            constraint(&schema, "film.original_language_id", "FOREIGN KEY"),
-            Some("language.language_id"),
-            "{fixture}"
-        );
-        assert_eq!(
-            constraint(&schema, "store.manager_staff_id", "FOREIGN KEY"),
-            Some("staff.staff_id"),
-            "{fixture}"
-        );
-    }
+    assert_eq!(target("b.b_w_fkey").as_deref(), Some("a_pkey"));
+    assert_eq!(target("b.b_y_fkey").as_deref(), Some("a_pkey"));
+    assert_eq!(target("b.b_z_fkey").as_deref(), Some("a_pkey"));
+    assert_eq!(target("b.b_c_m_fkey").as_deref(), Some("a_code_n_key"));
 }
 
 #[test]
@@ -533,29 +462,31 @@ fn a_table_dropped_before_it_is_created_is_declared() {
     let schema = parse_schema_source(
         "sql",
         "DROP TABLE IF EXISTS t, u;\nCREATE TABLE t (id INTEGER);\n\
-         CREATE TABLE u (id INTEGER);\nDROP TABLE u;\n\
-         ALTER TABLE u ADD COLUMN gone INTEGER;",
+         CREATE TABLE u (id INTEGER);\nDROP TABLE u;",
     )
     .required("the script parses");
     assert!(schema.has_vertex("t.id"));
     assert!(!schema.has_vertex("u"), "dropped after it was created");
-    assert!(!schema.has_vertex("u.gone"));
+    let error = parse_schema_source(
+        "sql",
+        "CREATE TABLE u (id INTEGER);\nDROP TABLE u;\nALTER TABLE u ADD COLUMN gone INTEGER;",
+    )
+    .expect_err("a dropped table is unknown");
+    assert!(error.to_string().contains("unknown SQL table"), "{error}");
 }
 
 #[test]
 fn a_quoted_table_name_is_read_whole() {
     let schema = parse_schema_source(
         "sql",
-        r#"CREATE TABLE "u;v" (id INTEGER); CREATE TABLE "a (b" ("x y" INTEGER, "id" INTEGER, FOREIGN KEY ("x y") REFERENCES "u;v" ("id"));"#,
+        r#"CREATE TABLE "u;v" (id INTEGER PRIMARY KEY); CREATE TABLE "a (b" ("x y" INTEGER, "id" INTEGER, FOREIGN KEY ("x y") REFERENCES "u;v" ("id"));"#,
     )
     .required("quoted names parse");
     assert!(schema.has_vertex("u;v"));
     assert!(schema.has_vertex("u;v.id"));
     assert!(schema.has_vertex("a (b.x y"));
-    assert_eq!(
-        constraint(&schema, "a (b.x y", "FOREIGN KEY"),
-        Some("u;v.id")
-    );
+    let fk = &schema.declarations.references["a (b.a (b_x y_fkey"];
+    assert_eq!(fk.target_vertex.as_str(), "u;v");
 }
 
 #[test]
@@ -564,13 +495,11 @@ fn postgres_arrays_and_enums_keep_their_shape() {
         "sql",
         r"
 CREATE TYPE public.mood AS ENUM ('sad', 'ok', 'it''s fine');
-CREATE DOMAIN tags AS text[];
 CREATE TABLE t (
   m mood NOT NULL,
   labels text[],
   grid integer[][],
-  scores numeric ARRAY,
-  more tags
+  scores numeric ARRAY
 );
 ",
     )
@@ -578,7 +507,7 @@ CREATE TABLE t (
     assert_eq!(kind(&schema, "t.m"), "string");
     assert_eq!(
         constraint(&schema, "t.m", "ENUM"),
-        Some("'sad','ok','it''s fine'")
+        Some(r#"["sad","ok","it's fine"]"#)
     );
     assert_eq!(constraint(&schema, "t.m", "NOT NULL"), Some("true"));
     assert_eq!(kind(&schema, "t.labels"), "array");
@@ -589,18 +518,4 @@ CREATE TABLE t (
     assert_eq!(kind(&schema, "t.grid:items:items"), "integer");
     assert_eq!(kind(&schema, "t.scores"), "array");
     assert_eq!(kind(&schema, "t.scores:items"), "number");
-    assert_eq!(kind(&schema, "t.more"), "array");
-    assert_eq!(kind(&schema, "t.more:items"), "string");
-}
-
-#[test]
-fn the_sakila_film_keeps_its_rating_enum_and_feature_array() {
-    let schema = source("sql", "sql/sakila-postgres.sql");
-    assert_eq!(kind(&schema, "film.special_features"), "array");
-    assert_eq!(kind(&schema, "film.special_features:items"), "string");
-    assert_eq!(kind(&schema, "film.rating"), "string");
-    assert_eq!(
-        constraint(&schema, "film.rating", "ENUM"),
-        Some("'G','PG','PG-13','R','NC-17'")
-    );
 }

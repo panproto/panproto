@@ -86,11 +86,9 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("yaml", Tree, Graph),
 ];
 
-/// Protocols whose shape row is kept in a table file that another family
-/// fills: `sql`'s row belongs to the `sql` family file, which is still
-/// empty. Each is checked to have no row yet, so the entry is removed
-/// when the row lands.
-const ROW_NOT_YET_DECLARED: &[&str] = &["sql"];
+/// Protocols whose shape row is not yet declared. Each is checked to have
+/// no row yet, so the entry is removed when the row lands.
+const ROW_NOT_YET_DECLARED: &[&str] = &[];
 
 /// Protocols whose registered instance theory is not yet the theory of
 /// their declared syntactic shape, with the shape the registered theory

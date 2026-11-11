@@ -1,10 +1,10 @@
 //! SQL and JSON Schema constructs whose meaning depends on the dialect
 //! read as that dialect defines them, and survive an emit and re-parse.
 //!
-//! Each case is one construct: a bracket-quoted identifier (SQLite,
-//! T-SQL), a clause after a column type that holds a `[`, a `DROP TABLE`
-//! that names its table in another case or qualification, enum labels
-//! holding a comma or an escaped quote, a `$id` ending in an empty
+//! Each case is one construct: an identifier quoted as another SQL
+//! dialect quotes it, refused by name, an array bound after a column type,
+//! a `DROP TABLE` that names its table in another case or qualification,
+//! enum labels holding a comma or an escaped quote, a `$id` ending in an empty
 //! fragment, the draft-04 `id` keyword, 2020-12 `prefixItems` beside
 //! `items`, and boolean `items` and `additionalItems`.
 
@@ -60,35 +60,34 @@ fn ref_target<'a>(schema: &'a Schema, src: &str) -> &'a str {
 }
 
 #[test]
-fn a_bracket_quoted_identifier_is_not_an_array() {
-    let schema = parse_ddl("CREATE TABLE [t] ([id] [int] NOT NULL, [name] [nvarchar](50));")
-        .required("bracket-quoted DDL parses");
+fn a_bracket_quoted_identifier_is_refused_as_another_dialect() {
+    let error = parse_ddl("CREATE TABLE [t] ([id] [int] NOT NULL);")
+        .expect_err("T-SQL quoting is not PostgreSQL");
     assert!(
-        schema.has_vertex("t"),
-        "the table is named without brackets"
+        error
+            .to_string()
+            .contains("T-SQL bracket-quoted identifier"),
+        "{error}"
     );
-    assert_eq!(kind(&schema, "t.id"), "integer");
-    assert_eq!(kind(&schema, "t.name"), "string");
-    assert!(!schema.has_vertex("t.id:items"));
-    assert!(!schema.has_vertex("t.name:items"));
+    let error = parse_ddl("CREATE TABLE t (`id` int);").expect_err("MySQL quoting");
+    assert!(
+        error.to_string().contains("MySQL backquoted identifier"),
+        "{error}"
+    );
 }
-
 #[test]
-fn a_bracket_after_the_column_type_is_not_an_array() {
+fn a_bracket_after_the_column_type_is_an_array_bound() {
     let schema = parse_ddl(
         "CREATE TABLE t (\
-            a VARCHAR(10) COMMENT '[x]', \
-            b TEXT CHARACTER SET utf8mb4 COMMENT 'list [1]', \
+            a VARCHAR(10) CHECK (a <> '[x]'), \
             c INTEGER [3], \
             d INTEGER ARRAY, \
             e TIMESTAMP WITH TIME ZONE[]\
         );",
     )
-    .required("DDL with comments parses");
+    .required("DDL parses");
     assert_eq!(kind(&schema, "t.a"), "string");
-    assert_eq!(kind(&schema, "t.b"), "string");
     assert!(!schema.has_vertex("t.a:items"));
-    assert!(!schema.has_vertex("t.b:items"));
     for array in ["t.c", "t.d", "t.e"] {
         assert_eq!(kind(&schema, array), "array", "{array}");
         assert!(
@@ -99,7 +98,6 @@ fn a_bracket_after_the_column_type_is_not_an_array() {
     assert_eq!(kind(&schema, "t.c:items"), "integer");
     assert_eq!(kind(&schema, "t.e:items"), "timestamp");
 }
-
 #[test]
 fn a_drop_removes_its_create_whatever_the_case_of_an_unquoted_name() {
     let schema =
@@ -108,10 +106,12 @@ fn a_drop_removes_its_create_whatever_the_case_of_an_unquoted_name() {
     assert!(!schema.has_vertex("Foo"), "FOO and foo name one table");
     assert!(schema.has_vertex("keep"));
 
-    let schema =
-        parse_ddl("CREATE TABLE \"Foo\" (id INT); DROP TABLE foo; CREATE TABLE keep (id INT);")
-            .required("DDL parses");
-    assert!(schema.has_vertex("Foo"), "a quoted name keeps its case");
+    let error = parse_ddl("CREATE TABLE \"Foo\" (id INT); DROP TABLE foo;")
+        .expect_err("a quoted name keeps its case, so foo names no table");
+    assert!(
+        error.to_string().contains("unknown SQL table \"foo\""),
+        "{error}"
+    );
 }
 
 #[test]
@@ -119,19 +119,19 @@ fn a_drop_removes_its_create_whichever_side_is_qualified() {
     let schema =
         parse_ddl("CREATE TABLE public.t (id INT); DROP TABLE t; CREATE TABLE keep (id INT);")
             .required("DDL parses");
-    assert!(!schema.has_vertex("public.t"), "t names public.t");
+    assert!(!schema.has_vertex("t"), "t names public.t");
 
     let schema =
         parse_ddl("CREATE TABLE t (id INT); DROP TABLE public.t; CREATE TABLE keep (id INT);")
             .required("DDL parses");
     assert!(!schema.has_vertex("t"), "public.t names t");
 
-    let schema =
-        parse_ddl("CREATE TABLE a.t (id INT); DROP TABLE b.t; CREATE TABLE keep (id INT);")
-            .required("DDL parses");
-    assert!(schema.has_vertex("a.t"), "b.t is another table");
+    let error = parse_ddl("CREATE TABLE a.t (id INT);").expect_err("schema a is not read");
+    assert!(
+        error.to_string().contains("a schema other than public"),
+        "{error}"
+    );
 }
-
 #[test]
 fn an_enum_label_reads_the_same_however_it_is_spelled() {
     let doubled = parse_ddl("CREATE TYPE q AS ENUM ('it''s', 'a,b'); CREATE TABLE t (m q);")
@@ -341,7 +341,7 @@ fn an_array_of_a_multi_word_character_type_is_an_array() {
 #[test]
 fn an_array_default_and_an_odd_column_name_survive_emit_and_reparse() {
     let ddl = "CREATE TABLE t (id INT, f INT[] DEFAULT ARRAY[1, 2], \
-               g TEXT CHECK (g IN ('[a]')), [h]]x] INT, s TEXT DEFAULT 'a b');";
+               g TEXT CHECK (g IN ('[a]')), \"h]x\" INT, s TEXT DEFAULT 'a b');";
     let first = parse_ddl(ddl).required("first parse");
     assert_eq!(
         constraint(&first, "t.f", "DEFAULT").as_deref(),
@@ -370,41 +370,21 @@ fn an_array_default_and_an_odd_column_name_survive_emit_and_reparse() {
 }
 
 #[test]
-fn a_drop_removes_a_bracket_quoted_create_in_any_case() {
-    let schema =
-        parse_ddl("CREATE TABLE [Foo] (id INT); DROP TABLE foo; CREATE TABLE keep (id INT);")
-            .required("DDL parses");
-    assert!(
-        !schema.has_vertex("Foo"),
-        "brackets compare without regard to case"
-    );
-    assert!(schema.has_vertex("keep"));
-}
-
-#[test]
 fn an_odd_table_name_survives_emit_and_reparse() {
-    let ddl = "CREATE TABLE [h]]x] (id INT); CREATE TABLE [my table] (id INT); \
-               CREATE TABLE public.t (id INT);";
+    let ddl = "CREATE TABLE \"h]x\" (id INT); CREATE TABLE \"my table\" (id INT); \
+               CREATE TABLE public.\"T\" (id INT);";
     let first = parse_ddl(ddl).required("first parse");
-    for vertex in [
-        "h]x",
-        "h]x.id",
-        "my table",
-        "my table.id",
-        "public.t",
-        "public.t.id",
-    ] {
+    for vertex in ["h]x", "h]x.id", "my table", "my table.id", "T", "T.id"] {
         assert!(first.has_vertex(vertex), "{vertex} parses");
     }
     let emitted = emit_ddl(&first).required("emit");
     let second = parse_ddl(&emitted).required("re-parse");
     assert_eq!(vertex_ids(&second), vertex_ids(&first), "{emitted}");
 }
-
 #[test]
 fn an_enum_column_of_an_odd_table_survives_emit_and_reparse() {
     let ddl = "CREATE TYPE mood AS ENUM ('sad', 'ok'); \
-               CREATE TABLE [my table] ([a b] mood, c mood[]);";
+               CREATE TABLE \"my table\" (\"a b\" mood, c mood[]);";
     let first = parse_ddl(ddl).required("first parse");
     let labels = constraint(&first, "my table.a b", "ENUM");
     assert!(labels.is_some(), "the column carries its labels");
@@ -423,9 +403,9 @@ fn an_enum_column_of_an_odd_table_survives_emit_and_reparse() {
 }
 
 #[test]
-fn a_quote_inside_a_bracket_quoted_identifier_is_part_of_its_name() {
-    let ddl = "CREATE TABLE [t\"x] ([a\"b] INT, [c'd] TEXT DEFAULT 'q;r', [e(f] INT, \
-               g INT[] DEFAULT ARRAY[[1, 2], [3, 4]]); CREATE TABLE u ([;] INT);";
+fn a_quote_inside_a_quoted_identifier_is_part_of_its_name() {
+    let ddl = "CREATE TABLE \"t\"\"x\" (\"a\"\"b\" INT, \"c'd\" TEXT DEFAULT 'q;r', \"e(f\" INT, \
+               g INT[] DEFAULT ARRAY[[1, 2], [3, 4]]); CREATE TABLE u (\";\" INT);";
     let first = parse_ddl(ddl).required("first parse");
     for vertex in [
         "t\"x",

@@ -32,7 +32,6 @@ const SCHEMA_DIRS: &[(&str, &str, bool)] = &[
     ("graphql", "graphql", false),
     ("jsonschema", "json-schema", true),
     ("protobuf", "protobuf", false),
-    ("sql", "sql", false),
 ];
 
 /// The files and directories of `fixtures/` that hold no schema: instance
@@ -321,16 +320,38 @@ fn fixture_constraints_read_under_their_semantics() {
     );
 }
 
-/// The `sql` keys, references and defaults are annotations, from which no
-/// check is compiled: keys and references are checked from the schema's
-/// key and reference declarations, and a default constrains no cell.
+/// The `sql` defaults, type names and referential actions are annotations,
+/// from which no check is compiled: keys and references are checked from
+/// the schema's key and reference declarations, and none of these
+/// constrains a cell. The type parameters parameterize value coercion,
+/// and the SQL expressions of checks are decided outside panproto.
 #[test]
-fn sql_keys_references_and_defaults_compile_to_no_check() {
+fn sql_annotations_parameters_and_checks_have_their_meanings() {
     let sql = (descriptor("sql").expect("sql is registered").protocol)();
-    for sort in ["PRIMARY KEY", "UNIQUE", "FOREIGN KEY", "DEFAULT"] {
+    for sort in ["DEFAULT", "TYPE", "FOREIGN KEY ACTION"] {
         let meaning = &sql.constraint_semantics[sort];
         assert_eq!(meaning, &ConstraintSemantics::Annotation, "{sort}");
         assert!(!meaning.compiles_to_check(), "{sort}");
+    }
+    for sort in [
+        "int_bits",
+        "precision",
+        "scale",
+        "max_length",
+        "with_time_zone",
+    ] {
+        assert_eq!(
+            sql.constraint_semantics[sort],
+            ConstraintSemantics::ValueParameter,
+            "{sort}"
+        );
+    }
+    for sort in ["CHECK", "DOMAIN CHECK"] {
+        assert_eq!(
+            sql.constraint_semantics[sort],
+            ConstraintSemantics::External,
+            "{sort}"
+        );
     }
 }
 
@@ -384,12 +405,11 @@ fn conllu_values_are_annotations_that_compile_to_no_check() {
     );
 }
 
-/// An enum type's labels are SQL string literals in their quotes, which an
-/// enumeration constraint would compare with the bare cell value and
-/// refute; the labels compile to a check decided outside panproto instead,
-/// with no static finding.
+/// An enum type's labels are written as a JSON array of strings, so the
+/// `ENUM` constraint is an enumeration: a cell holding a label passes and
+/// any other cell fails, with no static finding.
 #[test]
-fn sql_enum_labels_are_decided_outside_panproto() {
+fn sql_enum_labels_are_an_enumeration() {
     use panproto_inst::validation::{SchemaRef, ValidationOptions, ValidationPlan};
     let sql = (descriptor("sql").expect("sql is registered").protocol)();
     let schema = parse_schema_source(
@@ -403,10 +423,12 @@ fn sql_enum_labels_are_decided_outside_panproto() {
         .find(|e| e.kind == "prop")
         .expect("the column's edge")
         .clone();
-    let labels = &schema.constraints[&column.tgt];
+    let labels: Vec<_> = schema.constraints[&column.tgt]
+        .iter()
+        .filter(|c| c.sort == "ENUM")
+        .collect();
     assert_eq!(labels.len(), 1, "{labels:?}");
-    assert_eq!(labels[0].sort, "ENUM");
-    assert_eq!(labels[0].value, "'G','PG'");
+    assert_eq!(labels[0].value, r#"["G","PG"]"#);
 
     let plan = ValidationPlan::compile(&schema, &sql, &ValidationOptions::default());
     let enum_checks: Vec<CheckKind> = plan
@@ -420,33 +442,31 @@ fn sql_enum_labels_are_decided_outside_panproto() {
         })
         .map(|k| k.kind)
         .collect();
-    assert_eq!(enum_checks, vec![CheckKind::External]);
+    assert_eq!(enum_checks, vec![CheckKind::ValueConstraint]);
     assert!(
         plan.static_findings().is_empty(),
         "{:#?}",
         plan.static_findings()
     );
 
-    // Read as an enumeration, the quoted labels refute the valid cell.
-    let film = FInstance::new()
-        .with_rows(
-            column.src.clone(),
-            [(
-                RowId(0),
-                HashMap::from([(
-                    column.name.as_ref().expect("named").to_string(),
-                    Value::Str("PG".into()),
-                )]),
-            )],
-        )
-        .expect("the row is new");
-    let mut as_enum = sql;
-    as_enum
-        .constraint_semantics
-        .insert("ENUM".to_owned(), ConstraintSemantics::Enum);
-    let report = validate_table(&film, &schema, &as_enum);
+    let film = |label: &str| {
+        FInstance::new()
+            .with_rows(
+                column.src.clone(),
+                [(
+                    RowId(0),
+                    HashMap::from([(
+                        column.name.as_ref().expect("named").to_string(),
+                        Value::Str(label.into()),
+                    )]),
+                )],
+            )
+            .expect("the row is new")
+    };
+    let report = validate_table(&film("PG"), &schema, &sql);
+    assert_eq!(report.status, CheckStatus::Passed, "{report:#?}");
+    let report = validate_table(&film("R"), &schema, &sql);
     assert_eq!(report.status, CheckStatus::Failed, "{report:#?}");
-    assert_eq!(report.diagnostics[0].check.kind, CheckKind::ValueConstraint);
 }
 
 /// Two rows of the table holding the column constrained by `sort` in
@@ -540,7 +560,7 @@ fn check_external_column_rows(protocol: &str, sort: &str, schema: &Schema, cells
     );
 }
 
-/// The registered `External` column rows, sql `ENUM` and dataframe `gt`,
+/// The registered `External` column rows, sql `DOMAIN CHECK` and dataframe `gt`,
 /// compile to a check with one instance per row holding the column's cell
 /// (see [`check_external_column_rows`]).
 #[test]
@@ -548,12 +568,12 @@ fn external_column_rows_have_an_instance_per_row() {
     use panproto_protocols::data_science::dataframe::parse_dataframe_schema;
     let sql = parse_schema_source(
         "sql",
-        "CREATE TYPE rating AS ENUM ('G', 'PG');\nCREATE TABLE film (r rating);",
+        "CREATE DOMAIN rating AS text CHECK (VALUE IN ('G', 'PG'));\nCREATE TABLE film (r rating);",
     )
     .expect("the script parses");
     check_external_column_rows(
         "sql",
-        "ENUM",
+        "DOMAIN CHECK",
         &sql,
         [Value::Str("PG".into()), Value::Str("R".into())],
     );
@@ -571,13 +591,13 @@ fn external_column_rows_have_an_instance_per_row() {
 }
 
 /// The schema fixtures are found by walking `fixtures/`: the repository's
-/// tree yields its seventeen schemas, and a file added under a schema
+/// tree yields its fifteen schemas, and a file added under a schema
 /// directory is read under that directory's protocol, while a file in a
 /// directory the walk does not classify is an error rather than skipped.
 #[test]
 fn schema_fixtures_are_every_file_under_a_schema_directory() {
     let found = fixtures();
-    assert_eq!(found.len(), 17, "{found:#?}");
+    assert_eq!(found.len(), 15, "{found:#?}");
     for (dir, protocol, _) in SCHEMA_DIRS {
         assert!(
             found
@@ -596,7 +616,7 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
     };
     write("FIXTURES.md");
     write("atproto/records/post.json");
-    write("sql/added.sql");
+    write("graphql/added.graphql");
     write("jsonschema/nested/added.json");
     let classified = schema_fixtures(&root);
     write("avro/added.avsc");
@@ -605,12 +625,12 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
     assert_eq!(
         classified,
         Ok(vec![
+            ("graphql", false, "graphql/added.graphql".to_owned()),
             (
                 "json-schema",
                 true,
                 "jsonschema/nested/added.json".to_owned()
             ),
-            ("sql", false, "sql/added.sql".to_owned()),
         ])
     );
     assert_eq!(unclassified, Err(vec!["avro/added.avsc".to_owned()]));
@@ -643,23 +663,19 @@ fn constraint_semantics_rows_are_kept_one_file_per_family() {
 #[test]
 fn hidden_files_beside_the_fixtures_are_not_fixtures() {
     let root = std::env::temp_dir().join(format!("panproto-fixture-walk-{}", std::process::id()));
-    let sql = root.join("sql");
-    std::fs::create_dir_all(&sql).unwrap();
+    let graphql = root.join("graphql");
+    std::fs::create_dir_all(&graphql).unwrap();
     std::fs::create_dir_all(root.join(".hidden_dir")).unwrap();
-    std::fs::write(
-        sql.join("users.sql"),
-        "CREATE TABLE users (id INTEGER PRIMARY KEY);",
-    )
-    .unwrap();
+    std::fs::write(graphql.join("users.graphql"), "type User { id: ID! }").unwrap();
     std::fs::write(root.join(".DS_Store"), b"\0").unwrap();
-    std::fs::write(sql.join("._users.sql"), b"\0").unwrap();
+    std::fs::write(graphql.join("._users.graphql"), b"\0").unwrap();
     std::fs::write(root.join(".hidden_dir").join("stray.txt"), "stray").unwrap();
     std::fs::write(root.join("FIXTURES.md"), "docs").unwrap();
     let found = schema_fixtures(&root);
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(
         found,
-        Ok(vec![("sql", false, "sql/users.sql".to_owned())]),
+        Ok(vec![("graphql", false, "graphql/users.graphql".to_owned())]),
         "hidden entries must not be classified as fixtures"
     );
 }

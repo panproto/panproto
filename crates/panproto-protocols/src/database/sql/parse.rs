@@ -257,6 +257,13 @@ const OTHER_STATEMENTS: &[(&[&str], &str)] = &[
     ),
     (&["create", "sequence"], "CREATE SEQUENCE"),
     (&["create", "extension"], "CREATE EXTENSION"),
+    (&["create", "language"], "CREATE LANGUAGE"),
+    (&["create", "procedural", "language"], "CREATE LANGUAGE"),
+    (&["create", "or", "replace", "language"], "CREATE LANGUAGE"),
+    (
+        &["create", "or", "replace", "procedural", "language"],
+        "CREATE LANGUAGE",
+    ),
     (&["create", "schema"], "CREATE SCHEMA"),
     (&["create", "type"], "CREATE TYPE"),
     (&["alter", "function"], "ALTER FUNCTION"),
