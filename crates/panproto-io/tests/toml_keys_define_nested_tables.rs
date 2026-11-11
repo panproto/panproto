@@ -138,7 +138,11 @@ fn dotted_keys_and_headers_read_the_tables_the_toml_crate_reads() {
         let canonical = codec
             .parse_wtype(&schema, document.as_bytes())
             .expect("complement-free read");
-        assert_eq!(shape_of(&canonical, canonical.root), expected, "{document:?}");
+        assert_eq!(
+            shape_of(&canonical, canonical.root),
+            expected,
+            "{document:?}"
+        );
     }
 }
 
@@ -170,12 +174,18 @@ fn a_key_or_table_defined_twice_is_refused_with_the_key_and_offset() {
     let schema = open_schema();
     let codec = codec();
     for (document, expected) in [
-        ("a = 1\na.b = 2\n", "TOML dotted key a.b at byte 6 extends key a"),
+        (
+            "a = 1\na.b = 2\n",
+            "TOML dotted key a.b at byte 6 extends key a",
+        ),
         ("a.b = 1\na = 2\n", "duplicate TOML key a at byte 8"),
         ("a.b = 1\na.b = 2\n", "duplicate TOML key a.b at byte 8"),
         ("\"a\" = 1\na = 2\n", "duplicate TOML key a at byte 8"),
         ("a = { b = 1, b = 2 }\n", "duplicate TOML key b at byte 13"),
-        ("[a]\nb = 1\n[a]\nc = 2\n", "TOML header [a] at byte 10 defines a table"),
+        (
+            "[a]\nb = 1\n[a]\nc = 2\n",
+            "TOML header [a] at byte 10 defines a table",
+        ),
         (
             "[fruit]\napple.color = 1\n[fruit.apple]\n",
             "TOML header [fruit.apple] at byte 24 defines a table",
@@ -184,7 +194,10 @@ fn a_key_or_table_defined_twice_is_refused_with_the_key_and_offset() {
             "[fruit]\napple.taste.sweet = true\n[fruit.apple.taste]\n",
             "TOML header [fruit.apple.taste] at byte 33 defines a table",
         ),
-        ("a.b = 1\n[a]\n", "TOML header [a] at byte 8 defines a table"),
+        (
+            "a.b = 1\n[a]\n",
+            "TOML header [a] at byte 8 defines a table",
+        ),
         (
             "[a.b.c]\nz = 1\n[a]\nb.c.t = 1\n",
             "TOML dotted key b.c.t at byte 18 extends key b",
@@ -193,12 +206,27 @@ fn a_key_or_table_defined_twice_is_refused_with_the_key_and_offset() {
             "[a.b]\nc = 1\n[a]\nb.d = 1\n",
             "TOML dotted key b.d at byte 16 extends key b",
         ),
-        ("a = { b = 1 }\n[a.c]\n", "TOML header [a.c] at byte 14 extends key a"),
-        ("a = { b = 1 }\n[a]\n", "TOML header [a] at byte 14 defines a table"),
-        ("a = 1\n[a.b]\n", "TOML header [a.b] at byte 6 extends key a"),
-        ("a = [1]\n[[a]]\n", "TOML header [[a]] at byte 8 appends to a key"),
+        (
+            "a = { b = 1 }\n[a.c]\n",
+            "TOML header [a.c] at byte 14 extends key a",
+        ),
+        (
+            "a = { b = 1 }\n[a]\n",
+            "TOML header [a] at byte 14 defines a table",
+        ),
+        (
+            "a = 1\n[a.b]\n",
+            "TOML header [a.b] at byte 6 extends key a",
+        ),
+        (
+            "a = [1]\n[[a]]\n",
+            "TOML header [[a]] at byte 8 appends to a key",
+        ),
         ("[[a]]\n[a]\n", "TOML header [a] at byte 6 defines a table"),
-        ("[a]\n[[a]]\n", "TOML header [[a]] at byte 4 appends to a key"),
+        (
+            "[a]\n[[a]]\n",
+            "TOML header [[a]] at byte 4 appends to a key",
+        ),
     ] {
         match codec.parse_wtype_preserving(&schema, document.as_bytes()) {
             Err(ParseInstanceError::Parse { message, .. }) => {
