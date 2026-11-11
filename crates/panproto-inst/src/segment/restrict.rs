@@ -241,7 +241,7 @@ const fn dangling(elem: ViewRef, node: u32) -> SegmentError {
 
 /// The segment error for an edge assembly could not place: an endpoint it
 /// names is missing, or its id is taken.
-fn placed(error: &crate::error::InstError, id: EdgeId) -> SegmentError {
+const fn placed(error: &crate::error::InstError, id: EdgeId) -> SegmentError {
     match error {
         crate::error::InstError::DanglingEdge { endpoint, .. } => {
             dangling(ViewRef::Edge(id), *endpoint)
@@ -325,7 +325,7 @@ fn slot(id: SegmentId) -> usize {
 
 /// The precedence key of a located restrict refusal; a refusal the engine
 /// does not locate sorts first.
-fn refusal_key(error: &RestrictError) -> Option<super::error::ErrorKey> {
+const fn refusal_key(error: &RestrictError) -> Option<super::error::ErrorKey> {
     match error {
         RestrictError::At { key, .. } => Some(*key),
         _ => None,

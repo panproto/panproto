@@ -3183,3 +3183,353 @@ mod segmented {
         );
     }
 }
+
+/// Witnesses of segmented graph restriction beyond the release carrier:
+/// hidden paths through several segments, fans and expansions crossing
+/// segments, allocation refusals and the residual of a predicate.
+mod segmented_witnesses {
+    use super::segmented::{Outcome, check_case, prod_partition};
+    use super::{
+        RefEdge, RefGEdge, RefGraph, RefMigration, RefNode, RefSchema, RestrictPlan,
+        fan_floor_fixture, prod_graph, prod_migration, prod_schema,
+    };
+    use panproto_inst::locality::{GlobalReason, SegmentOp};
+    use panproto_inst::segment::{
+        IdKind, Residual, SegmentError, SegmentId, SegmentedRestrictError,
+        graph_restrict_segmented, partition_graph,
+    };
+    use panproto_reference::enumerate::segments::{
+        SEGMENTED_RESTRICT_ALLOCATION_BASE, allocated_splits,
+    };
+    use panproto_reference::segment as reference;
+
+    /// A dropped vertex `c` with a loop, between surviving `a` and `b`.
+    fn hidden_path_fixture() -> (RefSchema, RefMigration, RefGraph) {
+        let schema = RefSchema::default()
+            .vertex("a", "record")
+            .vertex("b", "record")
+            .vertex("c", "record")
+            .edge("a", "b", "prop", Some("ab"))
+            .edge("a", "c", "prop", Some("ac"))
+            .edge("c", "c", "prop", Some("cc"))
+            .edge("c", "b", "prop", Some("cb"));
+        let migration = RefMigration {
+            surviving_verts: ["a", "b"].into_iter().map(str::to_owned).collect(),
+            surviving_edges: std::iter::once(RefEdge::new("a", "b", "prop", Some("ab"))).collect(),
+            ..RefMigration::default()
+        };
+        let mut graph = RefGraph::default();
+        for (id, anchor) in [(0, "a"), (1, "c"), (2, "c"), (3, "c"), (4, "b")] {
+            graph.nodes.insert(id, RefNode::new(id, anchor));
+        }
+        let edges = [
+            (0, 1, "a", "c", "ac"),
+            (1, 2, "c", "c", "cc"),
+            (2, 3, "c", "c", "cc"),
+            (3, 1, "c", "c", "cc"),
+            (3, 4, "c", "b", "cb"),
+        ];
+        for (id, (src, tgt, a, b, name)) in (0_u32..).zip(edges) {
+            graph.edges.insert(
+                id,
+                RefGEdge {
+                    src,
+                    tgt,
+                    label: RefEdge::new(a, b, "prop", Some(name)),
+                    position: None,
+                },
+            );
+        }
+        (schema, migration, graph)
+    }
+
+    fn compile(source: &RefSchema, target: &RefSchema, migration: &RefMigration) -> RestrictPlan {
+        RestrictPlan::compile(
+            &prod_schema(source),
+            &prod_schema(target),
+            &prod_migration(migration),
+        )
+        .expect("the witness plan compiles")
+    }
+
+    /// The partition owning `owners[i]`'s nodes in segment `i`, with or
+    /// without the carrier's allocation ranges, or with edge ranges of
+    /// width `width` at the carrier base.
+    fn partition(
+        owners: &[&[u32]],
+        node_width: Option<u32>,
+        edge_width: Option<u32>,
+    ) -> reference::Partition {
+        reference::Partition {
+            shape: reference::InstanceShapeKind::Graph,
+            specs: owners
+                .iter()
+                .zip(0_u32..)
+                .map(|(nodes, index)| {
+                    let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * index;
+                    let range = |width: u32| reference::IdRange {
+                        lo,
+                        hi: lo + width - 1,
+                    };
+                    let mut spec_nodes: Vec<reference::IdRange> = nodes
+                        .iter()
+                        .map(|id| reference::IdRange { lo: *id, hi: *id })
+                        .collect();
+                    let alloc_nodes = node_width.map(range);
+                    spec_nodes.extend(alloc_nodes);
+                    reference::SegmentSpec {
+                        id: reference::SegmentId(index),
+                        nodes: spec_nodes,
+                        alloc_nodes,
+                        alloc_edges: edge_width.map(range),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_hidden_path_through_three_segments_contracts_like_whole_state_restrict() {
+        let (schema, migration, graph) = hidden_path_fixture();
+        let plan = compile(&schema, &schema, &migration);
+        let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+        let splits = allocated_splits(&nodes);
+        assert_eq!(splits.len(), 2_usize.pow(5) + 3_usize.pow(5));
+        for split in &splits {
+            assert_eq!(
+                check_case(&schema, &schema, &migration, &plan, &graph, split),
+                Outcome::Agreed,
+                "{split:?}"
+            );
+        }
+        // Node 0 in segment 0, the path leaving through 1 (segment 1), 2
+        // (segment 2) and 3 (segment 0) to 4 (segment 1).
+        let split = partition(&[&[0, 3], &[1, 4], &[2]], Some(10), Some(10));
+        let production_partition = prod_partition(&split);
+        let segments =
+            partition_graph(&prod_graph(&graph), &production_partition).expect("production split");
+        let output = graph_restrict_segmented(&plan, &segments, &production_partition)
+            .expect("the hidden path restricts");
+        let first = &output.views[0];
+        let contracted: Vec<(u32, u32)> = first
+            .edges
+            .iter()
+            .filter(|(id, _)| output.complements[0].synthesized_edges.contains_key(id))
+            .map(|(_, edge)| (edge.src, edge.tgt))
+            .collect();
+        assert_eq!(
+            contracted,
+            vec![(0, 4)],
+            "the pair is joined in its first node's segment"
+        );
+        assert_eq!(
+            first.boundary.ghosts.get(&4).map(|g| g.owner),
+            Some(SegmentId(1))
+        );
+        assert!(output.views[1].boundary.in_stubs.keys().any(|elem| {
+            matches!(elem, panproto_inst::ViewRef::Edge(id) if id.0 >= SEGMENTED_RESTRICT_ALLOCATION_BASE)
+        }));
+    }
+
+    #[test]
+    fn fans_and_expansions_crossing_segments_restrict_like_whole_state_restrict() {
+        let (source, target, migration, tree) = fan_floor_fixture();
+        let (graph, _) = panproto_reference::encode::tree_to_graph(&tree, Some(&source))
+            .expect("the fixture tree has a graph form");
+        assert!(
+            graph
+                .nodes
+                .values()
+                .any(|n| n.shape == super::RefNodeShape::HyperEdge)
+        );
+        let plan = compile(&source, &target, &migration);
+        let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+        let mut agreed = 0;
+        for split in allocated_splits(&nodes) {
+            assert_eq!(
+                check_case(&source, &target, &migration, &plan, &graph, &split),
+                Outcome::Agreed,
+                "{split:?}"
+            );
+            agreed += 1;
+        }
+        assert_eq!(agreed, 2_u32.pow(4) + 3_u32.pow(4));
+    }
+
+    #[test]
+    fn allocation_refusals_agree_with_the_reference() {
+        let (schema, migration, graph) = hidden_path_fixture();
+        let plan = compile(&schema, &schema, &migration);
+        let owners: [&[u32]; 2] = [&[0, 1, 2], &[3, 4]];
+        // No edge range where the pair is joined.
+        let none = partition(&owners, None, None);
+        assert_eq!(
+            check_case(&schema, &schema, &migration, &plan, &graph, &none),
+            Outcome::Refused
+        );
+        let segments = partition_graph(&prod_graph(&graph), &prod_partition(&none)).expect("split");
+        assert!(matches!(
+            graph_restrict_segmented(&plan, &segments, &prod_partition(&none)),
+            Err(SegmentedRestrictError::Segment(
+                SegmentError::NoAllocationRange {
+                    segment: SegmentId(0),
+                    kind: IdKind::Edge
+                }
+            ))
+        ));
+        // An edge range below an edge id in use.
+        let mut below = partition(&owners, Some(10), Some(10));
+        below.specs[1].alloc_edges = Some(reference::IdRange { lo: 4, hi: 9 });
+        assert_eq!(
+            check_case(&schema, &schema, &migration, &plan, &graph, &below),
+            Outcome::Refused
+        );
+        // An expansion of two edges into a one-id edge range.
+        let (source, target, expanding, tree) = fan_floor_fixture();
+        let (fan_graph, _) =
+            panproto_reference::encode::tree_to_graph(&tree, Some(&source)).expect("graph form");
+        let fan_plan = compile(&source, &target, &expanding);
+        let all: Vec<u32> = fan_graph.nodes.keys().copied().collect();
+        let narrow = partition(&[&all], Some(10), Some(1));
+        assert_eq!(
+            check_case(&source, &target, &expanding, &fan_plan, &fan_graph, &narrow),
+            Outcome::Refused
+        );
+        let segments =
+            partition_graph(&prod_graph(&fan_graph), &prod_partition(&narrow)).expect("split");
+        assert!(matches!(
+            graph_restrict_segmented(&fan_plan, &segments, &prod_partition(&narrow)),
+            Err(SegmentedRestrictError::Segment(
+                SegmentError::AllocationExhausted {
+                    kind: IdKind::Edge,
+                    ..
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn a_survival_predicate_is_declined_as_a_global_expression_before_any_segment_is_read() {
+        let (schema, mut migration, graph) = hidden_path_fixture();
+        migration.conditional.insert("b".to_owned());
+        let plan = compile(&schema, &schema, &migration);
+        let split = partition(&[&[0, 1, 2], &[3, 4]], Some(10), Some(10));
+        let segments =
+            partition_graph(&prod_graph(&graph), &prod_partition(&split)).expect("split");
+        let declined = graph_restrict_segmented(&plan, &segments, &prod_partition(&split));
+        assert!(matches!(
+            declined,
+            Err(SegmentedRestrictError::Residual(Residual::Global {
+                op: SegmentOp::Restrict,
+                reason: GlobalReason::ExpressionDemand { ref vertex },
+            })) if vertex.as_ref() == "b"
+        ));
+        // Declined before reading: an empty family is declined alike.
+        assert!(matches!(
+            graph_restrict_segmented(&plan, &[], &prod_partition(&split)),
+            Err(SegmentedRestrictError::Residual(_))
+        ));
+    }
+}
+
+/// Generated segmented restricts against the reference: graphs of up to
+/// eight nodes over a schema with a dropped loop, every survival choice,
+/// and owners drawn from up to four segments.
+mod segmented_randomized {
+    use super::segmented::{Outcome, check_case};
+    use super::{RefEdge, RefGEdge, RefGraph, RefMigration, RefNode, RefSchema, RestrictPlan};
+    use super::{prod_migration, prod_schema};
+    use panproto_reference::enumerate::segments::SEGMENTED_RESTRICT_ALLOCATION_BASE;
+    use panproto_reference::segment as reference;
+    use proptest::prelude::*;
+
+    const ANCHORS: [&str; 3] = ["a", "b", "c"];
+
+    fn schema() -> RefSchema {
+        let mut schema = RefSchema::default();
+        for anchor in ANCHORS {
+            schema = schema.vertex(anchor, "record");
+        }
+        for src in ANCHORS {
+            for tgt in ANCHORS {
+                let name = format!("{src}{tgt}");
+                schema = schema.edge(src, tgt, "prop", Some(&name));
+            }
+        }
+        schema
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn segmented_restrict_matches_the_reference_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let schema = schema();
+            let survivors: Vec<&str> = ANCHORS
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| surviving & (1 << i) != 0)
+                .map(|(_, a)| *a)
+                .collect();
+            let migration = RefMigration {
+                surviving_verts: survivors.iter().map(|a| (*a).to_owned()).collect(),
+                surviving_edges: schema
+                    .edges
+                    .iter()
+                    .filter(|e| survivors.contains(&e.src.as_str()) && survivors.contains(&e.tgt.as_str()))
+                    .cloned()
+                    .collect(),
+                ..RefMigration::default()
+            };
+            let production_schema = prod_schema(&schema);
+            let Ok(plan) = RestrictPlan::compile(&production_schema, &production_schema, &prod_migration(&migration)) else {
+                return Err(TestCaseError::reject("plan outside the compile domain"));
+            };
+            let n = anchors.len();
+            let mut graph = RefGraph::default();
+            for (id, anchor) in (0_u32..).zip(&anchors) {
+                graph.nodes.insert(id, RefNode::new(id, ANCHORS[*anchor]));
+            }
+            for (id, (src, tgt)) in (0_u32..).zip(edges.iter().filter(|(s, t)| *s < n && *t < n)) {
+                let (a, b) = (ANCHORS[anchors[*src]], ANCHORS[anchors[*tgt]]);
+                let name = format!("{a}{b}");
+                graph.edges.insert(id, RefGEdge {
+                    src: u32::try_from(*src).unwrap_or(0),
+                    tgt: u32::try_from(*tgt).unwrap_or(0),
+                    label: RefEdge::new(a, b, "prop", Some(&name)),
+                    position: None,
+                });
+            }
+            let partition = reference::Partition {
+                shape: reference::InstanceShapeKind::Graph,
+                specs: (0..segments)
+                    .map(|segment| {
+                        let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * segment;
+                        let range = reference::IdRange { lo, hi: lo + 9 };
+                        let mut nodes: Vec<reference::IdRange> = (0_u32..)
+                            .zip(&owners)
+                            .take(n)
+                            .filter(|(_, owner)| **owner % segments == segment)
+                            .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                            .collect();
+                        nodes.push(range);
+                        reference::SegmentSpec {
+                            id: reference::SegmentId(segment),
+                            nodes,
+                            alloc_nodes: Some(range),
+                            alloc_edges: Some(range),
+                        }
+                    })
+                    .collect(),
+            };
+            let outcome = check_case(&schema, &schema, &migration, &plan, &graph, &partition);
+            prop_assert!(matches!(outcome, Outcome::Agreed | Outcome::Refused));
+        }
+    }
+}

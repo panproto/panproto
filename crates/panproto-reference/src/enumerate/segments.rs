@@ -636,10 +636,11 @@ pub const fn allocation_case_count() -> u64 {
     15 * 2_u64.pow(6) * 2_u64.pow(6)
 }
 
-/// The first id of the allocation ranges of the segmented restrict carrier:
-/// segment `i` allocates node and edge ids from
-/// `[SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 i, SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 i + 9]`,
-/// above every node and edge id of the release graphs.
+/// The first id of the allocation ranges of the segmented restrict carrier.
+///
+/// Segment `i` allocates node and edge ids from the ten ids starting at
+/// this base plus `10 i`, above every node and edge id of the release
+/// graphs.
 pub const SEGMENTED_RESTRICT_ALLOCATION_BASE: u32 = 100;
 
 /// One case of the segmented restrict carrier: a release schema, a
@@ -657,9 +658,11 @@ pub struct SegmentedRestrictCase {
     pub partition: Partition,
 }
 
-/// The partition of `split` with allocation ranges: segment `i` owns and
-/// allocates node ids from, and allocates edge ids from, the range of width
-/// 10 starting at [`SEGMENTED_RESTRICT_ALLOCATION_BASE`]` + 10 i`.
+/// The partition of `split` with allocation ranges.
+///
+/// Segment `i` owns and allocates node ids from, and allocates edge ids
+/// from, the ten ids starting at [`SEGMENTED_RESTRICT_ALLOCATION_BASE`]
+/// plus `10 i`.
 fn with_allocation(mut split: Partition) -> Partition {
     for (spec, index) in split.specs.iter_mut().zip(0_u32..) {
         let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * index;
@@ -671,7 +674,9 @@ fn with_allocation(mut split: Partition) -> Partition {
     split
 }
 
-/// Every case of the segmented restrict carrier: each release schema
+/// Every case of the segmented restrict carrier.
+///
+/// The cases are each release schema
 /// ([`release_schemas`](crate::enumerate::restrict_and_contraction::release_schemas)),
 /// each of its survival classifications without a conditional vertex, each
 /// release graph of the schema, and each labelled two- and three-segment
@@ -682,20 +687,15 @@ pub fn segmented_restrict_cases() -> impl Iterator<Item = SegmentedRestrictCase>
         release_graphs, release_schemas, survival_classifications,
     };
     release_schemas().into_iter().flat_map(|schema| {
-        let migrations: Vec<_> = survival_classifications(&schema)
-            .into_iter()
-            .filter(|migration| migration.conditional.is_empty())
-            .collect();
         let graphs = release_graphs(&schema);
-        migrations.into_iter().flat_map(move |migration| {
+        let migrations = survival_classifications(&schema)
+            .into_iter()
+            .filter(|migration| migration.conditional.is_empty());
+        migrations.flat_map(move |migration| {
             let schema = schema.clone();
             graphs.clone().into_iter().flat_map(move |graph| {
                 let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
-                let splits: Vec<Partition> = [2, 3]
-                    .into_iter()
-                    .flat_map(|k| ownership_splits(&nodes, k, InstanceShapeKind::Graph))
-                    .map(with_allocation)
-                    .collect();
+                let splits = allocated_splits(&nodes);
                 let (schema, migration) = (schema.clone(), migration.clone());
                 splits
                     .into_iter()
@@ -725,4 +725,18 @@ pub fn segmented_restrict_case_count() -> u64 {
         .map(|edges| choose(6, edges) * (0..=edges.min(3)).map(|j| choose(edges, j)).sum::<u64>())
         .sum();
     graphs * 8 * (2_u64.pow(3) + 3_u64.pow(3))
+}
+
+/// Every labelled two- and three-segment ownership split of `nodes`.
+///
+/// Each split carries the allocation ranges of
+/// [`SEGMENTED_RESTRICT_ALLOCATION_BASE`]; there are exactly `2^n + 3^n`
+/// splits of `n` ids below the allocation base.
+#[must_use]
+pub fn allocated_splits(nodes: &[u32]) -> Vec<Partition> {
+    [2, 3]
+        .into_iter()
+        .flat_map(|k| ownership_splits(nodes, k, InstanceShapeKind::Graph))
+        .map(with_allocation)
+        .collect()
 }

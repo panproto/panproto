@@ -488,17 +488,27 @@ impl<'a> GraphRun<'a> {
             if Self::is_fan_edge(edge) || self.outside.foreign.contains(&edge.src) {
                 continue;
             }
-            if !self.nodes.contains_key(&edge.src) || self.kept_anchor(edge.tgt).is_none() {
+            let target = self
+                .kept_anchor(edge.tgt)
+                .filter(|_| self.nodes.contains_key(&edge.src))
+                .cloned();
+            let Some(target) = target else {
                 self.complement.dropped_edges.insert(id, edge.clone());
                 continue;
-            }
-            self.edge(id, edge).map_err(|e| e.at(1, id.0, 0))?;
+            };
+            self.edge(id, edge, &target).map_err(|e| e.at(1, id.0, 0))?;
         }
         Ok(())
     }
 
-    /// The fate of one edge between surviving nodes.
-    fn edge(&mut self, id: EdgeId, edge: &GEdge) -> Result<(), RestrictError> {
+    /// The fate of one edge between surviving nodes, its target having the
+    /// view anchor `target_anchor`.
+    fn edge(
+        &mut self,
+        id: EdgeId,
+        edge: &GEdge,
+        target_anchor: &Name,
+    ) -> Result<(), RestrictError> {
         match self.plan.edge_image.fate(&edge.edge) {
             None => Err(RestrictError::IncoherentEdgeImage {
                 source_edge: Box::new(edge.edge.clone()),
@@ -506,7 +516,6 @@ impl<'a> GraphRun<'a> {
             }),
             Some(EdgeFate::Keep(image)) => {
                 let source_anchor = &self.nodes[&edge.src].anchor;
-                let target_anchor = self.kept_anchor(edge.tgt).unwrap_or(source_anchor);
                 let preimages: Vec<&Edge> = self
                     .plan
                     .edge_image
@@ -535,11 +544,10 @@ impl<'a> GraphRun<'a> {
                 intermediates,
                 labels,
             }) => {
-                let anchor = |node: u32| self.kept_anchor(node).cloned().unwrap_or_default();
                 self.chains.push(SynthChain::expand(
                     id,
                     (edge.src, edge.tgt),
-                    (&anchor(edge.src), &anchor(edge.tgt)),
+                    (&self.nodes[&edge.src].anchor, target_anchor),
                     intermediates,
                     labels,
                 )?);
@@ -550,12 +558,11 @@ impl<'a> GraphRun<'a> {
                 self.complement.dropped_edges.insert(id, edge.clone());
                 Ok(())
             }
-            Some(EdgeFate::Unresolved(reason)) => Err(self.plan.unresolved(
-                &self.nodes[&edge.src].anchor,
-                self.kept_anchor(edge.tgt)
-                    .unwrap_or(&self.nodes[&edge.src].anchor),
-                *reason,
-            )),
+            Some(EdgeFate::Unresolved(reason)) => {
+                Err(self
+                    .plan
+                    .unresolved(&self.nodes[&edge.src].anchor, target_anchor, *reason))
+            }
         }
     }
 
