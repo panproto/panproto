@@ -15,6 +15,9 @@ use panproto_schema::Edge;
 use super::error::SegmentError;
 use super::ids::{IdRange, SegmentId};
 use super::store::ArtifactKind;
+use super::tree_bytes::FanRecord;
+use crate::functor::Row;
+use crate::ginstance::{EdgeId, GEdge};
 use crate::identity::Digest;
 use crate::metadata::{Node, NodeShape};
 use crate::value::{
@@ -565,6 +568,60 @@ impl<'a> Reader<'a> {
         node.shape = shape;
         node.annotations = annotations;
         Ok(node)
+    }
+
+    /// An edge record, as [`write_edge_record`](crate::write_edge_record)
+    /// writes it: its id, endpoints, label and position.
+    pub fn edge_record(&mut self) -> Result<(EdgeId, GEdge), SegmentError> {
+        Ok((
+            EdgeId(self.u32()?),
+            GEdge {
+                src: self.u32()?,
+                tgt: self.u32()?,
+                edge: self.edge()?,
+                position: self.opt_u32()?,
+            },
+        ))
+    }
+
+    /// A row record, as [`write_row_record`](crate::write_row_record)
+    /// writes it: its id, its table and its cells.
+    pub fn row_record(&mut self) -> Result<(RowId, Name, Row), SegmentError> {
+        Ok((RowId(self.u32()?), self.name()?, self.value_map(0)?))
+    }
+
+    /// A pair record, as [`write_pair_record`](crate::write_pair_record)
+    /// writes it: its edge, then its source and target rows.
+    pub fn pair_record(&mut self) -> Result<(Edge, RowId, RowId), SegmentError> {
+        Ok((self.edge()?, RowId(self.u32()?), RowId(self.u32()?)))
+    }
+
+    /// An arc record, as
+    /// [`write_arc_record`](super::tree_bytes::write_arc_record) writes it:
+    /// parent, child and label.
+    pub fn arc_record(&mut self) -> Result<(u32, u32, Edge), SegmentError> {
+        Ok((self.u32()?, self.u32()?, self.edge()?))
+    }
+
+    /// A fan record, as [`FanRecord::write`] writes it: parent, hyper-edge,
+    /// then the children, refused unless they strictly ascend.
+    pub fn fan_record(&mut self) -> Result<FanRecord, SegmentError> {
+        let parent = self.u32()?;
+        let hyper_edge_id = self.string()?;
+        let n = self.count(12)?;
+        let mut children: Vec<(String, u32)> = Vec::with_capacity(n);
+        for _ in 0..n {
+            let child = (self.string()?, self.u32()?);
+            if children.last().is_some_and(|last| *last >= child) {
+                return Err(self.error("fan children are not strictly ascending"));
+            }
+            children.push(child);
+        }
+        Ok(FanRecord {
+            parent,
+            hyper_edge_id,
+            children,
+        })
     }
 }
 

@@ -73,7 +73,10 @@ pub use split::{
     assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,
 };
 pub use store::{ArtifactKey, ArtifactKind, Phase, RunJournal, SegmentStore, TaskKey, TaskRecord};
-pub use stream::{InstanceRecord, RecordSource, SegmentRecords, instance_digest};
+pub use stream::{
+    InstanceRecord, RecordSource, SegmentRecords, decode_record_stream, instance_digest,
+    record_stream,
+};
 pub use tree_bytes::{
     FanRecord, canonical_winstance_bytes, winstance_digest, write_arc_record, write_winstance,
     write_winstance_header,

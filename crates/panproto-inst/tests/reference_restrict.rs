@@ -4102,6 +4102,18 @@ mod segmented_witnesses {
             Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
         }
 
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, Self::Error> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
         fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {
             self.inner
                 .stage(key, bytes)

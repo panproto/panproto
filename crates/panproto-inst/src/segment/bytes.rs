@@ -43,14 +43,14 @@ use super::partition::{
 use super::reader::Reader;
 use super::store::ArtifactKind;
 use crate::functor::{write_pair_record, write_row_record};
-use crate::ginstance::{EdgeId, FanEmbedding, GEdge, write_edge_record, write_node_record};
+use crate::ginstance::{EdgeId, FanEmbedding, write_edge_record, write_node_record};
 use crate::identity::{
     CanonicalSink, Digest, SEGMENT_CONTEXT, SEGMENT_CROSS_CONTEXT, SEGMENT_FORMAT_VERSION,
     write_value_map,
 };
 use crate::metadata::Node;
 use crate::value::FieldPresence;
-use crate::view_ref::{RowId, ViewRef};
+use crate::view_ref::ViewRef;
 
 /// Write an element reference: a one-byte tag and its fields.
 pub fn write_view_ref<S: CanonicalSink + ?Sized>(sink: &mut S, elem: &ViewRef) {
@@ -356,13 +356,7 @@ fn read_body(
             let mut edges = BTreeMap::new();
             let mut last = None;
             for _ in 0..n {
-                let id = EdgeId(r.u32()?);
-                let edge = GEdge {
-                    src: r.u32()?,
-                    tgt: r.u32()?,
-                    edge: r.edge()?,
-                    position: r.opt_u32()?,
-                };
+                let (id, edge) = r.edge_record()?;
                 ascending(r, &mut last, &id)?;
                 edges.insert(id, edge);
             }
@@ -379,9 +373,7 @@ fn read_body(
             let mut rows = BTreeMap::new();
             let mut last = None;
             for _ in 0..n {
-                let id = RowId(r.u32()?);
-                let table = r.name()?;
-                let row = r.value_map(0)?;
+                let (id, table, row) = r.row_record()?;
                 ascending(r, &mut last, &id)?;
                 rows.insert(id, (table, row));
             }
@@ -389,7 +381,7 @@ fn read_body(
             let mut pairs = BTreeSet::new();
             let mut last = None;
             for _ in 0..n {
-                let pair = (r.edge()?, RowId(r.u32()?), RowId(r.u32()?));
+                let pair = r.pair_record()?;
                 ascending(r, &mut last, &pair)?;
                 pairs.insert(pair);
             }
@@ -411,7 +403,7 @@ fn read_body(
             let mut last = None;
             for _ in 0..n {
                 let id = EdgeId(r.u32()?);
-                let arc = (r.u32()?, r.u32()?, r.edge()?);
+                let arc = r.arc_record()?;
                 ascending(r, &mut last, &id)?;
                 arcs.insert(id, arc);
             }

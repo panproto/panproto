@@ -392,6 +392,20 @@ impl SegmentStore for CountingStore {
         Ok(self.held.get(key).cloned())
     }
 
+    fn read_at(
+        &self,
+        key: &ArtifactKey,
+        offset: u64,
+        len: u64,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.reads.set(self.reads.get() + 1);
+        Ok(self.held.get(key).and_then(|bytes| {
+            let start = usize::try_from(offset).ok()?;
+            let end = start.checked_add(usize::try_from(len).ok()?)?;
+            bytes.get(start..end).map(<[u8]>::to_vec)
+        }))
+    }
+
     fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {
         self.held.insert(*key, bytes);
         Ok(())

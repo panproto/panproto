@@ -24,9 +24,16 @@
 //!   writes the closure and those boundaries. The coordinator holds the
 //!   summaries, the closure and the boundaries, never more than one segment.
 //! - Emit runs one segment's later stages again with the closure and writes
-//!   its view segment and its complement segment.
+//!   its view segment and its complement segment, and beside them what Seal
+//!   reads of the view: its manifest record, its sorted edge id run and its
+//!   record stream ([`AnySegment::record_stream`]), each located by the
+//!   artifact's fixed-width header.
 //! - Seal (the coordinator) seals the view segments into the output
-//!   manifest, a [`ManifestRole::View`] of the input manifest.
+//!   manifest, a [`ManifestRole::View`] of the input manifest. It reads each
+//!   Emit artifact's header and record whole and its edge id run and record
+//!   stream one id and one record at a time ([`SegmentStore::read_at`]), so
+//!   it holds the `n` records, one id per run and one record per stream,
+//!   and never a view segment.
 //!
 //! A task whose key is journaled with the same inputs, and whose artifact
 //! still hashes to the recorded output, is reused rather than recomputed
@@ -41,6 +48,7 @@
 //! each Emit task commits. An exceeded budget ends the run with a
 //! [`Residual::BudgetExceeded`].
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -58,13 +66,14 @@ use super::manifest::{
 use super::partition::{OwnerIndex, Partition};
 use super::reader::Reader;
 use super::restrict::{
-    ClosedReach, Local, ReachSummary, SegmentedRestrictError, ViewBoundaries, close_reach,
-    emit_segment, graph_restrict_locality, keep_least, outside_of, refusal_key, summarize,
+    ClosedReach, GraphComplementSegment, Local, ReachSummary, SegmentedRestrictError,
+    ViewBoundaries, close_reach, emit_segment, graph_restrict_locality, keep_least, outside_of,
+    refusal_key, summarize,
 };
 use super::store::{
     ArtifactKey, ArtifactKind, Phase, RunJournal, SegmentStore, TaskKey, TaskRecord,
 };
-use super::stream::RecordSource;
+use super::stream::{InstanceRecord, RecordSource};
 use crate::error::RestrictError;
 use crate::graph_restrict::{RemoteFate, decide_nodes, run_scoped};
 use crate::identity::{
@@ -295,6 +304,19 @@ impl SegmentStore for MemoryStore {
 
     fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error> {
         Ok(self.committed.get(key).cloned())
+    }
+
+    fn read_at(
+        &self,
+        key: &ArtifactKey,
+        offset: u64,
+        len: u64,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.committed.get(key).and_then(|bytes| {
+            let start = usize::try_from(offset).ok()?;
+            let end = start.checked_add(usize::try_from(len).ok()?)?;
+            bytes.get(start..end).map(<[u8]>::to_vec)
+        }))
     }
 
     fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {
@@ -626,25 +648,265 @@ fn decode_assembly(bytes: &[u8]) -> Result<Assembly, SegmentError> {
     })
 }
 
-/// The Emit artifact: the complement's entry count, then the view
-/// segment's and the complement segment's canonical bytes.
-fn emit_bytes(elements: u64, view: &[u8], complement: &[u8]) -> Vec<u8> {
-    let mut sink = CanonicalWriter::new();
-    sink.u64(elements);
-    sink.bytes(view);
-    sink.bytes(complement);
-    sink.into_bytes()
+/// The length of an Emit artifact's header: seven eight-byte fields.
+const EMIT_HEADER_LEN: u64 = 56;
+
+/// The header of an Emit artifact, which locates its five sections.
+///
+/// The artifact is the header and then its sections, in this order and
+/// with nothing between them: the view segment's canonical bytes, the
+/// complement segment's canonical bytes, the view's manifest record
+/// ([`SegmentRecord::canonical_bytes`]), the view's sorted edge id run (each
+/// id as four little-endian bytes) and the view's record stream
+/// ([`AnySegment::record_stream`]). The header writes, each as eight
+/// little-endian bytes, the complement's entry count, the lengths of the
+/// view, complement, record and record stream sections in that order with
+/// the number of ids of the run between the last two, and the length of the
+/// longest frame of the record stream with its length prefix (`0` for an
+/// empty stream).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EmitLayout {
+    elements: u64,
+    view: u64,
+    complement: u64,
+    record: u64,
+    run_ids: u64,
+    stream: u64,
+    longest: u64,
 }
 
-/// The parts of an Emit artifact: the complement's entry count, the view
-/// segment's bytes and the complement segment's bytes.
-fn decode_emit(bytes: &[u8]) -> Result<(u64, &[u8], &[u8]), SegmentError> {
-    let mut r = Reader::new(bytes, ArtifactKind::ComplementSegment);
-    let elements = r.u64()?;
-    let view = r.byte_string()?;
-    let complement = r.byte_string()?;
-    r.finish()?;
-    Ok((elements, view, complement))
+impl EmitLayout {
+    fn write<S: CanonicalSink + ?Sized>(&self, sink: &mut S) {
+        for field in [
+            self.elements,
+            self.view,
+            self.complement,
+            self.record,
+            self.run_ids,
+            self.stream,
+            self.longest,
+        ] {
+            sink.u64(field);
+        }
+    }
+
+    /// The header `bytes` hold, refused unless its sections fit in a `u64`
+    /// length.
+    fn decode(bytes: &[u8]) -> Result<Self, SegmentError> {
+        let mut r = Reader::new(bytes, ArtifactKind::ComplementSegment);
+        let layout = Self {
+            elements: r.u64()?,
+            view: r.u64()?,
+            complement: r.u64()?,
+            record: r.u64()?,
+            run_ids: r.u64()?,
+            stream: r.u64()?,
+            longest: r.u64()?,
+        };
+        r.finish()?;
+        layout.end()?;
+        Ok(layout)
+    }
+
+    const fn complement_at(&self) -> u64 {
+        EMIT_HEADER_LEN + self.view
+    }
+
+    const fn record_at(&self) -> u64 {
+        self.complement_at() + self.complement
+    }
+
+    const fn run_at(&self) -> u64 {
+        self.record_at() + self.record
+    }
+
+    const fn stream_at(&self) -> u64 {
+        self.run_at() + 4 * self.run_ids
+    }
+
+    /// The artifact's length, refused when it overflows a `u64`; every
+    /// offset above is at most this length once it is accepted.
+    fn end(&self) -> Result<u64, SegmentError> {
+        EMIT_HEADER_LEN
+            .checked_add(self.view)
+            .and_then(|at| at.checked_add(self.complement))
+            .and_then(|at| at.checked_add(self.record))
+            .and_then(|at| at.checked_add(self.run_ids.checked_mul(4)?))
+            .and_then(|at| at.checked_add(self.stream))
+            .ok_or_else(|| {
+                malformed(
+                    ArtifactKind::ComplementSegment,
+                    "the sections of an emitted artifact overflow its length",
+                )
+            })
+    }
+}
+
+/// The Emit artifact of one view segment and its complement segment.
+fn emit_bytes(
+    view: &AnySegment,
+    view_bytes: &[u8],
+    complement: &GraphComplementSegment,
+    record: &SegmentRecord,
+) -> Result<Vec<u8>, SegmentError> {
+    let complement_bytes = complement.canonical_bytes()?;
+    let record_bytes = record.canonical_bytes();
+    let run = view.edge_id_run();
+    let records = view.records();
+    let mut stream = CanonicalWriter::new();
+    let mut longest = 0;
+    for record in records.as_slice() {
+        let frame = record.frame();
+        longest = longest.max(length(&frame).saturating_add(8));
+        stream.bytes(&frame);
+    }
+    let stream = stream.into_bytes();
+    let layout = EmitLayout {
+        elements: complement.element_count(),
+        view: length(view_bytes),
+        complement: length(&complement_bytes),
+        record: length(&record_bytes),
+        run_ids: u64::try_from(run.len()).unwrap_or(u64::MAX),
+        stream: length(&stream),
+        longest,
+    };
+    let mut sink = CanonicalWriter::new();
+    layout.write(&mut sink);
+    sink.write(view_bytes);
+    sink.write(&complement_bytes);
+    sink.write(&record_bytes);
+    for id in run {
+        sink.u32(id.0);
+    }
+    sink.write(&stream);
+    Ok(sink.into_bytes())
+}
+
+/// The header of an Emit artifact, the view segment's bytes and the
+/// complement segment's bytes, refused unless the header's sections span
+/// the artifact exactly.
+fn decode_emit(bytes: &[u8]) -> Result<(EmitLayout, &[u8], &[u8]), SegmentError> {
+    let header_len = usize::try_from(EMIT_HEADER_LEN).unwrap_or(usize::MAX);
+    let header = bytes.get(..header_len).ok_or_else(|| {
+        malformed(
+            ArtifactKind::ComplementSegment,
+            "an emitted artifact is shorter than its header",
+        )
+    })?;
+    let layout = EmitLayout::decode(header)?;
+    if layout.end()? != length(bytes) {
+        return Err(malformed(
+            ArtifactKind::ComplementSegment,
+            "the sections of an emitted artifact do not span it",
+        ));
+    }
+    let at = |offset: u64| usize::try_from(offset).unwrap_or(usize::MAX);
+    let view = &bytes[header_len..at(layout.complement_at())];
+    let complement = &bytes[at(layout.complement_at())..at(layout.record_at())];
+    Ok((layout, view, complement))
+}
+
+/// A failure met while Seal reads from the store, kept until the seal
+/// returns, since an edge id run cannot return one.
+type ReadFailure = RefCell<Option<Stop>>;
+
+fn fail(failure: &ReadFailure, stop: Stop) {
+    failure.borrow_mut().get_or_insert(stop);
+}
+
+/// One edge id run of an Emit artifact, read one id at a time.
+struct StoredIds<'s, St> {
+    store: &'s St,
+    key: ArtifactKey,
+    at: u64,
+    end: u64,
+    failure: &'s ReadFailure,
+}
+
+impl<St: SegmentStore> Iterator for StoredIds<'_, St> {
+    type Item = crate::ginstance::EdgeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.at >= self.end {
+            return None;
+        }
+        let bytes = match self.store.read_at(&self.key, self.at, 4) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                fail(self.failure, missing_section(self.key.kind));
+                return None;
+            }
+            Err(error) => {
+                fail(self.failure, store_stop(error));
+                return None;
+            }
+        };
+        let Ok(id) = <[u8; 4]>::try_from(bytes.as_slice()) else {
+            fail(self.failure, missing_section(self.key.kind));
+            return None;
+        };
+        self.at += 4;
+        Some(crate::ginstance::EdgeId(u32::from_le_bytes(id)))
+    }
+}
+
+/// One record stream of an Emit artifact, read one frame at a time.
+struct StoredRecords<'s, St> {
+    store: &'s St,
+    key: ArtifactKey,
+    stats: SegmentStats,
+    at: u64,
+    end: u64,
+    failure: &'s ReadFailure,
+}
+
+impl<St: SegmentStore> StoredRecords<'_, St> {
+    /// The `len` bytes at `offset`, or the failure recorded and the error
+    /// the stream returns for it.
+    fn read(&self, offset: u64, len: u64) -> Result<Vec<u8>, SegmentError> {
+        let stop = match self.store.read_at(&self.key, offset, len) {
+            Ok(Some(bytes)) if length(&bytes) == len => return Ok(bytes),
+            Ok(_) => missing_section(self.key.kind),
+            Err(error) => store_stop(error),
+        };
+        fail(self.failure, stop);
+        Err(malformed(
+            self.key.kind,
+            "a section of an emitted artifact cannot be read",
+        ))
+    }
+}
+
+impl<St: SegmentStore> RecordSource for StoredRecords<'_, St> {
+    fn stats(&self) -> SegmentStats {
+        self.stats
+    }
+
+    fn next_record(&mut self) -> Result<Option<InstanceRecord>, SegmentError> {
+        if self.at >= self.end {
+            return Ok(None);
+        }
+        let prefix = self.read(self.at, 8)?;
+        let len = u64::from_le_bytes(<[u8; 8]>::try_from(prefix.as_slice()).unwrap_or_default());
+        let start = self.at + 8;
+        if len > self.end.saturating_sub(start) {
+            return Err(malformed(
+                self.key.kind,
+                "a record frame runs past its record stream",
+            ));
+        }
+        let frame = self.read(start, len)?;
+        self.at = start + len;
+        InstanceRecord::from_frame(&frame).map(Some)
+    }
+}
+
+/// The failure of a section the store does not hold.
+fn missing_section(kind: ArtifactKind) -> Stop {
+    Stop::from(malformed(
+        kind,
+        "a section of a committed artifact is missing",
+    ))
 }
 
 /// The view segment and complement bytes `segment` emitted in run `run`.
@@ -803,12 +1065,13 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         Ok(bytes)
     }
 
-    fn finish_phase(&mut self, phase: Phase, before: (u32, u32)) {
+    /// Close a phase's accounting, the phase holding `peak` bytes at once.
+    fn finish_phase(&mut self, phase: Phase, before: (u32, u32), peak: u64) {
         self.report.phases.push(PhaseReport {
             phase,
             tasks: self.report.tasks_run - before.0,
             reused: self.report.tasks_reused - before.1,
-            peak_estimated_bytes: self.peak,
+            peak_estimated_bytes: peak,
             wall_ms: None,
         });
     }
@@ -877,7 +1140,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 Ok(bytes)
             })?;
         }
-        self.finish_phase(Phase::Validate, before);
+        self.finish_phase(Phase::Validate, before, self.peak);
         Ok(())
     }
 
@@ -912,7 +1175,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 Ok(export.bytes())
             })?;
         }
-        self.finish_phase(Phase::Export, before);
+        self.finish_phase(Phase::Export, before, self.peak);
         Ok(())
     }
 
@@ -937,7 +1200,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 Ok(summary_bytes(&summarize(&segment, &local, &own, &imports)))
             })?;
         }
-        self.finish_phase(Phase::Summarize, before);
+        self.finish_phase(Phase::Summarize, before, self.peak);
         Ok(())
     }
 
@@ -1063,7 +1326,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             self.commit(task, kind, inputs, &bytes)?;
         }
         self.account(task, &bytes, reused);
-        self.finish_phase(Phase::Assemble, before);
+        self.finish_phase(Phase::Assemble, before, self.peak);
         Ok(())
     }
 
@@ -1077,18 +1340,21 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         let parts =
             run_scoped(&local.graph, self.plan, outside).map_err(|e| restrict_stop(id, e))?;
         let (mut view, complement) = emit_segment(&segment, &self.partition, parts)?;
+        let position = usize::try_from(id.0).unwrap_or(usize::MAX);
         view.boundary = assembly
             .boundaries
             .into_iter()
-            .nth(usize::try_from(id.0).unwrap_or(usize::MAX))
+            .nth(position)
             .ok_or_else(|| malformed(ArtifactKind::Assembly, "a boundary is missing"))?;
-        let view =
-            AnySegment::Graph(view).canonical_bytes(&self.spec.view_schema, &self.partition)?;
-        Ok(emit_bytes(
-            complement.element_count(),
-            &view,
-            &complement.canonical_bytes()?,
-        ))
+        let spec = self
+            .partition
+            .specs()
+            .get(position)
+            .ok_or_else(|| malformed(ArtifactKind::Assembly, "a segment spec is missing"))?;
+        let view = AnySegment::Graph(view);
+        let view_bytes = view.canonical_bytes(&self.spec.view_schema, &self.partition)?;
+        let record = SegmentRecord::of(&view, spec, &self.spec.view_schema);
+        Ok(emit_bytes(&view, &view_bytes, &complement, &record)?)
     }
 
     fn emit(&mut self) -> Result<(), Stop> {
@@ -1108,8 +1374,8 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 Some(bytes) => (bytes, true),
                 None => (self.emit_artifact(id)?, false),
             };
-            let (elements, _, complement) = decode_emit(&bytes)?;
-            let size = length(complement);
+            let (layout, _, complement) = decode_emit(&bytes)?;
+            let (elements, size) = (layout.elements, length(complement));
             let needed = self.report.complement.bytes.saturating_add(size);
             if let Some(limit) = self.budget.complement
                 && needed > limit
@@ -1131,36 +1397,72 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             complement.bytes = needed;
             complement.per_segment.insert(id, (elements, size));
         }
-        self.finish_phase(Phase::Emit, before);
+        self.finish_phase(Phase::Emit, before, self.peak);
         Ok(())
     }
 
-    /// The output manifest, sealed from the emitted view segments.
+    /// The output manifest, sealed from the emitted artifacts.
+    ///
+    /// Each Emit artifact's header and manifest record are read whole; its
+    /// edge id run and record stream are read one id and one frame at a
+    /// time while [`seal_full`] merges them.
     fn sealed(&self) -> Result<SegmentManifest, Stop> {
-        let mut views = Vec::new();
+        let journal = self.store.journal(&self.run).map_err(store_stop)?;
+        let kind = ArtifactKind::ComplementSegment;
+        let mut sections = Vec::new();
+        let mut records = Vec::new();
         for id in self.ids() {
-            let bytes = self.artifact(emit_key(id), ArtifactKind::ComplementSegment)?;
-            let (_, view, _) = decode_emit(&bytes)?;
-            views.push(AnySegment::from_canonical_bytes(view, &self.partition)?.0);
+            let key = self.key(emit_key(id), kind);
+            let header = self
+                .store
+                .read_at(&key, 0, EMIT_HEADER_LEN)
+                .map_err(store_stop)?
+                .ok_or_else(|| missing_section(kind))?;
+            let layout = EmitLayout::decode(&header)?;
+            if journal.tasks.get(&emit_key(id)).map(|task| task.bytes) != Some(layout.end()?) {
+                return Err(Stop::from(malformed(
+                    kind,
+                    "the sections of an emitted artifact do not span it",
+                )));
+            }
+            let record = self
+                .store
+                .read_at(&key, layout.record_at(), layout.record)
+                .map_err(store_stop)?
+                .ok_or_else(|| missing_section(kind))?;
+            let record = SegmentRecord::from_canonical_bytes(&record)?;
+            sections.push((id, key, layout, record.stats));
+            records.push(record);
         }
-        let records: Vec<SegmentRecord> = views
+        let failure: ReadFailure = RefCell::new(None);
+        let store: &St = self.store;
+        let runs: Vec<EdgeIdRun<'_>> = sections
             .iter()
-            .zip(self.partition.specs())
-            .map(|(view, spec)| SegmentRecord::of(view, spec, &self.spec.view_schema))
-            .collect();
-        let runs: Vec<EdgeIdRun<'_>> = views
-            .iter()
-            .map(|view| {
+            .map(|(id, key, layout, _)| {
                 (
-                    view.segment(),
-                    Box::new(view.edge_id_run().into_iter())
-                        as Box<dyn Iterator<Item = crate::ginstance::EdgeId>>,
+                    *id,
+                    Box::new(StoredIds {
+                        store,
+                        key: *key,
+                        at: layout.run_at(),
+                        end: layout.stream_at(),
+                        failure: &failure,
+                    }) as Box<dyn Iterator<Item = crate::ginstance::EdgeId>>,
                 )
             })
             .collect();
-        let sources = views
+        let sources = sections
             .iter()
-            .map(|view| Box::new(view.records()) as Box<dyn RecordSource + '_>)
+            .map(|(_, key, layout, stats)| {
+                Box::new(StoredRecords {
+                    store,
+                    key: *key,
+                    stats: *stats,
+                    at: layout.stream_at(),
+                    end: layout.stream_at() + layout.stream,
+                    failure: &failure,
+                }) as Box<dyn RecordSource + '_>
+            })
             .collect();
         let header = ManifestHeader {
             shape: InstanceShapeKind::Graph,
@@ -1180,7 +1482,11 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             },
             binding: self.input.binding,
         };
-        Ok(seal_full(records, header, runs, sources)?)
+        let sealed = seal_full(records, header, runs, sources);
+        if let Some(stop) = failure.into_inner() {
+            return Err(stop);
+        }
+        sealed.map_err(Stop::from)
     }
 
     fn seal(&mut self) -> Result<SegmentManifest, Stop> {
@@ -1190,12 +1496,13 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         let before = self.counts();
         let from: Vec<TaskKey> = self.ids().into_iter().map(emit_key).collect();
         let inputs = self.inputs(seal_key(), &from);
-        let bytes = self.task(seal_key(), ArtifactKind::Manifest, inputs, |runner| {
-            Ok(runner.sealed()?.canonical_bytes())
-        })?;
-        self.finish_phase(Phase::Seal, before);
         let manifest = self.sealed()?;
-        if manifest.canonical_bytes() != bytes {
+        let computed = manifest.canonical_bytes();
+        let bytes = self.task(seal_key(), ArtifactKind::Manifest, inputs, |_| {
+            Ok(computed.clone())
+        })?;
+        self.finish_phase(Phase::Seal, before, self.peak);
+        if bytes != computed {
             return Err(Stop::from(malformed(
                 ArtifactKind::Manifest,
                 "the sealed manifest differs from its emitted segments",

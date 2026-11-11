@@ -25,6 +25,7 @@ use super::check::check_segment_with;
 use super::error::{PartitionDefect, SegmentError};
 use super::ids::{EdgeFloor, IdRange, SegmentId};
 use super::partition::{Partition, SegmentSpec, shape_tag, write_opt_range, write_ranges};
+use super::reader::Reader;
 use super::stream::{RecordSource, instance_digest};
 use crate::ginstance::EdgeId;
 use crate::identity::{
@@ -169,6 +170,21 @@ fn write_digest_map<S: CanonicalSink + ?Sized>(sink: &mut S, map: &BTreeMap<Segm
     }
 }
 
+/// Read a map of digests by segment, as [`write_digest_map`] writes it,
+/// refused unless the segments strictly ascend.
+fn read_digest_map(r: &mut Reader<'_>) -> Result<BTreeMap<SegmentId, Digest>, SegmentError> {
+    let n = r.count(36)?;
+    let mut map = BTreeMap::new();
+    for _ in 0..n {
+        let segment = SegmentId(r.u32()?);
+        if map.keys().next_back().is_some_and(|last| *last >= segment) {
+            return Err(r.error("cross peers are not strictly ascending"));
+        }
+        map.insert(segment, r.digest()?);
+    }
+    Ok(map)
+}
+
 /// Write an identity envelope: version, the three digests, then the
 /// complement shape tag and format version.
 fn write_envelope<S: CanonicalSink + ?Sized>(sink: &mut S, envelope: &IdentityEnvelope) {
@@ -245,6 +261,51 @@ impl SegmentRecord {
         let mut writer = CanonicalWriter::new();
         self.write(&mut writer);
         writer.into_bytes()
+    }
+
+    /// The record `bytes` hold, as [`SegmentRecord::canonical_bytes`] writes
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] of a manifest when the bytes end early, hold
+    /// an inverted range, a presence byte other than `0` or `1`, peers of a
+    /// cross map that do not strictly ascend, or bytes after the record.
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, SegmentError> {
+        let mut r = Reader::new(bytes, super::store::ArtifactKind::Manifest);
+        let id = SegmentId(r.u32()?);
+        let nodes = r.ranges(id)?;
+        let alloc_nodes = r.opt_range(id)?;
+        let alloc_edges = r.opt_range(id)?;
+        let stats = SegmentStats {
+            segment: SegmentId(r.u32()?),
+            nodes: r.u64()?,
+            edges: r.u64()?,
+            fans: r.u64()?,
+            ghosts: r.u64()?,
+            in_stubs: r.u64()?,
+            payload_bytes: r.u64()?,
+        };
+        let max_node = r.opt_u32()?;
+        let max_edge = r.opt_u32()?;
+        let edge_ids = r.digest()?;
+        let content = r.digest()?;
+        let cross_out = read_digest_map(&mut r)?;
+        let cross_in = read_digest_map(&mut r)?;
+        r.finish()?;
+        Ok(Self {
+            id,
+            nodes,
+            alloc_nodes,
+            alloc_edges,
+            stats,
+            max_node,
+            max_edge,
+            edge_ids,
+            content,
+            cross_out,
+            cross_in,
+        })
     }
 
     /// The record's Merkle leaf: its canonical bytes under
