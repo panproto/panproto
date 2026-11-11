@@ -130,6 +130,16 @@ pub enum GlobalReason {
         /// The schema vertex the expression is attached to.
         vertex: Name,
     },
+    /// A uniqueness or primary key `key` of `vertex` reads more than an
+    /// element, its own fields and the values of its out-edges' targets: a
+    /// position among siblings, a scope found by searching ancestors, or a
+    /// path of more than one edge.
+    KeyDemand {
+        /// The schema vertex the key is declared on.
+        vertex: Name,
+        /// The key's id.
+        key: Name,
+    },
 }
 
 /// An operation a segmented run can be asked to perform.
@@ -257,6 +267,10 @@ mod tests {
             GlobalReason::SequentialComposite,
             GlobalReason::ExpressionDemand {
                 vertex: "post".into(),
+            },
+            GlobalReason::KeyDemand {
+                vertex: "post".into(),
+                key: "slug".into(),
             },
         ]
     }

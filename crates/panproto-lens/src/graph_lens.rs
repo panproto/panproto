@@ -27,6 +27,10 @@ use crate::asymmetric::{ComplementCompose, extra_fields_equiv, node_equiv, prese
 use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::{Lens, LensError};
 
+mod segmented;
+
+pub use segmented::{SegmentedPutError, graph_put_locality, put_segmented};
+
 type KeyBuckets = BTreeMap<(Option<u32>, Vec<u8>), (Vec<panproto_inst::Value>, Vec<u32>)>;
 
 /// Forward graph-lens direction.
@@ -551,7 +555,7 @@ pub fn check_put_domain(
     };
     let mut found = id_collisions(view, complement);
     found.extend(synthesized_edits(view, complement, &plan));
-    match restore_with_plan(lens, view, complement, &plan) {
+    match restore_with_plan(lens, view, complement, &plan, &PutScope::default()) {
         Ok(source) => {
             found.extend(forward_stability(lens, view, complement, &source, &plan));
             found.extend(schema_violations(&source, &lens.src_schema, &|id| {
@@ -564,7 +568,9 @@ pub fn check_put_domain(
             // the view put can still restore.
             let restorable = restorable_part(view, &errors);
             found.extend(errors);
-            if let Ok(source) = restore_with_plan(lens, &restorable, complement, &plan) {
+            if let Ok(source) =
+                restore_with_plan(lens, &restorable, complement, &plan, &PutScope::default())
+            {
                 found.extend(forward_stability(
                     lens,
                     &restorable,
@@ -1069,13 +1075,31 @@ fn restore(
             }]
         },
     )?;
-    restore_with_plan(lens, view, complement, &plan)
+    restore_with_plan(lens, view, complement, &plan, &PutScope::default())
+}
+
+/// What a put that restores one segment of a view knows of the nodes other
+/// segments own. Whole-state put restores every node and its scope is
+/// empty.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PutScope {
+    /// The view nodes held as placeholders for nodes owned elsewhere, which
+    /// this put neither restores nor checks.
+    pub(crate) foreign: BTreeSet<u32>,
+    /// Each node owned elsewhere that a restored edge here may name, as its
+    /// owner restored it.
+    pub(crate) restored: BTreeMap<u32, panproto_inst::Node>,
+    /// The view edges held here whose ids another segment's complement
+    /// records as synthesized, which put leaves out as it leaves out its
+    /// own synthesized edges.
+    pub(crate) synthesized_edges: BTreeSet<EdgeId>,
 }
 
 fn restore_nodes(
     lens: &Lens,
     view: &GInstance,
     complement: &GraphComplement,
+    scope: &PutScope,
 ) -> (GInstance, Vec<PutDomainError>) {
     let reverse = reverse_anchors(lens);
     let mut source = GInstance::new();
@@ -1083,7 +1107,7 @@ fn restore_nodes(
     let mut ids: Vec<u32> = view.nodes().keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
-        if complement.synthesized_nodes.contains_key(&id) {
+        if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
             continue;
         }
         let node = &view.nodes()[&id];
@@ -1129,7 +1153,7 @@ fn restore_nodes(
         }
         let _ = source.insert_node(restored);
     }
-    for (&id, node) in &complement.dropped_nodes {
+    for (&id, node) in complement.dropped_nodes.iter().chain(&scope.restored) {
         if source.node(id).is_none() {
             let _ = source.insert_node(node.clone());
         }
@@ -1142,17 +1166,25 @@ fn restore_edges(
     view: &GInstance,
     complement: &GraphComplement,
     plan: &RestrictPlan,
+    scope: &PutScope,
     source: &mut GInstance,
     errors: &mut Vec<PutDomainError>,
 ) {
     let mut edge_ids: Vec<EdgeId> = view.edges().keys().copied().collect();
     edge_ids.sort_unstable();
     for id in edge_ids {
-        if complement.synthesized_edges.contains_key(&id) {
+        if complement.synthesized_edges.contains_key(&id) || scope.synthesized_edges.contains(&id) {
             continue;
         }
         let edge = &view.edges()[&id];
         if source.node(edge.src).is_none() || source.node(edge.tgt).is_none() {
+            // An endpoint that restores to no node has no source anchor; the
+            // edge is not restored, and is refused unless it still maps back.
+            if !maps_back_without_endpoint(lens, view, complement, plan, id, edge) {
+                errors.push(PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Edge(id),
+                });
+            }
             continue;
         }
         match source_edge(lens, view, complement, plan, id, edge, source) {
@@ -1187,15 +1219,55 @@ fn restore_with_plan(
     view: &GInstance,
     complement: &GraphComplement,
     plan: &RestrictPlan,
+    scope: &PutScope,
 ) -> Result<GInstance, Vec<PutDomainError>> {
-    let (mut source, mut errors) = restore_nodes(lens, view, complement);
-    restore_edges(lens, view, complement, plan, &mut source, &mut errors);
+    let restored = restore_parts(lens, view, complement, plan, scope);
+    let mut errors = restored.errors;
+    errors.extend(restored.trace_errors);
+    if errors.is_empty() {
+        Ok(restored.source)
+    } else {
+        Err(errors)
+    }
+}
+
+/// A restoration with its violations: the source restored from every view
+/// element that restores, the violations of the nodes and edges that do not,
+/// and the refusals of tracing a node's transforms.
+pub(crate) struct Restored {
+    pub(crate) source: GInstance,
+    pub(crate) errors: Vec<PutDomainError>,
+    pub(crate) trace_errors: Vec<PutDomainError>,
+}
+
+/// Restore `view` against `complement`, leaving out each element that does
+/// not restore. A node without a single source anchor and an edge without a
+/// single source label are not restored, so the source is the one the view
+/// without them restores to.
+pub(crate) fn restore_parts(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    scope: &PutScope,
+) -> Restored {
+    let (mut source, mut errors) = restore_nodes(lens, view, complement, scope);
+    restore_edges(
+        lens,
+        view,
+        complement,
+        plan,
+        scope,
+        &mut source,
+        &mut errors,
+    );
     let baseline = source.clone();
     let mut traces = HashMap::new();
+    let mut trace_errors = Vec::new();
     let mut ids: Vec<_> = view.nodes().keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
-        if complement.synthesized_nodes.contains_key(&id) {
+        if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
             continue;
         }
         match graph_transform_trace(lens, &baseline, id) {
@@ -1211,14 +1283,14 @@ fn restore_with_plan(
                 }
                 traces.insert(id, trace.operations);
             }
-            Err(error) => errors.extend(trace_refusal(id, error)),
+            Err(error) => trace_errors.extend(trace_refusal(id, error)),
         }
     }
     invert_graph_child_scalars(view, &traces, &mut source);
-    if errors.is_empty() {
-        Ok(source)
-    } else {
-        Err(errors)
+    Restored {
+        source,
+        errors,
+        trace_errors,
     }
 }
 
@@ -1336,6 +1408,68 @@ fn invert_graph_child_scalars(
     }
 }
 
+/// The source label the complement records for view edge `id`, when the
+/// recorded edge has the view edge's endpoints and its forward image is the
+/// view edge's label.
+fn recorded_label(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    id: EdgeId,
+    edge: &GEdge,
+) -> Option<Edge> {
+    complement
+        .original_edges
+        .get(&id)
+        .filter(|recorded| {
+            recorded.src == edge.src
+                && recorded.tgt == edge.tgt
+                && (matches!(plan.edge_image.fate(&recorded.edge), Some(EdgeFate::Keep(image)) if image == &edge.edge)
+                    || expected_view_fan_label(lens, view, complement, recorded).as_ref()
+                        == Some(&edge.edge))
+        })
+        .map(|recorded| recorded.edge.clone())
+}
+
+/// Whether a view edge one of whose endpoints restores to no node maps back
+/// to a source label: to the label its complement records, or, for an edge
+/// that is not fan vocabulary, to the one source edge whose fate keeps its
+/// label between vertices whose images are its endpoints' view anchors.
+fn maps_back_without_endpoint(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    id: EdgeId,
+    edge: &GEdge,
+) -> bool {
+    if recorded_label(lens, view, complement, plan, id, edge).is_some() {
+        return true;
+    }
+    if is_fan_edge(&edge.edge) {
+        return false;
+    }
+    let (Some(src), Some(tgt)) = (view.node(edge.src), view.node(edge.tgt)) else {
+        return false;
+    };
+    let image = |vertex: &Name| {
+        lens.compiled
+            .vertex_remap
+            .get(vertex)
+            .unwrap_or(vertex)
+            .clone()
+    };
+    plan.edge_image
+        .preimages(&edge.edge)
+        .into_iter()
+        .filter(|candidate| {
+            image(&candidate.src) == src.anchor && image(&candidate.tgt) == tgt.anchor
+        })
+        .count()
+        == 1
+}
+
 fn source_edge(
     lens: &Lens,
     view: &GInstance,
@@ -1345,14 +1479,8 @@ fn source_edge(
     edge: &GEdge,
     source: &GInstance,
 ) -> Result<Edge, Box<PutDomainError>> {
-    if let Some(recorded) = complement.original_edges.get(&id)
-        && recorded.src == edge.src
-        && recorded.tgt == edge.tgt
-        && (matches!(plan.edge_image.fate(&recorded.edge), Some(EdgeFate::Keep(image)) if image == &edge.edge)
-            || expected_view_fan_label(lens, view, complement, recorded).as_ref()
-                == Some(&edge.edge))
-    {
-        return Ok(recorded.edge.clone());
+    if let Some(recorded) = recorded_label(lens, view, complement, plan, id, edge) {
+        return Ok(recorded);
     }
     if is_fan_edge(&edge.edge) {
         return fan_edge_back(lens, view, complement, edge, source).ok_or_else(|| {
@@ -1730,25 +1858,48 @@ fn forward_stability(
     source: &GInstance,
     plan: &RestrictPlan,
 ) -> Vec<PutDomainError> {
-    let regenerated = match graph_restrict_with_plan(source, plan) {
-        Ok((regenerated, _)) => regenerated,
-        Err(error) => return refusal_from_restrict(error),
-    };
+    match graph_restrict_with_plan(source, plan) {
+        Ok((regenerated, _)) => stability_against(
+            lens,
+            view,
+            complement,
+            source,
+            plan,
+            &PutScope::default(),
+            &|id| regenerated.node(id),
+        ),
+        Err(error) => refusal_from_restrict(error),
+    }
+}
+
+/// The forward-stability violations of the view nodes `scope` does not
+/// hold as placeholders, against `regenerated`, the view nodes get gives
+/// the restored `source`.
+pub(crate) fn stability_against<'r>(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    source: &GInstance,
+    plan: &RestrictPlan,
+    scope: &PutScope,
+    regenerated: &dyn Fn(u32) -> Option<&'r panproto_inst::Node>,
+) -> Vec<PutDomainError> {
     let mut found = Vec::new();
-    let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement);
+    let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement, scope);
     restore_edges(
         lens,
         view,
         complement,
         plan,
+        scope,
         &mut baseline,
         &mut baseline_errors,
     );
     for (&id, node) in view.nodes() {
-        if complement.synthesized_nodes.contains_key(&id) {
+        if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
             continue;
         }
-        let Some(actual) = regenerated.node(id) else {
+        let Some(actual) = regenerated(id) else {
             found.push(PutDomainError::SurvivalPredicateFails {
                 elem: ViewRef::Node(id),
             });

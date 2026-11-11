@@ -646,6 +646,103 @@ pub fn graph_restrict_segmented(
         }));
     }
     let index = check_family(segments, partition).map_err(SegmentedRestrictError::Segment)?;
+    let parts = run_stages(plan, segments)?;
+    emit(segments, partition, &index, parts).map_err(SegmentedRestrictError::Segment)
+}
+
+/// The surviving nodes graph restriction along `plan` gives each segment of
+/// the graph held as `segments` under `partition`, in id order, as the view
+/// holds them, computed segment by segment.
+///
+/// This is the part of [`graph_restrict_segmented`] that needs no id
+/// allocation, so the family need not satisfy the seal floor rule: the
+/// segments are checked as [`verify_partition`](super::verify_partition)
+/// checks them and run through the same stages. The nodes of segment `i` are
+/// the nodes of whole-state restriction of the assembled graph that segment
+/// `i` owns, other than the synthesized ones. Whole-state restriction
+/// numbers its synthesized elements from one above the greatest id of each
+/// kind the graph holds, and refuses a graph whose ids of a kind run out
+/// (stage 5); the same numbering is checked here from every segment's
+/// greatest ids and synthesized keys, so a refusal is the whole-state one.
+///
+/// # Errors
+///
+/// [`SegmentedRestrictError::Residual`] when [`graph_restrict_locality`]
+/// classifies the plan as global; [`SegmentedRestrictError::Segment`] with
+/// the error of `verify_partition`; [`SegmentedRestrictError::Restrict`]
+/// with the refusal whole-state restriction returns, in the segment owning
+/// its element, a stage 5 exhaustion in the segment holding the greatest id
+/// of its kind.
+pub fn graph_restrict_segmented_nodes(
+    plan: &RestrictPlan,
+    segments: &[GraphSegment],
+    partition: &Partition,
+) -> Result<Vec<BTreeMap<u32, Node>>, SegmentedRestrictError> {
+    if let Locality::Global(reason) = graph_restrict_locality(plan) {
+        return Err(SegmentedRestrictError::Residual(Residual::Global {
+            op: SegmentOp::Restrict,
+            reason,
+        }));
+    }
+    let any: Vec<super::body::AnySegment> = segments
+        .iter()
+        .cloned()
+        .map(super::body::AnySegment::Graph)
+        .collect();
+    super::check::verify_partition(&any, partition).map_err(SegmentedRestrictError::Segment)?;
+    let parts = run_stages(plan, segments)?;
+    check_numbering(segments, &parts)?;
+    Ok(parts.into_iter().map(|run| run.nodes).collect())
+}
+
+/// Whole-state restriction's stage 5 over a segmented run: number every
+/// segment's synthesized keys, nodes then edges, from one above the
+/// greatest id of each kind any segment holds, as
+/// [`graph_restrict_with_plan`](crate::graph_restrict_with_plan) numbers
+/// them, and refuse when the ids of a kind run out.
+fn check_numbering(
+    segments: &[GraphSegment],
+    parts: &[RunParts],
+) -> Result<(), SegmentedRestrictError> {
+    let node_max = segments
+        .iter()
+        .flat_map(|segment| segment.nodes.keys().map(|id| (*id, segment.segment)))
+        .max();
+    let edge_max = segments
+        .iter()
+        .flat_map(|segment| segment.edges.keys().map(|id| (id.0, segment.segment)))
+        .max();
+    let exhausted = |kind: IdKind, max: Option<(u32, SegmentId)>, error: RestrictError| {
+        SegmentedRestrictError::Restrict {
+            segment: max.map_or(SegmentId(0), |(_, segment)| segment),
+            error: crate::graph_restrict::locate_exhaustion(error, kind),
+        }
+    };
+    let node_ids = crate::restrict_plan::allocate_synthesized(
+        parts.iter().flat_map(|run| run.synth_nodes.keys().cloned()),
+        crate::restrict_plan::floor_above(node_max.map(|(id, _)| id)),
+        IdKind::Node,
+    )
+    .map_err(|error| exhausted(IdKind::Node, node_max, error))?;
+    crate::restrict_plan::allocate_synthesized(
+        parts
+            .iter()
+            .flat_map(|run| run.arcs(&node_ids))
+            .map(|(key, ..)| key),
+        crate::restrict_plan::floor_above(edge_max.map(|(id, _)| id)),
+        IdKind::Edge,
+    )
+    .map_err(|error| exhausted(IdKind::Edge, edge_max, error))?;
+    Ok(())
+}
+
+/// The fan domain and stages 0 to 3 of segmented graph restriction over a
+/// checked family: the parts of every segment's run, in id order, or the
+/// whole-state refusal in the segment owning its element.
+fn run_stages(
+    plan: &RestrictPlan,
+    segments: &[GraphSegment],
+) -> Result<Vec<RunParts>, SegmentedRestrictError> {
     let locals: Vec<Local> = segments
         .iter()
         .map(Local::of)
@@ -720,8 +817,7 @@ pub fn graph_restrict_segmented(
     if let Some((segment, error)) = first {
         return Err(SegmentedRestrictError::Restrict { segment, error });
     }
-
-    emit(segments, partition, &index, parts).map_err(SegmentedRestrictError::Segment)
+    Ok(parts)
 }
 
 /// Check the family and the seal floor rule for its edge ids, and index

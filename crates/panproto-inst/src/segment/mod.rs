@@ -62,7 +62,7 @@ pub use manifest::{
 pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_tag};
 pub use restrict::{
     GraphComplementSegment, SegmentedRestrict, SegmentedRestrictError, graph_restrict_locality,
-    graph_restrict_segmented,
+    graph_restrict_segmented, graph_restrict_segmented_nodes,
 };
 pub use runner::{
     Budget, ComplementSize, EmittedSegment, GRAPH_RESTRICT_OP, GraphRestrictRun, MemoryModel,

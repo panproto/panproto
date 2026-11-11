@@ -17985,7 +17985,7 @@ mod segmented_graph_get {
 
     const SOURCE_SCHEMA: [u8; 32] = [7; 32];
 
-    fn prod_partition(partition: &reference::Partition) -> Partition {
+    pub(super) fn prod_partition(partition: &reference::Partition) -> Partition {
         let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
         Partition::new(
             InstanceShapeKind::Graph,
@@ -18067,7 +18067,7 @@ mod segmented_graph_get {
         }
     }
 
-    fn lens_of(schema: &RefSchema, migration: &RefMigration) -> Lens {
+    pub(super) fn lens_of(schema: &RefSchema, migration: &RefMigration) -> Lens {
         let schema = prod_schema(schema);
         Lens {
             compiled: prod_migration(migration),
@@ -18313,12 +18313,12 @@ mod segmented_graph_get {
         assert_eq!(global.report.progress.tasks_done, 0);
     }
 
-    const ANCHORS: [&str; 3] = ["a", "b", "c"];
+    pub(super) const ANCHORS: [&str; 3] = ["a", "b", "c"];
 
     /// A generated case over a three-vertex schema with every edge and loop:
     /// the schema, a survival classification, a graph and a partition giving
     /// each node to one of `segments` segments with its own allocation range.
-    fn generated(
+    pub(super) fn generated(
         anchors: &[usize],
         edges: &[(usize, usize)],
         owners: &[u32],
@@ -18410,5 +18410,622 @@ mod segmented_graph_get {
             let outcome = check_case(&schema, &migration, &graph, &partition);
             proptest::prop_assert!(matches!(outcome, Outcome::Complete | Outcome::Refused));
         }
+    }
+}
+
+mod segmented_graph_put {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::identity::{ComplementShape, Digest, IdentityCarrier};
+    use panproto_inst::locality::{GlobalReason, Locality, SummaryKind};
+    use panproto_inst::segment::{
+        AnySegment, GraphComplementSegment, GraphSegment, Partition, Residual, SegmentError,
+        SegmentedRestrict, assemble_graph, graph_restrict_segmented, partition_graph,
+    };
+    use panproto_inst::{GraphComplement, PutDomainError, RestrictPlan, ViewRef};
+    use panproto_lens::graph_lens::{self, SegmentedPutError};
+    use panproto_lens::{Lens, LensError};
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::segmented_graph_get::{generated, lens_of, prod_partition};
+    use super::{
+        RefGraph, RefGraphLens, RefMigration, RefSchema, lens_reason, prod_graph, ref_graph,
+        ref_lens_reason,
+    };
+
+    const SCHEMA: Digest = Digest([9; 32]);
+
+    /// The complement segments joined into one complement, unrenumbered and
+    /// stamped with the lens's graph identity, as whole-state get stamps it.
+    fn joined(complements: &[GraphComplementSegment], lens: &Lens) -> GraphComplement {
+        let mut whole = GraphComplement::empty();
+        for part in complements {
+            whole.dropped_nodes.extend(part.dropped_nodes.clone());
+            whole.dropped_edges.extend(part.dropped_edges.clone());
+            whole.original_edges.extend(part.original_edges.clone());
+            whole.original_anchors.extend(part.original_anchors.clone());
+            whole
+                .original_extra_fields
+                .extend(part.original_extra_fields.clone());
+            whole.original_values.extend(part.original_values.clone());
+            whole
+                .synthesized_nodes
+                .extend(part.synthesized_nodes.clone());
+            whole
+                .synthesized_edges
+                .extend(part.synthesized_edges.clone());
+        }
+        whole.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
+        whole
+    }
+
+    fn segment_bytes(segment: &GraphSegment, partition: &Partition) -> Vec<u8> {
+        AnySegment::Graph(segment.clone())
+            .canonical_bytes(&SCHEMA, partition)
+            .expect("segment bytes")
+    }
+
+    fn reference_bytes(
+        segment: &reference::GraphSegment,
+        partition: &reference::Partition,
+    ) -> Vec<u8> {
+        reference::canonical_segment_bytes(
+            &reference::AnySegment::Graph(segment.clone()),
+            reference::Digest(SCHEMA.0),
+            partition,
+        )
+        .expect("reference segment bytes")
+    }
+
+    /// The view of a segmented get assembled, its synthesized elements
+    /// numbered as whole-state get numbers them.
+    fn assembled_view(
+        views: Vec<GraphSegment>,
+        complements: Vec<GraphComplementSegment>,
+        partition: &Partition,
+    ) -> RefGraph {
+        let (view, _) = SegmentedRestrict { views, complements }
+            .assemble(partition)
+            .expect("the view segments assemble");
+        ref_graph(&view)
+    }
+
+    /// The edits of the carrier: the identity, every node and every edge
+    /// removed, every edge retargeted at every other node, an edge added
+    /// between every ordered pair of nodes in different segments, every
+    /// node's anchor changed to every other vertex, and a node added to
+    /// every segment.
+    fn edits(view: &RefGraph, partition: &reference::Partition) -> Vec<RefGraph> {
+        let owner = |node: u32| partition.owner_of_node(node);
+        let label = |src: &str, tgt: &str| {
+            super::RefSEdge::new(src, tgt, "prop", Some(&format!("{src}{tgt}")))
+        };
+        let anchor = |graph: &RefGraph, node: u32| graph.nodes[&node].anchor.to_string();
+        let mut out = vec![view.clone()];
+        for node in view.nodes.keys() {
+            let mut edited = view.clone();
+            edited.nodes.remove(node);
+            edited
+                .edges
+                .retain(|_, edge| edge.src != *node && edge.tgt != *node);
+            out.push(edited);
+        }
+        for id in view.edges.keys() {
+            let mut edited = view.clone();
+            edited.edges.remove(id);
+            out.push(edited);
+        }
+        for (id, edge) in &view.edges {
+            for target in view.nodes.keys().filter(|target| **target != edge.tgt) {
+                let mut edited = view.clone();
+                let moved = edited.edges.get_mut(id).expect("the edge");
+                moved.tgt = *target;
+                moved.label = label(&anchor(view, edge.src), &anchor(view, *target));
+                out.push(edited);
+            }
+        }
+        for src in view.nodes.keys() {
+            for tgt in view.nodes.keys() {
+                let Some(holder) = owner(*src).filter(|holder| owner(*tgt) != Some(*holder)) else {
+                    continue;
+                };
+                let Some(range) = partition.spec(holder).and_then(|spec| spec.alloc_edges) else {
+                    continue;
+                };
+                let mut edited = view.clone();
+                edited.edges.insert(
+                    range.lo + 5,
+                    super::RefGEdge {
+                        src: *src,
+                        tgt: *tgt,
+                        label: label(&anchor(view, *src), &anchor(view, *tgt)),
+                        position: None,
+                    },
+                );
+                out.push(edited);
+            }
+        }
+        for node in view.nodes.keys() {
+            for vertex in super::segmented_graph_get::ANCHORS {
+                if vertex == anchor(view, *node) {
+                    continue;
+                }
+                let mut edited = view.clone();
+                edited.nodes.get_mut(node).expect("the node").anchor = vertex.into();
+                out.push(edited);
+            }
+        }
+        for spec in &partition.specs {
+            let Some(range) = spec.alloc_nodes else {
+                continue;
+            };
+            let mut edited = view.clone();
+            edited
+                .nodes
+                .insert(range.lo + 5, super::RefNode::new(range.lo + 5, "a"));
+            out.push(edited);
+        }
+        out
+    }
+
+    /// What one case gave.
+    #[derive(Default)]
+    struct Tally {
+        restored: u64,
+        refused: u64,
+        crossing: u64,
+        get_refused: u64,
+    }
+
+    /// Check one case: the segmented get's view and every edit of it put
+    /// back segment by segment agree with the reference definition and,
+    /// glued, with whole-state put of the glued view; the unedited view
+    /// restores the source segments exactly, and a restored source's
+    /// segmented get assembles to the edited view exactly when whole-state
+    /// get of whole-state put does.
+    fn check_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        tally: &mut Tally,
+    ) {
+        let lens = lens_of(schema, migration);
+        let prod_p = prod_partition(partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(graph), &prod_p).expect("production split");
+        let Ok(got) = graph_restrict_segmented(&plan, &source, &prod_p) else {
+            return;
+        };
+        let reference_source =
+            reference::partition_graph(graph, partition).expect("reference split");
+        let expected = reference::restrict_graph_segmented(
+            schema,
+            schema,
+            migration,
+            &NoValueLayer,
+            &reference_source,
+            partition,
+        )
+        .expect("the reference restricts what production restricts");
+        let (reference_views, reference_complements): (Vec<_>, Vec<_>) =
+            expected.into_iter().unzip();
+        let reference_plan = panproto_reference::restrict::compile(schema, schema, migration)
+            .expect("the reference plan compiles");
+        let reference_lens = RefGraphLens::new(
+            schema,
+            schema,
+            migration,
+            &reference_plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let whole_complement = joined(&got.complements, &lens);
+        let view = reference::assemble_graph(&reference_views, partition).expect("glued view");
+
+        for (at, edited) in edits(&view, partition).into_iter().enumerate() {
+            let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+            let reference_edited =
+                reference::partition_graph(&edited, partition).expect("reference edited split");
+            let production = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p);
+            let expected = reference::put_graph_segmented(
+                &reference_lens,
+                &reference_edited,
+                &reference_complements,
+                partition,
+            );
+            let whole = graph_lens::put(&lens, &prod_graph(&edited), &whole_complement);
+            match (&production, &whole) {
+                (Ok(restored), Ok(whole)) => {
+                    let glued = assemble_graph(restored.iter().cloned(), &prod_p)
+                        .expect("the restored segments glue");
+                    assert_eq!(
+                        ref_graph(&glued),
+                        ref_graph(whole),
+                        "glued put of {edited:?}"
+                    );
+                    let Ok(expected) = &expected else {
+                        panic!("the reference refuses {edited:?}: {expected:?}");
+                    };
+                    for (segment, expected) in restored.iter().zip(expected) {
+                        assert_eq!(
+                            segment_bytes(segment, &prod_p),
+                            reference_bytes(expected, partition),
+                            "restored segment of {edited:?} under {partition:?}"
+                        );
+                    }
+                    if at == 0 {
+                        for (segment, original) in restored.iter().zip(&source) {
+                            assert_eq!(
+                                segment_bytes(segment, &prod_p),
+                                segment_bytes(original, &prod_p),
+                                "GetPut of {graph:?} under {partition:?}"
+                            );
+                        }
+                    }
+                    check_put_get(
+                        &lens,
+                        &plan,
+                        restored,
+                        &views,
+                        &got.complements,
+                        &prod_p,
+                        whole,
+                    );
+                    if views
+                        .iter()
+                        .any(|segment| !segment.boundary.ghosts.is_empty())
+                    {
+                        tally.crossing += 1;
+                    }
+                    tally.restored += 1;
+                }
+                (Err(SegmentedPutError::Lens(error)), Err(whole)) => {
+                    assert_ne!(at, 0, "GetPut refused on {graph:?}");
+                    assert_eq!(lens_reason(error), lens_reason(whole), "{edited:?}");
+                    match &expected {
+                        Err(reference::SegmentedPutRefusal::Put(expected)) => {
+                            assert_eq!(lens_reason(error), ref_lens_reason(expected), "{edited:?}");
+                            tally.refused += 1;
+                        }
+                        // Whole-state production put refuses a view whose
+                        // restored source its own get refuses; the
+                        // reference's put-domain clause (5) reads only
+                        // survival predicates on that get and accepts it.
+                        Ok(_)
+                            if matches!(
+                                error,
+                                LensError::PutDomain(found) if matches!(
+                                    **found,
+                                    PutDomainError::SurvivalPredicateRefused {
+                                        refusal: panproto_inst::PredicateRefusal::EvaluationFailed { .. },
+                                        ..
+                                    }
+                                )
+                            ) && reference_get_refuses(&reference_lens, &expected) =>
+                        {
+                            tally.get_refused += 1;
+                        }
+                        expected => panic!(
+                            "the reference disagrees on {edited:?} under {partition:?}: {error:?} / {expected:?}"
+                        ),
+                    }
+                }
+                outcomes => panic!(
+                    "segmented put disagrees with whole-state put on {edited:?} under {partition:?}: {outcomes:?}"
+                ),
+            }
+        }
+    }
+
+    /// Whether the reference's get refuses the glued restored source of an
+    /// accepted reference put.
+    fn reference_get_refuses(
+        lens: &RefGraphLens<'_>,
+        expected: &Result<Vec<reference::GraphSegment>, reference::SegmentedPutRefusal>,
+    ) -> bool {
+        let Ok(segments) = expected else {
+            return false;
+        };
+        let mut glued = RefGraph::default();
+        for segment in segments {
+            glued.nodes.extend(segment.nodes.clone());
+            glued.edges.extend(segment.edges.clone());
+        }
+        lens.get(&glued).is_err()
+    }
+
+    /// `PutGet` over segments: the segmented get of a restored family
+    /// assembles to whole-state get of the glued restored source, and to
+    /// the edited view exactly when whole-state get of whole-state put does.
+    fn check_put_get(
+        lens: &Lens,
+        plan: &RestrictPlan,
+        restored: &[GraphSegment],
+        views: &[GraphSegment],
+        complements: &[GraphComplementSegment],
+        partition: &Partition,
+        whole: &panproto_inst::GInstance,
+    ) {
+        let again = graph_restrict_segmented(plan, restored, partition)
+            .expect("a restored family restricts again");
+        let segmented = assembled_view(again.views, again.complements, partition);
+        let (whole_view, _) = graph_lens::get(lens, whole).expect("whole-state get");
+        assert_eq!(
+            segmented,
+            ref_graph(&whole_view),
+            "segmented get of the put"
+        );
+        let edited = assembled_view(views.to_vec(), complements.to_vec(), partition);
+        assert_eq!(
+            segmented == edited,
+            ref_graph(&whole_view) == edited,
+            "PutGet"
+        );
+    }
+
+    /// Every 97th case of the segmented restriction carrier, read as a lens
+    /// over its schema, with every edit of its segmented view: segmented put
+    /// agrees with the reference definition segment by segment and, glued,
+    /// with whole-state put of the glued view, refusing exactly when it
+    /// refuses and with the same violation; GetPut and PutGet hold over
+    /// segments where they hold whole.
+    #[test]
+    fn segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put() {
+        let mut tally = Tally::default();
+        let mut cases = 0_u64;
+        for case in segmented_restrict_cases().step_by(97) {
+            cases += 1;
+            check_case(
+                &case.schema,
+                &case.migration,
+                &case.graph,
+                &case.partition,
+                &mut tally,
+            );
+        }
+        assert_eq!(cases, 1_323);
+        assert!(
+            tally.restored > 0 && tally.refused > 0 && tally.crossing > 0,
+            "{} restored, {} refused, {} crossing, {} refused by the next get",
+            tally.restored,
+            tally.refused,
+            tally.crossing,
+            tally.get_refused
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_put_matches_the_reference_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                generated(&anchors, &edges, &owners, segments, surviving);
+            check_case(&schema, &migration, &graph, &partition, &mut Tally::default());
+        }
+    }
+
+    /// A three-segment graph whose dropped middle node hides a path from
+    /// the first segment to the third: the segmented view holds the
+    /// contracted edge, and an edit that removes the third segment's node
+    /// and adds an edge from it back to the first is put back segment by
+    /// segment like whole-state put.
+    #[test]
+    fn a_put_crossing_three_segments_restores_like_whole_state_put() {
+        let (schema, migration, graph, partition) = generated(
+            &[0, 1, 2, 0],
+            &[(0, 1), (1, 2), (3, 0)],
+            &[0, 1, 2, 2, 0, 0, 0, 0],
+            3,
+            0b101,
+        );
+        let lens = lens_of(&schema, &migration);
+        let prod_p = prod_partition(&partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the lens compiles");
+        let source = partition_graph(&prod_graph(&graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("segmented get");
+        assert_eq!(
+            got.complements
+                .iter()
+                .map(|complement| complement.synthesized_edges.len())
+                .collect::<Vec<_>>(),
+            vec![1, 0, 0],
+            "the contracted edge is synthesized in the first segment"
+        );
+        let restored = graph_lens::put_segmented(&lens, &got.views, &got.complements, &prod_p)
+            .expect("GetPut");
+        for (segment, original) in restored.iter().zip(&source) {
+            assert_eq!(
+                segment_bytes(segment, &prod_p),
+                segment_bytes(original, &prod_p)
+            );
+        }
+        let mut tally = Tally::default();
+        check_case(&schema, &migration, &graph, &partition, &mut tally);
+        assert!(tally.crossing > 0 && tally.refused > 0 && tally.restored > 0);
+    }
+
+    /// A view edge whose id a complement in another segment records as a
+    /// dropped edge collides, and two violations in different segments
+    /// refuse the put with the lesser of them, as whole-state put does.
+    #[test]
+    fn a_refused_put_returns_the_least_violation_of_every_segment() {
+        let (schema, migration, graph, partition) = generated(
+            &[0, 1, 2],
+            &[(0, 1), (1, 2), (2, 0)],
+            &[0, 1, 0, 0, 0, 0, 0, 0],
+            2,
+            0b101,
+        );
+        let lens = lens_of(&schema, &migration);
+        let prod_p = prod_partition(&partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the lens compiles");
+        let source = partition_graph(&prod_graph(&graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("segmented get");
+        let dropped: Vec<(u32, u32)> = got
+            .complements
+            .iter()
+            .flat_map(|complement| {
+                complement
+                    .dropped_edges
+                    .keys()
+                    .map(|id| (complement.segment.0, id.0))
+            })
+            .collect();
+        assert_eq!(dropped, vec![(0, 0), (1, 1)]);
+
+        // Node 2 (segment 0) gets an anchor no source vertex maps to, and a
+        // new view edge in segment 0 reuses the id of segment 1's dropped
+        // edge 1: the collision is the lesser violation.
+        let view = assemble_graph(got.views.iter().cloned(), &prod_p).expect("glue");
+        let mut edited = ref_graph(&view);
+        edited.nodes.get_mut(&2).expect("node 2").anchor = "b".into();
+        edited.edges.insert(
+            1,
+            super::RefGEdge {
+                src: 0,
+                tgt: 2,
+                label: super::RefSEdge::new("a", "c", "prop", Some("ac")),
+                position: None,
+            },
+        );
+        let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+        let error = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p)
+            .expect_err("the put is refused");
+        assert!(
+            matches!(
+                &error,
+                SegmentedPutError::Lens(LensError::PutDomain(found))
+                    if **found == PutDomainError::IdCollision { elem: ViewRef::Edge(panproto_inst::EdgeId(1)) }
+            ),
+            "{error:?}"
+        );
+        let whole = graph_lens::put(
+            &lens,
+            &prod_graph(&edited),
+            &joined(&got.complements, &lens),
+        )
+        .expect_err("whole-state put refuses");
+        let SegmentedPutError::Lens(error) = error else {
+            unreachable!("matched above")
+        };
+        assert_eq!(lens_reason(&error), lens_reason(&whole));
+
+        // Without the colliding edge, the edge from node 2 no longer maps
+        // back: its source's view anchor is the image of no source vertex
+        // with an edge of its label.
+        edited.edges.remove(&1);
+        let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+        let error = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p)
+            .expect_err("the put is refused");
+        assert!(
+            matches!(
+                &error,
+                SegmentedPutError::Lens(LensError::PutDomain(found))
+                    if **found == PutDomainError::UnrepresentableViewEdge { elem: ViewRef::Edge(panproto_inst::EdgeId(2)) }
+            ),
+            "{error:?}"
+        );
+        let whole = graph_lens::put(
+            &lens,
+            &prod_graph(&edited),
+            &joined(&got.complements, &lens),
+        )
+        .expect_err("whole-state put refuses");
+        let SegmentedPutError::Lens(error) = error else {
+            unreachable!("matched above")
+        };
+        assert_eq!(lens_reason(&error), lens_reason(&whole));
+    }
+
+    /// The locality of put: a plain lens merges sorted runs, a survival
+    /// predicate and a key on a path of two edges are global, and a segmented put
+    /// declines a global lens before reading any segment and refuses a
+    /// complement entry filed under a segment that does not own it.
+    #[test]
+    fn put_locality_classes_and_input_refusals() {
+        let (schema, migration, graph, partition) =
+            generated(&[0, 1], &[(0, 1)], &[0, 1, 0, 0, 0, 0, 0, 0], 2, 0b001);
+        let lens = lens_of(&schema, &migration);
+        assert_eq!(
+            graph_lens::graph_put_locality(&lens).expect("compiles"),
+            Locality::Summary(SummaryKind::SortedMerge)
+        );
+        let prod_p = prod_partition(&partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the lens compiles");
+        let source = partition_graph(&prod_graph(&graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("segmented get");
+
+        let mut keyed = lens_of(&schema, &migration);
+        keyed.src_schema.declarations.keys.insert(
+            "a".into(),
+            vec![panproto_schema::Key {
+                id: "order".into(),
+                parts: vec![panproto_schema::KeyPart::Path(
+                    ["aa", "ab"]
+                        .into_iter()
+                        .map(|name| panproto_schema::Edge {
+                            src: "a".into(),
+                            tgt: name[1..].into(),
+                            kind: "prop".into(),
+                            name: Some(name.into()),
+                        })
+                        .collect(),
+                )],
+                role: panproto_schema::KeyRole::Unique,
+                scope: panproto_schema::KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        let demand = Locality::Global(GlobalReason::KeyDemand {
+            vertex: "a".into(),
+            key: "order".into(),
+        });
+        assert_eq!(
+            graph_lens::graph_put_locality(&keyed).expect("compiles"),
+            demand
+        );
+        assert!(matches!(
+            graph_lens::put_segmented(&keyed, &got.views, &got.complements, &prod_p),
+            Err(SegmentedPutError::Residual(Residual::Global { .. }))
+        ));
+
+        let mut predicated = lens_of(&schema, &migration);
+        predicated.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        assert!(matches!(
+            graph_lens::graph_put_locality(&predicated).expect("compiles"),
+            Locality::Global(GlobalReason::ExpressionDemand { .. })
+        ));
+
+        let mut misplaced = got.complements.clone();
+        let moved = misplaced[1]
+            .dropped_nodes
+            .pop_first()
+            .expect("segment 1 drops node 1");
+        misplaced[0].dropped_nodes.insert(moved.0, moved.1);
+        assert!(
+            matches!(
+                graph_lens::put_segmented(&lens, &got.views, &misplaced, &prod_p),
+                Err(SegmentedPutError::Segment(SegmentError::WrongOwner { .. }))
+            ),
+            "a dropped node filed under a segment that does not own it"
+        );
     }
 }

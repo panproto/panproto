@@ -903,7 +903,7 @@ impl<'a> GraphRun<'a> {
 }
 
 /// Locate a synthesized-id exhaustion at stage 5.
-fn locate_exhaustion(error: RestrictError, kind: IdKind) -> RestrictError {
+pub(crate) fn locate_exhaustion(error: RestrictError, kind: IdKind) -> RestrictError {
     let key = exhaustion_key(kind, error.kind_index());
     RestrictError::At {
         key,

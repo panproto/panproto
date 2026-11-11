@@ -1670,6 +1670,11 @@ pub fn write_locality<W: CanonicalSink + ?Sized>(w: &mut W, l: &Locality) {
                     w.tag(6);
                     w.name(vertex);
                 }
+                GlobalReason::KeyDemand { vertex, key } => {
+                    w.tag(7);
+                    w.name(vertex);
+                    w.name(key);
+                }
             }
         }
     }

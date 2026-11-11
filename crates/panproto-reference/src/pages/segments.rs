@@ -1157,7 +1157,7 @@ pub mod segment {
         Ok(())
     }
 
-    fn merge_graph_complement_fields(
+    pub(crate) fn merge_graph_complement_fields(
         whole: &mut Complement,
         value: &GraphComplementSegment,
     ) -> Result<(), SegmentError> {
@@ -5738,6 +5738,13 @@ pub mod segment {
             /// Theory vertex the expression is attached to.
             vertex: Name,
         },
+        /// A key reads beyond an element and its out-edges' targets.
+        KeyDemand {
+            /// Theory vertex the key is declared on.
+            vertex: Name,
+            /// The key's id.
+            key: Name,
+        },
     }
     /// Locality class.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -8219,6 +8226,65 @@ pub mod segmented_restrict {
                 }
             })
             .collect()
+    }
+}
+
+pub mod segmented_put {
+    //! Segmented graph put, defined by whole-state put of the glued view
+    //! and laying the restored source out again.
+    //!
+    //! This is the executable definition of L-segments-16. It never runs
+    //! segment by segment: it glues the view segments, joins the complement
+    //! segments into one complement stamped with the lens's identity, runs
+    //! whole-state [`GraphLens::put`], and splits the restored source by
+    //! owner.
+
+    use super::segment::{
+        GraphComplementSegment, GraphSegment, Partition, SegmentError, assemble_graph,
+        merge_graph_complement_fields, partition_graph,
+    };
+    use crate::pages::lenses::{GraphLens, LensError};
+    use crate::restrict::Complement;
+
+    /// Why a segmented graph put returns no source.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedPutRefusal {
+        /// The view segments are not a family under the partition, two
+        /// complement segments hold one entry, or the restored source does
+        /// not split.
+        Segment(SegmentError),
+        /// Whole-state put of the glued view refuses.
+        Put(LensError),
+    }
+
+    /// Definition: segmented graph put, by whole-state put of the glued
+    /// view.
+    ///
+    /// Glue `views` under `p`, join `complements` into one complement
+    /// stamped with the identity of `lens` (as its get stamps it), run
+    /// whole-state put, and split the restored source with
+    /// [`partition_graph`].
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn put_graph_segmented(
+        lens: &GraphLens<'_>,
+        views: &[GraphSegment],
+        complements: &[GraphComplementSegment],
+        p: &Partition,
+    ) -> Result<Vec<GraphSegment>, SegmentedPutRefusal> {
+        let view = assemble_graph(views, p).map_err(SegmentedPutRefusal::Segment)?;
+        let mut complement = Complement::default();
+        for segment in complements {
+            merge_graph_complement_fields(&mut complement, segment)
+                .map_err(SegmentedPutRefusal::Segment)?;
+        }
+        complement.identity = Some(*lens.identity());
+        let source = lens
+            .put(&view, &complement)
+            .map_err(SegmentedPutRefusal::Put)?;
+        partition_graph(&source, p).map_err(SegmentedPutRefusal::Segment)
     }
 }
 
