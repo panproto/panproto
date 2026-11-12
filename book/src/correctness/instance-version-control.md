@@ -1,6 +1,6 @@
 # Instance version control
 
-Schema version control stores instances of all three shapes (trees, tables and graphs) next to the schemas they conform to, together with the complements a data migration leaves and the edit logs made against them. This page states how those objects are stored, kept and compared: a stored payload decodes to the value it was made from and, for tables and graphs, names that value uniquely; version 1 of the repository format holds every shape without changing anything a repository written before them holds; garbage collection keeps exactly what a root reaches; a commit tracks the nearest instance under each key, validated against the schema it is bound to, until a commit stops tracking the key; the diff of two committed instances is their shape's delta; and a merge merges the instances two commits track by their deltas from the merge base, reporting every overlap as a typed conflict. The behaviour is explained in [Schema version control semantics](../explanation/vcs-semantics.md).
+Schema version control stores instances of all three shapes (trees, tables and graphs) next to the schemas they conform to, together with the complements a data migration leaves and the edit logs made against them. This page states how those objects are stored, kept and compared: a stored payload decodes to the value it was made from and, for tables and graphs, names that value uniquely; version 1 of the repository format holds every shape without changing anything a repository written before them holds; garbage collection keeps exactly what a root reaches; a commit tracks the nearest instance under each key, validated against the schema it is bound to, until a commit stops tracking the key; the diff of two committed instances is their shape's delta; a merge merges the instances two commits track by their deltas from the merge base, reporting every overlap as a typed conflict; and rebase and cherry-pick replay a commit's deltas rebased over those committed since. The behaviour is explained in [Schema version control semantics](../explanation/vcs-semantics.md).
 
 The executable reference is [`panproto_reference::pages::instance_version_control`](https://docs.rs/panproto-reference/latest/panproto_reference/pages/instance_version_control/). It models a repository as named objects whose reference fields name other objects, and computes reachability by a breadth-first search from the roots; it models a payload by the facts that decide what decoding it gives, and the instances a commit tracks as entries whose deltas are those of the reference edit algebra. It shares nothing with production, which follows references by object kind and decodes MessagePack.
 
@@ -247,3 +247,42 @@ Tracked maps, data sets, shapes, schemas and staleness are those of [L-instance-
 - Reference test: `instance_merges_on_hand_computed_cases; command: cargo nextest run -p panproto-reference --test instance_version_control --no-tests=fail -E 'test(=instance_merges_on_hand_computed_cases)'`
 - File: `crates/panproto-vcs/src/instance_merge.rs`
 - File: `crates/panproto-vcs/src/repo.rs`
+
+## Rebase and cherry-pick replay a commit's instance deltas over those committed since {#L-instance-version-control-7}
+
+### Statement
+
+Let $c$ be a commit replayed onto a tip $T$ (by `rebase`, which replays each commit of a chain in order, or by `cherry_pick`, which replays one), with first parent $p$. The keys $c$ changes are those $p$ and $c$ track under different data sets, or one of them only. `instance_merge::replay_tracked(p, T, c)` decides exactly these keys, as `merge_tracked` decides them with $p$ as base, $T$ as ours and $c$ as theirs ([L-instance-version-control-6](#L-instance-version-control-6)), except that two deltas of one graph, table or tree record combine by rebasing: with $d_c$ the delta from $p$'s instance to $c$'s and $d_T$ the delta from $p$'s instance to $T$'s (the composite of the deltas committed since $p$), `rebase_instances` applies `d_c.rebase(&[d_T])` to $T$'s instance, and a refused rebase is that record's one `Edit` conflict, the `RebaseConflict`'s conflict. This is the reference's `rebase_instances`. Consequently:
+
+1. a replay is clean exactly when the three-way merge of $p$, $T$ and $c$ is, and then gives the merge's instance (rebase of independent deltas is their [L-edits-1](edits.md#L-edits-1) merge); a conflicting record's one conflict is the first conflict the merge reports for it;
+2. the replayed commit records, for each key $c$ changes, the replayed data set when it differs from the one $T$ tracks, a data set taken from $c$ in its form lifted to the replayed schema, and stops tracking the keys the replay drops that $T$ tracks; so it tracks $T$'s instances with $c$'s rebased deltas applied, and a rebased chain tracks the instances of applying its rebased deltas in order;
+3. any conflict refuses the replay with `InstanceConflicts`, carrying every conflict in listing order, and records nothing for that commit.
+
+Cherry-pick is the replay of one commit.
+
+### Outside the domain
+
+As [L-instance-version-control-6](#L-instance-version-control-6), with `InstanceConflicts` in place of a merge's unrecorded conflicts. A replay reads payloads with `DataSetObject::decode`, so a key whose three versions must be combined and one of which is a tree payload of source JSON is refused with `UndecodablePayload`.
+
+### Definitions used
+
+Tracked maps are those of [L-instance-version-control-4](#L-instance-version-control-4); deltas, independence, merge and rebase those of [L-edits-1](edits.md#L-edits-1) and [L-edits-11](edits.md#L-edits-11).
+
+### Proof
+
+1. `replay_tracked` restricts the three tracked maps to the keys $c$ changes and runs the merge's key cases on them; the keys $c$ does not change are inherited from $T$ through the replayed commit's first parent.
+2. `rebase` returns the delta unchanged exactly when it is independent of $d_T$, and otherwise the first conflict of their independence ([L-edits-11](edits.md#L-edits-11)). Independent, $d_c$ applies after $d_T$, and the result is that of applying their merge to $p$'s instance, which is the merge's instance; the record cases of trees are shared with the merge. This gives item 1.
+3. `replay_commit_data` records the stated data sets and untracked keys; by [L-instance-version-control-4](#L-instance-version-control-4) the new commit then tracks the replay's result on the changed keys and $T$'s instances elsewhere. Each commit of a rebased chain is replayed onto the previous replayed commit, so the chain's instances are the rebased deltas applied in order. This gives items 2 and 3.
+4. The certificates: on every triple of the merge scope of [L-instance-version-control-6](#L-instance-version-control-6), production's replay equals the reference's, is clean on exactly the merge's 5,218, 2,788 and 118,450 clean triples with the merge's instance, and otherwise reports the first conflict of each conflicting record: 18,324 and 7,596 conflicts for graphs and tables (one per conflicted triple) and 1,107,276 for trees. Random graph triples agree likewise. Through a repository, a two-commit chain rebased onto a diverged tip tracks its rebased deltas applied in order, which is also the merge of the independent chain, a cherry-pick replays one commit, and a dependent cherry-pick is refused with its conflict.
+
+### Executable counterpart
+
+- Law ID: `instance-version-control.rebase`
+- Reference: `panproto_reference::pages::instance_version_control::rebase_instances`
+- Enumerator: `panproto_reference::enumerate::instance_version_control::merge_states; bound: elements=1`
+- Exhaustive differential test: `every_triple_of_the_merge_scope_rebases_as_the_reference_and_as_the_merge_merges; command: cargo nextest run --cargo-profile ci-test -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=every_triple_of_the_merge_scope_rebases_as_the_reference_and_as_the_merge_merges)'`
+- Property differential test: `randomized_graph_rebases_agree_with_the_reference_and_with_the_merge; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=randomized_graph_rebases_agree_with_the_reference_and_with_the_merge)'`
+- Production certificate: `a_rebased_chain_tracks_its_rebased_deltas_applied_in_order_and_a_cherry_pick_replays_one_commit; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=a_rebased_chain_tracks_its_rebased_deltas_applied_in_order_and_a_cherry_pick_replays_one_commit)'`
+- File: `crates/panproto-vcs/src/instance_merge.rs`
+- File: `crates/panproto-vcs/src/rebase.rs`
+- File: `crates/panproto-vcs/src/cherry_pick.rs`

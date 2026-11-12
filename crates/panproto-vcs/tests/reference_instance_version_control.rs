@@ -3142,3 +3142,174 @@ proptest! {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Rebase and cherry-pick of tracked instances.
+// ---------------------------------------------------------------------------
+
+use panproto_reference::pages::instance_version_control::rebase_instances as model_rebase_instances;
+
+fn production_rebase(
+    schema: &panproto_schema::Schema,
+    [parent, tip, replayed]: [&Instance; 3],
+) -> MergeObservation {
+    match instance_merge::rebase_instances("k", schema, parent, tip, replayed) {
+        Ok(Ok(rebased)) => Ok(Ok(instance_to_reference(&rebased))),
+        Ok(Err(conflicts)) => Ok(Err(conflicts.iter().map(conflict_to_reference).collect())),
+        Err(VcsError::DeltaDoesNotApply { .. }) => Err(ModelRefusal::DoesNotApply),
+        Err(VcsError::ShapeMismatch { .. }) => Err(ModelRefusal::ShapeMismatch),
+        Err(other) => panic!("an untyped refusal: {other}"),
+    }
+}
+
+fn reference_rebase([parent, tip, replayed]: [&ModelInstance; 3]) -> MergeObservation {
+    model_rebase_instances("k", parent, tip, replayed)
+        .map(|rebased| rebased.map(|instance| normalized_instance(&instance)))
+}
+
+/// The record a conflict is about, or `None`.
+const fn conflict_record(conflict: &ModelConflict) -> Option<usize> {
+    match conflict {
+        ModelConflict::GraphEdit(_, record, _) => *record,
+        ModelConflict::Record(_, record, _) => Some(*record),
+        ModelConflict::Tracking(..) | ModelConflict::TableEdit(..) => None,
+    }
+}
+
+#[test]
+fn every_triple_of_the_merge_scope_rebases_as_the_reference_and_as_the_merge_merges() {
+    let mut rebased = [0usize; 3];
+    let mut conflicts = [0usize; 3];
+    for schema in carrier::coverage_schemas() {
+        let production = production_schema(&schema);
+        for (shape, states) in merge_states(&schema).iter().enumerate() {
+            let built: Vec<Instance> = states.iter().map(instance_to_production).collect();
+            for p in 0..states.len() {
+                for t in 0..states.len() {
+                    for r in 0..states.len() {
+                        let models = [&states[p], &states[t], &states[r]];
+                        let actual =
+                            production_rebase(&production, [&built[p], &built[t], &built[r]]);
+                        assert_eq!(actual, reference_rebase(models), "{models:?}");
+                        // Rebasing independent changes gives their merge; a
+                        // dependent record conflicts once, with the first
+                        // conflict the merge reports for it.
+                        match (&actual, reference_merge(models)) {
+                            (Ok(Ok(instance)), Ok(Ok(merged))) => {
+                                assert_eq!(instance, &merged);
+                                rebased[shape] += 1;
+                            }
+                            (Ok(Err(found)), Ok(Err(merged))) => {
+                                let mut firsts: Vec<ModelConflict> = Vec::new();
+                                for conflict in merged {
+                                    let fresh = firsts.last().is_none_or(|last| {
+                                        conflict_record(last) != conflict_record(&conflict)
+                                            || matches!(conflict, ModelConflict::Record(..))
+                                    });
+                                    if fresh {
+                                        firsts.push(conflict);
+                                    }
+                                }
+                                assert_eq!(found, &firsts, "{models:?}");
+                                conflicts[shape] += found.len();
+                            }
+                            (other, merged) => panic!("rebase {other:?} and merge {merged:?}"),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // A rebase is clean exactly when the merge is: the merge scope's counts.
+    assert_eq!(rebased, [5_218, 2_788, 118_450]);
+    // A graph or table rebase conflicts once, so its conflicts are the
+    // merge scope's conflicted triples; a tree rebase once per conflicting
+    // record.
+    assert_eq!(conflicts, [18_324, 7_596, 1_107_276]);
+}
+
+/// The graph a committed instance holds, as the reference states it.
+fn committed_graph(repo: &Repository, reference: &str, key: &str) -> ModelInstance {
+    instance_to_reference(&repo.committed_instance(reference, key).unwrap().instance)
+}
+
+#[test]
+fn a_rebased_chain_tracks_its_rebased_deltas_applied_in_order_and_a_cherry_pick_replays_one_commit()
+{
+    // Base {0}; main adds node 9; feature adds node 1, then node 2.
+    let (_dir, mut repo, _) = instance_repository();
+    stage(&mut repo, "g", &graph_of(&[(0, "a")]));
+    let base = repo.commit("base", "test").unwrap();
+    panproto_vcs::refs::create_branch(repo.store_mut(), "feature", base).unwrap();
+    stage(&mut repo, "g", &graph_of(&[(0, "a"), (9, "a")]));
+    let main = repo.commit("main", "test").unwrap();
+    panproto_vcs::refs::checkout_branch(repo.store_mut(), "feature").unwrap();
+    stage(&mut repo, "g", &graph_of(&[(0, "a"), (1, "a")]));
+    let first = repo.commit("first", "test").unwrap();
+    stage(&mut repo, "g", &graph_of(&[(0, "a"), (1, "a"), (2, "a")]));
+    repo.commit("second", "test").unwrap();
+
+    let tip = repo.rebase(main, "test").unwrap();
+    let tip = tip.to_string();
+    // Applying the two rebased deltas in order to main's graph, and merging
+    // the independent chain with main, both give {0, 1, 2, 9}.
+    let expected = instance_to_reference(&graph_of(&[(0, "a"), (1, "a"), (2, "a"), (9, "a")]));
+    assert_eq!(committed_graph(&repo, &tip, "g"), expected);
+    let middle = head_commit(&repo).parents[0].to_string();
+    assert_eq!(
+        committed_graph(&repo, &middle, "g"),
+        instance_to_reference(&graph_of(&[(0, "a"), (1, "a"), (9, "a")]))
+    );
+
+    // Cherry-picking `first` onto a branch at main replays its one delta.
+    panproto_vcs::refs::create_branch(repo.store_mut(), "pick", main).unwrap();
+    panproto_vcs::refs::checkout_branch(repo.store_mut(), "pick").unwrap();
+    repo.cherry_pick(first, "test").unwrap();
+    assert_eq!(
+        committed_graph(&repo, "HEAD", "g"),
+        instance_to_reference(&graph_of(&[(0, "a"), (1, "a"), (9, "a")]))
+    );
+
+    // A replayed change that depends on one committed since conflicts.
+    stage(&mut repo, "g", &graph_of(&[(0, "a"), (1, "b"), (9, "a")]));
+    repo.commit("node 1 at b", "test").unwrap();
+    match repo.cherry_pick(first, "test") {
+        Err(VcsError::InstanceConflicts { conflicts }) => {
+            let found: Vec<ModelConflict> = conflicts.iter().map(conflict_to_reference).collect();
+            assert_eq!(
+                found,
+                vec![ModelConflict::GraphEdit(
+                    "g".to_owned(),
+                    None,
+                    reference_edit::EditConflict::AddAdd {
+                        elem: reference_edit::GElem::Node(1)
+                    }
+                )]
+            );
+        }
+        other => panic!("expected instance conflicts, got {other:?}"),
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn randomized_graph_rebases_agree_with_the_reference_and_with_the_merge(
+        parent in arbitrary_graph(),
+        tip in arbitrary_graph(),
+        replayed in arbitrary_graph(),
+    ) {
+        let schema = panproto_schema::Schema { protocol: "test".into(), ..Default::default() };
+        let models = [parent, tip, replayed].map(ModelInstance::Graph);
+        let built = [&models[0], &models[1], &models[2]].map(instance_to_production);
+        let actual = production_rebase(&schema, [&built[0], &built[1], &built[2]]);
+        prop_assert_eq!(&actual, &reference_rebase([&models[0], &models[1], &models[2]]));
+        if let Ok(Ok(rebased)) = &actual {
+            prop_assert_eq!(
+                Ok(Ok(rebased.clone())),
+                reference_merge([&models[0], &models[1], &models[2]])
+            );
+        }
+    }
+}

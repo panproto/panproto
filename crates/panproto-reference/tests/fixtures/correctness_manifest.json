@@ -8967,6 +8967,33 @@
               "test": "instance_merges_on_hand_computed_cases"
             }
           ]
+        },
+        {
+          "id": "instance-version-control.rebase",
+          "anchor": "L-instance-version-control-7",
+          "references": [
+            "panproto_reference::pages::instance_version_control::rebase_instances"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_triple_of_the_merge_scope_rebases_as_the_reference_and_as_the_merge_merges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_graph_rebases_agree_with_the_reference_and_with_the_merge"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_rebased_chain_tracks_its_rebased_deltas_applied_in_order_and_a_cherry_pick_replays_one_commit"
+            }
+          ]
         }
       ]
     }

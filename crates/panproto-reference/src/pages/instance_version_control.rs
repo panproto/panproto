@@ -681,21 +681,52 @@ pub fn merge_instances(
     ours: &Instance,
     theirs: &Instance,
 ) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
+    combine(false, key, base, ours, theirs)
+}
+
+/// The replay onto `tip` of the change from `parent` to `replayed`.
+///
+/// It is [`merge_instances`] with `parent` as base, `tip` as ours and
+/// `replayed` as theirs, except that two graph or table deltas combine by
+/// rebasing: the replayed delta, rebased over the tip's by
+/// [`crate::edit::rebase`] or [`crate::edit::rebase_table`], applies to the
+/// tip's instance, and a refused rebase is its one conflict.
+///
+/// # Errors
+///
+/// As [`merge_instances`].
+pub fn rebase_instances(
+    key: &str,
+    parent: &Instance,
+    tip: &Instance,
+    replayed: &Instance,
+) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
+    combine(true, key, parent, tip, replayed)
+}
+
+fn combine(
+    rebase: bool,
+    key: &str,
+    base: &Instance,
+    ours: &Instance,
+    theirs: &Instance,
+) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
     match (base, ours, theirs) {
         (Instance::Graph(b), Instance::Graph(o), Instance::Graph(t)) => {
-            Ok(merge_graphs(key, None, b, o, t)?.map(Instance::Graph))
+            Ok(merge_graphs(rebase, key, None, b, o, t)?.map(Instance::Graph))
         }
         (Instance::Table(table), Instance::Table(ours), Instance::Table(theirs)) => {
-            merge_tables(key, table, ours, theirs)
+            merge_tables(rebase, key, table, ours, theirs)
         }
         (Instance::Trees(b), Instance::Trees(o), Instance::Trees(t)) => {
-            merge_tree_records(key, b, o, t)
+            merge_tree_records(rebase, key, b, o, t)
         }
         _ => Err(Refusal::ShapeMismatch),
     }
 }
 
 fn merge_tables(
+    rebase: bool,
     key: &str,
     base: &crate::model::Table,
     ours: &crate::model::Table,
@@ -703,6 +734,16 @@ fn merge_tables(
 ) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
     let from_ours = crate::edit::diff_table(base, ours);
     let from_theirs = crate::edit::diff_table(base, theirs);
+    if rebase {
+        return Ok(
+            match crate::edit::rebase_table(&from_theirs, std::slice::from_ref(&from_ours)) {
+                Ok(delta) => Ok(Instance::Table(
+                    crate::edit::apply_table(&delta, ours).map_err(|_| Refusal::DoesNotApply)?,
+                )),
+                Err(refused) => Err(vec![Conflict::TableEdit(key.to_owned(), *refused.conflict)]),
+            },
+        );
+    }
     let found = crate::edit::table_independence(&from_ours, &from_theirs);
     if found.is_empty() {
         let delta = crate::edit::merge_table(&from_ours, &from_theirs)
@@ -718,6 +759,7 @@ fn merge_tables(
 }
 
 fn merge_graphs(
+    rebase: bool,
     key: &str,
     record: Option<usize>,
     base: &crate::model::Graph,
@@ -728,6 +770,16 @@ fn merge_graphs(
         crate::edit::diff(base, ours),
         crate::edit::diff(base, theirs),
     );
+    if rebase {
+        return Ok(match crate::edit::rebase(&y, std::slice::from_ref(&x)) {
+            Ok(delta) => Ok(crate::edit::apply(&delta, ours).map_err(|_| Refusal::DoesNotApply)?),
+            Err(refused) => Err(vec![Conflict::GraphEdit(
+                key.to_owned(),
+                record,
+                *refused.conflict,
+            )]),
+        });
+    }
     let found = crate::edit::independence(&x, &y);
     if found.is_empty() {
         let delta = crate::edit::merge(&x, &y).map_err(|_| Refusal::DoesNotApply)?;
@@ -742,6 +794,7 @@ fn merge_graphs(
 }
 
 fn merge_tree_records(
+    rebase: bool,
     key: &str,
     base: &[crate::model::Tree],
     ours: &[crate::model::Tree],
@@ -756,7 +809,7 @@ fn merge_tree_records(
         let kept_by_theirs = index < theirs.len();
         if kept_by_ours && kept_by_theirs {
             let (o, t) = (graph_form(&ours[index])?, graph_form(&theirs[index])?);
-            match merge_graphs(key, Some(index), &b, &o, &t)? {
+            match merge_graphs(rebase, key, Some(index), &b, &o, &t)? {
                 Ok(graph) => match tree_form(&graph) {
                     Ok(tree) => merged.push(tree),
                     Err(_) => conflicts.push(record(index, RecordConflict::NotATree)),
