@@ -4347,14 +4347,15 @@ mod segmented_apply {
     /// at every cancellation point and after resuming; a complete run reads
     /// each segment of the read set once and no other, emits the
     /// reference's edited segments for the read set, and seals the
-    /// reference's manifest; a refused or declined run seals nothing.
+    /// reference's manifest; a refused or declined run seals nothing. It
+    /// returns how the run ended and the cancellation points checked.
     pub fn check_run(
         graph: &reference_model::Graph,
         partition: &segments::Partition,
         delta: &reference::GraphDelta,
         budget: Budget,
         every_point: bool,
-    ) -> RunOutcome {
+    ) -> (RunOutcome, u64) {
         let input = input(graph, partition);
         let production_delta = delta_to_production(delta);
         let source = CountingSource {
@@ -4418,10 +4419,12 @@ mod segmented_apply {
             }
             RunStatus::Incomplete { reason } => panic!("an uninterrupted run stopped: {reason:?}"),
         };
-        if every_point {
-            check_cancellations(&input, partition, delta, budget, &baseline);
-        }
-        outcome
+        let points = if every_point {
+            check_cancellations(&input, partition, delta, budget, &baseline)
+        } else {
+            0
+        };
+        (outcome, points)
     }
 
     /// Stopping the run at every cancellation point and resuming it reports
@@ -4432,7 +4435,7 @@ mod segmented_apply {
         delta: &reference::GraphDelta,
         budget: Budget,
         baseline: &GraphApplyRun,
-    ) {
+    ) -> u64 {
         let production_delta = delta_to_production(delta);
         let run = baseline.run.expect("a run identity");
         let (total, done) = (
@@ -4486,6 +4489,7 @@ mod segmented_apply {
                 Vec::<ArtifactKey>::new()
             );
         }
+        u64::from(total) + 1
     }
 
     /// Every 331st case of the segmented graph edit carrier, run as a
@@ -4494,18 +4498,19 @@ mod segmented_apply {
     #[test]
     fn segmented_apply_run_matches_the_reference_runner_at_every_cancellation_point() {
         let mut outcomes: BTreeMap<RunOutcome, u64> = BTreeMap::new();
+        let mut points = 0;
         for case in carrier::segmented_apply_cases().step_by(331) {
-            *outcomes
-                .entry(check_run(
-                    &case.graph,
-                    &case.partition,
-                    &case.delta,
-                    Budget::unlimited(),
-                    true,
-                ))
-                .or_insert(0) += 1;
+            let (outcome, checked) = check_run(
+                &case.graph,
+                &case.partition,
+                &case.delta,
+                Budget::unlimited(),
+                true,
+            );
+            *outcomes.entry(outcome).or_insert(0) += 1;
+            points += checked;
         }
-        println!("{outcomes:?}");
+        println!("{outcomes:?}, {points} cancellation points");
         assert_eq!(outcomes.values().sum::<u64>(), 2_897);
         assert!(
             outcomes.contains_key(&RunOutcome::Complete)
@@ -4632,7 +4637,7 @@ mod segmented_apply {
             }
             assert_eq!(sealed.instance_digest, None);
             assert_eq!(
-                check_run(&graph, &partition, &delta, Budget::unlimited(), true),
+                check_run(&graph, &partition, &delta, Budget::unlimited(), true).0,
                 RunOutcome::Complete
             );
         }
@@ -4668,7 +4673,7 @@ mod segmented_apply {
         assert_eq!(run.report.progress.phase, Phase::Summarize);
         assert!(sealed_nothing(&store, run.run.expect("a run identity")));
         assert_eq!(
-            check_run(&graph, &partition, &delete, Budget::unlimited(), true),
+            check_run(&graph, &partition, &delete, Budget::unlimited(), true).0,
             RunOutcome::Refused
         );
     }
@@ -4701,7 +4706,7 @@ mod segmented_apply {
             ),
         ] {
             assert_eq!(
-                check_run(&graph, &partition, &delta, budget, true),
+                check_run(&graph, &partition, &delta, budget, true).0,
                 RunOutcome::Declined
             );
             let input = input(&graph, &partition);
