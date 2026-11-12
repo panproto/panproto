@@ -2,6 +2,8 @@
 
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
+// Fused chains, scoped protolenses and sequential composites.
+mod composite;
 mod constructions;
 // The elementary protolens kinds of the lens DSL's step alphabet.
 mod elementary;

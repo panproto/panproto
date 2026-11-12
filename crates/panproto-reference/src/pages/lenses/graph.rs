@@ -256,7 +256,6 @@ fn id_collisions(view: &Graph, c: &Complement) -> Vec<PutDomainError> {
         .collect()
 }
 
-/// The put-domain error of a value layer's field refusal at `elem`.
 /// The clause (5) refusal of a view whose restored source get refuses:
 /// `SurvivalPredicateRefused` at the element the refusal names (an edge at
 /// the edge stage, a node otherwise, node 0 when it names none), carrying a
@@ -309,6 +308,7 @@ fn next_get_refusal(refusal: crate::restrict::RestrictError) -> Option<PutDomain
     Some(PutDomainError::SurvivalPredicateRefused { elem, refusal })
 }
 
+/// The put-domain error of a value layer's field refusal at `elem`.
 fn field_refusal(elem: ViewRef, refusal: PutFieldRefusal) -> PutDomainError {
     match refusal {
         PutFieldRefusal::DerivedCellEdited { field } => {
