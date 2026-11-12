@@ -214,16 +214,16 @@ json_wtype_roundtrip!(
     "cddl",
     "../fixtures/data_schema/cddl_instance.json"
 );
-/// A binary BSON document (the corpus's document of every non-deprecated
-/// and deprecated type) decodes into the BSON tree encoding and encodes
-/// back to the same bytes.
+/// A binary BSON document holding one element of each of the 21 BSON 1.1
+/// types, the deprecated ones included, decodes into the BSON tree encoding
+/// and encodes back to the same bytes.
 #[test]
 fn roundtrip_bson() {
     let reg = registry();
     let schema = panproto_protocols::data_schema::bson::tree_schema().expect("bson tree schema");
     let input = include_bytes!("../fixtures/data_schema/bson_instance.bson");
     let instance = reg.parse_wtype("bson", &schema, input).expect("parse bson");
-    assert_eq!(instance.node_count(), 65);
+    assert_eq!(instance.node_count(), 50);
     let emitted = reg
         .emit_wtype("bson", &schema, &instance)
         .expect("emit bson");
