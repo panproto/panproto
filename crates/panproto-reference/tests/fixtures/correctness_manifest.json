@@ -5535,6 +5535,40 @@
               "test": "segmented_randomized::carrying_tasks_over_matches_the_reference_runner_on_generated_graph_pairs"
             }
           ]
+        },
+        {
+          "id": "segments.held-restrict-numbering",
+          "anchor": "L-segments-30",
+          "references": [
+            "panproto_reference::segment::restrict_graph_segmented_held",
+            "panproto_reference::segment::segmented_restrict_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_held::stable_numbering_agrees_with_the_reference_reproduces_an_unchanged_family_and_keeps_persisting_ids"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_held::a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::stable_numbering_matches_the_reference_on_generated_graph_pairs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_generated_graph_pairs"
+            }
+          ]
         }
       ]
     },
