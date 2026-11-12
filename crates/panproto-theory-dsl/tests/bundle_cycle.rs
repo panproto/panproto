@@ -32,7 +32,7 @@ fn bundle_reference_cycle_surfaces_as_theory_not_found() {
     // is listed after ThA).
     let resolver = |_name: &str| -> Option<Theory> { None };
     let err = compile(&doc, &resolver).expect_err("mutual import cycle must not compile");
-    match err {
+    match err.unlocated() {
         TheoryDslError::TheoryNotFound { name, .. } => {
             assert_eq!(
                 name, "ThB",
