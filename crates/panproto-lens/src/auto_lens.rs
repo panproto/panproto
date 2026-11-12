@@ -1613,8 +1613,7 @@ fn derive_field_transforms(
                 }
             }
             TheoryTransform::AddDirectedEquation(deq) => {
-                for (vertex, transform) in
-                    crate::protolens::directed_equation_transforms(deq, src)
+                for (vertex, transform) in crate::protolens::directed_equation_transforms(deq, src)
                 {
                     transforms.entry(vertex).or_default().push(transform);
                 }

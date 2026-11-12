@@ -6750,7 +6750,8 @@ mod merges_and_directed_equations_keep_and_rewrite_data {
         source.insert_node(node)?;
         let (mut view, complement) = crate::graph_lens::get(&lens, &source)?;
         assert_eq!(
-            view.node(0).and_then(|node| node.extra_fields.get("n").cloned()),
+            view.node(0)
+                .and_then(|node| node.extra_fields.get("n").cloned()),
             Some(Value::Int(6))
         );
         if let Some(node) = view.node_mut(0) {

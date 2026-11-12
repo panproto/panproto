@@ -125,10 +125,7 @@ impl FieldProgram {
                     forward,
                     ..
                 } => {
-                    let image = fields
-                        .get(*source)
-                        .and_then(forward)
-                        .ok_or(*target)?;
+                    let image = fields.get(*source).and_then(forward).ok_or(*target)?;
                     fields.insert((*target).to_owned(), image);
                     executed.push(index);
                 }
@@ -188,9 +185,7 @@ impl FieldProgram {
             .collect();
         // A field no executed step writes is the view's, present or absent.
         let mut fields = baseline;
-        fields.retain(|key, _| {
-            self.touches(run.executed.iter(), key) || shown.contains_key(key)
-        });
+        fields.retain(|key, _| self.touches(run.executed.iter(), key) || shown.contains_key(key));
         for (key, value) in shown {
             if !self.touches(run.executed.iter(), key) {
                 fields.insert(key.clone(), value.clone());
@@ -339,9 +334,7 @@ impl ValueLayer for FieldProgram {
         let Ok(replay) = self.run(&restored) else {
             return Ok((restored, view.value.clone()));
         };
-        match self.replay_refusal(&view.fields, &run, &replay) {
-            Some(refusal) => Err(refusal),
-            None => Ok((restored, view.value.clone())),
-        }
+        self.replay_refusal(&view.fields, &run, &replay)
+            .map_or_else(|| Ok((restored, view.value.clone())), Err)
     }
 }
