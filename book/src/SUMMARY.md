@@ -115,6 +115,7 @@
   - [PostgreSQL data](./correctness/postgresql-data.md)
   - [RDF formats](./correctness/rdf-formats.md)
   - [Edge lists](./correctness/edge-lists.md)
+  - [Kubernetes CRDs](./correctness/kubernetes-crds.md)
   - [Migration search](./correctness/migration-search.md)
   - [Schema merge](./correctness/schema-merge.md)
 

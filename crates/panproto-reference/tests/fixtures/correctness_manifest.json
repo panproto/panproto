@@ -7183,6 +7183,87 @@
         "crates/panproto-reference/src/pages/schema_merge.rs",
         "crates/panproto-reference/src/enumerate/schema_merge.rs"
       ]
+    },
+    "kubernetes-crds": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/kubernetes_crds.rs",
+        "crates/panproto-reference/src/enumerate/kubernetes_crds.rs"
+      ],
+      "laws": [
+        {
+          "id": "kubernetes-crds.reading",
+          "anchor": "L-kubernetes-crds-1",
+          "references": [
+            "panproto_reference::pages::kubernetes_crds::read",
+            "panproto_reference::pages::kubernetes_crds::render_yaml"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "crd_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "randomized_crds_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "a_crd_reads_as_its_resource_versions_and_schema_nodes"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "crd_refusals_name_the_field_and_the_rule"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "unresolved_required_entries_are_reported_and_list_maps_declare_keys"
+            }
+          ]
+        },
+        {
+          "id": "kubernetes-crds.canonical-writing",
+          "anchor": "L-kubernetes-crds-2",
+          "references": [
+            "panproto_reference::pages::kubernetes_crds::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "crd_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "randomized_crds_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "the_canonical_crd_orders_fields_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "the_crd_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }

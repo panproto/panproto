@@ -162,12 +162,19 @@ fn get(doc: &Doc, key: &str) -> Doc {
 /// changed in one field outside the schema.
 #[must_use]
 pub fn envelopes() -> Vec<Doc> {
+    let mut out = header_envelopes();
+    out.extend(trailing_envelopes());
+    out
+}
+
+/// The first 18 envelopes: the header, metadata and spec fields up to the
+/// root schema.
+fn header_envelopes() -> Vec<Doc> {
     let a = || root(vec![("a".into(), m(&[("type", s("string"))]))]);
     let base = crd(vec![version("v1", true, a())], &[], &[]);
     let spec = get(&base, "spec");
     let with_spec =
         |key: &str, value: Option<Doc>| set(&base, "spec", Some(set(&spec, key, value)));
-    let names = get(&spec, "names");
     vec![
         set(&base, "apiVersion", Some(s("apiextensions.k8s.io/v1beta1"))),
         set(&base, "kind", Some(s("Foo"))),
@@ -220,6 +227,19 @@ pub fn envelopes() -> Vec<Doc> {
                 m(&[("type", s("string"))]),
             )])),
         ),
+    ]
+}
+
+/// The last 6 envelopes: status, the full names, and further version
+/// fields.
+fn trailing_envelopes() -> Vec<Doc> {
+    let a = || root(vec![("a".into(), m(&[("type", s("string"))]))]);
+    let base = crd(vec![version("v1", true, a())], &[], &[]);
+    let spec = get(&base, "spec");
+    let with_spec =
+        |key: &str, value: Option<Doc>| set(&base, "spec", Some(set(&spec, key, value)));
+    let names = get(&spec, "names");
+    vec![
         set(
             &base,
             "status",
