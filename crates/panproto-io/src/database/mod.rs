@@ -19,6 +19,9 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
         registry.register_optional(UnifiedCodec::json("cassandra"));
         registry.register_optional(UnifiedCodec::json("neo4j"));
         registry.register_table(crate::postgresql::PostgresqlCodec);
+        registry.register_resolution_provider(std::sync::Arc::new(
+            crate::postgresql::ForeignKeyResolution::new(),
+        ));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

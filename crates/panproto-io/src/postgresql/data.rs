@@ -139,13 +139,43 @@ pub fn read_data(
 ) -> Result<DumpReading, SqlDataError> {
     let tree = parse(src)?;
     let script = Script::read(src, &tree, true);
-    let reading = read_statements(script.statements, others)?;
+    let mut not_read = Vec::new();
+    for statement in script.statements {
+        match statement? {
+            Statement::NotRead(statement) if others == OtherStatements::List => {
+                not_read.push(statement);
+            }
+            Statement::NotRead(statement) => {
+                return Err(SqlDdlError::Unsupported {
+                    offset: statement.offset,
+                    feature: statement.statement.to_owned(),
+                }
+                .into());
+            }
+            // A data-only script's schema statements are refused as it is
+            // read.
+            _ => {}
+        }
+    }
     let instance = rows(src, schema, &script.inserts)?;
     Ok(DumpReading {
         schema: schema.clone(),
         instance,
-        not_read: reading.not_read,
+        not_read,
     })
+}
+
+/// Whether a script declares or changes a table, type or key: whether it
+/// is read as a dump rather than as data-only.
+fn declares_schema(src: &str) -> Result<bool, SqlDdlError> {
+    let tree = parse(src)?;
+    let w = Walk { src };
+    Ok(children(tree.root_node())
+        .into_iter()
+        .filter(|top| top.kind() == "toplevel_stmt" && !top.has_error())
+        .filter_map(|top| child(top, "stmt").and_then(|s| children(s).into_iter().next()))
+        .filter(|body| !matches!(body.kind(), "InsertStmt" | "VariableSetStmt"))
+        .any(|body| matches!(w.statement(body), Ok(s) if !matches!(s, Statement::NotRead(_)))))
 }
 
 /// One `INSERT` statement to read once the schema is known.
@@ -985,13 +1015,12 @@ impl crate::traits::TableInstanceParser for PostgresqlCodec {
             }
             other => parse_error(other.to_string()),
         };
-        let reading = read_dump(src, OtherStatements::List).map_err(refused)?;
-        let declares_tables = reading.schema.vertices.values().any(|v| v.kind == "table");
-        if !declares_tables {
+        if !declares_schema(src).map_err(|e| refused(e.into()))? {
             return Ok(read_data(src, schema, OtherStatements::List)
                 .map_err(refused)?
                 .instance);
         }
+        let reading = read_dump(src, OtherStatements::List).map_err(refused)?;
         let ddl = |s: &Schema| panproto_protocols::database::postgresql::emit_ddl(s).ok();
         if ddl(&reading.schema) != ddl(schema) || ddl(schema).is_none() {
             return Err(ParseInstanceError::SchemaMismatch {

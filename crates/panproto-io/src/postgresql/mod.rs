@@ -17,6 +17,7 @@
 //! syntax is refused at the first place the parser could not read.
 
 mod data;
+mod resolution;
 mod values;
 
 use std::cell::RefCell;
@@ -34,6 +35,7 @@ pub use data::{
     DumpReading, PostgresqlCodec, SqlDataError, WriteRefusal, read_data, read_dump, write_data,
     write_dump,
 };
+pub use resolution::{ForeignKeyResolution, resolve_foreign_keys};
 pub use values::ValueRefusal;
 
 /// The name the grammar is bundled under.

@@ -190,7 +190,7 @@ fn standard_conforming_strings_off_reads_backslash_escapes() {
         Value::Str("a\tb".into())
     );
     let quoted = format!(
-        "{TYPES}SET standard_conforming_strings = off;\nINSERT INTO t (id, body) VALUES (1, 'a\\'');"
+        "{TYPES}SET standard_conforming_strings = off;\nINSERT INTO t (id, body) VALUES (1, 'a\\''');"
     );
     assert!(matches!(
         read_dump(&quoted, OtherStatements::List),
