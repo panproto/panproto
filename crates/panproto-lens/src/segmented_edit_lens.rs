@@ -61,6 +61,13 @@ use crate::Lens;
 use crate::graph_lens::{HeldView, SegmentedPutError, put_segmented_run};
 use crate::shape_edit_lens::{EditShape, ShapeEditError, ShapeEditLens, get_refusal, incoherent};
 
+mod table;
+
+pub use table::{
+    SegmentedTable, SegmentedTableContext, SegmentedTableEditLens, SegmentedTableHeld,
+    SegmentedTableShape, SegmentedTableStaged,
+};
+
 /// What a segmented graph edit lens binds: the manifest sealing a source
 /// family, its trusted digest, a source of its segments' canonical bytes,
 /// and the store every run of the lens commits to.
@@ -315,16 +322,17 @@ fn put_refusal(error: SegmentedPutError) -> ShapeEditError {
     }
 }
 
-/// The segments the differ of `input` from the family `before` seals to
-/// the one `after` seals must read: every segment whose record differs by
-/// content, every segment owning an element `input` replaces (whose
-/// replacement the differ keeps even when the payloads agree), and every
+/// The segments the differ from the family `before` seals to the one
+/// `after` seals must read: every segment whose record differs by content,
+/// every segment owning one of the nodes or rows `replaced` (the elements an
+/// input delta replaces, whose replacement the differ keeps even when the
+/// payloads agree, given by their node, row or source row), and every
 /// segment either record of those names as a cross peer, which holds the
-/// edges entering them.
+/// edges or pairs entering them.
 fn differ_segments(
     (before, after): (&SegmentManifest, &SegmentManifest),
     partition: &Partition,
-    input: &GraphDelta,
+    replaced: impl IntoIterator<Item = u32>,
 ) -> BTreeSet<SegmentId> {
     let content = |manifest: &SegmentManifest, id: SegmentId| {
         manifest.record(id).map(|record| record.content)
@@ -336,19 +344,9 @@ fn differ_segments(
         .chain(before.segments.iter().map(|record| record.id))
         .filter(|id| content(before, *id) != content(after, *id))
         .collect();
-    let replaced_nodes = input
-        .del_nodes()
-        .keys()
-        .filter(|id| input.add_nodes().contains_key(id))
-        .copied();
-    let replaced_edges = input
-        .del_edges()
-        .iter()
-        .filter_map(|(id, old)| input.add_edges().get(id).map(|new| [old.src, new.src]))
-        .flatten();
     touched.extend(
-        replaced_nodes
-            .chain(replaced_edges)
+        replaced
+            .into_iter()
             .filter_map(|node| partition.owner_of_node(node)),
     );
     let mut read = touched.clone();
@@ -361,6 +359,22 @@ fn differ_segments(
         }
     }
     read
+}
+
+/// The nodes a graph delta replaces, and the sources of the edges it
+/// replaces.
+fn graph_replaced(input: &GraphDelta) -> Vec<u32> {
+    let replaced_nodes = input
+        .del_nodes()
+        .keys()
+        .filter(|id| input.add_nodes().contains_key(id))
+        .copied();
+    let replaced_edges = input
+        .del_edges()
+        .iter()
+        .filter_map(|(id, old)| input.add_edges().get(id).map(|new| [old.src, new.src]))
+        .flatten();
+    replaced_nodes.chain(replaced_edges).collect()
 }
 
 /// The graph the segments `ids` hold, each read by `segment`: their owned
@@ -400,7 +414,7 @@ fn family_delta(
     read_after: &mut dyn FnMut(SegmentId) -> Result<AnySegment, ShapeEditError>,
     input: &GraphDelta,
 ) -> Result<GraphDelta, ShapeEditError> {
-    let read = differ_segments((before, after), partition, input);
+    let read = differ_segments((before, after), partition, graph_replaced(input));
     let old = held_graph(&read, read_before)?;
     let new = held_graph(&read, read_after)?;
     GraphDelta::diff_keeping_replacements(&old, &new, input)

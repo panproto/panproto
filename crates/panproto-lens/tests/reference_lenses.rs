@@ -23037,13 +23037,13 @@ mod segmented_table_put {
     }
 
     /// The column of a table of the carrier.
-    fn column(table: &str) -> &'static str {
+    pub fn column(table: &str) -> &'static str {
         if table == "a" { "x" } else { "y" }
     }
 
     /// The view tables of a lens of the carrier with whether each has its
     /// column, and its view relations.
-    fn view_schema(pair: &TablePair) -> (Vec<(String, bool)>, Vec<RefSEdge>) {
+    pub fn view_schema(pair: &TablePair) -> (Vec<(String, bool)>, Vec<RefSEdge>) {
         let tables = ["a", "b"]
             .into_iter()
             .filter(|table| pair.tgt.vertices.contains_key(*table))
@@ -23776,8 +23776,918 @@ mod segmented_table_put {
     }
 }
 
-/// Collection of segmented run artifacts against its reference definition,
-/// and runs resumed after collection.
+/// The segmented table edit lens against its reference definition and the
+/// whole-state table edit lens.
+mod segmented_table_edit_lens {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::RowId;
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, EdgeIdRun, ManifestHeader, ManifestRole, MemoryStore,
+        MissingSegment, Partition, RecordSource, RunJournal, SegmentId, SegmentManifest,
+        SegmentRecord, SegmentStore, TaskRecord, partition_table, read_emitted_segment, seal_full,
+    };
+    use panproto_inst::table_delta::{CellChange, TableChange, TableDelta, TableDeltaParts};
+    use panproto_lens::{
+        SegmentedTable, SegmentedTableContext, SegmentedTableEditLens, ShapeEditError,
+        TableContext, TableEditLens,
+    };
+    use panproto_reference::edit::{TElem, TKey, TPayload, TVal, TableDelta as RefTableDelta};
+    use panproto_reference::enumerate::edits::{TableLetterSchema, table_edit_lens_letters};
+    use panproto_reference::enumerate::segments::{
+        segmented_table_put_partitions, segmented_table_put_tables,
+    };
+    use panproto_reference::segment as reference;
+    use panproto_reference::value::Value as RefValue;
+
+    use super::segmented_table_get::{LENSES, SOURCE_SCHEMA, lens, prod_partition};
+    use super::segmented_table_put::{column, view_schema};
+    use super::{
+        RefSEdge, RefTable, TablePair, prod_edge, prod_table, prod_value, ref_edge, ref_table,
+        ref_value,
+    };
+
+    type Lens<St> = SegmentedTableEditLens<BTreeMap<SegmentId, Vec<u8>>, St>;
+    type Bound = Lens<MemoryStore>;
+
+    const VALUES: [RefValue; 2] = [RefValue::Int(0), RefValue::Int(1)];
+
+    /// A carrier partition with the identifiers `3` to `9` given to its
+    /// last segment, so a row an edit adds at the fresh identifier has an
+    /// owner.
+    pub fn edit_partition(partition: &reference::Partition) -> reference::Partition {
+        let mut partition = partition.clone();
+        if let Some(last) = partition.specs.last_mut() {
+            last.nodes.push(reference::IdRange { lo: 3, hi: 9 });
+        }
+        partition
+    }
+
+    /// The production delta of a reference table delta.
+    pub fn production_delta(delta: &RefTableDelta) -> TableDelta {
+        let mut parts = TableDeltaParts::default();
+        for (side, map) in [(true, &delta.del), (false, &delta.add)] {
+            for (element, payload) in map {
+                match (element, payload) {
+                    (TElem::Row(id), TPayload::Row(table, cells)) => {
+                        let row = (
+                            table.as_str().into(),
+                            cells
+                                .iter()
+                                .map(|(column, value)| (column.clone(), prod_value(value)))
+                                .collect(),
+                        );
+                        if side {
+                            parts.del_rows.insert(RowId(*id), row);
+                        } else {
+                            parts.add_rows.insert(RowId(*id), row);
+                        }
+                    }
+                    (TElem::Pair(edge, src, tgt), TPayload::Pair) => {
+                        let pair = (prod_edge(edge), RowId(*src), RowId(*tgt));
+                        if side {
+                            parts.del_pairs.insert(pair);
+                        } else {
+                            parts.add_pairs.insert(pair);
+                        }
+                    }
+                    other => panic!("cross-sort reference table element: {other:?}"),
+                }
+            }
+        }
+        for (key, (old, new)) in &delta.attrs {
+            match (key, old, new) {
+                (TKey::Cell(row, column), TVal::Cell(old), TVal::Cell(new)) => {
+                    parts.cells.insert(
+                        (RowId(*row), column.clone()),
+                        CellChange {
+                            old: old.as_ref().map(prod_value),
+                            new: new.as_ref().map(prod_value),
+                        },
+                    );
+                }
+                (TKey::Table(row), TVal::Table(old), TVal::Table(new)) => {
+                    parts.tables.insert(
+                        RowId(*row),
+                        TableChange {
+                            old: old.as_str().into(),
+                            new: new.as_str().into(),
+                        },
+                    );
+                }
+                other => panic!("cross-sort reference table attribute: {other:?}"),
+            }
+        }
+        TableDelta::normalize(parts)
+    }
+
+    /// The reference delta of a production table delta.
+    pub fn reference_delta(delta: &TableDelta) -> RefTableDelta {
+        let mut out = RefTableDelta::identity();
+        let row = |table: &panproto_gat::Name, cells: &panproto_inst::Row| {
+            TPayload::Row(
+                table.to_string(),
+                cells
+                    .iter()
+                    .map(|(column, value)| (column.clone(), ref_value(value)))
+                    .collect(),
+            )
+        };
+        for (id, (table, cells)) in delta.del_rows() {
+            out.del.insert(TElem::Row(id.0), row(table, cells));
+        }
+        for (id, (table, cells)) in delta.add_rows() {
+            out.add.insert(TElem::Row(id.0), row(table, cells));
+        }
+        for (edge, src, tgt) in delta.del_pairs() {
+            out.del
+                .insert(TElem::Pair(ref_edge(edge), src.0, tgt.0), TPayload::Pair);
+        }
+        for (edge, src, tgt) in delta.add_pairs() {
+            out.add
+                .insert(TElem::Pair(ref_edge(edge), src.0, tgt.0), TPayload::Pair);
+        }
+        for ((row, column), change) in delta.cells() {
+            out.attrs.insert(
+                TKey::Cell(row.0, column.clone()),
+                (
+                    TVal::Cell(change.old.as_ref().map(ref_value)),
+                    TVal::Cell(change.new.as_ref().map(ref_value)),
+                ),
+            );
+        }
+        for (row, change) in delta.tables() {
+            out.attrs.insert(
+                TKey::Table(row.0),
+                (
+                    TVal::Table(change.old.to_string()),
+                    TVal::Table(change.new.to_string()),
+                ),
+            );
+        }
+        out
+    }
+
+    /// The one-letter edits of the table edit lens carrier at `table` over
+    /// the tables and relations `(tables, relations)`.
+    pub fn letters(
+        (tables, relations): &(Vec<(String, bool)>, Vec<RefSEdge>),
+        table: &RefTable,
+    ) -> Vec<RefTableDelta> {
+        let columns: Vec<(String, Vec<&str>)> = tables
+            .iter()
+            .map(|(name, has)| {
+                let columns = if *has { vec![column(name)] } else { Vec::new() };
+                (name.clone(), columns)
+            })
+            .collect();
+        let tables: Vec<(&str, &[&str])> = columns
+            .iter()
+            .map(|(name, columns)| (name.as_str(), columns.as_slice()))
+            .collect();
+        table_edit_lens_letters(
+            TableLetterSchema {
+                tables: &tables,
+                relations,
+                values: &VALUES,
+            },
+            table,
+        )
+    }
+
+    /// The source letter schema: tables `a` and `b` with their columns and
+    /// the relations `ab` and `ba`.
+    pub fn source_schema(pair: &TablePair) -> (Vec<(String, bool)>, Vec<RefSEdge>) {
+        let tables = vec![("a".to_owned(), true), ("b".to_owned(), true)];
+        let relations = pair
+            .src
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == "relation")
+            .cloned()
+            .collect();
+        (tables, relations)
+    }
+
+    /// A sealed source family with its segment bytes.
+    pub struct Sealed {
+        pub manifest: SegmentManifest,
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        pub partition: Partition,
+    }
+
+    /// Seal the production segments of `table` under `partition`.
+    pub fn sealed(table: &RefTable, partition: &reference::Partition) -> Sealed {
+        let partition = prod_partition(partition);
+        let segments: Vec<AnySegment> = partition_table(&prod_table(table), &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Table)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter())
+                        as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: panproto_inst::InstanceShapeKind::Table,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Sealed {
+            manifest,
+            bytes,
+            partition,
+        }
+    }
+
+    /// An owned copy of the production lens of `pair`.
+    fn owned_lens(pair: &TablePair) -> panproto_lens::Lens {
+        panproto_lens::Lens {
+            compiled: pair.production.compiled.clone(),
+            src_schema: pair.production.src_schema.clone(),
+            tgt_schema: pair.production.tgt_schema.clone(),
+        }
+    }
+
+    fn context(pair: &TablePair) -> SegmentedTableContext {
+        SegmentedTableContext {
+            budget: Budget::unlimited(),
+            tables: TableContext {
+                src: pair.protocol.clone(),
+                tgt: pair.protocol.clone(),
+            },
+        }
+    }
+
+    /// Bind the lens of `pair` to `sealed`, committing to `store`.
+    fn bind<St: SegmentStore>(
+        pair: &TablePair,
+        sealed: &Sealed,
+        store: St,
+    ) -> Result<Lens<St>, ShapeEditError> {
+        SegmentedTableEditLens::segmented_table(
+            owned_lens(pair),
+            context(pair),
+            SegmentedTable {
+                manifest: sealed.manifest.clone(),
+                input: sealed.manifest.digest(),
+                segments: sealed.bytes.clone(),
+                store,
+            },
+        )
+    }
+
+    /// The segments a run emitted, as reference values glued.
+    fn glued_view<St: SegmentStore>(lens: &Lens<St>, partition: &Partition) -> RefTable {
+        let state = lens.segmented_table_state();
+        let store = state.store();
+        let segments = partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let (segment, _) =
+                    read_emitted_segment(&*store, state.get_run(), partition, spec.id)
+                        .expect("a view segment");
+                let AnySegment::Table(segment) = segment else {
+                    panic!("a table segment");
+                };
+                segment
+            })
+            .collect::<Vec<_>>();
+        ref_table(
+            &panproto_inst::segment::assemble_table(segments, partition).expect("the view glues"),
+        )
+    }
+
+    /// The glued source a lens holds.
+    fn glued_source<St: SegmentStore>(lens: &Lens<St>, partition: &Partition) -> RefTable {
+        let state = lens.segmented_table_state();
+        let segments = partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let bytes = state.source_segment(spec.id).expect("a source segment");
+                let AnySegment::Table(segment) =
+                    AnySegment::from_canonical_bytes(&bytes, partition)
+                        .expect("decodes")
+                        .0
+                else {
+                    panic!("a table segment");
+                };
+                segment
+            })
+            .collect::<Vec<_>>();
+        ref_table(
+            &panproto_inst::segment::assemble_table(segments, partition).expect("the source glues"),
+        )
+    }
+
+    /// The independent count of [`letters`].
+    fn letter_count(
+        (tables, relations): &(Vec<(String, bool)>, Vec<RefSEdge>),
+        table: &RefTable,
+    ) -> u64 {
+        let columns: Vec<(String, Vec<&str>)> = tables
+            .iter()
+            .map(|(name, has)| {
+                let columns = if *has { vec![column(name)] } else { Vec::new() };
+                (name.clone(), columns)
+            })
+            .collect();
+        let tables: Vec<(&str, &[&str])> = columns
+            .iter()
+            .map(|(name, columns)| (name.as_str(), columns.as_slice()))
+            .collect();
+        u64::try_from(
+            panproto_reference::enumerate::edits::table_edit_lens_letter_count(
+                TableLetterSchema {
+                    tables: &tables,
+                    relations,
+                    values: &VALUES,
+                },
+                table,
+            ),
+        )
+        .expect("a count")
+    }
+
+    /// Per-segment narrowing of an admitted source letter: the lens read,
+    /// in order, the segments the reference's read set of the letter names
+    /// and then the source segments the reference's edit changed, and every
+    /// source segment outside the read set keeps its record. Returns the
+    /// number of segments read.
+    fn check_narrowing(
+        lens: &Bound,
+        before: &SegmentManifest,
+        (state, next): (
+            &reference::SegmentedTableEditState,
+            &reference::SegmentedTableEditState,
+        ),
+        letter: &RefTableDelta,
+        partition: &reference::Partition,
+    ) -> u64 {
+        let read_set = reference::table_read_set(letter, partition);
+        let mut expected: Vec<SegmentId> = read_set.iter().map(|id| SegmentId(id.0)).collect();
+        expected.extend(
+            state
+                .source
+                .iter()
+                .zip(&next.source)
+                .filter(|(old, new)| old != new)
+                .map(|(old, _)| SegmentId(old.segment.0)),
+        );
+        let held = lens.segmented_table_state();
+        assert_eq!(
+            held.reads(),
+            expected.as_slice(),
+            "the segments {letter:?} reads"
+        );
+        for record in &held.source_manifest().segments {
+            if !read_set.contains(&reference::SegmentId(record.id.0)) {
+                assert_eq!(
+                    before.record(record.id).map(|old| old.content),
+                    Some(record.content),
+                    "an unaffected segment keeps its record under {letter:?}"
+                );
+            }
+        }
+        u64::try_from(expected.len()).expect("a count")
+    }
+
+    /// What the certificate showed.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub struct Tally {
+        pub bound: u64,
+        pub bind_refused: u64,
+        pub source_admitted: u64,
+        pub source_refused: u64,
+        pub view_admitted: u64,
+        pub view_refused: u64,
+        /// Source letters by the independent count of the letter carrier.
+        pub source_letters: u64,
+        /// View letters by the independent count of the letter carrier.
+        pub view_letters: u64,
+        /// Segments the admitted source letters read.
+        pub reads: u64,
+    }
+
+    /// Check one carrier case: bind, then translate every source letter and
+    /// put back every view letter, each on a freshly bound lens, against the
+    /// reference definition and the whole-state table edit lens.
+    pub fn check_case(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+        tally: &mut Tally,
+    ) {
+        check_letters(pair, table, &edit_partition(partition), &|_| true, tally);
+    }
+
+    /// Check the letters of one case that `select` admits by position,
+    /// source letters first, under `partition` as given.
+    pub fn check_letters(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+        select: &dyn Fn(usize) -> bool,
+        tally: &mut Tally,
+    ) {
+        let partition = partition.clone();
+        let sealed = sealed(table, &partition);
+        let source_segments = reference::partition_table(table, &partition).expect("split");
+        let state = pair.with_reference(|lens, _| {
+            reference::bind_segmented_table_edit(lens, &source_segments, &partition)
+        });
+        let mut store = MemoryStore::default();
+        let bound = bind(pair, &sealed, std::mem::take(&mut store));
+        let (bound, state) = match (bound, state) {
+            (Ok(bound), Ok(state)) => (bound, state),
+            (Err(_), Err(_)) => {
+                tally.bind_refused += 1;
+                return;
+            }
+            outcomes => panic!("binding disagrees on {table:?}: {outcomes:?}"),
+        };
+        tally.bound += 1;
+        let base_store = bound.segmented_table_state().store().clone();
+        let view = reference::assemble_table(&state.views, &partition).expect("glued view");
+        assert_eq!(
+            glued_view(&bound, &sealed.partition),
+            view,
+            "the bound view"
+        );
+        let fresh = || bind(pair, &sealed, base_store.clone()).expect("rebinding");
+        let whole = || {
+            TableEditLens::new(owned_lens(pair), prod_table(table), context(pair).tables)
+                .expect("whole-state binding")
+        };
+        tally.source_letters += letter_count(&source_schema(pair), table);
+        tally.view_letters += letter_count(&view_schema(pair), &view);
+        let source_letters = letters(&source_schema(pair), table);
+        let offset = source_letters.len();
+        for (at, letter) in source_letters.into_iter().enumerate() {
+            if !select(at) {
+                continue;
+            }
+            let mut lens = fresh();
+            let before = lens.segmented_table_state().source_manifest().clone();
+            let production = lens.get_edit(&production_delta(&letter)).map_err(drop);
+            let expected = pair.with_reference(|reference_lens, _| {
+                reference::segmented_table_edit_get(reference_lens, &state, &partition, &letter)
+                    .map_err(drop)
+            });
+            let whole_state = whole().get_edit(&production_delta(&letter));
+            match (&production, &expected) {
+                (Ok(step), Ok((delta, next))) => {
+                    assert_eq!(
+                        reference_delta(&step.view_delta),
+                        *delta,
+                        "view delta of {letter:?}"
+                    );
+                    let whole_state = whole_state.expect("the whole-state lens admits it");
+                    assert_eq!(
+                        step.view_delta, whole_state.view_delta,
+                        "whole-state view delta"
+                    );
+                    assert_eq!(
+                        glued_view(&lens, &sealed.partition),
+                        reference::assemble_table(&next.views, &partition).expect("glue")
+                    );
+                    assert_eq!(
+                        glued_source(&lens, &sealed.partition),
+                        reference::assemble_table(&next.source, &partition).expect("glue")
+                    );
+                    tally.reads +=
+                        check_narrowing(&lens, &before, (&state, next), &letter, &partition);
+                    tally.source_admitted += 1;
+                }
+                (Err(()), Err(())) => {
+                    assert_eq!(
+                        glued_view(&lens, &sealed.partition),
+                        view,
+                        "a refusal changes nothing"
+                    );
+                    tally.source_refused += 1;
+                }
+                outcomes => panic!(
+                    "get_edit disagrees on {letter:?} at {table:?} under {partition:?}: {outcomes:?}"
+                ),
+            }
+        }
+        for (at, letter) in letters(&view_schema(pair), &view).into_iter().enumerate() {
+            if select(offset + at) {
+                let case = Bound3 {
+                    pair,
+                    sealed: &sealed,
+                    partition: &partition,
+                    state: &state,
+                    view: &view,
+                };
+                check_view_letter(&case, fresh(), whole(), &letter, tally);
+            }
+        }
+    }
+
+    /// One bound case as both sides hold it.
+    struct Bound3<'a> {
+        pair: &'a TablePair,
+        sealed: &'a Sealed,
+        partition: &'a reference::Partition,
+        state: &'a reference::SegmentedTableEditState,
+        view: &'a RefTable,
+    }
+
+    /// Put back one view letter on a freshly bound lens against the
+    /// reference and the whole-state lens.
+    fn check_view_letter(
+        case: &Bound3<'_>,
+        mut lens: Bound,
+        mut whole: TableEditLens,
+        letter: &RefTableDelta,
+        tally: &mut Tally,
+    ) {
+        let Bound3 {
+            pair,
+            sealed,
+            partition,
+            state,
+            view,
+        } = case;
+        let production = lens.put_edit(&production_delta(letter)).map_err(drop);
+        let expected = pair.with_reference(|reference_lens, _| {
+            reference::segmented_table_edit_put(reference_lens, state, partition, letter)
+                .map_err(drop)
+        });
+        match (&production, &expected) {
+            (Ok(step), Ok((delta, next))) => {
+                assert_eq!(
+                    reference_delta(&step.source_delta),
+                    *delta,
+                    "source delta of {letter:?}"
+                );
+                let whole_state = whole
+                    .put_edit(&production_delta(letter))
+                    .expect("the whole-state lens admits it");
+                assert_eq!(
+                    step.source_delta, whole_state.source_delta,
+                    "whole-state source delta"
+                );
+                assert_eq!(
+                    glued_view(&lens, &sealed.partition),
+                    reference::assemble_table(&next.views, partition).expect("glue")
+                );
+                assert_eq!(
+                    glued_source(&lens, &sealed.partition),
+                    reference::assemble_table(&next.source, partition).expect("glue")
+                );
+                tally.view_admitted += 1;
+            }
+            (Err(()), Err(())) => {
+                assert_eq!(
+                    glued_view(&lens, &sealed.partition),
+                    **view,
+                    "a refusal changes nothing"
+                );
+                tally.view_refused += 1;
+            }
+            outcomes => panic!(
+                "put_edit disagrees on {letter:?} at {view:?} under {partition:?}: {outcomes:?}"
+            ),
+        }
+    }
+
+    /// Run [`check_case`] on the carrier cases whose position `select`
+    /// admits: the number of cases, of selected cases, and the tally.
+    fn sweep(select: impl Fn(usize) -> bool) -> (usize, usize, Tally) {
+        let tables = segmented_table_put_tables();
+        let partitions = segmented_table_put_partitions();
+        let mut tally = Tally::default();
+        let (mut cases, mut selected) = (0, 0);
+        for index in 0..LENSES.len() {
+            let pair = lens(index);
+            for table in &tables {
+                for partition in &partitions {
+                    cases += 1;
+                    if select(cases - 1) {
+                        selected += 1;
+                        check_case(&pair, table, partition, &mut tally);
+                    }
+                }
+            }
+        }
+        (cases, selected, tally)
+    }
+
+    /// The pinned tally of the whole certificate. The binding counts are
+    /// those of the segmented table put carrier (L-segments-34), and the
+    /// letter counts are the independent letter counts of the carrier, both
+    /// asserted beside it; the split into admitted and refused letters is
+    /// the run's.
+    const SEGMENTED_TABLE_EDIT_TALLY: Tally = Tally {
+        bound: 3_030,
+        bind_refused: 120,
+        source_admitted: 40_530,
+        source_refused: 11_580,
+        view_admitted: 28_115,
+        view_refused: 10_945,
+        source_letters: 52_110,
+        view_letters: 39_060,
+        reads: READS,
+    };
+
+    /// The segments the admitted source letters read, each letter checked
+    /// against its reference read set and changed segments.
+    const READS: u64 = 93_576;
+
+    /// Every case of the segmented table put carrier, bound under its
+    /// partition with the identifiers `3` to `9` given to the last segment:
+    /// every source letter translated and every view letter put back agrees
+    /// with the reference definition and the whole-state table edit lens, a
+    /// refused letter changes nothing, and an admitted source letter reads
+    /// exactly its read set and the segments it changed.
+    /// `PANPROTO_TEST_SHARD=i/n` restricts the check to the cases at
+    /// positions `i` modulo `n`.
+    #[test]
+    fn segmented_table_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_case()
+    {
+        let shard = super::LawShard::from_environment();
+        let (cases, selected, tally) =
+            sweep(|position| shard.is_none_or(|shard| shard.contains(position)));
+        println!("segmented table edit lens: {tally:?}");
+        assert_eq!(cases, 3_150);
+        assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
+        assert_eq!(
+            tally.source_letters,
+            tally.source_admitted + tally.source_refused
+        );
+        assert_eq!(tally.view_letters, tally.view_admitted + tally.view_refused);
+        if shard.is_none() {
+            assert_eq!(tally, SEGMENTED_TABLE_EDIT_TALLY);
+        }
+    }
+
+    /// The eighth of the certificate's cases at positions divisible by
+    /// eight, checked on every run.
+    #[test]
+    fn segmented_table_edit_lens_slice_agrees_with_the_reference_on_every_eighth_case() {
+        let (cases, selected, tally) = sweep(|position| position % 8 == 0);
+        assert_eq!((cases, selected), (3_150, 394));
+        assert!(tally.source_admitted > 0 && tally.source_refused > 0);
+        assert!(tally.view_admitted > 0 && tally.view_refused > 0);
+    }
+
+    /// A store whose `fail_at`th commit, counted by `commits`, fails.
+    #[derive(Clone, Default)]
+    struct FailingStore {
+        inner: MemoryStore,
+        commits: std::rc::Rc<std::cell::Cell<usize>>,
+        fail_at: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    }
+
+    impl SegmentStore for FailingStore {
+        type Error = MissingSegment;
+
+        fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
+        }
+
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), MissingSegment> {
+            self.inner
+                .stage(key, bytes)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn commit(&mut self, key: &ArtifactKey, record: &TaskRecord) -> Result<(), MissingSegment> {
+            let count = self.commits.get() + 1;
+            self.commits.set(count);
+            if self.fail_at.get() == Some(count) {
+                return Err(MissingSegment(SegmentId(u32::MAX)));
+            }
+            self.inner
+                .commit(key, record)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn journal(&self, run: &Digest) -> Result<RunJournal, MissingSegment> {
+            Ok(self
+                .inner
+                .journal(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn staged_uncommitted(&self, run: &Digest) -> Result<Vec<ArtifactKey>, MissingSegment> {
+            Ok(self
+                .inner
+                .staged_uncommitted(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+    }
+
+    /// A three-segment table whose dropped row in the middle segment joins
+    /// rows of the other two by contraction, bound by the lens dropping `b`:
+    /// a source edit and a view edit, each stopped by a failed commit at
+    /// every task of its runs, leave the lens unchanged and, retried, end as
+    /// the uninterrupted edit, with nothing left staged.
+    #[test]
+    fn a_table_edit_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_edit() {
+        let pair = lens(1);
+        let partitions = segmented_table_put_partitions();
+        let partition = edit_partition(partitions.last().expect("a partition"));
+        let mut table = RefTable::default();
+        for (id, name) in [(0, "a"), (1, "b"), (2, "a")] {
+            let cells = if name == "a" {
+                BTreeMap::from([("x".to_owned(), RefValue::Int(0))])
+            } else {
+                BTreeMap::new()
+            };
+            table.rows.insert(id, (name.to_owned(), cells));
+        }
+        table
+            .pairs
+            .insert((RefSEdge::new("a", "b", "relation", Some("ab")), 0, 1));
+        table
+            .pairs
+            .insert((RefSEdge::new("b", "a", "relation", Some("ba")), 1, 2));
+        let sealed = sealed(&table, &partition);
+        let source_edit = letters(&source_schema(&pair), &table)
+            .into_iter()
+            .find(|letter| letter.del.keys().any(|key| matches!(key, TElem::Pair(..))))
+            .map(|letter| production_delta(&letter))
+            .expect("a pair deletion");
+        let bound = bind(&pair, &sealed, MemoryStore::default()).expect("binds");
+        let view = glued_view(&bound, &sealed.partition);
+        let view_edit = letters(&view_schema(&pair), &view)
+            .into_iter()
+            .find(|letter| letter.attrs.keys().any(|key| matches!(key, TKey::Cell(..))))
+            .map(|letter| production_delta(&letter))
+            .expect("a cell change");
+        let base = bound.segmented_table_state().store().clone();
+        for put in [false, true] {
+            let edit = if put { &view_edit } else { &source_edit };
+            let step = |lens: &mut Lens<FailingStore>| {
+                if put {
+                    lens.put_edit(edit)
+                } else {
+                    lens.get_edit(edit)
+                }
+            };
+            let store = FailingStore {
+                inner: base.clone(),
+                ..FailingStore::default()
+            };
+            let (commits, fail_at) = (store.commits.clone(), store.fail_at.clone());
+            let mut uninterrupted = bind(&pair, &sealed, store.clone()).expect("rebinds");
+            let before = commits.get();
+            let expected = step(&mut uninterrupted).expect("the edit is admitted");
+            let total = commits.get() - before;
+            assert!(total > 0, "the edit commits tasks");
+            for failing in 1..=total {
+                let mut lens = bind(
+                    &pair,
+                    &sealed,
+                    FailingStore {
+                        inner: base.clone(),
+                        commits: commits.clone(),
+                        fail_at: fail_at.clone(),
+                    },
+                )
+                .expect("rebinds");
+                fail_at.set(Some(commits.get() + failing));
+                let stopped = step(&mut lens);
+                assert!(
+                    matches!(stopped, Err(ShapeEditError::Incomplete(_))),
+                    "{:?}",
+                    stopped.map(|step| step.view_delta)
+                );
+                assert_eq!(glued_view(&lens, &sealed.partition), view);
+                assert_eq!(glued_source(&lens, &sealed.partition), table);
+                assert_eq!(lens.sequence(), 0);
+                fail_at.set(None);
+                let resumed = step(&mut lens).expect("the retried edit is admitted");
+                assert_eq!(resumed.view_delta, expected.view_delta);
+                assert_eq!(resumed.source_delta, expected.source_delta);
+                assert_eq!(
+                    glued_view(&lens, &sealed.partition),
+                    glued_view(&uninterrupted, &sealed.partition)
+                );
+                assert_eq!(
+                    glued_source(&lens, &sealed.partition),
+                    glued_source(&uninterrupted, &sealed.partition)
+                );
+                let run = lens.segmented_table_state().get_run();
+                assert_eq!(
+                    lens.segmented_table_state()
+                        .store()
+                        .staged_uncommitted(&run)
+                        .expect("the journal reads"),
+                    Vec::<ArtifactKey>::new()
+                );
+            }
+        }
+    }
+
+    /// A lens whose restriction carries a survival predicate is declined
+    /// when bound.
+    #[test]
+    fn a_table_lens_with_an_expression_is_declined_when_bound() {
+        let mut pair = lens(0);
+        pair.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let partitions = segmented_table_put_partitions();
+        let tables = segmented_table_put_tables();
+        let sealed = sealed(tables.last().expect("a table"), &partitions[0]);
+        assert!(matches!(
+            bind(&pair, &sealed, MemoryStore::default()),
+            Err(ShapeEditError::Residual(
+                panproto_inst::segment::Residual::Global { .. }
+            ))
+        ));
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// Generated tables of up to eight rows with up to twelve pairs,
+        /// under generated partitions into up to three segments, by every
+        /// lens of the carrier: one generated source letter and one
+        /// generated view letter against the reference and the whole-state
+        /// lens.
+        #[test]
+        fn segmented_table_edit_lens_agrees_with_the_reference_on_generated_tables(
+            rows in proptest::collection::vec(0_u8..3, 1..9),
+            pairs in proptest::collection::vec((0_u8..8, 0_u8..8), 0..12),
+            owners in proptest::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..LENSES.len(),
+            choice in (0_usize..64, 0_usize..64),
+        ) {
+            let table = super::segmented_table_get::generated_table(&rows, &pairs);
+            let partition =
+                super::segmented_table_get::generated_partition(&owners[..rows.len()]);
+            let pair = lens(lens_index);
+            let sources = letters(&source_schema(&pair), &table).len();
+            let mut tally = Tally::default();
+            check_letters(
+                &pair,
+                &table,
+                &partition,
+                &|at| at == choice.0 % sources || (at >= sources && at - sources == choice.1),
+                &mut tally,
+            );
+        }
+    }
+}
+
 mod segment_collection {
     use std::collections::{BTreeMap, BTreeSet};
 

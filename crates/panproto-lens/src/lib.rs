@@ -134,7 +134,8 @@ pub use protolens_nat::{
 };
 pub use segmented_edit_lens::{
     FamilyReadError, SegmentedGraph, SegmentedGraphEditLens, SegmentedGraphHeld,
-    SegmentedGraphShape, SegmentedGraphStaged,
+    SegmentedGraphShape, SegmentedGraphStaged, SegmentedTable, SegmentedTableContext,
+    SegmentedTableEditLens, SegmentedTableHeld, SegmentedTableShape, SegmentedTableStaged,
 };
 pub use shape_edit_lens::{
     EditDirection, EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, WholeStateShape,

@@ -7,5 +7,6 @@ pub use crate::pages::segments::segmented_edit_lens::*;
 pub use crate::pages::segments::segmented_extend::*;
 pub use crate::pages::segments::segmented_put::*;
 pub use crate::pages::segments::segmented_restrict::*;
+pub use crate::pages::segments::segmented_table_edit_lens::*;
 pub use crate::pages::segments::segmented_table_put::*;
 pub use crate::pages::segments::segmented_table_restrict::*;

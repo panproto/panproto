@@ -5668,6 +5668,29 @@
               "test": "segmented_table_put::segmented_table_put_agrees_with_the_reference_on_generated_tables"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-table-edit-lens",
+          "anchor": "L-segments-35",
+          "references": [
+            "panproto_reference::segment::bind_segmented_table_edit",
+            "panproto_reference::segment::segmented_table_edit_get",
+            "panproto_reference::segment::segmented_table_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_table_edit_lens::segmented_table_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_table_edit_lens::segmented_table_edit_lens_agrees_with_the_reference_on_generated_tables"
+            }
+          ]
         }
       ]
     },

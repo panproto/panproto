@@ -11519,6 +11519,152 @@ pub mod segmented_table_put {
     }
 }
 
+pub mod segmented_table_edit_lens {
+    //! The table edit lens over a table held as segments.
+    //!
+    //! It is defined by segmented application of each delta, segmented
+    //! table get and put, and the whole-state differ of the glued tables.
+    //!
+    //! This is the executable definition of L-segments-35. It never runs
+    //! segment by segment: every step glues what it reads.
+
+    use super::segment::{
+        Partition, SegmentError, TableComplementSegment, TableSegment, assemble_table,
+    };
+    use super::segmented_apply::{SegmentedApplyRefusal, apply_table_segmented};
+    use super::segmented_table_put::{SegmentedTablePutRefusal, put_table_segmented};
+    use super::segmented_table_restrict::{
+        SegmentedTableRestrictRefusal, restrict_table_segmented,
+    };
+    use crate::edit::{TableApplyError, TableDelta, diff_keeping_replacements_table};
+    use crate::pages::lenses::table::TableLens;
+
+    /// The state a segmented table edit lens holds: the source segments and
+    /// the view and complement segments of their restriction.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SegmentedTableEditState {
+        /// The source segments.
+        pub source: Vec<TableSegment>,
+        /// The view segments.
+        pub views: Vec<TableSegment>,
+        /// The complement segments.
+        pub complements: Vec<TableComplementSegment>,
+    }
+
+    /// Why the reference segmented table edit lens refuses an edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedTableEditRefusal {
+        /// Segmented application of the delta refuses.
+        Apply(SegmentedApplyRefusal<TableApplyError>),
+        /// Segmented table get of the edited source refuses.
+        Restrict(SegmentedTableRestrictRefusal),
+        /// The held segments do not glue.
+        Segment(SegmentError),
+        /// Segmented table put of the edited view refuses.
+        Put(SegmentedTablePutRefusal),
+        /// The forward translation of the source delta does not give back
+        /// the edited view.
+        PutGetMismatch,
+    }
+
+    /// Definition: binding the segmented table edit lens to `source`: the
+    /// source with the view and complement segments of segmented table get.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of segmented table get.
+    pub fn bind_segmented_table_edit(
+        lens: &TableLens<'_>,
+        source: &[TableSegment],
+        p: &Partition,
+    ) -> Result<SegmentedTableEditState, SegmentedTableRestrictRefusal> {
+        let (views, complements) = restrict_table_segmented(lens, source, p)?
+            .into_iter()
+            .unzip();
+        Ok(SegmentedTableEditState {
+            source: source.to_vec(),
+            views,
+            complements,
+        })
+    }
+
+    /// Definition: the reference segmented table edit lens's translation of
+    /// a source edit.
+    ///
+    /// The edited source is segmented application of `d` to the held source
+    /// ([`apply_table_segmented`]); its view and complement segments are
+    /// segmented table get of it ([`restrict_table_segmented`]); and the
+    /// translated delta is the incidence-closed replacement differ from the
+    /// glued held view to the glued new view, keeping the replacements of
+    /// `d` ([`diff_keeping_replacements_table`]).
+    ///
+    /// # Errors
+    ///
+    /// The refusal of application, of get, or of gluing the views.
+    pub fn segmented_table_edit_get(
+        lens: &TableLens<'_>,
+        state: &SegmentedTableEditState,
+        p: &Partition,
+        d: &TableDelta,
+    ) -> Result<(TableDelta, SegmentedTableEditState), SegmentedTableEditRefusal> {
+        let source =
+            apply_table_segmented(d, &state.source, p).map_err(SegmentedTableEditRefusal::Apply)?;
+        let (views, complements): (Vec<TableSegment>, Vec<TableComplementSegment>) =
+            restrict_table_segmented(lens, &source, p)
+                .map_err(SegmentedTableEditRefusal::Restrict)?
+                .into_iter()
+                .unzip();
+        let before = assemble_table(&state.views, p).map_err(SegmentedTableEditRefusal::Segment)?;
+        let after = assemble_table(&views, p).map_err(SegmentedTableEditRefusal::Segment)?;
+        Ok((
+            diff_keeping_replacements_table(&before, &after, d),
+            SegmentedTableEditState {
+                source,
+                views,
+                complements,
+            },
+        ))
+    }
+
+    /// Definition: the reference segmented table edit lens's translation of
+    /// a view edit.
+    ///
+    /// The edited view is segmented application of `e` to the held view
+    /// segments; put it back against the held complement segments
+    /// ([`put_table_segmented`]); the source delta is the incidence-closed
+    /// replacement differ from the glued held source to the glued put
+    /// source, keeping the replacements of `e`; and the next state is the
+    /// translation of that delta by [`segmented_table_edit_get`], whose
+    /// glued view must be the glued edited view.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `e`, of put, of the forward translation, or
+    /// `PutGetMismatch`.
+    pub fn segmented_table_edit_put(
+        lens: &TableLens<'_>,
+        state: &SegmentedTableEditState,
+        p: &Partition,
+        e: &TableDelta,
+    ) -> Result<(TableDelta, SegmentedTableEditState), SegmentedTableEditRefusal> {
+        let views =
+            apply_table_segmented(e, &state.views, p).map_err(SegmentedTableEditRefusal::Apply)?;
+        let source = put_table_segmented(lens, &views, &state.complements, p)
+            .map_err(SegmentedTableEditRefusal::Put)?;
+        let before =
+            assemble_table(&state.source, p).map_err(SegmentedTableEditRefusal::Segment)?;
+        let after = assemble_table(&source, p).map_err(SegmentedTableEditRefusal::Segment)?;
+        let d = diff_keeping_replacements_table(&before, &after, e);
+        let (_, next) = segmented_table_edit_get(lens, state, p, &d)?;
+        let edited = assemble_table(&views, p).map_err(SegmentedTableEditRefusal::Segment)?;
+        let forward = assemble_table(&next.views, p).map_err(SegmentedTableEditRefusal::Segment)?;
+        if forward != edited {
+            return Err(SegmentedTableEditRefusal::PutGetMismatch);
+        }
+        Ok((d, next))
+    }
+}
+
 pub mod segment_collection {
     //! Store collection, defined by reachability from a set of root runs.
     //!
