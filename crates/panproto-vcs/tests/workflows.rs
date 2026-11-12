@@ -160,11 +160,17 @@ fn open_nonexistent_fails() -> Result<(), Box<dyn std::error::Error>> {
 fn double_init_fails() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let _repo = Repository::init(dir.path())?;
-    // Re-initializing overwrites HEAD; verify it resets cleanly.
-    let repo2 = Repository::init(dir.path())?;
-    assert_eq!(repo2.store().get_head()?, HeadState::Branch("main".into()));
-    // Log should fail because the re-init cleared the branch ref.
-    assert!(repo2.log(None).is_err());
+    // A second init refuses rather than resetting HEAD of the existing
+    // repository.
+    assert!(matches!(
+        Repository::init(dir.path()),
+        Err(panproto_vcs::VcsError::AlreadyARepository)
+    ));
+    let reopened = Repository::open(dir.path())?;
+    assert_eq!(
+        reopened.store().get_head()?,
+        HeadState::Branch("main".into())
+    );
     Ok(())
 }
 
@@ -512,7 +518,7 @@ fn merge_fast_forward() -> Result<(), Box<dyn std::error::Error>> {
 
     refs::checkout_branch(repo.store_mut(), "main")?;
     let result = repo.merge("feature", "alice")?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
     assert!(result.merged_schema.vertices.contains_key("b"));
     Ok(())
 }
@@ -535,7 +541,7 @@ fn merge_fast_forward_multiple_commits() -> Result<(), Box<dyn std::error::Error
 
     refs::checkout_branch(repo.store_mut(), "main")?;
     let result = repo.merge("feature", "alice")?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
 
     let log = repo.log(None)?;
     assert_eq!(log.len(), 3); // 3 commits after fast-forward
@@ -568,7 +574,7 @@ fn merge_three_way_clean() -> Result<(), Box<dyn std::error::Error>> {
 
     // Merge feature into main.
     let result = repo.merge("feature", "alice")?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
     assert!(result.merged_schema.vertices.contains_key("a"));
     assert!(result.merged_schema.vertices.contains_key("b"));
     assert!(result.merged_schema.vertices.contains_key("c"));
@@ -594,7 +600,7 @@ fn merge_identical_additions() -> Result<(), Box<dyn std::error::Error>> {
 
     // Should merge cleanly since both added the same vertex.
     let result = repo.merge("feature", "alice")?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
     assert!(result.merged_schema.vertices.contains_key("b"));
     Ok(())
 }
@@ -649,7 +655,7 @@ fn merge_no_commit_leaves_staged() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     let result = repo.merge_with_options("feature", "alice", &opts)?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
 
     // HEAD should NOT have advanced.
     let current_head = store::resolve_head(repo.store())?.unwrap();
@@ -701,7 +707,7 @@ fn merge_no_ff_creates_commit() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     let result = repo.merge_with_options("feature", "alice", &opts)?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
 
     // Should have a merge commit even though fast-forward was possible.
     let log = repo.log(None)?;
@@ -730,7 +736,7 @@ fn merge_squash() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     let result = repo.merge_with_options("feature", "alice", &opts)?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
 
     // HEAD should NOT have advanced because squash doesn't auto-commit.
     let current_head = store::resolve_head(repo.store())?.unwrap();
@@ -761,7 +767,7 @@ fn conflict_both_modified_vertex() -> Result<(), Box<dyn std::error::Error>> {
     repo.commit("change a to integer", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::BothModifiedVertex { vertex_id, .. } if vertex_id == "a"
     )));
@@ -787,7 +793,7 @@ fn conflict_both_added_vertex_differently() -> Result<(), Box<dyn std::error::Er
     repo.commit("add b as integer", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::BothAddedVertexDifferently { vertex_id, .. } if vertex_id == "b"
     )));
@@ -818,7 +824,7 @@ fn conflict_delete_modify_vertex_ours() -> Result<(), Box<dyn std::error::Error>
     repo.commit("delete b", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::DeleteModifyVertex { vertex_id, deleted_by: Side::Ours } if vertex_id == "b"
     )));
@@ -849,7 +855,7 @@ fn conflict_delete_modify_vertex_theirs() -> Result<(), Box<dyn std::error::Erro
     repo.commit("change b to integer", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::DeleteModifyVertex { vertex_id, deleted_by: Side::Theirs } if vertex_id == "b"
     )));
@@ -891,7 +897,7 @@ fn edge_removal_one_side_is_clean() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = repo.merge("feature", "alice")?;
     // Edge removal by one side is accepted; clean merge.
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
     // Merged schema should have a, b, c, d but no edge.
     assert!(result.merged_schema.vertices.contains_key("c"));
     assert!(result.merged_schema.vertices.contains_key("d"));
@@ -923,7 +929,7 @@ fn conflict_both_modified_constraint() -> Result<(), Box<dyn std::error::Error>>
     repo.commit("change maxLength to 300", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::BothModifiedConstraint { vertex_id, sort, .. }
             if vertex_id == "a" && sort == "maxLength"
@@ -950,7 +956,7 @@ fn conflict_both_added_constraint_differently() -> Result<(), Box<dyn std::error
     repo.commit("add format uri", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::BothAddedConstraintDifferently { vertex_id, sort, .. }
             if vertex_id == "a" && sort == "format"
@@ -981,7 +987,7 @@ fn conflict_delete_modify_constraint() -> Result<(), Box<dyn std::error::Error>>
     repo.commit("remove constraint", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::DeleteModifyConstraint { vertex_id, sort, .. }
             if vertex_id == "a" && sort == "maxLength"
@@ -1024,7 +1030,7 @@ fn conflict_both_modified_nsid() -> Result<(), Box<dyn std::error::Error>> {
     repo.commit("change nsid to main", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(result.conflicts.iter().any(|c| matches!(c,
         MergeConflict::BothModifiedNsid { vertex_id, .. } if vertex_id == "a"
     )));
@@ -1065,7 +1071,7 @@ fn conflict_both_modified_ordering() -> Result<(), Box<dyn std::error::Error>> {
     repo.commit("set ordering to 10", "alice")?;
 
     let result = repo.merge("feature", "alice")?;
-    assert!(!result.conflicts.is_empty());
+    assert_ne!(result.conflicts, vec![]);
     assert!(
         result
             .conflicts
@@ -1824,7 +1830,7 @@ fn feature_branch_full_workflow() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Merge feature.
     let result = repo.merge("feature", "alice")?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
 
     // 5. Verify merged schema.
     let log = repo.log(None)?;
@@ -1911,7 +1917,7 @@ fn rebase_then_fast_forward_merge() -> Result<(), Box<dyn std::error::Error>> {
 
     // Now feature is ahead of main (linear), so merge should fast-forward.
     let result = repo.merge("feature", "alice")?;
-    assert!(result.conflicts.is_empty());
+    assert_eq!(result.conflicts, vec![]);
 
     // Main should now have all vertices.
     let log = repo.log(None)?;

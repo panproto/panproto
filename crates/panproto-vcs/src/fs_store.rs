@@ -8,6 +8,7 @@
 //!
 //! ```text
 //! .panproto/
+//!   format                         repository format version, "1\n"
 //!   HEAD                           JSON HeadState
 //!   objects/<hex[0..2]>/<hex[2..]>  rmp-serde bytes of Object
 //!   refs/heads/main                hex ObjectId (plain text)
@@ -17,6 +18,20 @@
 //!     HEAD
 //!     refs/heads/main
 //! ```
+//!
+//! ## Repository format version
+//!
+//! The layout above, with objects encoded as `rmp-serde` bytes of [`Object`]
+//! and addressed by [`hash::object_id`], is repository format version
+//! [`REPOSITORY_FORMAT_VERSION`]. [`FsStore::init`] writes the version to
+//! `.panproto/format` as a decimal numeral and a newline. [`FsStore::open`]
+//! reads it back and refuses any other content with
+//! [`VcsError::UnsupportedRepositoryFormat`], so a repository written in a
+//! format this build does not read is refused before any object is decoded.
+//! A `.panproto/` directory with no `format` file was written before the
+//! marker existed, in the only format there has been, and is read as version
+//! 1; the store writes the marker on its first write through the [`Store`]
+//! trait, and never on a read.
 
 use std::fs;
 use std::io::Write as _;
@@ -27,6 +42,12 @@ use crate::hash::{self, ObjectId};
 use crate::object::Object;
 use crate::store::{HeadState, ReflogEntry, Store};
 
+/// The repository format version this build reads and writes.
+pub const REPOSITORY_FORMAT_VERSION: u32 = 1;
+
+/// The name of the format marker inside `.panproto/`.
+const FORMAT_FILE: &str = "format";
+
 /// A filesystem-backed [`Store`].
 ///
 /// All data lives under a `.panproto/` directory inside the repository root.
@@ -34,39 +55,89 @@ use crate::store::{HeadState, ReflogEntry, Store};
 pub struct FsStore {
     /// Path to the `.panproto/` directory.
     root: PathBuf,
+    /// Whether the format marker is still to be written: true only for a
+    /// repository opened without one.
+    marker_pending: bool,
 }
 
 impl FsStore {
     /// Open an existing `.panproto/` directory.
     ///
+    /// A directory without a format marker is read as version 1, and the
+    /// marker is written on the store's first write.
+    ///
     /// # Errors
     ///
-    /// Returns [`VcsError::NotARepository`] if the directory does not exist.
+    /// Returns [`VcsError::NotARepository`] if the directory does not exist,
+    /// and [`VcsError::UnsupportedRepositoryFormat`] if its format marker
+    /// names anything other than [`REPOSITORY_FORMAT_VERSION`].
     pub fn open(repo_dir: &Path) -> Result<Self, VcsError> {
         let root = repo_dir.join(".panproto");
         if !root.is_dir() {
             return Err(VcsError::NotARepository);
         }
-        Ok(Self { root })
+        let marker_pending = match fs::read(root.join(FORMAT_FILE)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            Err(error) => return Err(error.into()),
+            Ok(bytes) => {
+                if bytes != format_marker() {
+                    return Err(VcsError::UnsupportedRepositoryFormat {
+                        found: String::from_utf8_lossy(&bytes).into_owned(),
+                        supported: REPOSITORY_FORMAT_VERSION,
+                    });
+                }
+                false
+            }
+        };
+        Ok(Self {
+            root,
+            marker_pending,
+        })
     }
 
     /// Initialize a new `.panproto/` directory at the given path.
     ///
-    /// Creates the directory structure and sets HEAD to `main`.
+    /// Creates the directory structure, writes the format marker for
+    /// [`REPOSITORY_FORMAT_VERSION`] and sets HEAD to `main`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the directory already exists or I/O fails.
+    /// Returns [`VcsError::AlreadyARepository`] if `.panproto/` already
+    /// exists, and an I/O error if creating it fails.
     pub fn init(repo_dir: &Path) -> Result<Self, VcsError> {
         let root = repo_dir.join(".panproto");
+        if root.exists() {
+            return Err(VcsError::AlreadyARepository);
+        }
         fs::create_dir_all(root.join("objects"))?;
         fs::create_dir_all(root.join("refs/heads"))?;
         fs::create_dir_all(root.join("refs/tags"))?;
         fs::create_dir_all(root.join("logs/refs/heads"))?;
+        write_atomically(&root.join(FORMAT_FILE), &format_marker())?;
 
-        let store = Self { root };
+        let store = Self {
+            root,
+            marker_pending: false,
+        };
         store.write_head(&HeadState::Branch("main".into()))?;
         Ok(store)
+    }
+
+    /// The repository format version of this store, which is always
+    /// [`REPOSITORY_FORMAT_VERSION`] once [`open`](Self::open) or
+    /// [`init`](Self::init) has returned it.
+    #[must_use]
+    pub const fn format_version(&self) -> u32 {
+        REPOSITORY_FORMAT_VERSION
+    }
+
+    /// Write the format marker if this store was opened without one.
+    fn upgrade_marker(&mut self) -> Result<(), VcsError> {
+        if self.marker_pending {
+            write_atomically(&self.root.join(FORMAT_FILE), &format_marker())?;
+            self.marker_pending = false;
+        }
+        Ok(())
     }
 
     /// Return the path to the `.panproto/` directory.
@@ -155,6 +226,7 @@ impl Store for FsStore {
     }
 
     fn put(&mut self, object: &Object) -> Result<ObjectId, VcsError> {
+        self.upgrade_marker()?;
         let id = hash::object_id(object)?;
         let path = self.object_path(&id);
         if path.exists() {
@@ -185,6 +257,7 @@ impl Store for FsStore {
     }
 
     fn set_ref(&mut self, name: &str, id: ObjectId) -> Result<(), VcsError> {
+        self.upgrade_marker()?;
         let path = self.ref_path(name)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -194,6 +267,7 @@ impl Store for FsStore {
     }
 
     fn delete_ref(&mut self, name: &str) -> Result<(), VcsError> {
+        self.upgrade_marker()?;
         let path = self.ref_path(name)?;
         if !path.exists() {
             return Err(VcsError::RefNotFound {
@@ -224,6 +298,7 @@ impl Store for FsStore {
     }
 
     fn set_head(&mut self, state: HeadState) -> Result<(), VcsError> {
+        self.upgrade_marker()?;
         self.write_head(&state)
     }
 
@@ -292,6 +367,7 @@ impl Store for FsStore {
     }
 
     fn delete_object(&mut self, id: &ObjectId) -> Result<(), VcsError> {
+        self.upgrade_marker()?;
         let path = self.object_path(id);
         if !path.exists() {
             return Err(VcsError::ObjectNotFound { id: *id });
@@ -301,6 +377,7 @@ impl Store for FsStore {
     }
 
     fn append_reflog(&mut self, ref_name: &str, entry: ReflogEntry) -> Result<(), VcsError> {
+        self.upgrade_marker()?;
         let path = self.reflog_path(ref_name)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -353,6 +430,11 @@ impl Store for FsStore {
 ///
 /// Returns [`VcsError::InvalidRefName`] describing the first component
 /// that fails.
+/// The bytes of the format marker for [`REPOSITORY_FORMAT_VERSION`].
+fn format_marker() -> Vec<u8> {
+    format!("{REPOSITORY_FORMAT_VERSION}\n").into_bytes()
+}
+
 fn validate_ref_name(name: &str) -> Result<(), VcsError> {
     use std::path::Component;
 

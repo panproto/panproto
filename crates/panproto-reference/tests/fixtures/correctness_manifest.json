@@ -7063,6 +7063,126 @@
         "crates/panproto-reference/src/pages/migration_search.rs",
         "crates/panproto-reference/src/enumerate/migration_search.rs"
       ]
+    },
+    "schema-merge": {
+      "laws": [
+        {
+          "anchor": "L-schema-merge-1",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "merge_agrees_with_the_reference_on_every_triple_of_the_scope"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_merges_agree_with_the_reference"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_merge_rule_on_hand_computed_triples"
+            }
+          ],
+          "id": "schema-merge.per-element-merge",
+          "references": [
+            "panproto_reference::pages::schema_merge::merge",
+            "panproto_reference::pages::schema_merge::Schema::well_formed"
+          ]
+        },
+        {
+          "anchor": "L-schema-merge-2",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "merges_are_the_same_in_every_process_and_insertion_order"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_insertion_orders_and_swapped_branches_give_the_same_merge"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "swapping_the_branches_swaps_every_conflict"
+            }
+          ],
+          "id": "schema-merge.stable-order",
+          "references": [
+            "panproto_reference::pages::schema_merge::render",
+            "panproto_reference::pages::schema_merge::Conflict::order_key",
+            "panproto_reference::pages::schema_merge::Conflict::swapped"
+          ]
+        },
+        {
+          "anchor": "L-schema-merge-3",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "derived_migrations_select_the_identity_on_what_the_pair_shares"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_derived_migrations_keep_every_survivor"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "surviving_identity_on_hand_computed_pairs"
+            }
+          ],
+          "id": "schema-merge.migration-selection",
+          "references": [
+            "panproto_reference::pages::schema_merge::surviving_identity",
+            "panproto_reference::pages::schema_merge::may_rename"
+          ]
+        },
+        {
+          "anchor": "L-schema-merge-4",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "a_repository_records_and_checks_its_format_version"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_format_markers_are_read_as_the_reference_reads_them"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_format_marker_is_one_line_feed_terminated_numeral"
+            }
+          ],
+          "id": "schema-merge.repository-format",
+          "references": [
+            "panproto_reference::pages::schema_merge::repository_format"
+          ]
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/schema_merge.rs",
+        "crates/panproto-reference/src/enumerate/schema_merge.rs"
+      ]
     }
   }
 }

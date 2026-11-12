@@ -12,7 +12,9 @@
 //! schema as it can rather than insisting on a total morphism, so it still has
 //! something to say when the change dropped a field outright. Detected renames
 //! from [`crate::rename_detect`] are correspondences this crate computed, so
-//! they pin the search through [`SearchOptions::hard_pins`].
+//! they pin the search through [`SearchOptions::hard_pins`]. Every vertex both
+//! schemas hold with the same kind is pinned to itself, so a rename search
+//! never moves a vertex that survived the change.
 //!
 //! The search is asked for an injective vertex map ([`SearchOptions::monic`]).
 //! A derived migration carries no resolver, so it has nothing to say about how
@@ -219,8 +221,23 @@ fn try_hom_search_enhancement(
     //
     // Dropping a low-confidence pin strands nothing: the vertex falls back to
     // its whole kind-compatible domain and the search picks the best target.
-    let renames = rename_detect::detect_vertex_renames(old, new, 0.3);
+    //
+    // A vertex both schemas hold with one kind is the same vertex, and the
+    // search must not move it: its data would migrate away from a vertex that
+    // still exists. It is pinned to itself first, and a detected rename onto
+    // it, or out of it, is not taken.
     let mut hard_pins: HashMap<Name, Name> = HashMap::new();
+    for (id, vertex) in &old.vertices {
+        if new
+            .vertices
+            .get(id)
+            .is_some_and(|kept| kept.kind == vertex.kind)
+        {
+            hard_pins.insert(id.clone(), id.clone());
+        }
+    }
+    let survivors: HashSet<Name> = hard_pins.keys().cloned().collect();
+    let renames = rename_detect::detect_vertex_renames(old, new, 0.3);
     for detected in &renames {
         let old_name = Name::from(detected.rename.old.as_ref());
         let new_name = Name::from(detected.rename.new.as_ref());
@@ -229,7 +246,7 @@ fn try_hom_search_enhancement(
             .get(&old_name)
             .zip(new.vertices.get(&new_name))
             .is_some_and(|(from, to)| from.kind == to.kind);
-        if kinds_agree {
+        if kinds_agree && !survivors.contains(&old_name) && !survivors.contains(&new_name) {
             hard_pins.insert(old_name, new_name);
         }
     }
@@ -264,9 +281,14 @@ fn try_hom_search_enhancement(
     let span = find_span(old, new, &protocol, &opts).ok()?;
 
     // Only use the span-based migration if it maps more vertices than the
-    // identity-based one. A span that maps fewer is the search agreeing with
-    // the diff about what survives.
-    if span.right.vertex_map.len() > identity_mig.vertex_map.len() {
+    // identity-based one and keeps every pinned survivor. A span that maps
+    // fewer is the search agreeing with the diff about what survives, and one
+    // that drops a survivor (a pinned vertex whose edges have no image) would
+    // trade a vertex that still exists for a guessed rename.
+    let keeps_survivors = survivors
+        .iter()
+        .all(|id| span.right.vertex_map.get(id) == Some(id));
+    if keeps_survivors && span.right.vertex_map.len() > identity_mig.vertex_map.len() {
         // The right leg is a morphism out of the apex. Spliced onto `old` it
         // becomes the partial migration `old -> new` this crate stores, so it
         // carries the two maps and not the leg's own endpoints.

@@ -13,6 +13,7 @@ pub mod rdf_formats;
 pub mod representation;
 pub mod resolution;
 pub mod restrict_and_contraction;
+pub mod schema_merge;
 pub mod segments;
 pub mod text_formats;
 pub mod theories;
