@@ -136,6 +136,6 @@ The bindings call the same Rust functions, so each change above reaches them. Th
 - **Schema documents.** Python's `parse_schema_document` and `parse_schema_source`, TypeScript's `parseSchemaDocument` and `parseSchemaSource`, and the `schema` CLI with `--protocol` refuse `openapi`, `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql` and `bson`, with an error that names the `panproto-io` reader. These readers are reachable from Rust in 0.78; the bindings and the CLI gain routes to them in a later release. A schema written by one of them can be passed to any binding as panproto schema JSON.
 - **Morphism search.** A search a budget stopped raises or returns an error, as described above, instead of returning an unproved morphism.
 - **Lens DSL documents** loaded through a binding need the member renames above.
-- **Repositories.** Python's `Repository.init` raises on an existing repository.
+- **Repositories.** Python's `Repository.init` raises `VcsError` on an existing repository.
 
 The C ABI, and so the Swift and Haskell packages, keeps every entry point of 0.77 with the same signature.
