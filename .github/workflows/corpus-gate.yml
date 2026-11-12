@@ -223,6 +223,38 @@ jobs:
           - package: panproto-inst
             binary: reference_edits
             test: graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 3/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 3/4
           - package: panproto-mig
             binary: reference_migration_search
             test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair

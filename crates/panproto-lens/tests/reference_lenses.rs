@@ -18107,6 +18107,20 @@ fn reference_term_case(context: &TermContext, case: &TermCase) -> ElementaryObse
 
 #[test]
 fn fused_and_scoped_protolenses_agree_with_the_reference_exhaustively() {
+    check_fused_and_scoped_protolenses(LawShard::from_environment());
+}
+
+/// The quarter of the fused and scoped carrier at residue `0`, which the
+/// ordinary CI profile runs; the full carrier runs, sharded, in the
+/// `exhaustive-reference` job.
+#[test]
+fn fused_and_scoped_protolenses_agree_with_the_reference_on_one_quarter_of_the_carrier() {
+    check_fused_and_scoped_protolenses(Some(LawShard { index: 0, count: 4 }));
+}
+
+/// The L-lenses-22 and L-lenses-23 fused carrier differential, over the
+/// get cases of `shard` (every case when there is none).
+fn check_fused_and_scoped_protolenses(shard: Option<LawShard>) {
     let certificate = fused_protolens_count_certificate();
     assert_eq!(certificate.kinds, 10);
     assert_eq!(certificate.schemas, 8);
@@ -18126,6 +18140,7 @@ fn fused_and_scoped_protolenses_agree_with_the_reference_exhaustively() {
     }
     let units = context.units();
     assert_eq!(units.len(), certificate.get_cases);
+    let units = sharded_units(shard, units);
     let bound =
         format!("L-lenses-22 and L-lenses-23 fused and scoped protolenses: {certificate:?}");
     let compared = assert_agree(agree_in_parallel(
@@ -18137,10 +18152,37 @@ fn fused_and_scoped_protolenses_agree_with_the_reference_exhaustively() {
         reference_term_case,
         |production, reference| production == reference,
     ));
-    assert_eq!(
+    assert_sharded_count(
+        shard,
         compared,
-        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+        certificate.get_cases + certificate.put_cases,
     );
+}
+
+/// The units of `shard` in enumeration order, or every unit when there is
+/// none: the units whose position is the shard's residue.
+fn sharded_units<U>(shard: Option<LawShard>, units: Vec<U>) -> Vec<U> {
+    let total = units.len();
+    let selected: Vec<U> = units
+        .into_iter()
+        .enumerate()
+        .filter(|(position, _)| shard.is_none_or(|shard| shard.contains(*position)))
+        .map(|(_, unit)| unit)
+        .collect();
+    if let Some(shard) = shard {
+        assert_eq!(selected.len(), shard.share(total));
+    }
+    selected
+}
+
+/// The full carrier compares `total` cases; a shard compares some of them.
+fn assert_sharded_count(shard: Option<LawShard>, compared: u64, total: usize) {
+    let total = u64::try_from(total).unwrap();
+    if shard.is_some() {
+        assert!(compared > 0 && compared <= total);
+    } else {
+        assert_eq!(compared, total);
+    }
 }
 
 /// The observable result of a sequential composite: the category of a
@@ -18476,6 +18518,21 @@ fn composite_observations_agree(
 
 #[test]
 fn sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively() {
+    check_sequential_composites(LawShard::from_environment());
+}
+
+/// The eighth of the sequential composite carrier at residue `0`, which
+/// the ordinary CI profile runs; the full carrier runs, sharded, in the
+/// `exhaustive-reference` job.
+#[test]
+fn sequential_composites_of_elementary_protolenses_agree_with_the_reference_on_one_eighth_of_the_carrier()
+ {
+    check_sequential_composites(Some(LawShard { index: 0, count: 8 }));
+}
+
+/// The L-lenses-24 sequential composite differential, over the get cases of
+/// `shard` (every case when there is none).
+fn check_sequential_composites(shard: Option<LawShard>) {
     let certificate = composite_protolens_count_certificate().sequential;
     assert_eq!(certificate.kinds, 256);
     assert_eq!(certificate.schemas, 14);
@@ -18494,6 +18551,7 @@ fn sequential_composites_of_elementary_protolenses_agree_with_the_reference_exha
     }
     let units = context.units();
     assert_eq!(units.len(), certificate.get_cases);
+    let units = sharded_units(shard, units);
     let bound = format!("L-lenses-24 sequential composites: {certificate:?}");
     let compared = assert_agree(agree_in_parallel(
         &bound,
@@ -18504,9 +18562,10 @@ fn sequential_composites_of_elementary_protolenses_agree_with_the_reference_exha
         reference_composite_case,
         composite_observations_agree,
     ));
-    assert_eq!(
+    assert_sharded_count(
+        shard,
         compared,
-        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+        certificate.get_cases + certificate.put_cases,
     );
 }
 
@@ -18984,7 +19043,9 @@ fn production_merge_alphabet() -> Vec<panproto_lens::Protolens> {
                 first,
                 second,
                 merged,
-            } => elementary::merge_sorts(first.as_str(), second.as_str(), merged.as_str(), merger()),
+            } => {
+                elementary::merge_sorts(first.as_str(), second.as_str(), merged.as_str(), merger())
+            }
             other => panic!("the merge alphabet holds only merges, not {other:?}"),
         })
         .collect()
@@ -19200,7 +19261,7 @@ enum ProductionValueStep {
         chain: panproto_lens::ProtolensChain,
         transforms: Vec<panproto_inst::FieldTransform>,
     },
-    Protolens(panproto_lens::Protolens),
+    Protolens(Box<panproto_lens::Protolens>),
 }
 
 impl ProductionValueStep {
@@ -19242,8 +19303,10 @@ fn production_value_step_alphabet() -> Vec<ProductionValueStep> {
     use panproto_inst::FieldTransform;
     use panproto_lens::ProtolensChain;
     let var = |name: &str| Expr::Var(std::sync::Arc::from(name));
-    let succ = |name: &str| Expr::Builtin(BuiltinOp::Add, vec![var(name), Expr::Lit(Literal::Int(1))]);
-    let pred = |name: &str| Expr::Builtin(BuiltinOp::Sub, vec![var(name), Expr::Lit(Literal::Int(1))]);
+    let succ =
+        |name: &str| Expr::Builtin(BuiltinOp::Add, vec![var(name), Expr::Lit(Literal::Int(1))]);
+    let pred =
+        |name: &str| Expr::Builtin(BuiltinOp::Sub, vec![var(name), Expr::Lit(Literal::Int(1))]);
     let stage = |chain, transforms| ProductionValueStep::Stage { chain, transforms };
     let apply = |inverse: Option<Expr>, class| FieldTransform::ApplyExpr {
         key: "n".to_owned(),
@@ -19268,7 +19331,7 @@ fn production_value_step_alphabet() -> Vec<ProductionValueStep> {
     };
     let none = || ProtolensChain::new(Vec::new());
     let equation = |lhs: Term, rhs: Term, inverse: Option<Expr>, class| {
-        ProductionValueStep::Protolens(elementary::directed_eq(DirectedEquation {
+        ProductionValueStep::Protolens(Box::new(elementary::directed_eq(DirectedEquation {
             name: std::sync::Arc::from("succ"),
             lhs,
             rhs,
@@ -19277,7 +19340,7 @@ fn production_value_step_alphabet() -> Vec<ProductionValueStep> {
             source_kind: None,
             target_kind: None,
             coercion_class: class,
-        }))
+        })))
     };
     let n_of_x = || Term::app("n", vec![Term::var("x")]);
     vec![
@@ -19302,13 +19365,14 @@ fn production_value_step_alphabet() -> Vec<ProductionValueStep> {
 /// reference does not model; its location and kind remain compared.
 fn without_evaluator_message(reason: &str) -> String {
     const KIND: &str = "EvaluationFailed";
-    reason
-        .find(KIND)
-        .map_or_else(|| reason.to_owned(), |at| reason[..at + KIND.len()].to_owned())
+    reason.find(KIND).map_or_else(
+        || reason.to_owned(),
+        |at| reason[..at + KIND.len()].to_owned(),
+    )
 }
 
-fn without_evaluator_messages(outcome: Option<PutOutcome>) -> Option<PutOutcome> {
-    outcome.map(|outcome| PutOutcome {
+fn without_evaluator_messages(outcome: PutOutcome) -> PutOutcome {
+    PutOutcome {
         put: outcome.put.map_err(|reason| match reason {
             Reason::PutDomain(text) => Reason::PutDomain(without_evaluator_message(&text)),
             other => other,
@@ -19319,7 +19383,7 @@ fn without_evaluator_messages(outcome: Option<PutOutcome>) -> Option<PutOutcome>
                 .map(|reason| without_evaluator_message(reason))
                 .collect()
         }),
-    })
+    }
 }
 
 /// Per-thread state of the value-level certificate.
@@ -19376,8 +19440,7 @@ impl ValueStepContext {
         schema: usize,
         source: &RefGraph,
     ) -> ElementaryApplication {
-        let (target, migration, program) =
-            value_step_alphabet()[kind].at(&self.schemas[schema]);
+        let (target, migration, program) = value_step_alphabet()[kind].at(&self.schemas[schema]);
         let plan =
             match panproto_reference::restrict::compile(&self.schemas[schema], &target, &migration)
             {
@@ -19477,20 +19540,18 @@ fn production_value_step_case(
             ))
         },
         |view| {
-            ElementaryObservation::Put(Box::new(without_evaluator_messages(
+            ElementaryObservation::Put(Box::new(
                 context.applications[&(case.kind, case.schema)]
                     .as_ref()
                     .ok()
-                    .and_then(|pair| production_put(pair, source, view)),
-            )))
+                    .and_then(|pair| production_put(pair, source, view))
+                    .map(without_evaluator_messages),
+            ))
         },
     )
 }
 
-fn reference_value_step_case(
-    context: &ValueStepContext,
-    case: &TermCase,
-) -> ElementaryObservation {
+fn reference_value_step_case(context: &ValueStepContext, case: &TermCase) -> ElementaryObservation {
     let source = &context.sources[case.source];
     case.view.as_ref().map_or_else(
         || {
@@ -19501,12 +19562,13 @@ fn reference_value_step_case(
             ))
         },
         |view| {
-            ElementaryObservation::Put(Box::new(without_evaluator_messages(
+            ElementaryObservation::Put(Box::new(
                 context.applications[&(case.kind, case.schema)]
                     .as_ref()
                     .ok()
-                    .and_then(|pair| reference_put(pair, source, view)),
-            )))
+                    .and_then(|pair| reference_put(pair, source, view))
+                    .map(without_evaluator_messages),
+            ))
         },
     )
 }
@@ -19526,7 +19588,10 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
 
     let context = ValueStepContext::new();
     assert_eq!(VALUE_STEP_FIELDS.len(), 2);
-    assert_eq!(context.sources.len() * context.schemas.len(), certificate.source_states);
+    assert_eq!(
+        context.sources.len() * context.schemas.len(),
+        certificate.source_states
+    );
     assert_eq!(
         context
             .applications
@@ -19552,6 +19617,22 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
         compared,
         u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
     );
+}
+
+/// The reference's get of a value-level source, when it succeeds.
+fn reference_get_of(
+    context: &ValueStepContext,
+    kind: usize,
+    schema: usize,
+    source: &RefGraph,
+) -> Result<(RefGraph, RefComplement), ()> {
+    match context.reference_application(kind, schema, source) {
+        ElementaryApplication::Applied(applied) => {
+            let (_, view, complement) = *applied;
+            Ok((view, complement))
+        }
+        _ => Err(()),
+    }
 }
 
 /// A random value-level source: up to four nodes at the parent, each field
@@ -19596,11 +19677,16 @@ proptest! {
             context.production_application(kind, schema, &source),
             context.reference_application(kind, schema, &source)
         );
-        if let Ok(pair) = &context.applications[&(kind, schema)] {
-            let edited = random_value_step_graph(view_seed);
+        if let (Ok(pair), Ok((view, complement))) = (
+            &context.applications[&(kind, schema)],
+            reference_get_of(&context, kind, schema, &source),
+        ) {
+            // A view of the law's domain differs from get's view at one node.
+            let views = value_step_views(&view, &complement);
+            let edited = &views[usize::try_from(view_seed % u64::try_from(views.len()).unwrap()).unwrap()];
             prop_assert_eq!(
-                without_evaluator_messages(production_put(pair, &source, &edited)),
-                without_evaluator_messages(reference_put(pair, &source, &edited))
+                production_put(pair, &source, edited).map(without_evaluator_messages),
+                reference_put(pair, &source, edited).map(without_evaluator_messages)
             );
         }
     }

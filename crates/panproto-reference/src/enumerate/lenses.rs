@@ -6117,13 +6117,12 @@ fn elementary_census(
 /// with the absent `u`, which no carrier schema admits.
 #[must_use]
 pub fn merge_sorts_alphabet() -> Vec<crate::lens::ElementaryProtolens> {
-    let merge = |first: &str, second: &str, merged: &str| {
-        crate::lens::ElementaryProtolens::MergeSorts {
+    let merge =
+        |first: &str, second: &str, merged: &str| crate::lens::ElementaryProtolens::MergeSorts {
             first: first.to_owned(),
             second: second.to_owned(),
             merged: merged.to_owned(),
-        }
-    };
+        };
     vec![
         merge("s", "t", "m"),
         merge("s", "t", "s"),
@@ -6800,14 +6799,20 @@ pub fn value_step_sources() -> Vec<Graph> {
     out
 }
 
-/// The views a value-level put case puts back: the get view itself, then
-/// for each view node in id order each field set to each other choice
-/// (absent or a value of [`VALUE_STEP_EDIT_VALUES`]) and the node removed,
-/// then a fresh node at the parent.
+/// The views a value-level put case puts back.
+///
+/// They are the get view itself, then for each view node in id order each
+/// field set to each other choice (absent or a value of
+/// [`VALUE_STEP_EDIT_VALUES`]) and the node removed, then a fresh node at
+/// the parent.
 #[must_use]
 pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) -> Vec<Graph> {
     let choices: Vec<Option<Value>> = std::iter::once(None)
-        .chain(VALUE_STEP_EDIT_VALUES.iter().map(|value| Some(Value::Int(*value))))
+        .chain(
+            VALUE_STEP_EDIT_VALUES
+                .iter()
+                .map(|value| Some(Value::Int(*value))),
+        )
         .collect();
     let mut out = vec![view.clone()];
     for (id, node) in &view.nodes {
@@ -6835,7 +6840,9 @@ pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) 
         }
         let mut removed = view.clone();
         removed.nodes.remove(id);
-        removed.edges.retain(|_, edge| edge.src != *id && edge.tgt != *id);
+        removed
+            .edges
+            .retain(|_, edge| edge.src != *id && edge.tgt != *id);
         out.push(removed);
     }
     let fresh = fresh_id(
@@ -6990,7 +6997,11 @@ pub fn value_step_alphabet() -> Vec<ValueStepTerm> {
             false,
             vec![rewrite(Some(predecessor))],
         ),
-        term("directed equation without inverse", false, vec![rewrite(None)]),
+        term(
+            "directed equation without inverse",
+            false,
+            vec![rewrite(None)],
+        ),
         term("directed equation on a variable", false, Vec::new()),
     ]
 }
