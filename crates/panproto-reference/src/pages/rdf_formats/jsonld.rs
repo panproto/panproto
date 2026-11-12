@@ -17,6 +17,7 @@
 //! comparison, never by floating-point arithmetic.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt::Write as _;
 
 use super::ntriples::{RDF_LANG_STRING, Term, Triple, XSD_STRING, absolute, excluded, term_text};
 use super::turtle::{
@@ -229,8 +230,20 @@ struct Def {
     reverse: bool,
     ty: Option<String>,
     list: bool,
-    language: Option<Option<String>>,
+    language: LanguageMapping,
     prefix: bool,
+}
+
+/// A term definition's language mapping (JSON-LD 1.1 API Sec 4.2.2 step 22).
+#[derive(Clone, Debug, Default)]
+enum LanguageMapping {
+    /// The definition sets none, so the context's default language applies.
+    #[default]
+    Unset,
+    /// The definition sets `null`: strings carry no language.
+    Null,
+    /// The definition names a language.
+    Tag(String),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -298,7 +311,7 @@ fn expand_iri(
         if prefix == "_" || suffix.starts_with("//") {
             return Ok(Some(value.to_owned()));
         }
-        if let Some(l) = local.as_deref_mut()
+        if let Some(l) = local
             && l.get(prefix).is_some()
             && l.defined.get(prefix) != Some(&true)
         {
@@ -434,44 +447,20 @@ fn definition(
         def.iri = mapped;
         def.reverse = true;
     } else if let Some(id) = get("@id").filter(|id| text(id) != Some(term)) {
-        if id != Value::Null {
-            let Some(t) = text(&id) else {
-                return Err(err("invalid IRI mapping", &at("@id")));
-            };
-            if !keyword(t) && keyword_form(t) {
-                return Ok(None);
-            }
-            let mapped = expand_iri(ctx, t, false, true, Some(local))?;
-            match mapped.as_deref() {
-                Some("@context") => return Err(err("invalid keyword alias", &at("@id"))),
-                Some(m) if keyword(m) || iri(m) || m.starts_with("_:") => {}
-                _ => return Err(err("invalid IRI mapping", &at("@id"))),
-            }
-            def.iri = mapped;
-            let chars: Vec<char> = term.chars().collect();
-            let inner = (1..chars.len().saturating_sub(1)).any(|i| chars[i] == ':');
-            if inner || term.contains('/') {
-                local.defined.insert(term.to_owned(), true);
-                if expand_iri(ctx, term, false, true, Some(local))? != def.iri {
-                    return Err(err("invalid IRI mapping", &at("@id")));
-                }
-            }
-            let delim = def.iri.as_deref().is_some_and(|m| {
-                m.starts_with("_:") || m.ends_with([':', '/', '?', '#', '[', ']', '@'])
-            });
-            if !term.contains(':') && !term.contains('/') && simple && delim {
-                def.prefix = true;
-            }
+        if id != Value::Null && !id_mapping(ctx, local, term, &id, simple, &at("@id"), &mut def)? {
+            return Ok(None);
         }
     } else if let Some(i) = term.find(':').filter(|&i| i > 0) {
         let prefix = &term[..i];
         if local.get(prefix).is_some() {
             define(ctx, local, prefix)?;
         }
-        def.iri = Some(match ctx.defs.get(prefix).and_then(|d| d.iri.clone()) {
-            Some(m) => format!("{m}{}", &term[i + 1..]),
-            None => term.to_owned(),
-        });
+        def.iri = Some(
+            ctx.defs
+                .get(prefix)
+                .and_then(|d| d.iri.as_deref())
+                .map_or_else(|| term.to_owned(), |m| format!("{m}{}", &term[i + 1..])),
+        );
     } else if term.contains('/') {
         let mapped = expand_iri(ctx, term, false, true, None)?;
         if !mapped.as_deref().is_some_and(iri) {
@@ -483,8 +472,65 @@ fn definition(
     } else {
         return Err(err("invalid IRI mapping", here));
     }
+    definition_entries(&map, &mut def, term, here, &at)?;
+    Ok(Some(def))
+}
+
+/// The `@id` entry of a term definition (API Sec 4.2.2 step 14): sets the
+/// definition's IRI mapping and prefix flag, or returns `false` when a value of
+/// keyword form ends the algorithm early.
+fn id_mapping(
+    ctx: &mut Ctx,
+    local: &mut Local<'_>,
+    term: &str,
+    id: &Value,
+    simple: bool,
+    at: &str,
+    def: &mut Def,
+) -> R<bool> {
+    let Some(t) = text(id) else {
+        return Err(err("invalid IRI mapping", at));
+    };
+    if !keyword(t) && keyword_form(t) {
+        return Ok(false);
+    }
+    let mapped = expand_iri(ctx, t, false, true, Some(local))?;
+    match mapped.as_deref() {
+        Some("@context") => return Err(err("invalid keyword alias", at)),
+        Some(m) if keyword(m) || iri(m) || m.starts_with("_:") => {}
+        _ => return Err(err("invalid IRI mapping", at)),
+    }
+    def.iri = mapped;
+    let chars: Vec<char> = term.chars().collect();
+    let inner = (1..chars.len().saturating_sub(1)).any(|i| chars[i] == ':');
+    if inner || term.contains('/') {
+        local.defined.insert(term.to_owned(), true);
+        if expand_iri(ctx, term, false, true, Some(local))? != def.iri {
+            return Err(err("invalid IRI mapping", at));
+        }
+    }
+    let delim = def
+        .iri
+        .as_deref()
+        .is_some_and(|m| m.starts_with("_:") || m.ends_with([':', '/', '?', '#', '[', ']', '@']));
+    if !term.contains(':') && !term.contains('/') && simple && delim {
+        def.prefix = true;
+    }
+    Ok(true)
+}
+
+/// The entries of a term definition after its IRI mapping (API Sec 4.2.2
+/// steps 19 to 27), within the subset, and the refusal of any other entry.
+fn definition_entries(
+    map: &[(String, Value)],
+    def: &mut Def,
+    term: &str,
+    here: &str,
+    at: &dyn Fn(&str) -> String,
+) -> R<()> {
+    let get = |key: &str| map.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
     if let Some(container) = get("@container") {
-        container_mapping(&container, &at("@container"), &mut def)?;
+        container_mapping(&container, &at("@container"), def)?;
     }
     for (key, feature) in [("@index", "@index"), ("@context", "scoped context")] {
         if get(key).is_some() {
@@ -494,11 +540,11 @@ fn definition(
     if get("@type").is_none()
         && let Some(language) = get("@language")
     {
-        def.language = Some(match language {
-            Value::Null => None,
-            Value::String(s) => Some(s),
+        def.language = match language {
+            Value::Null => LanguageMapping::Null,
+            Value::String(s) => LanguageMapping::Tag(s),
             _ => return Err(err("invalid language mapping", &at("@language"))),
-        });
+        };
     }
     for key in ["@direction", "@nest"] {
         if get(key).is_some() {
@@ -533,7 +579,7 @@ fn definition(
     if map.iter().any(|(k, _)| !allowed.contains(&k.as_str())) {
         return Err(err("invalid term definition", here));
     }
-    Ok(Some(def))
+    Ok(())
 }
 
 /// A term's `@container` (API Sec 4.2 step 21), within the subset.
@@ -697,9 +743,9 @@ enum Expanded {
         at: String,
         id: Option<(String, String)>,
         types: Vec<(String, String)>,
-        props: Vec<(String, String, Vec<Expanded>)>,
-        reverse: Vec<(String, String, Vec<Expanded>)>,
-        graph: Option<Vec<Expanded>>,
+        props: Vec<(String, String, Vec<Self>)>,
+        reverse: Vec<(String, String, Vec<Self>)>,
+        graph: Option<Vec<Self>>,
     },
     Value {
         at: String,
@@ -710,7 +756,7 @@ enum Expanded {
     },
     List {
         at: String,
-        items: Vec<Expanded>,
+        items: Vec<Self>,
     },
 }
 
@@ -812,7 +858,11 @@ fn value_expansion(ctx: &mut Ctx, prop: Prop<'_>, value: &Value, at: &str) -> R<
     match def.ty.as_deref() {
         None | Some("@id" | "@vocab" | "@none") => {
             if let Value::String(_) = value {
-                let tag = def.language.clone().unwrap_or_else(|| ctx.language.clone());
+                let tag = match &def.language {
+                    LanguageMapping::Unset => ctx.language.clone(),
+                    LanguageMapping::Null => None,
+                    LanguageMapping::Tag(tag) => Some(tag.clone()),
+                };
                 language = tag.map(|t| (t, at.to_owned()));
             }
         }
@@ -1256,7 +1306,7 @@ impl Triples {
                     Some((t, p)) if !language_tag(t) => return Err(kind("language-tag", p)),
                     Some((t, _)) => {
                         if dt.is_none() {
-                            ty = RDF_LANG_STRING.to_owned();
+                            RDF_LANG_STRING.clone_into(&mut ty);
                         }
                         Some(t.clone())
                     }
@@ -1353,6 +1403,10 @@ fn read_value(document: &Value, base: Option<&str>) -> R<Vec<Triple>> {
     Ok(walk.out)
 }
 
+/// A subject's term with its objects, keyed by predicate and then by the
+/// object's text.
+type SubjectNode = (Term, BTreeMap<String, BTreeMap<String, Term>>);
+
 /// The canonical JSON-LD text of a set of triples, as the page defines it.
 #[must_use]
 pub fn canonical_text(triples: &[Triple]) -> String {
@@ -1367,7 +1421,9 @@ pub fn canonical_text(triples: &[Triple]) -> String {
                 '\n' => out.push_str("\\n"),
                 '\r' => out.push_str("\\r"),
                 '\t' => out.push_str("\\t"),
-                c if u32::from(c) < 0x20 => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+                c if u32::from(c) < 0x20 => {
+                    let _ = write!(out, "\\u{:04x}", u32::from(c));
+                }
                 c => out.push(c),
             }
         }
@@ -1381,8 +1437,7 @@ pub fn canonical_text(triples: &[Triple]) -> String {
             Term::Literal(l, ..) => string(l),
         }
     }
-    let mut by_subject: BTreeMap<String, (Term, BTreeMap<String, BTreeMap<String, Term>>)> =
-        BTreeMap::new();
+    let mut by_subject: BTreeMap<String, SubjectNode> = BTreeMap::new();
     for Triple(s, p, o) in triples {
         by_subject
             .entry(term_text(s))
@@ -1416,7 +1471,7 @@ pub fn canonical_text(triples: &[Triple]) -> String {
                         other => format!("{{\"@id\": {}}}", id(other)),
                     })
                     .collect();
-                node.push_str(&format!(", {}: [{}]", string(p), values.join(", ")));
+                let _ = write!(node, ", {}: [{}]", string(p), values.join(", "));
             }
             node.push('}');
             node

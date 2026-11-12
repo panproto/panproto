@@ -7,6 +7,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 
 use panproto_inst::GInstance;
 use panproto_inst::value::{FieldPresence, Value};
@@ -181,7 +182,7 @@ proptest! {
             numeral.push_str(&fraction);
         }
         if let Some(exponent) = exponent {
-            numeral.push_str(&format!("e{exponent}"));
+            let _ = write!(numeral, "e{exponent}");
         }
         let datatype = JSONLD_NUMBER_TYPES[typed];
         prop_assert_eq!(
@@ -225,7 +226,7 @@ fn edit_values(anchor: &str) -> &'static [&'static str] {
 }
 
 /// The refusals the preserving route may give an edit of a value.
-fn permitted_refusal(kind: &RdfWriteErrorKind) -> bool {
+const fn permitted_refusal(kind: &RdfWriteErrorKind) -> bool {
     matches!(
         kind,
         RdfWriteErrorKind::ImplicitTerm
