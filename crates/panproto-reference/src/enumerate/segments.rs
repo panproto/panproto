@@ -1636,6 +1636,63 @@ pub const fn segmented_table_restrict_table_count() -> u64 {
     total
 }
 
+/// Every table of the segmented table put carrier: the tables of
+/// [`segmented_table_restrict_tables`] whose rows all lie among the row ids
+/// `0` to `2`, in the same order.
+#[must_use]
+pub fn segmented_table_put_tables() -> Vec<Table> {
+    segmented_table_restrict_tables()
+        .into_iter()
+        .filter(|table| table.rows.keys().all(|id| *id < 3))
+        .collect()
+}
+
+/// Independent count of [`segmented_table_put_tables`].
+///
+/// With `k_a` rows in `a` and `k_b` in `b` among three ids, chosen in
+/// `3! / (k_a! k_b! (3 - k_a - k_b)!)` ways, there are `P = 2 k_a k_b`
+/// joinable pairs and `1 + P + P (P - 1) / 2` sets of at most two of them.
+/// Summed over every `k_a + k_b <= 3`: `105`.
+#[must_use]
+pub const fn segmented_table_put_table_count() -> u64 {
+    const FACTORIAL: [u64; 4] = [1, 1, 2, 6];
+    let mut total = 0;
+    let mut ka = 0;
+    while ka <= 3 {
+        let mut kb = 0;
+        while ka + kb <= 3 {
+            let ways = FACTORIAL[3] / (FACTORIAL[ka] * FACTORIAL[kb] * FACTORIAL[3 - ka - kb]);
+            let pairs = 2 * (ka as u64) * (kb as u64);
+            let sets = 1 + pairs + pairs * pairs.saturating_sub(1) / 2;
+            total += ways * sets;
+            kb += 1;
+        }
+        ka += 1;
+    }
+    total
+}
+
+/// The partitions of the segmented table put carrier: every set partition
+/// of the row ids `0` to `2`, by restricted growth string ordered by
+/// `sum s_i 4^i`, each segment owning its ids as singleton ranges and
+/// allocating nothing. There are `5`, the Bell number of three.
+#[must_use]
+pub fn segmented_table_put_partitions() -> Vec<Partition> {
+    let mut out = Vec::new();
+    for code in 0..64_u32 {
+        let owners: Vec<u32> = (0..3).map(|i| (code >> (2 * i)) & 3).collect();
+        let restricted = owners
+            .iter()
+            .enumerate()
+            .all(|(i, owner)| *owner <= owners[..i].iter().max().map_or(0, |max| max + 1));
+        if restricted {
+            let owners: Vec<Option<u32>> = owners.into_iter().map(Some).collect();
+            out.push(table_partition(&owners, false));
+        }
+    }
+    out
+}
+
 /// The partitions of the segmented table restriction carrier: every set
 /// partition of the row ids `0` to `3`.
 ///

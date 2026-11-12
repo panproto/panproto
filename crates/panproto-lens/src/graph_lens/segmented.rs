@@ -59,7 +59,7 @@ use crate::{Lens, LensError};
 /// The operation bytes of graph put in a run's identity.
 pub const GRAPH_PUT_OP: &[u8] = b"graph put";
 
-/// Why a segmented graph put returned no source.
+/// Why a segmented graph or table put returned no source.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SegmentedPutError {
@@ -1404,7 +1404,8 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
 pub type GraphPutRun = SegmentedRun<SegmentedPutError>;
 
 /// A view held as segments with the complement segments of the get that
-/// made it.
+/// made it, read by a segmented graph put ([`put_segmented_run`]) or table
+/// put ([`crate::table_lens::put_segmented`]).
 pub struct HeldView<'a, Src, C> {
     /// The manifest sealing the view segments: the view manifest of a
     /// segmented get, or of an edited view under the same partition.
@@ -1414,7 +1415,10 @@ pub struct HeldView<'a, Src, C> {
     /// The view segments' canonical bytes.
     pub views: &'a Src,
     /// The canonical bytes of each segment's complement segment
-    /// ([`GraphComplementSegment::canonical_bytes`]).
+    /// ([`GraphComplementSegment::canonical_bytes`] for a graph,
+    /// [`TableComplementSegment::canonical_bytes`] for a table).
+    ///
+    /// [`TableComplementSegment::canonical_bytes`]: panproto_inst::segment::TableComplementSegment::canonical_bytes
     pub complements: &'a C,
 }
 

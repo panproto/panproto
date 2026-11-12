@@ -11464,6 +11464,61 @@ pub mod segmented_table_restrict {
     }
 }
 
+pub mod segmented_table_put {
+    //! Segmented table put, defined by whole-state table put of the glued
+    //! view and laying the restored source out again.
+    //!
+    //! This is the executable definition of L-segments-34. It never runs
+    //! segment by segment: it glues the view segments, joins the complement
+    //! segments into one complement stamped with the lens's identity, runs
+    //! whole-state [`TableLens::put`], and splits the restored source by
+    //! the owner of each row and of each pair's source row.
+
+    use super::segment::{
+        Partition, SegmentError, TableComplementSegment, TableSegment, assemble_table,
+        assemble_table_complement, partition_table,
+    };
+    use crate::pages::lenses::table::{TableLens, TablePutError};
+
+    /// Why a segmented table put returns no source.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedTablePutRefusal {
+        /// The view segments are not a family under the partition, two
+        /// complement segments hold one entry, or the restored source does
+        /// not split.
+        Segment(SegmentError),
+        /// Whole-state table put of the glued view refuses.
+        Put(TablePutError),
+    }
+
+    /// Definition: segmented table put, by whole-state table put of the
+    /// glued view.
+    ///
+    /// Glue `views` under `p`, join `complements` into one complement
+    /// stamped with the identity of `lens` (as its get stamps it), run
+    /// whole-state table put, and split the restored source with
+    /// [`partition_table`].
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn put_table_segmented(
+        lens: &TableLens<'_>,
+        views: &[TableSegment],
+        complements: &[TableComplementSegment],
+        p: &Partition,
+    ) -> Result<Vec<TableSegment>, SegmentedTablePutRefusal> {
+        let view = assemble_table(views, p).map_err(SegmentedTablePutRefusal::Segment)?;
+        let mut complement =
+            assemble_table_complement(complements).map_err(SegmentedTablePutRefusal::Segment)?;
+        complement.identity = Some(*lens.identity());
+        let source = lens
+            .put(&view, &complement)
+            .map_err(SegmentedTablePutRefusal::Put)?;
+        partition_table(&source, p).map_err(SegmentedTablePutRefusal::Segment)
+    }
+}
+
 pub mod segment_collection {
     //! Store collection, defined by reachability from a set of root runs.
     //!

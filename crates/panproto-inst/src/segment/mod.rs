@@ -110,8 +110,9 @@ pub use stream::{
 };
 pub use table_apply::TABLE_APPLY_OP;
 pub use table_restrict::{
-    ComplementSegment, TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION, TABLE_RESTRICT_OP,
-    TableComplementSegment, TableRestrict,
+    ComplementSegment, FetchTableSegment, TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION,
+    TABLE_RESTRICT_OP, TableComplementSegment, TableRestrict, table_restrict_segmented,
+    table_restrict_segmented_with,
 };
 pub use tree_apply::TREE_APPLY_OP;
 pub use tree_bytes::{

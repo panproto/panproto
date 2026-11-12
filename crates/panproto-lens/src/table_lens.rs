@@ -30,6 +30,10 @@ use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::graph_lens::{GraphComposite, SequentialGraphLens};
 use crate::{Lens, LensError};
 
+mod segmented;
+
+pub use segmented::{TABLE_PUT_OP, TablePut, put_segmented, table_put_locality};
+
 /// Forward table-lens direction.
 ///
 /// The table restrict plan is compiled once for this call and retained by a
@@ -1887,7 +1891,6 @@ fn forward_stability(
         Ok((regenerated, _)) => regenerated,
         Err(error) => return refusal_from_restrict(error),
     };
-    let mut found = Vec::new();
     let mut traces = if let Some(boundary) = &plan.boundary
         && let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells)
     {
@@ -1916,6 +1919,23 @@ fn forward_stability(
         }
         Err(error) => return refusal_from_restrict(error),
     }
+    stability_findings(view, complement, &regenerated, source, plan, &traces)
+}
+
+/// The forward-stability violations of `view` against `regenerated`, the
+/// get of the restored `source`: each view row the regenerated view does
+/// not hold, or holds with another cell, classified by the row's traces
+/// `traces`, and each view pair it does not hold that `complement` does not
+/// record as synthesized.
+fn stability_findings(
+    view: &FInstance,
+    complement: &TableComplement,
+    regenerated: &FInstance,
+    source: &FInstance,
+    plan: &RestrictPlan,
+    traces: &BTreeMap<RowId, Vec<FieldTransform>>,
+) -> Vec<PutDomainError> {
+    let mut found = Vec::new();
     for id in view.row_ids() {
         let Some(expected) = view.row(id) else {
             continue;

@@ -32,9 +32,12 @@
 //!   entering it from elsewhere) and its [`TableComplementSegment`].
 //!
 //! A plan whose survival or transforms carry an expression is declined with
-//! [`Residual::Global`](super::Residual::Global) before any task, as graph
-//! restriction is ([`graph_restrict_locality`]).
+//! [`Residual::Global`] before any task, as graph restriction is
+//! ([`graph_restrict_locality`]). The same phases run in memory over a family
+//! read one segment at a time ([`table_restrict_segmented_with`]), which is
+//! what a segmented table put reads its restored source's view through.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use panproto_gat::Name;
@@ -42,11 +45,15 @@ use panproto_schema::{CanonicalWriter, Edge, InstanceShapeKind};
 
 use super::body::{AnySegment, Boundary, Ghost, InStub, TableSegment};
 use super::bytes::ascending;
+use super::error::Residual;
 use super::error::SegmentError;
 use super::ids::SegmentId;
 use super::manifest::ManifestRole;
+use super::partition::{OwnerIndex, Partition};
 use super::reader::Reader;
-use super::restrict::{GraphComplementSegment, SegmentedRestrictError, graph_restrict_locality};
+use super::restrict::{
+    GraphComplementSegment, SegmentedRestrictError, StreamStop, graph_restrict_locality,
+};
 use super::runner::{Emission, PhaseContext, PhaseOperation, PhaseStop};
 use super::store::{ArtifactKind, Phase};
 use crate::error::RestrictError;
@@ -546,14 +553,21 @@ fn malformed(artifact: ArtifactKind, message: &str) -> SegmentError {
     }
 }
 
-const fn restrict_stop(
-    segment: SegmentId,
-    error: RestrictError,
-) -> PhaseStop<SegmentedRestrictError> {
-    PhaseStop::Failed(SegmentedRestrictError::Restrict { segment, error })
+const fn restrict_error(segment: SegmentId, error: RestrictError) -> SegmentedRestrictError {
+    SegmentedRestrictError::Restrict { segment, error }
 }
 
 type Stop = PhaseStop<SegmentedRestrictError>;
+
+/// The refusal of a family that its Exports and Summaries locate, before it
+/// is recomputed in the segment owning its element.
+enum Located {
+    /// The least refusal of the row and pair stages, at this element.
+    Stage(TableStageKey),
+    /// The least realized pair whose contraction refuses, with its rows'
+    /// source tables.
+    Contraction((RowId, RowId), (Name, Name)),
+}
 
 impl TableRestrict<'_> {
     fn validated(cx: &PhaseContext<'_>, segment: SegmentId) -> Result<TableSegment, Stop> {
@@ -614,119 +628,16 @@ impl TableRestrict<'_> {
         }
         reach
     }
-}
 
-impl TableRestrict<'_> {
-    /// The in-stubs of `segment`'s view: every kept pair entering one of its
-    /// view rows `rows` from another segment, read from its source in-stubs,
-    /// and every contracted pair entering one, read from the other
-    /// segments' Summaries.
-    fn entering(
-        &self,
-        cx: &PhaseContext<'_>,
-        segment: SegmentId,
-        held: &TableSegment,
-        rows: &BTreeMap<RowId, (Name, Row)>,
-    ) -> Result<BTreeMap<ViewRef, InStub>, Stop> {
-        let here = |row: RowId| cx.partition().owner_of_node(row.0) == Some(segment);
-        let mut stubs = BTreeMap::new();
-        let mut entering =
-            |edge: Edge, src: u32, src_owner: SegmentId, src_table: Name, tgt: u32| {
-                stubs.insert(
-                    ViewRef::Pair {
-                        edge: edge.clone(),
-                        src: RowId(src),
-                        tgt: RowId(tgt),
-                    },
-                    InStub {
-                        src,
-                        src_owner,
-                        src_anchor: src_table,
-                        tgt,
-                        label: edge,
-                    },
-                );
-            };
-        for ((edge, _, _), stub) in
-            held.boundary
-                .in_stubs
-                .iter()
-                .filter_map(|(elem, stub)| match elem {
-                    ViewRef::Pair { edge, src, tgt } => Some(((edge, src, tgt), stub)),
-                    _ => None,
-                })
-        {
-            if let (Some(src_table), Some(image), true) = (
-                surviving_table(self.plan, &stub.src_anchor),
-                kept_pair_image(self.plan, edge),
-                rows.contains_key(&RowId(stub.tgt)),
-            ) {
-                entering(image, stub.src, stub.src_owner, src_table.clone(), stub.tgt);
-            }
-        }
-        for id in cx.segments().into_iter().filter(|id| *id != segment) {
-            let Some(other) = Self::realized(cx, id)? else {
-                continue;
-            };
-            for ((src, tgt), (a, b)) in &other.pairs {
-                if !here(*tgt) {
-                    continue;
-                }
-                let mut probe = (FInstance::new(), TableComplement::empty());
-                contract_pair(
-                    self.plan,
-                    (&mut probe.0, &mut probe.1),
-                    (*src, a),
-                    (*tgt, b),
-                )
-                .map_err(|error| restrict_stop(id, error))?;
-                let (label, src_table) = probe
-                    .1
-                    .synthesized_fk_pairs
-                    .iter()
-                    .next()
-                    .map(|(edge, _, _)| edge.clone())
-                    .zip(surviving_table(self.plan, a).cloned())
-                    .ok_or_else(|| {
-                        PhaseStop::from(malformed(ArtifactKind::Summary, "a contracted pair"))
-                    })?;
-                entering(label, src.0, id, src_table, tgt.0);
-            }
-        }
-        Ok(stubs)
-    }
-}
-
-impl PhaseOperation for TableRestrict<'_> {
-    type Error = SegmentedRestrictError;
-
-    fn op(&self) -> &'static [u8] {
-        TABLE_RESTRICT_OP
-    }
-
-    fn shape(&self) -> InstanceShapeKind {
-        InstanceShapeKind::Table
-    }
-
-    fn segment_op(&self) -> SegmentOp {
-        SegmentOp::Restrict
-    }
-
-    fn locality(&self) -> Locality {
-        graph_restrict_locality(self.plan)
-    }
-
-    fn portable(&self, phase: Phase) -> bool {
-        phase != Phase::Seal
-    }
-
-    fn export(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Vec<u8>, Stop> {
-        let held = Self::validated(cx, segment)?;
-        let refused = match restrict_rows_and_pairs(&local_instance(&held)?, self.plan) {
+    /// The Export of `held`: the first refusal of its row and pair stages,
+    /// its floor, and the reach of each dropped row it owns that a pair from
+    /// another segment enters.
+    fn export_of(&self, held: &TableSegment) -> Result<Export, SegmentedRestrictError> {
+        let refused = match restrict_rows_and_pairs(&local_instance(held)?, self.plan) {
             Ok(_) => Refused::None,
             Err(refused) => match *refused {
                 (Some(key), _) => Refused::At(key),
-                (None, error) => return Err(restrict_stop(segment, error)),
+                (None, error) => return Err(restrict_error(held.segment, error)),
             },
         };
         let floor = held
@@ -741,38 +652,36 @@ impl PhaseOperation for TableRestrict<'_> {
                 continue;
             };
             if !self.survives(table) && !entries.contains_key(&tgt) {
-                entries.insert(tgt, self.local_reach(&held, tgt, false));
+                entries.insert(tgt, self.local_reach(held, tgt, false));
             }
         }
-        Ok(export_bytes(&Export {
+        Ok(Export {
             refused,
             floor,
             entries,
-        }))
+        })
     }
 
-    fn summarize(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Vec<u8>, Stop> {
-        let mut entries: BTreeMap<RowId, Reach> = BTreeMap::new();
-        for id in cx.segments() {
-            let export = Self::exported(cx, id)?;
-            if export.refused != Refused::None {
-                return Ok(realized_bytes(None));
-            }
-            entries.extend(export.entries);
-        }
-        let held = Self::validated(cx, segment)?;
+    /// The realized pairs whose source row `held` owns, with both rows'
+    /// source tables, followed through the entries `entries` of every
+    /// segment, and the least of them whose contraction refuses.
+    fn realized_of(
+        &self,
+        held: &TableSegment,
+        entries: &BTreeMap<RowId, Reach>,
+    ) -> Result<Realized, SegmentError> {
         let mut realized = Realized::default();
         for (src, (src_table, _)) in &held.rows {
             if !self.survives(src_table) {
                 continue;
             }
-            let start = self.local_reach(&held, *src, true);
+            let start = self.local_reach(held, *src, true);
             let mut reached = start.survivors;
             let mut visited: BTreeSet<RowId> = start.exits.clone();
             let mut queue: VecDeque<RowId> = start.exits.into_iter().collect();
             while let Some(at) = queue.pop_front() {
                 let entry = if held.rows.contains_key(&at) {
-                    self.local_reach(&held, at, false)
+                    self.local_reach(held, at, false)
                 } else {
                     entries.get(&at).cloned().ok_or_else(|| {
                         malformed(ArtifactKind::Export, "a dropped row entered has no entry")
@@ -805,85 +714,105 @@ impl PhaseOperation for TableRestrict<'_> {
                 .is_err()
             })
             .map(|(pair, _)| *pair);
-        Ok(realized_bytes(Some(&realized)))
+        Ok(realized)
     }
 
-    fn assemble(&self, cx: &PhaseContext<'_>) -> Result<Vec<u8>, Stop> {
+    /// The least stage refusal among the segments' exports.
+    fn least_stage<'e>(refusals: impl IntoIterator<Item = &'e Refused>) -> Option<TableStageKey> {
         let mut least: Option<TableStageKey> = None;
-        for id in cx.segments() {
-            if let Refused::At(key) = Self::exported(cx, id)?.refused
-                && least.as_ref().is_none_or(|least| key < *least)
+        for refused in refusals {
+            if let Refused::At(key) = refused
+                && least.as_ref().is_none_or(|least| key < least)
             {
-                least = Some(key);
+                least = Some(key.clone());
             }
         }
-        let owner = |row: RowId| {
-            cx.partition()
-                .owner_of_node(row.0)
-                .ok_or_else(|| PhaseStop::from(malformed(ArtifactKind::Export, "an unowned row")))
-        };
-        if let Some(key) = least {
-            let at = match &key {
-                TableStageKey::Row(row) | TableStageKey::Pair(_, row, _) => owner(*row)?,
-            };
-            let held = Self::validated(cx, at)?;
-            return match restrict_rows_and_pairs(&local_instance(&held)?, self.plan)
-                .map_err(|refused| *refused)
-            {
-                Err((Some(found), error)) if found == key => Err(restrict_stop(at, error)),
-                _ => Err(PhaseStop::from(malformed(
-                    ArtifactKind::Export,
-                    "an export records a refusal its segment does not give",
-                ))),
-            };
-        }
+        least
+    }
+
+    /// The least refused contraction among the segments' realized pairs.
+    fn least_contraction<'r>(
+        realized: impl IntoIterator<Item = &'r Realized>,
+    ) -> Result<Option<Located>, SegmentError> {
         let mut contracted: Option<((RowId, RowId), (Name, Name))> = None;
-        for id in cx.segments() {
-            let realized = Self::realized(cx, id)?.ok_or_else(|| {
-                PhaseStop::from(malformed(ArtifactKind::Summary, "a skipped summary"))
-            })?;
+        for realized in realized {
             if let Some(pair) = realized.refused
                 && contracted.as_ref().is_none_or(|(least, _)| pair < *least)
             {
-                let tables = realized.pairs.get(&pair).cloned().ok_or_else(|| {
-                    PhaseStop::from(malformed(
-                        ArtifactKind::Summary,
-                        "a refused pair is missing",
-                    ))
-                })?;
+                let tables =
+                    realized.pairs.get(&pair).cloned().ok_or_else(|| {
+                        malformed(ArtifactKind::Summary, "a refused pair is missing")
+                    })?;
                 contracted = Some((pair, tables));
             }
         }
-        if let Some(((src, tgt), (a, b))) = contracted {
-            let mut probe = (FInstance::new(), TableComplement::empty());
-            let error = contract_pair(
-                self.plan,
-                (&mut probe.0, &mut probe.1),
-                (src, &a),
-                (tgt, &b),
-            )
-            .err()
-            .ok_or_else(|| {
-                PhaseStop::from(malformed(
-                    ArtifactKind::Summary,
-                    "a summary records a contraction that does not refuse",
-                ))
-            })?;
-            return Err(restrict_stop(owner(src)?, error));
-        }
-        Ok(Vec::new())
+        Ok(contracted.map(|(pair, tables)| Located::Contraction(pair, tables)))
     }
 
-    fn emit(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Emission, Stop> {
-        let held = Self::validated(cx, segment)?;
-        let partition = cx.partition();
-        let here = |row: RowId| partition.owner_of_node(row.0) == Some(segment);
-        let (mut view, mut complement) =
-            restrict_rows_and_pairs(&local_instance(&held)?, self.plan)
-                .map_err(|refused| restrict_stop(segment, refused.1))?;
-        let realized = Self::realized(cx, segment)?.ok_or_else(|| {
-            PhaseStop::from(malformed(ArtifactKind::Summary, "a skipped summary"))
-        })?;
+    /// The segment owning the element a located refusal arose at.
+    fn owner_of(located: &Located, index: &OwnerIndex) -> Result<SegmentId, SegmentError> {
+        let row = match located {
+            Located::Stage(TableStageKey::Row(row) | TableStageKey::Pair(_, row, _))
+            | Located::Contraction((row, _), _) => *row,
+        };
+        index
+            .owner_of_node(row.0)
+            .ok_or_else(|| malformed(ArtifactKind::Export, "an unowned row"))
+    }
+
+    /// The refusal of a stage refusal located at `key`, recomputed in
+    /// `held`, the segment owning its element: the error whole-state get
+    /// returns.
+    fn confirm_stage(&self, key: &TableStageKey, held: &TableSegment) -> SegmentedRestrictError {
+        let instance = match local_instance(held) {
+            Ok(instance) => instance,
+            Err(error) => return error.into(),
+        };
+        match restrict_rows_and_pairs(&instance, self.plan).map_err(|refused| *refused) {
+            Err((Some(found), error)) if found == *key => restrict_error(held.segment, error),
+            _ => SegmentedRestrictError::Segment(malformed(
+                ArtifactKind::Export,
+                "an export records a refusal its segment does not give",
+            )),
+        }
+    }
+
+    /// The refusal of contracting the pair `(src, tgt)` of source tables
+    /// `(a, b)`, in `at`, the segment owning its source row.
+    fn confirm_contraction(
+        &self,
+        at: SegmentId,
+        (src, tgt): (RowId, RowId),
+        (a, b): &(Name, Name),
+    ) -> SegmentedRestrictError {
+        let mut probe = (FInstance::new(), TableComplement::empty());
+        contract_pair(self.plan, (&mut probe.0, &mut probe.1), (src, a), (tgt, b))
+            .err()
+            .map_or_else(
+                || {
+                    SegmentedRestrictError::Segment(malformed(
+                        ArtifactKind::Summary,
+                        "a summary records a contraction that does not refuse",
+                    ))
+                },
+                |error| restrict_error(at, error),
+            )
+    }
+
+    /// The view segment of `held` and its complement segment, with the kept
+    /// pairs entering it from its source in-stubs; the contracted pairs
+    /// entering it from other segments are added by [`Self::contracted_into`].
+    fn emit_of(
+        &self,
+        held: &TableSegment,
+        index: &OwnerIndex,
+        realized: &Realized,
+        floor: u32,
+    ) -> Result<(TableSegment, TableComplementSegment), SegmentedRestrictError> {
+        let segment = held.segment;
+        let here = |row: RowId| index.owner_of_node(row.0) == Some(segment);
+        let (mut view, mut complement) = restrict_rows_and_pairs(&local_instance(held)?, self.plan)
+            .map_err(|refused| restrict_error(segment, refused.1))?;
         for ((src, tgt), (a, b)) in &realized.pairs {
             contract_pair(
                 self.plan,
@@ -891,10 +820,9 @@ impl PhaseOperation for TableRestrict<'_> {
                 (*src, a),
                 (*tgt, b),
             )
-            .map_err(|error| restrict_stop(segment, error))?;
+            .map_err(|error| restrict_error(segment, error))?;
         }
-        let export = Self::exported(cx, segment)?;
-        let complement = TableComplementSegment::of(&complement, segment, &here, export.floor);
+        let complement = TableComplementSegment::of(&complement, segment, &here, floor);
         let view_tables: BTreeMap<RowId, Name> = realized
             .pairs
             .iter()
@@ -914,30 +842,347 @@ impl PhaseOperation for TableRestrict<'_> {
             if here(*tgt) {
                 continue;
             }
-            let owner = partition.owner_of_node(tgt.0).ok_or_else(|| {
-                PhaseStop::from(malformed(ArtifactKind::Segment, "an unowned row"))
-            })?;
+            let owner = index
+                .owner_of_node(tgt.0)
+                .ok_or_else(|| malformed(ArtifactKind::Segment, "an unowned row"))?;
             let anchor = view
                 .table_of(*tgt)
                 .or_else(|| view_tables.get(tgt))
                 .cloned()
-                .ok_or_else(|| {
-                    PhaseStop::from(malformed(ArtifactKind::Segment, "a target has no table"))
-                })?;
+                .ok_or_else(|| malformed(ArtifactKind::Segment, "a target has no table"))?;
             boundary.ghosts.entry(tgt.0).or_insert(Ghost {
                 node: tgt.0,
                 owner,
                 anchor,
             });
         }
-        boundary.in_stubs = self.entering(cx, segment, &held, &rows)?;
-        Ok(Emission {
-            segment: AnySegment::Table(TableSegment {
+        for ((edge, _, _), stub) in
+            held.boundary
+                .in_stubs
+                .iter()
+                .filter_map(|(elem, stub)| match elem {
+                    ViewRef::Pair { edge, src, tgt } => Some(((edge, src, tgt), stub)),
+                    _ => None,
+                })
+        {
+            if let (Some(src_table), Some(image), true) = (
+                surviving_table(self.plan, &stub.src_anchor),
+                kept_pair_image(self.plan, edge),
+                rows.contains_key(&RowId(stub.tgt)),
+            ) {
+                insert_stub(
+                    &mut boundary,
+                    image,
+                    (stub.src, stub.src_owner, src_table.clone()),
+                    stub.tgt,
+                );
+            }
+        }
+        Ok((
+            TableSegment {
                 segment,
                 rows,
                 pairs,
                 boundary,
-            }),
+            },
+            complement,
+        ))
+    }
+
+    /// Add to `view`'s boundary an in-stub for every contracted pair the
+    /// realized pairs `other` of segment `id` place on a row `view` owns.
+    fn contracted_into(
+        &self,
+        view: &mut TableSegment,
+        index: &OwnerIndex,
+        id: SegmentId,
+        other: &Realized,
+    ) -> Result<(), SegmentedRestrictError> {
+        for ((src, tgt), (a, b)) in &other.pairs {
+            if index.owner_of_node(tgt.0) != Some(view.segment) {
+                continue;
+            }
+            let mut probe = (FInstance::new(), TableComplement::empty());
+            contract_pair(
+                self.plan,
+                (&mut probe.0, &mut probe.1),
+                (*src, a),
+                (*tgt, b),
+            )
+            .map_err(|error| restrict_error(id, error))?;
+            let (label, src_table) = probe
+                .1
+                .synthesized_fk_pairs
+                .iter()
+                .next()
+                .map(|(edge, _, _)| edge.clone())
+                .zip(surviving_table(self.plan, a).cloned())
+                .ok_or_else(|| malformed(ArtifactKind::Summary, "a contracted pair"))?;
+            insert_stub(&mut view.boundary, label, (src.0, id, src_table), tgt.0);
+        }
+        Ok(())
+    }
+}
+
+/// Add the in-stub of the pair `label` from the row `src` (owned by
+/// `src_owner`, of view table `src_table`) to the row `tgt`.
+fn insert_stub(
+    boundary: &mut Boundary,
+    label: Edge,
+    (src, src_owner, src_table): (u32, SegmentId, Name),
+    tgt: u32,
+) {
+    boundary.in_stubs.insert(
+        ViewRef::Pair {
+            edge: label.clone(),
+            src: RowId(src),
+            tgt: RowId(tgt),
+        },
+        InStub {
+            src,
+            src_owner,
+            src_anchor: src_table,
+            tgt,
+            label,
+        },
+    );
+}
+
+/// A caller's source of the segments of a table family, one at a time.
+pub type FetchTableSegment<'f, 's, E> =
+    dyn FnMut(SegmentId) -> Result<Cow<'s, TableSegment>, E> + 'f;
+
+/// Table restriction along `plan` of the table held as `segments` under
+/// `partition`: each segment's view and complement segment, in id order.
+///
+/// Glued, the views are [`functor_restrict_finite_with_plan`] of the glued
+/// table and the complements its complement, without an identity stamp; a
+/// refusal is the refusal whole-state get returns, in the segment owning
+/// the element it arose at. This runs the phases of [`TableRestrict`] in
+/// memory, by [`table_restrict_segmented_with`].
+///
+/// [`functor_restrict_finite_with_plan`]: crate::functor_restrict_finite_with_plan
+///
+/// # Errors
+///
+/// [`SegmentedRestrictError::Residual`] with [`Residual::Global`] when
+/// [`graph_restrict_locality`] classifies the plan as global, before any
+/// segment is read; [`SegmentedRestrictError::Segment`] with the error of
+/// [`verify_partition`](super::verify_partition); otherwise the refusal of
+/// [`table_restrict_segmented_with`].
+pub fn table_restrict_segmented(
+    plan: &RestrictPlan,
+    segments: &[TableSegment],
+    partition: &Partition,
+) -> Result<Vec<(TableSegment, TableComplementSegment)>, SegmentedRestrictError> {
+    if let Locality::Global(reason) = graph_restrict_locality(plan) {
+        return Err(SegmentedRestrictError::Residual(Residual::Global {
+            op: SegmentOp::Restrict,
+            reason,
+        }));
+    }
+    let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Table).collect();
+    super::check::verify_partition(&any, partition)?;
+    let index = partition.owner_index()?;
+    let ids: Vec<SegmentId> = segments.iter().map(|segment| segment.segment).collect();
+    let position: BTreeMap<SegmentId, usize> =
+        ids.iter().enumerate().map(|(at, id)| (*id, at)).collect();
+    let mut out = Vec::with_capacity(segments.len());
+    let outcome = table_restrict_segmented_with::<SegmentError>(
+        plan,
+        &ids,
+        &index,
+        &mut |id| {
+            position
+                .get(&id)
+                .and_then(|at| segments.get(*at))
+                .map(Cow::Borrowed)
+                .ok_or(SegmentError::MalformedPartition {
+                    segment: id,
+                    defect: super::error::PartitionDefect::SegmentMissing,
+                })
+        },
+        &mut |_, view, complement| {
+            out.push((view, complement));
+            Ok(())
+        },
+    );
+    match outcome {
+        Ok(()) => Ok(out),
+        Err(StreamStop::Refused(error)) => Err(error),
+        Err(StreamStop::Source(error)) => Err(SegmentedRestrictError::Segment(error)),
+    }
+}
+
+/// Run the phases of [`TableRestrict`] over a table family read one
+/// segment at a time.
+///
+/// The family's segments are those `ids` names, in id order, owned under
+/// `index`. Each segment is read from `fetch` whenever a pass reaches it,
+/// never two at once: the Export pass, the Summarize pass, the segment
+/// owning a refusal, and the Emit pass, which gives `visit` each segment's
+/// view and complement segment. Between passes the run holds every
+/// segment's export (its refusal, floor and entry summaries, which grow
+/// with the boundary) and its realized pairs (which grow with the
+/// contracted pairs). The caller must supply a family
+/// [`verify_partition`](super::verify_partition) accepts and the same
+/// segment each time one is fetched; the plan's locality is the caller's to
+/// check.
+///
+/// # Errors
+///
+/// [`StreamStop::Source`] with the first error of `fetch` or `visit`;
+/// [`StreamStop::Refused`] with [`SegmentedRestrictError::Segment`] when a
+/// segment does not form a table, and otherwise
+/// [`SegmentedRestrictError::Restrict`] with the refusal whole-state get
+/// returns, in the segment owning the element it arose at: the least
+/// refusal of the row stage, then of the pair stage, then of contraction.
+pub fn table_restrict_segmented_with<E>(
+    plan: &RestrictPlan,
+    ids: &[SegmentId],
+    index: &OwnerIndex,
+    fetch: &mut FetchTableSegment<'_, '_, E>,
+    visit: &mut dyn FnMut(SegmentId, TableSegment, TableComplementSegment) -> Result<(), E>,
+) -> Result<(), StreamStop<E>> {
+    let op = TableRestrict { plan };
+    let mut exports: Vec<Export> = Vec::with_capacity(ids.len());
+    for &id in ids {
+        let held = fetch(id).map_err(StreamStop::Source)?;
+        exports.push(op.export_of(&held).map_err(StreamStop::Refused)?);
+    }
+    let located = TableRestrict::least_stage(exports.iter().map(|export| &export.refused))
+        .map(Located::Stage);
+    let mut realized: Vec<Realized> = Vec::new();
+    let located = if located.is_some() {
+        located
+    } else {
+        let entries: BTreeMap<RowId, Reach> = exports
+            .iter()
+            .flat_map(|export| export.entries.clone())
+            .collect();
+        for &id in ids {
+            let held = fetch(id).map_err(StreamStop::Source)?;
+            realized.push(
+                op.realized_of(&held, &entries)
+                    .map_err(|error| StreamStop::Refused(error.into()))?,
+            );
+        }
+        TableRestrict::least_contraction(&realized)
+            .map_err(|error| StreamStop::Refused(error.into()))?
+    };
+    if let Some(located) = located {
+        let at = TableRestrict::owner_of(&located, index)
+            .map_err(|error| StreamStop::Refused(error.into()))?;
+        return Err(StreamStop::Refused(match &located {
+            Located::Stage(key) => {
+                let held = fetch(at).map_err(StreamStop::Source)?;
+                op.confirm_stage(key, &held)
+            }
+            Located::Contraction(pair, tables) => op.confirm_contraction(at, *pair, tables),
+        }));
+    }
+    for ((&id, export), mine) in ids.iter().zip(&exports).zip(&realized) {
+        let held = fetch(id).map_err(StreamStop::Source)?;
+        let (mut view, complement) = op
+            .emit_of(&held, index, mine, export.floor)
+            .map_err(StreamStop::Refused)?;
+        for (&other, theirs) in ids.iter().zip(&realized) {
+            if other != id {
+                op.contracted_into(&mut view, index, other, theirs)
+                    .map_err(StreamStop::Refused)?;
+            }
+        }
+        visit(id, view, complement).map_err(StreamStop::Source)?;
+    }
+    Ok(())
+}
+
+impl PhaseOperation for TableRestrict<'_> {
+    type Error = SegmentedRestrictError;
+
+    fn op(&self) -> &'static [u8] {
+        TABLE_RESTRICT_OP
+    }
+
+    fn shape(&self) -> InstanceShapeKind {
+        InstanceShapeKind::Table
+    }
+
+    fn segment_op(&self) -> SegmentOp {
+        SegmentOp::Restrict
+    }
+
+    fn locality(&self) -> Locality {
+        graph_restrict_locality(self.plan)
+    }
+
+    fn portable(&self, phase: Phase) -> bool {
+        phase != Phase::Seal
+    }
+
+    fn export(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Vec<u8>, Stop> {
+        let held = Self::validated(cx, segment)?;
+        let export = self.export_of(&held).map_err(PhaseStop::Failed)?;
+        Ok(export_bytes(&export))
+    }
+
+    fn summarize(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Vec<u8>, Stop> {
+        let mut entries: BTreeMap<RowId, Reach> = BTreeMap::new();
+        for id in cx.segments() {
+            let export = Self::exported(cx, id)?;
+            if export.refused != Refused::None {
+                return Ok(realized_bytes(None));
+            }
+            entries.extend(export.entries);
+        }
+        let held = Self::validated(cx, segment)?;
+        Ok(realized_bytes(Some(&self.realized_of(&held, &entries)?)))
+    }
+
+    fn assemble(&self, cx: &PhaseContext<'_>) -> Result<Vec<u8>, Stop> {
+        let mut refusals = Vec::new();
+        for id in cx.segments() {
+            refusals.push(Self::exported(cx, id)?.refused);
+        }
+        let located = if let Some(key) = Self::least_stage(&refusals) {
+            Some(Located::Stage(key))
+        } else {
+            let mut realized = Vec::new();
+            for id in cx.segments() {
+                realized.push(Self::realized(cx, id)?.ok_or_else(|| {
+                    PhaseStop::from(malformed(ArtifactKind::Summary, "a skipped summary"))
+                })?);
+            }
+            Self::least_contraction(&realized)?
+        };
+        let Some(located) = located else {
+            return Ok(Vec::new());
+        };
+        let at = Self::owner_of(&located, cx.index())?;
+        Err(PhaseStop::Failed(match &located {
+            Located::Stage(key) => self.confirm_stage(key, &Self::validated(cx, at)?),
+            Located::Contraction(pair, tables) => self.confirm_contraction(at, *pair, tables),
+        }))
+    }
+
+    fn emit(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Emission, Stop> {
+        let held = Self::validated(cx, segment)?;
+        let realized = Self::realized(cx, segment)?.ok_or_else(|| {
+            PhaseStop::from(malformed(ArtifactKind::Summary, "a skipped summary"))
+        })?;
+        let export = Self::exported(cx, segment)?;
+        let (mut view, complement) = self
+            .emit_of(&held, cx.index(), &realized, export.floor)
+            .map_err(PhaseStop::Failed)?;
+        for id in cx.segments().into_iter().filter(|id| *id != segment) {
+            let Some(other) = Self::realized(cx, id)? else {
+                continue;
+            };
+            self.contracted_into(&mut view, cx.index(), id, &other)
+                .map_err(PhaseStop::Failed)?;
+        }
+        Ok(Emission {
+            segment: AnySegment::Table(view),
             complement: Some(ComplementSegment::Table(complement)),
         })
     }
