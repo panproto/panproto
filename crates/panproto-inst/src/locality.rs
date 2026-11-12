@@ -166,6 +166,8 @@ pub enum SegmentOp {
     PutEdit,
     /// The instance digest.
     Digest,
+    /// Apply an edit to the instance.
+    Apply,
 }
 
 /// The locality class of each operation of a lens on one instance shape,
@@ -210,7 +212,8 @@ impl LocalityReport {
             SegmentOp::Restrict
             | SegmentOp::Extend
             | SegmentOp::CheckPutDomain
-            | SegmentOp::Digest => Locality::of_clauses(
+            | SegmentOp::Digest
+            | SegmentOp::Apply => Locality::of_clauses(
                 self.reasons
                     .iter()
                     .filter(|(reason_op, _, _)| *reason_op == op)
@@ -275,7 +278,7 @@ mod tests {
         ]
     }
 
-    const ALL_OPS: [SegmentOp; 9] = [
+    const ALL_OPS: [SegmentOp; 10] = [
         SegmentOp::Validate,
         SegmentOp::Restrict,
         SegmentOp::Extend,
@@ -285,6 +288,7 @@ mod tests {
         SegmentOp::GetEdit,
         SegmentOp::PutEdit,
         SegmentOp::Digest,
+        SegmentOp::Apply,
     ];
 
     #[test]
@@ -410,7 +414,7 @@ mod tests {
             Locality::Global(GlobalReason::Query)
         );
         assert_eq!(report.class(SegmentOp::Extend), Locality::Local);
-        assert_eq!(ALL_OPS.len(), 9);
+        assert_eq!(ALL_OPS.len(), 10);
         Ok(())
     }
 }

@@ -848,3 +848,162 @@ pub fn segmented_extend_cases() -> impl Iterator<Item = SegmentedExtendCase> {
 pub fn segmented_extend_case_count() -> u64 {
     segmented_restrict_case_count() / 8 * 27
 }
+
+/// One case of the segmented graph edit carrier: a graph, a partition of
+/// its node ids and of the ids a delta may add, and a delta.
+#[derive(Clone, Debug)]
+pub struct SegmentedApplyCase {
+    /// The graph the segments hold.
+    pub graph: Graph,
+    /// The partition.
+    pub partition: Partition,
+    /// The delta applied to the segments.
+    pub delta: crate::edit::GraphDelta,
+}
+
+/// The graphs of the segmented graph edit carrier: nodes `0 .. n-1` for `n`
+/// at most three, each anchored at `a` with no value, and at most two
+/// edges `0` and `1`, each with any endpoints and the label `e`.
+#[must_use]
+pub fn segmented_apply_graphs() -> Vec<Graph> {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    super::graphs(&super::GraphScope {
+        anchors: &["a"],
+        values: &[],
+        shapes: &[NodeShape::Plain],
+        labels: &labels,
+        positions: &[None],
+        max_nodes: 3,
+        max_edges: 2,
+    })
+}
+
+/// The partitions of the segmented graph edit carrier.
+///
+/// Each assigns the node ids `0` to `3` to at most three segments,
+/// numbered in the order of their least id (a restricted growth string),
+/// or assigns `0` to `2` that way and leaves `3` to no segment; each
+/// segment owns its ids as singleton ranges. Each assignment comes with
+/// three edge allocations: none; `[10 + 10 i, 19 + 10 i]` for every segment
+/// `i`; and `[10, 19]` for segment 0 alone.
+#[must_use]
+pub fn segmented_apply_partitions() -> Vec<Partition> {
+    let mut owners: Vec<Vec<Option<u32>>> = Vec::new();
+    for ids in [4_usize, 3] {
+        let mut strings: Vec<Vec<u32>> = vec![Vec::new()];
+        for _ in 0..ids {
+            strings = strings
+                .into_iter()
+                .flat_map(|string| {
+                    let next = string.iter().max().map_or(0, |max| max + 1);
+                    (0..=next.min(2)).map(move |block| {
+                        let mut longer = string.clone();
+                        longer.push(block);
+                        longer
+                    })
+                })
+                .collect();
+        }
+        owners.extend(strings.into_iter().map(|string| {
+            let mut owned: Vec<Option<u32>> = string.into_iter().map(Some).collect();
+            owned.resize(4, None);
+            owned
+        }));
+    }
+    let mut out = Vec::new();
+    for owned in owners {
+        let segments = owned.iter().flatten().max().map_or(0, |max| max + 1);
+        for allocation in 0..3_u32 {
+            let specs = (0..segments)
+                .map(|id| SegmentSpec {
+                    id: SegmentId(id),
+                    nodes: (0_u32..)
+                        .zip(&owned)
+                        .filter(|(_, owner)| **owner == Some(id))
+                        .map(|(node, _)| IdRange { lo: node, hi: node })
+                        .collect(),
+                    alloc_nodes: None,
+                    alloc_edges: match allocation {
+                        1 => Some(IdRange {
+                            lo: 10 + 10 * id,
+                            hi: 19 + 10 * id,
+                        }),
+                        2 if id == 0 => Some(IdRange { lo: 10, hi: 19 }),
+                        _ => None,
+                    },
+                })
+                .collect();
+            out.push(Partition {
+                shape: InstanceShapeKind::Graph,
+                specs,
+            });
+        }
+    }
+    out
+}
+
+/// The deltas of the segmented graph edit carrier: every atomic delta and
+/// the identity ([`super::graph_deltas`]) over the node ids `0`, `2` and
+/// `3`, the anchors `a` and `b`, no value or field, the edge ids `1`, `2`
+/// and `10`, the labels `e` and `e` named `x`, and the positions none and
+/// `0`.
+#[must_use]
+pub fn segmented_apply_deltas() -> Vec<crate::edit::GraphDelta> {
+    let labels = [
+        SEdge::new("a", "a", "e", None),
+        SEdge::new("a", "a", "e", Some("x")),
+    ];
+    super::graph_deltas(&super::DeltaScope {
+        nodes: &[0, 2, 3],
+        anchors: &["a", "b"],
+        values: &[],
+        fields: &[],
+        edges: &[1, 2, 10],
+        labels: &labels,
+        positions: &[None, Some(0)],
+    })
+}
+
+/// Every graph of [`segmented_apply_graphs`] under every partition of
+/// [`segmented_apply_partitions`] with every delta of
+/// [`segmented_apply_deltas`], in that nesting order.
+pub fn segmented_apply_cases() -> impl Iterator<Item = SegmentedApplyCase> {
+    let partitions = segmented_apply_partitions();
+    let deltas = segmented_apply_deltas();
+    segmented_apply_graphs().into_iter().flat_map(move |graph| {
+        let deltas = deltas.clone();
+        partitions.clone().into_iter().flat_map(move |partition| {
+            let graph = graph.clone();
+            deltas
+                .clone()
+                .into_iter()
+                .map(move |delta| SegmentedApplyCase {
+                    graph: graph.clone(),
+                    partition: partition.clone(),
+                    delta,
+                })
+        })
+    })
+}
+
+/// Independent counts of the segmented graph edit carrier.
+///
+/// Graphs: with `n` nodes there are `n^2` labelled edges, so
+/// `sum_(n=0)^3 (1 + n^2 + n^4) = 1 + 3 + 21 + 91 = 116` graphs (the
+/// graph with no node has no edge). Partitions: the restricted growth
+/// strings of length four with at most three blocks number
+/// `1 + 7 + 6 = 14` (the Stirling numbers `S(4, k)` for `k` up to three)
+/// and those of length three `1 + 3 + 1 = 5`, each with three edge
+/// allocations, `57`. Deltas: the identity; four node payloads per id to
+/// add or delete over three ids (two anchors, add or delete), `12`; to add
+/// or delete each of three edge ids with nine endpoint pairs and two
+/// labels, `108`; an anchor and a shape change in two directions per node,
+/// `12`; and a label and a position change in two directions per edge,
+/// `12`; `145` in all. So `116 * 57 * 145 = 958_740` cases.
+#[must_use]
+pub const fn segmented_apply_case_counts() -> (u64, u64, u64, u64) {
+    let graphs = 1 + 3 + 21 + 91;
+    let partitions = (14 + 5) * 3;
+    let deltas = 1 + 12 + 108 + 12 + 12;
+    (graphs, partitions, deltas, graphs * partitions * deltas)
+}

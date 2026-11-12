@@ -15,7 +15,7 @@
 //! against a root with its audit path, at most `ceil(log2 n)` sibling
 //! digests (inferred), without the other records.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_schema::{CanonicalWriter, InstanceShapeKind};
 use serde::{Deserialize, Serialize};
@@ -605,11 +605,32 @@ fn check_runs_against_records(
     shape: InstanceShapeKind,
     runs: Vec<EdgeIdRun<'_>>,
 ) -> Result<(), SegmentError> {
+    let floor = EdgeFloor::new(records.iter().map(|r| (r.id, r.alloc_edges)));
+    let records: Vec<&SegmentRecord> = records.iter().collect();
+    check_runs_of(&records, shape, runs, &floor)
+}
+
+/// Check the runs against `records`, any records of a family whose seal
+/// floor rule is `floor`, then merge them: one run per record, each matching
+/// its record as [`check_runs_against_records`] requires, no edge id in two
+/// runs, and every edge id admitted by `floor`.
+fn check_runs_of(
+    records: &[&SegmentRecord],
+    shape: InstanceShapeKind,
+    runs: Vec<EdgeIdRun<'_>>,
+    floor: &EdgeFloor,
+) -> Result<(), SegmentError> {
     let mut runs = runs;
+    let slots: BTreeMap<SegmentId, usize> = records
+        .iter()
+        .enumerate()
+        .map(|(slot, record)| (record.id, slot))
+        .collect();
     let mut position: Vec<Option<usize>> = vec![None; records.len()];
     for (i, (segment, _)) in runs.iter().enumerate() {
-        let slot = position
-            .get_mut(usize::try_from(segment.0).unwrap_or(usize::MAX))
+        let slot = slots
+            .get(segment)
+            .and_then(|slot| position.get_mut(*slot))
             .ok_or_else(|| run_error(format!("a run names {segment}, which no record lists")))?;
         if slot.replace(i).is_some() {
             return Err(run_error(format!("two runs name {segment}")));
@@ -621,13 +642,12 @@ fn check_runs_against_records(
             records[missing].id
         )));
     }
-    let floor = EdgeFloor::new(records.iter().map(|r| (r.id, r.alloc_edges)));
     let MergedRuns {
         seen,
         digests,
         duplicate,
         below_floor,
-    } = merge_runs(&mut runs, &floor)?;
+    } = merge_runs(&mut runs, floor)?;
     for (record, at) in records.iter().zip(&position) {
         let got = at.and_then(|i| seen.get(i)).copied().unwrap_or_default();
         let digest = at.and_then(|i| digests.get(i));
@@ -816,6 +836,69 @@ pub fn seal_full<'a>(
     }
     manifest.instance_digest = Some(instance_digest(shape, sources)?);
     Ok(manifest)
+}
+
+/// Seal `input` again with the records of the segments an edit rewrote in
+/// place of their input records: the manifest of the edited family, with
+/// role `role`, the input's shape, schema and binding, and no instance
+/// digest (the streaming digest would need every segment).
+///
+/// `records` are the rewritten segments' records and `runs` their sorted
+/// edge id runs, one per record. The records must state their input
+/// records' segments and ranges, and the full list of records must be a
+/// partition whose every cross digest has its counterpart. Each run must
+/// match its record as [`seal`] requires, no edge id may lie in two of the
+/// runs, and every edge id of a run must satisfy the seal floor rule of the
+/// family ([`EdgeFloor`]). The other segments' records are taken as sealed,
+/// so the caller guarantees that no edge id of a run is held by a segment it
+/// does not rewrite: under the floor rule no other segment holds an id at or
+/// above the floor, and the caller establishes it for the ids below.
+///
+/// # Errors
+///
+/// [`SegmentError::Decode`] of the manifest when a record names no input
+/// segment, states other ranges than its input record, or replaces a
+/// segment twice; otherwise as [`seal`].
+pub(super) fn reseal(
+    input: &SegmentManifest,
+    role: ManifestRole,
+    records: Vec<SegmentRecord>,
+    runs: Vec<EdgeIdRun<'_>>,
+) -> Result<SegmentManifest, SegmentError> {
+    let mut all = input.segments.clone();
+    let mut replaced = BTreeSet::new();
+    for record in &records {
+        let held = input
+            .record(record.id)
+            .ok_or_else(|| manifest_error(format!("a rewritten record names {}", record.id)))?;
+        if held.spec() != record.spec() || !replaced.insert(record.id) {
+            return Err(manifest_error(format!(
+                "the rewritten record of {} does not replace its input record once",
+                record.id
+            )));
+        }
+    }
+    for record in &records {
+        if let Some(slot) = all.get_mut(usize::try_from(record.id.0).unwrap_or(usize::MAX)) {
+            slot.clone_from(record);
+        }
+    }
+    records_partition(&all, input.shape)?;
+    check_cross_pairs(&all)?;
+    let floor = EdgeFloor::new(all.iter().map(|r| (r.id, r.alloc_edges)));
+    let rewritten: Vec<&SegmentRecord> = records.iter().collect();
+    check_runs_of(&rewritten, input.shape, runs, &floor)?;
+    let root = merkle_root(&all);
+    Ok(SegmentManifest {
+        version: SEGMENT_MANIFEST_VERSION,
+        shape: input.shape,
+        schema: input.schema,
+        role,
+        binding: input.binding,
+        segments: all,
+        root,
+        instance_digest: None,
+    })
 }
 
 /// Verify a manifest against its trusted expected identity without reading a segment.

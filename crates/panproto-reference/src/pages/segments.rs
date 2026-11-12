@@ -8792,6 +8792,485 @@ pub mod segment {
         }
     }
 
+    /// Operation bytes of graph delta application in a run identity.
+    pub const GRAPH_APPLY_OP: &[u8] = b"graph apply";
+
+    /// Inputs naming a reference run of segmented graph delta application.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ApplyRunSpec {
+        /// Schema digest of the input segments, and of the rewritten ones.
+        pub schema: Digest,
+        /// Binding digest of the input and output manifests.
+        pub binding: Option<Digest>,
+        /// Optional cancellation boundary measured in committed or reused tasks.
+        pub cancel_after_tasks: Option<u32>,
+    }
+
+    /// A reference run of segmented graph delta application.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ApplyRun {
+        /// Run identity naming the artifacts in the store.
+        pub run: Digest,
+        /// The segments the run reads.
+        pub read: BTreeSet<SegmentId>,
+        /// The edited family when complete.
+        pub output: Option<Vec<GraphSegment>>,
+        /// Output manifest when complete.
+        pub manifest: Option<SegmentManifest>,
+        /// Deterministic execution report.
+        pub report: SegmentRunReport<super::segmented_apply::SegmentedApplyRefusal>,
+    }
+
+    fn apply_report(
+        report: SegmentRunReport,
+    ) -> SegmentRunReport<super::segmented_apply::SegmentedApplyRefusal> {
+        use super::segmented_apply::SegmentedApplyRefusal;
+        let status = match report.status {
+            RunStatus::Complete { manifest } => RunStatus::Complete { manifest },
+            RunStatus::Incomplete { reason } => RunStatus::Incomplete { reason },
+            RunStatus::Residual(residual) => RunStatus::Residual(residual),
+            RunStatus::Failed(error) => RunStatus::Failed(SegmentedApplyRefusal::Segment(error)),
+        };
+        SegmentRunReport {
+            status,
+            locality: report.locality,
+            budget: report.budget,
+            progress: report.progress,
+            peak_estimated_bytes: report.peak_estimated_bytes,
+            observed_peak_bytes: report.observed_peak_bytes,
+            complement: report.complement,
+            tasks_run: report.tasks_run,
+            tasks_reused: report.tasks_reused,
+            orphans: report.orphans,
+            phases: report.phases,
+        }
+    }
+
+    /// Definition: the Summarize artifact of a segmented apply, the facts
+    /// of `segment` about `delta`.
+    ///
+    /// The touched nodes are the added nodes, the endpoints of the deleted
+    /// and added edges' payloads, the nodes whose metadata changes and the
+    /// sources of the segment's own edges whose label changes. The artifact
+    /// lists, each part counted and ascending by id: as node records, the
+    /// segment's nodes that are touched, deleted or changed by an attribute;
+    /// as edge records, its edges that the delta deletes, adds or changes
+    /// and its edges incident to a node it owns that is touched or deleted;
+    /// and, as id, source, target and label, its in-stubs entering such a
+    /// node.
+    ///
+    /// # Errors
+    ///
+    /// A decode error for a node outside the canonical value domain.
+    pub fn apply_facts_bytes(
+        segment: &GraphSegment,
+        delta: &crate::edit::GraphDelta,
+    ) -> Result<Vec<u8>, SegmentError> {
+        use crate::edit::{AttrKey, GElem, GPayload};
+        let mut touched = BTreeSet::new();
+        let mut deleted = BTreeSet::new();
+        let mut changed = BTreeSet::new();
+        let mut edges_named = BTreeSet::new();
+        for (element, payload) in &delta.del {
+            match (element, payload) {
+                (GElem::Node(node), _) => {
+                    deleted.insert(*node);
+                }
+                (GElem::Edge(edge), GPayload::Edge(payload)) => {
+                    edges_named.insert(*edge);
+                    touched.extend([payload.src, payload.tgt]);
+                }
+                (GElem::Edge(edge), GPayload::Node(_)) => {
+                    edges_named.insert(*edge);
+                }
+            }
+        }
+        for (element, payload) in &delta.add {
+            match (element, payload) {
+                (GElem::Node(node), _) => {
+                    touched.insert(*node);
+                }
+                (GElem::Edge(edge), GPayload::Edge(payload)) => {
+                    edges_named.insert(*edge);
+                    touched.extend([payload.src, payload.tgt]);
+                }
+                (GElem::Edge(edge), GPayload::Node(_)) => {
+                    edges_named.insert(*edge);
+                }
+            }
+        }
+        for key in delta.attrs.keys() {
+            match key {
+                AttrKey::Meta(node) => {
+                    touched.insert(*node);
+                    changed.insert(*node);
+                }
+                AttrKey::Value(node) | AttrKey::Field(node, _) | AttrKey::Anchor(node) => {
+                    changed.insert(*node);
+                }
+                AttrKey::EdgeLabel(edge) => {
+                    edges_named.insert(*edge);
+                    if let Some(own) = segment.edges.get(edge) {
+                        touched.insert(own.src);
+                    }
+                }
+                AttrKey::EdgePosition(edge) => {
+                    edges_named.insert(*edge);
+                }
+            }
+        }
+        let incident: BTreeSet<u32> = touched
+            .union(&deleted)
+            .copied()
+            .filter(|node| segment.nodes.contains_key(node))
+            .collect();
+        let mut w = Canonical::default();
+        let nodes: Vec<&Node> = segment
+            .nodes
+            .values()
+            .filter(|node| {
+                touched.contains(&node.id)
+                    || deleted.contains(&node.id)
+                    || changed.contains(&node.id)
+            })
+            .collect();
+        w.len(nodes.len());
+        for node in nodes {
+            let mut body = Writer::default();
+            write_node(&mut body, node)
+                .ok_or_else(|| decode_error(ArtifactKind::Summary, "noncanonical graph node"))?;
+            w.0.extend(body.bytes);
+        }
+        let edges: Vec<(&u32, &GEdge)> = segment
+            .edges
+            .iter()
+            .filter(|(id, edge)| {
+                edges_named.contains(*id)
+                    || incident.contains(&edge.src)
+                    || incident.contains(&edge.tgt)
+            })
+            .collect();
+        w.len(edges.len());
+        for (id, edge) in edges {
+            let mut body = Writer::default();
+            write_graph_edge(&mut body, *id, edge);
+            w.0.extend(body.bytes);
+        }
+        let stubs: Vec<(u32, &InStub)> = segment
+            .boundary
+            .in_stubs
+            .iter()
+            .filter_map(|(elem, stub)| match elem {
+                ViewRef::Edge(id) if incident.contains(&stub.tgt) => Some((*id, stub)),
+                _ => None,
+            })
+            .collect();
+        w.len(stubs.len());
+        for (id, stub) in stubs {
+            w.u32(id);
+            w.u32(stub.src);
+            w.u32(stub.tgt);
+            write_edge(&mut w, &stub.label);
+        }
+        Ok(w.0)
+    }
+
+    /// Definition: the checkpointed run of segmented graph delta
+    /// application.
+    ///
+    /// The run seals `segments` under `p` into the source manifest (with
+    /// `spec.schema`, refusing an invalid family with that refusal), reads
+    /// the segments of [`super::segmented_apply::read_set`] of its records,
+    /// names itself by the delta's digest, that manifest's digest, the
+    /// partition bytes and [`GRAPH_APPLY_OP`], and declines when it reads
+    /// more segments than the budget or a read segment's [`MemoryModel`]
+    /// estimate exceeds the working set. It then commits `4k + 2` tasks for
+    /// the `k` read segments: per read segment Validate, its canonical
+    /// bytes; Export, nothing; Summarize, its facts
+    /// ([`apply_facts_bytes`]); the coordinator's Assemble, which refuses
+    /// with the refusal of [`super::segmented_apply::apply_graph_segmented`]
+    /// and otherwise declines when the facts' bytes exceed the summary
+    /// budget, writing nothing; per read segment Emit, its edited segment
+    /// without a complement in the Emit layout; and Seal, whose manifest is
+    /// the seal of the whole edited family as a source without an instance
+    /// digest, its phase peak the header, record and one edge id (when it
+    /// has edges) of each Emit artifact. The locality reported is an
+    /// exchange. It stops before any task once `cancel_after_tasks` tasks
+    /// are done, and reuses every committed task whose inputs and artifact
+    /// are unchanged.
+    pub fn segmented_apply_with_progress<S: SegmentStore>(
+        delta: &crate::edit::GraphDelta,
+        segments: &[GraphSegment],
+        p: &Partition,
+        spec: &ApplyRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> ApplyRun {
+        let per = u32::try_from(segments.len()).unwrap_or(u32::MAX);
+        let mut report = base_report(
+            InstanceShapeKind::Graph,
+            budget,
+            per.saturating_mul(4).saturating_add(2),
+        );
+        let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+        let stopped = |run, report| ApplyRun {
+            run,
+            read: BTreeSet::new(),
+            output: None,
+            manifest: None,
+            report,
+        };
+        let input = match seal_manifest(&any, p, spec.schema, ManifestRole::Source, spec.binding) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                return stopped(
+                    Digest::default(),
+                    apply_report(failed::<()>(report, error).report),
+                );
+            }
+        };
+        let read = super::segmented_apply::read_set(delta, &input.segments, p);
+        let count = u32::try_from(read.len()).unwrap_or(u32::MAX);
+        let total = count.saturating_mul(4).saturating_add(2);
+        report.progress.tasks_total = total;
+        report.progress.elements_total = u64::from(total);
+        let lens = Digest(crate::edit::graph_delta_digest(delta).unwrap_or_default());
+        let run = restrict_run_identity(
+            lens,
+            Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(&input)),
+            p,
+            GRAPH_APPLY_OP,
+        );
+        let read_segments: Vec<&GraphSegment> = segments
+            .iter()
+            .filter(|segment| read.contains(&segment.segment))
+            .collect();
+        let read_any: Vec<AnySegment> = read_segments
+            .iter()
+            .map(|segment| AnySegment::Graph((*segment).clone()))
+            .collect();
+        let mut state = RunnerState {
+            p,
+            spec: RunSpec {
+                operation: lens,
+                schema: spec.schema,
+                binding: spec.binding,
+                cancel_after_tasks: spec.cancel_after_tasks,
+            },
+            budget,
+            store,
+            progress,
+            run,
+            peak: 0,
+            segment_inputs: Vec::new(),
+            preflight_summaries: Vec::new(),
+            restrict_source_schema: spec.schema,
+            report,
+        };
+        match extend_preflight(&read_any, p, spec.schema, budget) {
+            Ok((peak, inputs)) => {
+                state.peak = peak;
+                state.segment_inputs = inputs;
+            }
+            Err(stop) => {
+                let mut run = stopped(run, apply_report(stop_run::<(), S>(state, stop).report));
+                run.read = read;
+                return run;
+            }
+        }
+        let whole = super::segmented_apply::apply_graph_segmented(delta, segments, p);
+        let outcome = state.apply_phases(&read_segments, delta, &whole);
+        state.report.peak_estimated_bytes = state.peak;
+        let mut result = match outcome {
+            Ok((bytes, manifest)) => match state.store.staged_uncommitted(&state.run) {
+                Ok(orphans) => {
+                    state.report.orphans = orphans;
+                    state.report.status = RunStatus::Complete {
+                        manifest: Digest::derive(MANIFEST_CONTEXT, &bytes),
+                    };
+                    ApplyRun {
+                        run,
+                        read: BTreeSet::new(),
+                        output: whole.ok(),
+                        manifest: Some(manifest),
+                        report: apply_report(state.report),
+                    }
+                }
+                Err(error) => {
+                    state.report.status = RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store {
+                            message: error.to_string(),
+                        },
+                    };
+                    stopped(run, apply_report(state.report))
+                }
+            },
+            Err(ApplyStop::Pipeline(stop)) => {
+                stopped(run, apply_report(stop_run::<(), S>(state, stop).report))
+            }
+            Err(ApplyStop::Refused(refusal)) => {
+                let mut report = apply_report(state.report);
+                report.status = RunStatus::Failed(refusal);
+                stopped(run, report)
+            }
+        };
+        result.read = read;
+        result
+    }
+
+    enum ApplyStop {
+        Pipeline(PipelineStop),
+        Refused(super::segmented_apply::SegmentedApplyRefusal),
+    }
+
+    impl From<PipelineStop> for ApplyStop {
+        fn from(stop: PipelineStop) -> Self {
+            Self::Pipeline(stop)
+        }
+    }
+
+    type ApplyOutcome = Result<Vec<GraphSegment>, super::segmented_apply::SegmentedApplyRefusal>;
+
+    impl<S: SegmentStore> RunnerState<'_, '_, S> {
+        /// The phases of a segmented apply over the read segments `read`,
+        /// whose in-memory outcome is `whole`.
+        fn apply_phases(
+            &mut self,
+            read: &[&GraphSegment],
+            delta: &crate::edit::GraphDelta,
+            whole: &ApplyOutcome,
+        ) -> Result<(Vec<u8>, SegmentManifest), ApplyStop> {
+            let mut summaries = Canonical::default();
+            let mut summary_total: u64 = 0;
+            for phase in [Phase::Validate, Phase::Export, Phase::Summarize] {
+                let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+                for (position, segment) in read.iter().enumerate() {
+                    if self.cancelled() {
+                        return Err(PipelineStop::Cancelled.into());
+                    }
+                    let input = self.segment_inputs[position].clone();
+                    let (kind, output) = match phase {
+                        Phase::Validate => (ArtifactKind::Segment, input.clone()),
+                        Phase::Export => (ArtifactKind::Export, Vec::new()),
+                        _ => (
+                            ArtifactKind::Summary,
+                            apply_facts_bytes(segment, delta)
+                                .map_err(|error| PipelineStop::Failed(error))?,
+                        ),
+                    };
+                    let stored = self.task(phase, Some(segment.segment), kind, &input, || {
+                        Ok(output.clone())
+                    })?;
+                    if phase == Phase::Summarize {
+                        summaries.bytes(&stored);
+                        summary_total = summary_total
+                            .saturating_add(u64::try_from(stored.len()).unwrap_or(u64::MAX));
+                    }
+                }
+                finish_phase(&mut self.report, phase, run_before, reuse_before, self.peak);
+            }
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let outputs = whole
+                .as_ref()
+                .map_err(|refusal| ApplyStop::Refused(refusal.clone()))?;
+            if summary_total > self.budget.summary {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::Summary,
+                    phase: Phase::Assemble,
+                    segment: None,
+                    needed: summary_total,
+                    budget: self.budget.summary,
+                })
+                .into());
+            }
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(
+                Phase::Assemble,
+                None,
+                ArtifactKind::Assembly,
+                &summaries.0,
+                || Ok(Vec::new()),
+            )?;
+            finish_phase(
+                &mut self.report,
+                Phase::Assemble,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            let any: Vec<AnySegment> = outputs.iter().cloned().map(AnySegment::Graph).collect();
+            let records =
+                manifest_records(&any, self.p, self.spec.schema).map_err(PipelineStop::Failed)?;
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            let mut emitted = Canonical::default();
+            let mut seal_held: u64 = 0;
+            for (segment, record) in outputs.iter().zip(&records) {
+                if !read.iter().any(|held| held.segment == segment.segment) {
+                    continue;
+                }
+                if self.cancelled() {
+                    return Err(PipelineStop::Cancelled.into());
+                }
+                let artifact = restrict_emit_bytes(segment, None, record, self.spec.schema, self.p)
+                    .map_err(PipelineStop::Failed)?;
+                let one_id = if segment.edges.is_empty() { 0 } else { 4 };
+                seal_held = seal_held
+                    .saturating_add(EMIT_HEADER_LEN)
+                    .saturating_add(
+                        u64::try_from(canonical_record_bytes(record).len()).unwrap_or(u64::MAX),
+                    )
+                    .saturating_add(one_id);
+                self.task(
+                    Phase::Emit,
+                    Some(segment.segment),
+                    ArtifactKind::ComplementSegment,
+                    &[],
+                    || Ok(artifact.bytes.clone()),
+                )?;
+                emitted.bytes(&artifact.bytes);
+            }
+            finish_phase(
+                &mut self.report,
+                Phase::Emit,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let mut manifest = seal_manifest(
+                &any,
+                self.p,
+                self.spec.schema,
+                ManifestRole::Source,
+                self.spec.binding,
+            )
+            .map_err(PipelineStop::Failed)?;
+            manifest.instance_digest = None;
+            let bytes = canonical_manifest_bytes(&manifest);
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(
+                Phase::Seal,
+                None,
+                ArtifactKind::Manifest,
+                &emitted.0,
+                || Ok(bytes.clone()),
+            )?;
+            finish_phase(
+                &mut self.report,
+                Phase::Seal,
+                run_before,
+                reuse_before,
+                seal_held,
+            );
+            Ok((bytes, manifest))
+        }
+    }
+
     /// Run validate/export/summarize/assemble/emit/seal, with deterministic
     /// artifacts and restart reuse, then observe the assembled whole value.
     pub fn segmented_with<T, S: SegmentStore>(
@@ -9425,6 +9904,141 @@ pub mod segmented_extend {
             )
         })?;
         partition_graph(&extended, p).map_err(SegmentedExtendRefusal::Segment)
+    }
+}
+
+pub mod segmented_apply {
+    //! Segmented graph delta application, defined by applying the delta to
+    //! the glued graph and laying the result out again.
+    //!
+    //! This is the executable definition of L-segments-20. It never runs
+    //! segment by segment: it glues the segments, applies the delta with
+    //! the whole-state [`crate::edit::apply`], splits the edited graph by
+    //! owner and seals the split. The segments a segmented apply may read
+    //! are defined here too, from the manifest records alone.
+
+    use std::collections::BTreeSet;
+
+    use super::segment::{
+        AnySegment, Digest, GraphSegment, ManifestRole, Partition, SegmentError, SegmentId,
+        SegmentRecord, assemble_graph, partition_graph, seal_manifest,
+    };
+    use crate::edit::{ApplyError, AttrKey, GElem, GPayload, GraphDelta, apply};
+
+    /// Why a segmented graph delta application returns no output.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedApplyRefusal {
+        /// The family is invalid, or the edited graph cannot be split and
+        /// sealed under the partition.
+        Segment(SegmentError),
+        /// Whole-state application refuses the delta.
+        Edit(ApplyError),
+    }
+
+    /// Definition: segmented graph delta application.
+    ///
+    /// Glue `segments` under `p` and refuse an invalid family with the glue
+    /// refusal; apply `delta` to the glued graph and refuse with its
+    /// refusal; split the edited graph with [`partition_graph`] and refuse
+    /// with its refusal; seal the split as a source and refuse with the
+    /// seal's refusal; otherwise return the split.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn apply_graph_segmented(
+        delta: &GraphDelta,
+        segments: &[GraphSegment],
+        p: &Partition,
+    ) -> Result<Vec<GraphSegment>, SegmentedApplyRefusal> {
+        let g = assemble_graph(segments, p).map_err(SegmentedApplyRefusal::Segment)?;
+        let edited = apply(delta, &g).map_err(SegmentedApplyRefusal::Edit)?;
+        let split = partition_graph(&edited, p).map_err(SegmentedApplyRefusal::Segment)?;
+        let any: Vec<AnySegment> = split.iter().cloned().map(AnySegment::Graph).collect();
+        seal_manifest(&any, p, Digest::default(), ManifestRole::Source, None)
+            .map_err(SegmentedApplyRefusal::Segment)?;
+        Ok(split)
+    }
+
+    /// Definition: the segments that may hold edge id `edge` in the family
+    /// of `records`. With `floor` the least lower bound of the records'
+    /// edge allocation ranges, an id at or above it is held only by a record
+    /// whose edge allocation range contains it; any other id by a record
+    /// whose largest edge id is at least it.
+    #[must_use]
+    pub fn holders(records: &[SegmentRecord], edge: u32) -> BTreeSet<SegmentId> {
+        let floor = records
+            .iter()
+            .filter_map(|record| record.alloc_edges.map(|range| range.lo))
+            .min();
+        records
+            .iter()
+            .filter(|record| match floor {
+                Some(floor) if edge >= floor => record
+                    .alloc_edges
+                    .is_some_and(|range| range.lo <= edge && edge <= range.hi),
+                _ => record.max_edge.is_some_and(|max| max >= edge),
+            })
+            .map(|record| record.id)
+            .collect()
+    }
+
+    /// Definition: the segments a segmented apply of `delta` reads, from the
+    /// records of the family's manifest under `p`.
+    ///
+    /// The owner of each node the delta deletes, adds or changes; for an
+    /// anchor change also every segment its owner's record lists as a peer
+    /// of a crossing edge, in either direction; for each deleted or added
+    /// edge the owners of its payload's endpoints and [`holders`] of its
+    /// id; for an edge whose label or position changes, [`holders`] of its
+    /// id, and for a label change also every segment those holders' records
+    /// list as the target peer of a crossing edge. A node no range owns
+    /// adds nothing.
+    #[must_use]
+    pub fn read_set(
+        delta: &GraphDelta,
+        records: &[SegmentRecord],
+        p: &Partition,
+    ) -> BTreeSet<SegmentId> {
+        let record = |id: SegmentId| records.iter().find(|record| record.id == id);
+        let mut read = BTreeSet::new();
+        for (element, payload) in delta.del.iter().chain(&delta.add) {
+            match (element, payload) {
+                (GElem::Node(node), _) => read.extend(p.owner_of_node(*node)),
+                (GElem::Edge(edge), GPayload::Edge(payload)) => {
+                    read.extend(p.owner_of_node(payload.src));
+                    read.extend(p.owner_of_node(payload.tgt));
+                    read.extend(holders(records, *edge));
+                }
+                (GElem::Edge(edge), GPayload::Node(_)) => read.extend(holders(records, *edge)),
+            }
+        }
+        for key in delta.attrs.keys() {
+            match key {
+                AttrKey::Anchor(node) => {
+                    if let Some(owner) = p.owner_of_node(*node) {
+                        read.insert(owner);
+                        if let Some(record) = record(owner) {
+                            read.extend(record.cross_out.keys());
+                            read.extend(record.cross_in.keys());
+                        }
+                    }
+                }
+                AttrKey::Value(node) | AttrKey::Field(node, _) | AttrKey::Meta(node) => {
+                    read.extend(p.owner_of_node(*node));
+                }
+                AttrKey::EdgeLabel(edge) => {
+                    for holder in holders(records, *edge) {
+                        read.insert(holder);
+                        if let Some(record) = record(holder) {
+                            read.extend(record.cross_out.keys());
+                        }
+                    }
+                }
+                AttrKey::EdgePosition(edge) => read.extend(holders(records, *edge)),
+            }
+        }
+        read
     }
 }
 

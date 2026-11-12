@@ -26,9 +26,14 @@
 //! - segmented graph extension ([`graph_extend_segmented`]), which runs the
 //!   graph extend engine segment by segment under the source's partition,
 //!   and its checkpointed run ([`graph_extend_run`]);
+//! - segmented graph edits ([`graph_apply_segmented`]), which apply a
+//!   [`GraphDelta`](crate::graph_edit::GraphDelta) reading only the segments
+//!   it can change ([`FamilyIndex::read_set`]), and their checkpointed run
+//!   ([`graph_apply_run`]), with [`FreshIds`] for the ids a delta adds;
 //! - the typed failure [`SegmentError`] and the [`Residual`] of an operation
 //!   declined within a budget.
 
+mod apply;
 mod body;
 mod builder;
 mod bytes;
@@ -51,6 +56,10 @@ mod tree_bytes;
 mod validate;
 
 pub use crate::identity::SEGMENT_EDGE_IDS_CONTEXT;
+pub use apply::{
+    FamilyIndex, FreshIds, GRAPH_APPLY_OP, GraphApply, GraphApplyRun, SegmentedApplyError,
+    graph_apply_run, graph_apply_segmented,
+};
 pub use body::{
     AnySegment, Boundary, Ghost, GraphSegment, InStub, SegmentStats, TableSegment, TreeSegment,
 };

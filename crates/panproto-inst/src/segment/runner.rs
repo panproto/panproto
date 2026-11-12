@@ -71,7 +71,7 @@ use super::bytes::{read_boundary, write_boundary};
 use super::error::{Residual, Resource, SegmentError};
 use super::ids::SegmentId;
 use super::manifest::{
-    EdgeIdRun, ManifestHeader, ManifestRole, SegmentManifest, SegmentRecord, seal_full,
+    EdgeIdRun, ManifestHeader, ManifestRole, SegmentManifest, SegmentRecord, reseal, seal_full,
     verify_manifest, verify_segment_bytes,
 };
 use super::partition::{OwnerIndex, Partition};
@@ -1045,13 +1045,14 @@ pub const fn phase_artifact(phase: Phase) -> ArtifactKind {
 }
 
 /// What a phase of an operation reads: the input manifest, its partition
-/// and owner index, the run's spec, and the committed artifacts of earlier
-/// phases.
+/// and owner index, the run's spec, the segments the run reads, and the
+/// committed artifacts of earlier phases.
 pub struct PhaseContext<'r> {
     input: &'r SegmentManifest,
     partition: &'r Partition,
     index: &'r OwnerIndex,
     spec: &'r RunSpec,
+    segments: &'r [SegmentId],
     read: &'r dyn Fn(TaskKey) -> Result<Option<Vec<u8>>, String>,
 }
 
@@ -1080,10 +1081,12 @@ impl PhaseContext<'_> {
         self.spec
     }
 
-    /// The segments of the partition, in id order.
+    /// The segments the run reads, in id order: every segment of the
+    /// partition, or the operation's affected segments
+    /// ([`PhaseOperation::affected`]).
     #[must_use]
     pub fn segments(&self) -> Vec<SegmentId> {
-        self.partition.specs().iter().map(|spec| spec.id).collect()
+        self.segments.to_vec()
     }
 
     /// The committed artifact of the task of `phase` for `segment` (`None`
@@ -1137,6 +1140,26 @@ pub trait PhaseOperation {
     /// The operation's locality class; a global class is declined before
     /// any task.
     fn locality(&self) -> Locality;
+
+    /// The segments the run reads and rewrites, or `None` for every segment
+    /// of the partition.
+    ///
+    /// With `None` the run has a task per segment in each segment phase and
+    /// Seal seals every output segment with its streaming instance digest
+    /// ([`seal_full`]). With a set, the segment phases run for its segments
+    /// only, a segment outside it is never read, and Seal keeps the input
+    /// record of every segment outside it, sealing the rewritten records
+    /// beside them without an instance digest. An operation returning a set
+    /// guarantees that no segment outside it changes and that no edge id of
+    /// a rewritten segment is held by a segment outside it.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of an input the set cannot be computed for.
+    fn affected(&self, cx: &PhaseContext<'_>) -> Result<Option<BTreeSet<SegmentId>>, SegmentError> {
+        let _ = cx;
+        Ok(None)
+    }
 
     /// The working-set estimate of the input segment `record` describes,
     /// checked against [`Budget::working_set`] before any task.
@@ -1475,6 +1498,8 @@ struct Runner<'a, O: PhaseOperation, Src, St> {
     source: &'a Src,
     partition: Partition,
     index: OwnerIndex,
+    ids: Vec<SegmentId>,
+    rewrites: bool,
     spec: RunSpec,
     budget: Budget,
     store: &'a mut St,
@@ -1487,7 +1512,7 @@ struct Runner<'a, O: PhaseOperation, Src, St> {
 
 impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src, St> {
     fn ids(&self) -> Vec<SegmentId> {
-        self.partition.specs().iter().map(|spec| spec.id).collect()
+        self.ids.clone()
     }
 
     fn cancelled(&self) -> bool {
@@ -1522,6 +1547,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             partition: &self.partition,
             index: &self.index,
             spec: &self.spec,
+            segments: &self.ids,
             read: &read,
         })
     }
@@ -1806,7 +1832,11 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
     /// time while [`seal_full`] merges them. Seal thus holds, per artifact,
     /// its header, its record, one id when the run is not empty and at most
     /// its longest frame with its length prefix; the sum over the artifacts
-    /// bounds what it holds at once.
+    /// bounds what it holds at once. An operation with an affected set
+    /// ([`PhaseOperation::affected`]) is resealed instead ([`reseal`]): the
+    /// records of the rewritten segments replace their input records, their
+    /// edge id runs are merged and no record stream is read, so Seal holds
+    /// each artifact's header, its record and one id.
     fn sealed(&self) -> Result<(SegmentManifest, u64), Stop<O::Error>> {
         let journal = self.store.journal(&self.run).map_err(store_stop)?;
         let kind = ArtifactKind::ComplementSegment;
@@ -1834,11 +1864,12 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
                 .ok_or_else(|| Stop::from(missing_section(kind)))?;
             let record = SegmentRecord::from_canonical_bytes(&record)?;
             let one_id = if layout.run_ids == 0 { 0 } else { 4 };
+            let longest = if self.rewrites { 0 } else { layout.longest };
             held = held
                 .saturating_add(EMIT_HEADER_LEN)
                 .saturating_add(layout.record)
                 .saturating_add(one_id)
-                .saturating_add(layout.longest);
+                .saturating_add(longest);
             sections.push((id, key, layout, record.stats));
             records.push(record);
         }
@@ -1859,26 +1890,31 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
                 )
             })
             .collect();
-        let sources = sections
-            .iter()
-            .map(|(_, key, layout, stats)| {
-                Box::new(StoredRecords {
-                    store,
-                    key: *key,
-                    stats: *stats,
-                    at: layout.stream_at(),
-                    end: layout.stream_at() + layout.stream,
-                    failure: &failure,
-                }) as Box<dyn RecordSource + '_>
-            })
-            .collect();
-        let header = ManifestHeader {
-            shape: InstanceShapeKind::Graph,
-            schema: self.spec.output_schema,
-            role: self.with_cx(|cx| self.op.output_role(cx)),
-            binding: self.input.binding,
+        let role = self.with_cx(|cx| self.op.output_role(cx));
+        let sealed = if self.rewrites {
+            reseal(self.input, role, records, runs)
+        } else {
+            let sources = sections
+                .iter()
+                .map(|(_, key, layout, stats)| {
+                    Box::new(StoredRecords {
+                        store,
+                        key: *key,
+                        stats: *stats,
+                        at: layout.stream_at(),
+                        end: layout.stream_at() + layout.stream,
+                        failure: &failure,
+                    }) as Box<dyn RecordSource + '_>
+                })
+                .collect();
+            let header = ManifestHeader {
+                shape: InstanceShapeKind::Graph,
+                schema: self.spec.output_schema,
+                role,
+                binding: self.input.binding,
+            };
+            seal_full(records, header, runs, sources)
         };
-        let sealed = seal_full(records, header, runs, sources);
         if let Some(stop) = failure.into_inner() {
             return Err(Stop::from(stop));
         }
@@ -2001,19 +2037,24 @@ type Refused<E> = (RunStatus<E>, Option<Digest>);
 struct Prepared {
     partition: Partition,
     index: OwnerIndex,
+    ids: Vec<SegmentId>,
+    rewrites: bool,
     run: Digest,
     peak: u64,
 }
 
 /// The checks before the first task: the input manifest, its shape and
-/// partition, the operation's locality, the number of segments, and each
-/// record's working-set estimate. A refusal comes with the run identity
-/// when the partition gives one.
+/// partition, the operation's locality and affected segments, the number of
+/// segments the run reads, and each of their records' working-set estimate.
+/// A refusal comes with the run identity when the partition gives one.
+/// `progress` is set to the run's task count once the segments it reads are
+/// known.
 fn preflight<O: PhaseOperation>(
     op: &O,
     input: &SegmentManifest,
     spec: RunSpec,
     budget: Budget,
+    progress: &mut Progress,
 ) -> Result<Prepared, Box<Refused<O::Error>>> {
     let failed = |error: SegmentError| Box::new((RunStatus::Failed(O::Error::from(error)), None));
     verify_manifest(input, spec.input).map_err(failed)?;
@@ -2033,7 +2074,27 @@ fn preflight<O: PhaseOperation>(
             reason,
         }));
     }
-    let segments = u64::try_from(input.segments.len()).unwrap_or(u64::MAX);
+    let every: Vec<SegmentId> = partition.specs().iter().map(|spec| spec.id).collect();
+    let affected = op
+        .affected(&PhaseContext {
+            input,
+            partition: &partition,
+            index: &index,
+            spec: &spec,
+            segments: &every,
+            read: &|_| Ok(None),
+        })
+        .map_err(|error| Box::new((RunStatus::Failed(O::Error::from(error)), Some(run))))?;
+    let rewrites = affected.is_some();
+    let ids: Vec<SegmentId> = match affected {
+        Some(set) => set.into_iter().collect(),
+        None => every,
+    };
+    let count = u32::try_from(ids.len()).unwrap_or(u32::MAX);
+    let total = count.saturating_mul(4).saturating_add(2);
+    progress.tasks_total = total;
+    progress.elements_total = u64::from(total);
+    let segments = u64::from(count);
     if segments > u64::from(budget.affected_segments) {
         return Err(declined(Residual::BudgetExceeded {
             resource: Resource::AffectedSegments,
@@ -2044,7 +2105,10 @@ fn preflight<O: PhaseOperation>(
         }));
     }
     let mut peak = 0;
-    for record in &input.segments {
+    for id in &ids {
+        let record = input
+            .record(*id)
+            .ok_or_else(|| failed(malformed(ArtifactKind::Manifest, "a record is missing")))?;
         let estimate = op.working_set(record).map_err(|message| {
             Box::new((
                 RunStatus::Incomplete {
@@ -2067,6 +2131,8 @@ fn preflight<O: PhaseOperation>(
     Ok(Prepared {
         partition,
         index,
+        ids,
+        rewrites,
         run,
         peak,
     })
@@ -2128,7 +2194,7 @@ pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
         orphans: Vec::new(),
         phases: Vec::new(),
     };
-    let prepared = match preflight(op, input, spec, budget) {
+    let prepared = match preflight(op, input, spec, budget, &mut report.progress) {
         Ok(prepared) => prepared,
         Err(refused) => {
             let (status, run) = *refused;
@@ -2143,6 +2209,8 @@ pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
     let Prepared {
         partition,
         index,
+        ids,
+        rewrites,
         run,
         peak,
     } = prepared;
@@ -2153,6 +2221,8 @@ pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
         source,
         partition,
         index,
+        ids,
+        rewrites,
         spec,
         budget,
         store,

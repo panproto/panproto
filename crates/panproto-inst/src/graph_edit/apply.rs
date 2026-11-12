@@ -93,7 +93,7 @@ impl GraphDelta {
     }
 
     /// Checks 1 to 6 of [`Self::check`].
-    fn check_local(&self, graph: &GInstance) -> Result<(), EditError> {
+    pub(crate) fn check_local(&self, graph: &GInstance) -> Result<(), EditError> {
         for (id, expected) in self.del_nodes() {
             let current = graph.node(*id).ok_or(EditError::NodeNotFound(*id))?;
             if !current.same(expected) {
@@ -153,7 +153,7 @@ impl GraphDelta {
     }
 
     /// Perform the delta on an instance that passed checks 1 to 6.
-    fn mutate(&self, graph: &mut GInstance) -> Result<(), EditError> {
+    pub(crate) fn mutate(&self, graph: &mut GInstance) -> Result<(), EditError> {
         for id in self.del_edges().keys() {
             graph.remove_edge(*id).map_err(|e| internal(&e))?;
         }
