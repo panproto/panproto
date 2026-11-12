@@ -1106,11 +1106,13 @@ fn restore_edges(
         }
         let edge = &view.edges()[&id];
         if source.node(edge.src).is_none() || source.node(edge.tgt).is_none() {
-            // An endpoint with no single source anchor leaves the edge no
-            // source label between preimages of its endpoints' anchors.
-            errors.push(PutDomainError::UnrepresentableViewEdge {
-                elem: ViewRef::Edge(id),
-            });
+            // An endpoint that restores to no node has no source anchor; the
+            // edge is not restored, and is refused unless it still maps back.
+            if !maps_back_without_endpoint(lens, view, complement, plan, id, edge) {
+                errors.push(PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Edge(id),
+                });
+            }
             continue;
         }
         match source_edge(lens, view, complement, plan, id, edge, source) {
@@ -1294,6 +1296,68 @@ fn invert_graph_child_scalars(
     }
 }
 
+/// The source label the complement records for view edge `id`, when the
+/// recorded edge has the view edge's endpoints and its forward image is the
+/// view edge's label.
+fn recorded_label(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    id: EdgeId,
+    edge: &GEdge,
+) -> Option<Edge> {
+    complement
+        .original_edges
+        .get(&id)
+        .filter(|recorded| {
+            recorded.src == edge.src
+                && recorded.tgt == edge.tgt
+                && (matches!(plan.edge_image.fate(&recorded.edge), Some(EdgeFate::Keep(image)) if image == &edge.edge)
+                    || expected_view_fan_label(lens, view, complement, recorded).as_ref()
+                        == Some(&edge.edge))
+        })
+        .map(|recorded| recorded.edge.clone())
+}
+
+/// Whether a view edge one of whose endpoints restores to no node maps back
+/// to a source label: to the label its complement records, or, for an edge
+/// that is not fan vocabulary, to the one source edge whose fate keeps its
+/// label between vertices whose images are its endpoints' view anchors.
+fn maps_back_without_endpoint(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    id: EdgeId,
+    edge: &GEdge,
+) -> bool {
+    if recorded_label(lens, view, complement, plan, id, edge).is_some() {
+        return true;
+    }
+    if is_fan_edge(&edge.edge) {
+        return false;
+    }
+    let (Some(src), Some(tgt)) = (view.node(edge.src), view.node(edge.tgt)) else {
+        return false;
+    };
+    let image = |vertex: &Name| {
+        lens.compiled
+            .vertex_remap
+            .get(vertex)
+            .unwrap_or(vertex)
+            .clone()
+    };
+    plan.edge_image
+        .preimages(&edge.edge)
+        .into_iter()
+        .filter(|candidate| {
+            image(&candidate.src) == src.anchor && image(&candidate.tgt) == tgt.anchor
+        })
+        .count()
+        == 1
+}
+
 fn source_edge(
     lens: &Lens,
     view: &GInstance,
@@ -1303,14 +1367,8 @@ fn source_edge(
     edge: &GEdge,
     source: &GInstance,
 ) -> Result<Edge, Box<PutDomainError>> {
-    if let Some(recorded) = complement.original_edges.get(&id)
-        && recorded.src == edge.src
-        && recorded.tgt == edge.tgt
-        && (matches!(plan.edge_image.fate(&recorded.edge), Some(EdgeFate::Keep(image)) if image == &edge.edge)
-            || expected_view_fan_label(lens, view, complement, recorded).as_ref()
-                == Some(&edge.edge))
-    {
-        return Ok(recorded.edge.clone());
+    if let Some(recorded) = recorded_label(lens, view, complement, plan, id, edge) {
+        return Ok(recorded);
     }
     if is_fan_edge(&edge.edge) {
         return fan_edge_back(lens, view, complement, edge, source).ok_or_else(|| {
