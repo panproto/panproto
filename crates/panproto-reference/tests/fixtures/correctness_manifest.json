@@ -7983,6 +7983,81 @@
           ]
         }
       ]
+    },
+    "ansible": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/ansible.rs",
+        "crates/panproto-reference/src/enumerate/ansible.rs"
+      ],
+      "laws": [
+        {
+          "id": "ansible.reading",
+          "anchor": "L-ansible-1",
+          "references": [
+            "panproto_reference::pages::ansible::read",
+            "panproto_reference::pages::ansible::render_yaml"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "ansible_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "randomized_playbooks_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "a_playbook_reads_as_its_plays_tasks_and_handlers"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "ansible_refusals_name_the_field_and_the_rule"
+            }
+          ]
+        },
+        {
+          "id": "ansible.canonical-writing",
+          "anchor": "L-ansible-2",
+          "references": [
+            "panproto_reference::pages::ansible::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "ansible_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "randomized_playbooks_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "the_canonical_file_writes_keywords_then_variables_then_sections"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "the_ansible_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }

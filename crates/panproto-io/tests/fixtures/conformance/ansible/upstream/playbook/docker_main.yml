@@ -1,0 +1,18 @@
+---
+- hosts: localhost
+  connection: local
+
+  tasks:
+    - name: Ensure Docker image is built from the test Dockerfile.
+      docker_image:
+        name: test
+        source: build
+        build:
+          path: test
+        state: present
+
+    - name: Ensure the test container is running.
+      docker_container:
+        image: test:latest
+        name: test
+        state: started

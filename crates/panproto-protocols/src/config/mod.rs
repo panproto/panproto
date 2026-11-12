@@ -1,6 +1,6 @@
 //! Configuration format protocol definitions.
 
-/// Ansible playbook schema protocol definition and parser/emitter.
+/// Ansible playbook, task-file and variables-file protocol definition.
 pub mod ansible;
 /// AWS `CloudFormation` template protocol definition.
 pub mod cloudformation;
