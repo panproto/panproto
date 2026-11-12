@@ -388,7 +388,7 @@ fn read_body(
                 ascending(r, &mut last, &id)?;
                 rows.insert(id, (table, row));
             }
-            let n = r.count(41)?;
+            let n = r.count(33)?;
             let mut pairs = BTreeSet::new();
             let mut last = None;
             for _ in 0..n {
@@ -409,7 +409,7 @@ fn read_body(
             let next_node = r.opt_u32()?;
             let next_edge = r.opt_u32()?;
             let nodes = read_nodes(r)?;
-            let n = r.count(45)?;
+            let n = r.count(37)?;
             let mut arcs = BTreeMap::new();
             let mut last = None;
             for _ in 0..n {
