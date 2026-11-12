@@ -1567,6 +1567,11 @@ struct Search<'a> {
     max_nodes: u64,
     deadline: Option<Instant>,
     limit_hit: Option<LimitKind>,
+    /// Whether only total mappings count: the incumbent is a mapping of
+    /// every source vertex, and no vertex is left unmatched.
+    total: bool,
+    /// Whether the incumbent is a total mapping, under [`Self::total`].
+    has_total: bool,
 }
 
 impl<'a> Search<'a> {
@@ -1576,7 +1581,7 @@ impl<'a> Search<'a> {
     /// That assignment is feasible by the reward frame's first precondition, so
     /// the search always has an answer and never has to report that it found
     /// none.
-    fn new(instance: &'a Instance<'a>, budget: &SearchBudget) -> Self {
+    fn new(instance: &'a Instance<'a>, budget: &SearchBudget, total: bool) -> Self {
         let best = Assignment::all_bottom(instance.lefts);
         let best_cost = instance.cfn.evaluate(&best);
         Self {
@@ -1594,6 +1599,20 @@ impl<'a> Search<'a> {
                 .max_millis
                 .map(|millis| Instant::now() + std::time::Duration::from_millis(millis)),
             limit_hit: None,
+            total,
+            has_total: false,
+        }
+    }
+
+    /// Whether the current mapping may become the incumbent: under
+    /// [`Self::total`], a mapping of every source vertex that is the first
+    /// one found or beats the incumbent; otherwise any mapping that beats it.
+    const fn improves(&self) -> bool {
+        if self.total {
+            self.mapping.len() == self.instance.lefts
+                && (!self.has_total || self.reward > self.best_reward)
+        } else {
+            self.reward > self.best_reward
         }
     }
 
@@ -1678,9 +1697,12 @@ impl<'a> Search<'a> {
     /// passed over rather than rejected: the constraints that can make one
     /// infeasible are implications that mapping more vertices can satisfy.
     fn record(&mut self) {
+        if !self.improves() {
+            return;
+        }
         let assignment = self.assignment();
         let cost = self.instance.cfn.evaluate(&assignment);
-        if cost == Cost::TOP_SENTINEL || cost >= self.best_cost {
+        if cost == Cost::TOP_SENTINEL || (!self.total && cost >= self.best_cost) {
             return;
         }
         debug_assert_eq!(
@@ -1691,6 +1713,7 @@ impl<'a> Search<'a> {
         self.best = assignment;
         self.best_cost = cost;
         self.best_reward = self.reward;
+        self.has_total = self.total;
     }
 
     /// The classes with everything no completion below this node can map
@@ -2032,7 +2055,7 @@ impl Search<'_> {
         }
         self.nodes += 1;
 
-        if self.reward > self.best_reward {
+        if self.improves() {
             self.record();
         }
 
@@ -2049,7 +2072,17 @@ impl Search<'_> {
             plan.bound >= self.reward,
             "the bound must never fall below the reward already achieved"
         );
-        if plan.bound <= self.best_reward {
+        let incumbent = !self.total || self.has_total;
+        if incumbent && plan.bound <= self.best_reward {
+            return;
+        }
+        // A class with more source than target vertices leaves a source
+        // vertex unmatched in every completion, so no total mapping lies below.
+        if self.total
+            && future
+                .iter()
+                .any(|class| class.left.len() > class.right.len())
+        {
             return;
         }
 
@@ -2071,6 +2104,9 @@ impl Search<'_> {
             if self.limit_hit.is_some() {
                 return;
             }
+        }
+        if self.total {
+            return;
         }
 
         let mut dropped = future.to_vec();
@@ -2197,10 +2233,42 @@ pub fn solve_iso(
     tgt: &Schema,
     budget: &SearchBudget,
 ) -> Result<SolveOutcome, IsoError> {
+    run_iso(cfn, src, tgt, budget, false)
+}
+
+/// The least-cost isomorphism between a source and a target, the mapping of
+/// every source vertex onto the target that the network allows, under the
+/// same label classes and reward frame as [`solve_iso`].
+///
+/// The maximum common induced sub-schema [`solve_iso`] returns need not
+/// extend to an isomorphism when one exists: a cheaper partial mapping can
+/// send a vertex where the isomorphism needs another. This search therefore
+/// branches only on total mappings and keeps the cheapest one found; with
+/// none, its best is the all-`⊥` assignment, which is not total.
+///
+/// # Errors
+///
+/// As [`solve_iso`].
+pub fn solve_iso_total(
+    cfn: &Cfn,
+    src: &Schema,
+    tgt: &Schema,
+    budget: &SearchBudget,
+) -> Result<SolveOutcome, IsoError> {
+    run_iso(cfn, src, tgt, budget, true)
+}
+
+fn run_iso(
+    cfn: &Cfn,
+    src: &Schema,
+    tgt: &Schema,
+    budget: &SearchBudget,
+    total: bool,
+) -> Result<SolveOutcome, IsoError> {
     let instance = Instance::new(cfn, src, tgt, budget.mem_bytes)?;
     let unsettled = instance.root();
 
-    let mut search = Search::new(&instance, budget);
+    let mut search = Search::new(&instance, budget, total);
     // The reported lower bound is the root's, so the root is settled here as
     // well as inside the search: a vertex the hard constraints have already
     // ruled out must not be counted into the bound a stopped search reports.
@@ -2803,7 +2871,7 @@ mod tests {
         let cfn = unweighted(&src, &tgt);
         let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
         let root = instance.root();
-        let search = Search::new(&instance, &SearchBudget::default());
+        let search = Search::new(&instance, &SearchBudget::default(), false);
         let plan = search.bound(&root);
 
         // With `w_V ≡ 1` and `w_E ≡ 0` every reward is one drop unit, so the
@@ -2829,7 +2897,7 @@ mod tests {
         let cfn = network(&src, &tgt);
         let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
         let root = instance.root();
-        let search = Search::new(&instance, &SearchBudget::default());
+        let search = Search::new(&instance, &SearchBudget::default(), false);
         let root_bound = search.bound(&root).bound;
 
         let (best, argmins) = iso_optimum(&cfn, &src, &tgt);
@@ -3012,7 +3080,7 @@ mod tests {
                 let cfn = network(&src, &tgt);
                 let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
                 let root = instance.root();
-                let mut search = Search::new(&instance, &SearchBudget::default());
+                let mut search = Search::new(&instance, &SearchBudget::default(), false);
                 search.search(&root);
 
                 let (best, argmins) = iso_optimum(&cfn, &src, &tgt);

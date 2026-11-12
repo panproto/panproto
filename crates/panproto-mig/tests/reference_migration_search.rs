@@ -775,6 +775,46 @@ fn the_refusal_scope_shards_partition_its_pairs() {
     assert!(Shard::parse("1").is_err());
 }
 
+/// The source and target of a pair the property tests found: an
+/// isomorphism exists that renames the one edge's name away, so the
+/// isomorphism search must return it, total or under a small memory bound.
+fn renamed_edge_pair() -> (Schema, Schema) {
+    let source = Schema {
+        vertices: [("a", "object"), ("ab", "string"), ("b", "object")]
+            .into_iter()
+            .map(|(id, kind)| (id.to_owned(), kind.to_owned()))
+            .collect(),
+        edges: std::iter::once(Edge::new("ab", "b", "prop", Some("n"))).collect(),
+    };
+    let target = Schema {
+        vertices: [("ab", "object"), ("b", "object"), ("ba", "string")]
+            .into_iter()
+            .map(|(id, kind)| (id.to_owned(), kind.to_owned()))
+            .collect(),
+        edges: std::iter::once(Edge::new("ba", "ab", "prop", None)).collect(),
+    };
+    (source, target)
+}
+
+#[test]
+fn an_isomorphism_that_renames_an_edge_is_found() {
+    let (source, target) = renamed_edge_pair();
+    let iso = Request {
+        monic: false,
+        epic: false,
+        iso: true,
+    };
+    assert_total_agrees(&source, &target, iso);
+    let mut refusals = BTreeMap::new();
+    assert_bounded_total(
+        &source,
+        &target,
+        iso,
+        &SearchBudget::default().with_mem_bytes(185),
+        &mut refusals,
+    );
+}
+
 fn schema_strategy() -> impl Strategy<Value = Schema> {
     let ids = ["a", "ab", "b", "ba"];
     let vertices = prop::collection::btree_map(
