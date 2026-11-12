@@ -365,8 +365,8 @@ impl Presentation {
     }
 
     /// Build the theory and check it: its signature, then the body of
-    /// [`panproto_gat::typecheck_theory`] with each equation checked in
-    /// order, then the rewrite system.
+    /// [`panproto_gat::typecheck_theory`] (implicit inputs, closed sorts,
+    /// then each equation in order), then the rewrite system.
     fn check(self, spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
         let theory = Theory::full(
             spec.theory.as_str(),
@@ -388,9 +388,10 @@ impl Presentation {
                 .unwrap_or_default();
             return Err(type_error(GatError::IllTypedSignature { defects }).within(&path));
         }
-        let mut without_equations = theory.clone();
-        without_equations.eqs.clear();
-        if let Err(error) = panproto_gat::typecheck_theory_body(&without_equations) {
+        // The body check sees the equations: an operation into a closed sort
+        // that an equation defines is not one of its constructors, and the
+        // equations are typed in order after the closed sorts are checked.
+        if let Err(error) = panproto_gat::typecheck_theory_body(&theory) {
             let path = match &error {
                 GatError::NonInferrableImplicit { op, .. } => {
                     self.op_origin(op).map(|origin| origin.path(&[]))
@@ -398,13 +399,13 @@ impl Presentation {
                 GatError::InvalidClosedSortConstructor { sort, .. } => self
                     .sort_origin(sort)
                     .map(|origin| origin.path(&["closed"])),
-                _ => None,
+                _ => self
+                    .eqs
+                    .iter()
+                    .find(|(eq, _)| panproto_gat::typecheck_equation(eq, &theory).is_err())
+                    .map(|(_, origin)| origin.path(&[])),
             };
             return Err(type_error(error).within(&path.unwrap_or_default()));
-        }
-        for (eq, origin) in &self.eqs {
-            panproto_gat::typecheck_equation(eq, &theory)
-                .map_err(|error| type_error(error).within(&origin.path(&[])))?;
         }
 
         // Gate the theory's directed rewrite system on local confluence

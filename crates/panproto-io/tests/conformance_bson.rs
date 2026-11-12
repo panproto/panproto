@@ -1,7 +1,14 @@
-//! The BSON codec against the vendored BSON corpus of the MongoDB
-//! specifications.
+//! The BSON codec against the BSON corpus of the MongoDB specifications.
 //!
-//! Every case of every vendored file is run. A `valid` case is run once
+//! The corpus is not kept in the repository: `tools/fetch-bson-corpus.py`
+//! downloads it at the commit `fixtures/conformance/bson-corpus/MANIFEST`
+//! records, checks each file's SHA-256 against the manifest, and puts it in
+//! `fixtures/conformance/bson-corpus/tests`. When that directory is absent
+//! the test fails, naming the command, if `PANPROTO_BSON_CORPUS` is
+//! `required` (as the corpus gate sets it), and otherwise reports itself
+//! skipped; `conformance_bson_spec.rs` runs the original set in every build.
+//!
+//! Every case of every file is run. A `valid` case is run once
 //! per representation it gives, with the assertions the corpus document
 //! states for a codec with a native representation: canonical BSON decodes,
 //! encodes back to itself (directly and through the BSON tree encoding), and
@@ -34,6 +41,56 @@ use panproto_io::data_schema::bson::{
 
 fn corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/conformance")
+}
+
+/// The fetched corpus files: the file names of the manifest, which must be
+/// exactly the files of the directory, beside the `REVISION` the fetch
+/// writes, which must name the manifest's commit. `None` when the corpus
+/// has not been fetched and is not required.
+fn fetched_files() -> Option<Vec<PathBuf>> {
+    let directory = corpus().join("bson-corpus/tests");
+    let manifest = std::fs::read_to_string(corpus().join("bson-corpus/MANIFEST"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let rows: Vec<Vec<&str>> = manifest
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .map(|line| line.split('\t').collect())
+        .collect();
+    let commit = rows
+        .iter()
+        .find(|row| row[0] == "source")
+        .map_or_else(|| panic!("the manifest has no source line"), |row| row[2]);
+    if !directory.is_dir() {
+        let command = "python3 tools/fetch-bson-corpus.py";
+        assert!(
+            std::env::var("PANPROTO_BSON_CORPUS").as_deref() != Ok("required"),
+            "the BSON corpus is required and has not been fetched: run `{command}`"
+        );
+        eprintln!("conformance_bson: skipped, the BSON corpus has not been fetched (`{command}`)");
+        return None;
+    }
+    let revision = std::fs::read_to_string(directory.join("REVISION"))
+        .unwrap_or_else(|e| panic!("REVISION: {e}"));
+    assert_eq!(
+        revision.trim(),
+        commit,
+        "the fetched corpus is of another commit"
+    );
+    let mut names: Vec<String> = std::fs::read_dir(&directory)
+        .unwrap_or_else(|e| panic!("{e}"))
+        .map(|entry| entry.unwrap_or_else(|e| panic!("{e}")).file_name())
+        .filter_map(|name| name.to_str().map(str::to_owned))
+        .filter(|name| name != "REVISION")
+        .collect();
+    names.sort();
+    let mut listed: Vec<String> = rows
+        .iter()
+        .filter(|row| row[0] != "source")
+        .map(|row| row[0].to_owned())
+        .collect();
+    listed.sort();
+    assert_eq!(names, listed);
+    Some(names.iter().map(|name| directory.join(name)).collect())
 }
 
 fn hex(text: &str) -> Vec<u8> {
@@ -162,13 +219,8 @@ fn string_field<'v>(case: &'v serde_json::Value, key: &str) -> Option<&'v str> {
 }
 
 /// Every representation of every case, by id, with its outcome.
-fn outcomes() -> BTreeMap<String, Outcome> {
+fn outcomes(files: Vec<PathBuf>) -> BTreeMap<String, Outcome> {
     let mut out = BTreeMap::new();
-    let mut files: Vec<PathBuf> = std::fs::read_dir(corpus().join("bson-corpus/tests"))
-        .unwrap_or_else(|e| panic!("{e}"))
-        .map(|entry| entry.unwrap_or_else(|e| panic!("{e}")).path())
-        .collect();
-    files.sort();
     for path in files {
         let name = path
             .file_name()
@@ -245,7 +297,11 @@ fn limits() -> BTreeMap<String, String> {
 
 #[test]
 fn every_bson_corpus_case_passes_or_is_a_declared_limit() {
-    let outcomes = outcomes();
+    let Some(files) = fetched_files() else {
+        return;
+    };
+    assert_eq!(files.len(), 31);
+    let outcomes = outcomes(files);
     assert_eq!(outcomes.len(), 731 + 731 + 27 + 4 + 325 + 75 + 180);
     let limits = limits();
     let failing: BTreeMap<String, String> = outcomes

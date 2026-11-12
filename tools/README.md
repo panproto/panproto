@@ -60,6 +60,15 @@ With no arguments or with `--all`, this script processes every manifest entry. I
 
 Unknown names, clone failures, missing corpora, and empty corpora are reported and skipped. The current script does not return a nonzero status for those conditions.
 
+## `fetch-bson-corpus.py`
+
+```sh
+python3 tools/fetch-bson-corpus.py
+python3 tools/fetch-bson-corpus.py --check
+```
+
+This script is not a grammar tool. It downloads the BSON corpus of the [MongoDB specifications](https://github.com/mongodb/specifications), which its CC BY-NC-SA 3.0 licence keeps out of the repository, at the commit `crates/panproto-io/tests/fixtures/conformance/bson-corpus/MANIFEST` records, checks each file against the SHA-256 digest the manifest lists, and writes the files with a `REVISION` file into that directory's `tests/`, which git ignores. A copy that already matches is left alone. `--check` verifies the fetched copy without the network. Any download failure, digest mismatch or missing file exits with status 1. The corpus gate workflow runs it before the BSON conformance test.
+
 ## License
 
 [MIT](../LICENSE)

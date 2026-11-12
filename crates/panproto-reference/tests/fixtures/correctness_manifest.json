@@ -8144,6 +8144,18 @@
               "role": "differential",
               "crate": "panproto-theory-dsl",
               "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "dependent_theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "longer_dependent_theory_documents_compile_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
               "test": "longer_theory_documents_compile_as_the_reference"
             },
             {
@@ -8176,6 +8188,60 @@
           ]
         },
         {
+          "id": "theory-dsl.protocol-documents",
+          "anchor": "L-theory-dsl-5",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_protocol"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundled_protocols_record_their_inline_theories_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "protocol_references_resolve_compile_and_record_inline_theories"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.composition-documents",
+          "anchor": "L-theory-dsl-6",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_composition"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "composition_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundled_compositions_compile_in_listed_order_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "compositions_replay_their_colimit_steps_and_locate_refusals"
+            }
+          ]
+        },
+        {
           "id": "theory-dsl.refusal-location",
           "anchor": "L-theory-dsl-4",
           "references": [
@@ -8193,7 +8259,25 @@
               "role": "differential",
               "crate": "panproto-theory-dsl",
               "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "dependent_theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
               "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "composition_documents_compile_as_the_reference_on_every_bounded_document"
             },
             {
               "role": "reference",
@@ -8282,6 +8366,203 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::json_schema",
               "test": "the_json_schema_bundle_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "lens-dsl": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/lens_dsl.rs",
+        "crates/panproto-reference/src/enumerate/lens_dsl.rs",
+        "crates/panproto-reference/src/dsl_path.rs"
+      ],
+      "laws": [
+        {
+          "id": "lens-dsl.document-grammar",
+          "anchor": "L-lens-dsl-1",
+          "references": [
+            "panproto_reference::pages::lens_dsl::check_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "the_lens_grammar_refuses_in_field_table_order"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.step-compilation",
+          "anchor": "L-lens-dsl-2",
+          "references": [
+            "panproto_reference::pages::lens_dsl::step_stages",
+            "panproto_reference::pages::lens_dsl::compile_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "step_lists_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "symmetric_bodies_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "longer_step_lists_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "a_step_list_compiles_to_one_stage_per_step"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.rule-compilation",
+          "anchor": "L-lens-dsl-3",
+          "references": [
+            "panproto_reference::pages::lens_dsl::rules_stages"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "rules_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "rule_maps_expand_in_key_order"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.vertical-composition",
+          "anchor": "L-lens-dsl-4",
+          "references": [
+            "panproto_reference::pages::lens_dsl::vertical"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "compositions_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "vertical_composition_is_concatenation_on_every_pair_of_short_step_lists"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "vertical_composition_is_associative_with_the_empty_composition_as_identity"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "longer_compositions_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "vertical_composition_concatenates_and_resolves_references_transitively"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.horizontal-composition",
+          "anchor": "L-lens-dsl-5",
+          "references": [
+            "panproto_reference::pages::lens_dsl::horizontal"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "compositions_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "horizontal_composition_is_associative_up_to_its_elementary_structure"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "longer_compositions_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "horizontal_composition_folds_fused_parts_from_the_left"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.refusal-location",
+          "anchor": "L-lens-dsl-6",
+          "references": [
+            "panproto_reference::dsl_path::locate",
+            "panproto_reference::pages::lens_dsl::compile_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "step_lists_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "compositions_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "refusals_are_located_at_the_member_they_concern"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "locate_finds_the_last_occurrence_of_a_member_in_a_lens_document"
             }
           ]
         }

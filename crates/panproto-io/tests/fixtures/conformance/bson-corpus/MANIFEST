@@ -1,35 +1,38 @@
-# The vendored files of source/bson-corpus/tests of mongodb/specifications,
-# each with its BSON type byte and its numbers of valid, decodeErrors and
-# parseErrors cases.
-# Columns: file, type, valid, decodeErrors, parseErrors.
-array.json	0x04	5	3	0
-binary.json	0x05	20	5	5
-boolean.json	0x08	2	2	0
-code.json	0x0D	6	7	0
-code_w_scope.json	0x0F	5	11	0
-datetime.json	0x09	5	1	0
-dbpointer.json	0x0C	3	6	0
-dbref.json	0x03	12	0	0
-decimal128-1.json	0x13	60	0	0
-decimal128-2.json	0x13	157	0	0
-decimal128-3.json	0x13	308	0	0
-decimal128-4.json	0x13	13	0	20
-decimal128-5.json	0x13	67	0	0
-decimal128-6.json	0x13	0	0	31
-decimal128-7.json	0x13	0	0	80
-document.json	0x03	7	4	0
-double.json	0x01	12	1	0
-int32.json	0x10	5	1	0
-int64.json	0x12	5	1	0
-maxkey.json	0x7F	1	0	0
-minkey.json	0xFF	1	0	0
-multi-type-deprecated.json	0x00	1	0	0
-multi-type.json	0x00	1	0	0
-null.json	0x0A	1	0	0
-oid.json	0x07	3	1	0
-regex.json	0x0B	9	2	0
-string.json	0x02	7	7	0
-symbol.json	0x0E	6	7	0
-timestamp.json	0x11	4	1	0
-top.json	0x00	4	15	44
-undefined.json	0x06	1	0	0
+# The files of source/bson-corpus/tests of mongodb/specifications that
+# tools/fetch-bson-corpus.py downloads into tests/ (which git ignores),
+# each with its BSON type byte, its numbers of valid, decodeErrors and
+# parseErrors cases, and the SHA-256 digest the fetch checks. The source
+# line names the repository, the commit and the directory.
+# Columns: file, type, valid, decodeErrors, parseErrors, sha256.
+source	https://github.com/mongodb/specifications	b8e0ee19b4622fe48c9337969da56b24037b9335	source/bson-corpus/tests
+array.json	0x04	5	3	0	273a145c9ae42f58a969294fbb53981be207519705e8fc1214b807dcea98fc2b
+binary.json	0x05	20	5	5	5cf98c884941932383010b224a56697a5c8f23299e93a2c5e4aa617e5425f8c9
+boolean.json	0x08	2	2	0	da5a463244c2f5b30569ebf7dc0b50d15271835154b8ab6adddb3aa9d5ebb50d
+code.json	0x0D	6	7	0	41c26833f13de715aca52e87f8ff351e2ba589a9fee7ed6c9e51a1d28dc36032
+code_w_scope.json	0x0F	5	11	0	4654bb83fa01d0352e3d133030445c48185c51721683c854c6a553076ecbb608
+datetime.json	0x09	5	1	0	c6b5b6cd5f1e8cf9cf8b8a496d0ef38fd1f0100da8147e59a41e3e91c6f06fc5
+dbpointer.json	0x0C	3	6	0	f97f9a05bd6c205c2735a40c0e242264efb1b98a67b8ee97b793be6ab83a783a
+dbref.json	0x03	12	0	0	d25fae36d7870720710a2beadc3a13cec2cfcfa94ee32cf16e1fe852ee13a5cd
+decimal128-1.json	0x13	60	0	0	204ce730a93b8c027cfb2adcff031c79bc48a372ae28d96eca587a525953da51
+decimal128-2.json	0x13	157	0	0	6b7704af989d9198901ec7b4d037b420e9a686474e6f4c12e2b74beeee8b5791
+decimal128-3.json	0x13	308	0	0	ee2ee29e68b3d8d99a372e80fab460b8e9c6861f8c535d7e8f00d623065dfa63
+decimal128-4.json	0x13	13	0	20	7a3530d9958d71a1d15c4f9d010a83c76e2c52d1a3e8c2d45485ac8ce71ea935
+decimal128-5.json	0x13	67	0	0	2915547d8e49bb27ed9ed4fef4afebddd096b1a352eb3c9a4b235ba4ed08fcd3
+decimal128-6.json	0x13	0	0	31	627ade03fbb7e6ac3de62223717ce1acccfb62ac94f00df8b4283d72031e94c3
+decimal128-7.json	0x13	0	0	80	fd1ab3de129be9c0ee1b2725da6d52874713f5a7840ede00d35763bbb64bbb2a
+document.json	0x03	7	4	0	d295ce1fe4e936a08a5f01795fdffce39523d03b5120d1d6f8ed9d77e69f1035
+double.json	0x01	12	1	0	f0bd130dbb89c3aa900033ab34401d5b055dabfcf534485488f478c97ef11c05
+int32.json	0x10	5	1	0	4bf28eefa0cb2accd2fc3d1ae4a3778c14c4c6f9442683bbabeb38805d88eed5
+int64.json	0x12	5	1	0	224d6332371cbb8ff3a1efc612419bf2de6db9cdb27397b8e58c56c2d2170f5c
+maxkey.json	0x7F	1	0	0	6c3aaccf108151fec849cf6fec69b94bc6b989cf894f45cb992e2d76d8acac91
+minkey.json	0xFF	1	0	0	521c1c3537f4104a2b0b514f5632ea3cebdb04802d2b442f3d9b8eb9ef687e04
+multi-type-deprecated.json	0x00	1	0	0	4eb97ebae4590a7938eb51574859107a06f7b326c5c04d222fe9aa8f0b6fff86
+multi-type.json	0x00	1	0	0	aebbd0074ed09830b38d40bb59c077d8abd9f3fea120958139e54573b3a03ae3
+null.json	0x0A	1	0	0	5399ec5216532ea420ee5f57acd12e58392c61e143ab28c0ec40ab11d5c0da3b
+oid.json	0x07	3	1	0	94291575cc7c1f1338ced7d9e99ac0ed6e2c1a917a2ca2d559cbee131bbea45d
+regex.json	0x0B	9	2	0	39148147cbda9567e9210f2c2e0ee2e6037fd1f6acf109cc0b084cfff3be2728
+string.json	0x02	7	7	0	5960c8a3ef1ca48d1f2b73186bef97c43992abd453edeed3239e2db56f2ca170
+symbol.json	0x0E	6	7	0	a39ddc6371c4011d14eb32a957b9be5dcfdfa550262092a5872aa56ff5720ab7
+timestamp.json	0x11	4	1	0	c5ddf31a02ea2e317d7cfe61537a338959d9562ff20349d1327b1900c816c145
+top.json	0x00	4	15	44	56a1c5ce73ccd30dd4fef636deafc47f18924da3c7e6fffff15448415b28b7ed
+undefined.json	0x06	1	0	0	e07c68fae11a191825750de247867aa915997353573a0868b11ae3a3e9908570

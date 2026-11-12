@@ -33,7 +33,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-bead.cbor` | `Raw.registryGetBuiltin(name:)` | 2936 | name `bead` |
 | `protocol-bond.cbor` | `Raw.registryGetBuiltin(name:)` | 1497 | name `bond` |
 | `protocol-brat.cbor` | `Raw.registryGetBuiltin(name:)` | 2044 | name `brat` |
-| `protocol-bson.cbor` | `Raw.registryGetBuiltin(name:)` | 1558 | name `bson` |
+| `protocol-bson.cbor` | `Raw.registryGetBuiltin(name:)` | 2265 | name `bson` |
 | `protocol-cassandra.cbor` | `Raw.registryGetBuiltin(name:)` | 1777 | name `cassandra` |
 | `protocol-cddl.cbor` | `Raw.registryGetBuiltin(name:)` | 1519 | name `cddl` |
 | `protocol-cloudformation.cbor` | `Raw.registryGetBuiltin(name:)` | 2680 | name `cloudformation` |

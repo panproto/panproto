@@ -87,16 +87,48 @@ fn a_json_syntax_error_points_at_the_byte_the_reader_stopped_at() {
 }
 
 #[test]
-fn a_yaml_refusal_names_its_path_without_a_span() {
+fn a_yaml_refusal_points_at_the_first_character_of_the_refused_value() {
     let source = "id: x\ndescription: ''\ntheory: T\nops:\n  - name: f\n    output: Ghost\n";
     let Err(error) = compile_source(source, SourceFormat::Yaml, &no_theories) else {
         panic!("an undeclared sort must be refused");
     };
-    assert!(!matches!(error, TheoryDslError::Spanned { .. }));
     assert_eq!(
         error.path().map(ToString::to_string).as_deref(),
         Some("/ops/0/output")
     );
+    assert_eq!(pointed_text(&error), Some("G"), "{error:?}");
+}
+
+#[test]
+fn a_yaml_grammar_refusal_points_at_the_refused_node_and_the_last_repeated_member() {
+    // A block mapping starts at its first key; a repeated member is read,
+    // and located, at its last occurrence.
+    let source = "id: x\ndescription: ''\ntheory: T\nsorts:\n  - name: S\n    kind: {type: nope}\n    kind:\n      type: alsonope\n";
+    let Err(error) = read_source(source, SourceFormat::Yaml) else {
+        panic!("an unknown sort kind must be refused");
+    };
+    assert_eq!(
+        error.path().map(ToString::to_string).as_deref(),
+        Some("/sorts/0/kind/type")
+    );
+    let TheoryDslError::Spanned { span, .. } = &error else {
+        panic!("a YAML refusal carries a span: {error:?}");
+    };
+    assert_eq!(span.offset(), source.find("alsonope").unwrap_or_default());
+    assert_eq!(span.len(), 1);
+}
+
+#[test]
+fn a_yaml_syntax_error_points_at_the_character_the_reader_stopped_at() {
+    let source = "id: x\ndescription: [unclosed\n";
+    let Err(error) = read_source(source, SourceFormat::Yaml) else {
+        panic!("malformed YAML must be refused");
+    };
+    assert!(matches!(error.unlocated(), TheoryDslError::Yaml { .. }));
+    let TheoryDslError::Spanned { span, .. } = &error else {
+        panic!("a YAML syntax error carries a span: {error:?}");
+    };
+    assert!(span.offset() <= source.len());
 }
 
 #[test]
@@ -121,4 +153,87 @@ fn a_nickel_contract_refusal_points_into_the_source_and_a_compile_refusal_names_
         error.path().map(ToString::to_string).as_deref(),
         Some("/ops/0/output")
     );
+}
+
+/// The path and the pointed text of the refusal of a JSON document compiled
+/// against the built-in theories.
+fn refusal_place(source: &str) -> (String, String) {
+    let resolver = panproto_theory_dsl::builtin_resolver();
+    let Err(error) = compile_source(source, SourceFormat::Json, &resolver) else {
+        panic!("{source} must be refused");
+    };
+    (
+        error.path().map(ToString::to_string).unwrap_or_default(),
+        pointed_text(&error).unwrap_or_default().to_owned(),
+    )
+}
+
+#[test]
+fn composition_refusals_point_at_the_base_side_or_step_they_concern() {
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"c","description":"","compose":{"result":"R","bases":["ThGraph","Nope"],"steps":[{"left":"ThGraph","right":"ThConstraint","shared_sorts":["Vertex"]}]}}"#
+        ),
+        ("/compose/bases/1".to_owned(), "\"Nope\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"c","description":"","compose":{"result":"R","steps":[{"left":"step_1","right":"ThConstraint","shared_sorts":["Vertex"]}]}}"#
+        ),
+        ("/compose/steps/0/left".to_owned(), "\"step_1\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(r#"{"id":"c","description":"","compose":{"result":"R","steps":[]}}"#),
+        ("/compose/steps".to_owned(), "[]".to_owned())
+    );
+    let (path, text) = refusal_place(
+        r#"{"id":"c","description":"","compose":{"result":"R","steps":[{"left":"ThGraph","right":"ThConstraint","shared_sorts":["Zed"]}]}}"#,
+    );
+    assert_eq!(path, "/compose/steps/0");
+    assert!(text.starts_with("{\"left\""), "{text}");
+}
+
+#[test]
+fn protocol_refusals_point_into_the_theory_reference_they_concern() {
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"p","description":"","protocol":"P","schema_theory":"ThGraph","instance_theory":"Nope"}"#
+        ),
+        ("/instance_theory".to_owned(), "\"Nope\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"p","description":"","protocol":"P","schema_theory":{"theory":"S","ops":[{"name":"f","output":"Q"}]},"instance_theory":"ThGraph"}"#
+        ),
+        ("/schema_theory/ops/0/output".to_owned(), "\"Q\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"p","description":"","protocol":"P","schema_theory":{"result":"R","steps":[{"left":"ThGraph","right":"Nope","shared_sorts":["Vertex"]}]},"instance_theory":"ThGraph"}"#
+        )
+        .0,
+        "/schema_theory/steps/0/right"
+    );
+}
+
+#[test]
+fn a_protocol_records_its_inline_theories_and_composition_recipes() {
+    let resolver = panproto_theory_dsl::builtin_resolver();
+    let Ok(compiled) = compile_source(
+        r#"{"id":"p","description":"","protocol":"P","schema_theory":{"theory":"S","extends":["ThGraph"]},"instance_theory":{"result":"R","steps":[{"left":"ThGraph","right":"ThConstraint","shared_sorts":["Vertex"]}]}}"#,
+        SourceFormat::Json,
+        &resolver,
+    ) else {
+        panic!("an inline theory may extend a resolved theory");
+    };
+    let protocol = &compiled.protocols["P"];
+    assert_eq!(protocol.schema_theory, "S");
+    assert_eq!(protocol.instance_theory, "R");
+    assert!(protocol.schema_composition.is_none());
+    assert_eq!(
+        protocol.instance_composition.as_ref(),
+        compiled.composition_specs.get("R")
+    );
+    assert_eq!(compiled.theories["S"].sorts.len(), 2);
+    assert!(compiled.theories.contains_key("R"));
 }

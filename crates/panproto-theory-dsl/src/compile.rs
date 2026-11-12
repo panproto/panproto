@@ -20,7 +20,7 @@ use crate::compile_morphism::compile_morphism;
 use crate::compile_protocol::compile_protocol_with_compositions;
 use crate::document::{
     BundleSpec, ClassSpec, CompiledTheorySet, CompositionBody, InductiveSpec, InstanceSpec,
-    MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
+    MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheoryRef, TheorySpec,
 };
 use crate::error::TheoryDslError;
 use crate::path::DocumentPath;
@@ -31,9 +31,10 @@ pub use panproto_dsl_eval::SourceFormat;
 /// refusal.
 ///
 /// A refusal that names a document path is located with
-/// [`crate::path::locate_json`] when `source` is JSON text; a refusal of
-/// another source, or of JSON text in which the path names no value, is
-/// returned as it is, still naming its path.
+/// [`panproto_dsl_eval::source::locate`]: by the byte range of the value in
+/// JSON text and by its first character in YAML text; a refusal of Nickel
+/// text, or of text in which the path names no value, is returned as it
+/// is, still naming its path.
 fn spanned(error: TheoryDslError, source: &str, format: SourceFormat) -> TheoryDslError {
     let Some(path) = error.path().cloned() else {
         return error;
@@ -59,11 +60,13 @@ fn spanned(error: TheoryDslError, source: &str, format: SourceFormat) -> TheoryD
 /// A JSON syntax error is [`TheoryDslError::Spanned`] around a
 /// [`TheoryDslError::Json`], its span the one byte at which the JSON reader
 /// stopped (empty at the end of the text). A YAML syntax error is
-/// [`TheoryDslError::Yaml`]. A Nickel evaluation error is
+/// [`TheoryDslError::Spanned`] around a [`TheoryDslError::Yaml`], its span the
+/// character at which the YAML reader stopped. A Nickel evaluation error is
 /// [`TheoryDslError::NickelEvalSpanned`] when Nickel's diagnostic locates
 /// it in `source` and [`TheoryDslError::NickelEval`] otherwise. A value
 /// the grammar refuses is [`TheoryDslError::Shape`], wrapped in
-/// [`TheoryDslError::Spanned`] for JSON text.
+/// [`TheoryDslError::Spanned`] for JSON and YAML text: the byte range of the
+/// refused value in JSON text, its first character in YAML text.
 pub fn read_source(source: &str, format: SourceFormat) -> Result<TheoryDocument, TheoryDslError> {
     let value = match format {
         SourceFormat::Json => serde_json::from_str::<serde_json::Value>(source).map_err(|e| {
@@ -75,7 +78,17 @@ pub fn read_source(source: &str, format: SourceFormat) -> Result<TheoryDocument,
                 error: Box::new(TheoryDslError::Json(e)),
             }
         })?,
-        SourceFormat::Yaml => crate::eval::yaml_value(source)?,
+        SourceFormat::Yaml => crate::eval::yaml_value(source).map_err(|e| {
+            match panproto_dsl_eval::source::yaml_syntax_span(source) {
+                Some((offset, length)) => TheoryDslError::Spanned {
+                    path: None,
+                    src: source.to_owned(),
+                    span: miette::SourceSpan::new(offset.into(), length),
+                    error: Box::new(e),
+                },
+                None => e,
+            }
+        })?,
         SourceFormat::Nickel => crate::eval::nickel_value(source, &[])?,
     };
     crate::shape::read_document(&value).map_err(|e| spanned(e, source, format))
@@ -87,9 +100,10 @@ pub fn read_source(source: &str, format: SourceFormat) -> Result<TheoryDocument,
 /// # Errors
 ///
 /// The errors of [`read_source`] and of [`compile`]. A compile refusal
-/// names the document path of the element refused; for JSON text it is
-/// wrapped in [`TheoryDslError::Spanned`] whose span is the byte range of
-/// that element's value as written.
+/// names the document path of the element refused; for JSON and YAML text
+/// it is wrapped in [`TheoryDslError::Spanned`] whose span is the byte
+/// range of that element's value as written in JSON, and its first
+/// character in YAML.
 pub fn compile_source(
     source: &str,
     format: SourceFormat,
@@ -103,9 +117,10 @@ pub fn compile_source(
 ///
 /// # Errors
 ///
-/// The errors of [`compile`]; for JSON text a refusal that names a document
-/// path is wrapped in [`TheoryDslError::Spanned`] whose span is the byte
-/// range of that element's value in `source`.
+/// The errors of [`compile`]; for JSON and YAML text a refusal that names a
+/// document path is wrapped in [`TheoryDslError::Spanned`] whose span is
+/// the byte range of that element's value in JSON `source`, and its first
+/// character in YAML `source`.
 pub fn compile_with_source(
     doc: &TheoryDocument,
     source: &str,
@@ -210,16 +225,46 @@ pub fn compile_unchecked(
 /// otherwise.
 fn theory_path(body: &TheoryBody, name: &str) -> DocumentPath {
     let root = DocumentPath::root();
-    let TheoryBody::Bundle(bundle) = body else {
-        return root;
+    match body {
+        TheoryBody::Protocol(protocol) => {
+            inline_reference(protocol, name).map_or(root, |field| DocumentPath::root().key(field))
+        }
+        TheoryBody::Bundle(bundle) => {
+            if let Some(index) = bundle.theories.iter().position(|t| t.theory == name) {
+                return root.key("theories").index(index);
+            }
+            if let Some(index) = bundle.compositions.iter().position(|c| c.result == name) {
+                return root.key("compositions").index(index);
+            }
+            bundle
+                .protocols
+                .iter()
+                .enumerate()
+                .find_map(|(index, protocol)| {
+                    inline_reference(protocol, name)
+                        .map(|field| root.key("protocols").index(index).key(field))
+                })
+                .unwrap_or(root)
+        }
+        _ => root,
+    }
+}
+
+/// The member of `protocol`, `schema_theory` or `instance_theory`, whose
+/// inline theory or composition is named `name`.
+fn inline_reference(protocol: &ProtocolSpec, name: &str) -> Option<&'static str> {
+    let builds = |reference: &TheoryRef| match reference {
+        TheoryRef::Named(_) => false,
+        TheoryRef::Inline(spec) => spec.theory == name,
+        TheoryRef::Composed(spec) => spec.result == name,
     };
-    if let Some(index) = bundle.theories.iter().position(|t| t.theory == name) {
-        return root.key("theories").index(index);
+    if builds(&protocol.schema_theory) {
+        Some("schema_theory")
+    } else if builds(&protocol.instance_theory) {
+        Some("instance_theory")
+    } else {
+        None
     }
-    if let Some(index) = bundle.compositions.iter().position(|c| c.result == name) {
-        return root.key("compositions").index(index);
-    }
-    root
 }
 
 fn compile_single_inductive(
@@ -330,7 +375,7 @@ fn compile_single_composition(
 ) -> Result<CompiledTheorySet, TheoryDslError> {
     let local = HashMap::new();
     let composed = compile_composition_with_report(body, resolver, &local)
-        .map_err(|e| step_located(e).within(&DocumentPath::root().key("compose")))?;
+        .map_err(|e| e.within(&DocumentPath::root().key("compose")))?;
     let name = composed.theory.name.to_string();
     let mut theories = HashMap::new();
     theories.insert(name.clone(), composed.theory);
@@ -348,16 +393,6 @@ fn compile_single_composition(
     })
 }
 
-/// A composition refusal that names its step, located at that step.
-fn step_located(error: TheoryDslError) -> TheoryDslError {
-    match error {
-        TheoryDslError::ColimitFailed { step, .. } => {
-            error.within(&DocumentPath::root().key("steps").index(step))
-        }
-        other => other,
-    }
-}
-
 fn compile_single_protocol(
     doc_id: &str,
     spec: &ProtocolSpec,
@@ -366,9 +401,7 @@ fn compile_single_protocol(
     let local = HashMap::new();
     let compiled = compile_protocol_with_compositions(spec, resolver, &local)?;
     let mut recorded = Compositions::default();
-    for composed in compiled.compositions {
-        recorded.record_inline(composed)?;
-    }
+    recorded.record_protocol_theories(compiled.theories, compiled.compositions)?;
     let name = compiled.protocol.name.clone();
     let mut protocols = HashMap::new();
     protocols.insert(name, compiled.protocol);
@@ -467,7 +500,7 @@ fn compile_bundle_inner(
             theories.get(name).cloned().or_else(|| resolver(name))
         };
         let composed = compile_composition_with_report(&body, &combined, theories)
-            .map_err(|e| step_located(e).within(&at))?;
+            .map_err(|e| e.within(&at))?;
         recorded.insert(composed);
     }
 
@@ -494,6 +527,7 @@ fn compile_bundle_inner(
     // compositions are recorded once all protocols are compiled, so no
     // protocol can name another's inline composition, whatever their order.
     let mut inline = Vec::new();
+    let mut inline_theories = Vec::new();
     for (index, spec) in bundle.protocols.iter().enumerate() {
         let at = root.key("protocols").index(index);
         let theories = &recorded.theories;
@@ -510,13 +544,12 @@ fn compile_bundle_inner(
         let compiled = compile_protocol_with_compositions(spec, &combined, theories)
             .map_err(|e| e.within(&at))?;
         inline.extend(compiled.compositions);
+        inline_theories.extend(compiled.theories);
         protocols.insert(spec.protocol.clone(), compiled.protocol);
     }
-    for composed in inline {
-        recorded
-            .record_inline(composed)
-            .map_err(|e| e.within(&root.key("protocols")))?;
-    }
+    recorded
+        .record_protocol_theories(inline_theories, inline)
+        .map_err(|e| e.within(&root.key("protocols")))?;
 
     Ok(CompiledTheorySet {
         id: doc_id.to_owned(),
@@ -544,6 +577,54 @@ impl Compositions {
         self.theories.insert(name.clone(), composed.theory);
         self.specs.insert(name.clone(), composed.spec);
         self.reports.insert(name, composed.reports);
+    }
+
+    /// Record the theories and compositions of a protocol's inline theory
+    /// references, the theories first.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::record_inline_theory`] and [`Self::record_inline`].
+    fn record_protocol_theories(
+        &mut self,
+        theories: Vec<Theory>,
+        compositions: Vec<ComposedTheory>,
+    ) -> Result<(), TheoryDslError> {
+        for theory in theories {
+            self.record_inline_theory(theory)?;
+        }
+        for composed in compositions {
+            self.record_inline(composed)?;
+        }
+        Ok(())
+    }
+
+    /// Record `theory`, the theory of an inline theory reference of a
+    /// protocol, under its name.
+    ///
+    /// A name already recorded is kept when it names a theory that is not
+    /// a composition and has the same canonical bytes as `theory` (the same
+    /// theory written again), and is refused otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`TheoryDslError::Duplicate`] when the name is recorded with another
+    /// theory or as a composition.
+    fn record_inline_theory(&mut self, theory: Theory) -> Result<(), TheoryDslError> {
+        let name = theory.name.to_string();
+        let Some(existing) = self.theories.get(&name) else {
+            self.theories.insert(name, theory);
+            return Ok(());
+        };
+        if !self.specs.contains_key(&name)
+            && canonical_theory_bytes(existing) == canonical_theory_bytes(&theory)
+        {
+            return Ok(());
+        }
+        Err(TheoryDslError::Duplicate {
+            kind: "theory".to_owned(),
+            name,
+        })
     }
 
     /// Record `composed`, the composition of an inline composed theory

@@ -4,72 +4,36 @@
 //! ([`crate::json::Value`]); Nickel evaluation and YAML reading stay outside
 //! this model, which starts from the value they produce. The module checks
 //! the document grammar, elaborates a theory's parents and imports, types its
-//! equations, compiles morphism documents and bundles, and names the document
+//! equations, compiles morphism documents, protocol documents and bundles,
+//! and names the document
 //! path of every refusal, in the order the `theory-dsl` correctness page
 //! states. Signature checking and morphism checking are the `theories` page's
 //! reference ([`typecheck_signature`], [`check_morphism`]); everything else is
 //! transcribed from the page and shares no code with production, which reads
 //! the document through serde types and the `panproto-gat` checker.
 //!
+//! Sorts may take parameters and operations implicit inputs: sort
+//! expressions applied to terms, implicit-input inference and the typing of
+//! equations over dependent sorts are the `theories` page's definitions
+//! ([`implicit_inputs_inferable`], [`typecheck_equation`]).
+//!
 //! The model is total on its domain and says so outside it: a document using
-//! a dependent sort, a sort kind other than `structural`, a closed sort, an
-//! implicit input, a directed equation, a conflict policy, a `case`, `let`
-//! or hole term, a sort applied to arguments, or a body other than a theory,
-//! a morphism or a bundle of theories and morphisms is answered with
-//! [`Outcome::OutsideDomain`].
+//! a sort kind other than `structural`, a closed sort, a directed equation,
+//! a conflict policy, a `case`, `let` or hole term, a composition step with
+//! identified symbols, a shared sort with parameters or sides a colimit
+//! step cannot label, a protocol's inline composed theory, or a class,
+//! instance or inductive body is answered with [`Outcome::OutsideDomain`].
 
 use std::collections::BTreeMap;
 
 use crate::json::Value;
 use crate::pages::theories::theory::{
-    Defect, Equation, Implicit, Morphism, MorphismError, Op, OpImage, Site, Sort, SortExpr,
-    SortKind, SymKind, Term, Theory, check_morphism, typecheck_signature,
+    CompositionMode, CompositionSpec, CompositionStep, Defect, Equation, Implicit, Morphism,
+    MorphismError, Op, OpImage, Site, Sort, SortExpr, SortKind, SymKind, Term, Theory,
+    check_morphism, implicit_inputs_inferable, recompose, typecheck_equation, typecheck_signature,
 };
 
-/// One step of a document path.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Segment {
-    /// The member of an object with this name.
-    Key(String),
-    /// The element of an array at this index.
-    Index(usize),
-}
-
-/// The path from a document's root to one of its values.
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Path(pub Vec<Segment>);
-
-impl Path {
-    /// The root.
-    #[must_use]
-    pub const fn root() -> Self {
-        Self(Vec::new())
-    }
-
-    /// This path extended by the member `key`.
-    #[must_use]
-    pub fn key(&self, key: &str) -> Self {
-        let mut steps = self.0.clone();
-        steps.push(Segment::Key(key.to_owned()));
-        Self(steps)
-    }
-
-    /// This path extended by the element at `index`.
-    #[must_use]
-    pub fn index(&self, index: usize) -> Self {
-        let mut steps = self.0.clone();
-        steps.push(Segment::Index(index));
-        Self(steps)
-    }
-
-    /// This path followed by `suffix`.
-    #[must_use]
-    pub fn join(&self, suffix: &Self) -> Self {
-        let mut steps = self.0.clone();
-        steps.extend(suffix.0.iter().cloned());
-        Self(steps)
-    }
-}
+pub use crate::dsl_path::{Path, Segment, locate};
 
 /// What a refused value was expected to be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +82,8 @@ pub enum Refusal {
     AmbiguousOpInputs,
     /// The elaborated signature is ill formed; the first defect.
     Signature(Defect),
+    /// The named operation has an implicit input that cannot be inferred.
+    NonInferableImplicit(String),
     /// The named equation is ill typed.
     Equation(String),
     /// A morphism map entry names no domain symbol: the map (`sort` or
@@ -125,8 +91,11 @@ pub enum Refusal {
     UnknownMapKey(String, String),
     /// The morphism check refuses the morphism.
     MorphismCheck(MorphismError),
-    /// A bundle defines a theory or a morphism twice.
+    /// A bundle defines a theory, a morphism or a protocol twice, or a
+    /// protocol's inline theory is named as another theory is.
     Duplicate(String),
+    /// A composition has no step, or a step's colimit is refused.
+    ColimitFailed,
 }
 
 /// The result of the reference on one document.
@@ -140,13 +109,31 @@ pub enum Outcome<T> {
     OutsideDomain(&'static str),
 }
 
-/// What a document compiles to: theories and morphisms by name.
+/// A compiled protocol: its name, the names of its schema and instance
+/// theories, and its edge rules.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Protocol {
+    /// The protocol's name.
+    pub name: String,
+    /// The name of its schema theory.
+    pub schema_theory: String,
+    /// The name of its instance theory.
+    pub instance_theory: String,
+    /// Its edge rules `(edge kind, source kind, target kind)`, in order.
+    pub edge_rules: Vec<(String, String, String)>,
+}
+
+/// What a document compiles to: theories, morphisms and protocols by name.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Compiled {
     /// Compiled theories.
     pub theories: BTreeMap<String, Theory>,
     /// Compiled morphisms.
     pub morphisms: BTreeMap<String, Morphism>,
+    /// Compiled protocols.
+    pub protocols: BTreeMap<String, Protocol>,
+    /// The recipe of each composed theory, by the theory's name.
+    pub compositions: BTreeMap<String, CompositionSpec>,
 }
 
 /// A step of the reference that stops on a refusal or outside the domain.
@@ -709,20 +696,42 @@ fn parse_term(s: &str) -> Step<Term> {
     }
 }
 
-/// A sort expression: a symbol, or `symbol()` for the same sort. A sort
-/// applied to arguments is outside the domain.
-fn parse_sort(s: &str) -> Step<String> {
+/// Definition: the grammar of a sort expression.
+///
+/// `sort ::= symbol | symbol '(' (term (',' term)*)? ')'`, with whitespace
+/// around tokens; `symbol()` is the sort `symbol` itself.
+fn parse_sort(s: &str) -> Step<SortExpr> {
     let s = s.trim();
     match application(s) {
-        Some(Shape::Atom) if is_symbol(s) => Ok(s.to_owned()),
+        Some(Shape::Atom) if is_symbol(s) => Ok(SortExpr::Name(s.to_owned())),
         Some(Shape::Applied(head, inner)) if is_symbol(head) => {
-            if inner.trim().is_empty() {
-                Ok(head.to_owned())
+            let args = arguments(inner)
+                .into_iter()
+                .map(parse_term)
+                .collect::<Step<Vec<_>>>()?;
+            Ok(if args.is_empty() {
+                SortExpr::Name(head.to_owned())
             } else {
-                Err(Stop::Outside("sorts applied to arguments"))
-            }
+                SortExpr::App(head.to_owned(), args)
+            })
         }
         _ => refuse(Path::root(), Refusal::TermParse),
+    }
+}
+
+/// `sort` with its head renamed by `sort_name` and every operation applied
+/// in its arguments renamed by `op_name`.
+fn rename_sort(
+    sort: &SortExpr,
+    sort_name: &dyn Fn(&str) -> String,
+    op_name: &dyn Fn(&str) -> String,
+) -> SortExpr {
+    match sort {
+        SortExpr::Name(n) => SortExpr::Name(sort_name(n)),
+        SortExpr::App(n, args) => SortExpr::App(
+            sort_name(n),
+            args.iter().map(|a| rename_term(a, op_name)).collect(),
+        ),
     }
 }
 
@@ -896,11 +905,8 @@ fn rename_term(term: &Term, map: &dyn Fn(&str) -> String) -> Term {
 
 /// The theory `theory` with each sort and operation name `n` renamed to
 /// `rename(n)` everywhere, and each equation name likewise.
-fn renamed(theory: &Theory, rename: &dyn Fn(&str) -> String) -> Step<Theory> {
-    let sort = |s: &SortExpr| match s {
-        SortExpr::Name(n) => Ok(SortExpr::Name(rename(n))),
-        SortExpr::App(..) => Err(Stop::Outside("dependent sorts")),
-    };
+fn renamed(theory: &Theory, rename: &dyn Fn(&str) -> String) -> Theory {
+    let sort = |s: &SortExpr| rename_sort(s, rename, rename);
     let mut out = Theory {
         name: theory.name.clone(),
         extends: theory.extends.clone(),
@@ -909,7 +915,7 @@ fn renamed(theory: &Theory, rename: &dyn Fn(&str) -> String) -> Step<Theory> {
     for s in &theory.sorts {
         out.sorts.push(Sort {
             name: rename(&s.name),
-            params: Vec::new(),
+            params: s.params.iter().map(|(x, p)| (x.clone(), sort(p))).collect(),
             kind: s.kind,
             constructors: None,
         });
@@ -920,9 +926,9 @@ fn renamed(theory: &Theory, rename: &dyn Fn(&str) -> String) -> Step<Theory> {
             inputs: o
                 .inputs
                 .iter()
-                .map(|(x, s, i)| Ok((x.clone(), sort(s)?, *i)))
-                .collect::<Step<Vec<_>>>()?,
-            output: sort(&o.output)?,
+                .map(|(x, s, i)| (x.clone(), sort(s), *i))
+                .collect(),
+            output: sort(&o.output),
         });
     }
     for e in &theory.eqs {
@@ -932,12 +938,11 @@ fn renamed(theory: &Theory, rename: &dyn Fn(&str) -> String) -> Step<Theory> {
             rhs: rename_term(&e.rhs, rename),
         });
     }
-    Ok(out)
+    out
 }
 
-/// Whether `theory` lies in the domain: simple structural open sorts, ops
-/// without implicit inputs over simple sorts, first-order equations, no
-/// directed equations and no policies.
+/// Whether `theory` lies in the domain: structural open sorts, first-order
+/// equations, no directed equations and no policies.
 fn library_in_domain(theory: &Theory) -> Step<()> {
     let first_order = |t: &Term| -> bool {
         fn walk(t: &Term) -> bool {
@@ -949,20 +954,16 @@ fn library_in_domain(theory: &Theory) -> Step<()> {
         }
         walk(t)
     };
-    let simple =
-        theory.sorts.iter().all(|s| {
-            s.params.is_empty() && s.kind == SortKind::Structural && s.constructors.is_none()
-        }) && theory.ops.iter().all(|o| {
-            matches!(o.output, SortExpr::Name(_))
-                && o.inputs
-                    .iter()
-                    .all(|(_, s, i)| matches!(s, SortExpr::Name(_)) && *i == Implicit::No)
-        }) && theory
+    let simple = theory
+        .sorts
+        .iter()
+        .all(|s| s.kind == SortKind::Structural && s.constructors.is_none())
+        && theory
             .eqs
             .iter()
             .all(|e| first_order(&e.lhs) && first_order(&e.rhs))
-            && theory.directed_eqs.is_empty()
-            && theory.policies.is_empty();
+        && theory.directed_eqs.is_empty()
+        && theory.policies.is_empty();
     if simple {
         Ok(())
     } else {
@@ -974,9 +975,6 @@ fn library_in_domain(theory: &Theory) -> Step<()> {
 /// else so that the reference never answers for a document it cannot model.
 fn spec_in_domain(spec: &Value) -> Step<()> {
     for sort in items(spec, "sorts") {
-        if !items(sort, "params").is_empty() {
-            return Err(Stop::Outside("dependent sorts"));
-        }
         if let Some(kind) = get(sort, "kind")
             && text(kind, "type") != "structural"
         {
@@ -984,14 +982,6 @@ fn spec_in_domain(spec: &Value) -> Step<()> {
         }
         if matches!(get(sort, "closed"), Some(Value::Array(_))) {
             return Err(Stop::Outside("closed sorts"));
-        }
-    }
-    for op in items(spec, "ops") {
-        if items(op, "inputs")
-            .iter()
-            .any(|p| matches!(get(p, "implicit"), Some(Value::Bool(true))))
-        {
-            return Err(Stop::Outside("implicit inputs"));
         }
     }
     if !items(spec, "directed_equations").is_empty() || !items(spec, "policies").is_empty() {
@@ -1012,8 +1002,8 @@ fn shorthand_param(input: &str) -> String {
 }
 
 /// One local operation, parsed, before name resolution: name, inputs
-/// `(binder, sort head)`, output head.
-type ParsedOp = (String, Vec<(String, String)>, String);
+/// `(binder, sort, implicit)`, output sort.
+type ParsedOp = (String, Vec<(String, SortExpr, Implicit)>, SortExpr);
 
 fn parse_op(op: &Value) -> Step<ParsedOp> {
     let name = text(op, "name");
@@ -1028,14 +1018,19 @@ fn parse_op(op: &Value) -> Step<ParsedOp> {
         (Some(_), Some(_)) => return refuse(Path::root(), Refusal::AmbiguousOpInputs),
         (Some(input), None) => {
             let sort = parse_sort(&input).map_err(|s| s.within(&Path::root().key("input")))?;
-            vec![(shorthand_param(&input), sort)]
+            vec![(shorthand_param(&input), sort, Implicit::No)]
         }
         (None, Some(list)) => list
             .iter()
             .enumerate()
             .map(|(index, p)| {
+                let implicit = if matches!(get(p, "implicit"), Some(Value::Bool(true))) {
+                    Implicit::Yes
+                } else {
+                    Implicit::No
+                };
                 parse_sort(&text(p, "sort"))
-                    .map(|sort| (text(p, "name"), sort))
+                    .map(|sort| (text(p, "name"), sort, implicit))
                     .map_err(|s| s.within(&suffix(&["inputs", &index.to_string(), "sort"])))
             })
             .collect::<Step<Vec<_>>>()?,
@@ -1097,15 +1092,26 @@ fn elaborate_step(spec: &Value, resolve_theory: &dyn Fn(&str) -> Option<Theory>)
 
     let sort_head = |h: &str| resolve(h, &own_sorts, &scopes, false);
     let op_head = |h: &str| resolve(h, &own_ops, &scopes, true);
+    let sort_of = |s: &SortExpr| rename_sort(s, &sort_head, &op_head);
     for (index, sort) in items(spec, "sorts").iter().enumerate() {
+        let at = root.key("sorts").index(index);
+        let params = items(sort, "params")
+            .iter()
+            .enumerate()
+            .map(|(j, p)| {
+                parse_sort(&text(p, "sort"))
+                    .map(|s| (text(p, "name"), sort_of(&s)))
+                    .map_err(|s| s.within(&at.key("params").index(j).key("sort")))
+            })
+            .collect::<Step<Vec<_>>>()?;
         union.sorts.push((
             Sort {
                 name: text(sort, "name"),
-                params: Vec::new(),
+                params,
                 kind: SortKind::Structural,
                 constructors: None,
             },
-            Origin::Own(root.key("sorts").index(index)),
+            Origin::Own(at),
         ));
     }
     for (index, op) in items(spec, "ops").iter().enumerate() {
@@ -1119,9 +1125,9 @@ fn elaborate_step(spec: &Value, resolve_theory: &dyn Fn(&str) -> Option<Theory>)
                 name: op_name,
                 inputs: inputs
                     .into_iter()
-                    .map(|(x, s)| (x, SortExpr::Name(sort_head(&s)), Implicit::No))
+                    .map(|(x, s, implicit)| (x, sort_of(&s), implicit))
                     .collect(),
-                output: SortExpr::Name(sort_head(&output)),
+                output: sort_of(&output),
             },
             Origin::Own(at),
         ));
@@ -1178,7 +1184,7 @@ fn include_import(
             format!("{prefix}_{n}")
         }
     };
-    union.include(&renamed(&theory, &rename)?, at);
+    union.include(&renamed(&theory, &rename), at);
     let mut qualifiers = vec![from];
     qualifiers.extend(alias.clone());
     let unaliased = alias.is_none();
@@ -1198,8 +1204,8 @@ fn include_import(
     })
 }
 
-/// The elaborated theory, after its signature check and the typing of
-/// each equation in order.
+/// The elaborated theory, after its signature check, the inference check of
+/// every implicit input and the typing of each equation in order.
 fn checked(name: String, extends: Vec<String>, union: &Union) -> Step<Theory> {
     let theory = Theory {
         name,
@@ -1214,8 +1220,16 @@ fn checked(name: String, extends: Vec<String>, union: &Union) -> Step<Theory> {
         let first = defects[0].clone();
         return refuse(defect_path(union, &first), Refusal::Signature(first));
     }
+    for (op, from) in &union.ops {
+        if implicit_inputs_inferable(op).is_err() {
+            return refuse(
+                origin_path(from, &Path::root()),
+                Refusal::NonInferableImplicit(op.name.clone()),
+            );
+        }
+    }
     for (eq, from) in &union.eqs {
-        if !equation_typed(eq, &theory) {
+        if typecheck_equation(&theory, eq).is_err() {
             return refuse(
                 origin_path(from, &Path::root()),
                 Refusal::Equation(eq.name.clone()),
@@ -1223,56 +1237,6 @@ fn checked(name: String, extends: Vec<String>, union: &Union) -> Step<Theory> {
         }
     }
     Ok(theory)
-}
-
-/// Definition: first-order equation typing.
-///
-/// Every variable takes the input sort of each argument position it fills,
-/// and all of them must agree; each application names a declared operation
-/// with as many arguments as inputs, each argument of the input's sort; both
-/// sides have one sort.
-fn equation_typed(eq: &Equation, theory: &Theory) -> bool {
-    fn constrain(t: &Term, theory: &Theory, ctx: &mut BTreeMap<String, String>) -> bool {
-        let Term::App(op, args) = t else {
-            return true;
-        };
-        let Some(o) = theory.ops.iter().find(|o| &o.name == op) else {
-            return false;
-        };
-        if o.inputs.len() != args.len() {
-            return false;
-        }
-        args.iter().zip(&o.inputs).all(|(a, (_, s, _))| match a {
-            Term::Var(x) => {
-                *ctx.entry(x.clone()).or_insert_with(|| s.head().to_owned()) == s.head()
-            }
-            _ => constrain(a, theory, ctx),
-        })
-    }
-    fn sort_of(t: &Term, theory: &Theory, ctx: &BTreeMap<String, String>) -> Option<String> {
-        match t {
-            Term::Var(x) => ctx.get(x).cloned(),
-            Term::App(op, args) => {
-                let o = theory.ops.iter().find(|o| &o.name == op)?;
-                let all = args.iter().zip(&o.inputs).all(|(a, (_, s, _))| {
-                    sort_of(a, theory, ctx).is_some_and(|found| found == s.head())
-                });
-                (all && args.len() == o.inputs.len()).then(|| o.output.head().to_owned())
-            }
-            _ => None,
-        }
-    }
-    let mut ctx = BTreeMap::new();
-    if !constrain(&eq.lhs, theory, &mut ctx) || !constrain(&eq.rhs, theory, &mut ctx) {
-        return false;
-    }
-    match (
-        sort_of(&eq.lhs, theory, &ctx),
-        sort_of(&eq.rhs, theory, &ctx),
-    ) {
-        (Some(l), Some(r)) => l == r,
-        _ => false,
-    }
 }
 
 // ─── Morphisms and bundles ──────────────────────────────────────────────
@@ -1381,18 +1345,264 @@ fn morphism_step(spec: &Value, resolve_theory: &dyn Fn(&str) -> Option<Theory>) 
     Ok(morphism)
 }
 
+/// Resolve the theory reference at `at` of the protocol named by its
+/// document: a name the resolver knows, or an inline theory elaborated
+/// with the resolver. Returns the theory's name and an inline theory.
+fn theory_reference(
+    value: &Value,
+    at: &Path,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Step<(String, Option<Theory>)> {
+    match value {
+        Value::String(name) => {
+            if resolve_theory(name).is_some() {
+                Ok((name.clone(), None))
+            } else {
+                refuse(at.clone(), Refusal::TheoryNotFound(name.clone()))
+            }
+        }
+        _ if get(value, "theory").is_some() => {
+            let theory = elaborate_step(value, resolve_theory).map_err(|s| s.within(at))?;
+            Ok((theory.name.clone(), Some(theory)))
+        }
+        _ => Err(Stop::Outside("compositions")),
+    }
+}
+
+/// Definition: the compilation of a protocol body.
+///
+/// The schema theory reference is resolved, then the instance theory
+/// reference, each refusal located under its member; the edge rules are
+/// kept in order. Returns the protocol and the inline theories, the schema
+/// theory's first.
+///
+/// # Errors
+///
+/// The refusals of the page at their paths, relative to the protocol body.
+///
+/// Book anchor: `L-theory-dsl-5`.
+#[must_use]
+pub fn compile_protocol(
+    spec: &Value,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Outcome<(Protocol, Vec<Theory>)> {
+    outcome(protocol_step(spec, resolve_theory))
+}
+
+fn protocol_step(
+    spec: &Value,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Step<(Protocol, Vec<Theory>)> {
+    let root = Path::root();
+    let mut inline = Vec::new();
+    let mut names = Vec::new();
+    for field in ["schema_theory", "instance_theory"] {
+        let value = get(spec, field).cloned().unwrap_or(Value::Null);
+        let (name, theory) = theory_reference(&value, &root.key(field), resolve_theory)?;
+        names.push(name);
+        inline.extend(theory);
+    }
+    let edge_rules = items(spec, "edge_rules")
+        .iter()
+        .map(|rule| {
+            (
+                text(rule, "edge_kind"),
+                text(rule, "src_kind"),
+                text(rule, "tgt_kind"),
+            )
+        })
+        .collect();
+    let instance_theory = names.pop().unwrap_or_default();
+    let schema_theory = names.pop().unwrap_or_default();
+    Ok((
+        Protocol {
+            name: text(spec, "protocol"),
+            schema_theory,
+            instance_theory,
+            edge_rules,
+        },
+        inline,
+    ))
+}
+
+/// Record the inline theories of a document's protocols: a name already
+/// recorded is kept when it names the same theory and refused at `at`
+/// otherwise.
+fn record_inline(out: &mut Compiled, theories: Vec<Theory>, at: &Path) -> Step<()> {
+    for theory in theories {
+        match out.theories.get(&theory.name) {
+            Some(existing)
+                if *existing == theory && !out.compositions.contains_key(&theory.name) => {}
+            Some(_) => return refuse(at.clone(), Refusal::Duplicate(theory.name)),
+            None => {
+                out.theories.insert(theory.name.clone(), theory);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether a step is one the reference models: no identifications, sides
+/// that are distinct node labels (non-empty, with neither `.` nor `#`) other
+/// than the step's interface label, and no shared sort with parameters.
+fn colimit_step_in_domain(step: &Value, index: usize, left: &Theory) -> Step<()> {
+    let label = |name: &str| !name.is_empty() && !name.contains(['.', '#']);
+    let interface = format!("step_{index}_interface");
+    let (l, r) = (text(step, "left"), text(step, "right"));
+    if !items(step, "identify").is_empty() {
+        return Err(Stop::Outside("identified symbols"));
+    }
+    if !label(&l) || !label(&r) || l == r || l == interface || r == interface {
+        return Err(Stop::Outside(
+            "a step whose sides a colimit step cannot label",
+        ));
+    }
+    let dependent = strings(step, "shared_sorts").iter().any(|name| {
+        left.sorts
+            .iter()
+            .any(|s| &s.name == name && !s.params.is_empty())
+    });
+    if dependent {
+        return Err(Stop::Outside("a shared sort with parameters"));
+    }
+    Ok(())
+}
+
+/// Definition: the compilation of a composition spec.
+///
+/// Each base must resolve. Each step, in order, names its left and then its
+/// right side, which resolve to a theory of the resolver or the result
+/// `step_k` of an earlier step; it denotes the colimit step of its sides
+/// over its shared sorts and operations in its mode (`amalgamate` when
+/// absent), whose theory is [`recompose`]'s replay of the recipe of the
+/// steps so far. The result is the last step's theory, named by `result`,
+/// with the recipe of every step.
+///
+/// # Errors
+///
+/// `TheoryNotFound` at a `bases` entry or a step's `left` or `right`;
+/// `ColimitFailed` at a step whose replay is refused, and at `steps` when
+/// there is none.
+///
+/// Book anchor: `L-theory-dsl-6`.
+#[must_use]
+pub fn compile_composition(
+    spec: &Value,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Outcome<(Theory, CompositionSpec)> {
+    outcome(composition_step(spec, resolve_theory))
+}
+
+fn composition_step(
+    spec: &Value,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Step<(Theory, CompositionSpec)> {
+    let root = Path::root();
+    let result_name = text(spec, "result");
+    let mut registry: BTreeMap<String, Theory> = BTreeMap::new();
+    for (index, base) in strings(spec, "bases").iter().enumerate() {
+        let Some(theory) = resolve_theory(base) else {
+            return refuse(
+                root.key("bases").index(index),
+                Refusal::TheoryNotFound(base.clone()),
+            );
+        };
+        registry.insert(base.clone(), theory);
+    }
+    let mut steps = Vec::new();
+    let mut last = None;
+    for (index, step) in items(spec, "steps").iter().enumerate() {
+        let at = root.key("steps").index(index);
+        let mut sides = Vec::new();
+        for side in ["left", "right"] {
+            let name = text(step, side);
+            let found = registry.get(&name).cloned().or_else(|| {
+                (!name.starts_with("step_"))
+                    .then(|| resolve_theory(&name))
+                    .flatten()
+            });
+            let Some(theory) = found else {
+                return refuse(at.key(side), Refusal::TheoryNotFound(name));
+            };
+            registry.insert(name, theory.clone());
+            sides.push(theory);
+        }
+        colimit_step_in_domain(step, index, &sides[0])?;
+        let mode = if opt_text(step, "mode").as_deref() == Some("explicit_identity") {
+            CompositionMode::ExplicitIdentity
+        } else {
+            CompositionMode::Amalgamate
+        };
+        steps.push(CompositionStep::Colimit {
+            left: text(step, "left"),
+            right: text(step, "right"),
+            shared_sorts: strings(step, "shared_sorts"),
+            shared_ops: strings(step, "shared_ops"),
+            mode,
+        });
+        let recipe = CompositionSpec {
+            result_name: format!("step_{index}"),
+            steps: steps.clone(),
+            version: 0,
+        };
+        let Ok(theory) = recompose(&recipe, &registry) else {
+            return refuse(at, Refusal::ColimitFailed);
+        };
+        registry.insert(format!("step_{index}"), theory.clone());
+        last = Some(theory);
+    }
+    let Some(mut theory) = last else {
+        return refuse(root.key("steps"), Refusal::ColimitFailed);
+    };
+    theory.name.clone_from(&result_name);
+    let version = u16::from(steps.iter().any(|step| {
+        matches!(
+            step,
+            CompositionStep::Colimit {
+                mode: CompositionMode::ExplicitIdentity,
+                ..
+            }
+        )
+    }));
+    Ok((
+        theory,
+        CompositionSpec {
+            result_name,
+            steps,
+            version,
+        },
+    ))
+}
+
+/// Record a composed theory and its recipe in `out`, refused with
+/// `Duplicate` at `at` when its name is taken.
+fn record_composition(
+    out: &mut Compiled,
+    (theory, recipe): (Theory, CompositionSpec),
+    at: &Path,
+) -> Step<()> {
+    if out.theories.contains_key(&theory.name) {
+        return refuse(at.clone(), Refusal::Duplicate(theory.name));
+    }
+    out.compositions.insert(theory.name.clone(), recipe);
+    out.theories.insert(theory.name.clone(), theory);
+    Ok(())
+}
+
 /// Definition: the compilation of a document.
 ///
 /// The grammar is checked first; a theory body is elaborated, a morphism body
-/// compiled, and a bundle's theories are elaborated in listed order, each
-/// seeing the bundle's earlier theories before the library, then its
-/// morphisms in listed order against the bundle's theories and the library.
+/// compiled, and a protocol body compiled, its inline theories recorded; a
+/// bundle's theories are elaborated in listed order, each seeing the
+/// bundle's earlier theories before the library, then its morphisms in
+/// listed order against the bundle's theories and the library, then its
+/// protocols likewise, their inline theories recorded after the last.
 ///
 /// # Errors
 ///
 /// The first refusal, at its path from the document root.
 ///
-/// Book anchors: `L-theory-dsl-1` to `L-theory-dsl-4`.
+/// Book anchors: `L-theory-dsl-1` to `L-theory-dsl-6`.
 #[must_use]
 pub fn compile_document(
     document: &Value,
@@ -1414,6 +1624,17 @@ fn document_step(document: &Value, library: &dyn Fn(&str) -> Option<Theory>) -> 
             let morphism = morphism_step(document, library)?;
             out.morphisms.insert(morphism.name.clone(), morphism);
         }
+        "compose" => {
+            let at = root.key("compose");
+            let spec = get(document, "compose").cloned().unwrap_or(Value::Null);
+            let composed = composition_step(&spec, library).map_err(|s| s.within(&at))?;
+            record_composition(&mut out, composed, &at)?;
+        }
+        "protocol" => {
+            let (protocol, inline) = protocol_step(document, library)?;
+            out.protocols.insert(protocol.name.clone(), protocol);
+            record_inline(&mut out, inline, &root)?;
+        }
         "bundle" => {
             for (index, spec) in items(document, "theories").iter().enumerate() {
                 let at = root.key("theories").index(index);
@@ -1426,8 +1647,15 @@ fn document_step(document: &Value, library: &dyn Fn(&str) -> Option<Theory>) -> 
                 let theory = elaborate_step(spec, &combined).map_err(|s| s.within(&at))?;
                 out.theories.insert(name, theory);
             }
-            if !items(document, "compositions").is_empty() {
-                return Err(Stop::Outside("compositions"));
+            for (index, spec) in items(document, "compositions").iter().enumerate() {
+                let at = root.key("compositions").index(index);
+                if out.theories.contains_key(&text(spec, "result")) {
+                    return refuse(at.key("result"), Refusal::Duplicate(text(spec, "result")));
+                }
+                let seen = out.theories.clone();
+                let combined = |n: &str| seen.get(n).cloned().or_else(|| library(n));
+                let composed = composition_step(spec, &combined).map_err(|s| s.within(&at))?;
+                record_composition(&mut out, composed, &at)?;
             }
             for (index, spec) in items(document, "morphisms").iter().enumerate() {
                 let at = root.key("morphisms").index(index);
@@ -1440,174 +1668,27 @@ fn document_step(document: &Value, library: &dyn Fn(&str) -> Option<Theory>) -> 
                 let morphism = morphism_step(spec, &combined).map_err(|s| s.within(&at))?;
                 out.morphisms.insert(name, morphism);
             }
-            if !items(document, "protocols").is_empty() {
-                return Err(Stop::Outside("protocols"));
+            let seen = out.theories.clone();
+            let combined = |n: &str| seen.get(n).cloned().or_else(|| library(n));
+            let mut inline = Vec::new();
+            for (index, spec) in items(document, "protocols").iter().enumerate() {
+                let at = root.key("protocols").index(index);
+                let name = text(spec, "protocol");
+                if out.protocols.contains_key(&name) {
+                    return refuse(at.key("protocol"), Refusal::Duplicate(name));
+                }
+                let (protocol, theories) =
+                    protocol_step(spec, &combined).map_err(|s| s.within(&at))?;
+                inline.extend(theories);
+                out.protocols.insert(name, protocol);
             }
+            record_inline(&mut out, inline, &root.key("protocols"))?;
         }
         _ => {
             return Err(Stop::Outside(
-                "bodies other than theory, morphism and bundle",
+                "bodies other than theory, morphism, protocol and bundle",
             ));
         }
     }
     Ok(out)
-}
-
-// ─── Locating a path in JSON text ───────────────────────────────────────
-
-/// A JSON value with the byte range it occupies.
-struct Located {
-    start: usize,
-    end: usize,
-    children: Children,
-}
-
-enum Children {
-    None,
-    Object(Vec<(String, Located)>),
-    Array(Vec<Located>),
-}
-
-struct Cursor<'a> {
-    text: &'a [u8],
-    at: usize,
-}
-
-impl Cursor<'_> {
-    fn blank(&mut self) {
-        while matches!(self.text.get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
-            self.at += 1;
-        }
-    }
-
-    fn take(&mut self, byte: u8) -> bool {
-        let found = self.text.get(self.at) == Some(&byte);
-        if found {
-            self.at += 1;
-        }
-        found
-    }
-
-    fn string(&mut self) -> Option<String> {
-        let start = self.at;
-        if !self.take(b'"') {
-            return None;
-        }
-        loop {
-            match self.text.get(self.at)? {
-                b'"' => {
-                    self.at += 1;
-                    break;
-                }
-                b'\\' => self.at += 2,
-                _ => self.at += 1,
-            }
-        }
-        let raw = std::str::from_utf8(self.text.get(start..self.at)?).ok()?;
-        match crate::json::parse(raw)? {
-            Value::String(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    fn value(&mut self) -> Option<Located> {
-        self.blank();
-        let start = self.at;
-        let children = match self.text.get(self.at)? {
-            b'{' => {
-                self.at += 1;
-                let mut entries = Vec::new();
-                self.blank();
-                if !self.take(b'}') {
-                    loop {
-                        self.blank();
-                        let key = self.string()?;
-                        self.blank();
-                        if !self.take(b':') {
-                            return None;
-                        }
-                        let value = self.value()?;
-                        entries.push((key, value));
-                        self.blank();
-                        if self.take(b'}') {
-                            break;
-                        }
-                        if !self.take(b',') {
-                            return None;
-                        }
-                    }
-                }
-                Children::Object(entries)
-            }
-            b'[' => {
-                self.at += 1;
-                let mut elements = Vec::new();
-                self.blank();
-                if !self.take(b']') {
-                    loop {
-                        elements.push(self.value()?);
-                        self.blank();
-                        if self.take(b']') {
-                            break;
-                        }
-                        if !self.take(b',') {
-                            return None;
-                        }
-                    }
-                }
-                Children::Array(elements)
-            }
-            b'"' => {
-                self.string()?;
-                Children::None
-            }
-            _ => {
-                while self.text.get(self.at).is_some_and(|b| {
-                    !matches!(b, b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r')
-                }) {
-                    self.at += 1;
-                }
-                let raw = std::str::from_utf8(self.text.get(start..self.at)?).ok()?;
-                match crate::json::parse(raw)? {
-                    Value::Null | Value::Bool(_) | Value::Number(_) => Children::None,
-                    _ => return None,
-                }
-            }
-        };
-        Some(Located {
-            start,
-            end: self.at,
-            children,
-        })
-    }
-}
-
-/// Definition: the location of a path in JSON text.
-///
-/// The byte range `(offset, length)` of the value at `path`, from its first
-/// byte to its last; when an object names a member more than once the last
-/// occurrence is located. `None` when `text` is not one JSON value or holds
-/// no value at `path`.
-///
-/// Book anchor: `L-theory-dsl-4`.
-#[must_use]
-pub fn locate(text: &str, path: &Path) -> Option<(usize, usize)> {
-    crate::json::parse(text)?;
-    let mut cursor = Cursor {
-        text: text.as_bytes(),
-        at: 0,
-    };
-    let mut node = cursor.value()?;
-    for step in &path.0 {
-        node = match (step, node.children) {
-            (Segment::Key(key), Children::Object(entries)) => {
-                entries.into_iter().rev().find(|(k, _)| k == key)?.1
-            }
-            (Segment::Index(index), Children::Array(elements)) => {
-                elements.into_iter().nth(*index)?
-            }
-            _ => return None,
-        };
-    }
-    Some((node.start, node.end - node.start))
 }

@@ -8,6 +8,7 @@ mechanics; the pull request template lists the checks a change is expected to pa
 - For anything larger than a small fix, open an issue first so the design can be discussed before code is written.
 - The planned releases and their themes are in [ROADMAP.md](ROADMAP.md); each has a GitHub milestone.
 - By contributing you agree that your contribution is licensed under the [MIT license](LICENSE).
+- Material from other projects (grammars, conformance corpora) is listed with its licence in [THIRD-PARTY.md](THIRD-PARTY.md); add a row there when you vendor anything, and vendor only permissively licensed material.
 - Participation is governed by the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Building and testing

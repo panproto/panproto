@@ -109,7 +109,7 @@ pub fn compile_morphism(
 /// located at the map that lacks it, an entry refused for the symbol it
 /// maps at that entry, and a refusal of an equation, which no entry of the
 /// spec states, at the spec itself.
-fn refused_entry(
+pub(crate) fn refused_entry(
     error: &panproto_gat::GatError,
     spec: &MorphismSpec,
     domain: &Theory,

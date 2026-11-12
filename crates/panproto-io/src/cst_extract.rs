@@ -871,6 +871,15 @@ fn parse_number_value(text: &str) -> Result<Value, ValueFidelityError> {
     )
 }
 
+/// Name a delimited data row for a refusal: its one-based number and, when
+/// the parse tree recorded it, the byte offset at which the row starts.
+fn data_row_place(cst: &Schema, row_name: &Name, row_idx: usize) -> String {
+    cst_byte_offset(cst, row_name).map_or_else(
+        || format!("data row {}", row_idx + 1),
+        |offset| format!("data row {} at byte {offset}", row_idx + 1),
+    )
+}
+
 pub(crate) fn cst_byte_offset(cst: &Schema, vertex: &Name) -> Option<u64> {
     cst.constraints.get(vertex).and_then(|constraints| {
         constraints
@@ -7179,11 +7188,8 @@ impl TabularReader<'_> {
         let headers = self.headers.len();
         if field_count != headers && !(field_count < headers && layout.is_none()) {
             return Err(CstCodecError::Structure(format!(
-                "data row {} at byte {:?} has {} fields but {} header fields are declared",
-                row_idx + 1,
-                cst_byte_offset(cst, row_name),
-                field_count,
-                headers
+                "{} has {field_count} fields but {headers} header fields are declared",
+                data_row_place(cst, row_name, row_idx),
             )));
         }
         if let Some((row_start, starts, len)) = &layout {
@@ -7213,9 +7219,8 @@ impl TabularReader<'_> {
                     .any(|&(start, end)| end > start && !read.contains(&(start, end)))
             {
                 return Err(CstCodecError::Structure(format!(
-                    "data row {} at byte {:?} is not read as its delimited fields",
-                    row_idx + 1,
-                    cst_byte_offset(cst, row_name),
+                    "{} is not read as its delimited fields",
+                    data_row_place(cst, row_name, row_idx),
                 )));
             }
         }
