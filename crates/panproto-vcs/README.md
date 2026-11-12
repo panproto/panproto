@@ -74,7 +74,15 @@ of its shape's lens, stores the migrated data set under the schema tree of the t
 schema and a `ComplementObject` naming the migration and the source data set, and
 returns both IDs. `migrate_backward` takes the migrated data set and that complement
 and puts the data back along the migration the complement names. A refusal is a typed
-`MigrationConflict`. A schema commit by itself does not capture dropped field values,
+`MigrationConflict`.
+
+`migration_path` reads the migrations first-parent history records from a data set's
+schema to a commit's, and `migrate_along` migrates a data set along them step by step,
+keeping each step's complement; `Repository::migrate_tracked_instance` does both for a
+stale instance `HEAD` tracks and stages the result. A merge, rebase or cherry-pick
+whose three versions of a key are recorded against different schemas migrates each to
+the merged schema this way (`MergeMigration`) before merging them, and reports a
+version that does not migrate as `InstanceConflict::Migration`. A schema commit by itself does not capture dropped field values,
 and the APIs do not promise losslessness outside successful lens execution with the
 matching complement.
 
@@ -87,7 +95,7 @@ matching complement.
 | History | `CommitObject`, `HeadState`, `dag`, `refs`, `rebase`, `cherry_pick`, `reset` |
 | Merge | `merge::three_way_merge`, `MergeResult`, typed conflicts, `verify_pushout` |
 | Project trees | `FileSchemaObject`, `SchemaTreeObject`, `tree` helpers |
-| Data | `DataSetObject`, `ComplementObject`, `migrate_forward`, `migrate_backward` |
+| Data | `DataSetObject`, `ComplementObject`, `migrate_forward`, `migrate_backward`, `migration_path`, `migrate_along`, `MergeMigration` |
 | Maintenance | `gc`, `bisect`, `blame`, `stash`, `status` |
 
 ## License

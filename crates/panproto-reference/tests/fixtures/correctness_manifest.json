@@ -9142,6 +9142,98 @@
               "crate": "panproto-vcs",
               "binary": "panproto-vcs::reference_instance_version_control",
               "test": "a_0_78_complement_names_no_migration_and_is_refused_by_backward_migration"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_tree_of_the_migration_scope_migrates_forward_and_back_as_the_reference_tree_lens_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_table_of_the_migration_scope_migrates_forward_and_back_as_the_reference_table_lens_does"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.merge-migration",
+          "anchor": "L-instance-version-control-9",
+          "references": [
+            "panproto_reference::pages::instance_version_control::merge_tracked_to",
+            "panproto_reference::pages::instance_version_control::migrate_and_combine",
+            "panproto_reference::pages::instance_version_control::merge_path"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_version_of_the_merge_path_scope_finds_the_reference_path"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_history_of_the_merge_migration_scope_merges_as_the_reference_merges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_schema_changing_history_of_the_repository_scope_merges_rebases_and_cherry_picks_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::randomized_merge_migrations_agree_with_the_reference"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.stale-migration",
+          "anchor": "L-instance-version-control-10",
+          "references": [
+            "panproto_reference::pages::instance_version_control::migration_path"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_chain_of_the_path_scope_finds_the_reference_path"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_stale_graph_of_the_chain_scope_migrates_as_the_composite_of_the_reference_gets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::randomized_stale_graphs_migrate_as_the_composite_of_the_reference_gets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::a_stale_tracked_instance_migrates_along_first_parent_history_and_is_committed"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::a_missing_link_or_a_refused_get_refuses_a_stale_migration_with_its_conflict"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-cli",
+              "binary": "panproto-cli::cli_workflows",
+              "test": "cli_data_upgrade_migrates_a_stale_tracked_instance_and_stages_it"
             }
           ]
         }
