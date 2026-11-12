@@ -567,7 +567,9 @@ class
     -- the head of the list is what 'findBestMorphism' answers with.
     -- There is no second, worse tier to walk to. An empty list means no
     -- total morphism exists, and 'findSpan' is the method that answers
-    -- with what the two schemas do share.
+    -- with what the two schemas do share. A search that could not be
+    -- posed, or that a budget stopped before it proved an answer
+    -- optimal, is an error rather than an empty list.
     findMorphisms
         :: SchemaRep back
         -- ^ Source schema.
