@@ -377,10 +377,11 @@ mod tests {
     #[test]
     fn exact_values_are_admitted_under_their_kinds() {
         let decimal = Value::Decimal(crate::value::DecimalValue::parse("1.50").expect("decimal"));
-        let big = Value::BigInt(
-            crate::value::BigIntValue::parse_canonical("123456789012345678901234567890")
-                .expect("bigint"),
-        );
+        let big = Value::BigInt(crate::value::BigIntValue {
+            negative: false,
+            significand: "12345678901234567890123456789".to_owned(),
+            zeros: crate::value::WideInt::from(1_i64),
+        });
         let date = Value::Temporal(crate::value::Temporal::parse_date("1994-11-27").expect("date"));
         assert!(kind_accepts(&Name::from("number"), &decimal));
         assert!(kind_accepts(&Name::from("decimal"), &big));
