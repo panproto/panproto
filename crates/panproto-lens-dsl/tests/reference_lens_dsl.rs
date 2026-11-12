@@ -866,8 +866,26 @@ fn production(text: &str, mode: Mode, library: &HashMap<String, LensDocument>) -
     (result, located)
 }
 
+/// Whether `compile_source` refuses the JSON text `text` read as YAML, which
+/// JSON text also is, at `at` with the reference's refusal, its span the
+/// first character of the value the reference locates there.
+fn yaml_refusal_agrees(text: &str, at: &Path, refusal: &rd::Refusal) -> bool {
+    let expected = locate(text, at).map(|(offset, _)| {
+        let length = text[offset..].chars().next().map_or(0, char::len_utf8);
+        (offset, length)
+    });
+    compile_source(text, SourceFormat::Yaml, scope::BODY, &no_lenses)
+        .err()
+        .is_some_and(|error| {
+            error.path().map(path).as_ref() == Some(at)
+                && same_refusal(error.unlocated(), refusal)
+                && span(&error) == expected
+        })
+}
+
 /// The disagreement between production and the reference on one JSON
 /// document, if any; documents outside the reference's domain are counted.
+/// A document compiled from source and refused is also read as YAML.
 fn disagreement(
     text: &str,
     mode: Mode,
@@ -891,7 +909,8 @@ fn disagreement(
             let expected_span = locate(text, &at);
             let agrees = error.path().map(path).as_ref() == Some(&at)
                 && same_refusal(error.unlocated(), &refusal)
-                && located == expected_span;
+                && located == expected_span
+                && (matches!(mode, Mode::WithRefs) || yaml_refusal_agrees(text, &at, &refusal));
             (!agrees).then(|| {
                 format!(
                     "{text}\n  reference {refusal:?} at {at:?} span {expected_span:?}\n  production {error:?} span {located:?}"
@@ -975,9 +994,11 @@ fn grammar_disagreement(text: &str) -> Option<String> {
     ) {
         (Ok(_), Ok(_)) => None,
         (Err((at, problem)), Err(error)) => {
+            let refusal = rd::Refusal::Shape(problem.clone());
             let agrees = error.path().map(path).as_ref() == Some(&at)
-                && same_refusal(error.unlocated(), &rd::Refusal::Shape(problem.clone()))
-                && span(&error) == locate(text, &at);
+                && same_refusal(error.unlocated(), &refusal)
+                && span(&error) == locate(text, &at)
+                && yaml_refusal_agrees(text, &at, &refusal);
             (!agrees).then(|| {
                 format!("{text}\n  reference {problem:?} at {at:?}\n  production {error:?}")
             })

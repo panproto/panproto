@@ -12,6 +12,8 @@ use panproto_gat::Theory;
 
 use crate::compile_theory::compile_theory;
 use crate::document::{InductiveSpec, OpSpec, ParamSpec, SortKindSpec, SortSpec, TheorySpec};
+use crate::error::TheoryDslError;
+use crate::path::{DocumentPath, PathSegment};
 
 /// Compile an [`InductiveSpec`] into a [`Theory`] by expanding to a
 /// `TheorySpec` with one closed sort and one op per constructor.
@@ -19,10 +21,78 @@ use crate::document::{InductiveSpec, OpSpec, ParamSpec, SortKindSpec, SortSpec, 
 /// # Errors
 ///
 /// Returns errors from [`compile_theory`] (parse failure, typecheck
-/// violation, unknown sort reference, etc.).
-pub fn compile_inductive(spec: &InductiveSpec) -> Result<Theory, crate::error::TheoryDslError> {
+/// violation, unknown sort reference, etc.), located at the member of the
+/// inductive document the refused declaration was built from (see
+/// [`inductive_to_theory_spec`]).
+pub fn compile_inductive(spec: &InductiveSpec) -> Result<Theory, TheoryDslError> {
     let theory_spec = inductive_to_theory_spec(spec);
-    compile_theory(&theory_spec)
+    compile_theory(&theory_spec).map_err(|error| located_in_inductive(error, spec, &theory_spec))
+}
+
+/// `error`, located at the member of `spec` that the declaration of
+/// `theory_spec` its path names was built from: a parameter sort at the
+/// first parameter of that sort, the inductive sort's parameter at that
+/// parameter, its closure at `constructors`, a constructor at its entry,
+/// a constructor's leading implicit input at the parameter it copies and
+/// its other inputs at the constructor's own inputs. Anything else is
+/// located at the root.
+fn located_in_inductive(
+    error: TheoryDslError,
+    spec: &InductiveSpec,
+    theory_spec: &TheorySpec,
+) -> TheoryDslError {
+    let TheoryDslError::At { path, error } = error else {
+        return error;
+    };
+    let root = DocumentPath::root();
+    let rest = |from: usize| DocumentPath(path.0.get(from..).unwrap_or_default().to_vec());
+    let parameters = spec.params.len();
+    let located = match path.0.as_slice() {
+        [PathSegment::Key(sorts), PathSegment::Index(k), ..] if sorts == "sorts" => {
+            let inductive_sort = theory_spec.sorts.len().saturating_sub(1);
+            if *k < inductive_sort {
+                let name = &theory_spec.sorts[*k].name;
+                spec.params
+                    .iter()
+                    .position(|p| p.sort.trim() == name)
+                    .map_or_else(DocumentPath::root, |j| {
+                        root.key("params").index(j).key("sort")
+                    })
+            } else {
+                match path.0.get(2) {
+                    Some(PathSegment::Key(member)) if member == "params" => {
+                        root.key("params").join(&rest(3))
+                    }
+                    Some(PathSegment::Key(member)) if member == "closed" => {
+                        root.key("constructors")
+                    }
+                    _ => root,
+                }
+            }
+        }
+        [PathSegment::Key(ops), PathSegment::Index(i), tail @ ..] if ops == "ops" => {
+            let constructor = root.key("constructors").index(*i);
+            match tail {
+                [PathSegment::Key(inputs), PathSegment::Index(j), ..] if inputs == "inputs" => {
+                    if *j < parameters {
+                        root.key("params").index(*j).join(&rest(4))
+                    } else {
+                        constructor
+                            .key("inputs")
+                            .index(j - parameters)
+                            .join(&rest(4))
+                    }
+                }
+                [PathSegment::Key(name), ..] if name == "name" => constructor.key("name"),
+                _ => constructor,
+            }
+        }
+        _ => root,
+    };
+    TheoryDslError::At {
+        path: located,
+        error,
+    }
 }
 
 /// Build the `TheorySpec` that an `InductiveSpec` desugars to.
