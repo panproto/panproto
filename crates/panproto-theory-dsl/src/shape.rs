@@ -9,12 +9,15 @@
 //! state: a document has exactly one body, and no object carries a member
 //! the grammar does not name.
 //!
-//! The check visits a value in a fixed order. An object is checked first
-//! for a member the grammar does not name (the first such member in the
-//! object's order), then field by field in the order of its field table:
-//! a required field that is absent is refused, and a present one is checked
-//! recursively before the next field. An array is checked element by
-//! element.
+//! The check visits a value in a fixed order, which does not depend on the
+//! order of an object's members in the source. An object is checked first
+//! for a member the grammar does not name (the least such name, comparing
+//! names by their UTF-8 bytes), then field by field in the order of its
+//! field table: a required field that is absent is refused, and a present
+//! one is checked recursively before the next field. A map's members are
+//! checked in the order of their names, and an array element by element.
+//! When an object names a member more than once, the last occurrence is the
+//! member read.
 
 use serde_json::Value;
 
@@ -346,8 +349,10 @@ fn check(value: &Value, shape: &Shape, path: &DocumentPath) -> Result<(), Theory
             let Some(members) = value.as_object() else {
                 return wrong(Expected::Object);
             };
-            members
-                .iter()
+            let mut entries: Vec<(&String, &Value)> = members.iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(b.0));
+            entries
+                .into_iter()
                 .try_for_each(|(key, value)| check(value, member, &path.key(key)))
         }
         Shape::Record(fields) => check_record(value, fields, &[], path),
@@ -422,8 +427,8 @@ fn check_list(value: &Value, element: &Shape, path: &DocumentPath) -> Result<(),
         .try_for_each(|(index, item)| check(item, element, &path.index(index)))
 }
 
-/// Check an object against `leading` and then `fields`: the first member
-/// neither table names is refused, then each field in table order.
+/// Check an object against `leading` and then `fields`: the least member
+/// name neither table names is refused, then each field in table order.
 fn check_record(
     value: &Value,
     fields: &[Field],
@@ -441,7 +446,8 @@ fn check_record(
     let table = || leading.iter().chain(fields);
     if let Some(unknown) = members
         .keys()
-        .find(|key| !table().any(|field| field.name == key.as_str()))
+        .filter(|key| !table().any(|field| field.name == key.as_str()))
+        .min()
     {
         return Err(refuse(path.key(unknown), ShapeProblem::UnknownField));
     }
