@@ -31,7 +31,7 @@ const CODEC_NOT_YET_REPLACED: &[(&str, NativeRepr)] = &[
 /// registered. The generic text formats and N-Triples have codecs only
 /// under the `tree-sitter` feature, so the default build lists them too.
 #[cfg(feature = "tree-sitter")]
-const NO_CODEC_YET: &[&str] = &["graphql", "json-schema", "protobuf", "sql"];
+const NO_CODEC_YET: &[&str] = &["graphql", "json-schema", "protobuf", "postgresql"];
 #[cfg(not(feature = "tree-sitter"))]
 const NO_CODEC_YET: &[&str] = &[
     "csv",
@@ -39,7 +39,7 @@ const NO_CODEC_YET: &[&str] = &[
     "json-schema",
     "ntriples",
     "protobuf",
-    "sql",
+    "postgresql",
     "toml",
     "tsv",
     "yaml",

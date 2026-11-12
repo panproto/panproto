@@ -2132,6 +2132,7 @@ dependencies = [
  "panproto-expr-parser",
  "panproto-gat",
  "panproto-inst",
+ "panproto-io",
  "panproto-lens",
  "panproto-lens-dsl",
  "panproto-mig",

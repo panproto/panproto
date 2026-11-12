@@ -1667,7 +1667,7 @@ impl Builder<'_> {
                     ));
                 }
             }
-            if self.protocol.name == "sql" && h.kind == "table" {
+            if self.protocol.name == "postgresql" && h.kind == "table" {
                 let table = &h.parent_label;
                 let columns: BTreeSet<(Name, Name)> = self
                     .schema

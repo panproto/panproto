@@ -21,7 +21,7 @@ panproto is a Rust workspace for parsing and comparing schemas, constructing mig
 
 ## Features
 
-The protocol crate currently dispatches 43 JSON-document schema parsers and 11 text-source parsers. These include ATProto, OpenAPI, JSON Schema, Avro, GraphQL, Protobuf, SQL DDL, FHIR, and a range of annotation, database, configuration, and serialization formats. ATProto additionally has bundle parsing that resolves references across a set of lexicon files.
+The protocol crate currently dispatches 43 JSON-document schema parsers and 10 text-source parsers, and `panproto-io` reads PostgreSQL DDL through its tree-sitter grammar. These include ATProto, OpenAPI, JSON Schema, Avro, GraphQL, Protobuf, PostgreSQL DDL, FHIR, and a range of annotation, database, configuration, and serialization formats. ATProto additionally has bundle parsing that resolves references across a set of lexicon files.
 
 Instances come in three shapes: trees, tables, and graphs. The three share one engine for exact values, validation, restriction, edits, lenses, and reference resolution. The laws this engine satisfies are stated, with proofs, in the [Correctness part of the book](book/src/correctness/index.md).
 

@@ -1,4 +1,4 @@
-//! Complete reference operations assigned to `sql-ddl`.
+//! Complete reference operations assigned to `postgresql-ddl`.
 //!
 //! The `PostgreSQL` 17 DDL route modelled directly from the documentation:
 //! column types from Chapter 8, and keys and foreign keys from the

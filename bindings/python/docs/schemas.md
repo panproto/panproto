@@ -13,8 +13,8 @@ A protocol defines:
 ```python
 import panproto
 
-sql = panproto.get_builtin_protocol("sql")
-print(sql.name)           # "sql"
+sql = panproto.get_builtin_protocol("postgresql")
+print(sql.name)           # "postgresql"
 print(sql.obj_kinds)      # ["table", "integer", "string", ...]
 print(sql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
 ```
@@ -45,7 +45,7 @@ Each call validates against the protocol's edge rules. Adding a `prop` edge from
 ## Schema properties
 
 ```python
-schema.protocol       # "sql"
+schema.protocol       # "postgresql"
 schema.vertex_count   # 3
 schema.edge_count     # 2
 schema.vertices       # [Vertex(id="users", kind="table"), ...]

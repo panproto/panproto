@@ -8,7 +8,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use panproto_io::postgresql::{parse_ddl, read_ddl};
-use panproto_protocols::database::sql::{OtherStatements, SqlDdlError, emit_ddl};
+use panproto_protocols::database::postgresql::{OtherStatements, SqlDdlError, emit_ddl};
 use panproto_schema::{
     KeyEquality, KeyPart, KeyRole, NullMatch, RefSource, Schema, SqlCollation, SqlPad,
     canonical_bytes,

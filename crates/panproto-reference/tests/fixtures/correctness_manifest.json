@@ -6346,78 +6346,78 @@
         }
       ]
     },
-    "sql-ddl": {
+    "postgresql-ddl": {
       "reference_files": [
-        "crates/panproto-reference/src/pages/sql_ddl.rs",
-        "crates/panproto-reference/src/enumerate/sql_ddl.rs"
+        "crates/panproto-reference/src/pages/postgresql_ddl.rs",
+        "crates/panproto-reference/src/enumerate/postgresql_ddl.rs"
       ],
       "laws": [
         {
-          "id": "sql-ddl.column-types",
-          "anchor": "L-sql-ddl-1",
+          "id": "postgresql-ddl.column-types",
+          "anchor": "L-postgresql-ddl-1",
           "references": [
-            "panproto_reference::pages::sql_ddl::column_type"
+            "panproto_reference::pages::postgresql_ddl::column_type"
           ],
           "consumers": [
             {
               "role": "differential",
               "crate": "panproto-io",
-              "binary": "panproto-io::reference_sql_ddl",
+              "binary": "panproto-io::reference_postgresql_ddl",
               "test": "column_types_read_as_the_reference_on_every_bounded_spelling"
             },
             {
               "role": "reference",
               "crate": "panproto-reference",
-              "binary": "panproto-reference::sql_ddl",
+              "binary": "panproto-reference::postgresql_ddl",
               "test": "column_types_read_as_table_8_1_names_them"
             }
           ]
         },
         {
-          "id": "sql-ddl.keys-and-references",
-          "anchor": "L-sql-ddl-2",
+          "id": "postgresql-ddl.keys-and-references",
+          "anchor": "L-postgresql-ddl-2",
           "references": [
-            "panproto_reference::pages::sql_ddl::render",
-            "panproto_reference::pages::sql_ddl::read_script"
+            "panproto_reference::pages::postgresql_ddl::render",
+            "panproto_reference::pages::postgresql_ddl::read_script"
           ],
           "consumers": [
             {
               "role": "differential",
               "crate": "panproto-io",
-              "binary": "panproto-io::reference_sql_ddl",
+              "binary": "panproto-io::reference_postgresql_ddl",
               "test": "keys_and_references_match_the_reference_on_every_bounded_script"
             },
             {
               "role": "differential",
               "crate": "panproto-io",
-              "binary": "panproto-io::reference_sql_ddl",
+              "binary": "panproto-io::reference_postgresql_ddl",
               "test": "randomized_keys_and_references_match_the_reference"
             },
             {
               "role": "reference",
               "crate": "panproto-reference",
-              "binary": "panproto-reference::sql_ddl",
+              "binary": "panproto-reference::postgresql_ddl",
               "test": "keys_and_foreign_keys_resolve_as_create_table_defines_them"
             }
           ]
         },
         {
-          "id": "sql-ddl.canonical-text",
-          "anchor": "L-sql-ddl-3",
+          "id": "postgresql-ddl.canonical-text",
+          "anchor": "L-postgresql-ddl-3",
           "references": [
-            "panproto_reference::pages::sql_ddl::canonical_text"
+            "panproto_reference::pages::postgresql_ddl::canonical_text"
           ],
           "consumers": [
             {
               "role": "differential",
               "crate": "panproto-io",
-              "binary": "panproto-io::reference_sql_ddl",
+              "binary": "panproto-io::reference_postgresql_ddl",
               "test": "canonical_text_matches_the_reference_on_every_bounded_script"
             },
             {
               "role": "reference",
               "crate": "panproto-reference",
-              "binary": "panproto-reference::sql_ddl",
+              "binary": "panproto-reference::postgresql_ddl",
               "test": "the_script_scope_has_its_closed_form_count"
             }
           ]

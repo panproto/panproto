@@ -1516,7 +1516,7 @@ fn rdf_family() -> Schema {
 /// and RDF subject IRIs.
 fn every_family() -> Vec<(&'static str, Schema)> {
     vec![
-        ("sql", keyed_schema()),
+        ("postgresql", keyed_schema()),
         ("xml", xml_family()),
         ("standoff", standoff_family()),
         ("penman", penman_family()),
@@ -1580,7 +1580,7 @@ fn declaration_bytes_are_pinned() {
 
 const PINNED_FAMILY_DIGESTS: [(&str, &str); 7] = [
     (
-        "sql",
+        "postgresql",
         "7b6c4bf9d8832531c9ddef6b12c25a853d9f82b46363329b25c6e49646afa3c0",
     ),
     (

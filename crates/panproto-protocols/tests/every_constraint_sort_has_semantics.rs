@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use panproto_gat::CheckStatus;
 use panproto_inst::validation::{CheckKind, Violation, validate_table};
 use panproto_inst::{FInstance, RowId, Value, ViewRef};
-use panproto_protocols::database::sql::{
+use panproto_protocols::database::postgresql::{
     BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, DomainConstraints, Name,
     OtherStatements, Scalar, Statement, TableElement, TypeSpec, read_statements,
 };
@@ -203,7 +203,9 @@ fn no_protocol_fixture_emits_a_sort_without_semantics() {
 
 #[test]
 fn sql_not_null_is_required_value() {
-    let sql = (descriptor("sql").expect("sql is registered").protocol)();
+    let sql = (descriptor("postgresql")
+        .expect("sql is registered")
+        .protocol)();
     assert_eq!(
         sql.constraint_semantics.get("NOT NULL"),
         Some(&ConstraintSemantics::RequiredValue)
@@ -329,14 +331,16 @@ fn fixture_constraints_read_under_their_semantics() {
     );
 }
 
-/// The `sql` defaults, type names and referential actions are annotations,
+/// The `postgresql` defaults, type names and referential actions are annotations,
 /// from which no check is compiled: keys and references are checked from
 /// the schema's key and reference declarations, and none of these
 /// constrains a cell. The type parameters parameterize value coercion,
 /// and the SQL expressions of checks are decided outside panproto.
 #[test]
 fn sql_annotations_parameters_and_checks_have_their_meanings() {
-    let sql = (descriptor("sql").expect("sql is registered").protocol)();
+    let sql = (descriptor("postgresql")
+        .expect("sql is registered")
+        .protocol)();
     for sort in ["DEFAULT", "TYPE", "FOREIGN KEY ACTION"] {
         let meaning = &sql.constraint_semantics[sort];
         assert_eq!(meaning, &ConstraintSemantics::Annotation, "{sort}");
@@ -420,7 +424,9 @@ fn conllu_values_are_annotations_that_compile_to_no_check() {
 #[test]
 fn sql_enum_labels_are_an_enumeration() {
     use panproto_inst::validation::{SchemaRef, ValidationOptions, ValidationPlan};
-    let sql = (descriptor("sql").expect("sql is registered").protocol)();
+    let sql = (descriptor("postgresql")
+        .expect("sql is registered")
+        .protocol)();
     // CREATE TYPE rating AS ENUM ('G', 'PG'); CREATE TABLE film (r rating);
     let schema = film_of_rating(Statement::CreateEnum {
         name: sql_name("rating"),
@@ -591,7 +597,7 @@ fn external_column_rows_have_an_instance_per_row() {
         },
     });
     check_external_column_rows(
-        "sql",
+        "postgresql",
         "DOMAIN CHECK",
         &sql,
         [Value::Str("PG".into()), Value::Str("R".into())],

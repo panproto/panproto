@@ -1,4 +1,4 @@
-//! The SQL DDL reader against the independent reference of the sql-ddl
+//! The SQL DDL reader against the independent reference of the postgresql-ddl
 //! page: column types on every bounded spelling, keys and references and
 //! the canonical text on every bounded script, and keys and references on
 //! generated larger scripts.
@@ -7,9 +7,11 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use panproto_io::postgresql::{parse_ddl, read_ddl};
-use panproto_protocols::database::sql::{OtherStatements, emit_ddl};
-use panproto_reference::enumerate::sql_ddl::{ddl_scripts, ddl_scripts_count, type_spellings};
-use panproto_reference::pages::sql_ddl::{
+use panproto_protocols::database::postgresql::{OtherStatements, emit_ddl};
+use panproto_reference::enumerate::postgresql_ddl::{
+    ddl_scripts, ddl_scripts_count, type_spellings,
+};
+use panproto_reference::pages::postgresql_ddl::{
     Column, ColumnConstraint, KeyReading, ReferenceReading, Script, ScriptRefusal, Table,
     TableForeignKey, TableKey, TableReading, TypeRefusal, canonical_text, column_type, read_script,
     render,

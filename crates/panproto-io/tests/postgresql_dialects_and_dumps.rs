@@ -12,7 +12,7 @@
 #![cfg(feature = "tree-sitter")]
 
 use panproto_io::postgresql::{parse_ddl, read_ddl};
-use panproto_protocols::database::sql::{OtherStatements, emit_ddl};
+use panproto_protocols::database::postgresql::{OtherStatements, emit_ddl};
 use panproto_schema::Schema;
 
 /// A result a test requires to be `Ok`.

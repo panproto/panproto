@@ -1,4 +1,4 @@
-//! Shape rows for the database protocols other than `sql`, whose row is in `sql.rs`.
+//! Shape rows for the database protocols other than `postgresql`, whose row is in `postgresql.rs`.
 
 use panproto_schema::InstanceShapeKind;
 

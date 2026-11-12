@@ -265,7 +265,7 @@ struct CatalogSampleTests {
         let distinct = try await PanprotoEngine.run { () throws(PanprotoError) -> Int in
             let atproto = try ProtocolHandle.builtin("atproto")
             defer { atproto.release() }
-            let sql = try ProtocolHandle.builtin("sql")
+            let sql = try ProtocolHandle.builtin("postgresql")
             defer { sql.release() }
             return catalogDistinctResources([atproto, sql, atproto])
         }

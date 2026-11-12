@@ -55,7 +55,7 @@ struct BuiltinProtocolCatalogueTests {
 
     @Test("A chosen listing resolves in the order it was given")
     func namedSpecificationsFollowTheGivenOrder() async throws {
-        let chosen = ["sql", "atproto", "json-schema"]
+        let chosen = ["postgresql", "atproto", "json-schema"]
         var walked: [BuiltinProtocol] = []
         for try await entry in ProtocolHandle.builtinSpecifications(named: chosen, pageSize: 2) {
             walked.append(entry)
@@ -75,14 +75,14 @@ struct BuiltinProtocolCatalogueTests {
         // The third name resolves to nothing, so reaching it is a
         // failure and not reaching it is silence. That is what makes the
         // laziness observable rather than merely plausible.
-        let listing = ["atproto", "sql", "no-such-protocol"]
+        let listing = ["atproto", "postgresql", "no-such-protocol"]
 
         var walked: [BuiltinProtocol] = []
         for try await entry in ProtocolHandle.builtinSpecifications(named: listing, pageSize: 1) {
             walked.append(entry)
             if walked.count == 2 { break }
         }
-        #expect(walked.map(\.name) == ["atproto", "sql"])
+        #expect(walked.map(\.name) == ["atproto", "postgresql"])
 
         var caught: PanprotoError?
         do {
@@ -106,13 +106,13 @@ struct BuiltinProtocolCatalogueTests {
         // A page of two swallows the unresolvable third name only once
         // the walk asks for a second page, so draining exactly one page
         // succeeds where draining two does not.
-        let listing = ["atproto", "sql", "no-such-protocol", "graphql"]
+        let listing = ["atproto", "postgresql", "no-such-protocol", "graphql"]
         var iterator = ProtocolHandle.builtinSpecifications(named: listing, pageSize: 2)
             .makeAsyncIterator()
 
         let first = try #require(await iterator.next())
         let second = try #require(await iterator.next())
-        #expect([first.name, second.name] == ["atproto", "sql"])
+        #expect([first.name, second.name] == ["atproto", "postgresql"])
 
         var caught: PanprotoError?
         do {

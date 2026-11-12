@@ -262,7 +262,10 @@ fn a_protocol_read_through_a_grammar_names_its_reader() {
             _ => None,
         })
         .collect();
-    assert_eq!(grammar_read, [("sql", "panproto_io::postgresql::read_ddl")]);
+    assert_eq!(
+        grammar_read,
+        [("postgresql", "panproto_io::postgresql::read_ddl")]
+    );
     for (name, reader) in grammar_read {
         for refusal in [
             parse_schema_document(name, &serde_json::json!({})).err(),

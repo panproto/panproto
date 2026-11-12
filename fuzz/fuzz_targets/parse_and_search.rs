@@ -81,8 +81,7 @@ const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
     ),
 ];
 
-const SOURCE_PROTOCOLS: [SourceEntry; 3] = [
-    ("sql", database::sql::parse_ddl, database::sql::protocol),
+const SOURCE_PROTOCOLS: [SourceEntry; 2] = [
     ("graphql", api::graphql::parse_sdl, api::graphql::protocol),
     (
         "protobuf",

@@ -5,7 +5,7 @@
 //! A case passes when the reader reads it, with statements outside a table
 //! schema listed, every reference resolves to a key of its target, and the
 //! canonical text it writes reads back as the same schema. A case that
-//! does not pass is a declared limit: `sql-ddl-limits.txt` lists it with
+//! does not pass is a declared limit: `postgresql-ddl-limits.txt` lists it with
 //! the limit's name and the refusal class it shows, and the test fails if
 //! the list and the failing cases differ in either direction.
 
@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use panproto_io::postgresql::{parse_ddl, read_ddl};
-use panproto_protocols::database::sql::{OtherStatements, emit_ddl};
+use panproto_protocols::database::postgresql::{OtherStatements, emit_ddl};
 use panproto_schema::canonical_bytes;
 
 fn corpus() -> PathBuf {
@@ -75,7 +75,7 @@ fn outcome(text: &str) -> Option<(String, String)> {
 
 /// The declared limits: case to (limit, refusal class).
 fn limits() -> BTreeMap<String, (String, String)> {
-    let text = std::fs::read_to_string(corpus().join("sql-ddl-limits.txt")).unwrap();
+    let text = std::fs::read_to_string(corpus().join("postgresql-ddl-limits.txt")).unwrap();
     text.lines()
         .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
         .map(|line| {

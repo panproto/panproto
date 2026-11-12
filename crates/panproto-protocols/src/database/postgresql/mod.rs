@@ -1,6 +1,6 @@
-//! SQL protocol definition: `PostgreSQL` 17 DDL read into table schemas.
+//! The `postgresql` protocol: `PostgreSQL` 17 DDL read into table schemas.
 //!
-//! SQL uses a constrained hypergraph schema theory
+//! The protocol uses a constrained hypergraph schema theory
 //! (`colimit(ThHypergraph, ThConstraint)`) and a set-valued functor
 //! instance theory (`ThFunctor`): its syntax and its data are both read as
 //! tables.
@@ -8,7 +8,7 @@
 //! A script of `PostgreSQL` 17 DDL is read in two steps. A reader of the
 //! source text (`panproto_io::postgresql::read_ddl`, which parses through the
 //! tree-sitter grammar generated from `PostgreSQL`'s own `gram.y`) turns each
-//! statement into a [`Statement`]; [`read_statements`] then resolves the
+//! statement into a [`Statement`](crate::database::postgresql::Statement); [`read_statements`](crate::database::postgresql::read_statements) then resolves the
 //! statements in script order into a [`Schema`](panproto_schema::Schema).
 //! Each table is a `table` vertex and a hyper-edge over its
 //! columns; each column is a vertex `<table>.<column>`, joined to its table
@@ -83,16 +83,16 @@ const CONSTRAINT_SORTS: &[&str] = &[
     "with_time_zone",
 ];
 
-/// Returns the SQL protocol definition.
+/// Returns the `postgresql` protocol definition.
 ///
 /// Schema theory: `colimit(ThHypergraph, ThConstraint)`.
 /// Instance theory: `ThFunctor`.
 #[must_use]
 pub fn protocol() -> Protocol {
     let mut protocol = Protocol {
-        name: "sql".into(),
-        schema_theory: "ThSQLSchema".into(),
-        instance_theory: "ThSQLInstance".into(),
+        name: "postgresql".into(),
+        schema_theory: "ThPostgreSQLSchema".into(),
+        instance_theory: "ThPostgreSQLInstance".into(),
         edge_rules: edge_rules(),
         obj_kinds: OBJ_KINDS.iter().map(|k| (*k).into()).collect(),
         constraint_sorts: CONSTRAINT_SORTS.iter().map(|k| (*k).into()).collect(),
@@ -104,12 +104,12 @@ pub fn protocol() -> Protocol {
     protocol
 }
 
-/// Register the component GATs for SQL with a theory registry.
+/// Register the component GATs for `postgresql` with a theory registry.
 ///
 /// Registers `ThHypergraph`, `ThConstraint`, `ThFunctor`, and the
 /// composed schema/instance theories.
 pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
-    theories::register_hypergraph_functor(registry, "ThSQLSchema", "ThSQLInstance");
+    theories::register_hypergraph_functor(registry, "ThPostgreSQLSchema", "ThPostgreSQLInstance");
 }
 
 /// What [`read_statements`] read from a script.
@@ -680,7 +680,7 @@ fn foreign_key_statements(schema: &Schema, t: &str, out: &mut String) -> Result<
     Ok(())
 }
 
-/// Well-formedness rules for SQL edges.
+/// Well-formedness rules for the protocol's edges.
 fn edge_rules() -> Vec<EdgeRule> {
     vec![
         EdgeRule {

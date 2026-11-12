@@ -1,4 +1,4 @@
-//! Constraint-semantics rows for the `sql` protocol.
+//! Constraint-semantics rows for the `postgresql` protocol.
 //!
 //! `NOT NULL` requires a value in the column's cell of every row. Keys and
 //! foreign keys are schema declarations, not constraints. `DEFAULT` names
@@ -33,20 +33,32 @@ const fn row(
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("sql", "NOT NULL", || ConstraintSemantics::RequiredValue),
-    row("sql", "DEFAULT", || ConstraintSemantics::Annotation),
-    row("sql", "CHECK", || ConstraintSemantics::External),
-    row("sql", "ENUM", || ConstraintSemantics::Enum),
-    row("sql", "TYPE", || ConstraintSemantics::Annotation),
-    row("sql", "DOMAIN CHECK", || ConstraintSemantics::External),
-    row("sql", "FOREIGN KEY ACTION", || {
+    row("postgresql", "NOT NULL", || {
+        ConstraintSemantics::RequiredValue
+    }),
+    row("postgresql", "DEFAULT", || ConstraintSemantics::Annotation),
+    row("postgresql", "CHECK", || ConstraintSemantics::External),
+    row("postgresql", "ENUM", || ConstraintSemantics::Enum),
+    row("postgresql", "TYPE", || ConstraintSemantics::Annotation),
+    row("postgresql", "DOMAIN CHECK", || {
+        ConstraintSemantics::External
+    }),
+    row("postgresql", "FOREIGN KEY ACTION", || {
         ConstraintSemantics::Annotation
     }),
-    row("sql", "int_bits", || ConstraintSemantics::ValueParameter),
-    row("sql", "precision", || ConstraintSemantics::ValueParameter),
-    row("sql", "scale", || ConstraintSemantics::ValueParameter),
-    row("sql", "max_length", || ConstraintSemantics::ValueParameter),
-    row("sql", "with_time_zone", || {
+    row("postgresql", "int_bits", || {
+        ConstraintSemantics::ValueParameter
+    }),
+    row("postgresql", "precision", || {
+        ConstraintSemantics::ValueParameter
+    }),
+    row("postgresql", "scale", || {
+        ConstraintSemantics::ValueParameter
+    }),
+    row("postgresql", "max_length", || {
+        ConstraintSemantics::ValueParameter
+    }),
+    row("postgresql", "with_time_zone", || {
         ConstraintSemantics::ValueParameter
     }),
 ];

@@ -113,15 +113,15 @@
     },
     {
       "name": "sql-tests/users",
-      "protocol": "sql",
+      "protocol": "postgresql",
       "source": "tests/fixtures/sql/users.sql",
-      "digest": "cfc83aabb2a1db04e1a44d770d3efcfb03cc6fd4fe07282e63d925691f086825"
+      "digest": "ad806db2e0e940f856617e8ab4a2f826266915fc7070b7cebca34a62b3ca6b82"
     },
     {
       "name": "sql-tests/users_posts",
-      "protocol": "sql",
+      "protocol": "postgresql",
       "source": "tests/fixtures/sql/users_posts.sql",
-      "digest": "99c36672e82d2538b1b8d49e0434b58be2d735390ceceaca986f80c6a4b2e985"
+      "digest": "44c08bbedf9d090000dbfbdb0e156acfd7868450fa21e37b7b1ecbb4ba67249e"
     }
   ],
   "lenses": [
@@ -264,15 +264,15 @@
     {
       "name": "auto/users-posts-to-users",
       "kind": "auto",
-      "protocol": "sql",
+      "protocol": "postgresql",
       "src": "sql-tests/users_posts",
       "tgt": "sql-tests/users",
       "shape": "wtype",
       "envelope": {
         "version": 2,
-        "source_schema": "99c36672e82d2538b1b8d49e0434b58be2d735390ceceaca986f80c6a4b2e985",
-        "target_schema": "0a37a3a1b74b37b8ceab0b6083410b622612e7f546d7d5571b3a82b9be03d0c4",
-        "lens": "b64a920020e5d6218dd7c95868d4949dcb1e7b0ec2e0c3f3133dcee489a33c3f",
+        "source_schema": "44c08bbedf9d090000dbfbdb0e156acfd7868450fa21e37b7b1ecbb4ba67249e",
+        "target_schema": "6c4d66611766e3197d06ca4e59e7686329f4460eb568a8cefda3e213917fae96",
+        "lens": "b709cbd24eb161f6c73df93a9eb6a633f9ae14fc0c393d307ea8cc48ce8e8e8d",
         "complement_format": {
           "shape": "wtype",
           "version": 1

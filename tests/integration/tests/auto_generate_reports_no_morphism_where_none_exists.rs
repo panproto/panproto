@@ -62,7 +62,7 @@ fn users_to_users_posts_has_no_total_morphism() {
     let tgt = &schemas["sql-tests/users_posts"];
     assert_eq!(kinds(src).iter().filter(|k| **k == "boolean").count(), 1);
     assert!(!kinds(tgt).contains(&"boolean"));
-    assert_no_total_morphism("sql", src, tgt);
+    assert_no_total_morphism("postgresql", src, tgt);
 }
 
 /// The full lexicon declares `textSlice.start` and `textSlice.end` as

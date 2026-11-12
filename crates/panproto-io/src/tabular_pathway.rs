@@ -1469,7 +1469,7 @@ mod tests {
     }
 
     fn typed_table_schema() -> Schema {
-        let protocol = crate::json_pathway::protocol_definition("sql");
+        let protocol = crate::json_pathway::protocol_definition("postgresql");
         panproto_schema::SchemaBuilder::new(&protocol)
             .vertex("rows", "table", None)
             .expect("table vertex")
@@ -1560,20 +1560,21 @@ mod tests {
         for (delimiter, text) in [(b'\t', b"amount\n1\n".as_slice()), (b',', b"amount\n1\n")] {
             let mut input = vec![0xEF, 0xBB, 0xBF];
             input.extend_from_slice(text);
-            let parsed = parse_tsv(&schema, &input, "sql", "rows", delimiter, None)
+            let parsed = parse_tsv(&schema, &input, "postgresql", "rows", delimiter, None)
                 .expect("a leading byte order mark is an encoding signature");
             let rows = parsed.rows("rows");
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].1.get("amount"), Some(&Value::Int(1)));
             assert_eq!(
-                emit_tsv_with_schema(&schema, &parsed, "sql", "rows", delimiter).expect("emit"),
+                emit_tsv_with_schema(&schema, &parsed, "postgresql", "rows", delimiter)
+                    .expect("emit"),
                 text
             );
             // Offsets count from byte 0 of the input, the mark included.
             let mut malformed = vec![0xEF, 0xBB, 0xBF];
             malformed.extend_from_slice(b"amount\nx\n");
             assert!(matches!(
-                parse_tsv(&schema, &malformed, "sql", "rows", delimiter, None),
+                parse_tsv(&schema, &malformed, "postgresql", "rows", delimiter, None),
                 Err(ParseInstanceError::Fidelity(ref errors))
                     if errors.len() == 1 && errors[0].site.byte_offset == Some(10)
             ));
@@ -1587,7 +1588,7 @@ mod tests {
         assert_eq!(names, ["a", "b"]);
         // A mark after the start is content of the first cell.
         let inner = b"amount\n\xEF\xBB\xBF1\n";
-        assert!(parse_tsv(&schema, inner, "sql", "rows", b'\t', None).is_err());
+        assert!(parse_tsv(&schema, inner, "postgresql", "rows", b'\t', None).is_err());
     }
 
     #[test]
@@ -1914,7 +1915,7 @@ mod tests {
     #[test]
     fn bytes_need_a_schema_declared_text_encoding() {
         let instance = table_with(Value::Bytes(vec![0x00, 0x01, 0x02, 0xff]));
-        let error = emit_tsv(&instance, "sql", "rows", b'\t')
+        let error = emit_tsv(&instance, "postgresql", "rows", b'\t')
             .expect_err("schema-less text cannot choose a byte encoding");
         assert!(matches!(
             error,
@@ -1926,7 +1927,7 @@ mod tests {
 
         let schema = typed_bytes_table_schema();
         assert_eq!(
-            emit_tsv_with_schema(&schema, &instance, "sql", "rows", b'\t')
+            emit_tsv_with_schema(&schema, &instance, "postgresql", "rows", b'\t')
                 .expect("SQL declares hexadecimal bytes"),
             b"value\n000102ff\n"
         );
@@ -1955,7 +1956,7 @@ mod tests {
     #[test]
     fn tsv_cells_are_coerced_by_the_column_value_spec() {
         let schema = typed_table_schema();
-        let instance = parse_tsv(&schema, b"amount\n42\n", "sql", "rows", b'\t', None)
+        let instance = parse_tsv(&schema, b"amount\n42\n", "postgresql", "rows", b'\t', None)
             .expect("parse typed cell");
         assert!(matches!(
             instance.rows("rows")[0].1.get("amount"),
@@ -1965,7 +1966,7 @@ mod tests {
         let error = parse_tsv(
             &schema,
             b"amount\n999999999999999999999999\n",
-            "sql",
+            "postgresql",
             "rows",
             b'\t',
             None,
@@ -1975,7 +1976,7 @@ mod tests {
     }
 
     fn typed_bytes_table_schema() -> Schema {
-        let protocol = crate::json_pathway::protocol_definition("sql");
+        let protocol = crate::json_pathway::protocol_definition("postgresql");
         panproto_schema::SchemaBuilder::new(&protocol)
             .vertex("rows", "table", None)
             .expect("table vertex")

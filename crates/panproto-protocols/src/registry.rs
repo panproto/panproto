@@ -709,14 +709,14 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
-        name: "sql",
+        name: "postgresql",
         aliases: &[],
         parser: Parser::Grammar {
             reader: "panproto_io::postgresql::read_ddl",
         },
-        protocol: database::sql::protocol,
+        protocol: database::postgresql::protocol,
         register_theories: |r| {
-            database::sql::register_theories(r);
+            database::postgresql::register_theories(r);
             Ok(())
         },
         bundle: false,

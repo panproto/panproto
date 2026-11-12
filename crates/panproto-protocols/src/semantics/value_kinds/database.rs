@@ -1,4 +1,4 @@
-//! Value-kind rows for the database protocols other than `sql`
+//! Value-kind rows for the database protocols other than `postgresql`
 //! (`cassandra`, `dynamodb`, `redis`).
 //!
 //! Each parser gives a column or attribute vertex the kind of its type, so
