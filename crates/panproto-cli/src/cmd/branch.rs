@@ -284,11 +284,26 @@ pub fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>, migrate_dir: Option<&Path>) -> 
         no_ff,
         squash,
         message: message.map(ToOwned::to_owned),
+        ..Default::default()
     };
 
     let result = repo
         .merge_with_options(branch_name, author, &opts)
         .into_diagnostic()?;
+
+    if !result.instance_conflicts.is_empty() {
+        println!(
+            "The instances produced {} conflict(s):",
+            result.instance_conflicts.len()
+        );
+        for conflict in &result.instance_conflicts {
+            println!("  {conflict:?}");
+        }
+        miette::bail!(
+            "merge failed with {} instance conflict(s)",
+            result.instance_conflicts.len()
+        );
+    }
 
     if result.conflicts.is_empty() {
         println!("Merge successful.");

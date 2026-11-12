@@ -13,7 +13,7 @@
 //!   [`mem_store`]
 //! - **Refs + DAG**: [`refs`], [`dag`], [`blame`], [`bisect`]
 //! - **Staging + commit**: [`index`], [`auto_mig`], [`status`], [`instance_vc`]
-//! - **Merge + rewrite**: [`merge`], [`rebase`], [`cherry_pick`], [`reset`], [`stash`]
+//! - **Merge + rewrite**: [`merge`], [`instance_merge`], [`rebase`], [`cherry_pick`], [`reset`], [`stash`]
 //! - **Orchestration**: [`repo`] (composes all of the above), [`gc`]
 //!
 //! ## Quick Start
@@ -39,6 +39,7 @@ pub mod gat_validate;
 pub mod gc;
 pub mod hash;
 pub mod index;
+pub mod instance_merge;
 pub mod instance_vc;
 pub mod mem_store;
 pub mod merge;
@@ -65,6 +66,9 @@ pub use expr::{load_expr, store_expr};
 pub use fs_store::{FsStore, REPOSITORY_FORMAT_VERSION};
 pub use hash::ObjectId;
 pub use index::Index;
+pub use instance_merge::{
+    InstanceConflict, MergedEntry, RecordConflict, RecordDelta, TrackedMerge, TrackingConflict,
+};
 pub use instance_vc::{InstanceChange, InstanceDelta, TreeRecordsDelta};
 pub use mem_store::MemStore;
 pub use object::{

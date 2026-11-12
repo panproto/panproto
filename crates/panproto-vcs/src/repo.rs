@@ -27,7 +27,34 @@ use crate::tree::ProjectProtocol;
 
 /// The versioned-data references a merge commit carries, as
 /// `(data_ids, complement_ids, cst_complement_ids)`.
-type MergedCommitData = (Vec<ObjectId>, Vec<ObjectId>, Vec<ObjectId>);
+/// What a merge commit records about the instances it tracks.
+struct MergedCommitData {
+    /// One data set per key the merge tracks, in key order.
+    data_ids: Vec<ObjectId>,
+    /// Both parents' complements and those of the data lifted to the
+    /// merged schema.
+    complement_ids: Vec<ObjectId>,
+    /// Both parents' CST complements.
+    cst_complement_ids: Vec<ObjectId>,
+    /// The keys our parent tracks that the merge does not.
+    untracked: Vec<String>,
+}
+
+/// The instance merge of a repository merge: its conflicts, and what the
+/// merge commit records when every conflict is resolved.
+struct MergedInstances {
+    conflicts: Vec<crate::instance_merge::InstanceConflict>,
+    recorded: Option<MergedCommitData>,
+}
+
+/// The three commits of a merge, with the two parents' schemas.
+struct MergeParents<'a> {
+    base: &'a CommitObject,
+    ours: &'a CommitObject,
+    theirs: &'a CommitObject,
+    ours_schema: &'a Schema,
+    theirs_schema: &'a Schema,
+}
 
 /// The context needed to record a clean three-way merge commit.
 struct MergeCommitCtx<'a> {
@@ -38,9 +65,7 @@ struct MergeCommitCtx<'a> {
     theirs_id: ObjectId,
     ours_schema: Schema,
     result: &'a merge::MergeResult,
-    data_ids: Vec<ObjectId>,
-    complement_ids: Vec<ObjectId>,
-    cst_complement_ids: Vec<ObjectId>,
+    data: MergedCommitData,
 }
 
 /// Options for creating a commit.
@@ -590,6 +615,9 @@ impl Repository {
         if !unverified.is_empty() {
             builder = builder.unverified(unverified);
         }
+        if !index.staged_removals.is_empty() {
+            builder = builder.untracked(index.staged_removals);
+        }
         let commit = builder.build();
         let commit_id = self.store.put(&Object::Commit(commit))?;
 
@@ -673,6 +701,7 @@ impl Repository {
                     pullback_overlap: None,
                     pullback_error: None,
                     identified_additions: Vec::new(),
+                    instance_conflicts: Vec::new(),
                 });
             }
         } else if options.ff_only {
@@ -691,7 +720,7 @@ impl Repository {
         let ours_schema = self.load_schema(ours_commit.schema_id)?;
         let theirs_schema = self.load_schema(theirs_commit.schema_id)?;
 
-        let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
+        let mut result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
 
         if result.conflicts.is_empty() && !options.no_commit && !options.squash {
             // Verify the merge pushout cocone conditions before committing:
@@ -724,31 +753,33 @@ impl Repository {
                 });
             }
 
-            // Lift both parents' data through the merged schema and union
-            // the results (data, complements, and CST complements), deduped
-            // by ObjectId, rather than set-unioning stale parent data_ids:
-            // the merge commit references the merged schema, so the data it
-            // carries must conform to that schema, not to a parent's.
-            let (data_ids, complement_ids, cst_complement_ids) = self.lift_and_union_parent_data(
-                &ours_commit,
-                &theirs_commit,
-                &ours_schema,
-                &theirs_schema,
+            // Merge the instances both parents track, key by key, against
+            // the merge base's; the commit records one data set per key.
+            let parents = MergeParents {
+                base: &base_commit,
+                ours: &ours_commit,
+                theirs: &theirs_commit,
+                ours_schema: &ours_schema,
+                theirs_schema: &theirs_schema,
+            };
+            let merged = self.merge_parent_instances(
+                &parents,
                 &result.merged_schema,
+                &options.instance_resolutions,
             )?;
-
-            self.write_merge_commit(MergeCommitCtx {
-                branch,
-                author,
-                options,
-                ours_id,
-                theirs_id,
-                ours_schema,
-                result: &result,
-                data_ids,
-                complement_ids,
-                cst_complement_ids,
-            })?;
+            result.instance_conflicts = merged.conflicts;
+            if let Some(data) = merged.recorded {
+                self.write_merge_commit(MergeCommitCtx {
+                    branch,
+                    author,
+                    options,
+                    ours_id,
+                    theirs_id,
+                    ours_schema,
+                    result: &result,
+                    data,
+                })?;
+            }
         }
 
         Ok(result)
@@ -789,14 +820,18 @@ impl Repository {
                 .parents(vec![ctx.ours_id, ctx.theirs_id])
                 .migration_id(migration_id)
                 .theory_ids(merge_theory_ids);
-        if !ctx.data_ids.is_empty() {
-            merge_builder = merge_builder.data_ids(ctx.data_ids);
+        let data = ctx.data;
+        if !data.data_ids.is_empty() {
+            merge_builder = merge_builder.data_ids(data.data_ids);
         }
-        if !ctx.complement_ids.is_empty() {
-            merge_builder = merge_builder.complement_ids(ctx.complement_ids);
+        if !data.complement_ids.is_empty() {
+            merge_builder = merge_builder.complement_ids(data.complement_ids);
         }
-        if !ctx.cst_complement_ids.is_empty() {
-            merge_builder = merge_builder.cst_complement_ids(ctx.cst_complement_ids);
+        if !data.cst_complement_ids.is_empty() {
+            merge_builder = merge_builder.cst_complement_ids(data.cst_complement_ids);
+        }
+        if !data.untracked.is_empty() {
+            merge_builder = merge_builder.untracked(data.untracked);
         }
         let merge_commit = merge_builder.build();
         let merge_id = self.store.put(&Object::Commit(merge_commit))?;
@@ -862,6 +897,9 @@ impl Repository {
         }
         if !old_commit.edit_log_ids.is_empty() {
             builder = builder.edit_log_ids(old_commit.edit_log_ids);
+        }
+        if !old_commit.untracked.is_empty() {
+            builder = builder.untracked(old_commit.untracked);
         }
         let new_commit = builder.build();
         let new_id = self.store.put(&Object::Commit(new_commit))?;
@@ -1152,6 +1190,7 @@ impl Repository {
         updated
             .staged_data
             .retain(|staged| staged.source_path != Path::new(key));
+        updated.staged_removals.retain(|removed| removed != key);
         updated.staged_data.push(StagedData {
             source_path: PathBuf::from(key),
             data_id,
@@ -1164,6 +1203,44 @@ impl Repository {
         });
         self.write_index(&updated)?;
         Ok(updated)
+    }
+
+    /// Stage the end of tracking `key`: the next commit records that it
+    /// stops tracking the key, so from that commit on no instance is
+    /// tracked under it ([`instance_vc::tracked`](crate::instance_vc::tracked))
+    /// until one is staged under it again. A data set staged under `key`
+    /// is unstaged.
+    ///
+    /// # Errors
+    ///
+    /// [`VcsError::NotTracked`] when `HEAD` does not track `key` and
+    /// nothing is staged under it, and the errors of reading the index
+    /// and of [`instance_vc::tracked`](crate::instance_vc::tracked).
+    pub fn remove_instance(&mut self, key: &str) -> Result<Index, VcsError> {
+        let mut index = self.read_index()?;
+        let staged = index
+            .staged_data
+            .iter()
+            .any(|data| data.source_path == Path::new(key));
+        let tracked = match store::resolve_head(&self.store)? {
+            Some(head) => crate::instance_vc::tracked(&self.store, &self.load_commit(head)?)?
+                .contains_key(key),
+            None => false,
+        };
+        if !staged && !tracked {
+            return Err(VcsError::NotTracked {
+                key: key.to_owned(),
+            });
+        }
+        index
+            .staged_data
+            .retain(|data| data.source_path != Path::new(key));
+        if tracked && !index.staged_removals.iter().any(|removed| removed == key) {
+            index.staged_removals.push(key.to_owned());
+            index.staged_removals.sort();
+        }
+        self.write_index(&index)?;
+        Ok(index)
     }
 
     /// The instance the commit `reference` names tracks under `key`.
@@ -1511,57 +1588,169 @@ impl Repository {
 
     // -- internal helpers --
 
-    /// Lift both parents' versioned data through the merged schema and
-    /// union the results, deduped by [`ObjectId`].
+    /// Merge the instances the two parents track against the merge base's
+    /// ([`instance_merge::merge_tracked`](crate::instance_merge::merge_tracked)),
+    /// validating merged instances under their schema's protocol.
     ///
-    /// Returns `(data_ids, complement_ids, cst_complement_ids)` for the
-    /// merge commit: each parent's data sets lifted from its own schema to
-    /// `merged_schema` (returned unchanged when a parent did not change the
-    /// schema), its complements extended with the fresh backward-migration
-    /// complements, and both parents' CST complements carried through
-    /// unchanged (they are keyed by content, not schema).
-    fn lift_and_union_parent_data(
+    /// With conflicts and no resolutions nothing is recorded. Otherwise
+    /// every key the merge tracks records one data set: a tree data set
+    /// whose parent's schema (or, for a merged instance, whose own schema)
+    /// is not the merged schema is lifted to it as
+    /// [`lift_commit_data`](crate::data_mig::lift_commit_data) lifts, and
+    /// its complement recorded; table and graph data sets are recorded as
+    /// they are. Both parents' complements and CST complements are carried.
+    fn merge_parent_instances(
         &mut self,
-        ours_commit: &CommitObject,
-        theirs_commit: &CommitObject,
-        ours_schema: &Schema,
-        theirs_schema: &Schema,
+        parents: &MergeParents<'_>,
+        merged_schema: &Schema,
+        resolutions: &merge::ResolutionStrategy,
+    ) -> Result<MergedInstances, VcsError> {
+        use crate::instance_merge;
+        let base = crate::instance_vc::tracked(&self.store, parents.base)?;
+        let ours = crate::instance_vc::tracked(&self.store, parents.ours)?;
+        let theirs = crate::instance_vc::tracked(&self.store, parents.theirs)?;
+        let merge = {
+            let this = &*self;
+            let mut load = |dataset: &DataSetObject| {
+                Ok((
+                    this.load_schema(dataset.schema_id)?,
+                    this.load_instance(dataset)?,
+                ))
+            };
+            let mut validate = |schema: &Schema, instance: &crate::payload::Instance| {
+                let protocol =
+                    this.resolved_protocol(schema)?
+                        .ok_or_else(|| VcsError::UnknownProtocol {
+                            name: schema.protocol.clone(),
+                        })?;
+                Ok(instance_failures(schema, &protocol, instance))
+            };
+            instance_merge::merge_tracked(&base, &ours, &theirs, &mut load, &mut validate)?
+        };
+        let entries = if merge.conflicts.is_empty() {
+            merge.merged.clone()
+        } else if resolutions.resolutions.is_empty() {
+            return Ok(MergedInstances {
+                conflicts: merge.conflicts,
+                recorded: None,
+            });
+        } else {
+            instance_merge::apply_resolutions(&merge, resolutions)?
+        };
+        let recorded = self.record_merged_entries(parents, &ours, &entries, merged_schema)?;
+        Ok(MergedInstances {
+            conflicts: merge.conflicts,
+            recorded: Some(recorded),
+        })
+    }
+
+    /// What a merge commit records for `entries`, the instances the merge
+    /// tracks, given `ours`, the instances our parent tracks.
+    fn record_merged_entries(
+        &mut self,
+        parents: &MergeParents<'_>,
+        ours: &crate::instance_merge::Tracked,
+        entries: &std::collections::BTreeMap<String, crate::instance_merge::MergedEntry>,
         merged_schema: &Schema,
     ) -> Result<MergedCommitData, VcsError> {
-        let (ours_data_ids, ours_complement_ids) = crate::data_mig::lift_commit_data(
-            &mut self.store,
-            ours_commit,
-            ours_schema,
-            merged_schema,
-            &self.protocols,
-        )?;
-        let (theirs_data_ids, theirs_complement_ids) = crate::data_mig::lift_commit_data(
-            &mut self.store,
-            theirs_commit,
-            theirs_schema,
-            merged_schema,
-            &self.protocols,
-        )?;
-
-        let mut data_ids = ours_data_ids;
-        for id in theirs_data_ids {
-            if !data_ids.contains(&id) {
-                data_ids.push(id);
+        use crate::instance_merge::MergedEntry;
+        let merged_hash = crate::hash::hash_schema(merged_schema)?;
+        let mut complement_ids = parents.ours.complement_ids.clone();
+        for id in &parents.theirs.complement_ids {
+            if !complement_ids.contains(id) {
+                complement_ids.push(*id);
             }
         }
-        let mut complement_ids = ours_complement_ids;
-        for id in theirs_complement_ids {
-            if !complement_ids.contains(&id) {
-                complement_ids.push(id);
-            }
+        let mut data_ids = Vec::with_capacity(entries.len());
+        for (key, entry) in entries {
+            let (data_id, source) = match entry {
+                MergedEntry::Kept(id) => {
+                    let (commit, schema) = if ours.get(key).is_some_and(|(o, _)| o == id) {
+                        (parents.ours, parents.ours_schema.clone())
+                    } else {
+                        (parents.theirs, parents.theirs_schema.clone())
+                    };
+                    (*id, Some((commit, schema)))
+                }
+                MergedEntry::Merged {
+                    schema_id,
+                    instance,
+                } => {
+                    let dataset =
+                        DataSetObject::from_instance(*schema_id, instance, Some(key.clone()))?;
+                    let schema = self.load_schema(*schema_id)?;
+                    (
+                        self.store.put(&Object::DataSet(dataset))?,
+                        Some((parents.ours, schema)),
+                    )
+                }
+            };
+            let lifted = match source {
+                Some((commit, schema))
+                    if self.is_tree_data(data_id)?
+                        && crate::hash::hash_schema(&schema)? != merged_hash =>
+                {
+                    let (lifted, complement) =
+                        self.lift_data(commit, data_id, &schema, merged_schema)?;
+                    if !complement_ids.contains(&complement) {
+                        complement_ids.push(complement);
+                    }
+                    lifted
+                }
+                _ => data_id,
+            };
+            data_ids.push(lifted);
         }
-        let mut cst_complement_ids = ours_commit.cst_complement_ids.clone();
-        for id in &theirs_commit.cst_complement_ids {
+        let mut cst_complement_ids = parents.ours.cst_complement_ids.clone();
+        for id in &parents.theirs.cst_complement_ids {
             if !cst_complement_ids.contains(id) {
                 cst_complement_ids.push(*id);
             }
         }
-        Ok((data_ids, complement_ids, cst_complement_ids))
+        let untracked = ours
+            .keys()
+            .filter(|key| !entries.contains_key(*key))
+            .cloned()
+            .collect();
+        Ok(MergedCommitData {
+            data_ids,
+            complement_ids,
+            cst_complement_ids,
+            untracked,
+        })
+    }
+
+    /// Whether the data set `id` holds trees.
+    fn is_tree_data(&self, id: ObjectId) -> Result<bool, VcsError> {
+        match self.store.get(&id)? {
+            Object::DataSet(dataset) => {
+                Ok(dataset.encoding.shape == crate::object::InstanceShape::Tree)
+            }
+            other => Err(VcsError::WrongObjectType {
+                expected: "dataset",
+                found: other.type_name(),
+            }),
+        }
+    }
+
+    /// Lift the tree data set `data_id` from `src` to `tgt` under the
+    /// protocol `commit` records or the schema's resolved protocol.
+    fn lift_data(
+        &mut self,
+        commit: &CommitObject,
+        data_id: ObjectId,
+        src: &Schema,
+        tgt: &Schema,
+    ) -> Result<(ObjectId, ObjectId), VcsError> {
+        let stored = crate::data_mig::commit_protocol(&self.store, commit)?;
+        let protocol = crate::data_mig::protocol_for_schema(
+            src,
+            crate::data_mig::ProtocolSources {
+                stored: stored.as_ref(),
+                registered: &self.protocols,
+            },
+        )?;
+        crate::data_mig::migrate_forward(&mut self.store, data_id, src, tgt, &protocol)
     }
 
     fn load_commit(&self, id: ObjectId) -> Result<CommitObject, VcsError> {
@@ -2117,6 +2306,7 @@ mod tests {
             }),
             staged_data: vec![],
             staged_protocol: None,
+            staged_removals: Vec::new(),
         };
         repo.write_index(&index)?;
 
@@ -2173,6 +2363,7 @@ mod tests {
             }),
             staged_data: vec![],
             staged_protocol: None,
+            staged_removals: Vec::new(),
         };
         repo.write_index(&index)?;
 
@@ -2809,6 +3000,7 @@ mod tests {
             }),
             staged_data: vec![],
             staged_protocol: None,
+            staged_removals: Vec::new(),
         };
         repo.write_index(&index)?;
 

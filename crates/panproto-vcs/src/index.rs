@@ -22,6 +22,10 @@ pub struct Index {
     /// Protocol definition staged for the next commit.
     #[serde(default)]
     pub staged_protocol: Option<ObjectId>,
+    /// Keys the next commit stops tracking
+    /// ([`Repository::remove_instance`](crate::Repository::remove_instance)).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub staged_removals: Vec<String>,
 }
 
 /// A data file that has been staged for commit.
@@ -81,7 +85,10 @@ impl Index {
     /// Returns `true` if something is staged.
     #[must_use]
     pub const fn has_staged(&self) -> bool {
-        self.staged.is_some() || !self.staged_data.is_empty() || self.staged_protocol.is_some()
+        self.staged.is_some()
+            || !self.staged_data.is_empty()
+            || self.staged_protocol.is_some()
+            || !self.staged_removals.is_empty()
     }
 
     /// Every object the staging area names: the staged schema and its
@@ -108,5 +115,6 @@ impl Index {
         self.staged = None;
         self.staged_data.clear();
         self.staged_protocol = None;
+        self.staged_removals.clear();
     }
 }

@@ -21,7 +21,7 @@
 //! instance they belong to and the version of that shape's encoding.
 //! [`crate::payload`] encodes and decodes them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::SiteRename;
 use panproto_mig::Migration;
@@ -311,6 +311,17 @@ pub struct CommitObject {
     /// commit recorded no bypass because it had no way to.
     #[serde(default)]
     pub unverified: Vec<String>,
+
+    /// The keys this commit stops tracking, ascending: from this commit
+    /// on along first-parent history, no instance is tracked under them
+    /// until a later commit records a data set under the key again
+    /// ([`instance_vc::tracked`](crate::instance_vc::tracked)).
+    ///
+    /// The field is last and written only when nonempty, so a commit that
+    /// stops tracking nothing has the bytes, and the identifier, it had
+    /// before the field existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub untracked: Vec<String>,
 }
 
 impl CommitObject {
@@ -341,6 +352,7 @@ impl CommitObject {
             theory_ids: BTreeMap::new(),
             cst_complement_ids: Vec::new(),
             unverified: Vec::new(),
+            untracked: Vec::new(),
         }
     }
 }
@@ -362,6 +374,7 @@ pub struct CommitObjectBuilder {
     theory_ids: BTreeMap<String, ObjectId>,
     cst_complement_ids: Vec<ObjectId>,
     unverified: Vec<String>,
+    untracked: Vec<String>,
 }
 
 impl CommitObjectBuilder {
@@ -447,6 +460,7 @@ impl CommitObjectBuilder {
             theory_ids: self.theory_ids,
             cst_complement_ids: self.cst_complement_ids,
             unverified: self.unverified,
+            untracked: self.untracked,
         }
     }
 
@@ -461,6 +475,15 @@ impl CommitObjectBuilder {
     #[must_use]
     pub fn unverified(mut self, what: Vec<String>) -> Self {
         self.unverified = what;
+        self
+    }
+
+    /// Record the keys this commit stops tracking; they are stored sorted
+    /// and without repetition.
+    #[must_use]
+    pub fn untracked(mut self, keys: Vec<String>) -> Self {
+        let keys: BTreeSet<String> = keys.into_iter().collect();
+        self.untracked = keys.into_iter().collect();
         self
     }
 }

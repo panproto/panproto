@@ -1,10 +1,11 @@
 //! Deltas between committed instances and the instances a commit tracks.
 //!
-//! A commit records the data sets staged for it. The instance it tracks
-//! under a key is the data set with that key it records, or else the one its
-//! first parent tracks under the key: [`tracked`] reads that map. A key once
+//! A commit records the data sets staged for it and the keys it stops
+//! tracking. The instance it tracks under a key is the data set with that key
+//! it records; none when it stops tracking the key; or else the one its first
+//! parent tracks under the key: [`tracked`] reads that map. A key once
 //! tracked stays tracked along first-parent history until a commit records
-//! another data set under it. The difference between two instances
+//! another data set under it or stops tracking it. The difference between two instances
 //! of one shape is the shape's delta: [`TableDelta::diff`] for tables,
 //! [`GraphDelta::diff`] for graphs, and for a sequence of trees the graph
 //! delta between the graph forms of each record both sequences hold, with
@@ -73,7 +74,7 @@ impl InstanceDelta {
 }
 
 /// The graph form of a tree under `schema`.
-fn graph_form(schema: &Schema, tree: &WInstance) -> Result<GInstance, VcsError> {
+pub(crate) fn graph_form(schema: &Schema, tree: &WInstance) -> Result<GInstance, VcsError> {
     GInstance::from_wtype_embedded(tree, Some(schema))
         .map(|(graph, _)| graph)
         .map_err(|error| VcsError::DeltaDoesNotApply {
@@ -224,24 +225,31 @@ pub fn tracking_key(data_id: &ObjectId, dataset: &DataSetObject) -> String {
     dataset.key.clone().unwrap_or_else(|| data_id.to_string())
 }
 
-/// The data sets `commit` tracks, by key: for each key, the data set with
-/// that key the nearest commit on its first-parent chain records, `commit`
-/// included.
+/// The data sets `commit` tracks, by key.
+///
+/// For each key it is the data set with that key the nearest commit on its
+/// first-parent chain records, `commit` included, unless a nearer commit of
+/// the chain stops tracking the key.
 ///
 /// # Errors
 ///
 /// A store error, [`VcsError::WrongObjectType`] when a recorded data set or
 /// a first parent is another kind of object, and
-/// [`VcsError::DuplicateDataKey`] when two data sets one commit of the chain
-/// records share a key.
+/// [`VcsError::DuplicateDataKey`] when one commit of the chain records two
+/// data sets under a key, or records a data set under a key it stops
+/// tracking.
 pub fn tracked(
     store: &dyn Store,
     commit: &CommitObject,
 ) -> Result<BTreeMap<String, (ObjectId, DataSetObject)>, VcsError> {
-    let mut out = BTreeMap::new();
+    let mut decided: BTreeMap<String, Option<(ObjectId, DataSetObject)>> = BTreeMap::new();
     let mut current = Some(commit.clone());
     while let Some(here) = current {
-        let mut recorded = BTreeMap::new();
+        let mut recorded: BTreeMap<String, Option<(ObjectId, DataSetObject)>> = here
+            .untracked
+            .iter()
+            .map(|key| (key.clone(), None))
+            .collect();
         for id in &here.data_ids {
             let dataset = match store.get(id)? {
                 Object::DataSet(dataset) => dataset,
@@ -253,12 +261,12 @@ pub fn tracked(
                 }
             };
             let key = tracking_key(id, &dataset);
-            if recorded.insert(key.clone(), (*id, dataset)).is_some() {
+            if recorded.insert(key.clone(), Some((*id, dataset))).is_some() {
                 return Err(VcsError::DuplicateDataKey { key });
             }
         }
         for (key, entry) in recorded {
-            out.entry(key).or_insert(entry);
+            decided.entry(key).or_insert(entry);
         }
         current = match here.parents.first() {
             None => None,
@@ -273,7 +281,10 @@ pub fn tracked(
             },
         };
     }
-    Ok(out)
+    Ok(decided
+        .into_iter()
+        .filter_map(|(key, entry)| entry.map(|entry| (key, entry)))
+        .collect())
 }
 
 /// One key's change between two commits.

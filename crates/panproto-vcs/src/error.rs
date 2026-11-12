@@ -362,8 +362,9 @@ pub enum VcsError {
         reason: String,
     },
 
-    /// Two data sets of one commit share a key.
-    #[error("two data sets are tracked under the key {key:?}")]
+    /// One commit records two data sets under a key, or records a data set
+    /// under a key it stops tracking.
+    #[error("one commit records the key {key:?} twice")]
     DuplicateDataKey {
         /// The key.
         key: String,
@@ -400,6 +401,31 @@ pub enum VcsError {
     UnknownProtocol {
         /// The protocol name.
         name: String,
+    },
+
+    /// A key is neither tracked by `HEAD` nor staged, so there is nothing
+    /// to stop tracking.
+    #[error("no instance is tracked or staged under the key {key:?}")]
+    NotTracked {
+        /// The key.
+        key: String,
+    },
+
+    /// The instance conflicts of a merge are not all resolved.
+    #[error("{count} of {total} instance conflicts are unresolved")]
+    UnresolvedInstanceConflicts {
+        /// How many conflicts have no resolution.
+        count: usize,
+        /// How many conflicts the merge has.
+        total: usize,
+    },
+
+    /// The conflicts of one key are resolved for different sides; a key's
+    /// instance is taken whole from one side.
+    #[error("the conflicts under the key {key:?} are resolved for different sides")]
+    InconsistentInstanceResolution {
+        /// The key.
+        key: String,
     },
 }
 
