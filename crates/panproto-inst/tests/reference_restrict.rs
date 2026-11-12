@@ -1771,7 +1771,7 @@ fn column_case_target(
         reference_migration
             .surviving_verts
             .insert(target_vertex.clone());
-        target_columns.insert(target_edge.clone(), target_name.clone());
+        target_columns.insert(target_edge.clone(), target_name);
         if *state == ColumnState::Rename {
             migration
                 .vertex_remap

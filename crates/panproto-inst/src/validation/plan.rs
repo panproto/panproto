@@ -1622,10 +1622,10 @@ impl Builder<'_> {
                 }
                 if !reference.nullable {
                     self.add_on(
-                        CheckKey::new(CheckKind::RequiredEdge, decl.clone()),
+                        CheckKey::new(CheckKind::RequiredEdge, decl),
                         Compiled::Required { edge: edge.clone() },
                         None,
-                        anchors.clone(),
+                        anchors,
                         &[semantic],
                         Requirement::Required,
                     );

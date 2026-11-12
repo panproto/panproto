@@ -643,7 +643,7 @@ fn registration_provenance_is_total_for_every_source_element() {
 fn registration_does_not_depend_on_the_order_of_its_diagram() {
     for (name, diagram) in all_diagrams() {
         let bytes = canonical_theory_bytes(&diagram.compose(name).unwrap().theory);
-        let mut reversed = diagram.clone();
+        let mut reversed = diagram;
         reversed.blocks.reverse();
         reversed.shared.reverse();
         for (_, targets) in &mut reversed.shared {

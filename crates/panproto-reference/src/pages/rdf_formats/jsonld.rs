@@ -703,7 +703,7 @@ fn process(active: &Ctx, local: &Value, pointer: &str) -> R<Ctx> {
         }
         let mut l = Local {
             entries,
-            pointer: here.clone(),
+            pointer: here,
             defined: BTreeMap::new(),
         };
         let skipped = [

@@ -554,7 +554,7 @@ pub fn chase_with_hom(
                         // Instantiate the head under the binding, giving each
                         // head-only variable a fresh labeled null at its first
                         // occurrence; no row is added until every null is in hand.
-                        let mut firing = binding.clone();
+                        let mut firing = binding;
                         let mut rows = Vec::with_capacity(head.len());
                         for atom in head {
                             let mut row = HashMap::with_capacity(atom.columns.len());

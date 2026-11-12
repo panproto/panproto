@@ -1107,8 +1107,8 @@ impl<'d> Rd<'d> {
             }
             let src = format!("{}#{path}", self.prefix(d));
             let tgt = format!("{}#{}", self.prefix(place.0), place.1);
-            self.ref_edges.push((src, tgt, reference.clone()));
-            self.targets.insert((d, path.clone()), place);
+            self.ref_edges.push((src, tgt, reference));
+            self.targets.insert((d, path), place);
         }
         for (d, path, _, _) in &self.pending {
             let start = (*d, path.clone());

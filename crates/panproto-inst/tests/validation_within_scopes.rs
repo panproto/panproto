@@ -80,7 +80,7 @@ fn schema() -> Schema {
             .between
             .entry((e.src.clone(), e.tgt.clone()))
             .or_default()
-            .push(e.clone());
+            .push(e);
     }
     schema.declarations.insert_key(
         "entry".into(),

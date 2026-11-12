@@ -166,7 +166,7 @@ fn delete_use(deleter: &GraphDelta, user: &GraphDelta, out: &mut BTreeSet<EditCo
         if user.del_nodes().contains_key(x) && user.add_nodes().contains_key(x) {
             out.insert(EditConflict::DeleteUse {
                 deleted: gone.clone(),
-                user: gone.clone(),
+                user: gone,
             });
         }
     }

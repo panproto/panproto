@@ -11348,7 +11348,7 @@ fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
         );
         assert_eq!(
             production.and_then(|outcome| outcome.put.ok()),
-            Some(source.clone()),
+            Some(source),
             "{name}"
         );
     }
@@ -12123,7 +12123,7 @@ fn declared_transform_attribute_edges_agree_with_the_reference() {
             target: schema.clone(),
             migration: RefMigration {
                 surviving_verts: schema.vertices.keys().cloned().collect(),
-                surviving_edges: schema.edges.clone(),
+                surviving_edges: schema.edges,
                 transformed: ["a".to_owned()].into(),
                 output_fields: [("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()])].into(),
                 ..RefMigration::default()

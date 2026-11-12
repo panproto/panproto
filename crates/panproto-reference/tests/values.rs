@@ -331,7 +331,7 @@ fn coerce_value_is_idempotent_and_fixes_what_coerce_returns() {
                 continue;
             };
             let once = coerce_value(&v, &spec).unwrap();
-            assert_eq!(once, Ok(v.clone()), "fixed point: {t} under {kind:?}");
+            assert_eq!(once, Ok(v), "fixed point: {t} under {kind:?}");
             let twice = coerce_value(&once.clone().unwrap(), &spec).unwrap();
             assert_eq!(twice, once, "idempotence: {t} under {kind:?}");
         }
