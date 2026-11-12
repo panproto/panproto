@@ -5593,6 +5593,16 @@ mod segmented_table_apply {
         println!("shard {index}/{count}: {outcomes:?}");
         assert_eq!(walked, total);
         assert_eq!(outcomes.len(), 3, "every outcome occurs: {outcomes:?}");
+        if count == 1 {
+            assert_eq!(
+                outcomes,
+                BTreeMap::from([
+                    (Outcome::Applied, 19_375),
+                    (Outcome::Edit, 65_360),
+                    (Outcome::Layout, 1_050)
+                ])
+            );
+        }
     }
 
     /// The sealed source family of one table under one partition.
@@ -5857,6 +5867,7 @@ mod segmented_table_apply {
         }
         println!("{outcomes:?}, {points} cancellation points");
         assert_eq!(outcomes.values().sum::<u64>(), 2_768);
+        assert_eq!(points, 20_080);
         assert!(
             outcomes.contains_key(&RunOutcome::Complete)
                 && outcomes.contains_key(&RunOutcome::Refused),
@@ -6455,6 +6466,7 @@ mod segmented_table_apply {
         println!("{outcomes:?}");
         assert_eq!(outcomes.values().sum::<u64>(), pairs);
         assert_eq!(pairs, 62_500);
+        assert_eq!(outcomes[&PairOutcome::Composed], 4_068);
         assert_eq!(
             outcomes.keys().copied().collect::<Vec<_>>(),
             vec![
@@ -6466,14 +6478,14 @@ mod segmented_table_apply {
         );
     }
 
-    /// Inversion over segments, in memory: on every 7th case of the
-    /// segmented table edit carrier that applies, the inverse delta applied
+    /// Inversion over segments, in memory: on every case of the segmented
+    /// table edit carrier that applies, the inverse delta applied
     /// segment by segment to the output restores every input segment byte
     /// for byte, as it does in the reference.
     #[test]
     fn the_inverse_of_an_applied_segmented_table_edit_restores_every_segment_byte_for_byte() {
         let mut restored = 0_u64;
-        for case in carrier::segmented_table_apply_cases().step_by(7) {
+        for case in carrier::segmented_table_apply_cases() {
             let production_partition = prod_partition(&case.partition);
             let held = split(&case.table, &production_partition);
             let delta = table_delta_to_production(&case.delta);
@@ -6506,7 +6518,7 @@ mod segmented_table_apply {
             restored += 1;
         }
         println!("{restored} restored");
-        assert_eq!(restored, 0);
+        assert_eq!(restored, 19_375);
     }
 
     /// Inversion over segments, as checkpointed runs: on every 31st case of
@@ -6569,7 +6581,7 @@ mod segmented_table_apply {
             restored += 1;
         }
         println!("{restored} restored");
-        assert_eq!(restored, 0);
+        assert_eq!(restored, 617);
     }
 
     proptest::proptest! {
