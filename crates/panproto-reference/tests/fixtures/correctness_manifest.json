@@ -5206,6 +5206,49 @@
               "test": "segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_on_generated_partitions"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-graph-extend",
+          "anchor": "L-segments-18",
+          "references": [
+            "panproto_reference::segment::extend_graph_segmented",
+            "panproto_reference::segment::extend_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend::segmented_extend_agrees_with_the_reference_and_assembles_to_whole_state_extend"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend::segmented_extend_agrees_with_the_reference_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-extend",
+          "anchor": "L-segments-19",
+          "references": [
+            "panproto_reference::segment::segmented_extend_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend_run::segmented_extend_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend_run::segmented_extend_run_matches_the_reference_runner_on_generated_partitions"
+            }
+          ]
         }
       ]
     },

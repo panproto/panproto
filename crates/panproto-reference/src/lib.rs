@@ -77,6 +77,8 @@
 //! | Manifest records of a family, without the seal floor | [`segment::manifest_records`] | `segments.md` |
 //! | Segmented graph put, by whole-state put of the glued view | [`segment::put_graph_segmented`] | `segments.md` |
 //! | The checkpointed run of segmented graph put | [`segment::segmented_put_with_progress`] | `segments.md` |
+//! | Segmented graph extension, by whole-state extension of the glued graph | [`segment::extend_graph_segmented`], [`segment::extend_graph`] | `segments.md` |
+//! | The checkpointed run of segmented graph extension | [`segment::segmented_extend_with_progress`] | `segments.md` |
 //! | Graph complement segment bytes and their decoding | [`segment::canonical_complement_segment_bytes`], [`segment::decode_complement_segment_bytes`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |
