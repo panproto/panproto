@@ -17378,3 +17378,399 @@ mod transformed_tables {
         assert_eq!(agreed_put(&pair, &view, &view).put, Ok(view.clone()));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Elementary protolens kinds: instantiation, get, put and their refusals
+// against the reference's elementary kinds
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    ELEMENTARY_SOURCE_BOUND, ELEMENTARY_VIEW_BOUND, elementary_protolens_alphabet,
+    elementary_protolens_count_certificate, elementary_protolens_schemas, elementary_view_schema,
+    graph_state_count_up_to, graph_states_up_to,
+};
+use panproto_reference::lens::{ElementaryProtolens, ElementaryRefusal};
+
+/// The production protolens of each entry of
+/// [`elementary_protolens_alphabet`], built with the constructors the lens
+/// DSL's steps compile to.
+fn production_elementary_alphabet() -> Vec<panproto_lens::Protolens> {
+    use std::sync::Arc;
+    let swap = |left: &str, right: &str| {
+        HashMap::from([
+            (Arc::<str>::from(left), Arc::<str>::from(right)),
+            (Arc::<str>::from(right), Arc::<str>::from(left)),
+        ])
+    };
+    let equation = panproto_gat::Equation {
+        name: Arc::from("eq"),
+        lhs: panproto_gat::Term::Var(Arc::from("v")),
+        rhs: panproto_gat::Term::Var(Arc::from("v")),
+    };
+    vec![
+        elementary::rename_sort("s", "u"),
+        elementary::rename_sort("s", "t"),
+        elementary::rename_op("p", "r"),
+        elementary::rename_op("p", "q"),
+        elementary::rename_edge_name("a", "b", "x", "z"),
+        elementary::rename_edge_name("a", "b", "x", "y"),
+        elementary::pullback(panproto_gat::TheoryMorphism::new(
+            "swap",
+            "domain",
+            "codomain",
+            swap("s", "t"),
+            swap("p", "q"),
+        )),
+        elementary::add_equation(equation),
+        elementary::drop_equation("eq"),
+        elementary::drop_sort("t"),
+        elementary::drop_sort("a"),
+        elementary::drop_op("p"),
+        elementary::drop_edge("a", "b", Some("x".into())),
+        elementary::add_sort("c", "t", Value::Null),
+        elementary::add_edge("a", "b", "w", "p"),
+        elementary::add_op("o", "a", "b", "o"),
+    ]
+}
+
+/// The observable result of applying an elementary protolens to a source:
+/// the typed category of a refusal before instantiation, or the target
+/// schema with the view and complement, or a refusal of get.
+#[derive(Debug, PartialEq, Eq)]
+enum ElementaryApplication {
+    Inapplicable,
+    IdentifiesEdges,
+    Applied(RefSchema, RefGraph, Box<RefComplement>),
+    Refused(String),
+}
+
+const IDENTIFIES_EDGES: &str = "renaming operations sends the edges";
+
+fn production_elementary_application(
+    protolens: &panproto_lens::Protolens,
+    schema: &RefSchema,
+    source: &RefGraph,
+) -> ElementaryApplication {
+    match panproto_lens::graph_protolens::apply(
+        protolens,
+        &prod_schema(schema),
+        &Protocol::default(),
+        &prod_graph(source),
+    ) {
+        Ok(applied) => ElementaryApplication::Applied(
+            ref_schema(&applied.lens.tgt_schema),
+            ref_graph(&applied.view),
+            Box::new(ref_complement(&applied.complement)),
+        ),
+        Err(LensError::ProtolensInapplicable { .. }) => ElementaryApplication::Inapplicable,
+        Err(LensError::ProtolensError(message)) if message.starts_with(IDENTIFIES_EDGES) => {
+            ElementaryApplication::IdentifiesEdges
+        }
+        Err(error) => ElementaryApplication::Refused(format!("{:?}", lens_reason(&error))),
+    }
+}
+
+fn reference_elementary_application(
+    kind: &ElementaryProtolens,
+    schema: &RefSchema,
+    source: &RefGraph,
+) -> ElementaryApplication {
+    if !kind.precondition().holds(schema) {
+        return ElementaryApplication::Inapplicable;
+    }
+    let protolens = match kind.at(schema) {
+        Ok(protolens) => protolens,
+        Err(ElementaryRefusal::IdentifiesEdges { .. }) => {
+            return ElementaryApplication::IdentifiesEdges;
+        }
+    };
+    match panproto_reference::lens::protolens_instance(&protolens, schema, source) {
+        Ok(application) => ElementaryApplication::Applied(
+            application.lens.target().clone(),
+            application.view,
+            Box::new(without_identity(&application.complement)),
+        ),
+        Err(RefProtolensError::FalsePrecondition { .. }) => ElementaryApplication::Inapplicable,
+        Err(RefProtolensError::Restrict(error)) => ElementaryApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&error))
+        )),
+        Err(RefProtolensError::Plan(error)) => ElementaryApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&RefRestrictError::Plan(error)))
+        )),
+    }
+}
+
+/// One elementary case: a kind, a schema and a source, with a view to put
+/// back or none for the application itself.
+#[derive(Clone, Copy, Debug)]
+struct ElementaryCase {
+    kind: usize,
+    schema: usize,
+    source: usize,
+    view: Option<usize>,
+}
+
+/// Per-thread state of the elementary certificate: the two alphabets, the
+/// carrier, and for each instantiated `(kind, schema)` its lens pair and put
+/// views.
+struct ElementaryContext {
+    production: Vec<panproto_lens::Protolens>,
+    reference: Vec<ElementaryProtolens>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    pairs: BTreeMap<(usize, usize), (Pair, Vec<RefGraph>)>,
+}
+
+impl ElementaryContext {
+    fn new() -> Self {
+        let production = production_elementary_alphabet();
+        let reference = elementary_protolens_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let (nodes, edges) = ELEMENTARY_SOURCE_BOUND;
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let mut pairs = BTreeMap::new();
+        for (kind, reference_kind) in reference.iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                if !reference_kind.precondition().holds(schema) {
+                    continue;
+                }
+                let Ok((target, migration)) = reference_kind.target_and_migration(schema) else {
+                    continue;
+                };
+                let lens = production[kind]
+                    .instantiate_checked(&prod_schema(schema), &Protocol::default())
+                    .unwrap_or_else(|error| {
+                        panic!("kind {kind} instantiates at schema {index} in production: {error}")
+                    });
+                let (view_nodes, view_edges) = ELEMENTARY_VIEW_BOUND;
+                let views = graph_states_up_to(
+                    &elementary_view_schema(schema, &target),
+                    view_nodes,
+                    view_edges,
+                );
+                let pair =
+                    Pair::with_production(schema.clone(), target, migration, &NoValueLayer, lens);
+                pairs.insert((kind, index), (pair, views));
+            }
+        }
+        Self {
+            production,
+            reference,
+            schemas,
+            sources,
+            pairs,
+        }
+    }
+
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<ElementaryCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![ElementaryCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let Some((_, views)) = self.pairs.get(&(kind, schema)) {
+            cases.extend((0..views.len()).map(|view| ElementaryCase {
+                kind,
+                schema,
+                source,
+                view: Some(view),
+            }));
+        }
+        cases
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ElementaryObservation {
+    Application(ElementaryApplication),
+    Put(Option<PutOutcome>),
+}
+
+fn production_elementary_case(
+    context: &ElementaryContext,
+    case: &ElementaryCase,
+) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    match case.view {
+        None => ElementaryObservation::Application(production_elementary_application(
+            &context.production[case.kind],
+            &context.schemas[case.schema],
+            source,
+        )),
+        Some(view) => {
+            let (pair, views) = &context.pairs[&(case.kind, case.schema)];
+            ElementaryObservation::Put(production_put(pair, source, &views[view]))
+        }
+    }
+}
+
+fn reference_elementary_case(
+    context: &ElementaryContext,
+    case: &ElementaryCase,
+) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    match case.view {
+        None => ElementaryObservation::Application(reference_elementary_application(
+            &context.reference[case.kind],
+            &context.schemas[case.schema],
+            source,
+        )),
+        Some(view) => {
+            let (pair, views) = &context.pairs[&(case.kind, case.schema)];
+            ElementaryObservation::Put(reference_put(pair, source, &views[view]))
+        }
+    }
+}
+
+#[test]
+fn elementary_protolens_kinds_agree_with_the_reference_exhaustively() {
+    let certificate = elementary_protolens_count_certificate();
+    assert_eq!(certificate.kinds, 16);
+    assert_eq!(certificate.schemas, 14);
+    assert_eq!(certificate.source_states, 678);
+    assert_eq!(certificate.get_cases, 10_848);
+    assert_eq!(certificate.inapplicable, 19);
+    assert_eq!(certificate.identifying, 2);
+    assert_eq!(certificate.instantiated, 203);
+    assert_eq!(certificate.put_cases, 388_847);
+
+    let context = ElementaryContext::new();
+    assert_eq!(context.production.len(), certificate.kinds);
+    assert_eq!(context.pairs.len(), certificate.instantiated);
+    let (nodes, edges) = ELEMENTARY_SOURCE_BOUND;
+    for (schema, sources) in context.schemas.iter().zip(&context.sources) {
+        assert_eq!(sources.len(), graph_state_count_up_to(schema, nodes, edges));
+    }
+    let units: Vec<(usize, usize, usize)> = (0..certificate.kinds)
+        .flat_map(|kind| {
+            context
+                .sources
+                .iter()
+                .enumerate()
+                .flat_map(move |(schema, sources)| {
+                    (0..sources.len()).map(move |source| (kind, schema, source))
+                })
+        })
+        .collect();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!(
+        "L-lenses-21 elementary protolens kinds: kinds={}, schemas={}, source_states={}, \
+         get_cases={}, inapplicable={}, identifying={}, instantiated={}, put_cases={}",
+        certificate.kinds,
+        certificate.schemas,
+        certificate.source_states,
+        certificate.get_cases,
+        certificate.inapplicable,
+        certificate.identifying,
+        certificate.instantiated,
+        certificate.put_cases
+    );
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        ElementaryContext::new,
+        ElementaryContext::expand,
+        production_elementary_case,
+        reference_elementary_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+/// A random graph over `schema` with at most four nodes and four edges,
+/// each edge a typed candidate between its nodes' anchors.
+fn random_elementary_graph(schema: &RefSchema, seed: u64) -> RefGraph {
+    let mut state = seed;
+    let mut next = |bound: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        usize::try_from(state >> 33).unwrap() % bound.max(1)
+    };
+    let vertices: Vec<&String> = schema.vertices.keys().collect();
+    let mut graph = RefGraph::default();
+    for id in 0..u32::try_from(next(5)).unwrap() {
+        let node = RefNode::new(id, vertices[next(vertices.len())]);
+        let node = if next(2) == 1 {
+            node.with_value(BOUNDED_LENS_VALUE)
+        } else {
+            node
+        };
+        graph.nodes.insert(id, node);
+    }
+    let mut candidates = Vec::new();
+    for (src, src_node) in &graph.nodes {
+        for (tgt, tgt_node) in &graph.nodes {
+            for label in &schema.edges {
+                if label.src == src_node.anchor && label.tgt == tgt_node.anchor {
+                    candidates.push((*src, *tgt, label.clone()));
+                }
+            }
+        }
+    }
+    if !candidates.is_empty() {
+        for id in 0..u32::try_from(next(5)).unwrap() {
+            let (src, tgt, label) = candidates[next(candidates.len())].clone();
+            graph.edges.insert(
+                id,
+                RefGEdge {
+                    src,
+                    tgt,
+                    label,
+                    position: None,
+                },
+            );
+        }
+    }
+    graph
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+    #[test]
+    fn randomized_elementary_protolens_differential(
+        kind in 0..16_usize,
+        schema in 0..14_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        let production = production_elementary_alphabet();
+        let reference = elementary_protolens_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let schema_ref = &schemas[schema];
+        let source = random_elementary_graph(schema_ref, source_seed);
+        let production_application =
+            production_elementary_application(&production[kind], schema_ref, &source);
+        let reference_application =
+            reference_elementary_application(&reference[kind], schema_ref, &source);
+        prop_assert_eq!(&production_application, &reference_application);
+        if let ElementaryApplication::Applied(target, view, _) = reference_application {
+            let (_, migration) = reference[kind]
+                .target_and_migration(schema_ref)
+                .expect("an applied kind has a target");
+            let lens = production[kind]
+                .instantiate_checked(&prod_schema(schema_ref), &Protocol::default())
+                .expect("an applied kind instantiates");
+            let edited =
+                random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
+            let pair =
+                Pair::with_production(schema_ref.clone(), target, migration, &NoValueLayer, lens);
+            for put_view in [&view, &edited] {
+                prop_assert_eq!(
+                    production_put(&pair, &source, put_view),
+                    reference_put(&pair, &source, put_view)
+                );
+            }
+        }
+    }
+}

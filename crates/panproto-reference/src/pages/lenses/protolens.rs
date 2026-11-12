@@ -26,8 +26,14 @@ pub enum SchemaPrecondition {
     HasVertices(BTreeSet<Name>),
     /// Every named edge must be present.
     HasEdges(BTreeSet<SEdge>),
+    /// Some vertex must have this kind.
+    HasVertexKind(Name),
+    /// Some edge must have this kind.
+    HasEdgeKind(Name),
     /// Every component precondition must hold, in listed order.
     All(Vec<Self>),
+    /// Some component precondition must hold.
+    AnyOf(Vec<Self>),
 }
 
 impl SchemaPrecondition {
@@ -41,7 +47,10 @@ impl SchemaPrecondition {
                 .iter()
                 .all(|name| schema.vertices.contains_key(name)),
             Self::HasEdges(required) => required.is_subset(&schema.edges),
+            Self::HasVertexKind(kind) => schema.vertices.values().any(|found| found == kind),
+            Self::HasEdgeKind(kind) => schema.edges.iter().any(|edge| edge.kind == *kind),
             Self::All(required) => required.iter().all(|condition| condition.holds(schema)),
+            Self::AnyOf(admitted) => admitted.iter().any(|condition| condition.holds(schema)),
         }
     }
 }
@@ -238,7 +247,7 @@ pub fn protolens_schema(
 ///
 /// False precondition, plan refusal, or restrict refusal.
 ///
-/// Book anchors: `L-lenses-20`.
+/// Book anchors: `L-lenses-20`, `L-lenses-21`.
 pub fn protolens_instance(
     protolens: &Protolens,
     source_schema: &Schema,

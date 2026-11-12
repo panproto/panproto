@@ -540,6 +540,15 @@ fn restorable_part(view: &GInstance, errors: &[PutDomainError]) -> GInstance {
                 elem: ViewRef::Node(id),
                 ..
             } => {
+                let incident: Vec<EdgeId> = restorable
+                    .out_edges(*id)
+                    .iter()
+                    .chain(restorable.in_edges(*id))
+                    .copied()
+                    .collect();
+                for edge in incident {
+                    let _ = restorable.remove_edge(edge);
+                }
                 let _ = restorable.remove_node(*id);
             }
             PutDomainError::UnrepresentableViewEdge {
@@ -1097,6 +1106,11 @@ fn restore_edges(
         }
         let edge = &view.edges()[&id];
         if source.node(edge.src).is_none() || source.node(edge.tgt).is_none() {
+            // An endpoint with no single source anchor leaves the edge no
+            // source label between preimages of its endpoints' anchors.
+            errors.push(PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Edge(id),
+            });
             continue;
         }
         match source_edge(lens, view, complement, plan, id, edge, source) {
@@ -2510,6 +2524,55 @@ mod tests {
             error,
             LensError::PutDomain(error)
                 if matches!(*error, PutDomainError::PlanCompilation { .. })
+        ));
+    }
+
+    #[test]
+    fn an_edge_at_a_node_with_no_source_anchor_is_reported_unrepresentable() {
+        use panproto_inst::{EdgeId, GEdge, Node, ViewRef};
+        use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+        let schema = SchemaBuilder::new(&Protocol::default())
+            .vertex("a", "s", None)
+            .unwrap()
+            .vertex("b", "t", None)
+            .unwrap()
+            .edge("a", "b", "p", Some("x"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let lens = crate::protolens::elementary::drop_sort("t")
+            .instantiate_checked(&schema, &Protocol::default())
+            .unwrap();
+        let (_, complement) = super::get(&lens, &GInstance::new()).unwrap();
+        let mut view = GInstance::new();
+        view.insert_node(Node::new(0, "a")).unwrap();
+        view.insert_node(Node::new(1, "b")).unwrap();
+        let label = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "p".into(),
+            name: Some("x".into()),
+        };
+        view.insert_edge(EdgeId(0), GEdge::new(0, 1, label))
+            .unwrap();
+        let found = check_put_domain(&lens, &view, &complement).unwrap_err();
+        assert_eq!(
+            found,
+            vec![
+                PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Edge(EdgeId(0)),
+                },
+                PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(1),
+                    candidates: Vec::new(),
+                },
+            ]
+        );
+        assert!(matches!(
+            put(&lens, &view, &complement),
+            Err(LensError::PutDomain(first))
+                if matches!(*first, PutDomainError::UnrepresentableViewEdge { .. })
         ));
     }
 }
