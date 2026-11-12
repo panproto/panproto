@@ -1357,8 +1357,8 @@ fn frozen_0_74_4() -> std::collections::BTreeMap<String, Frozen074> {
             if let Some((_, current, schema, instance)) =
                 RENAMED_SINCE_0_74_4.iter().find(|(was, ..)| *was == name)
             {
-                old.schema_theory = (*schema).to_owned();
-                old.instance_theory = (*instance).to_owned();
+                (*schema).clone_into(&mut old.schema_theory);
+                (*instance).clone_into(&mut old.instance_theory);
                 old.schema.name = (*schema).into();
                 old.instance.name = (*instance).into();
                 return ((*current).to_owned(), old);
