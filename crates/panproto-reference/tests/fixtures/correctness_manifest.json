@@ -5604,6 +5604,28 @@
               "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_generated_cases"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-table-get",
+          "anchor": "L-segments-32",
+          "references": [
+            "panproto_reference::segment::restrict_table_segmented",
+            "panproto_reference::segment::split_table_complement"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_table_get::segmented_table_get_agrees_with_the_reference_on_every_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_table_get::segmented_table_get_agrees_with_the_reference_on_generated_tables"
+            }
+          ]
         }
       ]
     },

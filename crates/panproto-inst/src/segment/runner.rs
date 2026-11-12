@@ -100,6 +100,7 @@ use super::store::{
     ArtifactKey, ArtifactKind, Phase, RunJournal, SegmentStore, TaskKey, TaskRecord,
 };
 use super::stream::{InstanceRecord, RecordSource};
+use super::table_restrict::ComplementSegment;
 use crate::error::RestrictError;
 use crate::graph_restrict::{RemoteFate, decide_nodes, run_scoped};
 use crate::identity::{
@@ -847,7 +848,7 @@ impl EmitLayout {
 fn emit_bytes(
     view: &AnySegment,
     view_bytes: &[u8],
-    complement: Option<&GraphComplementSegment>,
+    complement: Option<&ComplementSegment>,
     record: &SegmentRecord,
 ) -> Result<Vec<u8>, SegmentError> {
     let complement_bytes = match complement {
@@ -866,7 +867,7 @@ fn emit_bytes(
     }
     let stream = stream.into_bytes();
     let layout = EmitLayout {
-        elements: complement.map_or(0, GraphComplementSegment::element_count),
+        elements: complement.map_or(0, ComplementSegment::element_count),
         view: length(view_bytes),
         complement: length(&complement_bytes),
         record: length(&record_bytes),
@@ -1151,7 +1152,7 @@ pub struct Emission {
     /// operation's shape ([`PhaseOperation::shape`]).
     pub segment: AnySegment,
     /// Its complement segment, `None` for an operation that emits none.
-    pub complement: Option<GraphComplementSegment>,
+    pub complement: Option<ComplementSegment>,
 }
 
 /// An operation [`run_segmented`] runs as the six phases of a segmented
@@ -1607,7 +1608,7 @@ impl PhaseOperation for GraphRestrict<'_> {
             .ok_or_else(|| malformed(ArtifactKind::Assembly, "a boundary is missing"))?;
         Ok(Emission {
             segment: AnySegment::Graph(view),
-            complement: Some(complement),
+            complement: Some(ComplementSegment::Graph(complement)),
         })
     }
 

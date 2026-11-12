@@ -52,7 +52,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Restriction and contraction](restrict-and-contraction.md) | 13 |
 | [Edits](edits.md) | 11 |
 | [Validation](validation.md) | 20 |
-| [Segments](segments.md) | 31 |
+| [Segments](segments.md) | 32 |
 | [Lenses](lenses.md) | 24 |
 | [Reference resolution](resolution.md) | 16 |
 | [Text formats](text-formats.md) | 4 |

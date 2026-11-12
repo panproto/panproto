@@ -22304,3 +22304,603 @@ proptest! {
         }
     }
 }
+
+/// Segmented table get against its reference definition and whole-state
+/// table get.
+mod segmented_table_get {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::InstanceShapeKind;
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, IdRange, ManifestHeader, ManifestRole, MemoryStore,
+        Partition, RecordSource, Residual, RunIncompleteReason, RunStatus, SegmentId,
+        SegmentManifest, SegmentRecord, SegmentSpec, SegmentedRestrictError, SegmentedRun,
+        TableComplementSegment, assemble_table, partition_table, read_emitted_segment, seal_full,
+    };
+    use panproto_lens::table_lens;
+    use panproto_reference::enumerate::segments::{
+        segmented_table_restrict_partitions, segmented_table_restrict_table_count,
+        segmented_table_restrict_tables,
+    };
+    use panproto_reference::segment as reference;
+    use panproto_schema::ScalarKind;
+    use proptest::prelude::*;
+
+    use super::{
+        Reason, RefMigration, RefSEdge, RefSchema, RefTable, TablePair, lens_reason, prod_table,
+        ref_restrict_reason, ref_table, ref_table_complement, restrict_reason,
+    };
+
+    /// The schema digest of a sealed source family.
+    pub const SOURCE_SCHEMA: [u8; 32] = [11; 32];
+
+    /// The lenses of the carrier, by name.
+    pub const LENSES: [&str; 6] = [
+        "identity",
+        "drop b, contract to aa",
+        "drop b, no contraction label",
+        "drop ba",
+        "drop x",
+        "drop a, contract to bb",
+    ];
+
+    fn relation(src: &str, tgt: &str, name: &str) -> RefSEdge {
+        RefSEdge::new(src, tgt, "relation", Some(name))
+    }
+
+    /// The schema with tables `a` (column `x`) and `b` (column `y`) as
+    /// `tables` lists, and the relations `relations` lists.
+    fn schema(tables: &[&str], relations: &[(&str, &str, &str)]) -> RefSchema {
+        let mut schema = RefSchema::default();
+        for table in tables {
+            let column = if *table == "a" { "x" } else { "y" };
+            let vertex = format!("{table}.{column}");
+            schema = schema.vertex(table, "record").vertex(&vertex, "int").edge(
+                table,
+                &vertex,
+                "prop",
+                Some(column),
+            );
+        }
+        for (src, tgt, name) in relations {
+            schema.edges.insert(relation(src, tgt, name));
+        }
+        schema
+    }
+
+    /// The lens of `LENSES[index]`: from tables `a` and `b` with the
+    /// relations `ab` and `ba` to the target it names, keeping everything
+    /// the target holds.
+    pub fn lens(index: usize) -> TablePair {
+        let source = schema(&["a", "b"], &[("a", "b", "ab"), ("b", "a", "ba")]);
+        let target = match index {
+            0 => source.clone(),
+            1 => schema(&["a"], &[("a", "a", "aa")]),
+            2 => schema(&["a"], &[]),
+            3 => schema(&["a", "b"], &[("a", "b", "ab")]),
+            4 => schema(&["b"], &[("a", "b", "ab"), ("b", "a", "ba")]).vertex("a", "record"),
+            _ => schema(&["b"], &[("b", "b", "bb")]),
+        };
+        let migration = RefMigration {
+            surviving_verts: target.vertices.keys().cloned().collect(),
+            surviving_edges: target.edges.iter().cloned().collect(),
+            ..RefMigration::default()
+        };
+        TablePair::new(
+            source,
+            target,
+            migration,
+            "int",
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )
+    }
+
+    /// The production partition of a reference table partition.
+    pub fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Table,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    /// A sealed source family: its manifest, the segments' canonical bytes
+    /// and the production partition.
+    pub struct Input {
+        /// The source manifest.
+        pub manifest: SegmentManifest,
+        /// The segments' canonical bytes.
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        /// The production partition.
+        pub partition: Partition,
+    }
+
+    /// Seal the production segments of `table` under `partition`.
+    pub fn input(table: &RefTable, partition: &reference::Partition) -> Input {
+        let partition = prod_partition(partition);
+        let segments: Vec<AnySegment> = partition_table(&prod_table(table), &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Table)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter())
+                        as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: InstanceShapeKind::Table,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Input {
+            manifest,
+            bytes,
+            partition,
+        }
+    }
+
+    pub fn run(
+        pair: &TablePair,
+        input: &Input,
+        budget: Budget,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        table_lens::get_segmented(
+            &pair.production,
+            pair.protocols(),
+            (&input.manifest, input.manifest.digest()),
+            &input.bytes,
+            budget,
+            store,
+            cancel,
+        )
+        .expect("the lens's table plan compiles")
+    }
+
+    /// The emitted view and complement segments of a complete run.
+    pub fn emitted(
+        store: &MemoryStore,
+        run: &SegmentedRun<SegmentedRestrictError>,
+        partition: &Partition,
+    ) -> Vec<(AnySegment, Vec<u8>)> {
+        let identity = run.run.expect("a run identity");
+        partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                read_emitted_segment(store, identity, partition, spec.id).expect("emitted segment")
+            })
+            .collect()
+    }
+
+    /// The outcome of one case.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        pub complete: u64,
+        pub refused: u64,
+        pub contracted: u64,
+    }
+
+    /// Compare a complete run's emitted segments with the reference's byte
+    /// for byte, and return them decoded.
+    fn compare_segments(
+        pair: &TablePair,
+        (table, partition): (&RefTable, &reference::Partition),
+        input: &Input,
+        store: &MemoryStore,
+        baseline: &SegmentedRun<SegmentedRestrictError>,
+        expected: &[(reference::TableSegment, reference::TableComplementSegment)],
+    ) -> (
+        Vec<panproto_inst::segment::TableSegment>,
+        Vec<TableComplementSegment>,
+    ) {
+        let view_schema = reference::Digest(
+            pair.production
+                .identity(ComplementShape::Functor)
+                .target_schema
+                .0,
+        );
+        let output = emitted(store, baseline, &input.partition);
+        let mut views = Vec::new();
+        let mut complements = Vec::new();
+        for ((spec, (view, complement)), (expected_view, expected_complement)) in
+            input.partition.specs().iter().zip(&output).zip(expected)
+        {
+            assert_eq!(
+                view.canonical_bytes(&Digest(view_schema.0), &input.partition)
+                    .expect("view bytes"),
+                reference::canonical_segment_bytes(
+                    &reference::AnySegment::Table(expected_view.clone()),
+                    view_schema,
+                    partition,
+                )
+                .expect("reference view bytes"),
+                "view segment of {table:?} under {partition:?} by {:?}",
+                pair.production.compiled
+            );
+            assert_eq!(
+                *complement,
+                reference::canonical_complement_segment_bytes(
+                    &reference::AnyComplementSegment::Table(expected_complement.clone()),
+                )
+                .expect("reference complement bytes"),
+                "complement segment of {table:?} under {partition:?}"
+            );
+            let decoded = TableComplementSegment::from_canonical_bytes(complement, spec.id)
+                .expect("the emitted complement decodes");
+            assert_eq!(decoded.canonical_bytes(), *complement);
+            let AnySegment::Table(view) = view.clone() else {
+                panic!("a table view segment");
+            };
+            views.push(view);
+            complements.push(decoded);
+        }
+        (views, complements)
+    }
+
+    /// Check the law on one case: a complete run's segments are, byte for
+    /// byte, the reference definition's, and glued they are whole-state
+    /// table get; a refusal is whole-state get's refusal.
+    pub fn check_case(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+        counts: &mut Counts,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        let input = input(table, partition);
+        let mut store = MemoryStore::default();
+        let baseline = run(pair, &input, Budget::unlimited(), &mut store, None);
+        let reference_segments =
+            reference::partition_table(table, partition).expect("reference split");
+        let expected = pair.with_reference(|lens, _| {
+            reference::restrict_table_segmented(lens, &reference_segments, partition)
+        });
+        let whole = table_lens::get(&pair.production, &prod_table(table), pair.protocols());
+        match (&baseline.report.status, expected) {
+            (RunStatus::Complete { manifest }, Ok(expected)) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let (views, complements) = compare_segments(
+                    pair,
+                    (table, partition),
+                    &input,
+                    &store,
+                    &baseline,
+                    &expected,
+                );
+                let view = assemble_table(views, &input.partition).expect("the views assemble");
+                let complement = TableComplementSegment::glue(&complements);
+                let (whole_view, whole_complement) = whole.expect("whole-state get accepts");
+                assert_eq!(ref_table(&view), ref_table(&whole_view));
+                assert_eq!(
+                    ref_table_complement(&complement),
+                    ref_table_complement(&whole_complement)
+                );
+                counts.complete += 1;
+                if !whole_complement.synthesized_fk_pairs.is_empty() {
+                    counts.contracted += 1;
+                }
+            }
+            (
+                RunStatus::Failed(SegmentedRestrictError::Restrict { segment, error }),
+                Err(reference::SegmentedTableRestrictRefusal::Restrict(expected)),
+            ) => {
+                // The reference locates a contraction refusal at its pair;
+                // the table engine locates none, and the segmented run names
+                // the segment owning the pair's source row instead.
+                let (expected, located) = match &expected {
+                    super::RefRestrictError::At { key, error } => {
+                        (super::ref_engine_reason(error), Some(*key))
+                    }
+                    other => (ref_restrict_reason(other), None),
+                };
+                assert_eq!(
+                    Reason::Restrict(restrict_reason(error)),
+                    Reason::Restrict(expected.clone()),
+                    "refusal of {table:?} under {partition:?}"
+                );
+                assert_eq!(
+                    whole.map(|_| ()).map_err(|refusal| lens_reason(&refusal)),
+                    Err(Reason::Restrict(expected))
+                );
+                if let Some(key) = located {
+                    assert_eq!(
+                        partition.owner_of_node(key.id).map(|owner| owner.0),
+                        Some(segment.0),
+                        "the refusing segment owns the contracted pair's source row"
+                    );
+                }
+                assert!(
+                    input
+                        .partition
+                        .specs()
+                        .iter()
+                        .any(|spec| spec.id == *segment)
+                );
+                counts.refused += 1;
+            }
+            (status, expected) => panic!(
+                "segmented table get disagrees on {table:?} under {partition:?}: {status:?} / {expected:?}"
+            ),
+        }
+        baseline
+    }
+
+    /// Stopping the run at every cancellation point and resuming it against
+    /// the same store ends as `baseline`, reusing every committed task.
+    fn check_resumption(
+        pair: &TablePair,
+        input: &Input,
+        baseline: &SegmentedRun<SegmentedRestrictError>,
+    ) -> u64 {
+        let finished = baseline.report.progress.tasks_done;
+        let mut points = 0;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            points += 1;
+            let mut store = MemoryStore::default();
+            let stopped = run(pair, input, Budget::unlimited(), &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(pair, input, Budget::unlimited(), &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+        }
+        points
+    }
+
+    /// The carrier census: tables, partitions and lenses.
+    #[test]
+    fn segmented_table_get_carrier_census_is_the_closed_form() {
+        assert_eq!(
+            u64::try_from(segmented_table_restrict_tables().len()).expect("count"),
+            segmented_table_restrict_table_count()
+        );
+        assert_eq!(segmented_table_restrict_table_count(), 741);
+        assert_eq!(segmented_table_restrict_partitions().len(), 15);
+        let distinct: BTreeSet<String> = segmented_table_restrict_tables()
+            .iter()
+            .map(|table| format!("{table:?}"))
+            .collect();
+        assert_eq!(distinct.len(), 741);
+    }
+
+    /// Every case of the carrier: every table under every partition and
+    /// every lens agrees with the reference definition segment by segment
+    /// and glues to whole-state table get, or refuses as it does.
+    #[test]
+    fn segmented_table_get_agrees_with_the_reference_on_every_case() {
+        let tables = segmented_table_restrict_tables();
+        let partitions = segmented_table_restrict_partitions();
+        let mut counts = Counts::default();
+        for index in 0..LENSES.len() {
+            let pair = lens(index);
+            for table in &tables {
+                for partition in &partitions {
+                    check_case(&pair, table, partition, &mut counts);
+                }
+            }
+        }
+        println!("segmented table get: {counts:?}");
+        assert_eq!(counts.complete + counts.refused, 741 * 15 * 6);
+        assert_eq!(counts, SEGMENTED_TABLE_GET_COUNTS);
+    }
+
+    /// The pinned outcome census of the exhaustive differential, derived
+    /// apart from it. Contraction realizes a pair exactly in a table holding
+    /// a chain of two pairs through a row of the dropped table: `a -ab-> m
+    /// -ba-> a` when `b` is dropped, `b -ba-> m -ab-> b` when `a` is. With
+    /// `k_a` and `k_b` rows in the two tables there are `k_b k_a^2` chains of
+    /// the first kind (the end rows may coincide), each a table of the
+    /// carrier; summed over the assignments, `180`, and `180` of the second
+    /// kind by the symmetry exchanging the tables. The lens dropping `b`
+    /// with no `a`-to-`a` label refuses the first `180`; the lenses
+    /// contracting to `aa` and `bb` contract the first and second `180`. So,
+    /// under `15` partitions: `180 * 15 = 2,700` refused, `360 * 15 = 5,400`
+    /// contracted, and `741 * 15 * 6 - 2,700 = 63,990` complete.
+    const SEGMENTED_TABLE_GET_COUNTS: Counts = Counts {
+        complete: 63_990,
+        refused: 2_700,
+        contracted: 5_400,
+    };
+
+    /// Every 97th case of the carrier, stopped at each cancellation point and
+    /// resumed, ends as the uninterrupted run.
+    #[test]
+    fn segmented_table_get_resumes_from_every_cancellation_point() {
+        let tables = segmented_table_restrict_tables();
+        let partitions = segmented_table_restrict_partitions();
+        let mut cases = 0_u64;
+        let mut points = 0_u64;
+        let mut counts = Counts::default();
+        let mut index = 0_usize;
+        for lens_index in 0..LENSES.len() {
+            let pair = lens(lens_index);
+            for table in &tables {
+                for partition in &partitions {
+                    index += 1;
+                    if !index.is_multiple_of(97) {
+                        continue;
+                    }
+                    let baseline = check_case(&pair, table, partition, &mut counts);
+                    points += check_resumption(&pair, &input(table, partition), &baseline);
+                    cases += 1;
+                }
+            }
+        }
+        println!("segmented table get resumption: cases={cases} points={points}");
+        assert_eq!(cases, 741 * 15 * 6 / 97);
+    }
+
+    /// A lens whose survival carries a predicate is declined with a global
+    /// residual before any task.
+    #[test]
+    fn segmented_table_get_declines_an_expression_before_any_task() {
+        let mut pair = lens(0);
+        pair.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let tables = segmented_table_restrict_tables();
+        let table = tables.last().expect("a table");
+        let partitions = segmented_table_restrict_partitions();
+        let input = input(table, &partitions[partitions.len() - 1]);
+        let mut store = MemoryStore::default();
+        let declined = run(&pair, &input, Budget::unlimited(), &mut store, None);
+        assert!(
+            matches!(
+                declined.report.status,
+                RunStatus::Residual(Residual::Global { .. })
+            ),
+            "{:?}",
+            declined.report.status
+        );
+        assert_eq!(declined.report.progress.tasks_done, 0);
+    }
+
+    fn generated_table(rows: &[u8], pairs: &[(u8, u8)]) -> RefTable {
+        let mut table = RefTable::default();
+        for (id, kind) in (0_u32..).zip(rows) {
+            match kind % 3 {
+                1 => {
+                    table.rows.insert(
+                        id,
+                        (
+                            "a".to_owned(),
+                            BTreeMap::from([(
+                                "x".to_owned(),
+                                panproto_reference::value::Value::Int(i64::from(id % 2)),
+                            )]),
+                        ),
+                    );
+                }
+                2 => {
+                    table.rows.insert(id, ("b".to_owned(), BTreeMap::new()));
+                }
+                _ => {}
+            }
+        }
+        for (src, tgt) in pairs {
+            let (src, tgt) = (u32::from(*src), u32::from(*tgt));
+            let (Some((a, _)), Some((b, _))) = (table.rows.get(&src), table.rows.get(&tgt)) else {
+                continue;
+            };
+            if a != b {
+                let name = if a == "a" { "ab" } else { "ba" };
+                table.pairs.insert((relation(a, b, name), src, tgt));
+            }
+        }
+        table
+    }
+
+    fn generated_partition(owners: &[u8]) -> reference::Partition {
+        let segments = owners
+            .iter()
+            .map(|owner| u32::from(*owner % 3))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        reference::Partition {
+            shape: reference::InstanceShapeKind::Table,
+            specs: (0..segments)
+                .map(|segment| reference::SegmentSpec {
+                    id: reference::SegmentId(segment),
+                    nodes: (0_u32..)
+                        .zip(owners)
+                        .filter(|(_, owner)| u32::from(**owner % 3) == segment)
+                        .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                        .collect(),
+                    alloc_nodes: None,
+                    alloc_edges: None,
+                })
+                .collect(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Generated tables of up to eight rows with up to twelve pairs,
+        /// under generated partitions into up to three segments (a segment
+        /// may own no row), by every lens of the carrier.
+        #[test]
+        fn segmented_table_get_agrees_with_the_reference_on_generated_tables(
+            rows in prop::collection::vec(0_u8..3, 1..9),
+            pairs in prop::collection::vec((0_u8..8, 0_u8..8), 0..12),
+            owners in prop::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..LENSES.len(),
+        ) {
+            let table = generated_table(&rows, &pairs);
+            let partition = generated_partition(&owners[..rows.len()]);
+            let mut counts = Counts::default();
+            check_case(&lens(lens_index), &table, &partition, &mut counts);
+        }
+    }
+}

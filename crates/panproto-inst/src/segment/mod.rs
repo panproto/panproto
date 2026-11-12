@@ -55,6 +55,7 @@ mod split;
 mod store;
 mod stream;
 mod table_apply;
+mod table_restrict;
 #[cfg(test)]
 mod tests;
 mod tree_apply;
@@ -106,6 +107,10 @@ pub use stream::{
     record_stream,
 };
 pub use table_apply::TABLE_APPLY_OP;
+pub use table_restrict::{
+    ComplementSegment, TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION, TABLE_RESTRICT_OP,
+    TableComplementSegment, TableRestrict,
+};
 pub use tree_apply::TREE_APPLY_OP;
 pub use tree_bytes::{
     FanRecord, canonical_winstance_bytes, winstance_digest, write_arc_record, write_winstance,

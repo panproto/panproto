@@ -1541,3 +1541,121 @@ pub const fn segmented_tree_apply_case_counts() -> (u64, u64, u64, u64) {
     let edits = 2 * 13 + 2 * 22 + 4 * 35;
     (trees, partitions, edits, partitions * edits)
 }
+
+/// The foreign keys of the segmented table restriction carrier:
+/// `a -ab-> b` and `b -ba-> a`, both of kind `relation`.
+#[must_use]
+pub fn segmented_table_restrict_keys() -> [SEdge; 2] {
+    [
+        SEdge::new("a", "b", "relation", Some("ab")),
+        SEdge::new("b", "a", "relation", Some("ba")),
+    ]
+}
+
+/// Every table of the segmented table restriction carrier.
+///
+/// Each of the row ids `0` to `3` is absent, a row of table `a` with the
+/// cell `x = 0`, or a row of table `b` without cells; the pairs are every
+/// set of at most two of the pairs of [`segmented_table_restrict_keys`]
+/// whose rows lie in the key's tables, in ascending order of the sets'
+/// sorted pair lists.
+#[must_use]
+pub fn segmented_table_restrict_tables() -> Vec<Table> {
+    use crate::value::Value;
+    let keys = segmented_table_restrict_keys();
+    let mut out = Vec::new();
+    for code in 0..81_u32 {
+        let mut rows = BTreeMap::new();
+        let mut rest = code;
+        for id in 0..4_u32 {
+            match rest % 3 {
+                1 => {
+                    rows.insert(
+                        id,
+                        (
+                            "a".to_owned(),
+                            BTreeMap::from([("x".to_owned(), Value::Int(0))]),
+                        ),
+                    );
+                }
+                2 => {
+                    rows.insert(id, ("b".to_owned(), BTreeMap::new()));
+                }
+                _ => {}
+            }
+            rest /= 3;
+        }
+        let mut joinable = Vec::new();
+        for key in &keys {
+            for (src, (src_table, _)) in &rows {
+                for (tgt, (tgt_table, _)) in &rows {
+                    if *src_table == key.src && *tgt_table == key.tgt {
+                        joinable.push((key.clone(), *src, *tgt));
+                    }
+                }
+            }
+        }
+        joinable.sort();
+        let table = |pairs: &[&(SEdge, u32, u32)]| Table {
+            rows: rows.clone(),
+            pairs: pairs.iter().map(|pair| (*pair).clone()).collect(),
+        };
+        out.push(table(&[]));
+        for (i, first) in joinable.iter().enumerate() {
+            out.push(table(&[first]));
+            for second in &joinable[i + 1..] {
+                out.push(table(&[first, second]));
+            }
+        }
+    }
+    out
+}
+
+/// Independent count of [`segmented_table_restrict_tables`].
+///
+/// With `k_a` rows in `a` and `k_b` in `b`, chosen in `4! / (k_a! k_b!
+/// (4 - k_a - k_b)!)` ways, there are `P = 2 k_a k_b` joinable pairs and
+/// `1 + P + P (P - 1) / 2` sets of at most two of them. Summed over every
+/// `k_a + k_b <= 4`: `741`.
+#[must_use]
+pub const fn segmented_table_restrict_table_count() -> u64 {
+    const FACTORIAL: [u64; 5] = [1, 1, 2, 6, 24];
+    let mut total = 0;
+    let mut ka = 0;
+    while ka <= 4 {
+        let mut kb = 0;
+        while ka + kb <= 4 {
+            let ways = FACTORIAL[4] / (FACTORIAL[ka] * FACTORIAL[kb] * FACTORIAL[4 - ka - kb]);
+            let pairs = 2 * (ka as u64) * (kb as u64);
+            let sets = 1 + pairs + pairs * pairs.saturating_sub(1) / 2;
+            total += ways * sets;
+            kb += 1;
+        }
+        ka += 1;
+    }
+    total
+}
+
+/// The partitions of the segmented table restriction carrier: every set
+/// partition of the row ids `0` to `3`.
+///
+/// A partition is given by its restricted growth string (row `i` in segment
+/// `s_i`, with `s_0 = 0` and each `s_i` at most one above every earlier one)
+/// and ordered by `sum s_i 4^i`; each segment owns its ids as singleton
+/// ranges and allocates nothing. There are `15`, the Bell number of four.
+#[must_use]
+pub fn segmented_table_restrict_partitions() -> Vec<Partition> {
+    let mut out = Vec::new();
+    for code in 0..256_u32 {
+        let owners: Vec<u32> = (0..4).map(|i| (code >> (2 * i)) & 3).collect();
+        let restricted = owners
+            .iter()
+            .enumerate()
+            .all(|(i, owner)| *owner <= owners[..i].iter().max().map_or(0, |max| max + 1));
+        if restricted {
+            let owners: Vec<Option<u32>> = owners.into_iter().map(Some).collect();
+            out.push(table_partition(&owners, false));
+        }
+    }
+    out
+}

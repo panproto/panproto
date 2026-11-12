@@ -1302,3 +1302,49 @@ The *read set* of a delta, the edit run and its refusals are those of [L-segment
 - File: `crates/panproto-lens/src/shape_edit_lens.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Segmented table get assembles to whole-state table get {#L-segments-32}
+
+### Statement
+
+Let $\ell$ be a table lens whose plan $\pi$, compiled for tables under the lens's boundary protocols, carries no expression in the sense of [L-segments-11](#L-segments-11), and let $S$ be a valid table segment family under a partition $P$, sealed by a manifest with trusted digest $d$. `table_lens::get_segmented` runs `TableRestrict` over $S$ as a checkpointed run ([L-segments-12](#L-segments-12)) and
+
+1. returns `Complete` exactly when whole-state table get of $\operatorname{glue}_P(S)$ along $\pi$ accepts; then, for each segment $i$, its Emit artifact holds a view segment $V_i$ and a table complement segment $C_i$ that are byte for byte the reference definition's: the view of $\operatorname{glue}_P(S)$ split by $P$, and the entries of its complement about the rows $i$ owns and the pairs whose source row $i$ owns, with floor one above the greatest source row identifier $i$ owns (0 when it owns none);
+2. glued, $(\operatorname{glue}_P(V), \bigcup_i C_i)$ is whole-state table get of $\operatorname{glue}_P(S)$, with the greatest floor as the identifier floor and without the identity stamp, which the view manifest's envelope carries;
+3. returns `Failed` with `SegmentedRestrictError::Restrict` carrying whole-state get's refusal otherwise, naming a segment of $P$, the owner of the source row of the contracted pair when the refusal is a contraction's;
+4. stopped after any number of tasks and run again against the same store, ends as the uninterrupted run, reusing every task the stopped run committed.
+
+Each segment reads its own rows, pairs and boundary; only contraction crosses segments, through one entry summary per dropped row that a pair from another segment enters.
+
+### Outside the domain
+
+A plan carrying an expression is declined before any task with `Residual::Global` naming the least vertex with one, as graph restriction is. A plan compiled without the table functor is refused at Export with `TablePlanRequired`. A family the runner's manifest checks refuse is refused before any task as in [L-segments-12](#L-segments-12).
+
+### Definitions used
+
+A row of source table $t$ *survives* when $t$ survives the vertex map; with no expression this depends on $t$ alone, which each boundary copy of a row (a ghost or an in-stub's source anchor) carries. A pair $(s, m)$ *enters* a row $m$ from another segment when $s$ and $m$ have different owners. The *entry summary* of a dropped row $m$ owned by segment $i$ lists the surviving rows, with their source tables, and the dropped rows owned elsewhere that $m$ reaches through dropped rows $i$ owns.
+
+### Proof
+
+1. Rows and pairs. Without expressions the row stage of the table engine decides each row from its own table and cells, and the pair stage decides each pair from its key's fate and the survival of its two rows, which a ghost carries for a remote target. Running both stages on a segment's rows, its pairs and a row without cells for each ghost gives exactly the whole-state outcome for its rows and pairs: a ghost row cannot refuse unless its owner's row refuses at the same identifier, since only the table test can fail on a row without cells. The engine's view rows and pairs for the segment's own rows and pairs, and its complement entries about them, are the whole-state ones.
+2. Contraction. Whole-state contraction joins each surviving row $s$ to every surviving row it reaches through dropped rows, by breadth-first search with one visited set. Reachability is a set, so the search may be split at segment boundaries: from $s$ the segment follows its own pairs through its own dropped rows, and at a dropped row $m$ owned elsewhere it continues with $m$'s entry summary, recursively, with one visited set over those rows. Every such $m$ has an entry summary, since the pair entering it is an in-stub of its owner. The realized pairs, and the least of them whose contraction refuses, are those of whole-state get.
+3. Refusals. Whole-state get refuses at the least row of the row stage, otherwise at the least pair, in ascending key and pair, of the pair stage, otherwise at the least realized pair. Assemble takes the least row or pair refusal over the Exports, recomputes it in the segment owning that row or the pair's source row, and otherwise takes the least contraction refusal over the Summaries, which is a function of the two rows' source tables. So the refusal is whole-state get's.
+4. Output. Emit places each segment's rows, kept pairs and contracted pairs, and its boundary: a ghost with the view table of each remote target, an in-stub for each kept pair entering it (from its source in-stubs) and for each contracted pair entering it (from the other Summaries). This is the split of the whole view by $P$, and the complement entries are split by the same ownership, which gives items 1 and 2. Item 4 is [L-segments-12](#L-segments-12), since every phase is deterministic in what it reads.
+5. The finite certificate takes every table of the carrier below under each of its $15$ partitions and each of six lenses: identity; dropping table `b` with a target relation `aa` that contraction resolves to; dropping `b` with no relation from `a` to `a`; dropping the relation `ba`; dropping the column `x`; dropping `a` with a target relation `bb`. The carrier holds the row identifiers $0$ to $3$, each absent, a row of `a` with `x = 0` or a row of `b` without cells, and every set of at most two of the pairs the keys `ab` and `ba` admit: with $k_a$ and $k_b$ rows in the two tables, $P = 2 k_a k_b$ pairs and $1 + P + P(P - 1)/2$ sets, $741$ tables in all. Contraction realizes a pair exactly in a table holding a chain of two pairs through a row of the dropped table, $\sum k_b k_a^2 = 180$ for each direction. So of the $66{,}690$ cases, $2{,}700$ are refused (the second lens on the $180$ chain tables), $5{,}400$ contract, and $63{,}990$ complete, each compared byte for byte with the reference and glued against whole-state get. Every 97th case is stopped at each cancellation point and resumed; a property test runs generated tables of up to eight rows and twelve pairs under generated partitions into up to three segments; and a lens with a survival predicate is declined before any task.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-table-get`
+- Reference: `panproto_reference::segment::restrict_table_segmented`
+- Reference: `panproto_reference::segment::split_table_complement`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_table_restrict_tables; bound: 741 tables, 15 partitions, 6 lenses, cases=66690`
+- Exhaustive differential test: `segmented_table_get::segmented_table_get_agrees_with_the_reference_on_every_case; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_table_get::segmented_table_get_agrees_with_the_reference_on_every_case)'`
+- Property differential test: `segmented_table_get::segmented_table_get_agrees_with_the_reference_on_generated_tables; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_table_get::segmented_table_get_agrees_with_the_reference_on_generated_tables)'`
+- Property scope: `tables of 1 to 8 row ids in a or b with up to 12 joinable pairs, partitions into up to 3 segments, every lens of the carrier; 256 cases`
+- Production certificate: `segmented_table_get::segmented_table_get_resumes_from_every_cancellation_point; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_table_get::segmented_table_get_resumes_from_every_cancellation_point)'`
+- Production certificate: `segmented_table_get::segmented_table_get_declines_an_expression_before_any_task; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_table_get::segmented_table_get_declines_an_expression_before_any_task)'`
+- File: `crates/panproto-inst/src/segment/table_restrict.rs`
+- File: `crates/panproto-inst/src/table_restrict.rs`
+- File: `crates/panproto-lens/src/table_lens.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`

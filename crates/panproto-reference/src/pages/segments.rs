@@ -11319,4 +11319,149 @@ pub mod segmented_edit_lens {
     }
 }
 
+pub mod segmented_table_restrict {
+    //! Segmented table restriction, defined by restricting the glued table
+    //! and laying the result out again.
+    //!
+    //! This is the executable definition of L-segments-32. It never runs
+    //! segment by segment: it glues the segments, runs whole-state table get
+    //! ([`TableLens::get`]), and splits the view and the complement by the
+    //! owner of each row and of each pair's source row.
+
+    use super::segment::{
+        Partition, SegmentError, SegmentFloors, TableComplementSegment, TableSegment,
+        assemble_table, partition_table,
+    };
+    use crate::model::Table;
+    use crate::pages::lenses::table::{TableComplement, TableLens};
+    use crate::restrict::RestrictError;
+
+    /// Why a segmented table restriction returns no output.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedTableRestrictRefusal {
+        /// The family is invalid, or the view cannot be split under the
+        /// partition.
+        Segment(SegmentError),
+        /// Whole-state table get refuses the glued table.
+        Restrict(RestrictError),
+    }
+
+    /// Definition: the complement segments of `whole` under `p`, for the
+    /// source table `source`.
+    ///
+    /// Segment `i` holds every entry of `whole` about a row `p` gives it
+    /// and every entry about a pair whose source row `p` gives it; its
+    /// floor is one above the greatest row id of `source` it owns, or 0
+    /// when it owns none. A row no range owns lies in no segment.
+    #[must_use]
+    pub fn split_table_complement(
+        whole: &TableComplement,
+        source: &Table,
+        p: &Partition,
+    ) -> Vec<TableComplementSegment> {
+        p.specs
+            .iter()
+            .map(|spec| {
+                let owns = |row: &u32| p.owner_of_node(*row) == Some(spec.id);
+                let floor = source
+                    .rows
+                    .keys()
+                    .filter(|row| owns(row))
+                    .max()
+                    .map_or(0, |row| row.saturating_add(1));
+                TableComplementSegment {
+                    dropped_rows: whole
+                        .dropped_rows
+                        .iter()
+                        .filter(|(row, _)| owns(row))
+                        .map(|(row, dropped)| (*row, dropped.clone()))
+                        .collect(),
+                    dropped_cells: whole
+                        .dropped_cells
+                        .iter()
+                        .filter(|((row, _), _)| owns(row))
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                    dropped_fk_pairs: whole
+                        .dropped_fk_pairs
+                        .iter()
+                        .map(|(edge, pairs)| {
+                            (
+                                edge.clone(),
+                                pairs
+                                    .iter()
+                                    .filter(|(src, _)| owns(src))
+                                    .copied()
+                                    .collect::<std::collections::BTreeSet<_>>(),
+                            )
+                        })
+                        .filter(|(_, pairs)| !pairs.is_empty())
+                        .collect(),
+                    original_fk_edges: whole
+                        .original_fk_edges
+                        .iter()
+                        .filter(|((_, src, _), _)| owns(src))
+                        .map(|(key, carriers)| (key.clone(), carriers.clone()))
+                        .collect(),
+                    original_tables: whole
+                        .original_tables
+                        .iter()
+                        .filter(|(row, _)| owns(row))
+                        .map(|(row, table)| (*row, table.clone()))
+                        .collect(),
+                    original_cells: whole
+                        .original_cells
+                        .iter()
+                        .filter(|((row, _), _)| owns(row))
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                    synthesized_fk_pairs: whole
+                        .synthesized_fk_pairs
+                        .iter()
+                        .filter(|(_, src, _)| owns(src))
+                        .cloned()
+                        .collect(),
+                    floors: SegmentFloors {
+                        node: floor,
+                        edge: 0,
+                    },
+                    original_absent_cells: whole
+                        .original_absent_cells
+                        .iter()
+                        .filter(|(row, _)| owns(row))
+                        .cloned()
+                        .collect(),
+                }
+            })
+            .collect()
+    }
+
+    /// Definition: segmented table restriction along `lens`.
+    ///
+    /// Glue `segments` under `p` and refuse an invalid family with the glue
+    /// refusal; run whole-state table get on the glued table and refuse
+    /// with its refusal; split the view with [`partition_table`] and the
+    /// complement with [`split_table_complement`]; return each segment's
+    /// view and complement, in segment order.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn restrict_table_segmented(
+        lens: &TableLens<'_>,
+        segments: &[TableSegment],
+        p: &Partition,
+    ) -> Result<Vec<(TableSegment, TableComplementSegment)>, SegmentedTableRestrictRefusal> {
+        let source = assemble_table(segments, p).map_err(SegmentedTableRestrictRefusal::Segment)?;
+        let (view, complement) = lens
+            .get(&source)
+            .map_err(SegmentedTableRestrictRefusal::Restrict)?;
+        let views = partition_table(&view, p).map_err(SegmentedTableRestrictRefusal::Segment)?;
+        Ok(views
+            .into_iter()
+            .zip(split_table_complement(&complement, &source, p))
+            .collect())
+    }
+}
+
 pub use self::segment::{fresh, glue, partition, segmented};
