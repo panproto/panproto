@@ -9,19 +9,19 @@
 //! dispatches refuse the protocol with an error naming that reader.
 //!
 //! Every object of the description is a vertex whose kind names the object
-//! ([`OBJECTS`]): the `openapi` root, `info`, `path-item`, `operation`,
+//! ([`OBJECTS`](crate::api::openapi::OBJECTS)): the `openapi` root, `info`, `path-item`, `operation`,
 //! `parameter` and the rest, and `reference` for a Reference Object. A
-//! field that holds objects is an edge kind ([`Field::edge`]) from the
+//! field that holds objects is an edge kind ([`Field::edge`](crate::api::openapi::Field::edge)) from the
 //! object to each object it holds, named by the map key or list index; a
 //! field that holds a value is a constraint of the field's name holding the
 //! value as canonical JSON text, as is a map or list field that is empty;
-//! and a specification extension (`x-`) is an [`EXTENSION`] constraint
+//! and a specification extension (`x-`) is an [`EXTENSION`](crate::api::openapi::EXTENSION) constraint
 //! holding the member as written. Schema Objects are `json-schema`
 //! subschemas (dialect 2020-12 with the `OpenAPI` vocabulary,
-//! [`VOCABULARY`]), so this protocol declares that protocol's kinds, edges
+//! [`VOCABULARY`](crate::api::openapi::VOCABULARY)), so this protocol declares that protocol's kinds, edges
 //! and constraint sorts too. Reference Objects, a Path Item's `$ref`, a
 //! Link's operation and a Security Requirement's schemes are edges
-//! ([`REF`], [`OPERATION`], [`REQUIREMENT`]) to what they resolve to.
+//! ([`REF`](crate::api::openapi::REF), [`OPERATION`](crate::api::openapi::OPERATION), [`REQUIREMENT`](crate::api::openapi::REQUIREMENT)) to what they resolve to.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
