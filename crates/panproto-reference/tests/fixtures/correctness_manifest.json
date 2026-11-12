@@ -4939,6 +4939,7 @@
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
         "crates/panproto-reference/src/pages/lenses/alignment.rs",
+        "crates/panproto-reference/src/pages/lenses/coercion.rs",
         "crates/panproto-reference/src/pages/lenses/composite.rs",
         "crates/panproto-reference/src/pages/lenses/constructions.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
@@ -5658,6 +5659,27 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_sequential_composite_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.sort-coercion-instances",
+          "anchor": "L-lenses-25",
+          "references": [
+            "panproto_reference::lens::SortCoercion::target_and_migration"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "sort_coercions_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_sort_coercion_differential"
             }
           ]
         }

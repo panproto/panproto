@@ -1148,3 +1148,43 @@ Lens paths, their groups and located refusals are those of [L-lenses-13](#L-lens
 - File: `crates/panproto-lens/src/lens_path.rs`
 - File: `crates/panproto-reference/src/pages/lenses/composite.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+## A sort coercion rewrites every value of its sort and puts an edit back by its inverse {#L-lenses-25}
+
+### Statement
+
+The lens DSL compiles `coerce_sort` to a sort coercion with a forward expression $f$, an optional inverse $g$ and a declared class. At a schema $S$ with a vertex of the coerced kind, the target is $S$ (the coercion is recorded beside the schema, its vertices and edges unchanged), every vertex and edge survives under its own name, and every vertex of the coerced kind is transformed. Get replaces the value $x$ of each node of such a vertex by $f(x)$ when $x$ is present, and leaves an absent or null value as it is; the complement records the source value of each node whose value get changed. Put restores each such node's value from its view value $y$ and the recorded source value $x$:
+
+1. when $y = f(x)$, put returns $x$, so an unedited value comes back exactly whatever the class;
+2. when get recorded nothing and $f$ fixes $y$, put returns $y$;
+3. otherwise $y$ is an edit: a coercion with no inverse refuses it with `TransformNotInvertible`, and one with an inverse returns $g(y)$ for a present $y$ (refusing a $y$ outside $g$'s domain the same way) and $y$ itself for an absent or null one.
+
+A node at a vertex of another kind keeps its view value. GetPut holds on every source whose get succeeds. PutGet holds on the views whose edited values $y$ satisfy $f(g(y)) = y$, which is what the declared class promises: an isomorphism or a retraction declares $f \circ g = \mathrm{id}$ on the view's values, so every edit within $g$'s domain round-trips, while a projection or an opaque coercion has no inverse and its put domain is the views that edit no coerced value. The class decides what the complement must keep: an isomorphism keeps nothing it needs (its recorded values equal $g$ of the view's), a retraction keeps what $g$ cannot recover, and a projection or opaque coercion keeps every source value, which is why `invertible: true` refuses those classes.
+
+The carrier enumerates four coercions of the kind `integer` (integer to string with its parse as inverse, declared an isomorphism; successor with predecessor as inverse, declared a retraction; successor with no inverse, declared a projection, and declared opaque) over three schemas: 324 applications and 3,624 puts.
+
+### Outside the domain
+
+A schema with no vertex of the coerced kind is refused before instantiation with `LensError::ProtolensInapplicable`. A source value outside $f$'s domain is refused by get with the field transform's failure. A view outside the put domain is refused by put with `TransformNotInvertible` at the edited node, or with the first other violation of [L-lenses-4](#L-lenses-4).
+
+### Definitions used
+
+The value layer and its restoration are those of [L-lenses-3](#L-lenses-3) and [L-lenses-4](#L-lenses-4). The reference's `SortCoercion` takes $f$ and $g$ as functions on its own values. The carrier's maps are written beside the reference on its values, not evaluated by the expression language; for an arbitrary coercion the expression evaluator, checked on the [Values](values.md) page, is the trusted boundary between a document's expressions and these maps. A coercion's declared class is checked against samples when the lens DSL compiles the step ([Lens DSL](lens-dsl.md)); this law takes the declaration as given, so an isomorphism whose $f \circ g$ is not the identity on some view value loses PutGet there.
+
+### Proof
+
+1. Production instantiates the coercion by recording the coercion beside the schema and attaching to every surviving vertex of the coerced kind a value transform with $f$, $g$ and the class; the reference's `SortCoercion::target_and_migration` marks the same vertices transformed. The differential compares the targets, views and complements.
+2. GetPut: get records $x$ whenever $f(x) \ne x$, so clause 1 or 2 returns the source value of every node.
+3. PutGet: for an edit $y$ in the domain, put returns $g(y)$ and get then shows $f(g(y)) = y$; for an unedited value it returns $x$ and get shows $f(x) = y$.
+4. Refusals: an edit with no inverse has no source value whose image is $y$ that put could choose without guessing, so it is refused, which keeps PutGet on the domain.
+
+### Executable counterpart
+
+- Law ID: `lenses.sort-coercion-instances`
+- Reference: `panproto_reference::lens::SortCoercion::target_and_migration`
+- Enumerator: `panproto_reference::enumerate::lenses::coercion_count_certificate; bound: kinds=4, schemas=3, source_states=81, get_cases=324, inapplicable=0, identifying=0, instantiated=12, get_refusals=0, put_cases=3624`
+- Exhaustive differential test: `sort_coercions_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=sort_coercions_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_sort_coercion_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_sort_coercion_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/coercion.rs`
+- File: `crates/panproto-reference/src/enumerate/lenses.rs`

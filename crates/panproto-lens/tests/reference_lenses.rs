@@ -18623,3 +18623,260 @@ proptest! {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Sort coercions against the reference's coercion value layer
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    COERCION_SOURCE_BOUND, coercion_alphabet, coercion_count_certificate, coercion_schemas,
+};
+
+/// The production protolens of each entry of [`coercion_alphabet`]: the
+/// same maps as expressions over the coerced value `v`.
+fn production_coercion_alphabet() -> Vec<panproto_lens::Protolens> {
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_gat::{CoercionClass, ValueKind};
+    let v = || Expr::Var(std::sync::Arc::from("v"));
+    let successor = || Expr::Builtin(BuiltinOp::Add, vec![v(), Expr::Lit(Literal::Int(1))]);
+    let coerce = |forward, inverse, kind, class| {
+        elementary::sort_coerce("integer", kind, forward, inverse, class)
+    };
+    vec![
+        coerce(
+            Expr::Builtin(BuiltinOp::IntToStr, vec![v()]),
+            Some(Expr::Builtin(BuiltinOp::StrToInt, vec![v()])),
+            ValueKind::Str,
+            CoercionClass::Iso,
+        ),
+        coerce(
+            successor(),
+            Some(Expr::Builtin(
+                BuiltinOp::Sub,
+                vec![v(), Expr::Lit(Literal::Int(1))],
+            )),
+            ValueKind::Int,
+            CoercionClass::Retraction,
+        ),
+        coerce(successor(), None, ValueKind::Int, CoercionClass::Projection),
+        coerce(successor(), None, ValueKind::Int, CoercionClass::Opaque),
+    ]
+}
+
+/// Per-thread state of the sort coercion certificate.
+struct CoercionContext {
+    production: Vec<panproto_lens::Protolens>,
+    layers: Vec<&'static panproto_reference::lens::SortCoercion>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    pairs: BTreeMap<(usize, usize), Pair>,
+}
+
+impl CoercionContext {
+    fn new() -> Self {
+        let production = production_coercion_alphabet();
+        let layers: Vec<&'static panproto_reference::lens::SortCoercion> = coercion_alphabet()
+            .into_iter()
+            .map(|layer| &*Box::leak(Box::new(layer)))
+            .collect();
+        let schemas = coercion_schemas();
+        let (nodes, edges) = COERCION_SOURCE_BOUND;
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let mut pairs = BTreeMap::new();
+        for (kind, layer) in layers.iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                let (target, migration) = layer.target_and_migration(schema);
+                let Ok(lens) = production[kind]
+                    .instantiate_checked(&prod_schema(schema), &Protocol::default())
+                else {
+                    continue;
+                };
+                pairs.insert(
+                    (kind, index),
+                    Pair::with_production(schema.clone(), target, migration, *layer, lens),
+                );
+            }
+        }
+        Self {
+            production,
+            layers,
+            schemas,
+            sources,
+            pairs,
+        }
+    }
+
+    fn units(&self) -> Vec<(usize, usize, usize)> {
+        (0..self.layers.len())
+            .flat_map(|kind| {
+                self.sources
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(schema, sources)| {
+                        (0..sources.len()).map(move |source| (kind, schema, source))
+                    })
+            })
+            .collect()
+    }
+
+    fn reference_application(
+        &self,
+        kind: usize,
+        schema: usize,
+        source: usize,
+    ) -> ElementaryApplication {
+        let Some(pair) = self.pairs.get(&(kind, schema)) else {
+            return ElementaryApplication::Inapplicable;
+        };
+        match reference_get(pair, &self.sources[schema][source]) {
+            Ok((view, complement)) => {
+                ElementaryApplication::Applied(Box::new((pair.tgt.clone(), view, complement)))
+            }
+            Err(reason) => ElementaryApplication::Refused(format!("{reason:?}")),
+        }
+    }
+
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<TermCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![TermCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let ElementaryApplication::Applied(applied) =
+            self.reference_application(kind, schema, source)
+        {
+            let (target, view, complement) = *applied;
+            cases.extend(
+                put_views_of(&view, &target, &complement)
+                    .into_iter()
+                    .map(|view| TermCase {
+                        kind,
+                        schema,
+                        source,
+                        view: Some(view),
+                    }),
+            );
+        }
+        cases
+    }
+}
+
+fn production_coercion_case(context: &CoercionContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(production_elementary_application(
+                &context.production[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context
+                    .pairs
+                    .get(&(case.kind, case.schema))
+                    .and_then(|pair| production_put(pair, source, view)),
+            ))
+        },
+    )
+}
+
+fn reference_coercion_case(context: &CoercionContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(context.reference_application(
+                case.kind,
+                case.schema,
+                case.source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context
+                    .pairs
+                    .get(&(case.kind, case.schema))
+                    .and_then(|pair| reference_put(pair, source, view)),
+            ))
+        },
+    )
+}
+
+#[test]
+fn sort_coercions_agree_with_the_reference_exhaustively() {
+    let certificate = coercion_count_certificate();
+    assert_eq!(certificate.kinds, 4);
+    assert_eq!(certificate.schemas, 3);
+    assert_eq!(certificate.source_states, 81);
+    assert_eq!(certificate.get_cases, 324);
+    assert_eq!(certificate.inapplicable, 0);
+    assert_eq!(certificate.identifying, 0);
+    assert_eq!(certificate.instantiated, 12);
+    assert_eq!(certificate.get_refusals, 0);
+    assert_eq!(certificate.put_cases, 3_624);
+
+    let context = CoercionContext::new();
+    let (nodes, edges) = COERCION_SOURCE_BOUND;
+    for (schema, sources) in context.schemas.iter().zip(&context.sources) {
+        assert_eq!(sources.len(), graph_state_count_up_to(schema, nodes, edges));
+    }
+    assert_eq!(context.pairs.len(), certificate.instantiated);
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!("L-lenses-25 sort coercions: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        CoercionContext::new,
+        CoercionContext::expand,
+        production_coercion_case,
+        reference_coercion_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+    #[test]
+    fn randomized_sort_coercion_differential(
+        kind in 0..4_usize,
+        schema in 0..3_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        let context = CoercionContext::new();
+        let schema_ref = &context.schemas[schema];
+        let source = random_elementary_graph(schema_ref, source_seed);
+        prop_assert_eq!(
+            production_elementary_application(&context.production[kind], schema_ref, &source),
+            match reference_get(&context.pairs[&(kind, schema)], &source) {
+                Ok((view, complement)) => ElementaryApplication::Applied(Box::new((
+                    schema_ref.clone(),
+                    view,
+                    complement,
+                ))),
+                Err(reason) => ElementaryApplication::Refused(format!("{reason:?}")),
+            }
+        );
+        let pair = &context.pairs[&(kind, schema)];
+        if let Ok((view, _)) = reference_get(pair, &source) {
+            let edited = random_elementary_graph(schema_ref, view_seed);
+            for put_view in [&view, &edited] {
+                prop_assert_eq!(
+                    production_put(pair, &source, put_view),
+                    reference_put(pair, &source, put_view)
+                );
+            }
+        }
+    }
+}

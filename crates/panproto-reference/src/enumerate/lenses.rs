@@ -6539,3 +6539,142 @@ pub fn composite_protolens_count_certificate() -> CompositeCarrierCertificate {
     }
     out
 }
+
+// ---------------------------------------------------------------------------
+// Sort coercions
+// ---------------------------------------------------------------------------
+
+/// The vertices of the sort coercion carrier that carry the coerced kind.
+pub const COERCION_VERTICES: [&str; 2] = ["a", "b"];
+/// The coerced kind.
+pub const COERCED_SORT: &str = "integer";
+/// Most nodes and edges in a sort coercion source state.
+pub const COERCION_SOURCE_BOUND: (usize, usize) = (2, 2);
+
+/// The schemas of the sort coercion carrier.
+///
+/// They are `a` of the coerced kind alone, with an edge to `s` of another
+/// kind, and with an edge to `b` of the coerced kind. Every vertex of the
+/// coerced kind is one of [`COERCION_VERTICES`].
+#[must_use]
+pub fn coercion_schemas() -> Vec<Schema> {
+    let with = |vertex: &str, kind: &str| {
+        Schema::default()
+            .vertex("a", COERCED_SORT)
+            .vertex(vertex, kind)
+            .edge("a", vertex, "prop", Some("x"))
+    };
+    vec![
+        Schema::default().vertex("a", COERCED_SORT),
+        with("s", "string"),
+        with("b", COERCED_SORT),
+    ]
+}
+
+fn integer_to_string(value: &Value) -> Option<Value> {
+    match value {
+        Value::Int(integer) => Some(Value::Str(integer.to_string())),
+        _ => None,
+    }
+}
+
+fn string_to_integer(value: &Value) -> Option<Value> {
+    match value {
+        Value::Str(text) => text.parse::<i64>().ok().map(Value::Int),
+        _ => None,
+    }
+}
+
+fn successor(value: &Value) -> Option<Value> {
+    match value {
+        Value::Int(integer) => integer.checked_add(1).map(Value::Int),
+        _ => None,
+    }
+}
+
+fn predecessor(value: &Value) -> Option<Value> {
+    match value {
+        Value::Int(integer) => integer.checked_sub(1).map(Value::Int),
+        _ => None,
+    }
+}
+
+/// The sort coercion alphabet, each a value layer on the coerced kind.
+///
+/// In order: integer to string with its parse as inverse, declared an
+/// isomorphism; successor with predecessor as inverse, declared a
+/// retraction; successor with no inverse, declared a projection; and
+/// successor with no inverse, declared opaque. The maps are written here
+/// on the reference's values, independently of the expression language.
+#[must_use]
+pub fn coercion_alphabet() -> Vec<crate::lens::SortCoercion> {
+    let coercion = |name, forward, inverse| crate::lens::SortCoercion {
+        name,
+        sort: COERCED_SORT,
+        vertices: &COERCION_VERTICES,
+        forward,
+        inverse,
+    };
+    vec![
+        coercion(
+            "iso integer to string",
+            integer_to_string as crate::lens::ValueMap,
+            Some(string_to_integer as crate::lens::ValueMap),
+        ),
+        coercion(
+            "retraction successor",
+            successor,
+            Some(predecessor as crate::lens::ValueMap),
+        ),
+        coercion("projection successor", successor, None),
+        coercion("opaque successor", successor, None),
+    ]
+}
+
+/// Count the sort coercion carrier: closed-form source counts, and per
+/// source the closed-form count of one-step edits of the reference view.
+#[must_use]
+pub fn coercion_count_certificate() -> ProtolensCarrierCertificate {
+    let alphabet = coercion_alphabet();
+    let schemas = coercion_schemas();
+    let (nodes, edges) = COERCION_SOURCE_BOUND;
+    let mut certificate = ProtolensCarrierCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states: schemas
+            .iter()
+            .map(|schema| graph_state_count_up_to(schema, nodes, edges))
+            .sum(),
+        ..ProtolensCarrierCertificate::default()
+    };
+    certificate.get_cases = certificate.kinds * certificate.source_states;
+    for coercion in &alphabet {
+        for schema in &schemas {
+            let (target, migration) = coercion.target_and_migration(schema);
+            let Ok(plan) = crate::restrict::compile(schema, &target, &migration) else {
+                certificate.get_refusals += graph_state_count_up_to(schema, nodes, edges);
+                continue;
+            };
+            certificate.instantiated += 1;
+            let Ok(lens) = crate::lens::GraphLens::new(
+                schema,
+                &target,
+                &migration,
+                &plan,
+                &BTreeMap::new(),
+                coercion,
+            ) else {
+                unreachable!("a plan binds the schemas it was compiled for")
+            };
+            for source in graph_states_up_to(schema, nodes, edges) {
+                match lens.get(&source) {
+                    Ok((view, complement)) => {
+                        certificate.put_cases += put_case_count(&view, &target, &complement);
+                    }
+                    Err(_) => certificate.get_refusals += 1,
+                }
+            }
+        }
+    }
+    certificate
+}

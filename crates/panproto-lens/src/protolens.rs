@@ -419,12 +419,15 @@ impl Protolens {
     }
 }
 
-/// Install value transforms for exact per-vertex kind changes.
+/// Install value transforms for exact per-vertex kind changes and sort
+/// coercions.
 ///
 /// A schema kind mutation is not a value coercion by itself. The target
 /// schema must register the coercion for the old/new kind pair; otherwise
 /// instantiation fails instead of emitting values that violate the target
-/// schema. Composite transforms preserve step order.
+/// schema. A sort coercion applies its forward expression to the value of
+/// every node of every vertex of the coerced kind that survives, with its
+/// inverse and class. Composite transforms preserve step order.
 fn attach_exact_vertex_kind_coercions(
     lens: &mut Lens,
     transform: &TheoryTransform,
@@ -455,6 +458,35 @@ fn attach_exact_vertex_kind_coercions(
                     coercion_class: spec.class,
                 },
             );
+            Ok(())
+        }
+        TheoryTransform::CoerceSort {
+            sort_name,
+            coercion_expr,
+            inverse_expr,
+            coercion_class,
+            ..
+        } => {
+            let mut coerced: Vec<Name> = lens
+                .src_schema
+                .vertices
+                .values()
+                .filter(|vertex| {
+                    *vertex.kind == **sort_name && lens.tgt_schema.vertices.contains_key(&vertex.id)
+                })
+                .map(|vertex| vertex.id.clone())
+                .collect();
+            coerced.sort();
+            for id in coerced {
+                lens.compiled.field_transforms.entry(id).or_default().push(
+                    panproto_inst::FieldTransform::ApplyExpr {
+                        key: "__value__".to_owned(),
+                        expr: coercion_expr.clone(),
+                        inverse: inverse_expr.clone(),
+                        coercion_class: *coercion_class,
+                    },
+                );
+            }
             Ok(())
         }
         TheoryTransform::Compose(first, second) => {
@@ -6439,6 +6471,58 @@ mod fused_edges_follow_their_steps {
         assert_eq!(
             lens.compiled.edge_remap.get(&edge("p", "y")),
             Some(&edge("r", "y"))
+        );
+        Ok(())
+    }
+}
+
+/// A sort coercion rewrites the values of its sort's nodes at get and takes
+/// an edited value back by its inverse at put.
+#[cfg(test)]
+mod sort_coercions_rewrite_values {
+    use std::error::Error;
+    use std::sync::Arc;
+
+    use panproto_expr::{BuiltinOp, Expr};
+    use panproto_gat::{CoercionClass, ValueKind};
+    use panproto_inst::{FieldPresence, GInstance, Node, Value};
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn an_integer_to_string_coercion_rewrites_the_value_and_puts_an_edit_back() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "integer", None)?
+            .build()?;
+        let v = || Expr::Var(Arc::from("v"));
+        let lens = elementary::sort_coerce(
+            "integer",
+            ValueKind::Str,
+            Expr::Builtin(BuiltinOp::IntToStr, vec![v()]),
+            Some(Expr::Builtin(BuiltinOp::StrToInt, vec![v()])),
+            CoercionClass::Iso,
+        )
+        .instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "a");
+        node.value = Some(FieldPresence::Present(Value::Int(5)));
+        source.insert_node(node)?;
+        let (mut view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(
+            view.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Str("5".to_owned())))
+        );
+        if let Some(node) = view.node_mut(0) {
+            node.value = Some(FieldPresence::Present(Value::Str("9".to_owned())));
+        }
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+        assert_eq!(
+            restored.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Int(9)))
         );
         Ok(())
     }

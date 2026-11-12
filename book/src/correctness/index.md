@@ -53,7 +53,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Edits](edits.md) | 8 |
 | [Validation](validation.md) | 20 |
 | [Segments](segments.md) | 10 |
-| [Lenses](lenses.md) | 24 |
+| [Lenses](lenses.md) | 25 |
 | [Reference resolution](resolution.md) | 16 |
 | [Text formats](text-formats.md) | 4 |
 | [PostgreSQL DDL](postgresql-ddl.md) | 3 |

@@ -2,6 +2,8 @@
 
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
+// The sort coercion protolens's value layer.
+mod coercion;
 // Fused chains, scoped protolenses and sequential composites.
 mod composite;
 mod constructions;
