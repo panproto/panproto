@@ -3248,6 +3248,214 @@ pub mod edit {
         Ok(out)
     }
 
+    /// Why a delta does not rebase over committed deltas: the position of
+    /// the first committed delta it depends on, and the first conflict
+    /// between them.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct RebaseConflict<C> {
+        /// The committed delta's position, from zero.
+        pub index: usize,
+        /// The first conflict.
+        pub conflict: C,
+    }
+
+    /// The first committed delta `delta` is not independent of, by
+    /// `conflicts`, with the first conflict; `None` when it is independent
+    /// of all.
+    fn first_dependence<D, C>(
+        delta: &D,
+        committed: &[D],
+        conflicts: impl Fn(&D, &D) -> Vec<C>,
+    ) -> Option<RebaseConflict<C>> {
+        committed.iter().enumerate().find_map(|(index, other)| {
+            conflicts(delta, other)
+                .into_iter()
+                .next()
+                .map(|conflict| RebaseConflict { index, conflict })
+        })
+    }
+
+    /// Definition: A graph delta made against a state that has since taken
+    /// the committed deltas in order is rebased to follow them as itself
+    /// when it is independent of each, and otherwise refused with the first
+    /// conflict of the first committed delta it is not independent of.
+    ///
+    /// # Errors
+    ///
+    /// That conflict, with the committed delta's position.
+    ///
+    /// Book anchors: `L-edits-11`.
+    pub fn rebase(
+        delta: &GraphDelta,
+        committed: &[GraphDelta],
+    ) -> Result<GraphDelta, RebaseConflict<EditConflict>> {
+        first_dependence(delta, committed, independence).map_or_else(|| Ok(delta.clone()), Err)
+    }
+
+    /// A table element or attribute that a table conflict names as a use.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum TableUse {
+        /// An attribute.
+        Attr(TKey),
+        /// A row or a pair.
+        Elem(TElem),
+    }
+
+    /// A representation-level conflict between two table deltas, in the
+    /// order of the graph conflicts of [`EditConflict`].
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum TableConflict {
+        /// Both delete the row or pair.
+        DeleteDelete {
+            /// The element.
+            elem: TElem,
+        },
+        /// One deletes the row or pair and the other uses it.
+        DeleteUse {
+            /// The deleted element.
+            deleted: TElem,
+            /// The use.
+            user: TableUse,
+        },
+        /// Both change the cell or table.
+        UpdateUpdate {
+            /// The key.
+            key: TKey,
+        },
+        /// Both add the row or pair.
+        AddAdd {
+            /// The element.
+            elem: TElem,
+        },
+        /// One changes a row's table and the other adds or replaces a pair
+        /// at the row.
+        AnchorUse {
+            /// The row.
+            row: u32,
+            /// The pair.
+            user: TElem,
+        },
+    }
+
+    /// Whether the table element `x` is the row `r` or a pair at it.
+    fn table_meets(x: &TElem, r: u32) -> bool {
+        match x {
+            TElem::Row(row) => *row == r,
+            TElem::Pair(_, src, tgt) => *src == r || *tgt == r,
+        }
+    }
+
+    /// The uses by `d` of the table element `x`: each pair `d` adds at the
+    /// row `x`, each entry of `d` the element owns, and `x` itself when `d`
+    /// replaces it.
+    fn table_uses(d: &TableDelta, x: &TElem) -> Vec<TableUse> {
+        let mut out = Vec::new();
+        if let TElem::Row(r) = x {
+            out.extend(
+                d.add
+                    .keys()
+                    .filter(|y| matches!(y, TElem::Pair(..)) && table_meets(y, *r))
+                    .map(|y| TableUse::Elem(y.clone())),
+            );
+        }
+        out.extend(
+            d.attrs
+                .keys()
+                .filter(|k| TableSpace::owner(k) == *x)
+                .map(|k| TableUse::Attr(k.clone())),
+        );
+        if d.del.contains_key(x) && d.add.contains_key(x) {
+            out.push(TableUse::Elem(x.clone()));
+        }
+        out
+    }
+
+    /// Definition: Every conflict between two table deltas of one table,
+    /// sorted; they are independent iff there is none. Both delete or both
+    /// add an element; one deletes an element the other uses (adds a pair
+    /// at a deleted row, changes an entry of it, or replaces it); both
+    /// change an entry; or one changes a row's table and the other adds a
+    /// pair at the row.
+    ///
+    /// Book anchors: `L-edits-11`.
+    #[must_use]
+    pub fn table_independence(a: &TableDelta, b: &TableDelta) -> Vec<TableConflict> {
+        let mut out = BTreeSet::new();
+        for x in a.del.keys().filter(|x| b.del.contains_key(*x)) {
+            out.insert(TableConflict::DeleteDelete { elem: x.clone() });
+        }
+        for x in a.add.keys().filter(|x| b.add.contains_key(*x)) {
+            out.insert(TableConflict::AddAdd { elem: x.clone() });
+        }
+        for k in a.attrs.keys().filter(|k| b.attrs.contains_key(*k)) {
+            out.insert(TableConflict::UpdateUpdate { key: k.clone() });
+        }
+        for (d1, d2) in [(a, b), (b, a)] {
+            for x in d1.del.keys() {
+                for user in table_uses(d2, x) {
+                    out.insert(TableConflict::DeleteUse {
+                        deleted: x.clone(),
+                        user,
+                    });
+                }
+            }
+            for k in d1.attrs.keys() {
+                if let TKey::Table(r) = k {
+                    for y in d2.add.keys() {
+                        if matches!(y, TElem::Pair(..)) && table_meets(y, *r) {
+                            out.insert(TableConflict::AnchorUse {
+                                row: *r,
+                                user: y.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// Definition: The merge of two independent table deltas is their
+    /// union, without an entry owned by a deleted or added row or an entry
+    /// whose old and new values agree.
+    ///
+    /// # Errors
+    ///
+    /// The first conflict when they are not independent.
+    ///
+    /// Book anchors: `L-edits-11`.
+    pub fn merge_table(a: &TableDelta, b: &TableDelta) -> Result<TableDelta, TableConflict> {
+        if let Some(c) = table_independence(a, b).into_iter().next() {
+            return Err(c);
+        }
+        let mut out = a.clone();
+        out.del.extend(b.del.clone());
+        out.add.extend(b.add.clone());
+        out.attrs.extend(b.attrs.clone());
+        out.attrs.retain(|key, (old, new)| {
+            let owner = TableSpace::owner(key);
+            !out.del.contains_key(&owner) && !out.add.contains_key(&owner) && old != new
+        });
+        Ok(out)
+    }
+
+    /// Definition: A table delta is rebased over committed table deltas as
+    /// [`rebase`] rebases a graph delta, by [`table_independence`].
+    ///
+    /// # Errors
+    ///
+    /// The first conflict of the first committed delta the delta is not
+    /// independent of, with its position.
+    ///
+    /// Book anchors: `L-edits-11`.
+    pub fn rebase_table(
+        delta: &TableDelta,
+        committed: &[TableDelta],
+    ) -> Result<TableDelta, RebaseConflict<TableConflict>> {
+        first_dependence(delta, committed, table_independence)
+            .map_or_else(|| Ok(delta.clone()), Err)
+    }
+
     /// A typed incremental edit result, including the complement that belongs
     /// to the edited state.
     #[derive(Clone, Debug, PartialEq)]

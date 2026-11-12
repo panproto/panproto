@@ -59,6 +59,7 @@
 //! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`], [`edit::graph_delta_from_tree_edit`], [`edit::diff_keeping_replacements`] | `edits.md` |
 //! | The graph edit lens: the stable presentation of synthesized ids and the stateful translations of source and view edits | [`edit::stable_presentation`], [`edit::graph_edit_get`], [`edit::graph_edit_put`] | `edits.md` |
 //! | The table edit lens: the closed table differ and the stateful translations of source and view edits | [`edit::diff_keeping_replacements_table`], [`edit::table_edit_get`], [`edit::table_edit_put`] | `edits.md` |
+//! | Rebasing graph and table deltas over committed deltas, with table independence and merge | [`edit::rebase`], [`edit::rebase_table`], [`edit::table_independence`], [`edit::merge_table`] | `edits.md` |
 //! | Validation as predicates over instances | [`validation::validate`], [`validation::validate_table`], [`validation::validate_tree`] | `validation.md` |
 //! | Validation transition and boundary observations | [`validation::witness_with_trust`], [`validation::incremental_footprint`], [`validation::incremental_report`], [`validation::restriction_boundary`] | `validation.md` |
 //! | Admission policies | [`validation::admits`] | `validation.md` |

@@ -2889,6 +2889,496 @@ fn graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_cove
     }
 }
 
+/// Visit every word of at most two letters from `state` whose letters all
+/// apply, the empty word first, with the state it reaches: each letter is
+/// drawn from `letters` at the state its prefix reaches, with the floors
+/// that prefix carries, as the coverage walk draws it.
+fn committed_words<S, L: Clone>(
+    state: &S,
+    floors: carrier::CoverageFloors,
+    letters: &dyn Fn(&S, carrier::CoverageFloors) -> Vec<L>,
+    apply: &dyn Fn(&L, &S) -> Option<S>,
+    after: &dyn Fn(carrier::CoverageFloors, &S) -> carrier::CoverageFloors,
+    visit: &mut dyn FnMut(&[L], &S),
+) {
+    visit(&[], state);
+    for first in letters(state, floors) {
+        let Some(one) = apply(&first, state) else {
+            continue;
+        };
+        visit(std::slice::from_ref(&first), &one);
+        for second in letters(&one, after(floors, &one)) {
+            if let Some(two) = apply(&second, &one) {
+                visit(&[first.clone(), second], &two);
+            }
+        }
+    }
+}
+
+/// The counts of a rebase sweep: the base states, the committed words by
+/// length, the rebased letters, those that rebase and apply at their base
+/// and so are checked against the merge, and the refusals by committed
+/// position and conflict variant.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct RebaseTally {
+    states: u64,
+    words: [u64; 5],
+    letters: u64,
+    merged: u64,
+    refusals: BTreeMap<(usize, String), u64>,
+}
+
+impl RebaseTally {
+    fn absorb(&mut self, other: Self) {
+        self.states += other.states;
+        for (total, part) in self.words.iter_mut().zip(other.words) {
+            *total += part;
+        }
+        self.letters += other.letters;
+        self.merged += other.merged;
+        for (key, count) in other.refusals {
+            *self.refusals.entry(key).or_default() += count;
+        }
+    }
+
+    fn refuse(&mut self, index: usize, conflict: &impl std::fmt::Debug) {
+        let name = format!("{conflict:?}");
+        let variant = name.split(['(', ' ', '{']).next().unwrap_or_default();
+        *self
+            .refusals
+            .entry((index, variant.to_owned()))
+            .or_default() += 1;
+    }
+}
+
+/// Run `work` on every base state of `jobs` on up to four threads and sum
+/// the tallies.
+fn rebase_sweep<S: Sync>(
+    jobs: &[(usize, S)],
+    work: impl Fn(&carrier::CoverageSchema, &S, &mut RebaseTally) + Sync,
+) -> RebaseTally {
+    let schemas = carrier::coverage_schemas();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism().map_or(1, |n| usize::from(n).min(4));
+    std::thread::scope(|threads| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                threads.spawn(|| {
+                    let mut tally = RebaseTally::default();
+                    while let Some((schema, state)) =
+                        jobs.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                    {
+                        tally.states += 1;
+                        work(&schemas[*schema], state, &mut tally);
+                    }
+                    tally
+                })
+            })
+            .collect();
+        let mut total = RebaseTally::default();
+        for handle in handles {
+            total.absorb(handle.join().expect("worker completes"));
+        }
+        total
+    })
+}
+
+/// The projection of an element a production table conflict names.
+fn production_table_elem_ref(element: &ElemRef) -> ElementObs {
+    match element {
+        ElemRef::Row(row) => ElementObs::Row(row.0),
+        ElemRef::Pair { edge, src, tgt } => {
+            ElementObs::Pair(format!("{:?}", edge_to_reference(edge)), src.0, tgt.0)
+        }
+        ElemRef::Attr(AttrKey::Cell { row, column }) => ElementObs::Attr(format!(
+            "{:?}",
+            reference::TKey::Cell(row.0, column.clone())
+        )),
+        ElemRef::Attr(AttrKey::Table { row }) => {
+            ElementObs::Attr(format!("{:?}", reference::TKey::Table(row.0)))
+        }
+        ElemRef::Node(_) | ElemRef::Edge(_) | ElemRef::Attr(_) => {
+            panic!("graph element returned by a table operation: {element:?}")
+        }
+    }
+}
+
+fn production_table_conflict(conflict: &EditConflict) -> ConflictObs {
+    match conflict {
+        EditConflict::DeleteDelete { elem } => {
+            ConflictObs::DeleteDelete(production_table_elem_ref(elem))
+        }
+        EditConflict::DeleteUse { deleted, user } => ConflictObs::DeleteUse(
+            production_table_elem_ref(deleted),
+            production_table_elem_ref(user),
+        ),
+        EditConflict::UpdateUpdate { key } => {
+            match production_table_elem_ref(&ElemRef::Attr(key.clone())) {
+                ElementObs::Attr(key) => ConflictObs::UpdateUpdate(key),
+                other => panic!("an entry projects to an entry: {other:?}"),
+            }
+        }
+        EditConflict::AddAdd { elem } => ConflictObs::AddAdd(production_table_elem_ref(elem)),
+        EditConflict::AnchorUse { node, user } => {
+            ConflictObs::AnchorUse(*node, production_table_elem_ref(user))
+        }
+        EditConflict::FanUse { .. } => panic!("a table delta has no fan: {conflict:?}"),
+    }
+}
+
+fn reference_table_conflict(conflict: &reference::TableConflict) -> ConflictObs {
+    let user = |user: &reference::TableUse| match user {
+        reference::TableUse::Attr(key) => ElementObs::Attr(format!("{key:?}")),
+        reference::TableUse::Elem(element) => reference_table_elem(element),
+    };
+    match conflict {
+        reference::TableConflict::DeleteDelete { elem } => {
+            ConflictObs::DeleteDelete(reference_table_elem(elem))
+        }
+        reference::TableConflict::DeleteUse {
+            deleted,
+            user: used,
+        } => ConflictObs::DeleteUse(reference_table_elem(deleted), user(used)),
+        reference::TableConflict::UpdateUpdate { key } => {
+            ConflictObs::UpdateUpdate(format!("{key:?}"))
+        }
+        reference::TableConflict::AddAdd { elem } => {
+            ConflictObs::AddAdd(reference_table_elem(elem))
+        }
+        reference::TableConflict::AnchorUse { row, user } => {
+            ConflictObs::AnchorUse(*row, reference_table_elem(user))
+        }
+    }
+}
+
+/// The graphs of the coverage scope with at most two nodes: the base
+/// states of the graph rebase scope.
+fn rebase_graph_jobs() -> Vec<(usize, reference_model::Graph)> {
+    coverage_jobs(|schema| {
+        carrier::coverage_graphs(schema)
+            .into_iter()
+            .filter(|graph| graph.nodes.len() <= 2)
+            .collect()
+    })
+}
+
+/// A letter at a base state: the reference delta, its production form and
+/// the state it reaches from the base, `None` when it refuses there.
+type RebaseLetter<D, P, S> = (D, P, Option<S>);
+
+/// Check the rebase of every letter at `graph` over the committed word
+/// `committed`, which takes `graph` to `reached`.
+fn check_graph_rebases(
+    graph: &reference_model::Graph,
+    letters: &[RebaseLetter<reference::GraphDelta, GraphDelta, reference_model::Graph>],
+    committed: &[reference::GraphDelta],
+    reached: &reference_model::Graph,
+    tally: &mut RebaseTally,
+) {
+    tally.words[committed.len()] += 1;
+    let production_committed: Vec<GraphDelta> = committed.iter().map(delta_to_production).collect();
+    let composite = committed
+        .iter()
+        .try_fold(reference::GraphDelta::identity(), |acc, next| {
+            acc.compose(next)
+        })
+        .expect("a word whose letters apply in turn composes");
+    let production_composite = delta_to_production(&composite);
+    let production_reached = graph_to_production(reached);
+    for (letter, production, applied) in letters {
+        tally.letters += 1;
+        match (
+            reference::rebase(letter, committed),
+            production.rebase(&production_committed),
+        ) {
+            (Ok(expected), Ok(actual)) => {
+                assert_eq!(expected, *letter, "a rebase keeps the delta");
+                assert_eq!(delta_to_reference(&actual), expected);
+                if applied.is_none() {
+                    continue;
+                }
+                let merged = reference::merge(letter, &composite)
+                    .expect("a rebased delta is independent of the composite");
+                let expected = reference::apply(&merged, graph).expect("the merge applies");
+                assert_eq!(
+                    reference::apply(letter, reached).as_ref(),
+                    Ok(&expected),
+                    "rebase {letter:?} over {committed:?}"
+                );
+                let mut after = production_reached.clone();
+                production
+                    .apply(&mut after)
+                    .expect("the rebased delta applies after the committed ones");
+                assert_eq!(graph_to_reference(&after), expected);
+                let mut both = graph_to_production(graph);
+                production
+                    .merge(&production_composite)
+                    .expect("production merges the rebased delta with the composite")
+                    .apply(&mut both)
+                    .expect("the production merge applies");
+                assert_eq!(graph_to_reference(&both), expected);
+                tally.merged += 1;
+            }
+            (Err(expected), Err(actual)) => {
+                assert_eq!(
+                    actual.index, expected.index,
+                    "{letter:?} over {committed:?}"
+                );
+                assert_eq!(
+                    production_conflict(&actual.conflict),
+                    reference_conflict(&expected.conflict)
+                );
+                tally.refuse(expected.index, &expected.conflict);
+            }
+            (expected, actual) => panic!(
+                "rebase of {letter:?} over {committed:?}: reference={expected:?}, production={actual:?}"
+            ),
+        }
+    }
+}
+
+/// The graph rebase sweep over the base states whose position `select`
+/// admits.
+fn graph_rebase_sweep(select: impl Fn(usize) -> bool) -> RebaseTally {
+    let jobs: Vec<_> = rebase_graph_jobs()
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| select(*index))
+        .map(|(_, job)| job)
+        .collect();
+    rebase_sweep(&jobs, |schema, graph, tally| {
+        let floors = carrier::CoverageFloors::of_graph(graph);
+        let letters: Vec<_> = carrier::coverage_graph_letters(schema, graph, floors)
+            .into_iter()
+            .map(|letter| {
+                let applied = reference::apply(&letter, graph).ok();
+                let production = delta_to_production(&letter);
+                (letter, production, applied)
+            })
+            .collect();
+        committed_words(
+            graph,
+            floors,
+            &|state, floors| carrier::coverage_graph_letters(schema, state, floors),
+            &|letter, state| reference::apply(letter, state).ok(),
+            &carrier::CoverageFloors::after_graph,
+            &mut |committed, reached| {
+                check_graph_rebases(graph, &letters, committed, reached, tally);
+            },
+        );
+    })
+}
+
+/// The pinned refusal counts of a rebase sweep, by committed position and
+/// conflict variant.
+fn rebase_refusals(counts: [(usize, &str, u64); 8]) -> BTreeMap<(usize, String), u64> {
+    counts
+        .into_iter()
+        .map(|(index, variant, count)| ((index, variant.to_owned()), count))
+        .collect()
+}
+
+#[test]
+fn graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope() {
+    let tally = graph_rebase_sweep(|_| true);
+    assert_eq!(
+        tally,
+        RebaseTally {
+            states: 3_178,
+            words: [3_178, 45_756, 784_662, 0, 0],
+            letters: 13_641_810,
+            merged: 7_021_746,
+            refusals: rebase_refusals([
+                (0, "AddAdd", 2_764_368),
+                (0, "DeleteDelete", 101_298),
+                (0, "DeleteUse", 501_570),
+                (0, "UpdateUpdate", 385_008),
+                (1, "AddAdd", 1_435_320),
+                (1, "DeleteDelete", 81_630),
+                (1, "DeleteUse", 381_828),
+                (1, "UpdateUpdate", 304_416),
+            ]),
+        }
+    );
+}
+
+#[test]
+fn graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_every_13th_state() {
+    let tally = graph_rebase_sweep(|index| index % 13 == 0);
+    assert_eq!(tally.states, 245);
+    assert!(tally.merged > 0);
+    assert_eq!(
+        tally
+            .refusals
+            .keys()
+            .map(|(index, _)| *index)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([0, 1])
+    );
+}
+
+/// The tables of the coverage scope with at most two rows: the base states
+/// of the table rebase scope.
+fn rebase_table_jobs() -> Vec<(usize, reference_model::Table)> {
+    coverage_jobs(|schema| {
+        carrier::coverage_tables(schema)
+            .into_iter()
+            .filter(|table| table.rows.len() <= 2)
+            .collect()
+    })
+}
+
+/// Check the rebase of every lowered letter at `table` over the committed
+/// lowered word `committed`, which takes `table` to `reached`.
+fn check_table_rebases(
+    table: &reference_model::Table,
+    letters: &[RebaseLetter<reference::TableDelta, TableDelta, reference_model::Table>],
+    committed: &[reference::TableDelta],
+    reached: &reference_model::Table,
+    tally: &mut RebaseTally,
+) {
+    tally.words[committed.len()] += 1;
+    let production_committed: Vec<TableDelta> =
+        committed.iter().map(table_delta_to_production).collect();
+    let composite = committed
+        .iter()
+        .try_fold(reference::TableDelta::identity(), |acc, next| {
+            reference::compose_table(&acc, next)
+        })
+        .expect("a word whose letters apply in turn composes");
+    let production_composite = table_delta_to_production(&composite);
+    let production_reached = table_to_production(reached);
+    for (letter, production, applied) in letters {
+        tally.letters += 1;
+        match (
+            reference::rebase_table(letter, committed),
+            production.rebase(&production_committed),
+        ) {
+            (Ok(expected), Ok(actual)) => {
+                assert_eq!(expected, *letter, "a rebase keeps the delta");
+                assert_eq!(table_delta_to_reference(&actual), expected);
+                if applied.is_none() {
+                    continue;
+                }
+                let merged = reference::merge_table(letter, &composite)
+                    .expect("a rebased delta is independent of the composite");
+                let expected = reference::apply_table(&merged, table).expect("the merge applies");
+                assert_eq!(
+                    reference::apply_table(letter, reached).as_ref(),
+                    Ok(&expected),
+                    "rebase {letter:?} over {committed:?}"
+                );
+                let mut after = production_reached.clone();
+                production
+                    .apply(&mut after)
+                    .expect("the rebased delta applies after the committed ones");
+                assert_eq!(table_to_reference(&after), expected);
+                let mut both = table_to_production(table);
+                production
+                    .merge(&production_composite)
+                    .expect("production merges the rebased delta with the composite")
+                    .apply(&mut both)
+                    .expect("the production merge applies");
+                assert_eq!(table_to_reference(&both), expected);
+                tally.merged += 1;
+            }
+            (Err(expected), Err(actual)) => {
+                assert_eq!(
+                    actual.index, expected.index,
+                    "{letter:?} over {committed:?}"
+                );
+                assert_eq!(
+                    production_table_conflict(&actual.conflict),
+                    reference_table_conflict(&expected.conflict)
+                );
+                tally.refuse(expected.index, &expected.conflict);
+            }
+            (expected, actual) => panic!(
+                "rebase of {letter:?} over {committed:?}: reference={expected:?}, production={actual:?}"
+            ),
+        }
+    }
+}
+
+/// The table rebase sweep over the base states whose position `select`
+/// admits.
+fn table_rebase_sweep(select: impl Fn(usize) -> bool) -> RebaseTally {
+    let jobs: Vec<_> = rebase_table_jobs()
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| select(*index))
+        .map(|(_, job)| job)
+        .collect();
+    let lower =
+        |letter: &reference::TableEdit| reference::table_edit_delta(letter).expect("a step lowers");
+    rebase_sweep(&jobs, |schema, table, tally| {
+        let floors = carrier::CoverageFloors::of_table(table);
+        let letters: Vec<_> = carrier::coverage_table_letters(schema, table, floors)
+            .iter()
+            .map(|letter| {
+                let lowered = lower(letter);
+                let applied = reference::apply_table(&lowered, table).ok();
+                let production = table_delta_to_production(&lowered);
+                (lowered, production, applied)
+            })
+            .collect();
+        committed_words(
+            table,
+            floors,
+            &|state, floors| {
+                carrier::coverage_table_letters(schema, state, floors)
+                    .iter()
+                    .map(lower)
+                    .collect()
+            },
+            &|letter, state| reference::apply_table(letter, state).ok(),
+            &carrier::CoverageFloors::after_table,
+            &mut |committed, reached| {
+                check_table_rebases(table, &letters, committed, reached, tally);
+            },
+        );
+    })
+}
+
+#[test]
+fn table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope() {
+    let tally = table_rebase_sweep(|_| true);
+    assert_eq!(
+        tally,
+        RebaseTally {
+            states: 1_852,
+            words: [1_852, 26_112, 427_170, 0, 0],
+            letters: 7_186_110,
+            merged: 3_509_928,
+            refusals: rebase_refusals([
+                (0, "AddAdd", 1_305_492),
+                (0, "DeleteDelete", 186_576),
+                (0, "DeleteUse", 374_982),
+                (0, "UpdateUpdate", 218_616),
+                (1, "AddAdd", 548_190),
+                (1, "DeleteDelete", 131_448),
+                (1, "DeleteUse", 299_268),
+                (1, "UpdateUpdate", 161_592),
+            ]),
+        }
+    );
+}
+
+#[test]
+fn table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_every_13th_state() {
+    let tally = table_rebase_sweep(|index| index % 13 == 0);
+    assert_eq!(tally.states, 143);
+    assert!(tally.merged > 0);
+    assert_eq!(
+        tally
+            .refusals
+            .keys()
+            .map(|(index, _)| *index)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([0, 1])
+    );
+}
+
 /// The prefix states of the table word under test, by length.
 struct TablePrefix {
     reference: reference_model::Table,
@@ -3703,6 +4193,42 @@ fn generated_tree_word_agrees(tree: &reference_model::Tree, choices: &[usize]) {
 
 proptest::proptest! {
     #![proptest_config(proptest::test_runner::Config::default())]
+
+    #[test]
+    fn randomized_graph_rebase_differential(
+        values in proptest::collection::vec(proptest::prelude::any::<i64>(), 1..6),
+        edges in proptest::collection::vec(
+            (proptest::prelude::any::<u8>(), proptest::prelude::any::<u8>()),
+            0..7,
+        ),
+        mine in proptest::prelude::any::<usize>(),
+        theirs in proptest::collection::vec(proptest::prelude::any::<usize>(), 0..5),
+    ) {
+        let graph = generated_edit_graph(&values, &edges);
+        let schema = generated_edit_schema();
+        let floors = carrier::CoverageFloors::of_graph(&graph);
+        let alphabet = carrier::coverage_graph_letters(&schema, &graph, floors);
+        let letter = alphabet[mine % alphabet.len()].clone();
+        let (mut reached, mut now, mut committed) = (graph.clone(), floors, Vec::new());
+        for choice in theirs {
+            let letters = carrier::coverage_graph_letters(&schema, &reached, now);
+            let next = &letters[choice % letters.len()];
+            if let Ok(state) = reference::apply(next, &reached) {
+                now = now.after_graph(&state);
+                reached = state;
+                committed.push(next.clone());
+            }
+        }
+        let applied = reference::apply(&letter, &graph).ok();
+        let production = delta_to_production(&letter);
+        check_graph_rebases(
+            &graph,
+            &[(letter, production, applied)],
+            &committed,
+            &reached,
+            &mut RebaseTally::default(),
+        );
+    }
 
     #[test]
     fn randomized_graph_edit_algebra_differential(
@@ -4716,6 +5242,126 @@ mod segmented_apply {
             check_run(&graph, &partition, &delete, Budget::unlimited(), true).0,
             RunOutcome::Refused
         );
+    }
+
+    /// The witness graph with `delta` applied whole-state.
+    fn after(
+        graph: &reference_model::Graph,
+        delta: &reference::GraphDelta,
+    ) -> reference_model::Graph {
+        reference::apply(delta, graph).expect("the committed delta applies")
+    }
+
+    #[test]
+    fn a_retry_after_the_manifest_changes_is_a_fresh_run_that_reuses_no_task() {
+        let (graph, partition) = witness();
+        let first = input(&graph, &partition);
+        let delta = delta_to_production(&anchor_change(1));
+        // The run stops after three tasks; then another writer commits an
+        // anchor change of node 3, which changes the manifest.
+        let mut store = MemoryStore::default();
+        let stopped = production_run(
+            &delta,
+            &first,
+            &first.bytes,
+            Budget::unlimited(),
+            &mut store,
+            Some(3),
+        );
+        assert!(matches!(
+            stopped.report.status,
+            RunStatus::Incomplete {
+                reason: RunIncompleteReason::Cancelled
+            }
+        ));
+        let changed = input(&after(&graph, &anchor_change(3)), &partition);
+        assert_ne!(changed.manifest.digest(), first.manifest.digest());
+        let retry = production_run(
+            &delta,
+            &changed,
+            &changed.bytes,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        assert_ne!(retry.run, stopped.run, "the run digest names the manifest");
+        assert_eq!(retry.report.tasks_reused, 0);
+        let fresh = production_run(
+            &delta,
+            &changed,
+            &changed.bytes,
+            Budget::unlimited(),
+            &mut MemoryStore::default(),
+            None,
+        );
+        assert_eq!(retry.run, fresh.run);
+        assert_eq!(
+            retry.manifest.map(|manifest| manifest.digest()),
+            fresh.manifest.map(|manifest| manifest.digest())
+        );
+        // Against the unchanged manifest the same delta resumes its run.
+        let resumed = production_run(
+            &delta,
+            &first,
+            &first.bytes,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        assert_eq!(resumed.run, stopped.run);
+        assert_eq!(resumed.report.tasks_reused, 3);
+        // Another delta against the same manifest is another run.
+        let other = production_run(
+            &delta_to_production(&anchor_change(2)),
+            &first,
+            &first.bytes,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        assert_ne!(other.run, stopped.run, "the run digest names the delta");
+        assert_eq!(other.report.tasks_reused, 0);
+    }
+
+    #[test]
+    fn a_stale_delta_is_refused_by_the_facts_check_with_the_whole_state_refusal() {
+        let (graph, partition) = witness();
+        // The delta changes node 1's anchor from `a` to `b`, but a committed
+        // delta has already made that change.
+        let stale = anchor_change(1);
+        let committed = after(&graph, &stale);
+        let changed = input(&committed, &partition);
+        let production = delta_to_production(&stale);
+        let whole_state = production
+            .apply(&mut graph_to_production(&committed))
+            .expect_err("whole-state application refuses the stale delta");
+        assert_eq!(
+            production_apply_error(&whole_state),
+            ApplyObs::StaleAnchor(1)
+        );
+        let mut store = MemoryStore::default();
+        let run = production_run(
+            &production,
+            &changed,
+            &changed.bytes,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        match &run.report.status {
+            RunStatus::Failed(error) => assert_eq!(
+                production_refusal(error),
+                Refusal::Edit(production_apply_error(&whole_state))
+            ),
+            other => panic!("the stale delta is refused: {other:?}"),
+        }
+        // The facts check refuses at Assemble, before any Emit task.
+        assert_eq!(run.report.progress.phase, Phase::Summarize);
+        assert!(sealed_nothing(&store, run.run.expect("a run identity")));
+        assert!(run.manifest.is_none());
+        // Rebasing the delta over the committed one names the same conflict.
+        let rebased = production.rebase(std::slice::from_ref(&production));
+        assert_eq!(rebased.map_err(|conflict| conflict.index), Err(0));
     }
 
     #[test]

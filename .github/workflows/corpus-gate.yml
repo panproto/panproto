@@ -266,6 +266,12 @@ jobs:
           - package: panproto-inst
             binary: reference_edits
             test: graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope
+          - package: panproto-inst
+            binary: reference_edits
+            test: graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope
+          - package: panproto-inst
+            binary: reference_edits
+            test: table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope
           - package: panproto-mig
             binary: reference_migration_search
             test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair

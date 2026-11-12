@@ -4090,6 +4090,60 @@
               "test": "randomized_table_edit_lens_differential"
             }
           ]
+        },
+        {
+          "id": "edits.rebase",
+          "anchor": "L-edits-11",
+          "references": [
+            "panproto_reference::edit::rebase",
+            "panproto_reference::edit::rebase_table",
+            "panproto_reference::edit::table_independence",
+            "panproto_reference::edit::merge_table"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_every_13th_state"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_every_13th_state"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::a_retry_after_the_manifest_changes_is_a_fresh_run_that_reuses_no_task"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::a_stale_delta_is_refused_by_the_facts_check_with_the_whole_state_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "randomized_graph_rebase_differential"
+            }
+          ]
         }
       ]
     },

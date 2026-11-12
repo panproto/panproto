@@ -77,6 +77,39 @@ pub enum EditConflict {
     },
 }
 
+/// Why a delta does not rebase over a sequence of committed deltas: the
+/// first committed delta it depends on, with the first conflict between
+/// them.
+///
+/// Returned by [`GraphDelta::rebase`] and
+/// [`TableDelta::rebase`](crate::table_delta::TableDelta::rebase).
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, thiserror::Error,
+)]
+#[error("the delta depends on committed delta {index}: {conflict}")]
+pub struct RebaseConflict {
+    /// The position of that committed delta in the sequence, from zero.
+    pub index: usize,
+    /// The first conflict of the delta's independence with it.
+    pub conflict: EditConflict,
+}
+
+/// The rebase of a delta over committed deltas, given its independence
+/// with each of them: the delta itself when every list is empty, and
+/// otherwise the first conflict of the first nonempty list.
+pub(crate) fn rebase_by<D: Clone>(
+    delta: &D,
+    committed: &[D],
+    independence: impl Fn(&D, &D) -> Vec<EditConflict>,
+) -> Result<D, RebaseConflict> {
+    for (index, other) in committed.iter().enumerate() {
+        if let Some(conflict) = independence(delta, other).into_iter().next() {
+            return Err(RebaseConflict { index, conflict });
+        }
+    }
+    Ok(delta.clone())
+}
+
 impl EditConflict {
     /// Whether the conflict is benign: a `DeleteDelete` whose two deleted
     /// payloads are equal, an `UpdateUpdate` whose two `new` values are
@@ -410,5 +443,40 @@ impl GraphDelta {
         parts.add_edges.extend(theirs.add_edges);
         parts.attrs.extend(theirs.attrs);
         Ok(Self::from_valid_parts(parts))
+    }
+
+    /// This delta, made against a state that has since taken the committed
+    /// deltas `committed` in order, rebased to follow them.
+    ///
+    /// The delta is returned unchanged when it is independent
+    /// ([`Self::independence`]) of every committed delta. Then, when it
+    /// applies to the state it was made against and the committed deltas
+    /// apply in turn from that state, it applies after them, and the result
+    /// is that of applying its [`Self::merge`] with their composite to the
+    /// state it was made against.
+    ///
+    /// ```
+    /// use panproto_inst::graph_edit::{EditConflict, ElemRef, GraphDelta, RebaseConflict};
+    /// use panproto_inst::metadata::Node;
+    ///
+    /// let mine = GraphDelta::identity().with_added_node(Node::new(2, "a"));
+    /// let theirs = GraphDelta::identity().with_added_node(Node::new(3, "a"));
+    /// assert_eq!(mine.rebase(&[theirs.clone()]), Ok(mine.clone()));
+    /// assert_eq!(
+    ///     mine.rebase(&[theirs, mine.clone()]),
+    ///     Err(RebaseConflict {
+    ///         index: 1,
+    ///         conflict: EditConflict::AddAdd { elem: ElemRef::Node(2) },
+    ///     }),
+    /// );
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`RebaseConflict`] naming the least index of a committed delta whose
+    /// independence with this delta is not empty, with the first conflict
+    /// of that independence.
+    pub fn rebase(&self, committed: &[Self]) -> Result<Self, RebaseConflict> {
+        rebase_by(self, committed, Self::independence)
     }
 }

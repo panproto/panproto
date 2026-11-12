@@ -51,5 +51,6 @@ pub(crate) use delta::Payload;
 pub use delta::{
     AttrChange, AttrKey, AttrVal, GraphDelta, GraphDeltaParts, MalformedDelta, NodeMeta,
 };
-pub use independence::EditConflict;
+pub(crate) use independence::rebase_by;
+pub use independence::{EditConflict, RebaseConflict};
 pub use surface::GraphEdit;

@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::edit_error::EditError;
 use crate::functor::{FInstance, Row, same_row, same_value, write_pair_record, write_row_record};
-use crate::graph_edit::{AttrKey, ComposeError, EditConflict, ElemRef};
+use crate::graph_edit::{AttrKey, ComposeError, EditConflict, ElemRef, RebaseConflict, rebase_by};
 use crate::identity::{CanonicalSink, Digest, TABLE_DELTA_CONTEXT};
 use crate::value::Value;
 use crate::view_ref::RowId;
@@ -1190,6 +1190,25 @@ impl TableDelta {
         parts.cells.extend(theirs.cells);
         parts.tables.extend(theirs.tables);
         Ok(Self::normalize(parts))
+    }
+
+    /// This delta, made against a table that has since taken the committed
+    /// deltas `committed` in order, rebased to follow them.
+    ///
+    /// The delta is returned unchanged when it is independent
+    /// ([`Self::independence`]) of every committed delta. Then, when it
+    /// applies to the table it was made against and the committed deltas
+    /// apply in turn from that table, it applies after them, and the result
+    /// is that of applying its [`Self::merge`] with their composite to the
+    /// table it was made against.
+    ///
+    /// # Errors
+    ///
+    /// [`RebaseConflict`] naming the least index of a committed delta whose
+    /// independence with this delta is not empty, with the first conflict
+    /// of that independence.
+    pub fn rebase(&self, committed: &[Self]) -> Result<Self, RebaseConflict> {
+        rebase_by(self, committed, Self::independence)
     }
 
     /// The delta from `a` to `b`, keyed by row id and pair.
