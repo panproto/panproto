@@ -61,3 +61,4 @@ The table lists each correctness page and the number of laws it proves for the t
 | [RDF formats](rdf-formats.md) | 7 |
 | [Edge lists](edge-lists.md) | 3 |
 | [Migration search](migration-search.md) | 4 |
+| [Schema merge](schema-merge.md) | 4 |

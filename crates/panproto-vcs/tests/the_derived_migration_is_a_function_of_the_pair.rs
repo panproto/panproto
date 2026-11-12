@@ -71,7 +71,7 @@ fn merged_new() -> Schema {
     let ours = new_side(&["alpha", "beta"]);
     let theirs = new_side(&["gamma", "delta"]);
     let merged = three_way_merge(&base, &ours, &theirs);
-    assert!(merged.conflicts.is_empty(), "disjoint additions");
+    assert_eq!(merged.conflicts, vec![], "disjoint additions");
     merged.merged_schema
 }
 

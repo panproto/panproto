@@ -116,6 +116,7 @@
   - [RDF formats](./correctness/rdf-formats.md)
   - [Edge lists](./correctness/edge-lists.md)
   - [Migration search](./correctness/migration-search.md)
+  - [Schema merge](./correctness/schema-merge.md)
 
 ---
 
